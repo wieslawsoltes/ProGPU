@@ -275,6 +275,56 @@ an interactive browser picker/download smoke remains open.
 - Collaboration and scripting consume the same command contracts. Neither is
   allowed to mutate ACadSharp collections behind the transaction boundary.
 
+## Static BLOCK/INSERT lowering
+
+Static INSERT entities expand into the immutable primitive streams once per
+document generation. The original top-level INSERT handle is retained on every
+expanded header so hit testing and editing continue to address the block
+reference as one CAD object. Nested transforms use an original double-precision
+affine value with allocation-free point/vector application and composition. For
+a block-space point `p`, block base point `b`, insertion position `P`, OCS basis
+`O`, rotation `R`, and nonzero scale `S`, the mapping is
+`P + O * R * S * (p - b)`. ACadSharp's public object model supplies `P` as the
+WCS-equivalent position; the raw DXF group is OCS data.
+
+Child geometry remains analytic under affine transforms: transformed circles
+and arcs carry affine axes into the existing ellipse/path command transforms,
+ellipses retain transformed major/minor axes, splines transform control points,
+and bulge polylines transform their planar basis without fixed sampling. Exact
+axis-extrema bounds are recomputed after transformation. Layer `0` inherits the
+effective INSERT layer, while ByBlock color, lineweight, linetype, and
+transparency inherit the resolved parent INSERT style. All descendants retain
+their own nonzero layers and explicit properties.
+
+Expansion is bounded by configurable depth and entity-count limits and detects
+cycles along the active block path. Exceeding the global entity budget fails the
+snapshot explicitly at the bound instead of returning a partially rendered
+drawing; depth and cycle failures diagnose only the affected INSERT. Expansion
+is `O(E)` before the `O(E log E)` BVH build for `E` expanded visible entities;
+camera replay remains independent of both source and expanded entity counts.
+MINSERT arrays, dynamic evaluation graphs, XRefs, and attribute text are
+explicitly diagnosed rather than rendered approximately. Shared block-fragment/
+GPU instance reuse remains a later optimization after inherited-style variants
+and instance hit identity are fully specified.
+
+The 2026-08-27 Release applicability/performance audit compared commit
+`778dc69f` with this lowering on the same Apple Silicon/.NET 10 machine and the
+same 10,000-entity workload. A 100-iteration alternating-order control measured
+snapshot p50/p95/p99 at 6.433/12.413/21.210 ms before and
+7.008/12.521/14.140 ms after, means of 7.712/7.781 ms, and
+9,078,865/9,053,174 managed bytes per generation. Repeated 24- and 100-iteration
+runs showed GC/system noise in individual tails, so these results establish no
+repeatable regression and make no improvement claim. Matched Xcode Instruments
+Time Profiler, Allocations/VM Tracker, and eight-second Metal System Trace
+captures plus exported tables are retained locally under
+`artifacts/progpu-cad/instruments/block-insert-20260827/`. The host reported that
+its selected Metal counter profile was unavailable, but command-buffer and
+`currentAllocatedSize` events were captured; their differing active-frame counts
+preclude a GPU delta claim. The native renderer, stable C ABI, canonical shaders,
+and GPU algorithms are not changed: both managed snapshots emit the existing
+retained commands, so no paired native implementation change applies to this
+ACadSharp graph adapter.
+
 ## Printing and export
 
 Printing is a separate physical-output compiler over a layout snapshot. It
@@ -375,6 +425,18 @@ Sources consulted on 2026-08-27:
   adopted owning elevation plus vertex XY for 2D OCS conversion, full vertex XYZ
   for 3D WCS, bulge direction, closure, and fit/width flags; adapted both forms
   into packed immutable streams and rejected fixed sampling of fitted curves.
+- [Autodesk INSERT contract](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-28FA4CFB-9D5E-4880-9F11-36C97578252F.htm),
+  [BLOCK contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-66D32572-005A-4E23-8B8B-8726E8C14302.htm), and
+  [AcDbBlockReference model](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-AcDbBlockReference.html):
+  adopted the block MCS-to-WCS mapping, base point, insertion position,
+  OCS-relative rotation/normal, scale factors, and nested memory-reuse model;
+  adapted them into bounded immutable analytic expansion while retaining root
+  handle identity; rejected approximate transformed extents and unbounded
+  recursion.
+- [Autodesk common entity property codes](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-3610039E-27D1-4E23-B6D3-7E60B22BB5BD.htm)
+  and [ByBlock color behavior](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-14BC039D-238D-4D9E-921B-F4015F96CB54.htm):
+  adopted layer `0`, ByLayer, and ByBlock inheritance without mutating block
+  definitions or cloning third-party entities.
 - [Autodesk lineweights](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-4B33ACD3-F6DD-4CB5-8C55-D6D0D7130905.htm):
   adopted distinct cosmetic model-space and physical paper/plot policies.
 - [Autodesk shape/font descriptions](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-DE941DB5-7044-433C-AA68-2A9AE98A5713.htm):

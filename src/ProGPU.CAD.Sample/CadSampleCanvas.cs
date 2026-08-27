@@ -1,6 +1,7 @@
 using System.Numerics;
 using ACadSharp;
 using ACadSharp.Entities;
+using ACadSharp.Tables;
 using CSMath;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
@@ -198,6 +199,18 @@ public sealed class CadSampleCanvas : FrameworkElement
             ]);
             spline.Knots.AddRange([0, 0, 0, 0, 1, 1, 1, 1]);
             document.Entities.Add(spline);
+
+            var block = new BlockRecord("ANALYTIC_SYMBOL");
+            block.BlockEntity.BasePoint = new XYZ(5, 5, 0);
+            block.Entities.Add(new Circle(new XYZ(5, 5, 0), 5));
+            block.Entities.Add(new Line(new XYZ(0, 5, 0), new XYZ(10, 5, 0)));
+            document.Entities.Add(new Insert(block)
+            {
+                InsertPoint = new XYZ(53, -13, 0),
+                XScale = 1.7,
+                YScale = 0.8,
+                Rotation = 0.42,
+            });
         });
         return session;
     }

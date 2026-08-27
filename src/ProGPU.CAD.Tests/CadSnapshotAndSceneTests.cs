@@ -1,4 +1,6 @@
+using ACadSharp;
 using ACadSharp.Entities;
+using ACadSharp.Tables;
 using CSMath;
 using ProGPU.Scene;
 using ProGPU.Vector;
@@ -457,6 +459,212 @@ public sealed class CadSnapshotAndSceneTests
         Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Equal(0, snapshot.Statistics.InvalidEntityCount);
         Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic => diagnostic.Code == "CADSNAP003");
+    }
+
+    [Fact]
+    public void InsertAppliesBasePointScaleRotationAndKeepsRootHandle()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        ulong insertHandle = 0;
+        session.Edit("Add transformed block", document =>
+        {
+            var block = new BlockRecord("TRANSFORMED");
+            block.BlockEntity.BasePoint = new XYZ(10, 5, 0);
+            block.Entities.Add(new Line(new XYZ(10, 5, 0), new XYZ(14, 7, 0)));
+            var insert = new Insert(block)
+            {
+                InsertPoint = new XYZ(100, 200, 3),
+                XScale = 2,
+                YScale = 3,
+                Rotation = Math.PI / 2,
+            };
+            document.Entities.Add(insert);
+            insertHandle = insert.Handle;
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadLinePrimitive line = Assert.Single(snapshot.Lines.ToArray());
+        CadEntityHeader header = Assert.Single(snapshot.Entities.ToArray());
+
+        AssertPoint(new CadPoint3D(100, 200, 3), line.Start);
+        AssertPoint(new CadPoint3D(94, 208, 3), line.End);
+        Assert.Equal(insertHandle, header.Handle);
+        Assert.Equal(1, snapshot.Statistics.SourceEntityCount);
+        Assert.Equal(2, snapshot.Statistics.ExpandedEntityCount);
+    }
+
+    [Fact]
+    public void NestedInsertCompositionRetainsAnalyticCircleUnderNonUniformScale()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add nested blocks", document =>
+        {
+            var symbol = new BlockRecord("SYMBOL");
+            symbol.Entities.Add(new Circle(XYZ.Zero, 1));
+
+            var assembly = new BlockRecord("ASSEMBLY");
+            assembly.Entities.Add(new Insert(symbol)
+            {
+                InsertPoint = new XYZ(5, 0, 0),
+            });
+
+            document.Entities.Add(new Insert(assembly)
+            {
+                InsertPoint = new XYZ(100, 20, 0),
+                XScale = 2,
+                YScale = 3,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadCirclePrimitive circle = Assert.Single(snapshot.Circles.ToArray());
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        AssertPoint(new CadPoint3D(110, 20, 0), circle.Center);
+        AssertPoint(new CadPoint3D(108, 17, 0), snapshot.Bounds.Min);
+        AssertPoint(new CadPoint3D(112, 23, 0), snapshot.Bounds.Max);
+        Assert.Equal(3, snapshot.Statistics.ExpandedEntityCount);
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands.ToArray());
+        Assert.Equal(RenderCommandType.DrawEllipse, command.Type);
+        Assert.Equal(1, command.RadiusX);
+        Assert.Equal(1, command.RadiusY);
+        Assert.Equal(2, command.Transform.M11, 5);
+        Assert.Equal(3, command.Transform.M22, 5);
+    }
+
+    [Fact]
+    public void LayerZeroAndByBlockStyleInheritFromInsert()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add styled block", document =>
+        {
+            var block = new BlockRecord("STYLED");
+            block.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX)
+            {
+                Color = ACadSharp.Color.ByBlock,
+                LineWeight = LineWeightType.ByBlock,
+                LineType = LineType.ByBlock,
+                Transparency = Transparency.ByBlock,
+            });
+            var insertLayer = new Layer("INSERTS")
+            {
+                Color = ACadSharp.Color.Red,
+            };
+            var insertLineType = new LineType("INSERT_DASH");
+            document.Layers.Add(insertLayer);
+            document.LineTypes.Add(insertLineType);
+            document.Entities.Add(new Insert(block)
+            {
+                Layer = insertLayer,
+                Color = ACadSharp.Color.Green,
+                LineWeight = LineWeightType.W50,
+                LineType = insertLineType,
+                Transparency = new Transparency(25),
+            });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadEntityHeader header = Assert.Single(snapshot.Entities.ToArray());
+        CadLayerSnapshot layer = snapshot.Layers.Span[header.LayerIndex];
+        CadStrokeStyle style = snapshot.Styles.Span[header.StyleIndex];
+
+        Assert.Equal("INSERTS", layer.Name);
+        Assert.Equal((byte)0, style.Red);
+        Assert.Equal(byte.MaxValue, style.Green);
+        Assert.Equal((byte)0, style.Blue);
+        Assert.Equal((byte)191, style.Alpha);
+        Assert.Equal(0.5, style.LineWeightMillimeters);
+        Assert.Equal("INSERT_DASH", style.LineTypeName);
+    }
+
+    [Fact]
+    public void InsertNormalMapsBlockAxesIntoWorldCoordinatesWithoutMovingWcsPosition()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add non-world insert", document =>
+        {
+            var block = new BlockRecord("NON_WORLD");
+            block.Entities.Add(new Line(XYZ.Zero, new XYZ(1, 1, 1)));
+            document.Entities.Add(new Insert(block)
+            {
+                InsertPoint = new XYZ(10, 20, 30),
+                Normal = XYZ.AxisY,
+            });
+        });
+
+        CadLinePrimitive line = Assert.Single(
+            new CadSnapshotCompiler().Compile(session).Lines.ToArray());
+
+        AssertPoint(new CadPoint3D(10, 20, 30), line.Start);
+        AssertPoint(new CadPoint3D(9, 21, 31), line.End);
+    }
+
+    [Fact]
+    public void UnsupportedInsertVariantsAreBoundedAndReported()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add nested and array inserts", document =>
+        {
+            var leaf = new BlockRecord("LEAF");
+            leaf.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
+            var outer = new BlockRecord("OUTER");
+            outer.Entities.Add(new Insert(leaf));
+            document.Entities.Add(new Insert(outer));
+            document.Entities.Add(new Insert(leaf) { ColumnCount = 2 });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions { MaxBlockNestingDepth = 1 });
+
+        Assert.Empty(snapshot.Entities.ToArray());
+        Assert.Equal(2, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Contains(
+            snapshot.Diagnostics.ToArray(),
+            diagnostic => diagnostic.Message.Contains("nesting", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            snapshot.Diagnostics.ToArray(),
+            diagnostic => diagnostic.Message.Contains("MINSERT", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RecursiveInsertCycleIsDiagnosedWithoutEmittingPartialGeometry()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add recursive block", document =>
+        {
+            var block = new BlockRecord("RECURSIVE");
+            block.Entities.Add(new Insert(block));
+            document.Entities.Add(new Insert(block));
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+
+        Assert.Empty(snapshot.Entities.ToArray());
+        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Contains(
+            snapshot.Diagnostics.ToArray(),
+            diagnostic => diagnostic.Message.Contains("cycle", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ExpandedEntityLimitFailsTheSnapshotInsteadOfReturningPartialGeometry()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add oversized block", document =>
+        {
+            var block = new BlockRecord("OVERSIZED");
+            block.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
+            block.Entities.Add(new Line(XYZ.AxisY, new XYZ(1, 1, 1)));
+            document.Entities.Add(new Insert(block));
+        });
+
+        InvalidOperationException exception = Assert.ThrowsAny<InvalidOperationException>(() =>
+            new CadSnapshotCompiler().Compile(
+                session,
+                new CadSnapshotOptions { MaxExpandedEntities = 2 }));
+
+        Assert.Contains("limit of 2", exception.Message, StringComparison.Ordinal);
     }
 
     private static void AssertPoint(CadPoint3D expected, CadPoint3D actual)

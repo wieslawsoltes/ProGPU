@@ -110,6 +110,7 @@ public readonly record struct CadPolyline3DPrimitive(
 public readonly record struct CadSnapshotStatistics(
     int SourceEntityCount,
     int VisibleEntityCount,
+    int ExpandedEntityCount,
     int UnsupportedEntityCount,
     int InvalidEntityCount);
 
@@ -119,9 +120,9 @@ public readonly record struct CadSnapshotStatistics(
 /// <remarks>
 /// All planar entity coordinates are normalized to WCS during construction. Strings
 /// and styles are interned into indexed tables; hot entity records contain only fixed
-/// fields and table indices. Snapshot creation is O(N log N) because it also builds the
-/// balanced spatial index. Stable traversal and visibility queries do not touch the
-/// mutable ACadSharp graph.
+/// fields and table indices. Snapshot creation is O(E log E) for E visible primitives
+/// after bounded block expansion because it also builds the balanced spatial index.
+/// Stable traversal and visibility queries do not touch the mutable ACadSharp graph.
 /// </remarks>
 public sealed class CadDocumentSnapshot
 {

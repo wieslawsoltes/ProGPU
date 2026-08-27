@@ -205,6 +205,7 @@ public sealed class CadSampleView : Grid
         }
 
         return $"{name} | {snapshot.Statistics.VisibleEntityCount:N0} visible | " +
+            $"{snapshot.Statistics.ExpandedEntityCount:N0} expanded | " +
             $"{snapshot.Statistics.UnsupportedEntityCount:N0} unsupported | " +
             $"{diagnosticCount + snapshot.Diagnostics.Length:N0} diagnostics";
     }

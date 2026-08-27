@@ -1,6 +1,8 @@
 using ACadSharp;
+using ACadSharp.Blocks;
 using ACadSharp.Entities;
 using ACadSharp.Extensions;
+using ACadSharp.Tables;
 using CSMath;
 
 namespace ProGPU.CAD;
@@ -8,9 +10,13 @@ namespace ProGPU.CAD;
 public sealed class CadSnapshotOptions
 {
     public const int DefaultDiagnosticLimit = 256;
+    public const int DefaultMaxBlockNestingDepth = 32;
+    public const int DefaultMaxExpandedEntities = 5_000_000;
 
     public double DefaultLineWeightMillimeters { get; init; } = 0.25;
     public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
+    public int MaxBlockNestingDepth { get; init; } = DefaultMaxBlockNestingDepth;
+    public int MaxExpandedEntities { get; init; } = DefaultMaxExpandedEntities;
     public bool IncludeNonPlottableLayers { get; init; } = true;
 }
 
@@ -59,8 +65,10 @@ public sealed class CadSnapshotCompiler
         var diagnostics = new List<CadDiagnostic>(Math.Min(options.DiagnosticLimit, 16));
         CadBounds3D documentBounds = CadBounds3D.Empty;
         int visibleCount = 0;
+        int expandedCount = 0;
         int unsupportedCount = 0;
         int invalidCount = 0;
+        var activeBlocks = new HashSet<BlockRecord>(ReferenceEqualityComparer.Instance);
 
         foreach (Entity entity in document.Entities)
         {
@@ -72,88 +80,14 @@ public sealed class CadSnapshotCompiler
             }
 
             visibleCount++;
-            int layerIndex = InternLayer(entity, layers, layerIndices);
-            int styleIndex = InternStyle(entity, options, styles, styleIndices);
-
-            try
-            {
-                CadEntityHeader? header = entity switch
-                {
-                    Line line => CompileLine(line, layerIndex, styleIndex, lines),
-                    Arc arc => CompileArc(arc, layerIndex, styleIndex, arcs),
-                    Circle circle => CompileCircle(circle, layerIndex, styleIndex, circles),
-                    Ellipse ellipse => CompileEllipse(ellipse, layerIndex, styleIndex, ellipses),
-                    Solid solid => CompileSolid(solid, layerIndex, styleIndex, faces),
-                    Face3D face => CompileFace3D(face, layerIndex, styleIndex, faces),
-                    Spline spline => CompileSpline(
-                        spline,
-                        layerIndex,
-                        styleIndex,
-                        splines,
-                        splineControlPoints,
-                        splineKnots,
-                        splineWeights),
-                    LwPolyline polyline => CompilePolyline(
-                        polyline,
-                        layerIndex,
-                        styleIndex,
-                        polylines,
-                        polylineVertices),
-                    Polyline2D polyline => CompilePolyline2D(
-                        polyline,
-                        layerIndex,
-                        styleIndex,
-                        polylines,
-                        polylineVertices),
-                    Polyline3D polyline => CompilePolyline3D(
-                        polyline,
-                        layerIndex,
-                        styleIndex,
-                        polylines3D,
-                        polyline3DPoints),
-                    _ => null,
-                };
-
-                if (header is CadEntityHeader value)
-                {
-                    entities.Add(value);
-                    documentBounds = documentBounds.Union(value.Bounds);
-                }
-                else
-                {
-                    unsupportedCount++;
-                    AddDiagnostic(
-                        diagnostics,
-                        options.DiagnosticLimit,
-                        new CadDiagnostic(
-                            CadDiagnosticSeverity.Information,
-                            "CADSNAP001",
-                            $"Entity {entity.Handle:X} ({entity.ObjectName}) is not yet represented in the analytic snapshot."));
-                }
-            }
-            catch (CadUnsupportedEntityException exception)
-            {
-                unsupportedCount++;
-                AddDiagnostic(
-                    diagnostics,
-                    options.DiagnosticLimit,
-                    new CadDiagnostic(
-                        CadDiagnosticSeverity.Information,
-                        "CADSNAP003",
-                        $"Entity {entity.Handle:X} ({entity.ObjectName}) is not yet supported: {exception.Message}"));
-            }
-            catch (Exception exception) when (
-                exception is ArgumentException or ArithmeticException or InvalidOperationException)
-            {
-                invalidCount++;
-                AddDiagnostic(
-                    diagnostics,
-                    options.DiagnosticLimit,
-                    new CadDiagnostic(
-                        CadDiagnosticSeverity.Warning,
-                        "CADSNAP002",
-                        $"Entity {entity.Handle:X} ({entity.ObjectName}) was rejected: {exception.Message}"));
-            }
+            CompileEntityTree(
+                entity,
+                CadAffineTransform3D.Identity,
+                false,
+                entity.Handle,
+                inheritedLayer: null,
+                byBlockStyle: null,
+                depth: 0);
         }
 
         return new CadDocumentSnapshot(
@@ -162,6 +96,7 @@ public sealed class CadSnapshotCompiler
             new CadSnapshotStatistics(
                 document.Entities.Count,
                 visibleCount,
+                expandedCount,
                 unsupportedCount,
                 invalidCount),
             layers.ToArray(),
@@ -181,22 +116,239 @@ public sealed class CadSnapshotCompiler
             splineKnots.ToArray(),
             splineWeights.ToArray(),
             diagnostics.ToArray());
+
+        void CompileEntityTree(
+            Entity entity,
+            CadAffineTransform3D transform,
+            bool hasTransform,
+            ulong rootHandle,
+            Layer? inheritedLayer,
+            CadResolvedStyle? byBlockStyle,
+            int depth)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Layer effectiveLayer = inheritedLayer is not null && IsLayerZero(entity.Layer)
+                ? inheritedLayer
+                : entity.Layer;
+            if (entity.IsInvisible || !effectiveLayer.IsOn ||
+                (!options.IncludeNonPlottableLayers && !effectiveLayer.PlotFlag))
+            {
+                return;
+            }
+
+            try
+            {
+                if (expandedCount >= options.MaxExpandedEntities)
+                {
+                    throw new CadSnapshotExpansionLimitException(
+                        $"Expanded entity count exceeds the configured limit of {options.MaxExpandedEntities}.");
+                }
+
+                expandedCount++;
+
+                CadResolvedStyle resolvedStyle = ResolveStyle(
+                    entity,
+                    effectiveLayer,
+                    byBlockStyle,
+                    options);
+                if (entity is Insert insert)
+                {
+                    CompileInsert(
+                        insert,
+                        transform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        depth);
+                    return;
+                }
+
+                int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
+                int styleIndex = InternStyle(resolvedStyle, styles, styleIndices);
+                CadEntityHeader? header = entity switch
+                {
+                    Line line => CompileLine(line, rootHandle, transform, hasTransform, layerIndex, styleIndex, lines),
+                    Arc arc => CompileArc(arc, rootHandle, transform, hasTransform, layerIndex, styleIndex, arcs),
+                    Circle circle => CompileCircle(circle, rootHandle, transform, hasTransform, layerIndex, styleIndex, circles),
+                    Ellipse ellipse => CompileEllipse(ellipse, rootHandle, transform, hasTransform, layerIndex, styleIndex, ellipses),
+                    Solid solid => CompileSolid(solid, rootHandle, transform, hasTransform, layerIndex, styleIndex, faces),
+                    Face3D face => CompileFace3D(face, rootHandle, transform, hasTransform, layerIndex, styleIndex, faces),
+                    Spline spline => CompileSpline(
+                        spline,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        splines,
+                        splineControlPoints,
+                        splineKnots,
+                        splineWeights),
+                    LwPolyline polyline => CompilePolyline(
+                        polyline,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        polylines,
+                        polylineVertices),
+                    Polyline2D polyline => CompilePolyline2D(
+                        polyline,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        polylines,
+                        polylineVertices),
+                    Polyline3D polyline => CompilePolyline3D(
+                        polyline,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        polylines3D,
+                        polyline3DPoints),
+                    _ => null,
+                };
+
+                if (header is CadEntityHeader value)
+                {
+                    entities.Add(value);
+                    documentBounds = documentBounds.Union(value.Bounds);
+                    return;
+                }
+
+                unsupportedCount++;
+                AddDiagnostic(
+                    diagnostics,
+                    options.DiagnosticLimit,
+                    new CadDiagnostic(
+                        CadDiagnosticSeverity.Information,
+                        "CADSNAP001",
+                        $"Entity path {FormatEntityPath(rootHandle, entity.Handle)} ({entity.ObjectName}) is not yet represented in the analytic snapshot."));
+            }
+            catch (CadUnsupportedEntityException exception)
+            {
+                unsupportedCount++;
+                AddDiagnostic(
+                    diagnostics,
+                    options.DiagnosticLimit,
+                    new CadDiagnostic(
+                        CadDiagnosticSeverity.Information,
+                        "CADSNAP003",
+                        $"Entity path {FormatEntityPath(rootHandle, entity.Handle)} ({entity.ObjectName}) is not yet supported: {exception.Message}"));
+            }
+            catch (Exception exception) when (
+                (exception is ArgumentException or ArithmeticException or InvalidOperationException) &&
+                exception is not CadSnapshotExpansionLimitException)
+            {
+                invalidCount++;
+                AddDiagnostic(
+                    diagnostics,
+                    options.DiagnosticLimit,
+                    new CadDiagnostic(
+                        CadDiagnosticSeverity.Warning,
+                        "CADSNAP002",
+                        $"Entity path {FormatEntityPath(rootHandle, entity.Handle)} ({entity.ObjectName}) was rejected: {exception.Message}"));
+            }
+        }
+
+        void CompileInsert(
+            Insert insert,
+            CadAffineTransform3D parentTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle resolvedStyle,
+            int depth)
+        {
+            if (depth >= options.MaxBlockNestingDepth)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"Block nesting exceeds the configured depth of {options.MaxBlockNestingDepth}.");
+            }
+
+            if (insert.IsMultiple)
+            {
+                throw new CadUnsupportedEntityException(
+                    "MINSERT row/column arrays require retained instance-array lowering.");
+            }
+
+            BlockRecord block = insert.Block ?? throw new ArgumentException(
+                "INSERT has no block definition.");
+            if ((block.Flags & (BlockTypeFlags.XRef | BlockTypeFlags.XRefOverlay | BlockTypeFlags.XRefDependent)) != 0 ||
+                block.BlockEntity.IsUnloaded)
+            {
+                throw new CadUnsupportedEntityException(
+                    "External-reference blocks require an explicit resolved XRef snapshot.");
+            }
+
+            if (block.EvaluationGraph is not null)
+            {
+                throw new CadUnsupportedEntityException(
+                    "Dynamic blocks require evaluation-state lowering before expansion.");
+            }
+
+            if (!activeBlocks.Add(block))
+            {
+                throw new CadUnsupportedEntityException(
+                    $"Recursive block cycle detected at '{block.Name}'.");
+            }
+
+            try
+            {
+                CadAffineTransform3D instanceTransform = parentTransform.Compose(
+                    CreateInsertTransform(insert));
+                foreach (Entity child in block.Entities)
+                {
+                    CompileEntityTree(
+                        child,
+                        instanceTransform,
+                        true,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        depth + 1);
+                }
+
+                if (insert.Attributes.Count > 0)
+                {
+                    unsupportedCount = checked(unsupportedCount + insert.Attributes.Count);
+                    AddDiagnostic(
+                        diagnostics,
+                        options.DiagnosticLimit,
+                        new CadDiagnostic(
+                            CadDiagnosticSeverity.Information,
+                            "CADSNAP004",
+                            $"INSERT path {FormatEntityPath(rootHandle, insert.Handle)} contains {insert.Attributes.Count} attribute values; text lowering is not yet enabled."));
+                }
+            }
+            finally
+            {
+                activeBlocks.Remove(block);
+            }
+        }
     }
 
     private static CadEntityHeader CompileLine(
         Line line,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
         int layerIndex,
         int styleIndex,
         List<CadLinePrimitive> destination)
     {
-        CadPoint3D start = ToPoint(line.StartPoint);
-        CadPoint3D end = ToPoint(line.EndPoint);
+        CadPoint3D start = TransformPoint(transform, hasTransform, ToPoint(line.StartPoint));
+        CadPoint3D end = TransformPoint(transform, hasTransform, ToPoint(line.EndPoint));
         EnsureFinite(start);
         EnsureFinite(end);
         int primitiveIndex = destination.Count;
         destination.Add(new CadLinePrimitive(start, end));
         return new CadEntityHeader(
-            line.Handle,
+            handle,
             CadEntityKind.Line,
             layerIndex,
             styleIndex,
@@ -206,18 +358,27 @@ public sealed class CadSnapshotCompiler
 
     private static CadEntityHeader CompileCircle(
         Circle circle,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
         int layerIndex,
         int styleIndex,
         List<CadCirclePrimitive> destination)
     {
         ValidateRadius(circle.Radius);
-        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(circle.Normal));
-        CadPoint3D center = basis.Transform(ToPoint(circle.Center));
+        CadCoordinateSystem localBasis = CadCoordinateSystem.FromNormal(ToPoint(circle.Normal));
+        CadPoint3D center = TransformPoint(
+            transform,
+            hasTransform,
+            localBasis.Transform(ToPoint(circle.Center)));
+        CadCoordinateSystem basis = hasTransform
+            ? TransformBasis(transform, localBasis)
+            : localBasis;
         EnsureFinite(center);
         int primitiveIndex = destination.Count;
         destination.Add(new CadCirclePrimitive(center, basis, circle.Radius));
         return new CadEntityHeader(
-            circle.Handle,
+            handle,
             CadEntityKind.Circle,
             layerIndex,
             styleIndex,
@@ -227,6 +388,9 @@ public sealed class CadSnapshotCompiler
 
     private static CadEntityHeader CompileArc(
         Arc arc,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
         int layerIndex,
         int styleIndex,
         List<CadArcPrimitive> destination)
@@ -237,15 +401,21 @@ public sealed class CadSnapshotCompiler
             throw new ArgumentException("Arc angles must be finite.");
         }
 
-        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(arc.Normal));
-        CadPoint3D center = basis.Transform(ToPoint(arc.Center));
+        CadCoordinateSystem localBasis = CadCoordinateSystem.FromNormal(ToPoint(arc.Normal));
+        CadPoint3D center = TransformPoint(
+            transform,
+            hasTransform,
+            localBasis.Transform(ToPoint(arc.Center)));
+        CadCoordinateSystem basis = hasTransform
+            ? TransformBasis(transform, localBasis)
+            : localBasis;
         EnsureFinite(center);
         double start = NormalizeAngle(arc.StartAngle);
         double sweep = NormalizePositiveSweep(arc.StartAngle, arc.EndAngle);
         int primitiveIndex = destination.Count;
         destination.Add(new CadArcPrimitive(center, basis, arc.Radius, start, sweep));
         return new CadEntityHeader(
-            arc.Handle,
+            handle,
             CadEntityKind.Arc,
             layerIndex,
             styleIndex,
@@ -255,6 +425,9 @@ public sealed class CadSnapshotCompiler
 
     private static CadEntityHeader CompileEllipse(
         Ellipse ellipse,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
         int layerIndex,
         int styleIndex,
         List<CadEllipsePrimitive> destination)
@@ -292,12 +465,21 @@ public sealed class CadSnapshotCompiler
 
         CadPoint3D minorAxis = CadPoint3D.Cross(normal, majorAxis).Normalize() *
             (majorLength * ellipse.RadiusRatio);
+        if (hasTransform)
+        {
+            center = transform.TransformPoint(center);
+            majorAxis = transform.TransformVector(majorAxis);
+            minorAxis = transform.TransformVector(minorAxis);
+        }
+        EnsureFinite(center);
+        EnsureFinite(majorAxis);
+        EnsureFinite(minorAxis);
         double start = NormalizeAngle(ellipse.StartParameter);
         double sweep = NormalizePositiveSweep(ellipse.StartParameter, ellipse.EndParameter);
         int primitiveIndex = destination.Count;
         destination.Add(new CadEllipsePrimitive(center, majorAxis, minorAxis, start, sweep));
         return new CadEntityHeader(
-            ellipse.Handle,
+            handle,
             CadEntityKind.Ellipse,
             layerIndex,
             styleIndex,
@@ -307,6 +489,9 @@ public sealed class CadSnapshotCompiler
 
     private static CadEntityHeader CompileSolid(
         Solid solid,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
         int layerIndex,
         int styleIndex,
         List<CadFacePrimitive> destination)
@@ -318,12 +503,12 @@ public sealed class CadSnapshotCompiler
         }
 
         CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(solid.Normal));
-        CadPoint3D first = basis.Transform(ToPoint(solid.FirstCorner));
-        CadPoint3D second = basis.Transform(ToPoint(solid.SecondCorner));
-        CadPoint3D third = basis.Transform(ToPoint(solid.ThirdCorner));
-        CadPoint3D fourth = basis.Transform(ToPoint(solid.FourthCorner));
+        CadPoint3D first = TransformPoint(transform, hasTransform, basis.Transform(ToPoint(solid.FirstCorner)));
+        CadPoint3D second = TransformPoint(transform, hasTransform, basis.Transform(ToPoint(solid.SecondCorner)));
+        CadPoint3D third = TransformPoint(transform, hasTransform, basis.Transform(ToPoint(solid.ThirdCorner)));
+        CadPoint3D fourth = TransformPoint(transform, hasTransform, basis.Transform(ToPoint(solid.FourthCorner)));
         return AddFace(
-            solid.Handle,
+            handle,
             CadEntityKind.Solid,
             layerIndex,
             styleIndex,
@@ -337,6 +522,9 @@ public sealed class CadSnapshotCompiler
 
     private static CadEntityHeader CompileFace3D(
         Face3D face,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
         int layerIndex,
         int styleIndex,
         List<CadFacePrimitive> destination)
@@ -348,15 +536,15 @@ public sealed class CadSnapshotCompiler
         }
 
         return AddFace(
-            face.Handle,
+            handle,
             CadEntityKind.Face3D,
             layerIndex,
             styleIndex,
             destination,
-            ToPoint(face.FirstCorner),
-            ToPoint(face.SecondCorner),
-            ToPoint(face.ThirdCorner),
-            ToPoint(face.FourthCorner),
+            TransformPoint(transform, hasTransform, ToPoint(face.FirstCorner)),
+            TransformPoint(transform, hasTransform, ToPoint(face.SecondCorner)),
+            TransformPoint(transform, hasTransform, ToPoint(face.ThirdCorner)),
+            TransformPoint(transform, hasTransform, ToPoint(face.FourthCorner)),
             (byte)invisibleEdges);
     }
 
@@ -394,6 +582,9 @@ public sealed class CadSnapshotCompiler
 
     private static CadEntityHeader CompileSpline(
         Spline spline,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
         int layerIndex,
         int styleIndex,
         List<CadSplinePrimitive> destination,
@@ -414,10 +605,13 @@ public sealed class CadSnapshotCompiler
         }
 
         CadBounds3D bounds = CadBounds3D.Empty;
+        var transformedControlPoints = new CadPoint3D[spline.ControlPoints.Count];
+        int transformedIndex = 0;
         foreach (XYZ value in spline.ControlPoints)
         {
-            CadPoint3D point = ToPoint(value);
+            CadPoint3D point = TransformPoint(transform, hasTransform, ToPoint(value));
             EnsureFinite(point);
+            transformedControlPoints[transformedIndex++] = point;
             bounds = bounds.Include(point);
         }
 
@@ -438,7 +632,7 @@ public sealed class CadSnapshotCompiler
         }
 
         int controlOffset = controlPoints.Count;
-        controlPoints.AddRange(spline.ControlPoints.Select(ToPoint));
+        controlPoints.AddRange(transformedControlPoints);
         int knotOffset = knots.Count;
         knots.AddRange(spline.Knots);
         int weightOffset = weights.Count;
@@ -454,7 +648,7 @@ public sealed class CadSnapshotCompiler
             spline.Degree,
             spline.IsClosed));
         return new CadEntityHeader(
-            spline.Handle,
+            handle,
             CadEntityKind.Spline,
             layerIndex,
             styleIndex,
@@ -464,6 +658,9 @@ public sealed class CadSnapshotCompiler
 
     private static CadEntityHeader CompilePolyline(
         LwPolyline polyline,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
         int layerIndex,
         int styleIndex,
         List<CadPolylinePrimitive> destination,
@@ -490,8 +687,14 @@ public sealed class CadSnapshotCompiler
         LwPolyline.Vertex first = polyline.Vertices[0];
         double localOriginX = first.Location.X;
         double localOriginY = first.Location.Y;
-        CadPoint3D worldOrigin = basis.Transform(
-            new CadPoint3D(localOriginX, localOriginY, polyline.Elevation));
+        CadPoint3D worldOrigin = TransformPoint(
+            transform,
+            hasTransform,
+            basis.Transform(new CadPoint3D(localOriginX, localOriginY, polyline.Elevation)));
+        if (hasTransform)
+        {
+            basis = TransformBasis(transform, basis);
+        }
         EnsureFinite(worldOrigin);
 
         var normalizedVertices = new CadPolylineVertex[polyline.Vertices.Count];
@@ -509,7 +712,7 @@ public sealed class CadSnapshotCompiler
         }
 
         return AddPlanarPolyline(
-            polyline.Handle,
+            handle,
             CadEntityKind.LightweightPolyline,
             layerIndex,
             styleIndex,
@@ -523,6 +726,9 @@ public sealed class CadSnapshotCompiler
 
     private static CadEntityHeader CompilePolyline2D(
         Polyline2D polyline,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
         int layerIndex,
         int styleIndex,
         List<CadPolylinePrimitive> destination,
@@ -562,8 +768,14 @@ public sealed class CadSnapshotCompiler
         Vertex2D first = polyline.Vertices[0];
         double localOriginX = first.Location.X;
         double localOriginY = first.Location.Y;
-        CadPoint3D worldOrigin = basis.Transform(
-            new CadPoint3D(localOriginX, localOriginY, polyline.Elevation));
+        CadPoint3D worldOrigin = TransformPoint(
+            transform,
+            hasTransform,
+            basis.Transform(new CadPoint3D(localOriginX, localOriginY, polyline.Elevation)));
+        if (hasTransform)
+        {
+            basis = TransformBasis(transform, basis);
+        }
         EnsureFinite(worldOrigin);
 
         var normalizedVertices = new CadPolylineVertex[polyline.Vertices.Count];
@@ -582,7 +794,7 @@ public sealed class CadSnapshotCompiler
         }
 
         return AddPlanarPolyline(
-            polyline.Handle,
+            handle,
             CadEntityKind.Polyline2D,
             layerIndex,
             styleIndex,
@@ -646,6 +858,9 @@ public sealed class CadSnapshotCompiler
 
     private static CadEntityHeader CompilePolyline3D(
         Polyline3D polyline,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
         int layerIndex,
         int styleIndex,
         List<CadPolyline3DPrimitive> destination,
@@ -677,7 +892,7 @@ public sealed class CadSnapshotCompiler
         for (int i = 0; i < polyline.Vertices.Count; i++)
         {
             Vertex3D vertex = polyline.Vertices[i];
-            CadPoint3D point = ToPoint(vertex.Location);
+            CadPoint3D point = TransformPoint(transform, hasTransform, ToPoint(vertex.Location));
             EnsureFinite(point);
             normalizedPoints[i] = point;
             bounds = bounds.Include(point);
@@ -691,7 +906,7 @@ public sealed class CadSnapshotCompiler
             polyline.Vertices.Count,
             polyline.IsClosed));
         return new CadEntityHeader(
-            polyline.Handle,
+            handle,
             CadEntityKind.Polyline3D,
             layerIndex,
             styleIndex,
@@ -741,11 +956,11 @@ public sealed class CadSnapshotCompiler
         worldOrigin + (basis.XAxis * vertex.X) + (basis.YAxis * vertex.Y);
 
     private static int InternLayer(
-        Entity entity,
+        Layer layer,
         List<CadLayerSnapshot> layers,
         Dictionary<string, int> indices)
     {
-        string name = entity.Layer.Name;
+        string name = layer.Name;
         if (indices.TryGetValue(name, out int index))
         {
             return index;
@@ -753,22 +968,21 @@ public sealed class CadSnapshotCompiler
 
         index = layers.Count;
         indices.Add(name, index);
-        layers.Add(new CadLayerSnapshot(name, entity.Layer.IsOn, entity.Layer.PlotFlag));
+        layers.Add(new CadLayerSnapshot(name, layer.IsOn, layer.PlotFlag));
         return index;
     }
 
     private static int InternStyle(
-        Entity entity,
-        CadSnapshotOptions options,
+        CadResolvedStyle resolved,
         List<CadStrokeStyle> styles,
         Dictionary<CadStrokeStyle, int> indices)
     {
-        ACadSharp.Color color = entity.GetActiveColor();
-        LineWeightType lineWeight = entity.GetActiveLineWeightType();
+        ACadSharp.Color color = resolved.Color;
+        LineWeightType lineWeight = resolved.LineWeight;
         double millimeters = lineWeight is LineWeightType.Default or LineWeightType.ByLayer or LineWeightType.ByBlock
-            ? options.DefaultLineWeightMillimeters
+            ? resolved.DefaultLineWeightMillimeters
             : lineWeight.GetLineWeightValue();
-        short transparency = entity.Transparency.Value;
+        short transparency = resolved.Transparency;
         byte alpha = transparency is < 0 or > 90
             ? byte.MaxValue
             : (byte)Math.Round(255.0 * (100.0 - transparency) / 100.0);
@@ -779,8 +993,8 @@ public sealed class CadSnapshotCompiler
             alpha,
             millimeters,
             lineWeight == LineWeightType.W0,
-            entity.GetActiveLineType().Name,
-            entity.LineTypeScale);
+            resolved.LineTypeName,
+            resolved.LineTypeScale);
 
         if (indices.TryGetValue(style, out int index))
         {
@@ -792,6 +1006,107 @@ public sealed class CadSnapshotCompiler
         styles.Add(style);
         return index;
     }
+
+    private static CadResolvedStyle ResolveStyle(
+        Entity entity,
+        Layer effectiveLayer,
+        CadResolvedStyle? byBlock,
+        CadSnapshotOptions options)
+    {
+        ACadSharp.Color color = entity.Color.IsByLayer
+            ? effectiveLayer.Color
+            : entity.Color.IsByBlock
+                ? byBlock?.Color ?? ACadSharp.Color.Default
+                : entity.Color;
+        LineWeightType lineWeight = entity.LineWeight switch
+        {
+            LineWeightType.ByLayer => effectiveLayer.LineWeight,
+            LineWeightType.ByBlock => byBlock?.LineWeight ?? LineWeightType.Default,
+            _ => entity.LineWeight,
+        };
+        string lineTypeName = entity.LineType.Name.Equals(
+            LineType.ByLayerName,
+            StringComparison.OrdinalIgnoreCase)
+            ? effectiveLayer.LineType.Name
+            : entity.LineType.Name.Equals(
+                LineType.ByBlockName,
+                StringComparison.OrdinalIgnoreCase)
+                ? byBlock?.LineTypeName ?? LineType.Continuous.Name
+                : entity.LineType.Name;
+        short transparency = entity.Transparency.IsByLayer
+            ? (short)0
+            : entity.Transparency.IsByBlock
+                ? byBlock?.Transparency ?? (short)0
+                : entity.Transparency.Value;
+        if (!double.IsFinite(entity.LineTypeScale) || entity.LineTypeScale <= 0.0)
+        {
+            throw new ArgumentException("Entity linetype scale must be finite and positive.");
+        }
+
+        return new CadResolvedStyle(
+            color,
+            lineWeight,
+            lineTypeName,
+            transparency,
+            entity.LineTypeScale,
+            options.DefaultLineWeightMillimeters);
+    }
+
+    private static CadAffineTransform3D CreateInsertTransform(Insert insert)
+    {
+        CadPoint3D insertion = ToPoint(insert.InsertPoint);
+        CadPoint3D basePoint = ToPoint(insert.Block.BlockEntity.BasePoint);
+        if (!double.IsFinite(insert.Rotation) ||
+            !double.IsFinite(insert.XScale) || insert.XScale == 0.0 ||
+            !double.IsFinite(insert.YScale) || insert.YScale == 0.0 ||
+            !double.IsFinite(insert.ZScale) || insert.ZScale == 0.0)
+        {
+            throw new ArgumentException(
+                "INSERT rotation and non-zero scale factors must be finite.");
+        }
+
+        EnsureFinite(insertion);
+        EnsureFinite(basePoint);
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(insert.Normal));
+        double cosine = Math.Cos(insert.Rotation);
+        double sine = Math.Sin(insert.Rotation);
+        CadPoint3D xAxis = (basis.XAxis * (cosine * insert.XScale)) +
+            (basis.YAxis * (sine * insert.XScale));
+        CadPoint3D yAxis = (basis.XAxis * (-sine * insert.YScale)) +
+            (basis.YAxis * (cosine * insert.YScale));
+        CadPoint3D zAxis = basis.ZAxis * insert.ZScale;
+        CadPoint3D translation = insertion -
+            (xAxis * basePoint.X) -
+            (yAxis * basePoint.Y) -
+            (zAxis * basePoint.Z);
+        EnsureFinite(xAxis);
+        EnsureFinite(yAxis);
+        EnsureFinite(zAxis);
+        EnsureFinite(translation);
+        return new CadAffineTransform3D(xAxis, yAxis, zAxis, translation);
+    }
+
+    private static CadCoordinateSystem TransformBasis(
+        CadAffineTransform3D transform,
+        CadCoordinateSystem basis) =>
+        new(
+            transform.TransformVector(basis.XAxis),
+            transform.TransformVector(basis.YAxis),
+            transform.TransformVector(basis.ZAxis));
+
+    private static CadPoint3D TransformPoint(
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        CadPoint3D point) =>
+        hasTransform ? transform.TransformPoint(point) : point;
+
+    private static bool IsLayerZero(Layer layer) =>
+        layer.Name.Equals(Layer.DefaultName, StringComparison.OrdinalIgnoreCase);
+
+    private static string FormatEntityPath(ulong rootHandle, ulong currentHandle) =>
+        rootHandle == currentHandle
+            ? $"{rootHandle:X}"
+            : $"{rootHandle:X}/.../{currentHandle:X}";
 
     private static double NormalizePositiveSweep(double start, double end)
     {
@@ -829,6 +1144,12 @@ public sealed class CadSnapshotCompiler
         }
 
         ArgumentOutOfRangeException.ThrowIfNegative(options.DiagnosticLimit);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxBlockNestingDepth,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxExpandedEntities,
+            1);
     }
 
     private static void AddDiagnostic(
@@ -852,9 +1173,25 @@ public sealed class CadSnapshotCompiler
         }
     }
 
+    private readonly record struct CadResolvedStyle(
+        ACadSharp.Color Color,
+        LineWeightType LineWeight,
+        string LineTypeName,
+        short Transparency,
+        double LineTypeScale,
+        double DefaultLineWeightMillimeters);
+
     private sealed class CadUnsupportedEntityException : Exception
     {
         public CadUnsupportedEntityException(string message)
+            : base(message)
+        {
+        }
+    }
+
+    private sealed class CadSnapshotExpansionLimitException : InvalidOperationException
+    {
+        public CadSnapshotExpansionLimitException(string message)
             : base(message)
         {
         }

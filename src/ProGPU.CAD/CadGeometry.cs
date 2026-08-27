@@ -57,12 +57,48 @@ public readonly record struct CadPoint3D(double X, double Y, double Z)
         new(value.X / scale, value.Y / scale, value.Z / scale);
 }
 
+/// <summary>A double-precision affine mapping between CAD model spaces.</summary>
+/// <remarks>
+/// The three axis values are the columns of the linear map. Composition and
+/// point/vector application are allocation-free O(1) operations. This keeps
+/// nested block transforms independent of process-sized or backend matrices.
+/// </remarks>
+public readonly record struct CadAffineTransform3D(
+    CadPoint3D XAxis,
+    CadPoint3D YAxis,
+    CadPoint3D ZAxis,
+    CadPoint3D Translation)
+{
+    public static CadAffineTransform3D Identity => new(
+        new CadPoint3D(1.0, 0.0, 0.0),
+        new CadPoint3D(0.0, 1.0, 0.0),
+        new CadPoint3D(0.0, 0.0, 1.0),
+        CadPoint3D.Zero);
+
+    public CadPoint3D TransformVector(CadPoint3D vector) =>
+        (XAxis * vector.X) + (YAxis * vector.Y) + (ZAxis * vector.Z);
+
+    public CadPoint3D TransformPoint(CadPoint3D point) =>
+        Translation + TransformVector(point);
+
+    /// <summary>Returns this mapping applied after <paramref name="inner"/>.</summary>
+    public CadAffineTransform3D Compose(CadAffineTransform3D inner) =>
+        new(
+            TransformVector(inner.XAxis),
+            TransformVector(inner.YAxis),
+            TransformVector(inner.ZAxis),
+            TransformPoint(inner.Translation));
+}
+
 /// <summary>
-/// An orthonormal object-coordinate-system basis expressed in WCS.
+/// A three-axis CAD basis expressed in WCS.
 /// </summary>
 /// <remarks>
 /// This is an original ProGPU implementation of Autodesk's documented arbitrary-axis
-/// algorithm. It intentionally remains independent of ACadSharp matrix internals.
+/// algorithm. <see cref="FromNormal"/> creates an orthonormal OCS basis. Retained
+/// primitives transformed through non-uniform block instances carry the affine images
+/// of those axes, so consumers must not otherwise assume unit length or orthogonality.
+/// The type intentionally remains independent of ACadSharp matrix internals.
 /// </remarks>
 public readonly record struct CadCoordinateSystem(
     CadPoint3D XAxis,
