@@ -618,6 +618,15 @@ for `progpu_native.dll` and
 `F002C1FB564334FF21E6F1B18E2FADFD067A955103531A7E1E55B4CC361D6DC8`
 for `progpu_native_dawn.dll`.
 
+The native retained 3D replay now treats semantic draw bounds as the actual GPU
+viewport. Its camera storage carries target extent plus a localized physical
+viewport rectangle; shared WGSL maps mesh/line clip coordinates into that
+rectangle and computes line expansion from the viewport extent. Full-target
+commands retain the original clip-space result exactly. This reusable ProGPU
+primitive is the prerequisite for lowering source-built WPF
+`PortableViewport3DScene` data without a bridge-local render-to-texture or CPU
+projection workaround.
+
 - Implement the remaining 2D/3D resource execution, curve dashes, exact
   translated-equivalent EvenOdd overlap execution, remaining pen/image/media
   paths, dynamic guidelines, caches, effects, and render-data commands.

@@ -3539,6 +3539,15 @@ CPU-projected 2D geometry. Validation establishes exact vertex/index suffix
 layout and rejects non-finite matrices, invalid indices, unsupported modes, or
 non-canonical reserved storage before resource allocation.
 
+Retained 3D command bounds are executable viewport state, not diagnostic
+metadata. The native replay camera retains both the current target extent and
+the command-local viewport rectangle in physical pixels. The shared WGSL maps
+projected clip coordinates into that rectangle and expands 3D lines against
+its extent, so a nested viewport no longer stretches across the complete
+render target. A full-target rectangle reduces algebraically to the original
+clip coordinates. This remains one GPU projection/depth path on Metal, D3D12,
+Vulkan, and browser WebGPU; no CPU projection or host-specific shader is used.
+
 The engine validates every untrusted count, offset, size, enum, finite float,
 resource generation, and nesting depth before allocation or GPU submission.
 Integer arithmetic is checked. User shaders remain a separately permissioned

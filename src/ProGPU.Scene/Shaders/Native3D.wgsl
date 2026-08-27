@@ -9,7 +9,24 @@ struct Camera3D {
     view: mat4x4<f32>,
     camera_position: vec4<f32>,
     viewport: vec4<f32>,
+    viewport_rect: vec4<f32>,
 };
+
+fn map_clip_to_viewport(clip: vec4<f32>, camera: Camera3D) -> vec4<f32> {
+    let target_size = max(camera.viewport.xy, vec2<f32>(1.0));
+    let viewport_size = max(camera.viewport_rect.zw, vec2<f32>(1.0));
+    let scale = viewport_size / target_size;
+    let center = vec2<f32>(
+        ((camera.viewport_rect.x + viewport_size.x * 0.5) /
+            target_size.x) * 2.0 - 1.0,
+        1.0 - ((camera.viewport_rect.y + viewport_size.y * 0.5) /
+            target_size.y) * 2.0);
+    return vec4<f32>(
+        clip.x * scale.x + clip.w * center.x,
+        clip.y * scale.y + clip.w * center.y,
+        clip.z,
+        clip.w);
+}
 
 struct Line3D {
     start: vec4<f32>,
@@ -78,17 +95,18 @@ fn vs_line_3d(
     var end_clip = camera.projection * camera.view * line.transform * line.end;
     let safe_start_w = select(start_clip.w, 0.000001, abs(start_clip.w) < 0.000001);
     let safe_end_w = select(end_clip.w, 0.000001, abs(end_clip.w) < 0.000001);
-    let start_screen = (start_clip.xy / safe_start_w) * camera.viewport.xy;
-    let end_screen = (end_clip.xy / safe_end_w) * camera.viewport.xy;
+    let viewport_size = max(camera.viewport_rect.zw, vec2<f32>(1.0));
+    let start_screen = (start_clip.xy / safe_start_w) * viewport_size;
+    let end_screen = (end_clip.xy / safe_end_w) * viewport_size;
     let delta = end_screen - start_screen;
     let length = max(length(delta), 0.000001);
     let normal = vec2<f32>(-delta.y, delta.x) / length;
     var clip = camera.projection * camera.view * line.transform * local;
     let expanded_xy = clip.xy +
-        normal * corner.y * line.thickness * clip.w / camera.viewport.xy;
+        normal * corner.y * line.thickness * clip.w / viewport_size;
     clip = vec4<f32>(expanded_xy, clip.zw);
     var output: LineOutput;
-    output.position = clip;
+    output.position = map_clip_to_viewport(clip, camera);
     output.color = vec4<f32>(line.color.rgb, line.color.a * line.opacity);
     output.edge_coordinate = corner.y;
     return output;
@@ -119,7 +137,9 @@ fn vs_mesh_3d(
     let vertex = vertices[mesh.vertex_offset + source_index];
     let world = mesh.model_transform * vertex.position;
     var output: MeshOutput;
-    output.position = camera.projection * camera.view * world;
+    output.position = map_clip_to_viewport(
+        camera.projection * camera.view * world,
+        camera);
     output.color = vec4<f32>(mesh.color.rgb, mesh.color.a * mesh.opacity);
     output.normal = normalize((mesh.normal_transform * vec4<f32>(vertex.normal.xyz, 0.0)).xyz);
     output.world_position = world.xyz;

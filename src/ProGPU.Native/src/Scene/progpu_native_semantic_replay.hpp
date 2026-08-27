@@ -121,6 +121,7 @@ struct alignas(16) camera_record {
     progpu_native_matrix_4x4 view{};
     float camera_position[4]{};
     float viewport[4]{};
+    float viewport_rect[4]{};
 };
 
 struct alignas(16) line_record {
@@ -156,7 +157,7 @@ struct alignas(16) mesh_record {
     std::uint32_t reserved1 = 0U;
 };
 
-static_assert(sizeof(camera_record) == 160U);
+static_assert(sizeof(camera_record) == 176U);
 static_assert(sizeof(line_record) == 128U);
 static_assert(sizeof(mesh_record) == 256U);
 static_assert(sizeof(progpu_native_scene_mesh_3d_vertex) == 48U);

@@ -1,6 +1,7 @@
 #include "progpu_native_3d_execution.hpp"
 #include "Native3DWgsl.generated.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <limits>
@@ -281,6 +282,34 @@ progpu_native_status compile_semantic_3d_page(
             gpu_camera.viewport[1] = static_cast<float>(std::max(1U, target.height));
             gpu_camera.viewport[2] = frame.dpi_scale;
             gpu_camera.viewport[3] = 0.0F;
+            const float target_width = gpu_camera.viewport[0];
+            const float target_height = gpu_camera.viewport[1];
+            const float viewport_left = std::clamp(
+                command.bounds_x * frame.dpi_scale -
+                    static_cast<float>(target.x),
+                0.0F,
+                target_width);
+            const float viewport_top = std::clamp(
+                command.bounds_y * frame.dpi_scale -
+                    static_cast<float>(target.y),
+                0.0F,
+                target_height);
+            const float viewport_right = std::clamp(
+                (command.bounds_x + command.bounds_width) *
+                    frame.dpi_scale - static_cast<float>(target.x),
+                viewport_left,
+                target_width);
+            const float viewport_bottom = std::clamp(
+                (command.bounds_y + command.bounds_height) *
+                    frame.dpi_scale - static_cast<float>(target.y),
+                viewport_top,
+                target_height);
+            gpu_camera.viewport_rect[0] = viewport_left;
+            gpu_camera.viewport_rect[1] = viewport_top;
+            gpu_camera.viewport_rect[2] = std::max(
+                viewport_right - viewport_left, 1.0F);
+            gpu_camera.viewport_rect[3] = std::max(
+                viewport_bottom - viewport_top, 1.0F);
             const auto camera_index = static_cast<std::uint32_t>(cameras.size());
             cameras.push_back(gpu_camera);
             const auto state_transform = affine_matrix(state.transform);
