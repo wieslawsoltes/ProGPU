@@ -1029,10 +1029,13 @@ public sealed class CadSnapshotCompiler
                 $"TEXT path {FormatEntityPath(handle, text.Handle)} exceeds the configured per-entity limit of {options.MaxTextCodeUnitsPerEntity} UTF-16 code units.");
         }
 
-        if (text.HorizontalAlignment is TextHorizontalAlignment.Aligned or TextHorizontalAlignment.Fit)
+        bool isTwoPointAlignment = text.HorizontalAlignment is
+            TextHorizontalAlignment.Aligned or TextHorizontalAlignment.Fit;
+        if (isTwoPointAlignment &&
+            text.VerticalAlignment != TextVerticalAlignmentType.Baseline)
         {
             throw new CadUnsupportedEntityException(
-                "Aligned and fit TEXT require two-point advance scaling.");
+                "Aligned and fit TEXT require baseline vertical alignment.");
         }
 
         TextStyle cadStyle = text.Style;
@@ -1093,6 +1096,12 @@ public sealed class CadSnapshotCompiler
         double ascent = (double)font.Ascender / font.UnitsPerEm;
         double descent = (double)font.Descender / font.UnitsPerEm;
         double width = layout.ContentSize.X;
+        if (!double.IsFinite(width) || (isTwoPointAlignment && width <= 0.0))
+        {
+            throw new CadUnsupportedEntityException(
+                "Aligned and fit TEXT require a finite positive shaped advance.");
+        }
+
         double horizontalOffset = text.HorizontalAlignment switch
         {
             TextHorizontalAlignment.Center or TextHorizontalAlignment.Middle => -width * 0.5,
@@ -1110,22 +1119,66 @@ public sealed class CadSnapshotCompiler
             _ => 0.0,
         };
 
-        bool usesAlignmentPoint = text.HorizontalAlignment != TextHorizontalAlignment.Left ||
-            text.VerticalAlignment != TextVerticalAlignmentType.Baseline;
         CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(text.Normal));
-        CadPoint3D anchor = basis.Transform(ToPoint(
-            usesAlignmentPoint ? text.AlignmentPoint : text.InsertPoint));
-        double cosine = Math.Cos(text.Rotation);
-        double sine = Math.Sin(text.Rotation);
+        CadPoint3D anchor;
+        double cosine;
+        double sine;
+        double xScale;
+        double effectiveHeight = height;
+        if (isTwoPointAlignment)
+        {
+            CadPoint3D start = ToPoint(text.InsertPoint);
+            CadPoint3D end = ToPoint(text.AlignmentPoint);
+            double deltaX = end.X - start.X;
+            double deltaY = end.Y - start.Y;
+            double deltaZ = end.Z - start.Z;
+            double baselineLength = new CadPoint3D(deltaX, deltaY, 0.0).Length;
+            if (!double.IsFinite(deltaZ) || !double.IsFinite(baselineLength) ||
+                baselineLength <= 0.0 ||
+                Math.Abs(deltaZ) > Math.Max(1.0, baselineLength) * 1e-12)
+            {
+                throw new ArgumentException(
+                    "Aligned and fit TEXT require two distinct coplanar OCS baseline points.");
+            }
+
+            cosine = deltaX / baselineLength;
+            sine = deltaY / baselineLength;
+            xScale = baselineLength / width;
+            if (text.HorizontalAlignment == TextHorizontalAlignment.Aligned)
+            {
+                effectiveHeight = xScale / widthFactor;
+            }
+
+            anchor = basis.Transform(
+                text.Mirror.HasFlag(TextMirrorFlag.Backward) ? end : start);
+        }
+        else
+        {
+            bool usesAlignmentPoint = text.HorizontalAlignment != TextHorizontalAlignment.Left ||
+                text.VerticalAlignment != TextVerticalAlignmentType.Baseline;
+            anchor = basis.Transform(ToPoint(
+                usesAlignmentPoint ? text.AlignmentPoint : text.InsertPoint));
+            cosine = Math.Cos(text.Rotation);
+            sine = Math.Sin(text.Rotation);
+            xScale = height * widthFactor;
+        }
+
+        if (!double.IsFinite(effectiveHeight) || effectiveHeight <= 0.0 ||
+            !double.IsFinite(xScale) || xScale <= 0.0)
+        {
+            throw new ArithmeticException(
+                "TEXT alignment scaling exceeds the supported numeric range.");
+        }
+
         CadPoint3D horizontal = (basis.XAxis * cosine) + (basis.YAxis * sine);
         CadPoint3D vertical = (basis.XAxis * -sine) + (basis.YAxis * cosine);
         TextMirrorFlag mirror = text.Mirror;
         double mirrorX = mirror.HasFlag(TextMirrorFlag.Backward) ? -1.0 : 1.0;
         double mirrorY = mirror.HasFlag(TextMirrorFlag.UpsideDown) ? -1.0 : 1.0;
-        CadPoint3D xAxis = horizontal * (height * widthFactor * mirrorX);
+        CadPoint3D xAxis = horizontal * (xScale * mirrorX);
         CadPoint3D yAxis =
-            (horizontal * (-height * Math.Tan(oblique) * mirrorY)) +
-            (vertical * (-height * mirrorY));
+            (horizontal * (-effectiveHeight * Math.Tan(oblique) * mirrorY)) +
+            (vertical * (-effectiveHeight * mirrorY));
         if (hasTransform)
         {
             anchor = transform.TransformPoint(anchor);

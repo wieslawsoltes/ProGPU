@@ -109,9 +109,9 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   one `DrawGlyphRun` command per
   contiguous fallback-font run and requests retained vector coverage for CAD
   zoom; it never expands ordinary text into per-glyph path commands. Font
-  substitution is an explicit diagnostic. SHX/Big Font, aligned/fit two-point
-  scaling, extrusion, decoration control codes, and MTEXT remain diagnosed
-  fidelity gates. Documented degree, plus/minus, diameter, percent, and DXF
+  substitution is an explicit diagnostic. SHX/Big Font, extrusion, decoration
+  control codes, and MTEXT remain diagnosed fidelity gates. Documented degree,
+  plus/minus, diameter, percent, and DXF
   Unicode escapes are decoded before shaping.
 - Model-space lineweights are recorded as fixed device-space strokes; explicit
   zero-width lineweights use the ProGPU hairline sentinel. Non-continuous CAD
@@ -352,6 +352,14 @@ baseline anchors use the Autodesk second-point rule. Conservative bounds union
 the shaped advance/vertical metrics with available glyph outline bounds and transform all
 four affine extrema into WCS before BVH construction.
 
+Aligned TEXT derives baseline orientation and uniform character scale from the
+two OCS endpoints while preserving the effective width-factor aspect ratio. Fit
+TEXT preserves entity height and derives only horizontal scale. Both finish
+exactly on the transformed second point even after font substitution, nested
+non-uniform block transforms, or backward generation; backward text anchors at
+the second point and traverses the same segment in reverse. Non-baseline or
+non-coplanar two-point combinations fail explicitly.
+
 The bounded content decoder maps Autodesk's `%%d`, `%%p`, `%%c`, `%%%`, and
 four-hex-digit `\U+XXXX` sequences before shaping. Invalid UTF-16, numeric or
 unknown font-specific controls, and overline/underline/strike-through toggles
@@ -364,11 +372,10 @@ faces `F`. Configurable per-entity UTF-16 and document-wide glyph limits reject
 oversized input atomically before it can enter retained streams. Plan recording
 is `O(R)` commands. Stable replay uses the existing ProGPU retained glyph cache,
 DPI/subpixel policy, fallback, color-font, variable-
-font, and vector-text coverage contracts. Aligned/Fit TEXT requires the
-specified two-point width/height solution; MTEXT requires bounded inline-format,
-paragraph, column, background, and attachment lowering. Both remain explicit
-instead of inheriting the older `ProGPU.Dxf` renderer's estimated bounds,
-per-character width loop, or formatting-stripping approximation.
+font, and vector-text coverage contracts. MTEXT still requires bounded inline-
+format, paragraph, column, background, and attachment lowering. It remains
+explicit instead of inheriting the older `ProGPU.Dxf` renderer's estimated
+bounds, per-character width loop, or formatting-stripping approximation.
 
 This is a managed ACadSharp snapshot/resource adapter. It changes no shader,
 stable C ABI, native renderer, or compositor algorithm. Both compositors already
@@ -462,11 +469,11 @@ is a feature baseline and makes no relative speed or regression claim.
 
 The TEXT mode creates 1,000 twenty-one-character TrueType entities backed by one
 embedded Inter face. Two consecutive 50-iteration Release runs measured
-snapshot p50/p95/p99 of 14.461/106.503/113.673 ms and
-11.437/103.269/112.144 ms, with 4,291,052 and 4,285,150 managed bytes per
+snapshot p50/p95/p99 of 15.412/34.109/48.727 ms and
+12.850/36.243/40.096 ms, with 4,288,949 and 4,297,244 managed bytes per
 generation. Retained plan recording emitted 1,000 glyph-run commands and
-measured 0.304/1.837/11.523 ms and 0.322/1.751/10.411 ms, with 576,986 and
-576,936 managed bytes per generation. Warm spatial queries remained zero-
+measured 0.199/1.997/12.281 ms and 0.338/1.955/11.911 ms, with 576,810 and
+576,966 managed bytes per generation. Warm spatial queries remained zero-
 allocation. These measurements establish the first feature baseline only; they
 make no speedup claim and do not replace the matched viewer, GPU, native, or
 Instruments acceptance gates.
@@ -542,15 +549,17 @@ Sources consulted on 2026-08-27:
   [DXF string storage contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-2553CF98-44F6-4828-82DD-FE3BC7448113.htm),
   [AcDbText width-factor contract](https://help.autodesk.com/cloudhelp/2018/ENU/OARXMAC-RefGuide/files/OREFMAC-AcDbText__widthFactor.html),
   [text-style inheritance behavior](https://help.autodesk.com/cloudhelp/2018/CHT/AutoCAD-ActiveX/files/GUID-B6880624-B89C-4C7E-8276-6E21070CFBF6.htm),
+  [TEXT command Align/Fit behavior](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-D1C664DD-63D9-467E-8EC1-2F5A1777A924.htm),
+  [AcDbText alignment-point contract](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-AcDbText__alignmentPoint.html),
   [MTEXT contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-5E5DB93B-F8D3-4433-ADF7-E92E250D2BAB.htm),
   and [STYLE contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-EF68AF7C-13EF-45A1-8175-ED6CE66C8FC9.htm):
   adopted OCS/WCS point distinctions, the second-point justification rule,
-  effective entity transform values and style creation defaults, generation
-  flags, font metadata, and MTEXT attachment/flow/column scope; adapted supported
-  TrueType TEXT into normalized retained font runs and conservative affine
-  bounds; rejected guessed text
+  effective entity transform values and style creation defaults, two-point
+  Align/Fit scaling, generation flags, font metadata, and MTEXT attachment/flow/
+  column scope; adapted supported TrueType TEXT into normalized retained font
+  runs and conservative affine bounds; rejected guessed text
   rectangles, stripped MTEXT formatting, silent SHX substitution, and claiming
-  aligned/Fit or MTEXT support before their complete contracts land.
+  MTEXT support before its complete contract lands.
 - [Autodesk common entity property codes](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-3610039E-27D1-4E23-B6D3-7E60B22BB5BD.htm)
   and [ByBlock color behavior](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-14BC039D-238D-4D9E-921B-F4015F96CB54.htm):
   adopted layer `0`, ByLayer, and ByBlock inheritance without mutating block

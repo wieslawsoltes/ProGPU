@@ -554,6 +554,141 @@ public sealed class CadSnapshotAndSceneTests
     }
 
     [Fact]
+    public void AlignedAndFitTextUseTheirTwoOcsBaselinePoints()
+    {
+        TtfFont font = InterFontFamily.Regular;
+        double advance = new TextLayout(
+            "CAD",
+            font,
+            1.0f,
+            float.PositiveInfinity).ContentSize.X;
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add two-point text", document =>
+        {
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("CAD")
+            {
+                Style = textStyle,
+                InsertPoint = new XYZ(2, 3, 0),
+                AlignmentPoint = new XYZ(22, 3, 0),
+                HorizontalAlignment = TextHorizontalAlignment.Aligned,
+                Height = 4,
+                WidthFactor = 0.8,
+            });
+            document.Entities.Add(new TextEntity("CAD")
+            {
+                Style = textStyle,
+                InsertPoint = new XYZ(1, 10, 0),
+                AlignmentPoint = new XYZ(1, 30, 0),
+                HorizontalAlignment = TextHorizontalAlignment.Fit,
+                Height = 5,
+                WidthFactor = 0.2,
+            });
+            document.Entities.Add(new TextEntity("CAD")
+            {
+                Style = textStyle,
+                InsertPoint = new XYZ(40, 0, 0),
+                AlignmentPoint = new XYZ(50, 0, 0),
+                HorizontalAlignment = TextHorizontalAlignment.Fit,
+                Height = 2,
+                Mirror = TextMirrorFlag.Backward,
+            });
+            document.Entities.Add(new TextEntity("CAD")
+            {
+                Style = textStyle,
+                InsertPoint = new XYZ(0, 40, 0),
+                AlignmentPoint = new XYZ(10, 40, 0),
+                HorizontalAlignment = TextHorizontalAlignment.Aligned,
+                VerticalAlignment = TextVerticalAlignmentType.Top,
+            });
+            document.Entities.Add(new TextEntity("CAD")
+            {
+                Style = textStyle,
+                InsertPoint = new XYZ(0, 50, 0),
+                AlignmentPoint = new XYZ(10, 50, 1),
+                HorizontalAlignment = TextHorizontalAlignment.Fit,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(font),
+            });
+        CadTextPrimitive[] texts = snapshot.Texts.ToArray();
+
+        Assert.Equal(3, texts.Length);
+        AssertPoint(new CadPoint3D(2, 3, 0), texts[0].Origin);
+        AssertPoint(new CadPoint3D(20, 0, 0), texts[0].XAxis * advance);
+        Assert.InRange(
+            Math.Abs((texts[0].XAxis.Length / texts[0].YAxis.Length) - 0.8),
+            0,
+            Tolerance);
+        AssertPoint(new CadPoint3D(1, 10, 0), texts[1].Origin);
+        AssertPoint(new CadPoint3D(0, 20, 0), texts[1].XAxis * advance);
+        Assert.InRange(Math.Abs(texts[1].YAxis.Length - 5), 0, Tolerance);
+        AssertPoint(new CadPoint3D(50, 0, 0), texts[2].Origin);
+        AssertPoint(new CadPoint3D(-10, 0, 0), texts[2].XAxis * advance);
+        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Equal(1, snapshot.Statistics.InvalidEntityCount);
+        Assert.Contains(
+            snapshot.Diagnostics.ToArray(),
+            diagnostic => diagnostic.Message.Contains("baseline", StringComparison.Ordinal));
+        Assert.Contains(
+            snapshot.Diagnostics.ToArray(),
+            diagnostic => diagnostic.Message.Contains("coplanar", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AlignedTextInsideNonUniformBlockTransformsBothEndpoints()
+    {
+        TtfFont font = InterFontFamily.Regular;
+        double advance = new TextLayout(
+            "CAD",
+            font,
+            1.0f,
+            float.PositiveInfinity).ContentSize.X;
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        ulong rootHandle = 0;
+        session.Edit("Add block-aligned text", document =>
+        {
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            var block = new BlockRecord("ALIGNED_LABEL");
+            block.Entities.Add(new TextEntity("CAD")
+            {
+                Style = textStyle,
+                InsertPoint = XYZ.Zero,
+                AlignmentPoint = new XYZ(10, 0, 0),
+                HorizontalAlignment = TextHorizontalAlignment.Aligned,
+            });
+            var insert = new Insert(block)
+            {
+                InsertPoint = new XYZ(5, 7, 0),
+                XScale = 2,
+                YScale = 3,
+                Rotation = Math.PI / 2,
+            };
+            document.Entities.Add(insert);
+            rootHandle = insert.Handle;
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(font),
+            });
+        CadTextPrimitive text = Assert.Single(snapshot.Texts.ToArray());
+
+        Assert.Equal(rootHandle, Assert.Single(snapshot.Entities.ToArray()).Handle);
+        AssertPoint(new CadPoint3D(5, 7, 0), text.Origin);
+        AssertPoint(new CadPoint3D(0, 20, 0), text.XAxis * advance);
+    }
+
+    [Fact]
     public void TextInsideBlockRetainsRootHandleAndComposesItsGlyphBasis()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
