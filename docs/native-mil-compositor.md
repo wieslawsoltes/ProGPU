@@ -3884,6 +3884,24 @@ host without raw packet construction. The public builder surface therefore
 matches the compact records already consumed by the native phase
 implementation.
 
+The host-target checkpoint exposes `NativeSceneExternalTarget` and matching
+`NativeCompositor.RenderScene(...)` overloads. A WPF, WinUI, or Avalonia host
+that already owns an acquired WebGPU texture view can now submit the installed
+semantic scene directly without transferring the surface texture reference,
+creating a second view, copying pixels, or manufacturing a `GpuTexture`.
+Width, height, and nonzero view identity are validated before entering the C
+ABI. The typed contract makes the remaining device-domain, configured-format,
+render-attachment-usage, and submission-lifetime obligations explicit because
+only the host that acquired the opaque view can prove them.
+
+The existing `GpuTexture` overload delegates to the same frame builder and
+retains its stronger context, format, sample-count, usage, disposal, and
+generation validation. Project-reference package coverage renders the compiled
+MIL scene through both the owned-texture and host-owned-view overloads and
+waits for the external-target submission. Provider resolution remains inside
+the compositor, so this is one API for wgpu-native and Dawn rather than a
+WPF-specific backend fork.
+
 Exact implementation checkpoint `b97b99e3` completed the full Windows 11
 ARM64 Parallels D3D12 smoke/package lane from an immutable source archive.
 MSVC 19.44 rebuilt both native providers in the 312-step `/W4 /WX` graph and

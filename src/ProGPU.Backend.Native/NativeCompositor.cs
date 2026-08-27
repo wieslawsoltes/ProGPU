@@ -615,6 +615,75 @@ public sealed unsafe class NativeCompositor : IDisposable
         NativeSceneDamageRect? damage)
     {
         ValidateTarget(target);
+        NativeSceneFrameMetrics metrics = RenderSceneCore(
+            new NativeSceneExternalTarget(
+                (nuint)target.ViewPtr,
+                target.Width,
+                target.Height),
+            dpiScale,
+            sceneId,
+            generation,
+            clearColor,
+            damage);
+        target.NotifyExternalContentChanged();
+        return metrics;
+    }
+
+    /// <summary>
+    /// Renders the installed immutable semantic scene generation directly to
+    /// a host-owned WebGPU texture view without acquiring texture ownership.
+    /// </summary>
+    public NativeSceneFrameMetrics RenderScene(
+        NativeSceneExternalTarget target,
+        float dpiScale,
+        ulong sceneId,
+        ulong generation,
+        Vector4 clearColor) => RenderScene(
+            target,
+            dpiScale,
+            sceneId,
+            generation,
+            clearColor,
+            damage: null);
+
+    /// <summary>
+    /// Renders the installed immutable semantic scene generation directly to
+    /// a host-owned WebGPU texture view while preserving contents outside an
+    /// optional logical damage rectangle.
+    /// </summary>
+    /// <remarks>
+    /// The caller guarantees that the view belongs to this compositor's
+    /// device, matches its configured format, permits render-attachment use,
+    /// and remains alive through submission completion. This overload exists
+    /// for swapchain hosts that already own the acquired view and must not
+    /// transfer its texture reference into a managed wrapper.
+    /// </remarks>
+    public NativeSceneFrameMetrics RenderScene(
+        NativeSceneExternalTarget target,
+        float dpiScale,
+        ulong sceneId,
+        ulong generation,
+        Vector4 clearColor,
+        NativeSceneDamageRect? damage)
+    {
+        ValidateExternalTarget(target);
+        return RenderSceneCore(
+            target,
+            dpiScale,
+            sceneId,
+            generation,
+            clearColor,
+            damage);
+    }
+
+    private NativeSceneFrameMetrics RenderSceneCore(
+        NativeSceneExternalTarget target,
+        float dpiScale,
+        ulong sceneId,
+        ulong generation,
+        Vector4 clearColor,
+        NativeSceneDamageRect? damage)
+    {
         if (damage is { } value &&
             (!float.IsFinite(value.X) || !float.IsFinite(value.Y) ||
              !float.IsFinite(value.Width) || !float.IsFinite(value.Height) ||
@@ -628,7 +697,7 @@ public sealed unsafe class NativeCompositor : IDisposable
             Width = target.Width,
             Height = target.Height,
             DpiScale = dpiScale,
-            TargetView = (nuint)target.ViewPtr,
+            TargetView = target.TextureView,
             ClearColor = new NativeMethods.NativeColor
             {
                 R = clearColor.X,
@@ -659,7 +728,6 @@ public sealed unsafe class NativeCompositor : IDisposable
             {
                 throw new NativeRendererException(status, ReadLastError());
             }
-            target.NotifyExternalContentChanged();
         }
         return new NativeSceneFrameMetrics(
             metrics.CommandCount,
@@ -1841,6 +1909,23 @@ public sealed unsafe class NativeCompositor : IDisposable
             throw new ArgumentException(
                 "The target must allow WebGPU render-attachment usage.",
                 nameof(target));
+        }
+    }
+
+    private void ValidateExternalTarget(NativeSceneExternalTarget target)
+    {
+        ThrowIfDisposed();
+        if (target.TextureView == 0)
+        {
+            throw new ArgumentException(
+                "A live host-owned WebGPU texture view is required.",
+                nameof(target));
+        }
+        if (target.Width == 0 || target.Height == 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(target),
+                "A host-owned scene target requires nonzero dimensions.");
         }
     }
 
