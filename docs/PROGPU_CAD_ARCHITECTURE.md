@@ -118,6 +118,13 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   zero-width lineweights use the ProGPU hairline sentinel. Non-continuous CAD
   linetypes currently produce a bounded warning and remain a tracked fidelity
   gap rather than being silently claimed as complete.
+- `CadShxFont` provides the first bounded SHX source layer. It parses the
+  standard compiled `AutoCAD-86 shapes 1.0` container into one immutable owned
+  byte store, retains each shape program as a packed slice, validates the
+  directory/range/record boundaries and exact EOF marker, and exposes the
+  standard font header metrics without interpreting drawing opcodes. Unicode
+  and Big Font containers, opcode execution, font resolution, and rendering
+  remain explicit gates; this checkpoint does not claim SHX TEXT support.
 
 The exact approved ProGPU-owned implementation provenance for this slice is
 `src/ProGPU.Scene/RenderCommand.cs` (`DrawingContext.DrawLine`, `DrawEllipse`,
@@ -408,6 +415,39 @@ consume the same retained glyph-run contract, so no paired native implementation
 change applies; matched native picture/pixel coverage remains the integration
 gate when the CAD differential suite lands.
 
+## Bounded standard SHX source
+
+`CadShxFont.Parse` is the initial clean-room SHX ingestion boundary. The input
+is caller-owned only for the synchronous parse. A successful parse copies it
+once into immutable owned storage and retains every program as a
+`ReadOnlyMemory<byte>` slice, so no per-shape program copy or runtime text
+parsing is required. Default limits cap a source at 16 MiB, 65,535 directory
+entries, and 2,000 program bytes per shape. The parser rejects malformed
+directory ranges, duplicates, unterminated names/programs, truncated records,
+invalid standard-font metrics, trailing data, and unsupported container
+signatures before publishing a font.
+
+Parsing takes `O(B + S)` time and `O(B + S)` owned storage for `B` input bytes
+and `S` shape-directory entries. Shape lookup is expected `O(1)` and program
+storage remains packed. Opcode interpretation is deliberately absent from this
+slice: Autodesk's commands 0 through 14, subshape recursion, the four-entry
+location stack, vertical-only command gating, scale arithmetic, and arc
+semantics require a separately bounded interpreter and geometry-quality tests.
+Unicode two-byte subshape references and Big Font ranges use different
+contracts and are rejected instead of being guessed as standard records.
+
+The binary container layout was independently observed from the compiled
+`external/ACadSharp/samples/test_shape.shx` artifact pinned by this repository;
+no ACadSharp or other third-party parser implementation was consulted or
+copied. The regression reads that compiled artifact as an observable fixture.
+Program semantics and the 2,000-byte definition limit come only from the
+official Autodesk shape/font documentation linked below. This managed CPU
+source parser changes no retained command, shader, C ABI, compositor, or GPU
+resource contract, so the native-renderer applicability audit is not applicable
+at this checkpoint. The later interpreter/renderer must feed an equivalent
+shared retained geometry contract to both compositors and add matched output
+and performance coverage.
+
 The 2026-08-27 Release applicability/performance audit compared commit
 `778dc69f` with this lowering on the same Apple Silicon/.NET 10 machine and the
 same 10,000-entity workload. A 100-iteration alternating-order control measured
@@ -610,9 +650,24 @@ Sources consulted on 2026-08-27:
   definitions or cloning third-party entities.
 - [Autodesk lineweights](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-4B33ACD3-F6DD-4CB5-8C55-D6D0D7130905.htm):
   adopted distinct cosmetic model-space and physical paper/plot policies.
-- [Autodesk shape/font descriptions](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-DE941DB5-7044-433C-AA68-2A9AE98A5713.htm):
-  adopted SHX regular/Unicode/Big Font scope; parsing remains a separate bounded
-  clean-room design.
+- [Autodesk shape/font descriptions](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-DE941DB5-7044-433C-AA68-2A9AE98A5713.htm),
+  [special codes](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-06832147-16BE-4A66-A6D0-3ADF98DC8228.htm),
+  [vector directions](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Customization/files/GUID-0A8E12A1-F4AB-44AD-8A9B-2140E0D5FD23.htm),
+  [text-font descriptions](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Customization/files/GUID-9BBE5B28-DF02-4EC5-863A-BA04AB6F5EF1.htm),
+  [Unicode font descriptions](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-MAC-Customization/files/GUID-D38A5A7B-1877-46B3-8120-32DA5F7430D1.htm),
+  [Big Font descriptions](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Customization/files/GUID-CDAF6EAF-85D1-48FC-9A78-43514E0132D5.htm),
+  and [shape/font compilation](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-BC8EFEAC-D640-410A-8EC8-2EBB38DE6563.htm):
+  adopted standard header metrics, bounded program size, command semantics,
+  direction encoding, and the distinct regular/Unicode/Big Font contracts;
+  adapted only the standard compiled container into an immutable source layer;
+  rejected signature guessing, eager opcode expansion, and treating Unicode or
+  Big Font records as standard shapes.
+- [Autodesk vertical text-style behavior](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-32786109-F454-47DD-AA4C-FB8C37F4430D.htm)
+  and [Text Style dialog contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-1ED81E98-6463-4574-875F-183C8280C4AC.htm):
+  adopted vertical SHX/Big Font mode as a distinct font capability and retained
+  the explicit ordinary-TrueType vertical-style gate; rejected synthesizing
+  vertical Latin TrueType layout for a contract Autodesk reserves for vertical
+  SHX/Big Fonts and supported Asian vertical faces.
 - [Skia shaped-text design](https://docs.skia.org/docs/dev/design/text_shaper/),
   [SkParagraph decoration declarations](https://skia.googlesource.com/skia/+/7a1bf999357aa755768f7b72265b91eea5c2758c/modules/skparagraph/include/TextStyle.h),
   and [Skia text guidance](https://skia.org/docs/user/tips/): adopted separation
