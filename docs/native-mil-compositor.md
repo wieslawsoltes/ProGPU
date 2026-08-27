@@ -3852,6 +3852,18 @@ legacy fail-closed behavior. Nonuniform X/Y DPI is now the remaining native
 dynamic-guideline limitation, and `NeedsMoreCycles` still has to be consumed by
 the typed LibreWPF render scheduler.
 
+The scheduler-timing checkpoint adds the portable managed half of that
+contract. `NativeMilSceneBuildTiming.TryGetContinuationDelay(...)` validates
+the request/result serial and known result flags, converts the absolute
+monotonic native due time to a relative `TimeSpan`, and rounds fractional
+100-nanosecond ticks upward so a UI host never advances a phase early. Overdue
+work returns a zero delay and completed scenes return no continuation. The
+helper has no dispatcher dependency and is shared by WPF, WinUI, and Avalonia;
+each host remains responsible only for submitting the returned delay to its
+typed scheduler and waking its native event loop. Package-consumer coverage
+executes future, fractional-tick, complete, and overdue cases before compiling
+the same MIL stream through wgpu-native and Dawn.
+
 Exact implementation checkpoint `b97b99e3` completed the full Windows 11
 ARM64 Parallels D3D12 smoke/package lane from an immutable source archive.
 MSVC 19.44 rebuilt both native providers in the 312-step `/W4 /WX` graph and
