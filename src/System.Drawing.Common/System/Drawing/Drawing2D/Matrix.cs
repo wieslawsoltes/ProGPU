@@ -83,6 +83,12 @@ public sealed class Matrix : MarshalByRefObject, IDisposable
         }
     }
 
+    internal bool TryGetMatrixElements(out Matrix3x2 matrix)
+    {
+        matrix = _matrix;
+        return !_disposed;
+    }
+
     public float[] Elements
     {
         get

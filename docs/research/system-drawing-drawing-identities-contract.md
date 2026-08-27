@@ -14,7 +14,7 @@ The public shapes and numeric identities are checked against the reference assem
 
 `Pen.PenType` uses direct type matches for the supported managed brush hierarchy: `SolidBrush`, `HatchBrush`, `TextureBrush`, and `LinearGradientBrush`. No native pen query, GDI+ handle, runtime reflection, private-field scan, or fake compatibility object is used. `PathGradient` remains a valid enum identity, but no pen can currently report it because `PathGradientBrush` is still reviewed API debt.
 
-The separate `Pen.Transform` family remains suppressed. Official behavior transforms the pen tip rather than the centerline and ignores translation. ProGPU's current stroke model has circular scalar-width expansion but no typed anisotropic pen-tip transform. The methods will not be implemented by incorrectly transforming path geometry; the vector stroke contract must first carry the tip transform through widening, rendering, and hit testing.
+This checkpoint left the separate `Pen.Transform` family suppressed because transforming the centerline would have been incorrect. The later [pen-transform slice](system-drawing-pen-transform-contract.md) resolves that debt with a typed inverse-space widening model shared by rendering, widening, bounds, and hit testing.
 
 ## Gates and evidence
 

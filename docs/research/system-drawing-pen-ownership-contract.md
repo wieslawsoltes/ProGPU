@@ -35,4 +35,4 @@ The complete LibreWinForms source-first shadow gate passes default canonical bui
 
 ## Remaining pen work
 
-This ownership slice does not pretend that storage equals rendering. Compound arrays, custom caps, and pen transforms remain explicit ApiCompat debt until their state can be carried through typed ProGPU stroke contracts and verified with geometry/pixel and performance gates. In particular, `Pen.Transform` changes the pen tip rather than translating the stroke centerline, so it must not be approximated with a graphics transform.
+This ownership slice does not pretend that storage equals rendering. Compound arrays and custom caps remain explicit ApiCompat debt until their state can be carried through typed ProGPU stroke contracts and verified with geometry/pixel and performance gates. The later [pen-transform slice](system-drawing-pen-transform-contract.md) resolves transform debt without approximating it as a graphics transform: inverse-space widening changes the pen tip while preserving the centerline.

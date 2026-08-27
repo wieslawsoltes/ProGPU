@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Drawing.Drawing2D;
+using System.Numerics;
 
 namespace System.Drawing;
 
@@ -23,6 +24,7 @@ public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
     private LineJoin _lineJoin;
     private float _miterLimit = 10f;
     private LineCap _startCap;
+    private Matrix3x2 _transform = Matrix3x2.Identity;
     private float _width;
 
     public Brush Brush
@@ -117,6 +119,30 @@ public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
                 LinearGradientBrush => PenType.LinearGradient,
                 _ => PenType.SolidColor,
             };
+        }
+    }
+
+    public Matrix Transform
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return new Matrix(_transform);
+        }
+        set
+        {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
+            ArgumentNullException.ThrowIfNull(value);
+
+            if (!value.TryGetMatrixElements(out Matrix3x2 transform) ||
+                !IsFinite(transform) ||
+                !Matrix3x2.Invert(transform, out _))
+            {
+                throw new ArgumentException("Parameter is not valid.", nameof(value));
+            }
+
+            _transform = transform;
         }
     }
 
@@ -303,6 +329,95 @@ public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
         return nativePen;
     }
 
+    internal ProGPU.Vector.Brush ToProGpuBrush(Point renderingOrigin)
+    {
+        ThrowIfDisposed();
+        return Graphics.TransformBrush(_brush, renderingOrigin);
+    }
+
+    internal bool HasTransformedTip
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _transform.M11 != 1f ||
+                _transform.M12 != 0f ||
+                _transform.M21 != 0f ||
+                _transform.M22 != 1f;
+        }
+    }
+
+    internal bool TryGetTipTransform(out Matrix3x2 transform, out Matrix3x2 inverse)
+    {
+        ThrowIfDisposed();
+        transform = new Matrix3x2(
+            _transform.M11,
+            _transform.M12,
+            _transform.M21,
+            _transform.M22,
+            0f,
+            0f);
+        inverse = default;
+        return IsFinite(transform) && Matrix3x2.Invert(transform, out inverse);
+    }
+
+    public void ResetTransform()
+    {
+        ThrowIfDisposed();
+        ThrowIfImmutable();
+        _transform = Matrix3x2.Identity;
+    }
+
+    public void MultiplyTransform(Matrix matrix)
+        => MultiplyTransform(matrix, MatrixOrder.Prepend);
+
+    public void MultiplyTransform(Matrix matrix, MatrixOrder order)
+    {
+        ThrowIfDisposed();
+        ThrowIfImmutable();
+        ArgumentNullException.ThrowIfNull(matrix);
+        if (order is not MatrixOrder.Prepend and not MatrixOrder.Append)
+        {
+            return;
+        }
+
+        if (!matrix.TryGetMatrixElements(out Matrix3x2 operation))
+        {
+            return;
+        }
+
+        Matrix3x2 result = order == MatrixOrder.Prepend
+            ? operation * _transform
+            : _transform * operation;
+        if (!IsFinite(operation) ||
+            !Matrix3x2.Invert(operation, out _) ||
+            !IsFinite(result) ||
+            !Matrix3x2.Invert(result, out _))
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(matrix));
+        }
+
+        _transform = result;
+    }
+
+    public void TranslateTransform(float dx, float dy)
+        => TranslateTransform(dx, dy, MatrixOrder.Prepend);
+
+    public void TranslateTransform(float dx, float dy, MatrixOrder order)
+        => ApplyTransform(Matrix3x2.CreateTranslation(dx, dy), order);
+
+    public void ScaleTransform(float sx, float sy)
+        => ScaleTransform(sx, sy, MatrixOrder.Prepend);
+
+    public void ScaleTransform(float sx, float sy, MatrixOrder order)
+        => ApplyTransform(Matrix3x2.CreateScale(sx, sy), order);
+
+    public void RotateTransform(float angle)
+        => RotateTransform(angle, MatrixOrder.Prepend);
+
+    public void RotateTransform(float angle, MatrixOrder order)
+        => ApplyTransform(Matrix3x2.CreateRotation(angle * (MathF.PI / 180f)), order);
+
     public void SetLineCap(LineCap startCap, LineCap endCap, DashCap dashCap)
     {
         ThrowIfDisposed();
@@ -346,6 +461,7 @@ public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
             _lineJoin = _lineJoin,
             _miterLimit = _miterLimit,
             _startCap = _startCap,
+            _transform = _transform,
             _customDashPattern = _customDashPattern is null ? null : (float[])_customDashPattern.Clone()
         };
     }
@@ -396,6 +512,39 @@ public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
             throw new InvalidEnumArgumentException(parameterName, (int)lineCap, typeof(LineCap));
         }
     }
+
+    private void ApplyTransform(Matrix3x2 operation, MatrixOrder order)
+    {
+        ThrowIfDisposed();
+        ThrowIfImmutable();
+        if (order is not MatrixOrder.Prepend and not MatrixOrder.Append)
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(order));
+        }
+
+        if (!IsFinite(operation))
+        {
+            throw new ArgumentException("Parameter is not valid.");
+        }
+
+        Matrix3x2 result = order == MatrixOrder.Prepend
+            ? operation * _transform
+            : _transform * operation;
+        if (!IsFinite(result))
+        {
+            throw new ArgumentException("Parameter is not valid.");
+        }
+
+        _transform = result;
+    }
+
+    private static bool IsFinite(Matrix3x2 matrix)
+        => float.IsFinite(matrix.M11) &&
+            float.IsFinite(matrix.M12) &&
+            float.IsFinite(matrix.M21) &&
+            float.IsFinite(matrix.M22) &&
+            float.IsFinite(matrix.M31) &&
+            float.IsFinite(matrix.M32);
 
     public void Dispose()
     {

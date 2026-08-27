@@ -1261,6 +1261,16 @@ public class Graphics :
     public void DrawLine(Pen pen, float x1, float y1, float x2, float y2)
     {
         ArgumentNullException.ThrowIfNull(pen);
+        if (pen.HasTransformedTip)
+        {
+            var geometry = new PathGeometry();
+            var figure = new PathFigure(new Vector2(x1, y1));
+            figure.Segments.Add(new LineSegment(new Vector2(x2, y2)));
+            geometry.Figures.Add(figure);
+            DrawTransformedPath(pen, geometry);
+            return;
+        }
+
         var localStart = new Vector2(x1, y1);
         var localEnd = new Vector2(x2, y2);
         _context.DrawLine(
@@ -1546,7 +1556,7 @@ public class Graphics :
 
     public void DrawRectangle(Pen pen, float x, float y, float width, float height)
     {
-        if (RequiresTransformedStrokePath)
+        if (RequiresTransformedStrokePath || pen.HasTransformedTip)
         {
             using var path = new GraphicsPath();
             path.AddRectangle(new RectangleF(x, y, width, height));
@@ -1787,7 +1797,7 @@ public class Graphics :
 
     public void DrawEllipse(Pen pen, float x, float y, float width, float height)
     {
-        if (RequiresTransformedStrokePath)
+        if (RequiresTransformedStrokePath || pen.HasTransformedTip)
         {
             using var path = new GraphicsPath();
             path.AddEllipse(x, y, width, height);
@@ -2039,6 +2049,30 @@ public class Graphics :
 
     private void DrawTransformedPath(Pen pen, PathGeometry geometry)
     {
+        if (pen.HasTransformedTip)
+        {
+            if (!GraphicsPath.TryCreateWidenedGeometry(
+                    geometry,
+                    pen,
+                    matrix: null,
+                    flatness: 0.25f,
+                    out PathGeometry widened))
+            {
+                throw new ArgumentException("Parameter is not valid.", nameof(pen));
+            }
+
+            if (widened.Figures.Count != 0)
+            {
+                _context.DrawPath(
+                    pen.ToProGpuBrush(_renderingOrigin),
+                    null,
+                    widened,
+                    CurrentTransform4x4());
+            }
+
+            return;
+        }
+
         _context.DrawPath(
             null,
             pen.ToProGpuPen(pen.Width, _renderingOrigin),

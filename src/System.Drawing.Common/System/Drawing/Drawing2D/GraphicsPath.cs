@@ -770,6 +770,26 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
     public RectangleF GetBounds(Matrix? matrix, Pen? pen)
     {
         ThrowIfDisposed();
+        if (pen?.HasTransformedTip == true)
+        {
+            if (!TryCreateWidenedGeometry(
+                    _geometry,
+                    pen,
+                    matrix,
+                    flatness: 0.25f,
+                    out PathGeometry widened) ||
+                !widened.TryGetBounds(out Vector2 widenedMin, out Vector2 widenedMax))
+            {
+                return RectangleF.Empty;
+            }
+
+            return RectangleF.FromLTRB(
+                widenedMin.X,
+                widenedMin.Y,
+                widenedMax.X,
+                widenedMax.Y);
+        }
+
         PathGeometry geometry = matrix == null
             ? _geometry
             : _geometry.CreateTransformed(ToMatrix4x4(matrix.MatrixElements));
@@ -822,6 +842,23 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
             return false;
         }
 
+        if (pen.HasTransformedTip)
+        {
+            return TryCreateWidenedGeometry(
+                    _geometry,
+                    pen,
+                    matrix: null,
+                    flatness: 0.25f,
+                    out PathGeometry transformedOutline) &&
+                PathGeometryHitTesting.TryContainsFill(
+                    transformedOutline,
+                    new Vector2(x, y),
+                    tolerance: 0f,
+                    relativeTolerance: false,
+                    out bool transformedContains) &&
+                transformedContains;
+        }
+
         PathGeometry flattened = RequiresFlattening()
             ? CreateFlattenedGeometry(matrix: null, flatness: 0.25f)
             : _geometry;
@@ -864,9 +901,7 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
             return;
         }
 
-        PathGeometry flattened = CreateFlattenedGeometry(matrix, flatness);
-        ProGPU.Vector.Pen nativePen = pen.ToProGpuPen(GetEffectiveStrokeWidth(pen));
-        if (!StrokePathGeometry.TryCreateWidenedPath(flattened, nativePen, out PathGeometry widened))
+        if (!TryCreateWidenedGeometry(_geometry, pen, matrix, flatness, out PathGeometry widened))
         {
             throw new ArgumentException("Parameter is not valid.", nameof(pen));
         }
@@ -1017,16 +1052,73 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
         }
     }
 
+    internal static bool TryCreateWidenedGeometry(
+        PathGeometry geometry,
+        Pen pen,
+        Matrix? matrix,
+        float flatness,
+        out PathGeometry widened)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+        ArgumentNullException.ThrowIfNull(pen);
+        if (!float.IsFinite(flatness) || flatness <= 0f)
+        {
+            throw new ArgumentException("Parameter is not valid.", nameof(flatness));
+        }
+
+        PathGeometry source = matrix is null
+            ? geometry
+            : geometry.CreateTransformed(ToMatrix4x4(matrix.MatrixElements));
+        bool transformedTip = pen.HasTransformedTip;
+        Matrix3x2 tipTransform = Matrix3x2.Identity;
+        if (transformedTip)
+        {
+            if (!pen.TryGetTipTransform(out tipTransform, out Matrix3x2 inverseTip))
+            {
+                widened = new PathGeometry { FillRule = FillRule.Nonzero };
+                return true;
+            }
+
+            source = source.CreateTransformed(ToMatrix4x4(inverseTip));
+            if (TransformMetrics.TryGetStrokeScales(
+                    ToMatrix4x4(tipTransform),
+                    out float maximumScale,
+                    out _))
+            {
+                flatness /= MathF.Max(1f, maximumScale);
+            }
+        }
+
+        PathGeometry flattened = CreateFlattenedGeometry(source, flatness);
+        ProGPU.Vector.Pen nativePen = pen.ToProGpuPen(GetEffectiveStrokeWidth(pen));
+        if (!StrokePathGeometry.TryCreateWidenedPath(flattened, nativePen, out widened))
+        {
+            return false;
+        }
+
+        if (transformedTip)
+        {
+            widened = widened.CreateTransformed(ToMatrix4x4(tipTransform));
+        }
+
+        return true;
+    }
+
     private PathGeometry CreateFlattenedGeometry(Matrix? matrix, float flatness)
+    {
+        PathGeometry source = matrix == null
+            ? _geometry
+            : _geometry.CreateTransformed(ToMatrix4x4(matrix.MatrixElements));
+        return CreateFlattenedGeometry(source, flatness);
+    }
+
+    private static PathGeometry CreateFlattenedGeometry(PathGeometry source, float flatness)
     {
         if (!float.IsFinite(flatness) || flatness <= 0f)
         {
             throw new ArgumentException("Parameter is not valid.", nameof(flatness));
         }
 
-        PathGeometry source = matrix == null
-            ? _geometry
-            : _geometry.CreateTransformed(ToMatrix4x4(matrix.MatrixElements));
         var flattened = new PathGeometry { FillRule = source.FillRule };
         foreach (PathFigure figure in source.Figures)
         {
