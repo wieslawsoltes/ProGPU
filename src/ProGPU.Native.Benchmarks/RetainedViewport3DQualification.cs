@@ -11,11 +11,19 @@ internal static class RetainedViewport3DQualification
     private const uint ViewportHandle = 1U;
     private const uint TargetHandle = 2U;
     private const uint ClipHandle = 3U;
+    private const uint TransformHandle = 4U;
     private const ulong SceneId = 0x4D494C5633443031UL;
+    private const float Opacity = 0.5f;
     private static readonly NativeImageRect Viewport =
         new(32f, 20f, 64f, 48f);
     private static readonly NativeImageRect Clip =
         new(50f, 30f, 28f, 25f);
+    private static readonly NativeMilRect ScrollClip =
+        new(48, 28, 28, 26);
+    private static readonly NativeImageRect TransformedViewport =
+        new(32f, 21f, 48f, 36f);
+    private static readonly NativeImageRect EffectiveClip =
+        new(48f, 28.5f, 18.5f, 18.75f);
 
     public static void Run()
     {
@@ -58,23 +66,29 @@ internal static class RetainedViewport3DQualification
             $"front={front.Update}/{front.Frame}, " +
             $"back={back.Update}/{back.Frame}");
         Require(
-            IsInsideViewport(front.Extent) && IsInsideViewport(back.Extent) &&
-            IsInsideClip(front.Extent) && IsInsideClip(back.Extent),
+            IsInside(TransformedViewport, front.Extent) &&
+            IsInside(TransformedViewport, back.Extent) &&
+            IsInside(EffectiveClip, front.Extent) &&
+            IsInside(EffectiveClip, back.Extent),
             "retained MIL Viewport3D escaped its typed viewport: " +
-            $"viewport={Viewport}, clip={Clip}, front={front.Extent}, " +
+            $"viewport={FormatRect(TransformedViewport)}, " +
+            $"clip={FormatRect(EffectiveClip)}, " +
+            $"front={front.Extent}, " +
             $"back={back.Extent}");
         Require(
             front.Pixels.AsSpan().SequenceEqual(back.Pixels),
             "front/back retained MIL face selection produced different pixels");
-        RequireRedPixel(front.Pixels, 64, 44);
+        RequireRedPixel(front.Pixels, 56, 39, 127, 129);
 
         Console.WriteLine(
             "Qualified live retained MIL Viewport3D placement and exact " +
             "front/back material selection " +
             $"on adapter '{context.AdapterName}', " +
             $"backend={context.AdapterBackendType}; " +
-            $"viewport={Viewport}, clip={Clip}, extent={front.Extent}, " +
-            $"front={front.Frame}, back={back.Frame}.");
+            $"viewport={FormatRect(TransformedViewport)}, " +
+            $"clip={FormatRect(EffectiveClip)}, " +
+            $"opacity={Opacity.ToString(System.Globalization.CultureInfo.InvariantCulture)}, " +
+            $"extent={front.Extent}, front={front.Frame}, back={back.Frame}.");
     }
 
     private static FrameResult Render(
@@ -117,7 +131,15 @@ internal static class RetainedViewport3DQualification
         batch.CreateResource(
             ClipHandle,
             NativeMilResourceType.RectangleGeometry);
+        batch.CreateResource(
+            TransformHandle,
+            NativeMilResourceType.ScaleTransform);
         batch.CreateVisual(ViewportHandle);
+        batch.SetScaleTransform(TransformHandle, 0.75, 0.75);
+        batch.SetVisualTransform(ViewportHandle, TransformHandle);
+        batch.SetVisualOffset(ViewportHandle, 8, 6);
+        batch.SetVisualOpacity(ViewportHandle, Opacity);
+        batch.SetVisualScrollableAreaClip(ViewportHandle, ScrollClip);
         batch.SetRectangleGeometry(
             ClipHandle,
             Clip.X,
@@ -239,30 +261,35 @@ internal static class RetainedViewport3DQualification
             count);
     }
 
-    private static void RequireRedPixel(byte[] pixels, int x, int y)
+    private static void RequireRedPixel(
+        byte[] pixels,
+        int x,
+        int y,
+        byte minimumRed,
+        byte maximumRed)
     {
         int offset = checked((y * (int)Width + x) * 4);
         Require(
-            pixels[offset] >= 250 && pixels[offset + 1] == 0 &&
+            pixels[offset] >= minimumRed && pixels[offset] <= maximumRed &&
+            pixels[offset + 1] == 0 &&
             pixels[offset + 2] == 0 && pixels[offset + 3] == 255,
             $"unexpected retained MIL Viewport3D center pixel at ({x},{y}): " +
             $"{pixels[offset]}/{pixels[offset + 1]}/" +
             $"{pixels[offset + 2]}/{pixels[offset + 3]}");
     }
 
-    private static bool IsInsideViewport(PixelExtent extent) =>
+    private static bool IsInside(
+        NativeImageRect bounds,
+        PixelExtent extent) =>
         extent.IsVisible &&
-        extent.MinimumX >= (int)Viewport.X &&
-        extent.MinimumY >= (int)Viewport.Y &&
-        extent.MaximumX < (int)(Viewport.X + Viewport.Width) &&
-        extent.MaximumY < (int)(Viewport.Y + Viewport.Height);
+        extent.MinimumX >= (int)MathF.Floor(bounds.X) &&
+        extent.MinimumY >= (int)MathF.Floor(bounds.Y) &&
+        extent.MaximumX < (int)MathF.Ceiling(bounds.X + bounds.Width) &&
+        extent.MaximumY < (int)MathF.Ceiling(bounds.Y + bounds.Height);
 
-    private static bool IsInsideClip(PixelExtent extent) =>
-        extent.IsVisible &&
-        extent.MinimumX >= (int)Clip.X &&
-        extent.MinimumY >= (int)Clip.Y &&
-        extent.MaximumX < (int)(Clip.X + Clip.Width) &&
-        extent.MaximumY < (int)(Clip.Y + Clip.Height);
+    private static string FormatRect(NativeImageRect value) =>
+        FormattableString.Invariant(
+            $"[{value.X},{value.Y}]-[{value.X + value.Width},{value.Y + value.Height}]");
 
     private static void Require(bool condition, string message)
     {

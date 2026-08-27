@@ -649,10 +649,12 @@ stencil compare modes, and treating the ABI position's reserved fourth float
 as homogeneous `w`. The shared shader now derives line corners without dynamic
 array indexing and constructs mesh positions as `vec4(position.xyz, 1)`; the
 pipeline initializes both unused stencil faces explicitly. Apple M3 Pro Metal
-qualifies one draw with no CPU projection. The current gate additionally
-assigns the retained viewport an exact `[50,30]-[78,55]` rectangle clip. Its
-520 colored pixels occupy `[50,30]-[77,54]`, wholly inside both that clip and
-the typed `[32,20]-[96,68]` viewport.
+qualifies one draw with no CPU projection. The current gate applies a 0.75
+axis scale, `[8,6]` retained offset, 0.5 opacity, exact local rectangle clip,
+and world-space scroll clip together. The resulting transformed viewport is
+`[32,21]-[80,57]`, their effective clip is
+`[48,28.5]-[66.5,47.25]`, and all 291 colored pixels occupy
+`[48,28]-[66,47]` with the expected half-red center sample.
 
 Mesh flags now distinguish the source-compatible two-sided mode from exact
 front-only and back-only material entries without changing the scene ABI.
@@ -662,7 +664,9 @@ Triangle strips remain normalized to triangle lists before selection. The live
 viewport gate renders a front entry and an opposite-winding back entry in
 separate retained generations and requires byte-identical readbacks, so both
 face pipelines, their WPF material semantics, and the inherited rectangle clip
-execute on every gated backend.
+execute on every gated backend. The same readback also makes retained
+axis-preserving transforms, offsets, opacity, and scroll clipping executable
+gate requirements instead of packet-only assertions.
 
 - Implement the remaining 2D/3D resource execution, curve dashes, exact
   translated-equivalent EvenOdd overlap execution, remaining pen/image/media
