@@ -65,6 +65,34 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver
         }
     }
 
+    public bool ContainsRegisteredName(string name)
+    {
+        string key = NormalizeLookupName(name, nameof(name));
+        lock (_gate)
+        {
+            return _fonts.ContainsKey(key);
+        }
+    }
+
+    public bool TryGetMapping(
+        string requestedFontName,
+        out string replacementFontFilename)
+    {
+        string requested = NormalizeMappingSource(
+            requestedFontName,
+            nameof(requestedFontName));
+        lock (_gate)
+        {
+            if (_mappings.TryGetValue(requested, out string? replacement))
+            {
+                replacementFontFilename = replacement;
+                return true;
+            }
+        }
+        replacementFontFilename = string.Empty;
+        return false;
+    }
+
     public CadShxGlyphCache ParseAndRegister(
         string fontFilename,
         ReadOnlySpan<byte> source,

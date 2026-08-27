@@ -513,6 +513,22 @@ register discovered support files and browser code can register bundled byte
 assets through the same API. Ordered filesystem search remains host
 initialization work rather than synchronous snapshot behavior.
 
+`CadShxFontDiscovery.DiscoverAsync` is the opt-in desktop host adapter for that
+filesystem work. It captures a document's distinct standard-SHX style filenames
+under the session lock, then releases the document before doing any IO. It probes
+the drawing directory first and explicit support directories in caller order,
+using exact filenames without enumerating directories. An FMP replacement is
+probed before its original name; if the mapped target is unavailable, discovery
+probes the original filename so the catalog can apply its documented fallback.
+Defaults bound the operation to 256 directories, 4,096 distinct style requests, 16 MiB per parser
+input, and 256 MiB total. Candidate sizes and reads are preflighted before any
+registration, first-existing corrupt files do not silently fall through to a
+lower-priority directory, and missing/rejected resources produce bounded typed
+diagnostics. Parsing is `O(B + S)` for total bytes `B` and SHX directory entries
+`S`; exact path probing is `O(F * D)` for unresolved filenames `F` and search
+directories `D`. Browser hosts continue to register bundled bytes directly, and
+snapshot compilation/render replay performs no discovery or file IO.
+
 `CadFontMappingTable.Parse` provides the bounded configuration seam for the
 documented FMP format. It accepts ordinary ASCII input containing exactly one
 requested/replacement pair per non-empty line, separated by one semicolon;
@@ -809,7 +825,8 @@ Sources consulted on 2026-08-27:
   path host discovery, ordinary ASCII one-pair-per-line mapping files,
   extensionless/pathless requested names, extension-bearing substitutes, and
   explicit replacement diagnostics. Adapted these into a browser-neutral
-  pre-registered immutable catalog and strict bounded parser; rejected
+  pre-registered immutable catalog, strict bounded parser, and an asynchronous
+  style-driven desktop discovery adapter whose ordering is caller-owned; rejected
   synchronous file IO during snapshot compilation, undocumented comment syntax,
   platform-global registry state, unreported alternate-font use, and treating a
   missing mapped font as missing original content. The current catalog-application
