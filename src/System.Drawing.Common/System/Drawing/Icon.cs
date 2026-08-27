@@ -5,7 +5,7 @@ using System.Text;
 namespace System.Drawing;
 
 [System.ComponentModel.TypeConverter(typeof(IconConverter))]
-public sealed class Icon : IDisposable, ICloneable
+public sealed partial class Icon : IDisposable, ICloneable
 {
     private readonly Bitmap? _bitmap;
 

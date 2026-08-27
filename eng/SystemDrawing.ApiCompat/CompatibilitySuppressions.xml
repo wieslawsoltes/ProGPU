@@ -46,18 +46,6 @@
     <Target>M:System.Drawing.Graphics.GetHalftonePalette</Target>
   </Suppression>
   <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Icon.ExtractAssociatedIcon(System.String)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Icon.ExtractIcon(System.String,System.Int32,System.Boolean)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Icon.ExtractIcon(System.String,System.Int32,System.Int32)</Target>
-  </Suppression>
-  <Suppression>
     <DiagnosticId>CP0003</DiagnosticId>
     <Target>System.Drawing.Common, Version=10.0.0.0, Culture=neutral, PublicKeyToken=c29c9752855ee183</Target>
   </Suppression>
