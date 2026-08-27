@@ -50,7 +50,9 @@ public sealed class CadSnapshotCompiler
         var faces = new List<CadFacePrimitive>();
         var splines = new List<CadSplinePrimitive>();
         var polylines = new List<CadPolylinePrimitive>();
+        var polylines3D = new List<CadPolyline3DPrimitive>();
         var polylineVertices = new List<CadPolylineVertex>();
+        var polyline3DPoints = new List<CadPoint3D>();
         var splineControlPoints = new List<CadPoint3D>();
         var splineKnots = new List<double>();
         var splineWeights = new List<double>();
@@ -97,6 +99,18 @@ public sealed class CadSnapshotCompiler
                         styleIndex,
                         polylines,
                         polylineVertices),
+                    Polyline2D polyline => CompilePolyline2D(
+                        polyline,
+                        layerIndex,
+                        styleIndex,
+                        polylines,
+                        polylineVertices),
+                    Polyline3D polyline => CompilePolyline3D(
+                        polyline,
+                        layerIndex,
+                        styleIndex,
+                        polylines3D,
+                        polyline3DPoints),
                     _ => null,
                 };
 
@@ -160,7 +174,9 @@ public sealed class CadSnapshotCompiler
             faces.ToArray(),
             splines.ToArray(),
             polylines.ToArray(),
+            polylines3D.ToArray(),
             polylineVertices.ToArray(),
+            polyline3DPoints.ToArray(),
             splineControlPoints.ToArray(),
             splineKnots.ToArray(),
             splineWeights.ToArray(),
@@ -492,9 +508,107 @@ public sealed class CadSnapshotCompiler
             normalizedVertices[i] = new CadPolylineVertex(x, y, vertex.Bulge);
         }
 
+        return AddPlanarPolyline(
+            polyline.Handle,
+            CadEntityKind.LightweightPolyline,
+            layerIndex,
+            styleIndex,
+            worldOrigin,
+            basis,
+            polyline.IsClosed,
+            normalizedVertices,
+            destination,
+            vertices);
+    }
+
+    private static CadEntityHeader CompilePolyline2D(
+        Polyline2D polyline,
+        int layerIndex,
+        int styleIndex,
+        List<CadPolylinePrimitive> destination,
+        List<CadPolylineVertex> vertices)
+    {
+        if (polyline.Vertices.Count < 2)
+        {
+            throw new ArgumentException("A 2D polyline must contain at least two vertices.");
+        }
+
+        if (polyline.StartWidth != 0.0 || polyline.EndWidth != 0.0 ||
+            polyline.Vertices.Any(vertex => vertex.StartWidth != 0.0 || vertex.EndWidth != 0.0))
+        {
+            throw new CadUnsupportedEntityException(
+                "Wide 2D polylines require filled-outline lowering and cannot be treated as cosmetic strokes.");
+        }
+
+        if (polyline.Thickness != 0.0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Extruded 2D polylines require 3D side-surface lowering.");
+        }
+
+        if (polyline.SmoothSurface != SmoothSurfaceType.NoSmooth ||
+            (polyline.Flags & (PolylineFlags.CurveFit | PolylineFlags.SplineFit)) != 0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Curve-fit and spline-fit legacy polylines require fitted-vertex semantic lowering.");
+        }
+
+        if (!double.IsFinite(polyline.Elevation))
+        {
+            throw new ArgumentException("Polyline elevation must be finite.");
+        }
+
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(polyline.Normal));
+        Vertex2D first = polyline.Vertices[0];
+        double localOriginX = first.Location.X;
+        double localOriginY = first.Location.Y;
+        CadPoint3D worldOrigin = basis.Transform(
+            new CadPoint3D(localOriginX, localOriginY, polyline.Elevation));
+        EnsureFinite(worldOrigin);
+
+        var normalizedVertices = new CadPolylineVertex[polyline.Vertices.Count];
+        for (int i = 0; i < polyline.Vertices.Count; i++)
+        {
+            Vertex2D vertex = polyline.Vertices[i];
+            double x = vertex.Location.X - localOriginX;
+            double y = vertex.Location.Y - localOriginY;
+            if (!double.IsFinite(x) || !double.IsFinite(y) ||
+                !double.IsFinite(vertex.Location.Z) || !double.IsFinite(vertex.Bulge))
+            {
+                throw new ArgumentException("Polyline locations and bulges must be finite.");
+            }
+
+            normalizedVertices[i] = new CadPolylineVertex(x, y, vertex.Bulge);
+        }
+
+        return AddPlanarPolyline(
+            polyline.Handle,
+            CadEntityKind.Polyline2D,
+            layerIndex,
+            styleIndex,
+            worldOrigin,
+            basis,
+            polyline.IsClosed,
+            normalizedVertices,
+            destination,
+            vertices);
+    }
+
+    private static CadEntityHeader AddPlanarPolyline(
+        ulong handle,
+        CadEntityKind kind,
+        int layerIndex,
+        int styleIndex,
+        CadPoint3D worldOrigin,
+        CadCoordinateSystem basis,
+        bool isClosed,
+        CadPolylineVertex[] normalizedVertices,
+        List<CadPolylinePrimitive> destination,
+        List<CadPolylineVertex> vertices)
+    {
         ReadOnlySpan<CadPolylineVertex> added = normalizedVertices;
         CadBounds3D bounds = CadBounds3D.Empty;
-        int segmentCount = polyline.IsClosed ? added.Length : added.Length - 1;
+        int segmentCount = isClosed ? added.Length : added.Length - 1;
         for (int i = 0; i < segmentCount; i++)
         {
             CadPolylineVertex start = added[i];
@@ -519,11 +633,66 @@ public sealed class CadSnapshotCompiler
             worldOrigin,
             basis,
             vertexOffset,
+            normalizedVertices.Length,
+            isClosed));
+        return new CadEntityHeader(
+            handle,
+            kind,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            bounds);
+    }
+
+    private static CadEntityHeader CompilePolyline3D(
+        Polyline3D polyline,
+        int layerIndex,
+        int styleIndex,
+        List<CadPolyline3DPrimitive> destination,
+        List<CadPoint3D> points)
+    {
+        if (polyline.Vertices.Count < 2)
+        {
+            throw new ArgumentException("A 3D polyline must contain at least two vertices.");
+        }
+
+        if (polyline.StartWidth != 0.0 || polyline.EndWidth != 0.0 ||
+            polyline.Thickness != 0.0 ||
+            polyline.Vertices.Any(vertex =>
+                vertex.StartWidth != 0.0 || vertex.EndWidth != 0.0 || vertex.Bulge != 0.0))
+        {
+            throw new CadUnsupportedEntityException(
+                "Width, thickness, and bulge are not valid retained centerline semantics for a 3D polyline.");
+        }
+
+        if (polyline.SmoothSurface != SmoothSurfaceType.NoSmooth ||
+            (polyline.Flags & (PolylineFlags.CurveFit | PolylineFlags.SplineFit)) != 0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Curve-fit and spline-fit 3D polylines require fitted-vertex semantic lowering.");
+        }
+
+        var normalizedPoints = new CadPoint3D[polyline.Vertices.Count];
+        CadBounds3D bounds = CadBounds3D.Empty;
+        for (int i = 0; i < polyline.Vertices.Count; i++)
+        {
+            Vertex3D vertex = polyline.Vertices[i];
+            CadPoint3D point = ToPoint(vertex.Location);
+            EnsureFinite(point);
+            normalizedPoints[i] = point;
+            bounds = bounds.Include(point);
+        }
+
+        int pointOffset = points.Count;
+        points.AddRange(normalizedPoints);
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadPolyline3DPrimitive(
+            pointOffset,
             polyline.Vertices.Count,
             polyline.IsClosed));
         return new CadEntityHeader(
             polyline.Handle,
-            CadEntityKind.LightweightPolyline,
+            CadEntityKind.Polyline3D,
             layerIndex,
             styleIndex,
             primitiveIndex,

@@ -378,6 +378,68 @@ public sealed class CadSnapshotAndSceneTests
     }
 
     [Fact]
+    public void LegacyPolyline2DPreservesOcsElevationAndAnalyticBulge()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add legacy 2D polyline", document =>
+        {
+            var polyline = new Polyline2D
+            {
+                Elevation = 3,
+                Normal = XYZ.AxisY,
+            };
+            polyline.Vertices.Add(new Vertex2D(new XYZ(0, 0, 0)) { Bulge = 1 });
+            polyline.Vertices.Add(new Vertex2D(new XYZ(10, 0, 0)));
+            document.Entities.Add(polyline);
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        Assert.Equal(CadEntityKind.Polyline2D, Assert.Single(snapshot.Entities.ToArray()).Kind);
+        AssertPoint(new CadPoint3D(-10, 3, -5), snapshot.Bounds.Min);
+        AssertPoint(new CadPoint3D(0, 3, 0), snapshot.Bounds.Max);
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands.ToArray());
+        ArcSegment arc = Assert.IsType<ArcSegment>(
+            Assert.Single(Assert.Single(command.Path!.Figures).Segments));
+        Assert.Equal(SweepDirection.Counterclockwise, arc.SweepDirection);
+        Assert.NotEqual(System.Numerics.Matrix4x4.Identity, command.Transform);
+    }
+
+    [Fact]
+    public void LegacyPolyline3DRetainsWcsPointsAndExactZBounds()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add legacy 3D polyline", document =>
+        {
+            var polyline = new Polyline3D(
+                [
+                    new XYZ(-2, 3, -7),
+                    new XYZ(5, 11, 13),
+                    new XYZ(9, -4, 2),
+                ],
+                isClosed: true);
+            document.Entities.Add(polyline);
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadPolyline3DPrimitive polyline = Assert.Single(snapshot.Polylines3D.ToArray());
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        Assert.Equal(CadEntityKind.Polyline3D, Assert.Single(snapshot.Entities.ToArray()).Kind);
+        Assert.Equal(3, polyline.PointCount);
+        Assert.True(polyline.IsClosed);
+        Assert.Equal(3, snapshot.Polyline3DPoints.Length);
+        AssertPoint(new CadPoint3D(-2, -4, -7), snapshot.Bounds.Min);
+        AssertPoint(new CadPoint3D(9, 11, 13), snapshot.Bounds.Max);
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands.ToArray());
+        Assert.Equal(RenderCommandType.DrawPath, command.Type);
+        PathFigure figure = Assert.Single(command.Path!.Figures);
+        Assert.True(figure.IsClosed);
+        Assert.Equal(2, figure.Segments.Count);
+    }
+
+    [Fact]
     public void WidePolylineIsReportedInsteadOfMisclassifiedAsLineweight()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();

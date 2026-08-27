@@ -128,6 +128,12 @@ public sealed class CadPlanSceneCompiler
                 case CadEntityKind.LightweightPolyline:
                     RecordPolyline(context, pen, snapshot, snapshot.Polylines.Span[entity.PrimitiveIndex]);
                     break;
+                case CadEntityKind.Polyline2D:
+                    RecordPolyline(context, pen, snapshot, snapshot.Polylines.Span[entity.PrimitiveIndex]);
+                    break;
+                case CadEntityKind.Polyline3D:
+                    RecordPolyline3D(context, pen, snapshot, snapshot.Polylines3D.Span[entity.PrimitiveIndex]);
+                    break;
                 default:
                     throw new InvalidOperationException($"Unknown CAD entity kind {entity.Kind}.");
             }
@@ -414,6 +420,29 @@ public sealed class CadPlanSceneCompiler
             polyline.CoordinateSystem,
             snapshot.RebaseOrigin);
         context.DrawPath(null, pen, path, transform);
+    }
+
+    private static void RecordPolyline3D(
+        DrawingContext context,
+        Pen pen,
+        CadDocumentSnapshot snapshot,
+        CadPolyline3DPrimitive polyline)
+    {
+        ReadOnlySpan<CadPoint3D> points = snapshot.Polyline3DPoints.Span.Slice(
+            polyline.PointOffset,
+            polyline.PointCount);
+        var path = new PathGeometry();
+        var figure = new PathFigure(Project(points[0], snapshot.RebaseOrigin), polyline.IsClosed)
+        {
+            IsFilled = false,
+        };
+        for (int i = 1; i < points.Length; i++)
+        {
+            figure.Segments.Add(new LineSegment(Project(points[i], snapshot.RebaseOrigin)));
+        }
+
+        path.Figures.Add(figure);
+        context.DrawPath(null, pen, path);
     }
 
     private static Matrix4x4 CreateProjectionTransform(

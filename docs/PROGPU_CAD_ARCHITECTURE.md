@@ -86,6 +86,12 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   checked affine OCS-to-WCS projection. Wide polylines are deliberately reported
   as unsupported until filled-outline lowering lands; they are not confused with
   cosmetic lineweight.
+- Legacy 2D POLYLINE uses the owning polyline elevation and OCS normal, ignores
+  the historically unused vertex Z value, and shares the same one-path analytic
+  bulge representation. Legacy 3D POLYLINE retains an independent packed WCS
+  point stream with exact XYZ bounds and records one top-projection path. Width,
+  extrusion, and unresolved curve/spline-fit semantics are reported rather than
+  flattened or silently treated as centerlines.
 - Ellipses and elliptical arcs preserve their WCS major/minor basis, parameter
   sweep, and exact double-precision extrema. The plan compiler records one unit
   analytic ellipse or arc under an affine transform, never a sampled polygon.
@@ -345,6 +351,12 @@ Sources consulted on 2026-08-27:
   and invisible-edge flags; adapted them into fixed immutable records and
   existing ProGPU analytic/fill paths; rejected polygonal ellipse sampling and
   incomplete extrusion rendering.
+- [Autodesk POLYLINE contract](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-DXF/files/GUID-ABF6B778-BE20-4B49-9B58-A94E64CEFFF3.htm),
+  [VERTEX contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-0741E831-599E-4CBF-91E1-8ADBCFD6556D.htm),
+  and [AcDb2dPolyline vertex-position contract](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-RefGuide/files/OREF-AcDb2dPolyline__vertexPosition_AcDb2dVertex__const.html):
+  adopted owning elevation plus vertex XY for 2D OCS conversion, full vertex XYZ
+  for 3D WCS, bulge direction, closure, and fit/width flags; adapted both forms
+  into packed immutable streams and rejected fixed sampling of fitted curves.
 - [Autodesk lineweights](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-4B33ACD3-F6DD-4CB5-8C55-D6D0D7130905.htm):
   adopted distinct cosmetic model-space and physical paper/plot policies.
 - [Autodesk shape/font descriptions](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-DE941DB5-7044-433C-AA68-2A9AE98A5713.htm):
