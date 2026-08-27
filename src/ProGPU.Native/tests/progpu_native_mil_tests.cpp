@@ -12114,6 +12114,8 @@ bool malformed_and_unsupported_packets_fail_closed() {
 }
 
 bool c_abi_is_typed_and_size_versioned() {
+    static_assert(sizeof(progpu_native_mil_scene_build_request) == 64U);
+    static_assert(sizeof(progpu_native_mil_scene_build_result) == 32U);
     progpu_native_mil_channel* native_channel = nullptr;
     PROGPU_REQUIRE(
         progpu_native_mil_channel_create(&native_channel) ==
@@ -12122,8 +12124,19 @@ bool c_abi_is_typed_and_size_versioned() {
 
     std::vector<std::byte> batch;
     append_create(batch, 17U, 39U);
+    append_create(batch, 18U, 47U);
     append_command(batch, command::visual_create, 17U);
     append_command(batch, command::visual_set_offset, 17U, 2.0, 4.0);
+    append_command(
+        batch,
+        command::generic_target_create,
+        18U,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        640U,
+        480U,
+        0U);
+    append_command(batch, command::target_set_root, 18U, 17U);
     progpu_native_mil_batch_metrics metrics{};
     metrics.struct_size = sizeof(metrics);
     PROGPU_REQUIRE(
@@ -12132,9 +12145,9 @@ bool c_abi_is_typed_and_size_versioned() {
             batch.data(),
             batch.size(),
             &metrics) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
-    PROGPU_REQUIRE(metrics.command_count == 3U);
+    PROGPU_REQUIRE(metrics.command_count == 6U);
     PROGPU_REQUIRE(
-        progpu_native_mil_channel_get_resource_count(native_channel) == 1U);
+        progpu_native_mil_channel_get_resource_count(native_channel) == 2U);
     PROGPU_REQUIRE(
         progpu_native_mil_channel_get_resource_type(native_channel, 17U) ==
         39U);
@@ -12145,6 +12158,179 @@ bool c_abi_is_typed_and_size_versioned() {
             native_channel, 17U, &snapshot) == 1U);
     PROGPU_REQUIRE(snapshot.offset_x == 2.0);
     PROGPU_REQUIRE(snapshot.offset_y == 4.0);
+
+    progpu_native_mil_scene_build_request request{};
+    request.struct_size = sizeof(request);
+    request.target_handle = 18U;
+    request.scene_id = 9'001U;
+    request.generation = 1U;
+    request.dpi_scale_x = 1.25;
+    request.dpi_scale_y = 1.5;
+    request.monotonic_time_nanoseconds = 123'456'789U;
+    request.request_serial = 41U;
+    progpu_native_mil_scene_metrics scene_metrics{};
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    progpu_native_mil_scene_build_result build_result{};
+    build_result.struct_size = sizeof(build_result);
+    std::size_t required_bytes = 0U;
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_build_scene_with_request(
+            native_channel,
+            &request,
+            nullptr,
+            0U,
+            &required_bytes,
+            &scene_metrics,
+            &build_result) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(required_bytes != 0U);
+    PROGPU_REQUIRE(build_result.request_serial == request.request_serial);
+    PROGPU_REQUIRE(build_result.stream_bytes == required_bytes);
+    PROGPU_REQUIRE(build_result.flags ==
+        PROGPU_NATIVE_MIL_SCENE_BUILD_RESULT_NONE);
+    PROGPU_REQUIRE(build_result.next_due_time_nanoseconds == 0U);
+
+    std::vector<std::byte> first_stream(required_bytes);
+    std::size_t written_bytes = 0U;
+    scene_metrics.struct_size = sizeof(scene_metrics);
+    build_result.struct_size = sizeof(build_result);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_build_scene_with_request(
+            native_channel,
+            &request,
+            first_stream.data(),
+            first_stream.size(),
+            &written_bytes,
+            &scene_metrics,
+            &build_result) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(written_bytes == required_bytes);
+
+    std::vector<std::byte> repeated_stream(required_bytes);
+    build_result.struct_size = sizeof(build_result);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_build_scene_with_request(
+            native_channel,
+            &request,
+            repeated_stream.data(),
+            repeated_stream.size(),
+            &written_bytes,
+            nullptr,
+            &build_result) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(repeated_stream == first_stream);
+
+    auto invalid_request = request;
+    invalid_request.monotonic_time_nanoseconds += 1U;
+    build_result.struct_size = sizeof(build_result);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_build_scene_with_request(
+            native_channel,
+            &invalid_request,
+            nullptr,
+            0U,
+            &written_bytes,
+            nullptr,
+            &build_result) == PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT);
+
+    invalid_request = request;
+    invalid_request.flags = 0x8000'0000U;
+    build_result.struct_size = sizeof(build_result);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_build_scene_with_request(
+            native_channel,
+            &invalid_request,
+            nullptr,
+            0U,
+            &written_bytes,
+            nullptr,
+            &build_result) == PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT);
+    invalid_request = request;
+    invalid_request.reserved0 = 1U;
+    build_result.struct_size = sizeof(build_result);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_build_scene_with_request(
+            native_channel,
+            &invalid_request,
+            nullptr,
+            0U,
+            &written_bytes,
+            nullptr,
+            &build_result) == PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT);
+    invalid_request = request;
+    invalid_request.dpi_scale_x =
+        std::numeric_limits<double>::quiet_NaN();
+    build_result.struct_size = sizeof(build_result);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_build_scene_with_request(
+            native_channel,
+            &invalid_request,
+            nullptr,
+            0U,
+            &written_bytes,
+            nullptr,
+            &build_result) == PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT);
+    invalid_request = request;
+    invalid_request.request_serial = 0U;
+    build_result.struct_size = sizeof(build_result);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_build_scene_with_request(
+            native_channel,
+            &invalid_request,
+            nullptr,
+            0U,
+            &written_bytes,
+            nullptr,
+            &build_result) == PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT);
+
+    request.request_serial = 42U;
+    build_result.struct_size = sizeof(build_result);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_build_scene_with_request(
+            native_channel,
+            &request,
+            repeated_stream.data(),
+            repeated_stream.size(),
+            &written_bytes,
+            nullptr,
+            &build_result) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(repeated_stream == first_stream);
+    PROGPU_REQUIRE(build_result.request_serial == 42U);
+
+    std::vector<std::byte> offset_update;
+    append_command(
+        offset_update,
+        command::visual_set_offset,
+        17U,
+        7.0,
+        11.0);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_apply(
+            native_channel,
+            offset_update.data(),
+            offset_update.size(),
+            nullptr) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    build_result.struct_size = sizeof(build_result);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_build_scene_with_request(
+            native_channel,
+            &request,
+            repeated_stream.data(),
+            repeated_stream.size(),
+            &written_bytes,
+            nullptr,
+            &build_result) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(repeated_stream != first_stream);
+
+    std::size_t legacy_required_bytes = 0U;
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_build_scene(
+            native_channel,
+            18U,
+            9'001U,
+            2U,
+            nullptr,
+            0U,
+            &legacy_required_bytes,
+            nullptr) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(legacy_required_bytes != 0U);
     progpu_native_mil_channel_destroy(native_channel);
     return true;
 }

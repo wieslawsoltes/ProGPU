@@ -3701,7 +3701,7 @@ and non-scale/translate transforms enter Flight without applying a snap.
 Rendering into a VisualBrush also suppresses the animated correction because
 WPF does not retain independent path history for repeated brush uses.
 
-The current scene-build ABI cannot represent that behavior exactly. It learns
+The legacy scene-build ABI cannot represent that behavior exactly. It learns
 the actual DPI only after the immutable semantic scene has been compiled,
 accepts neither a monotonic timestamp nor a VisualBrush-use flag, returns no
 `needMoreCycles` scheduling result, and its managed wrapper commonly performs a
@@ -3733,6 +3733,44 @@ The required append-only implementation is:
 This design leaves existing static-guideline packets and build callers binary
 compatible while providing enough state for exact Metal, Vulkan, and DirectX
 execution. No backend-specific dynamic-guideline approximation is permitted.
+
+The first append-only ABI/state checkpoint now implements items 1 and 4. Both
+native providers export
+`progpu_native_mil_channel_build_scene_with_request` alongside the unchanged
+legacy entry point. Its 64-byte, size-versioned request carries target, scene,
+generation, X/Y DPI scale, monotonic nanoseconds, a nonzero request serial, and
+the VisualBrush flag. Its 32-byte result echoes the serial and reserves typed
+`needs_more_cycles`, next-due-time, and stream-size fields. Unknown flags,
+nonzero reserved fields, zero identities, nonfinite/nonpositive DPI, DPI above
+the bounded 65,536 scale limit, undersized structs, and invalid destination
+contracts fail closed.
+
+The native channel caches the immutable stream, metrics, and result under the
+full request key. A size query, its copy, and any repeated identical request
+therefore return the same bytes without recompilation. Reusing a live serial
+with different frame fields is rejected as a caller contract error; a request
+with a new serial or any successful transactional MIL/sideband mutation
+invalidates the cache.
+Failed mutations do not discard a valid cached frame. Cache state is separate
+from the copy-on-write resource graph, so transactional batch candidates do
+not duplicate compiled scene buffers. The C++ API exposes the cached stream as
+a borrowed span whose lifetime ends at the next successful mutation or
+different request.
+
+`ProGPU.Backend.Native` publishes the same typed request/result flags and
+`NativeMilChannel.CompileScene(NativeMilSceneBuildRequest)`. Its managed
+size-query/copy pair reuses the serial and verifies the echoed serial and byte
+count before returning `NativeMilStatefulCompiledScene`. The source package
+consumer exercises this path through both wgpu-native and Dawn and compares it
+byte-for-byte with the legacy compiler. The full dual-provider build and all
+12 configured native CTests pass on macOS; the focused project-reference
+managed MIL package smoke also passes for both providers.
+
+This checkpoint deliberately returns no scheduling flag yet and continues to
+reject dynamic GuidelineSet compilation. It establishes the idempotent clock,
+DPI, context, scheduling-result, and cache contract required by the subsequent
+per-resource phase-state implementation without claiming dynamic-guideline
+pixel parity prematurely.
 
 Exact implementation checkpoint `b97b99e3` completed the full Windows 11
 ARM64 Parallels D3D12 smoke/package lane from an immutable source archive.

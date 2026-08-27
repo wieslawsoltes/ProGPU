@@ -438,9 +438,49 @@ public readonly record struct NativeMilSceneMetrics(
     uint MaximumVisualDepth,
     ulong StreamBytes);
 
+[Flags]
+public enum NativeMilSceneBuildRequestFlags : uint
+{
+    None = 0,
+    VisualBrush = 1U << 0
+}
+
+[Flags]
+public enum NativeMilSceneBuildResultFlags : uint
+{
+    None = 0,
+    NeedsMoreCycles = 1U << 0
+}
+
+/// <summary>
+/// Versioned frame context for stateful MIL scene compilation. Reuse one
+/// nonzero request serial for the size-query and copy calls of a frame.
+/// </summary>
+public readonly record struct NativeMilSceneBuildRequest(
+    uint TargetHandle,
+    ulong SceneId,
+    ulong Generation,
+    ulong MonotonicTimeNanoseconds,
+    ulong RequestSerial,
+    double DpiScaleX = 1.0,
+    double DpiScaleY = 1.0,
+    NativeMilSceneBuildRequestFlags Flags =
+        NativeMilSceneBuildRequestFlags.None);
+
+public readonly record struct NativeMilSceneBuildResult(
+    NativeMilSceneBuildResultFlags Flags,
+    ulong RequestSerial,
+    ulong NextDueTimeNanoseconds,
+    ulong StreamBytes);
+
 public sealed record NativeMilCompiledScene(
     byte[] Stream,
     NativeMilSceneMetrics Metrics);
+
+public sealed record NativeMilStatefulCompiledScene(
+    byte[] Stream,
+    NativeMilSceneMetrics Metrics,
+    NativeMilSceneBuildResult BuildResult);
 
 /// <summary>
 /// Pointer-free flattened 3D payload bound to one canonical retained

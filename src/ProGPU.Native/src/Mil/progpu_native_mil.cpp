@@ -12038,6 +12038,45 @@ struct channel::implementation {
     }
 };
 
+struct channel::build_cache {
+    scene_build_request request{};
+    std::vector<std::byte> stream;
+    scene_metrics metrics{};
+    scene_build_result result{};
+};
+
+namespace {
+
+constexpr std::uint32_t known_scene_build_request_flags =
+    static_cast<std::uint32_t>(scene_build_request_flags::visual_brush);
+
+bool valid_scene_build_request(const scene_build_request& request) noexcept {
+    const auto raw_flags = static_cast<std::uint32_t>(request.flags);
+    return (raw_flags & ~known_scene_build_request_flags) == 0U &&
+        request.target_handle != 0U && request.scene_id != 0U &&
+        request.generation != 0U && request.request_serial != 0U &&
+        std::isfinite(request.dpi_scale_x) &&
+        std::isfinite(request.dpi_scale_y) &&
+        request.dpi_scale_x > 0.0 && request.dpi_scale_x <= 65'536.0 &&
+        request.dpi_scale_y > 0.0 && request.dpi_scale_y <= 65'536.0;
+}
+
+bool same_scene_build_request(
+    const scene_build_request& left,
+    const scene_build_request& right) noexcept {
+    return left.flags == right.flags &&
+        left.target_handle == right.target_handle &&
+        left.scene_id == right.scene_id &&
+        left.generation == right.generation &&
+        left.dpi_scale_x == right.dpi_scale_x &&
+        left.dpi_scale_y == right.dpi_scale_y &&
+        left.monotonic_time_nanoseconds ==
+            right.monotonic_time_nanoseconds &&
+        left.request_serial == right.request_serial;
+}
+
+} // namespace
+
 channel::channel()
     : implementation_(std::make_unique<implementation>()) {
 }
@@ -12065,6 +12104,7 @@ status channel::apply(
             const status read_status = reader.next(view);
             if (read_status == status::end_of_batch) {
                 implementation_ = std::move(candidate);
+                build_cache_.reset();
                 if (metrics != nullptr) {
                     *metrics = local_metrics;
                 }
@@ -12124,6 +12164,7 @@ status channel::set_bitmap_source_rgba8(
         implementation_->bitmap_sources.insert_or_assign(
             handle, std::move(source));
         implementation_->increment_generation(handle);
+        build_cache_.reset();
         return status::success;
     } catch (const std::bad_alloc&) {
         return status::capacity_exceeded;
@@ -12154,6 +12195,7 @@ status channel::set_drawing_image_bounds(
     image.bounds_height = height;
     image.has_bounds = true;
     implementation_->increment_generation(handle);
+    build_cache_.reset();
     return status::success;
 }
 
@@ -12179,6 +12221,7 @@ status channel::set_drawing_group_bounds(
     group.bounds_height = height;
     group.has_bounds = true;
     implementation_->increment_generation(handle);
+    build_cache_.reset();
     return status::success;
 }
 
@@ -12204,6 +12247,7 @@ status channel::set_visual_cache_bounds(
     visual.cache_bounds_height = height;
     visual.has_cache_bounds = true;
     implementation_->increment_generation(handle);
+    build_cache_.reset();
     return status::success;
 }
 
@@ -12318,6 +12362,7 @@ status channel::set_viewport3d_scene(
         implementation_->viewport3d_scenes.insert_or_assign(
             handle, std::move(scene));
         implementation_->increment_generation(handle);
+        build_cache_.reset();
         return status::success;
     } catch (const std::bad_alloc&) {
         return status::capacity_exceeded;
@@ -12372,6 +12417,7 @@ status channel::set_glyph_run_font_sfnt(
         glyph_run.style_simulations = style_simulations;
         glyph_run.font_data = std::move(retained_font);
         implementation_->increment_generation(handle);
+        build_cache_.reset();
         return status::success;
     } catch (const std::bad_alloc&) {
         return status::capacity_exceeded;
@@ -12501,6 +12547,51 @@ status channel::build_scene(
     } catch (const std::bad_alloc&) {
         return status::invalid_argument;
     }
+}
+
+status channel::build_scene(
+    const scene_build_request& request,
+    std::span<const std::byte>& stream,
+    scene_metrics* metrics,
+    scene_build_result* result) noexcept {
+    stream = {};
+    if (!valid_scene_build_request(request)) {
+        return status::invalid_argument;
+    }
+    if (build_cache_ &&
+        build_cache_->request.request_serial == request.request_serial &&
+        !same_scene_build_request(build_cache_->request, request)) {
+        return status::invalid_argument;
+    }
+    if (!build_cache_ ||
+        !same_scene_build_request(build_cache_->request, request)) {
+        try {
+            auto candidate = std::make_unique<build_cache>();
+            candidate->request = request;
+            const status build_status = build_scene(
+                request.target_handle,
+                request.scene_id,
+                request.generation,
+                candidate->stream,
+                &candidate->metrics);
+            if (build_status != status::success) {
+                return build_status;
+            }
+            candidate->result.request_serial = request.request_serial;
+            candidate->result.stream_bytes = candidate->stream.size();
+            build_cache_ = std::move(candidate);
+        } catch (const std::bad_alloc&) {
+            return status::capacity_exceeded;
+        }
+    }
+    stream = build_cache_->stream;
+    if (metrics != nullptr) {
+        *metrics = build_cache_->metrics;
+    }
+    if (result != nullptr) {
+        *result = build_cache_->result;
+    }
+    return status::success;
 }
 
 } // namespace progpu::native::mil

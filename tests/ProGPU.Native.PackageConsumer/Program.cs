@@ -174,6 +174,13 @@ if (!renderOnly)
             BindFocusedDrawingGroupBounds(mil);
         }
         NativeMilCompiledScene scene = mil.CompileScene(targetHandle, 701, 1);
+        NativeMilStatefulCompiledScene statefulScene = mil.CompileScene(
+            new NativeMilSceneBuildRequest(
+                targetHandle,
+                701,
+                1,
+                MonotonicTimeNanoseconds: 1_000_000,
+                RequestSerial: 1));
         if (milMetrics.CommandCount != expectedCommandCount ||
             mil.ResourceCount != expectedResourceCount ||
             !mil.TryGetVisual(visualHandle, out NativeMilVisualSnapshot visual) ||
@@ -184,7 +191,13 @@ if (!renderOnly)
             scene.Metrics.RoundedRectangleCount !=
                 expectedRoundedRectangleCount ||
             scene.Metrics.LineCount != expectedLineCount ||
-            scene.Metrics.BrushCount != expectedBrushCount)
+            scene.Metrics.BrushCount != expectedBrushCount ||
+            !statefulScene.Stream.AsSpan().SequenceEqual(scene.Stream) ||
+            statefulScene.BuildResult.RequestSerial != 1 ||
+            statefulScene.BuildResult.StreamBytes !=
+                (ulong)statefulScene.Stream.Length ||
+            statefulScene.BuildResult.Flags !=
+                NativeMilSceneBuildResultFlags.None)
         {
             throw new InvalidOperationException(
                 "The packaged wgpu-native MIL channel is incomplete: " +
@@ -224,6 +237,13 @@ if (!renderOnly)
         }
         NativeMilCompiledScene scene = dawnMil.CompileScene(
             targetHandle, 702, 1);
+        NativeMilStatefulCompiledScene statefulScene = dawnMil.CompileScene(
+            new NativeMilSceneBuildRequest(
+                targetHandle,
+                702,
+                1,
+                MonotonicTimeNanoseconds: 1_000_000,
+                RequestSerial: 1));
         if (milMetrics.CommandCount != expectedCommandCount ||
             dawnMil.ResourceCount != expectedResourceCount ||
             scene.Stream.Length == 0 || scene.Metrics.VisualCount != 1 ||
@@ -232,7 +252,13 @@ if (!renderOnly)
             scene.Metrics.RoundedRectangleCount !=
                 expectedRoundedRectangleCount ||
             scene.Metrics.LineCount != expectedLineCount ||
-            scene.Metrics.BrushCount != expectedBrushCount)
+            scene.Metrics.BrushCount != expectedBrushCount ||
+            !statefulScene.Stream.AsSpan().SequenceEqual(scene.Stream) ||
+            statefulScene.BuildResult.RequestSerial != 1 ||
+            statefulScene.BuildResult.StreamBytes !=
+                (ulong)statefulScene.Stream.Length ||
+            statefulScene.BuildResult.Flags !=
+                NativeMilSceneBuildResultFlags.None)
         {
             throw new InvalidOperationException(
                 "The packaged Dawn MIL channel is incomplete: " +
