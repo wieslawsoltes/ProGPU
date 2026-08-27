@@ -641,6 +641,23 @@ uploads 12,064 vertex bytes. This adds no CPU mask construction, readback on
 the rendering path, shader variant, or public ABI; readback exists only in the
 validation executable.
 
+Exact sample checkpoint `3bd6bb4084adc545a4555876c7fd4284a7f8c915`
+was then qualified in the Windows 11 ARM64 Parallels guest from archive
+SHA-256
+`B8740F7C484A1B763253185C1DBC395D07A0016B4E691CB86A271F5ABAEEDF89`.
+Strict MSVC/Ninja completed all 312 build steps for both providers and all 11
+CTests passed. The direct D3D12 sample selected
+`Parallels Display Adapter (WDDM)` and reproduced Metal exactly: boolean inside
+`51/209/242`, Difference hole `5/6/10`, XOR island `5/6/10`, plus the unchanged
+four Pad-gradient pixels. It executed seven draws from twelve retained commands
+and uploaded 12,064 vertex bytes. This focused rerun covers the sample-only
+checkpoint after the compiler and managed graph qualification above. Qualified
+provider hashes are
+`C5E90611B1BDB249DB940A11AC6F8C4C5816392FF14BE9A7D5A5246AAD177991` for
+`progpu_native.dll` and
+`C29207284FDDC19E193A131651F7A70E10ECABF12D1BD9816A6954E3E6808655` for
+`progpu_native_dawn.dll`.
+
 The shared WGSL path rasterizer keeps these arcs analytic. It rejects samples
 outside each path record's exact bounds, rejects quadratic and cubic work on
 rows outside the curve control hull, and tests arc sweep membership with
