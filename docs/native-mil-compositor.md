@@ -668,6 +668,16 @@ execute on every gated backend. The same readback also makes retained
 axis-preserving transforms, offsets, opacity, and scroll clipping executable
 gate requirements instead of packet-only assertions.
 
+The shared native 3D shader now consumes all lighting scalars already carried
+by the public mesh ABI. `light_direction.w` scales diffuse and specular terms,
+`ambient_color.w` scales the material ambient term, and
+`specular_color.w` supplies the bounded specular exponent instead of the old
+hardcoded 24. The retained viewport gate runs realistic shading with 0.4
+directional intensity, 0.2 ambient intensity, half visual opacity, and a green
+specular term. Its center pixel is `77/51/0/255`, matching the composed light
+values, and changing shininess from 1 to 256 must change the final GPU image.
+This validates the same WGSL on Metal now and on the gated D3D12/Vulkan lanes.
+
 - Implement the remaining 2D/3D resource execution, curve dashes, exact
   translated-equivalent EvenOdd overlap execution, remaining pen/image/media
   paths, dynamic guidelines, caches, effects, and render-data commands.

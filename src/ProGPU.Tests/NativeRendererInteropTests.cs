@@ -6003,6 +6003,22 @@ public class NativeRendererInteropTests
             "vec4<f32>(vertex.position.xyz, 1.0)",
             shader,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "let light_intensity = max(mesh.light_direction.w, 0.0);",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "let ambient_intensity = max(mesh.ambient_color.w, 0.0);",
+            shader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "let shininess = max(mesh.specular_color.w, 0.001);",
+            shader,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "max(dot(view, reflected), 0.0), 24.0",
+            shader,
+            StringComparison.Ordinal);
         Assert.DoesNotContain(
             "array<vec2<f32>, 6>",
             shader,

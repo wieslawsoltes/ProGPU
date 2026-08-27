@@ -160,10 +160,16 @@ fn fs_mesh_3d(input: MeshOutput) -> @location(0) vec4<f32> {
     let n = normalize(input.normal);
     let light = normalize(-mesh.light_direction.xyz);
     let view = normalize(camera.camera_position.xyz - input.world_position);
-    let diffuse = max(dot(n, light), 0.0);
+    let light_intensity = max(mesh.light_direction.w, 0.0);
+    let ambient_intensity = max(mesh.ambient_color.w, 0.0);
+    let shininess = max(mesh.specular_color.w, 0.001);
+    let diffuse = max(dot(n, light), 0.0) * light_intensity;
     let reflected = reflect(-light, n);
-    let specular = pow(max(dot(view, reflected), 0.0), 24.0);
-    let ambient = mesh.ambient_color.rgb * mesh.material_ambient.rgb;
+    let specular = pow(
+        max(dot(view, reflected), 0.0),
+        shininess) * light_intensity;
+    let ambient = mesh.ambient_color.rgb * ambient_intensity *
+        mesh.material_ambient.rgb;
     var rgb = input.color.rgb * (ambient + vec3<f32>(diffuse)) + mesh.specular_color.rgb * specular;
     if (mesh.shading_mode == 0u) {
         rgb = input.color.rgb;
