@@ -344,6 +344,17 @@ improved 1.7174/2.7136 -> 1.7046/2.2757 ms and frame p95 improved
 The source therefore retains compare/invert/shift feeding the qualified folded
 lane reduction.
 
+A later exact arithmetic candidate derived the second pixel-pair origin from
+the first origin plus the existing inverse scale, instead of repeating the
+add/subtract/multiply chain. Distinct dylibs were exercised in eight
+alternating 120-frame runs per variant and retained zero channel difference at
+`5B6EF4F70536C862` (1x) and `706B261418EC5C3B` (2x). Median submission p50
+improved only 1.4806 -> 1.4765 ms at 1x and 2.2561 -> 2.2521 ms at 2x, while
+synchronized-frame p50 regressed 5.2713 -> 5.3665 ms and 6.1248 -> 6.1985 ms;
+1x frame p95 also regressed 8.0932 -> 8.1285 ms. The source therefore retains
+the independently evaluated second origin and its established floating-point
+edge semantics.
+
 Exact pushed checkpoint `deb50413` also rebuilt the changed intrinsic source
 with ARM64 MSVC/Ninja in the Windows 11 Parallels VM and passed all ten
 non-Dawn native CTests. This is cross-compiler and DirectX-host correctness
