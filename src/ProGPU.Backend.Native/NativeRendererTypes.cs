@@ -635,6 +635,14 @@ public enum NativeMesh3DRenderMode : uint
 }
 
 [Flags]
+public enum NativeMesh3DFlags : uint
+{
+    TwoSided = 0,
+    FrontFace = 1U << 0,
+    BackFace = 1U << 1
+}
+
+[Flags]
 public enum NativeSceneRecordFlags : uint
 {
     None = 0,

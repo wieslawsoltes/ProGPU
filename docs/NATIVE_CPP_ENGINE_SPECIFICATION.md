@@ -3568,6 +3568,14 @@ interpreting that reserved field as position state. Shader code must also stay
 valid on wgpu-native/Naga and initialize unused depth-stencil descriptor enums
 to valid WebGPU values on both wgpu-native and Dawn.
 
+`progpu_native_mesh_3d_flags` carries an optional exclusive front-face or
+back-face selection; zero preserves the public two-sided default. The native
+page retains that mode per mesh and selects back culling, front culling, or no
+culling without duplicating geometry, projection, or material shaders. Setting
+both face bits or any unknown bit is invalid. This is the reusable face-
+material primitive consumed by WPF `GeometryModel3D.Material` and
+`BackMaterial`, not a WPF-specific renderer branch.
+
 The engine validates every untrusted count, offset, size, enum, finite float,
 resource generation, and nesting depth before allocation or GPU submission.
 Integer arithmetic is checked. User shaders remain a separately permissioned

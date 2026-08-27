@@ -1915,6 +1915,7 @@ bool semantic_scene_builder_records_retained_3d_families() {
     constexpr std::array<std::uint32_t, 3U> indices{0U, 1U, 2U};
     progpu_native_scene_mesh_3d mesh{};
     mesh.struct_size = sizeof(mesh);
+    mesh.flags = PROGPU_NATIVE_MESH_3D_FRONT_FACE;
     mesh.topology = PROGPU_NATIVE_MESH_3D_TRIANGLES;
     mesh.render_mode = PROGPU_NATIVE_MESH_3D_SOLID;
     mesh.vertex_count = static_cast<std::uint32_t>(vertices.size());
@@ -1927,6 +1928,20 @@ bool semantic_scene_builder_records_retained_3d_families() {
     mesh.specular_color = {1.0F, 1.0F, 1.0F, 16.0F};
     mesh.material_ambient = {0.1F, 0.1F, 0.1F, 0.0F};
     mesh.opacity = 1.0F;
+
+    auto invalid_face_mesh = mesh;
+    invalid_face_mesh.flags = PROGPU_NATIVE_MESH_3D_FRONT_FACE |
+        PROGPU_NATIVE_MESH_3D_BACK_FACE;
+    semantic_scene_builder invalid_face_builder(713U, 1U);
+    if (invalid_face_builder.draw_meshes_3d(
+            std::span<const progpu_native_scene_mesh_3d>(
+                &invalid_face_mesh, 1U),
+            vertices,
+            indices,
+            camera,
+            {0.0F, 0.0F, 256.0F, 256.0F})) {
+        return false;
+    }
 
     semantic_scene_builder builder(712U, 3U);
     if (!builder.draw_lines_3d(
@@ -1963,12 +1978,15 @@ bool semantic_scene_builder_records_retained_3d_families() {
     const auto mesh_command = read<progpu_native_scene_command>(
         stream,
         validated.header.command_offset + validated.header.command_stride);
+    const auto retained_mesh = read<progpu_native_scene_mesh_3d>(
+        stream, mesh_resource.payload_offset);
     return line_resource.kind ==
             PROGPU_NATIVE_SCENE_RESOURCE_LINE_3D_BATCH &&
         line_resource.payload_size == sizeof(line) &&
         mesh_resource.kind ==
             PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH &&
         mesh_resource.payload_size == sizeof(mesh) &&
+        retained_mesh.flags == PROGPU_NATIVE_MESH_3D_FRONT_FACE &&
         mesh_resource.auxiliary_size == sizeof(vertices) +
             sizeof(indices) &&
         line_command.kind ==

@@ -531,7 +531,12 @@ bool is_valid_semantic_mesh_3d(
     std::size_t index_count) noexcept {
     const std::size_t mesh_vertex_offset = mesh.vertex_offset;
     const std::size_t mesh_index_offset = mesh.index_offset;
-    return mesh.struct_size == sizeof(mesh) && mesh.flags == 0U &&
+    constexpr std::uint32_t known_flags =
+        PROGPU_NATIVE_MESH_3D_FRONT_FACE |
+        PROGPU_NATIVE_MESH_3D_BACK_FACE;
+    const auto face_flags = mesh.flags & known_flags;
+    return mesh.struct_size == sizeof(mesh) &&
+        (mesh.flags & ~known_flags) == 0U && face_flags != known_flags &&
         mesh.topology <= PROGPU_NATIVE_MESH_3D_TRIANGLE_STRIP &&
         mesh.render_mode <= PROGPU_NATIVE_MESH_3D_SOLID_WIREFRAME &&
         mesh.vertex_count >= 3U && mesh.index_count >= 3U &&

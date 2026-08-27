@@ -87,7 +87,8 @@ WGPURenderPipeline create_pipeline(
     const char* label,
     const char* vertex_entry,
     const char* fragment_entry,
-    WGPUPrimitiveTopology topology) {
+    WGPUPrimitiveTopology topology,
+    WGPUCullMode cull_mode) {
     WGPUVertexState vertex{};
     vertex.module = engine.semantic_3d_shader;
     vertex.entryPoint = progpu::native::webgpu::string_view(vertex_entry);
@@ -128,7 +129,7 @@ WGPURenderPipeline create_pipeline(
     descriptor.vertex = vertex;
     descriptor.primitive.topology = topology;
     descriptor.primitive.frontFace = WGPUFrontFace_CCW;
-    descriptor.primitive.cullMode = WGPUCullMode_None;
+    descriptor.primitive.cullMode = cull_mode;
     descriptor.depthStencil = &depth;
     descriptor.multisample.count = 1U;
     descriptor.multisample.mask = 0xFFFFFFFFU;
@@ -141,7 +142,8 @@ WGPURenderPipeline create_pipeline(
 bool create_semantic_3d_pipelines(progpu_native_engine& engine) {
     if (engine.semantic_line_3d_pipeline != nullptr &&
         engine.semantic_mesh_3d_pipeline != nullptr &&
-        engine.semantic_mesh_strip_3d_pipeline != nullptr) {
+        engine.semantic_mesh_front_3d_pipeline != nullptr &&
+        engine.semantic_mesh_back_3d_pipeline != nullptr) {
         return true;
     }
     if (engine.semantic_3d_shader == nullptr) {
@@ -199,21 +201,31 @@ bool create_semantic_3d_pipelines(progpu_native_engine& engine) {
     if (engine.semantic_line_3d_pipeline == nullptr) {
         engine.semantic_line_3d_pipeline = create_pipeline(
             engine, "ProGPU native retained 3D line pipeline",
-            "vs_line_3d", "fs_line_3d", WGPUPrimitiveTopology_TriangleList);
+            "vs_line_3d", "fs_line_3d", WGPUPrimitiveTopology_TriangleList,
+            WGPUCullMode_None);
     }
     if (engine.semantic_mesh_3d_pipeline == nullptr) {
         engine.semantic_mesh_3d_pipeline = create_pipeline(
             engine, "ProGPU native retained 3D mesh pipeline",
-            "vs_mesh_3d", "fs_mesh_3d", WGPUPrimitiveTopology_TriangleList);
+            "vs_mesh_3d", "fs_mesh_3d", WGPUPrimitiveTopology_TriangleList,
+            WGPUCullMode_None);
     }
-    if (engine.semantic_mesh_strip_3d_pipeline == nullptr) {
-        engine.semantic_mesh_strip_3d_pipeline = create_pipeline(
-            engine, "ProGPU native retained 3D mesh strip pipeline",
-            "vs_mesh_3d", "fs_mesh_3d", WGPUPrimitiveTopology_TriangleStrip);
+    if (engine.semantic_mesh_front_3d_pipeline == nullptr) {
+        engine.semantic_mesh_front_3d_pipeline = create_pipeline(
+            engine, "ProGPU native retained 3D front-face mesh pipeline",
+            "vs_mesh_3d", "fs_mesh_3d", WGPUPrimitiveTopology_TriangleList,
+            WGPUCullMode_Back);
+    }
+    if (engine.semantic_mesh_back_3d_pipeline == nullptr) {
+        engine.semantic_mesh_back_3d_pipeline = create_pipeline(
+            engine, "ProGPU native retained 3D back-face mesh pipeline",
+            "vs_mesh_3d", "fs_mesh_3d", WGPUPrimitiveTopology_TriangleList,
+            WGPUCullMode_Front);
     }
     return engine.semantic_line_3d_pipeline != nullptr &&
         engine.semantic_mesh_3d_pipeline != nullptr &&
-        engine.semantic_mesh_strip_3d_pipeline != nullptr;
+        engine.semantic_mesh_front_3d_pipeline != nullptr &&
+        engine.semantic_mesh_back_3d_pipeline != nullptr;
 }
 
 progpu_native_status compile_semantic_3d_page(
@@ -246,7 +258,7 @@ progpu_native_status compile_semantic_3d_page(
     std::vector<progpu_native_scene_mesh_3d_vertex> vertices;
     std::vector<std::uint32_t> indices;
     std::vector<semantic_3d_draw> draws;
-    std::vector<std::uint32_t> topologies;
+    std::vector<std::uint32_t> mesh_face_flags;
     std::vector<std::uint32_t> mesh_index_counts;
     try {
         draws.reserve(expected_draw_count);
@@ -422,7 +434,7 @@ progpu_native_status compile_semantic_3d_page(
                 mesh.opacity = source.opacity * state.opacity;
                 mesh.shading_mode = source.shading_mode;
                 meshes.push_back(mesh);
-                topologies.push_back(PROGPU_NATIVE_MESH_3D_TRIANGLES);
+                mesh_face_flags.push_back(source.flags);
                 mesh_index_counts.push_back(mesh.index_count);
             }
             draws.push_back({command.kind, first,
@@ -482,7 +494,7 @@ progpu_native_status compile_semantic_3d_page(
             "The native retained 3D storage binding could not be created.");
     }
     page.draws = std::move(draws);
-    page.mesh_topologies = std::move(topologies);
+    page.mesh_face_flags = std::move(mesh_face_flags);
     page.mesh_index_counts = std::move(mesh_index_counts);
     page.scene_hash = engine.semantic_hashes.three_d;
     page.dpi_scale = frame.dpi_scale;
@@ -514,16 +526,20 @@ progpu_native_status encode_semantic_3d_bundle_draw(
     }
     for (std::uint32_t index = 0U; index < draw.record_count; ++index) {
         const std::uint32_t record = draw.first_record + index;
-        if (record >= engine.semantic_3d_cache.mesh_topologies.size() ||
+        if (record >= engine.semantic_3d_cache.mesh_face_flags.size() ||
             record >= engine.semantic_3d_cache.mesh_index_counts.size()) {
             return engine.fail(PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                "The native retained 3D mesh topology index is invalid.");
+                "The native retained 3D mesh face-mode index is invalid.");
         }
-        const auto topology = engine.semantic_3d_cache.mesh_topologies[record];
-        wgpuRenderBundleEncoderSetPipeline(encoder,
-            topology == PROGPU_NATIVE_MESH_3D_TRIANGLE_STRIP
-                ? engine.semantic_mesh_strip_3d_pipeline
-                : engine.semantic_mesh_3d_pipeline);
+        const auto face_flags =
+            engine.semantic_3d_cache.mesh_face_flags[record];
+        const auto pipeline =
+            (face_flags & PROGPU_NATIVE_MESH_3D_FRONT_FACE) != 0U
+                ? engine.semantic_mesh_front_3d_pipeline
+                : (face_flags & PROGPU_NATIVE_MESH_3D_BACK_FACE) != 0U
+                    ? engine.semantic_mesh_back_3d_pipeline
+                    : engine.semantic_mesh_3d_pipeline;
+        wgpuRenderBundleEncoderSetPipeline(encoder, pipeline);
         wgpuRenderBundleEncoderDraw(
             encoder,
             engine.semantic_3d_cache.mesh_index_counts[record],

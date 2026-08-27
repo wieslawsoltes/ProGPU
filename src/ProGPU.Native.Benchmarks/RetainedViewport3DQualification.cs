@@ -29,41 +29,79 @@ internal static class RetainedViewport3DQualification
             context,
             TextureFormat.Rgba8Unorm);
 
-        byte[] scene = BuildScene();
+        FrameResult front = Render(
+            compositor,
+            context,
+            target,
+            NativeMesh3DFlags.FrontFace,
+            reverseWinding: false,
+            generation: 1U);
+        FrameResult back = Render(
+            compositor,
+            context,
+            target,
+            NativeMesh3DFlags.BackFace,
+            reverseWinding: true,
+            generation: 2U);
+
+        Require(
+            front.Update.ValidationError == NativeSceneValidationError.None &&
+            back.Update.ValidationError == NativeSceneValidationError.None &&
+            front.Frame.SubmissionCount > 0U &&
+            back.Frame.SubmissionCount > 0U &&
+            front.Frame.DrawCallCount == 1U &&
+            back.Frame.DrawCallCount == 1U,
+            "retained MIL Viewport3D execution failed: " +
+            $"front={front.Update}/{front.Frame}, " +
+            $"back={back.Update}/{back.Frame}");
+        Require(
+            IsInsideViewport(front.Extent) && IsInsideViewport(back.Extent),
+            "retained MIL Viewport3D escaped its typed viewport: " +
+            $"viewport={Viewport}, front={front.Extent}, " +
+            $"back={back.Extent}");
+        Require(
+            front.Pixels.AsSpan().SequenceEqual(back.Pixels),
+            "front/back retained MIL face selection produced different pixels");
+        RequireRedPixel(front.Pixels, 64, 44);
+
+        Console.WriteLine(
+            "Qualified live retained MIL Viewport3D placement and exact " +
+            "front/back material selection " +
+            $"on adapter '{context.AdapterName}', " +
+            $"backend={context.AdapterBackendType}; " +
+            $"viewport={Viewport}, extent={front.Extent}, " +
+            $"front={front.Frame}, back={back.Frame}.");
+    }
+
+    private static FrameResult Render(
+        NativeCompositor compositor,
+        WgpuContext context,
+        GpuTexture target,
+        NativeMesh3DFlags faceMode,
+        bool reverseWinding,
+        ulong generation)
+    {
+        byte[] scene = BuildScene(faceMode, reverseWinding, generation);
         NativeSceneUpdateMetrics update = compositor.UpdateScene(scene);
         NativeSceneFrameMetrics frame = compositor.RenderScene(
             target,
             dpiScale: 1f,
             SceneId,
-            generation: 1U,
+            generation,
             clearColor: new Vector4(0f, 0f, 0f, 1f));
         context.WaitIdle();
         byte[] pixels = target.ReadPixels();
-        PixelExtent extent = MeasureColoredPixels(pixels);
-
-        Require(
-            update.ValidationError == NativeSceneValidationError.None &&
-            frame.SubmissionCount > 0U && frame.DrawCallCount == 1U,
-            $"retained MIL Viewport3D execution failed: update={update}, " +
-            $"frame={frame}");
-        Require(
-            extent.IsVisible &&
-            extent.MinimumX >= (int)Viewport.X &&
-            extent.MinimumY >= (int)Viewport.Y &&
-            extent.MaximumX < (int)(Viewport.X + Viewport.Width) &&
-            extent.MaximumY < (int)(Viewport.Y + Viewport.Height),
-            "retained MIL Viewport3D escaped its typed viewport: " +
-            $"viewport={Viewport}, extent={extent}");
-        RequireRedPixel(pixels, 64, 44);
-
-        Console.WriteLine(
-            "Qualified live retained MIL Viewport3D placement " +
-            $"on adapter '{context.AdapterName}', " +
-            $"backend={context.AdapterBackendType}; " +
-            $"viewport={Viewport}, extent={extent}, frame={frame}.");
+        return new FrameResult(
+            update,
+            frame,
+            pixels,
+            MeasureColoredPixels(pixels));
     }
 
-    private static byte[] BuildScene()
+    private static byte[] BuildScene(
+        NativeMesh3DFlags faceMode,
+        bool reverseWinding,
+        ulong generation)
     {
         var batch = new NativeMilBatchBuilder();
         batch.CreateResource(
@@ -83,18 +121,20 @@ internal static class RetainedViewport3DQualification
         _ = channel.Apply(batch.WrittenSpan);
         channel.SetViewport3DScene(
             ViewportHandle,
-            CreateViewportScene());
+            CreateViewportScene(faceMode, reverseWinding));
         NativeMilCompiledScene scene = channel.CompileScene(
             TargetHandle,
             SceneId,
-            generation: 1U);
+            generation);
         Require(
             scene.Stream.Length > 0 && scene.Metrics.VisualCount == 1U,
             "retained MIL Viewport3D did not compile to a semantic scene");
         return scene.Stream;
     }
 
-    private static NativeMilViewport3DScene CreateViewportScene()
+    private static NativeMilViewport3DScene CreateViewportScene(
+        NativeMesh3DFlags faceMode,
+        bool reverseWinding)
     {
         var vertices = new NativeSceneMesh3DVertex[3];
         vertices[0] = CreateVertex(new Vector3(-0.8f, -0.8f, 0f));
@@ -103,7 +143,7 @@ internal static class RetainedViewport3DQualification
         var mesh = new NativeSceneMesh3D
         {
             StructSize = (uint)Unsafe.SizeOf<NativeSceneMesh3D>(),
-            Flags = 0U,
+            Flags = (uint)faceMode,
             Topology = (uint)NativeMesh3DTopology.Triangles,
             RenderMode = (uint)NativeMesh3DRenderMode.Solid,
             VertexOffset = 0U,
@@ -137,7 +177,7 @@ internal static class RetainedViewport3DQualification
             Viewport,
             [mesh],
             vertices,
-            [0U, 1U, 2U]);
+            reverseWinding ? [0U, 2U, 1U] : [0U, 1U, 2U]);
     }
 
     private static NativeSceneMesh3DVertex CreateVertex(Vector3 position) =>
@@ -196,6 +236,13 @@ internal static class RetainedViewport3DQualification
             $"{pixels[offset + 2]}/{pixels[offset + 3]}");
     }
 
+    private static bool IsInsideViewport(PixelExtent extent) =>
+        extent.IsVisible &&
+        extent.MinimumX >= (int)Viewport.X &&
+        extent.MinimumY >= (int)Viewport.Y &&
+        extent.MaximumX < (int)(Viewport.X + Viewport.Width) &&
+        extent.MaximumY < (int)(Viewport.Y + Viewport.Height);
+
     private static void Require(bool condition, string message)
     {
         if (!condition)
@@ -216,4 +263,10 @@ internal static class RetainedViewport3DQualification
         public override string ToString() =>
             $"[{MinimumX},{MinimumY}]-[{MaximumX},{MaximumY}], pixels={Count}";
     }
+
+    private readonly record struct FrameResult(
+        NativeSceneUpdateMetrics Update,
+        NativeSceneFrameMetrics Frame,
+        byte[] Pixels,
+        PixelExtent Extent);
 }

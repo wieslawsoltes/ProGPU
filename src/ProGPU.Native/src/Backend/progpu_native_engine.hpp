@@ -398,7 +398,8 @@ struct progpu_native_engine {
     WGPUShaderModule semantic_3d_shader = nullptr;
     WGPURenderPipeline semantic_line_3d_pipeline = nullptr;
     WGPURenderPipeline semantic_mesh_3d_pipeline = nullptr;
-    WGPURenderPipeline semantic_mesh_strip_3d_pipeline = nullptr;
+    WGPURenderPipeline semantic_mesh_front_3d_pipeline = nullptr;
+    WGPURenderPipeline semantic_mesh_back_3d_pipeline = nullptr;
     WGPUBindGroupLayout semantic_3d_layout = nullptr;
     WGPUPipelineLayout semantic_3d_pipeline_layout = nullptr;
     WGPUShaderModule semantic_hit_test_shader = nullptr;
@@ -815,12 +816,16 @@ struct progpu_native_engine {
         release_buffer(page.vertex_buffer);
         release_buffer(page.index_buffer);
         page.draws.clear();
-        page.mesh_topologies.clear();
+        page.mesh_face_flags.clear();
         page.mesh_index_counts.clear();
         page.cache_valid = false;
-        if (semantic_mesh_strip_3d_pipeline != nullptr) {
-            wgpuRenderPipelineRelease(semantic_mesh_strip_3d_pipeline);
-            semantic_mesh_strip_3d_pipeline = nullptr;
+        if (semantic_mesh_back_3d_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(semantic_mesh_back_3d_pipeline);
+            semantic_mesh_back_3d_pipeline = nullptr;
+        }
+        if (semantic_mesh_front_3d_pipeline != nullptr) {
+            wgpuRenderPipelineRelease(semantic_mesh_front_3d_pipeline);
+            semantic_mesh_front_3d_pipeline = nullptr;
         }
         if (semantic_mesh_3d_pipeline != nullptr) {
             wgpuRenderPipelineRelease(semantic_mesh_3d_pipeline);

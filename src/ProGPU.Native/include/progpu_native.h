@@ -1742,6 +1742,12 @@ typedef enum progpu_native_mesh_3d_render_mode {
     PROGPU_NATIVE_MESH_3D_SOLID_WIREFRAME = 2
 } progpu_native_mesh_3d_render_mode;
 
+typedef enum progpu_native_mesh_3d_flags {
+    PROGPU_NATIVE_MESH_3D_TWO_SIDED = 0,
+    PROGPU_NATIVE_MESH_3D_FRONT_FACE = 1u << 0,
+    PROGPU_NATIVE_MESH_3D_BACK_FACE = 1u << 1
+} progpu_native_mesh_3d_flags;
+
 /* PROGPU_CSHARP_STRUCT: Public.NativeSceneMesh3DVertex */
 typedef struct progpu_native_scene_mesh_3d_vertex {
     progpu_native_point_3d position;
