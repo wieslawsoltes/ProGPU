@@ -704,6 +704,52 @@ public static class PortableWpfServiceRegistry
     /// </summary>
     public static event EventHandler? DisplayMetricsChanged;
 
+    private static Action? s_nativeInputPump;
+
+    /// <summary>
+    /// Pumps every active native window's event queue once. Set by the portable windowing layer
+    /// (ProGPU.Wpf), consumed by whoever owns the real WPF Dispatcher (PresentationFramework wires
+    /// it into System.Windows.Threading.Dispatcher.NativeInputPump) - neither can reference the
+    /// other directly (ProGPU.Wpf compiles against a WPF-shaped compile-time stub, not the real
+    /// WindowsBase it runs against), so this registry is the seam between them.
+    ///
+    /// Without it a NESTED Dispatcher.PushFrame (Window.ShowDialog, DragDrop's portable
+    /// drag-source loop) exits as soon as the managed queue drains, because the only thing that
+    /// can produce the input it is waiting for is a pump call like this. Measured before this was
+    /// wired up: a portable drag-and-drop's nested frame returned after ~7ms having processed zero
+    /// mouse updates, so no drop target ever saw DragOver/Drop and no drag cursor ever appeared.
+    /// </summary>
+    public static Action? NativeInputPump
+    {
+        get
+        {
+            lock (SyncRoot)
+            {
+                return s_nativeInputPump;
+            }
+        }
+        set
+        {
+            lock (SyncRoot)
+            {
+                if (ReferenceEquals(s_nativeInputPump, value))
+                {
+                    return;
+                }
+
+                s_nativeInputPump = value;
+            }
+
+            NativeInputPumpChanged?.Invoke(null, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>
+    /// Raised when <see cref="NativeInputPump"/> is set or cleared, so a consumer that initializes
+    /// before the windowing layer does not have to poll for it.
+    /// </summary>
+    public static event EventHandler? NativeInputPumpChanged;
+
     public static IDisposable RegisterWindowActivationService(IPortableWindowActivationServiceRegistrar service)
     {
         ArgumentNullException.ThrowIfNull(service);
