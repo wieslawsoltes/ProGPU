@@ -36,7 +36,7 @@ Baseline regeneration removes machine-specific left/right assembly paths, so sup
 
 ## Current measured debt
 
-After the component-model converter, hosted graphics-flush, graphics-state, point/source-rectangle and destination-point image-overload, coordinate-space, graphics-container, image-convenience, drawing-identity, brush-base, pen-ownership, stock-icon, printer-settings collection, image-attributes, page device-selection, managed printing-shape, effects, cached-bitmap, managed-metadata, managed-identity, pen-transform, typed-LOGFONT, custom-cap/compound-pen, path-gradient, metafile parser, metafile enumeration, type-scoped bitmap-resource, cumulative graphics-context, managed icon-extraction, managed serialization/base-shape, typed desktop-capture, typed native-image-import, typed native font/graphics interop, portable metafile-comment recording, and first typed EMF vector playback compatibility slices:
+After the component-model converter, hosted graphics-flush, graphics-state, point/source-rectangle and destination-point image-overload, coordinate-space, graphics-container, image-convenience, drawing-identity, brush-base, pen-ownership, stock-icon, printer-settings collection, image-attributes, page device-selection, managed printing-shape, effects, cached-bitmap, managed-metadata, managed-identity, pen-transform, typed-LOGFONT, custom-cap/compound-pen, path-gradient, metafile parser, metafile enumeration, type-scoped bitmap-resource, cumulative graphics-context, managed icon-extraction, managed serialization/base-shape, typed desktop-capture, typed native-image-import, typed native font/graphics interop, portable metafile-comment recording, and bounded typed EMF/WMF vector playback compatibility slices:
 
 | Diagnostic group | Count |
 | --- | ---: |
@@ -82,9 +82,13 @@ member suppression, leaving zero missing types, zero missing members, and 13
     The parser accepts the bounded legacy EMF record-count convention that
     excludes `EMR_HEADER`, as used by a canonical WinForms test asset, while
     rejecting every other count mismatch. Unsupported or malformed records report their type and
-    source offset and publish no partial commands. Four-point perspective,
-    image attributes, paths, clips, text, DIBs, WMF drawing, and nonstructural
-    EMF+ drawing remain explicit follow-up work. Contract, security bounds, and benchmark evidence are recorded
+    source offset and publish no partial commands. A follow-up WMF path decodes
+    16-bit Y/X state parameters, uses the required lowest-free object-table
+    allocation, and supports the state, solid/null pen/brush, polygon, polyline,
+    and counterclockwise arc records used by the canonical LibreWinForms
+    `telescope_01.wmf` asset. Four-point perspective, image attributes, paths,
+    text, DIBs, other WMF drawing families, and nonstructural EMF+ drawing remain
+    explicit follow-up work. Contract, security bounds, and benchmark evidence are recorded
 in
 [`docs/research/system-drawing-metafile-contract.md`](research/system-drawing-metafile-contract.md).
 

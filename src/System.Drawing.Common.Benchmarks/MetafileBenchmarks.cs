@@ -17,6 +17,7 @@ public class MetafileBenchmarks
     private DrawingContext _playbackContext = null!;
     private Graphics _playbackGraphics = null!;
     private Metafile _playbackMetafile = null!;
+    private Metafile _wmfPlaybackMetafile = null!;
     private readonly Graphics.EnumerateMetafileProc _enumerate = static (_, _, _, _, _) => true;
     private readonly byte[] _comment = new byte[64];
 
@@ -31,6 +32,8 @@ public class MetafileBenchmarks
         _playbackGraphics = Graphics.FromProGpuDrawingContext(_playbackContext);
         _playbackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackEmf(256), writable: false));
+        _wmfPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackWmf(256), writable: false));
     }
 
     [GlobalCleanup]
@@ -38,6 +41,7 @@ public class MetafileBenchmarks
     {
         _metafile.Dispose();
         _playbackMetafile.Dispose();
+        _wmfPlaybackMetafile.Dispose();
         _playbackGraphics.Dispose();
         _graphics.Dispose();
         _target.Dispose();
@@ -76,6 +80,16 @@ public class MetafileBenchmarks
     {
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(_playbackMetafile, new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256WmfPolygonsToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(_wmfPlaybackMetafile, new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
         return commandCount;
@@ -159,6 +173,80 @@ public class MetafileBenchmarks
         return bytes;
     }
 
+    private static byte[] CreatePlaybackWmf(int polygonCount)
+    {
+        int declaredWords = checked(9 + 7 + 8 + 4 + 4 + polygonCount * 12 + 3);
+        byte[] bytes = new byte[checked(22 + declaredWords * 2)];
+        WriteUInt32(bytes, 0, 0x9AC6_CDD7);
+        WriteInt16(bytes, 10, 640);
+        WriteInt16(bytes, 12, 480);
+        WriteUInt16(bytes, 14, 96);
+        ushort checksum = 0;
+        for (int offset = 0; offset < 20; offset += 2)
+        {
+            checksum ^= BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset, 2));
+        }
+        WriteUInt16(bytes, 20, checksum);
+
+        WriteUInt16(bytes, 22, 1);
+        WriteUInt16(bytes, 24, 9);
+        WriteUInt16(bytes, 26, 0x0300);
+        WriteUInt32(bytes, 28, (uint)declaredWords);
+        WriteUInt16(bytes, 32, 2);
+        WriteUInt32(bytes, 34, 12);
+
+        int cursor = 40;
+        WriteUInt32(bytes, cursor, 7);
+        WriteUInt16(bytes, cursor + 4, 0x02FC);
+        WriteUInt32(bytes, cursor + 8, 0x0044_4444);
+        cursor += 14;
+
+        WriteUInt32(bytes, cursor, 8);
+        WriteUInt16(bytes, cursor + 4, 0x02FA);
+        WriteUInt16(bytes, cursor + 6, 5);
+        WriteInt16(bytes, cursor + 8, 1);
+        cursor += 16;
+
+        WriteWmfObjectIndexRecord(bytes, cursor, 0x012D, 0);
+        cursor += 8;
+        WriteWmfObjectIndexRecord(bytes, cursor, 0x012D, 1);
+        cursor += 8;
+
+        for (int index = 0; index < polygonCount; index++)
+        {
+            short x = checked((short)((index % 16) * 40));
+            short y = checked((short)((index / 16) * 30));
+            WriteUInt32(bytes, cursor, 12);
+            WriteUInt16(bytes, cursor + 4, 0x0324);
+            WriteInt16(bytes, cursor + 6, 4);
+            WriteWmfPoint(bytes, cursor + 8, x, y);
+            WriteWmfPoint(bytes, cursor + 12, checked((short)(x + 32)), y);
+            WriteWmfPoint(bytes, cursor + 16, checked((short)(x + 32)), checked((short)(y + 22)));
+            WriteWmfPoint(bytes, cursor + 20, x, checked((short)(y + 22)));
+            cursor += 24;
+        }
+
+        WriteUInt32(bytes, cursor, 3);
+        return bytes;
+    }
+
+    private static void WriteWmfObjectIndexRecord(
+        byte[] target,
+        int offset,
+        ushort function,
+        ushort index)
+    {
+        WriteUInt32(target, offset, 4);
+        WriteUInt16(target, offset + 4, function);
+        WriteUInt16(target, offset + 6, index);
+    }
+
+    private static void WriteWmfPoint(byte[] target, int offset, short x, short y)
+    {
+        WriteInt16(target, offset, x);
+        WriteInt16(target, offset + 2, y);
+    }
+
     private static void WriteSelectObject(byte[] target, int offset, uint index)
     {
         WriteUInt32(target, offset, (uint)EmfPlusRecordType.EmfSelectObject);
@@ -171,6 +259,9 @@ public class MetafileBenchmarks
 
     private static void WriteUInt32(byte[] target, int offset, uint value) =>
         BinaryPrimitives.WriteUInt32LittleEndian(target.AsSpan(offset, 4), value);
+
+    private static void WriteInt16(byte[] target, int offset, short value) =>
+        BinaryPrimitives.WriteInt16LittleEndian(target.AsSpan(offset, 2), value);
 
     private static void WriteInt32(byte[] target, int offset, int value) =>
         BinaryPrimitives.WriteInt32LittleEndian(target.AsSpan(offset, 4), value);

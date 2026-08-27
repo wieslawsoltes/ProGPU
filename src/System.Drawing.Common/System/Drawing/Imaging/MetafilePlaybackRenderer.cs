@@ -23,8 +23,11 @@ internal static class MetafilePlaybackRenderer
         ArgumentNullException.ThrowIfNull(graphics);
         metafile.EnsureNotDisposed();
 
+        MetafileHeader header = metafile.GetMetafileHeader();
+        bool isWmf = header.IsWmf();
+        int wmfObjectCapacity = isWmf ? (ushort)header.WmfHeader.NoObjects : 0;
         ReadOnlySpan<byte> source = metafile.Source;
-        using var state = new PlaybackState(graphics);
+        using var state = new PlaybackState(graphics, wmfObjectCapacity);
         foreach (ref readonly MetafileRecord record in metafile.Records)
         {
             ReadOnlySpan<byte> payload = source.Slice(record.DataOffset, record.DataLength);
@@ -32,10 +35,111 @@ internal static class MetafilePlaybackRenderer
             {
                 PlayEmfPlusRecord(record, payload);
             }
+            else if (isWmf)
+            {
+                PlayWmfRecord(state, record, payload);
+            }
             else
             {
                 PlayEmfRecord(state, record, payload);
             }
+        }
+    }
+
+    private static void PlayWmfRecord(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        switch (record.Type)
+        {
+            case EmfPlusRecordType.WmfRecordBase:
+                RequireSize(record, payload, 0);
+                return;
+
+            case EmfPlusRecordType.WmfSetBkMode:
+                RequireSize(record, payload, 2);
+                state.SetBackgroundMode(ReadUInt16(payload, 0), record);
+                return;
+
+            case EmfPlusRecordType.WmfSetROP2:
+                RequireSize(record, payload, 2);
+                state.SetRasterOperation(ReadUInt16(payload, 0), record);
+                return;
+
+            case EmfPlusRecordType.WmfSetRelAbs:
+                RequireSize(record, payload, 2);
+                return;
+
+            case EmfPlusRecordType.WmfSetPolyFillMode:
+                RequireSize(record, payload, 2);
+                state.FillMode = ReadUInt16(payload, 0) switch
+                {
+                    1 => FillMode.Alternate,
+                    2 => FillMode.Winding,
+                    _ => throw Invalid(record)
+                };
+                return;
+
+            case EmfPlusRecordType.WmfSetTextAlign:
+                RequireSize(record, payload, 2);
+                state.TextAlignment = ReadUInt16(payload, 0);
+                return;
+
+            case EmfPlusRecordType.WmfSetBkColor:
+                RequireSize(record, payload, 4);
+                state.BackgroundColor = ReadColor(payload, 0);
+                return;
+
+            case EmfPlusRecordType.WmfSetWindowOrg:
+                RequireSize(record, payload, 4);
+                state.WindowOrigin = ReadWmfYxPoint(payload);
+                return;
+
+            case EmfPlusRecordType.WmfSetWindowExt:
+                RequireSize(record, payload, 4);
+                state.SetWindowExtent(ReadWmfYxPoint(payload), record);
+                return;
+
+            case EmfPlusRecordType.WmfMoveTo:
+                RequireSize(record, payload, 4);
+                state.CurrentPoint = ReadWmfYxPoint(payload);
+                return;
+
+            case EmfPlusRecordType.WmfSelectObject:
+                RequireSize(record, payload, 2);
+                state.SelectWmfObject(ReadUInt16(payload, 0), record);
+                return;
+
+            case EmfPlusRecordType.WmfDeleteObject:
+                RequireSize(record, payload, 2);
+                state.DeleteWmfObject(ReadUInt16(payload, 0), record);
+                return;
+
+            case EmfPlusRecordType.WmfCreatePenIndirect:
+                RequireSize(record, payload, 10);
+                state.CreateWmfPen(payload, record);
+                return;
+
+            case EmfPlusRecordType.WmfCreateBrushIndirect:
+                RequireSize(record, payload, 8);
+                state.CreateWmfBrush(payload, record);
+                return;
+
+            case EmfPlusRecordType.WmfPolygon:
+                DrawWmfPolygon(state, record, payload, close: true);
+                return;
+
+            case EmfPlusRecordType.WmfPolyline:
+                DrawWmfPolygon(state, record, payload, close: false);
+                return;
+
+            case EmfPlusRecordType.WmfArc:
+                DrawWmfArc(state, record, payload);
+                return;
+
+            default:
+                throw Unsupported(record);
         }
     }
 
@@ -387,6 +491,103 @@ internal static class MetafilePlaybackRenderer
         }
     }
 
+    private static void DrawWmfPolygon(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload,
+        bool close)
+    {
+        if (payload.Length < 2)
+        {
+            throw Invalid(record);
+        }
+
+        int count = ReadInt16(payload, 0);
+        if (count < 2)
+        {
+            throw Invalid(record);
+        }
+
+        int expectedSize;
+        try
+        {
+            expectedSize = checked(2 + count * 4);
+        }
+        catch (OverflowException exception)
+        {
+            throw Invalid(record, exception);
+        }
+        RequireSize(record, payload, expectedSize);
+
+        var points = new Point[count];
+        int cursor = 2;
+        for (int index = 0; index < count; index++)
+        {
+            points[index] = new Point(
+                ReadInt16(payload, cursor),
+                ReadInt16(payload, cursor + 2));
+            cursor += 4;
+        }
+
+        state.ApplyTransform(record);
+        if (close && count >= 3 && state.SelectedBrush is Brush brush)
+        {
+            state.Graphics.FillPolygon(brush, points, state.FillMode);
+        }
+        if (state.SelectedPen is Pen pen)
+        {
+            if (close && count >= 3)
+            {
+                state.Graphics.DrawPolygon(pen, points);
+            }
+            else
+            {
+                state.Graphics.DrawLines(pen, points);
+            }
+        }
+    }
+
+    private static void DrawWmfArc(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        RequireSize(record, payload, 16);
+        int left = ReadInt16(payload, 14);
+        int top = ReadInt16(payload, 12);
+        int right = ReadInt16(payload, 10);
+        int bottom = ReadInt16(payload, 8);
+        if (right <= left || bottom <= top)
+        {
+            throw Invalid(record);
+        }
+
+        var rectangle = Rectangle.FromLTRB(left, top, right, bottom);
+        var start = new Point(ReadInt16(payload, 6), ReadInt16(payload, 4));
+        var end = new Point(ReadInt16(payload, 2), ReadInt16(payload, 0));
+        float radiusX = rectangle.Width / 2f;
+        float radiusY = rectangle.Height / 2f;
+        float centerX = rectangle.Left + radiusX;
+        float centerY = rectangle.Top + radiusY;
+        float startAngle = MathF.Atan2(
+            (start.Y - centerY) / radiusY,
+            (start.X - centerX) / radiusX) * (180f / MathF.PI);
+        float endAngle = MathF.Atan2(
+            (end.Y - centerY) / radiusY,
+            (end.X - centerX) / radiusX) * (180f / MathF.PI);
+        float sweepAngle = endAngle - startAngle;
+        if (sweepAngle >= 0f)
+        {
+            sweepAngle -= 360f;
+        }
+
+        state.ApplyTransform(record);
+        if (state.SelectedPen is Pen pen)
+        {
+            state.Graphics.DrawArc(pen, rectangle, startAngle, sweepAngle);
+        }
+    }
+
     private static Point ScaleExtent(
         Point extent,
         ReadOnlySpan<byte> payload,
@@ -455,6 +656,9 @@ internal static class MetafilePlaybackRenderer
 
     private static Point ReadSize(ReadOnlySpan<byte> payload) => ReadPoint(payload);
 
+    private static Point ReadWmfYxPoint(ReadOnlySpan<byte> payload) =>
+        new(ReadInt16(payload, 2), ReadInt16(payload, 0));
+
     private static Color ReadColor(ReadOnlySpan<byte> payload, int offset)
     {
         uint color = ReadUInt32(payload, offset);
@@ -477,6 +681,12 @@ internal static class MetafilePlaybackRenderer
 
     private static uint ReadUInt32(ReadOnlySpan<byte> payload, int offset) =>
         BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(offset, 4));
+
+    private static ushort ReadUInt16(ReadOnlySpan<byte> payload, int offset) =>
+        BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(offset, 2));
+
+    private static short ReadInt16(ReadOnlySpan<byte> payload, int offset) =>
+        BinaryPrimitives.ReadInt16LittleEndian(payload.Slice(offset, 2));
 
     private static int ReadInt32(ReadOnlySpan<byte> payload, int offset) =>
         BinaryPrimitives.ReadInt32LittleEndian(payload.Slice(offset, 4));
@@ -508,12 +718,14 @@ internal static class MetafilePlaybackRenderer
     {
         private readonly Dictionary<uint, object> _objects = [];
         private readonly List<SavedState> _savedStates = [];
+        private readonly int _wmfObjectCapacity;
         private Pen? _selectedPen = Pens.Black;
         private Brush? _selectedBrush = Brushes.White;
 
-        internal PlaybackState(Graphics graphics)
+        internal PlaybackState(Graphics graphics, int wmfObjectCapacity)
         {
             Graphics = graphics;
+            _wmfObjectCapacity = wmfObjectCapacity;
         }
 
         internal Graphics Graphics { get; }
@@ -527,6 +739,8 @@ internal static class MetafilePlaybackRenderer
         internal int MapMode { get; set; } = 1;
         internal int BackgroundMode { get; set; } = 2;
         internal int RasterOperation { get; set; } = 13;
+        internal int TextAlignment { get; set; }
+        internal Color BackgroundColor { get; set; } = Color.White;
         internal Pen? SelectedPen => _selectedPen;
         internal Brush? SelectedBrush => _selectedBrush;
 
@@ -737,6 +951,37 @@ internal static class MetafilePlaybackRenderer
             AddObject(index, product, record);
         }
 
+        internal void CreateWmfPen(ReadOnlySpan<byte> payload, in MetafileRecord record)
+        {
+            uint style = ReadUInt16(payload, 0);
+            int rawWidth = ReadInt16(payload, 2);
+            if (rawWidth == short.MinValue ||
+                (style & 0xFFF0) != 0)
+            {
+                throw Unsupported(record, "The initial WMF player supports cosmetic solid or null pens only.");
+            }
+
+            object product = (style & 0xF) switch
+            {
+                0 => new Pen(ReadColor(payload, 6), Math.Max(Math.Abs(rawWidth), 1)),
+                5 => NullPenMarker.Instance,
+                _ => throw Unsupported(record, "The initial WMF player supports cosmetic solid or null pens only.")
+            };
+            AddWmfObject(product, record);
+        }
+
+        internal void CreateWmfBrush(ReadOnlySpan<byte> payload, in MetafileRecord record)
+        {
+            uint style = ReadUInt16(payload, 0);
+            object product = style switch
+            {
+                0 => new SolidBrush(ReadColor(payload, 2)),
+                1 => NullBrushMarker.Instance,
+                _ => throw Unsupported(record, "The initial WMF player supports solid or null brushes only.")
+            };
+            AddWmfObject(product, record);
+        }
+
         internal void SelectObject(uint index, in MetafileRecord record)
         {
             object product;
@@ -749,24 +994,20 @@ internal static class MetafilePlaybackRenderer
                 throw Invalid(record);
             }
 
-            switch (product)
-            {
-                case Pen pen:
-                    _selectedPen = pen;
-                    break;
-                case NullPenMarker:
-                    _selectedPen = null;
-                    break;
-                case Brush brush:
-                    _selectedBrush = brush;
-                    break;
-                case NullBrushMarker:
-                    _selectedBrush = null;
-                    break;
-                default:
-                    throw Unsupported(record, "The selected GDI object kind is not supported.");
-            }
+            SelectProduct(product, record);
         }
+
+        internal void SelectWmfObject(ushort index, in MetafileRecord record)
+        {
+            if (!_objects.TryGetValue(index, out object? product))
+            {
+                throw Invalid(record);
+            }
+            SelectProduct(product, record);
+        }
+
+        internal void DeleteWmfObject(ushort index, in MetafileRecord record) =>
+            DeleteObject(index, record);
 
         internal void DeleteObject(uint index, in MetafileRecord record)
         {
@@ -806,6 +1047,41 @@ internal static class MetafilePlaybackRenderer
             {
                 (product as IDisposable)?.Dispose();
                 throw Invalid(record);
+            }
+        }
+
+        private void AddWmfObject(object product, in MetafileRecord record)
+        {
+            for (uint index = 0; index < _wmfObjectCapacity; index++)
+            {
+                if (_objects.TryAdd(index, product))
+                {
+                    return;
+                }
+            }
+
+            (product as IDisposable)?.Dispose();
+            throw Invalid(record);
+        }
+
+        private void SelectProduct(object product, in MetafileRecord record)
+        {
+            switch (product)
+            {
+                case Pen pen:
+                    _selectedPen = pen;
+                    break;
+                case NullPenMarker:
+                    _selectedPen = null;
+                    break;
+                case Brush brush:
+                    _selectedBrush = brush;
+                    break;
+                case NullBrushMarker:
+                    _selectedBrush = null;
+                    break;
+                default:
+                    throw Unsupported(record, "The selected GDI object kind is not supported.");
             }
         }
 

@@ -300,6 +300,42 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void WmfPlaybackDrawsTypedStateObjectsPolygonsLinesAndArcs()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreatePlaybackWmf()));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(16, 16).ToArgb());
+        Assert.Equal(Color.Green.ToArgb(), target.GetPixel(44, 16).ToArgb());
+        Color linePixel = target.GetPixel(32, 32);
+        Assert.True(linePixel.A > 0);
+        Assert.Equal((0, 0, 0), (linePixel.R, linePixel.G, linePixel.B));
+        Assert.Equal(0, target.GetPixel(2, 2).A);
+    }
+
+    [Fact]
+    public void WmfPlaybackFailureDoesNotPublishPartialCommands()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreatePlaybackWmf(includeUnsupportedRecord: true)));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Contains(nameof(EmfPlusRecordType.WmfEllipse), exception.Message, StringComparison.Ordinal);
+            Assert.Contains("byte offset", exception.Message, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(16, 16).ToArgb());
+    }
+
+    [Fact]
     public void EmfPlaybackFailureDoesNotPublishPartialCommands()
     {
         byte[] bytes = CreatePlaybackEmf();
@@ -620,6 +656,122 @@ public sealed class MetafileParserTests
         WriteUInt16(bytes, 38, 0);
         WriteUInt32(bytes, 40, 3);
         WriteUInt16(bytes, 44, 0);
+        return bytes;
+    }
+
+    private static byte[] CreatePlaybackWmf(bool includeUnsupportedRecord = false)
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x0102, WmfWords(1)),
+            (0x0104, WmfWords(13)),
+            (0x0105, WmfWords(0)),
+            (0x0106, WmfWords(1)),
+            (0x012E, WmfWords(0)),
+            (0x0201, WmfColor(Color.White)),
+            (0x020C, WmfWords(64, 64)),
+            (0x020B, WmfWords(0, 0)),
+            (0x02FC, WmfBrush(Color.Red)),
+            (0x02FA, WmfPen(Color.Black, 1)),
+            (0x012D, WmfWords(0)),
+            (0x012D, WmfWords(1)),
+            (0x0324, WmfPoints(new Point(8, 8), new Point(28, 8), new Point(28, 28), new Point(8, 28))),
+            (0x02FA, WmfPen(Color.White, 1, @null: true)),
+            (0x012D, WmfWords(2)),
+            (0x02FC, WmfBrush(Color.Blue)),
+            (0x012D, WmfWords(3)),
+            (0x01F0, WmfWords(0)),
+            (0x02FC, WmfBrush(Color.Green)),
+            (0x012D, WmfWords(0)),
+            (0x0324, WmfPoints(new Point(36, 8), new Point(56, 8), new Point(56, 28), new Point(36, 28))),
+            (0x012D, WmfWords(1)),
+            (0x0325, WmfPoints(new Point(4, 32), new Point(60, 32))),
+            (0x0817, WmfWords(36, 18, 46, 28, 56, 28, 36, 8))
+        };
+        if (includeUnsupportedRecord)
+        {
+            records.Add((0x0418, WmfWords(56, 56, 36, 36)));
+        }
+        records.Add((0, []));
+
+        int maximumRecordWords = records.Max(record => (record.Payload.Length + 6) / 2);
+        int declaredWords = 9 + records.Sum(record => (record.Payload.Length + 6) / 2);
+        byte[] bytes = new byte[checked(22 + declaredWords * 2)];
+        WriteUInt32(bytes, 0, 0x9AC6_CDD7);
+        WriteInt16(bytes, 6, 0);
+        WriteInt16(bytes, 8, 0);
+        WriteInt16(bytes, 10, 64);
+        WriteInt16(bytes, 12, 64);
+        WriteUInt16(bytes, 14, 96);
+        ushort checksum = 0;
+        for (int offset = 0; offset < 20; offset += 2)
+        {
+            checksum ^= BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset, 2));
+        }
+        WriteUInt16(bytes, 20, checksum);
+
+        WriteUInt16(bytes, 22, 1);
+        WriteUInt16(bytes, 24, 9);
+        WriteUInt16(bytes, 26, 0x0300);
+        WriteUInt32(bytes, 28, (uint)declaredWords);
+        WriteUInt16(bytes, 32, 4);
+        WriteUInt32(bytes, 34, (uint)maximumRecordWords);
+        WriteUInt16(bytes, 38, 0);
+
+        int cursor = 40;
+        foreach ((ushort function, byte[] payload) in records)
+        {
+            WriteUInt32(bytes, cursor, (uint)((payload.Length + 6) / 2));
+            WriteUInt16(bytes, cursor + 4, function);
+            payload.CopyTo(bytes, cursor + 6);
+            cursor += payload.Length + 6;
+        }
+        return bytes;
+    }
+
+    private static byte[] WmfWords(params short[] values)
+    {
+        byte[] bytes = new byte[values.Length * 2];
+        for (int index = 0; index < values.Length; index++)
+        {
+            WriteInt16(bytes, index * 2, values[index]);
+        }
+        return bytes;
+    }
+
+    private static byte[] WmfColor(Color color)
+    {
+        byte[] bytes = new byte[4];
+        WriteUInt32(bytes, 0, (uint)(color.R | color.G << 8 | color.B << 16));
+        return bytes;
+    }
+
+    private static byte[] WmfPen(Color color, short width, bool @null = false)
+    {
+        byte[] bytes = new byte[10];
+        WriteUInt16(bytes, 0, @null ? (ushort)5 : (ushort)0);
+        WriteInt16(bytes, 2, width);
+        WriteInt16(bytes, 4, width);
+        WmfColor(color).CopyTo(bytes, 6);
+        return bytes;
+    }
+
+    private static byte[] WmfBrush(Color color)
+    {
+        byte[] bytes = new byte[8];
+        WmfColor(color).CopyTo(bytes, 2);
+        return bytes;
+    }
+
+    private static byte[] WmfPoints(params Point[] points)
+    {
+        byte[] bytes = new byte[checked(2 + points.Length * 4)];
+        WriteInt16(bytes, 0, checked((short)points.Length));
+        for (int index = 0; index < points.Length; index++)
+        {
+            WriteInt16(bytes, 2 + index * 4, checked((short)points[index].X));
+            WriteInt16(bytes, 4 + index * 4, checked((short)points[index].Y));
+        }
         return bytes;
     }
 

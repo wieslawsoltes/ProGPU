@@ -77,7 +77,7 @@ record, and a callback returning `false` stops cleanly. The public
 `callbackData` pointer remains ABI-compatible; matching the official managed
 adapter, the managed callback's `PlayRecordCallback` argument is null.
 
-Direct `Graphics.DrawImage` playback now has a first bounded EMF vector tranche.
+Direct `Graphics.DrawImage` playback now has bounded EMF and WMF vector tranches.
 Rectangle, point, source-rectangle, and three-point affine overloads compose the
 metafile source bounds, caller destination mapping, and host graphics transform.
 Four-point projective playback and `ImageAttributes` fail explicitly until the
@@ -105,9 +105,23 @@ official [EMR_RECTANGLE](https://learn.microsoft.com/en-us/openspecs/windows_pro
 contracts. Each supported record lowers to existing typed `Graphics`, brush,
 and pen operations. Playback records into a temporary `DrawingContext`; an
 unsupported or malformed record reports its type and byte offset and prevents
-the entire temporary command stream from being appended. Paths, clipping
-records, text, DIB images, richer GDI objects, WMF drawing, and nonstructural
-EMF+ drawing records remain explicit later tranches.
+the entire temporary command stream from being appended.
+
+The initial WMF family follows the official 16-bit record layouts and keeps its
+state/object path separate from EMF. It implements background mode/color,
+`R2_COPYPEN`, `META_SETRELABS` no-op semantics, polygon fill mode, text-alignment
+state, window origin/extent, move, lowest-free object-table allocation and slot
+reuse, selection/deletion, solid/null pens and brushes, polygons, polylines, and
+counterclockwise elliptical arcs. The bounded family is the complete record
+inventory currently used by the canonical LibreWinForms `telescope_01.wmf`
+asset. The implementation is based on the official
+[WMF object record rules](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/aeab62b8-03ab-48c0-8176-09c392f3c9da),
+[META_POLYGON](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/0982bbfc-feb7-4f06-a8fb-ad03b465ffea),
+[META_ARC](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/742097b4-5879-4c36-b57e-77e7cc152253), and
+[state record](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/54e4a2e0-5ca9-4c69-b6a8-dc8f938c68ae)
+contracts. Paths, clipping records, text output, DIB images, richer GDI objects,
+other WMF drawing families, and nonstructural EMF+ drawing records remain
+explicit later tranches.
 
 Portable comment recording is a typed encoder over the same immutable record
 model. `ProGPU.SystemDrawing.PortableMetafile.Create` accepts a caller-owned,
@@ -145,7 +159,12 @@ managed bitmap compositor. The first gate covers retained pixels, destination
 scaling and translation, object selection, map/world/save/restore composition,
 saved clip restoration, multi-polygon count/point validation,
 explicit image-attribute/projective rejection, and transactional rollback after
-a supported draw but before an unsupported record. Windows differential and
+a supported draw but before an unsupported record. WMF gates cover 16-bit
+parameter ordering, lowest-free slot reuse, state, pen/brush selection,
+polygon/polyline/arc pixels, and transactional rollback. The real
+LibreWinForms `telescope_01.wmf` fixture renders end to end into a 200-by-267
+bitmap with 6,048 opaque pixels. The focused metafile suite is 30/30 and both
+complete Debug and Release drawing suites are 391/391. Windows differential and
 headless GPU fixtures remain follow-up evidence. Supported records lower to
 ordinary typed ProGPU scene commands; no metafile-specific opaque payload
 crosses the renderer boundary.
@@ -170,6 +189,15 @@ weakening rollback. CI stores BenchmarkDotNet JSON and
 focused tests enforce a maximum 4,096 bytes across sixteen warmed 4,098-record
 walks. Parser complexity must remain linear in source bytes plus record count;
 no record can trigger an unbounded scan of the complete source.
+
+`Playback256WmfPolygonsToRetainedCommands` measures WMF record decoding,
+lowest-free object-table setup, 256 four-point polygon lowers, transactional
+append, and cleanup. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured a
+373.387 microsecond median (345.537 microsecond mean, 87.265 microsecond
+standard deviation) and 477.6 KB managed allocation. The three-iteration result
+is a deliberately coarse first baseline; like the EMF result, it identifies
+temporary point arrays and retained-command ownership as later optimization
+work rather than claiming allocation-free playback.
 
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication
@@ -200,8 +228,8 @@ family in checkpoint three lands, the quality report must describe the current
 vector player as partial metafile support and must not claim complete portable
 rendering parity.
 
-Checkpoints one, the enumeration half of checkpoint two, the first direct EMF
-vector slice of checkpoint three, and the portable comment portion of checkpoint
+Checkpoints one, the enumeration half of checkpoint two, the bounded direct EMF
+and WMF vector slices of checkpoint three, and the portable comment portion of checkpoint
 four are implemented at this revision. Checkpoint
 one removes all eight
 missing-type diagnostics and 44 `Metafile` missing-member diagnostics, reducing
