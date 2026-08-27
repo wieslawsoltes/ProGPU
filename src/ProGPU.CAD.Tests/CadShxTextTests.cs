@@ -82,6 +82,132 @@ public sealed class CadShxTextTests
             options: new CadShxTextLayoutOptions { MaxCodeUnits = 0 }));
     }
 
+    [Fact]
+    public void CatalogResolvesPortableFilenamesAndExplicitAliases()
+    {
+        CadShxGlyphCache cache = CreateCache();
+        var catalog = new CadShxFontCatalog();
+        catalog.Register(@"C:\bundled\Simplex.shx", cache, "SIMPLEX");
+        catalog.Register("simplex-alias.shx", cache);
+
+        CadShxFontResolution exact = catalog.Resolve(new CadShxFontRequest(
+            "IGNORED_STYLE",
+            "/drawing/fonts/SIMPLEX.SHX",
+            string.Empty));
+        CadShxFontResolution style = catalog.Resolve(new CadShxFontRequest(
+            "simplex",
+            string.Empty,
+            string.Empty));
+
+        Assert.Same(cache, exact.GlyphCache);
+        Assert.False(exact.IsSubstitution);
+        Assert.Equal("Simplex.shx", exact.ResolvedFontName);
+        Assert.Same(cache, style.GlyphCache);
+        Assert.False(style.IsSubstitution);
+        Assert.Equal(1, catalog.RegisteredFontCount);
+        Assert.Equal(3, catalog.RegisteredNameCount);
+    }
+
+    [Fact]
+    public void CatalogMappingOverridesOriginalAndMissingTargetFallsBack()
+    {
+        CadShxGlyphCache original = CreateCache();
+        CadShxGlyphCache replacement = CreateCache();
+        var catalog = new CadShxFontCatalog();
+        catalog.Register("original.shx", original);
+        catalog.Register("replacement.shx", replacement);
+        ICadShxFontResolver originalGeneration = catalog.CreateResolverSnapshot();
+        Assert.Same(originalGeneration, catalog.CreateResolverSnapshot());
+        catalog.SetMapping("original.shx", "replacement.shx");
+
+        CadShxFontResolution mapped = catalog.Resolve(new CadShxFontRequest(
+            "STYLE",
+            "original.shx",
+            string.Empty));
+        CadShxFontResolution retainedOriginal = originalGeneration.Resolve(
+            new CadShxFontRequest("STYLE", "original.shx", string.Empty));
+        Assert.NotSame(originalGeneration, catalog.CreateResolverSnapshot());
+        catalog.SetMapping("original.shx", "missing.shx");
+        CadShxFontResolution fallbackToOriginal = catalog.Resolve(new CadShxFontRequest(
+            "STYLE",
+            "original.shx",
+            string.Empty));
+
+        Assert.Same(replacement, mapped.GlyphCache);
+        Assert.True(mapped.IsSubstitution);
+        Assert.Equal("replacement.shx", mapped.ResolvedFontName);
+        Assert.Same(original, retainedOriginal.GlyphCache);
+        Assert.False(retainedOriginal.IsSubstitution);
+        Assert.Same(original, fallbackToOriginal.GlyphCache);
+        Assert.False(fallbackToOriginal.IsSubstitution);
+        Assert.Equal(1, catalog.MappingCount);
+        Assert.True(catalog.RemoveMapping(@"C:\fonts\ORIGINAL.SHX"));
+        Assert.Equal(0, catalog.MappingCount);
+    }
+
+    [Fact]
+    public void CatalogAlternateIsExplicitAndBigFontRequestsStayUnresolved()
+    {
+        CadShxGlyphCache alternate = CreateCache();
+        var catalog = new CadShxFontCatalog();
+        catalog.Register("simplex.shx", alternate, "DEFAULT");
+        catalog.SetAlternate("default");
+
+        CadShxFontResolution substituted = catalog.Resolve(new CadShxFontRequest(
+            "MISSING",
+            "missing.shx",
+            string.Empty));
+        CadShxFontResolution bigFont = catalog.Resolve(new CadShxFontRequest(
+            "BIG",
+            "simplex.shx",
+            "asian.shx"));
+
+        Assert.Same(alternate, substituted.GlyphCache);
+        Assert.True(substituted.IsSubstitution);
+        Assert.Equal("simplex.shx", catalog.AlternateFontName);
+        Assert.Null(bigFont.GlyphCache);
+        catalog.ClearAlternate();
+        Assert.Null(catalog.Resolve(new CadShxFontRequest(
+            "MISSING",
+            "missing.shx",
+            string.Empty)).GlyphCache);
+        Assert.Throws<KeyNotFoundException>(() => catalog.SetAlternate("unknown.shx"));
+    }
+
+    [Fact]
+    public void CatalogRegistrationIsAtomicAndParsedSourcesAreOwned()
+    {
+        CadShxGlyphCache first = CreateCache();
+        CadShxGlyphCache second = CreateCache();
+        var catalog = new CadShxFontCatalog();
+        catalog.Register("first.shx", first, "SHARED");
+
+        Assert.Throws<InvalidOperationException>(() =>
+            catalog.Register("second.shx", second, "shared"));
+        Assert.Equal(1, catalog.RegisteredFontCount);
+        Assert.Equal(2, catalog.RegisteredNameCount);
+        Assert.Throws<ArgumentException>(() => catalog.Register("not-a-font.ttf", second));
+
+        byte[] source = BuildStandardShx(
+            (0, "OWNED", new byte[] { 10, 2, 0, 0 }),
+            (65, "UCA", new byte[] { 2, 8, 3, 0, 0 }));
+        CadShxGlyphCache parsed = catalog.ParseAndRegister(
+            "owned.shx",
+            source,
+            aliases: ["OWNED"]);
+        Array.Fill(source, (byte)0);
+
+        Parallel.For(0, 1_000, _ =>
+        {
+            CadShxFontResolution resolution = catalog.Resolve(new CadShxFontRequest(
+                "OWNED",
+                "owned.shx",
+                string.Empty));
+            Assert.Same(parsed, resolution.GlyphCache);
+        });
+        Assert.Equal(new Vector2(3, 0), parsed.GetGlyph(65).Advance);
+    }
+
     private static CadShxGlyphCache CreateCache()
     {
         CadShxFont font = CadShxFont.Parse(BuildStandardShx(

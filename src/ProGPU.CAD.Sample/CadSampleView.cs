@@ -11,14 +11,22 @@ namespace ProGPU.CAD.Sample;
 public sealed class CadSampleView : Grid
 {
     private readonly CadDocumentStore _store = new();
-    private readonly CadSampleCanvas _canvas = new();
+    private readonly CadSampleCanvas _canvas;
     private readonly TextBlock _status;
     private readonly Button _openButton;
     private readonly Button _saveButton;
     private bool _isBusy;
 
+    public CadShxFontCatalog ShxFonts => _canvas.ShxFonts;
+
     public CadSampleView()
+        : this(null)
     {
+    }
+
+    public CadSampleView(CadShxFontCatalog? shxFonts)
+    {
+        _canvas = new CadSampleCanvas(shxFonts);
         TtfFont font = InterFontFamily.Regular;
         RowDefinitions.Add(new GridLength(52, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));

@@ -49,6 +49,12 @@ CadShxFont? shxFont = shxInterpretationCount == 0 && shxLayoutCount == 0 &&
 CadShxGlyphCache? shxCache = shxLayoutCount == 0 && shxTextEntityCount == 0
     ? null
     : new CadShxGlyphCache(shxFont!);
+CadShxFontCatalog? shxCatalog = null;
+if (shxTextEntityCount != 0)
+{
+    shxCatalog = new CadShxFontCatalog();
+    shxCatalog.Register("benchmark.shx", shxCache!);
+}
 CadSnapshotOptions snapshotOptions = new()
 {
     TextFontResolver = textEntityCount == 0
@@ -56,7 +62,7 @@ CadSnapshotOptions snapshotOptions = new()
         : new BenchmarkTextFontResolver(InterFontFamily.Regular),
     ShxFontResolver = shxTextEntityCount == 0
         ? null
-        : new BenchmarkShxFontResolver(shxCache!),
+        : shxCatalog,
 };
 
 CadDocumentSnapshot validationSnapshot = snapshotCompiler.Compile(session, snapshotOptions);
@@ -451,10 +457,4 @@ internal sealed class BenchmarkTextFontResolver(TtfFont font) : ICadTextFontReso
 {
     public CadTextFontResolution Resolve(in CadTextFontRequest request) =>
         new(font, IsSubstitution: false);
-}
-
-internal sealed class BenchmarkShxFontResolver(CadShxGlyphCache cache) : ICadShxFontResolver
-{
-    public CadShxFontResolution Resolve(in CadShxFontRequest request) =>
-        new(cache, cache.Font.Name, IsSubstitution: false);
 }

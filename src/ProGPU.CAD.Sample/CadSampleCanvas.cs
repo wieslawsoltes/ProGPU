@@ -14,16 +14,12 @@ namespace ProGPU.CAD.Sample;
 /// <summary>Shared interactive retained CAD surface used by desktop and browser hosts.</summary>
 public sealed class CadSampleCanvas : FrameworkElement
 {
-    private static readonly CadSnapshotOptions SnapshotOptions = new()
-    {
-        TextFontResolver = new CadFontManagerTextResolver(InterFontFamily.Regular),
-    };
-
     private readonly Brush _background = new ThemeResourceBrush("CardBackground");
     private readonly Pen _border = new(
         new ThemeResourceBrush("ControlBorder"),
         1,
         strokeTransformMode: PenStrokeTransformMode.Fixed);
+    private readonly CadSnapshotOptions _snapshotOptions;
     private GpuPicture? _picture;
     private CadBounds3D _bounds;
     private Vector2 _pan;
@@ -37,8 +33,21 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public CadDocumentSnapshot? CurrentSnapshot { get; private set; }
 
+    public CadShxFontCatalog ShxFonts { get; }
+
     public CadSampleCanvas()
+        : this(null)
     {
+    }
+
+    public CadSampleCanvas(CadShxFontCatalog? shxFonts)
+    {
+        ShxFonts = shxFonts ?? new CadShxFontCatalog();
+        _snapshotOptions = new CadSnapshotOptions
+        {
+            TextFontResolver = new CadFontManagerTextResolver(InterFontFamily.Regular),
+            ShxFontResolver = ShxFonts,
+        };
         HorizontalAlignment = HorizontalAlignment.Stretch;
         VerticalAlignment = VerticalAlignment.Stretch;
         PointerPressed += OnPointerPressed;
@@ -52,7 +61,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     public void Load(CadDocumentSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
-        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session, SnapshotOptions);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session, _snapshotOptions);
         CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
         GpuPicture picture = scene.CreatePicture();
         GpuPicture? previous = _picture;

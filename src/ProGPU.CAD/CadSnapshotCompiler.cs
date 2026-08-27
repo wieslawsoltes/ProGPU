@@ -67,6 +67,9 @@ public sealed class CadSnapshotCompiler
         CadSnapshotOptions options,
         CancellationToken cancellationToken)
     {
+        ICadShxFontResolver? shxFontResolver = options.ShxFontResolver is CadShxFontCatalog catalog
+            ? catalog.CreateResolverSnapshot()
+            : options.ShxFontResolver;
         var layers = new List<CadLayerSnapshot>();
         var layerIndices = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var styles = new List<CadStrokeStyle>();
@@ -268,7 +271,8 @@ public sealed class CadSnapshotCompiler
                         textFonts,
                         textFontIndices,
                         shxTexts,
-                        shxGlyphInstances),
+                        shxGlyphInstances,
+                        shxFontResolver),
                     MText => throw new CadUnsupportedEntityException(
                         "MTEXT requires inline-format, paragraph, column, background, and attachment lowering."),
                     _ => null,
@@ -1034,7 +1038,8 @@ public sealed class CadSnapshotCompiler
         List<TtfFont> fonts,
         Dictionary<TtfFont, int> fontIndices,
         List<CadShxTextPrimitive> shxTexts,
-        List<CadShxGlyphInstance> shxGlyphInstances)
+        List<CadShxGlyphInstance> shxGlyphInstances,
+        ICadShxFontResolver? shxFontResolver)
     {
         if (text.Thickness != 0.0)
         {
@@ -1080,7 +1085,8 @@ public sealed class CadSnapshotCompiler
                 diagnostics,
                 shxTexts,
                 shxGlyphInstances,
-                glyphIndices.Count);
+                glyphIndices.Count,
+                shxFontResolver);
         }
 
         if (cadStyle.Flags.HasFlag(StyleFlags.VerticalText))
@@ -1365,7 +1371,8 @@ public sealed class CadSnapshotCompiler
         List<CadDiagnostic> diagnostics,
         List<CadShxTextPrimitive> destination,
         List<CadShxGlyphInstance> glyphInstances,
-        int retainedTrueTypeGlyphCount)
+        int retainedTrueTypeGlyphCount,
+        ICadShxFontResolver? shxFontResolver)
     {
         TextStyle cadStyle = text.Style;
         if (!string.IsNullOrWhiteSpace(cadStyle.BigFontFilename))
@@ -1379,7 +1386,7 @@ public sealed class CadSnapshotCompiler
                 "Vertical SHX STYLE requires vertical anchoring and decoration lowering.");
         }
 
-        ICadShxFontResolver resolver = options.ShxFontResolver ??
+        ICadShxFontResolver resolver = shxFontResolver ??
             throw new CadUnsupportedEntityException(
                 "Standard SHX TEXT requires a host SHX font resolver.");
         CadShxFontResolution fontResolution = resolver.Resolve(new CadShxFontRequest(
