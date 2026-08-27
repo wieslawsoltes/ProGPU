@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using ProGPU.Fonts.Inter;
@@ -15,12 +16,18 @@ public sealed class CadSampleView : Grid
     private readonly TextBlock _status;
     private readonly Button _openButton;
     private readonly Button _saveButton;
+    private readonly Button _undoButton;
+    private readonly Button _redoButton;
+    private readonly Button[] _moveButtons;
+    private readonly TextBox _moveStepInput;
     private readonly List<string> _shxSupportDirectories = new();
     private bool _isBusy;
     private string _currentDocumentName = "Representative analytic scene";
     private int _currentDiagnosticCount;
 
     public CadShxFontCatalog ShxFonts => _canvas.ShxFonts;
+
+    public CadSampleCanvas Canvas => _canvas;
 
     /// <summary>
     /// Ordered fully-qualified desktop support directories probed after the
@@ -38,7 +45,7 @@ public sealed class CadSampleView : Grid
     {
         _canvas = new CadSampleCanvas(shxFonts);
         TtfFont font = InterFontFamily.Regular;
-        RowDefinitions.Add(new GridLength(52, GridUnitType.Absolute));
+        RowDefinitions.Add(new GridLength(90, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));
         RowDefinitions.Add(new GridLength(30, GridUnitType.Absolute));
 
@@ -47,14 +54,26 @@ public sealed class CadSampleView : Grid
             Background = new ThemeResourceBrush("CardBackground"),
             BorderBrush = new ThemeResourceBrush("ControlBorder"),
             BorderThickness = new Thickness(0, 0, 0, 1),
-            Padding = new Thickness(10, 8),
+            Padding = new Thickness(10, 6),
+        };
+        var toolbarRows = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            Spacing = 4,
         };
         var actions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
-        toolbar.Child = actions;
+        var editActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        toolbarRows.AddChild(actions);
+        toolbarRows.AddChild(editActions);
+        toolbar.Child = toolbarRows;
 
         _openButton = CreateButton("Open DXF/DWG", font, 132);
         _saveButton = CreateButton("Save As", font, 92);
@@ -67,6 +86,48 @@ public sealed class CadSampleView : Grid
         actions.AddChild(_saveButton);
         actions.AddChild(fitButton);
         actions.AddChild(clearSelectionButton);
+
+        _undoButton = CreateButton("Undo", font, 68, 30);
+        _redoButton = CreateButton("Redo", font, 68, 30);
+        _undoButton.Margin = new Thickness(0, 0, 8, 0);
+        _redoButton.Margin = new Thickness(0, 0, 12, 0);
+        editActions.AddChild(_undoButton);
+        editActions.AddChild(_redoButton);
+        editActions.AddChild(new TextBlock
+        {
+            Text = "Move step (WCS)",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _moveStepInput = new TextBox
+        {
+            Text = "1",
+            Font = font,
+            WidthConstraint = 76,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        editActions.AddChild(_moveStepInput);
+        Button moveNegativeX = CreateButton("−X", font, 48, 30);
+        Button movePositiveX = CreateButton("+X", font, 48, 30);
+        Button moveNegativeY = CreateButton("−Y", font, 48, 30);
+        Button movePositiveY = CreateButton("+Y", font, 48, 30);
+        moveNegativeX.Margin = new Thickness(0, 0, 4, 0);
+        movePositiveX.Margin = new Thickness(0, 0, 8, 0);
+        moveNegativeY.Margin = new Thickness(0, 0, 4, 0);
+        _moveButtons = [
+            moveNegativeX,
+            movePositiveX,
+            moveNegativeY,
+            movePositiveY,
+        ];
+        foreach (Button moveButton in _moveButtons)
+        {
+            editActions.AddChild(moveButton);
+        }
 
         _status = new TextBlock
         {
@@ -95,6 +156,12 @@ public sealed class CadSampleView : Grid
         _saveButton.Click += async (_, _) => await SaveAsAsync();
         fitButton.Click += (_, _) => _canvas.FitToView();
         clearSelectionButton.Click += (_, _) => _canvas.ClearSelection();
+        _undoButton.Click += (_, _) => PerformUndo();
+        _redoButton.Click += (_, _) => PerformRedo();
+        moveNegativeX.Click += (_, _) => MoveSelection(-1, 0);
+        movePositiveX.Click += (_, _) => MoveSelection(1, 0);
+        moveNegativeY.Click += (_, _) => MoveSelection(0, -1);
+        movePositiveY.Click += (_, _) => MoveSelection(0, 1);
         _canvas.SelectionChanged += (_, _) =>
         {
             if (!_isBusy)
@@ -103,7 +170,106 @@ public sealed class CadSampleView : Grid
                     _currentDocumentName,
                     _currentDiagnosticCount));
             }
+            UpdateEditControls();
         };
+        _canvas.EditStateChanged += (_, _) => UpdateEditControls();
+        UpdateEditControls();
+    }
+
+    private void MoveSelection(double xDirection, double yDirection)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+        if (!double.TryParse(
+                _moveStepInput.Text,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out double step) ||
+            !double.IsFinite(step) ||
+            step <= 0.0)
+        {
+            SetStatus("Move failed: the WCS step must be a finite positive invariant number.");
+            return;
+        }
+
+        try
+        {
+            if (!_canvas.TranslateSelection(new CadPoint3D(
+                    xDirection * step,
+                    yDirection * step,
+                    0)))
+            {
+                SetStatus("Move requires at least one selected entity.");
+                return;
+            }
+            SetStatus(DescribeCurrentDocument(
+                _currentDocumentName,
+                _currentDiagnosticCount));
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Move failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void PerformUndo()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+        try
+        {
+            if (!_canvas.TryUndo())
+            {
+                SetStatus("There is no synchronized CAD edit to undo.");
+                return;
+            }
+            SetStatus(DescribeCurrentDocument(
+                _currentDocumentName,
+                _currentDiagnosticCount));
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Undo failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void PerformRedo()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+        try
+        {
+            if (!_canvas.TryRedo())
+            {
+                SetStatus("There is no synchronized CAD edit to redo.");
+                return;
+            }
+            SetStatus(DescribeCurrentDocument(
+                _currentDocumentName,
+                _currentDiagnosticCount));
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Redo failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
     }
 
     private async Task OpenAsync()
@@ -253,6 +419,7 @@ public sealed class CadSampleView : Grid
         _isBusy = true;
         _openButton.IsEnabled = false;
         _saveButton.IsEnabled = false;
+        UpdateEditControls();
         SetStatus(status);
         return true;
     }
@@ -262,6 +429,19 @@ public sealed class CadSampleView : Grid
         _isBusy = false;
         _openButton.IsEnabled = true;
         _saveButton.IsEnabled = true;
+        UpdateEditControls();
+    }
+
+    private void UpdateEditControls()
+    {
+        _undoButton.IsEnabled = !_isBusy && _canvas.UndoCount > 0;
+        _redoButton.IsEnabled = !_isBusy && _canvas.RedoCount > 0;
+        bool canMove = !_isBusy && _canvas.SelectedHandleCount > 0;
+        _moveStepInput.IsEnabled = !_isBusy;
+        foreach (Button moveButton in _moveButtons)
+        {
+            moveButton.IsEnabled = canMove;
+        }
     }
 
     private string DescribeCurrentDocument(string name, int diagnosticCount = 0)
@@ -272,7 +452,11 @@ public sealed class CadSampleView : Grid
             return name;
         }
 
-        return $"{name} | {snapshot.Statistics.VisibleEntityCount:N0} visible | " +
+        string dirtyState = _canvas.CurrentSession?.IsDirty == true
+            ? "modified"
+            : "saved";
+        return $"{name} | {dirtyState} | " +
+            $"{snapshot.Statistics.VisibleEntityCount:N0} visible | " +
             $"{snapshot.Statistics.ExpandedEntityCount:N0} expanded | " +
             $"{snapshot.Statistics.UnsupportedEntityCount:N0} unsupported | " +
             $"{diagnosticCount + snapshot.Diagnostics.Length:N0} diagnostics" +
@@ -301,11 +485,15 @@ public sealed class CadSampleView : Grid
 
     private void SetStatus(string value) => _status.Text = value;
 
-    private static Button CreateButton(string label, TtfFont font, float width) =>
+    private static Button CreateButton(
+        string label,
+        TtfFont font,
+        float width,
+        float height = 34) =>
         new()
         {
             WidthConstraint = width,
-            HeightConstraint = 34,
+            HeightConstraint = height,
             Content = new TextBlock
             {
                 Text = label,

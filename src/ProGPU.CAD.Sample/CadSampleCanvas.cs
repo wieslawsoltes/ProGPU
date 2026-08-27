@@ -28,7 +28,9 @@ public sealed class CadSampleCanvas : FrameworkElement
         1,
         strokeTransformMode: PenStrokeTransformMode.Fixed);
     private readonly CadSnapshotOptions _snapshotOptions;
+    private readonly HashSet<ulong> _selectedHandleSet = new();
     private GpuPicture? _picture;
+    private CadDocumentHistory? _history;
     private CadBounds3D _bounds;
     private CadBounds3D _selectedBounds;
     private Vector2 _pan;
@@ -69,7 +71,13 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public CadPlanViewport CurrentViewport => CreateViewport();
 
+    public int UndoCount => _history?.UndoCount ?? 0;
+
+    public int RedoCount => _history?.RedoCount ?? 0;
+
     public event EventHandler? SelectionChanged;
+
+    public event EventHandler? EditStateChanged;
 
     public CadShxFontCatalog ShxFonts { get; }
 
@@ -100,14 +108,62 @@ public sealed class CadSampleCanvas : FrameworkElement
     public void Load(CadDocumentSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
+        CompileAndReplace(session, resetViewSelectionAndHistory: true);
+    }
+
+    private void CompileAndReplace(
+        CadDocumentSession session,
+        bool resetViewSelectionAndHistory)
+    {
+        if (!resetViewSelectionAndHistory && !ReferenceEquals(session, CurrentSession))
+        {
+            throw new InvalidOperationException(
+                "An edited CAD scene can only replace the current document session.");
+        }
+
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session, _snapshotOptions);
         int selectionCapacity = snapshot.Entities.Length;
-        int[] selectionEntityScratch = new int[selectionCapacity];
-        var selectionCandidates = new CadSelectionCandidate[selectionCapacity];
-        var selectionMatches = new CadSelectionCandidate[selectionCapacity];
-        int[] selectionHandleScratch = new int[
-            CadSelectionQuery.GetUniqueHandleScratchLength(selectionCapacity)];
-        ulong[] selectedHandles = new ulong[selectionCapacity];
+        int requiredHandleScratch = CadSelectionQuery.GetUniqueHandleScratchLength(
+            selectionCapacity);
+        int[] selectionEntityScratch = !resetViewSelectionAndHistory &&
+            _selectionEntityScratch.Length >= selectionCapacity
+            ? _selectionEntityScratch
+            : new int[selectionCapacity];
+        CadSelectionCandidate[] selectionCandidates = !resetViewSelectionAndHistory &&
+            _selectionCandidates.Length >= selectionCapacity
+            ? _selectionCandidates
+            : new CadSelectionCandidate[selectionCapacity];
+        CadSelectionCandidate[] selectionMatches = !resetViewSelectionAndHistory &&
+            _selectionMatches.Length >= selectionCapacity
+            ? _selectionMatches
+            : new CadSelectionCandidate[selectionCapacity];
+        int[] selectionHandleScratch = !resetViewSelectionAndHistory &&
+            _selectionHandleScratch.Length >= requiredHandleScratch
+            ? _selectionHandleScratch
+            : new int[requiredHandleScratch];
+        ulong[] selectedHandles = !resetViewSelectionAndHistory &&
+            _selectedHandles.Length >= selectionCapacity
+            ? _selectedHandles
+            : new ulong[selectionCapacity];
+        int preservedHandleCount = resetViewSelectionAndHistory
+            ? 0
+            : Math.Min(_selectedHandleCount, selectedHandles.Length);
+        if (!resetViewSelectionAndHistory &&
+            !ReferenceEquals(selectedHandles, _selectedHandles))
+        {
+            _selectedHandles.AsSpan(0, preservedHandleCount).CopyTo(selectedHandles);
+        }
+
+        Vector2 replacementPan = _pan;
+        if (!resetViewSelectionAndHistory && CurrentSnapshot is not null)
+        {
+            replacementPan = CreateViewport()
+                .WithRebaseOrigin(snapshot.RebaseOrigin)
+                .Pan;
+        }
+        CadDocumentHistory? replacementHistory = resetViewSelectionAndHistory
+            ? new CadDocumentHistory(session)
+            : _history;
         CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
         GpuPicture picture = scene.CreatePicture();
         GpuPicture? previous = _picture;
@@ -120,11 +176,22 @@ public sealed class CadSampleCanvas : FrameworkElement
         _selectionMatches = selectionMatches;
         _selectionHandleScratch = selectionHandleScratch;
         _selectedHandles = selectedHandles;
-        ResetSelectionState(notify: false);
-        _needsFit = true;
+        _history = replacementHistory;
+        _pan = replacementPan;
+        if (resetViewSelectionAndHistory)
+        {
+            ResetSelectionState(notify: false);
+            _needsFit = true;
+        }
+        else
+        {
+            _selectedHandleCount = preservedHandleCount;
+            RefreshSelectionBounds(snapshot);
+        }
         previous?.Dispose();
         Invalidate();
         SelectionChanged?.Invoke(this, EventArgs.Empty);
+        EditStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     protected override void ArrangeOverride(Rect arrangeRect)
@@ -282,6 +349,69 @@ public sealed class CadSampleCanvas : FrameworkElement
         Invalidate();
     }
 
+    /// <summary>Moves all selected semantic model-space entities as one edit.</summary>
+    public bool TranslateSelection(CadPoint3D translation)
+    {
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadTranslateEntitiesCommand(
+            new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
+            translation,
+            _selectedHandleCount == 1
+                ? "Move selected entity"
+                : $"Move {_selectedHandleCount} selected entities"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    public bool TryUndo()
+    {
+        CadDocumentHistory? history = _history;
+        CadDocumentSession? session = CurrentSession;
+        if (history is null || session is null || !history.TryUndo(out _))
+        {
+            EditStateChanged?.Invoke(this, EventArgs.Empty);
+            return false;
+        }
+
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    public bool TryRedo()
+    {
+        CadDocumentHistory? history = _history;
+        CadDocumentSession? session = CurrentSession;
+        if (history is null || session is null || !history.TryRedo(out _))
+        {
+            EditStateChanged?.Invoke(this, EventArgs.Empty);
+            return false;
+        }
+
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    private void RecompileAfterEdit(CadDocumentSession session)
+    {
+        try
+        {
+            CompileAndReplace(session, resetViewSelectionAndHistory: false);
+        }
+        catch
+        {
+            EditStateChanged?.Invoke(this, EventArgs.Empty);
+            throw;
+        }
+    }
+
     private void CompleteSelection()
     {
         CadDocumentSnapshot? snapshot = CurrentSnapshot;
@@ -311,6 +441,11 @@ public sealed class CadSampleCanvas : FrameworkElement
             _selectedHandles);
 
         _selectedHandleCount = result.HandleWrittenCount;
+        _selectedHandleSet.Clear();
+        for (int i = 0; i < _selectedHandleCount; i++)
+        {
+            _selectedHandleSet.Add(_selectedHandles[i]);
+        }
         _lastUnsupportedPrimitiveCount = result.UnsupportedPrimitiveCount;
         _lastSelectionWasTruncated =
             result.AreCandidatesTruncated || result.AreHandlesTruncated;
@@ -323,9 +458,22 @@ public sealed class CadSampleCanvas : FrameworkElement
         SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    private void RefreshSelectionBounds(CadDocumentSnapshot snapshot)
+    {
+        _selectedBounds = CadBounds3D.Empty;
+        foreach (CadEntityHeader entity in snapshot.Entities.Span)
+        {
+            if (_selectedHandleSet.Contains(entity.Handle))
+            {
+                _selectedBounds = _selectedBounds.Union(entity.Bounds);
+            }
+        }
+    }
+
     private void ResetSelectionState(bool notify)
     {
         _selectedHandleCount = 0;
+        _selectedHandleSet.Clear();
         _lastUnsupportedPrimitiveCount = 0;
         _lastSelectionWasTruncated = false;
         LastSelectionMode = null;

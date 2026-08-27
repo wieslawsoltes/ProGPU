@@ -65,6 +65,26 @@ public sealed class CadPlanViewportTests
     }
 
     [Fact]
+    public void RebaseCompensationPreservesEveryProjectedWorldPosition()
+    {
+        var viewport = new CadPlanViewport(
+            new CadPoint3D(1_000_000_000, -2_000_000_000, 30),
+            new Vector2(1280, 720),
+            new Vector2(17, -23),
+            3.25f);
+        CadPoint3D world = new(1_000_000_124.5, -1_999_999_922.25, 30);
+        Vector2 before = viewport.WorldToScreen(world);
+
+        CadPlanViewport rebased = viewport.WithRebaseOrigin(
+            new CadPoint3D(1_000_000_100, -1_999_999_950, 41));
+
+        Assert.Equal(before, rebased.WorldToScreen(world));
+        Assert.Equal(viewport.ViewportSize, rebased.ViewportSize);
+        Assert.Equal(viewport.Zoom, rebased.Zoom);
+        Assert.Equal(new Vector2(342, -185.5f), rebased.Pan);
+    }
+
+    [Fact]
     public void InvalidViewportAndSelectionInputsAreRejected()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new CadPlanViewport(
@@ -88,5 +108,7 @@ public sealed class CadPlanViewportTests
             Vector2.One,
             CadBounds3D.Empty,
             inflationPixels: -1));
+        Assert.Throws<ArgumentException>(() => viewport.WithRebaseOrigin(
+            new CadPoint3D(double.NaN, 0, 0)));
     }
 }

@@ -3,6 +3,7 @@ using ACadSharp;
 using ACadSharp.Entities;
 using CSMath;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using ProGPU.CAD.Sample;
 using ProGPU.Scene;
 using Xunit;
@@ -166,6 +167,202 @@ public sealed class CadSampleSelectionTests
         finally
         {
             canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SelectedEntitiesMoveAsOneGenerationAndUndoRedoRebuildTheScene()
+    {
+        var document = new CadDocument();
+        var first = new Line(new XYZ(-10, 0, 0), new XYZ(-5, 0, 0));
+        var second = new Line(new XYZ(5, 0, 0), new XYZ(10, 0, 0));
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport initialViewport = canvas.CurrentViewport;
+            Vector2 initialFirstScreen = initialViewport.WorldToScreen(
+                new CadPoint3D(-10, 0, 0));
+            Drag(
+                canvas,
+                initialViewport.WorldToScreen(new CadPoint3D(-12, 2, 0)),
+                initialViewport.WorldToScreen(new CadPoint3D(12, -2, 0)));
+            var initialContext = new DrawingContext();
+            canvas.OnRender(initialContext);
+            GpuPicture initialPicture = initialContext.Commands
+                .Single(command => command.Type == RenderCommandType.DrawPicture)
+                .Picture!;
+            int editStateChanges = 0;
+            canvas.EditStateChanged += (_, _) => editStateChanges++;
+
+            Assert.Equal(2, canvas.SelectedHandleCount);
+            Assert.True(canvas.TranslateSelection(new CadPoint3D(10, 3, 0)));
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(session.ContentGeneration, canvas.CurrentSnapshot!.ContentGeneration);
+            Assert.Equal(new XYZ(0, 3, 0), first.StartPoint);
+            Assert.Equal(new XYZ(15, 3, 0), second.StartPoint);
+            Assert.Equal(2, canvas.SelectedHandleCount);
+            Assert.Equal(1, canvas.UndoCount);
+            Assert.Equal(0, canvas.RedoCount);
+            Assert.Equal(1, editStateChanges);
+            Assert.Throws<ObjectDisposedException>(() => initialPicture.Clone());
+            var movedContext = new DrawingContext();
+            canvas.OnRender(movedContext);
+            GpuPicture movedPicture = movedContext.Commands
+                .Single(command => command.Type == RenderCommandType.DrawPicture)
+                .Picture!;
+            Assert.NotSame(initialPicture, movedPicture);
+            using (GpuPicture ownershipProbe = movedPicture.Clone())
+            {
+                Assert.Equal(movedPicture.CommandCount, ownershipProbe.CommandCount);
+            }
+            Vector2 movedFirstScreen = canvas.CurrentViewport.WorldToScreen(
+                new CadPoint3D(0, 3, 0));
+            Vector2 expectedMovedFirstScreen = initialFirstScreen + new Vector2(
+                10 * initialViewport.Zoom,
+                -3 * initialViewport.Zoom);
+            Assert.Equal(expectedMovedFirstScreen.X, movedFirstScreen.X, 4);
+            Assert.Equal(expectedMovedFirstScreen.Y, movedFirstScreen.Y, 4);
+
+            Assert.True(canvas.TryUndo());
+
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal(session.ContentGeneration, canvas.CurrentSnapshot.ContentGeneration);
+            Assert.Equal(new XYZ(-10, 0, 0), first.StartPoint);
+            Vector2 undoneFirstScreen = canvas.CurrentViewport.WorldToScreen(
+                new CadPoint3D(-10, 0, 0));
+            Assert.Equal(initialFirstScreen.X, undoneFirstScreen.X, 4);
+            Assert.Equal(initialFirstScreen.Y, undoneFirstScreen.Y, 4);
+            Assert.Equal(0, canvas.UndoCount);
+            Assert.Equal(1, canvas.RedoCount);
+
+            Assert.True(canvas.TryRedo());
+
+            Assert.Equal(3UL, session.ContentGeneration);
+            Assert.Equal(session.ContentGeneration, canvas.CurrentSnapshot.ContentGeneration);
+            Assert.Equal(new XYZ(0, 3, 0), first.StartPoint);
+            Assert.Equal(1, canvas.UndoCount);
+            Assert.Equal(0, canvas.RedoCount);
+            Assert.Equal(3, editStateChanges);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void MoveWithoutSelectionDoesNotPublishAnEdit()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+
+            Assert.False(canvas.TranslateSelection(new CadPoint3D(1, 0, 0)));
+            Assert.Equal(0UL, session.ContentGeneration);
+            Assert.Equal(0, canvas.UndoCount);
+            Assert.Equal(0, canvas.RedoCount);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewMoveAndHistoryButtonsTrackCanvasState()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            Button movePositiveX = FindButton(view, "+X");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+            TextBox moveStep = DescendantsAndSelf(view).OfType<TextBox>().Single();
+            Assert.False(movePositiveX.IsEnabled);
+            Assert.False(undo.IsEnabled);
+            Assert.False(redo.IsEnabled);
+
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            Click(
+                view.Canvas,
+                view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
+
+            Assert.True(movePositiveX.IsEnabled);
+            moveStep.Text = "not-a-number";
+            movePositiveX.OnKeyDown(new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.Enter,
+            });
+            Assert.Equal(new XYZ(-2, 0, 0), line.StartPoint);
+            Assert.Equal(0, view.Canvas.UndoCount);
+
+            moveStep.Text = "1";
+            movePositiveX.OnKeyDown(new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.Enter,
+            });
+
+            Assert.Equal(new XYZ(-1, 0, 0), line.StartPoint);
+            Assert.True(undo.IsEnabled);
+            Assert.False(redo.IsEnabled);
+
+            undo.OnKeyDown(new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.Enter,
+            });
+
+            Assert.Equal(new XYZ(-2, 0, 0), line.StartPoint);
+            Assert.False(undo.IsEnabled);
+            Assert.True(redo.IsEnabled);
+
+            redo.OnKeyDown(new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.Enter,
+            });
+
+            Assert.Equal(new XYZ(-1, 0, 0), line.StartPoint);
+            Assert.True(undo.IsEnabled);
+            Assert.False(redo.IsEnabled);
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    private static Button FindButton(Visual root, string label) =>
+        DescendantsAndSelf(root)
+            .OfType<Button>()
+            .Single(button => button.Content is TextBlock text && text.Text == label);
+
+    private static IEnumerable<Visual> DescendantsAndSelf(Visual visual)
+    {
+        yield return visual;
+        if (visual is not ContainerVisual container)
+        {
+            yield break;
+        }
+        foreach (Visual child in container.Children)
+        {
+            foreach (Visual descendant in DescendantsAndSelf(child))
+            {
+                yield return descendant;
+            }
         }
     }
 

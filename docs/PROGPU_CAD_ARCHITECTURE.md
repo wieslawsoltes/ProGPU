@@ -256,7 +256,23 @@ snapshot-sized caller buffers, resolves expanded primitives to unique semantic
 root handles, reports unsupported/truncated results, and records only transient
 fixed-device-space selection rectangles after the immutable picture. Camera and
 selection interaction never revisit ACadSharp or recompile geometry. The
-representative scene exercises
+second shared toolbar row applies a finite positive invariant WCS step along
+`-X`, `+X`, `-Y`, or `+Y` to every selected semantic root handle through one
+`CadTranslateEntitiesCommand`. One `CadDocumentHistory` belongs to the loaded
+session, so each Move, Undo, or Redo publishes exactly one generation and then
+prepares one complete replacement snapshot and picture. The prior picture stays
+drawable until replacement preparation succeeds and is disposed immediately
+after the atomic state swap. Selection buffers are reused when the entity count
+still fits, selected handles and overlays survive translation history, and
+`CadPlanViewport.WithRebaseOrigin` compensates pan so a changed snapshot rebase
+does not move unchanged WCS content on screen. This first synchronous editor
+integration is O(E + G) per committed action for E retained entities and G text
+glyphs because the complete immutable snapshot/scene is rebuilt; it makes no
+incremental-compilation or edit-latency claim. Generation-keyed reusable chunks,
+worker preparation, stale-publication rejection, and equivalent managed/native
+measurements remain required before large-drawing edit performance is accepted.
+
+The representative scene exercises
 lines, OCS circles/arcs, analytic ellipses, bulge polylines, NURBS, filled
 SOLID, 3DFACE visible-edge semantics, a rotated non-uniform MINSERT array, and
 retained shaped TrueType TEXT while framework chrome uses dynamic theme
@@ -427,6 +443,22 @@ an interactive browser picker/download smoke remains open.
   selection column spanning the snapshot's complete Z range. Spline/text box
   tests, their full distance contracts, arbitrary-camera projected selection
   volumes, and draw-order resolution remain explicit work.
+- The shared sample's first actionable edit consumes selected semantic root
+  handles in one existing multi-entity translation command. It never mutates the
+  frozen picture or command stream in place. Successful Move/Undo/Redo first
+  advances the session/history generation, then compiles and installs one
+  matching immutable snapshot/picture; if preparation fails, the prior owned
+  picture remains installed and the error is surfaced. Rebase compensation is
+  O(1); selection-bound refresh is O(E) average through retained handle identity;
+  complete snapshot/scene replacement remains O(E + G) and is an explicit
+  foundation limitation rather than an incremental-rendering claim.
+  Multi-selection Delete is not exposed by this shell slice: the pinned public
+  ACadSharp collection contract provides cancellable single-item removal but no
+  atomic range removal. Sequential removal followed by public re-add rollback
+  can assign new handles after a mid-batch cancellation, so presenting that as
+  one atomic Delete/Undo action was rejected. A reviewed dependency transaction
+  contract or an independently safe ProGPU command boundary must land before the
+  UI enables multi-delete.
 - Background compilation captures a generation and publishes only if it still
   matches; obsolete work is discarded. The UI may continue drawing the previous
   immutable snapshot while the next generation compiles.
@@ -980,17 +1012,26 @@ Sources consulted on 2026-08-27:
   transforms, and a small transient interaction overlay. Adapted that separation
   to one ProGPU-owned `GpuPicture` plus bounded selection state shared by desktop
   and browser hosts. Rejected rebuilding the CAD picture or mutating retained
-  commands during pointer motion. This interaction slice changes no shader,
-  compositor, upload, device-loss, atlas, or managed/native renderer contract;
-  both backends continue receiving the same existing picture/overlay commands.
+  commands during pointer motion. For committed edits, adopted immutable
+  command-list replacement and explicit resource ownership; adapted that into
+  one generation-tagged ProGPU snapshot/picture swap while retaining the prior
+  picture until the replacement is complete. [WebRender's current transaction
+  and frame counters](https://github.com/servo/webrender/blob/main/webrender/src/profiler.rs)
+  reinforce measuring display-list construction, scene building, uploads,
+  batching, and memory separately. Rejected mutation behind a cached picture and
+  rejected claiming the current full-generation rebuild as incremental. This
+  interaction/edit slice changes no shader, compositor, upload, device-loss,
+  atlas, or managed/native renderer contract; both backends continue receiving
+  the same existing picture/overlay commands.
 - [HarfBuzz shaping](https://harfbuzz.github.io/what-is-harfbuzz.html),
   [Parley rich-text architecture](https://github.com/linebender/parley/blob/main/doc/concept.md),
   [SkParagraph](https://docs.skia.org/docs/dev/design/text_shaper/), and
   [DirectWrite](https://learn.microsoft.com/en-us/windows/win32/directwrite/getting-started-with-directwrite):
-  confirmed that shaping/layout stays separate from stroke patterns and transient
-  selection state; these stacks become applicable to embedded-text complex
-  linetypes, not simple dash alignment or pointer overlays, so no reshaping, text
-  shortcut, or foreign layout structure was adopted.
+  confirmed that shaping/layout stays separate from stroke patterns, transient
+  selection state, and editor command state. No second text stack or foreign
+  layout structure was adopted. The current complete snapshot rebuild may shape
+  unchanged text again after a Move; generation-keyed shaped-run/chunk reuse is
+  therefore retained as required work rather than hidden behind a UI shortcut.
 - [Autodesk shape/font descriptions](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-DE941DB5-7044-433C-AA68-2A9AE98A5713.htm),
   [special codes](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-06832147-16BE-4A66-A6D0-3ADF98DC8228.htm),
   [vector directions](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Customization/files/GUID-0A8E12A1-F4AB-44AD-8A9B-2140E0D5FD23.htm),

@@ -66,6 +66,48 @@ public readonly record struct CadPlanViewport
             0, 1);
     }
 
+    /// <summary>
+    /// Replaces the double-precision world origin without changing any projected
+    /// WCS-XY position.
+    /// </summary>
+    /// <remarks>
+    /// Snapshot recompilation may choose a different large-coordinate rebase.
+    /// Compensating pan is O(1), allocation-free, and keeps camera state independent
+    /// of document-generation changes.
+    /// </remarks>
+    public CadPlanViewport WithRebaseOrigin(CadPoint3D rebaseOrigin)
+    {
+        EnsureInitialized();
+        if (!IsFinite(rebaseOrigin))
+        {
+            throw new ArgumentException(
+                "The replacement plan-view rebase origin must be finite.",
+                nameof(rebaseOrigin));
+        }
+
+        double deltaX = (rebaseOrigin.X - RebaseOrigin.X) * Zoom;
+        double deltaY = (rebaseOrigin.Y - RebaseOrigin.Y) * Zoom;
+        double panX = Pan.X + deltaX;
+        double panY = Pan.Y - deltaY;
+        if (!double.IsFinite(panX) ||
+            !double.IsFinite(panY) ||
+            panX < float.MinValue ||
+            panX > float.MaxValue ||
+            panY < float.MinValue ||
+            panY > float.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(rebaseOrigin),
+                "The replacement rebase origin exceeds finite plan-view pan coordinates.");
+        }
+
+        return new CadPlanViewport(
+            rebaseOrigin,
+            ViewportSize,
+            new Vector2((float)panX, (float)panY),
+            Zoom);
+    }
+
     public Vector2 WorldToScreen(CadPoint3D world)
     {
         EnsureInitialized();
