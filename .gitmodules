@@ -5,3 +5,7 @@
 [submodule "external/Avalonia"]
 	path = external/Avalonia
 	url = https://github.com/AvaloniaUI/Avalonia.git
+[submodule "external/ACadSharp"]
+	path = external/ACadSharp
+	url = https://github.com/wieslawsoltes/ACadSharp.git
+	branch = master
