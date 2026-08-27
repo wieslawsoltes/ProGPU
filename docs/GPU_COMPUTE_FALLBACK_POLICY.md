@@ -528,6 +528,31 @@ was effectively flat (`3.6795 -> 3.6802` ms) while frame p95 regressed 3.0%
 latency rule and was reverted; eliminating a predictable vector capacity
 branch did not justify the tail-latency cost on this workload.
 
+Two later NEON crossing-update candidates were also rejected before changing
+the qualified source. Expressing the signed update as `vmlaq_s32` did not
+produce an integer multiply-accumulate: Apple Clang algebraically lowered it
+to the same replicated-direction mask sequence already measured and rejected
+above. Disassembly therefore established that it was not a distinct candidate,
+and no redundant timing claim was made.
+
+The distinct follow-up packed each crossing's float bits and direction bits
+into one eight-byte array and used `vld2q_dup_u32`/`ld2r` to load and broadcast
+both fields at once. This removed the separate scalar direction load, but the
+resulting vector direction selection added enough mask work to dominate the
+saved load. One preliminary fresh-process 120-frame gate per variant and DPI
+was sufficient to reject it: native submission p50 regressed
+`0.9138 -> 1.0681` ms (+16.9%) at 1x and
+`1.6061 -> 2.0311` ms (+26.5%) at 2x. Synchronized-frame p50 also regressed
+`2.5265 -> 2.6985` ms at 1x and was effectively flat
+`3.6857 -> 3.6641` ms at 2x. Both runs remained exact at
+`5B6EF4F70536C862`/`706B261418EC5C3B`; baseline and candidate dylib SHA-256
+values were
+`e58d8ac2126592e582c8183128e3a46f49d67e1fd97600bc652d13544be0a960`
+and
+`8ec7fdec56fe90293d4d950ac141c4d96cd22b3b72f6a67c40e797910f37e910`.
+The source was reverted immediately instead of extending a decisively negative
+CPU-submission result into a longer noisy matrix.
+
 ## Extending the policy
 
 Each additional compute-heavy workload must declare the semantics that make a
