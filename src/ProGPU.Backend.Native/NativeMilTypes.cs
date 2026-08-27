@@ -442,6 +442,17 @@ public sealed record NativeMilCompiledScene(
     byte[] Stream,
     NativeMilSceneMetrics Metrics);
 
+/// <summary>
+/// Pointer-free flattened 3D payload bound to one canonical retained
+/// Viewport3DVisual handle.
+/// </summary>
+public sealed record NativeMilViewport3DScene(
+    NativeSceneCamera3D Camera,
+    NativeImageRect Viewport,
+    NativeSceneMesh3D[] Meshes,
+    NativeSceneMesh3DVertex[] Vertices,
+    uint[] Indices);
+
 public sealed class NativeMilException : Exception
 {
     public NativeMilException(NativeMilStatus status, string message)

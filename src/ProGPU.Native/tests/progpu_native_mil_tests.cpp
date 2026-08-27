@@ -11346,6 +11346,122 @@ bool retained_gradient_brushes_compile_with_wpf_mapping_and_animation() {
     return true;
 }
 
+bool retained_viewport3d_uses_pointer_free_mesh_sideband() {
+    constexpr std::uint32_t viewport_handle = 920U;
+    constexpr std::uint32_t target = 921U;
+    std::vector<std::byte> batch;
+    append_create(batch, viewport_handle, 40U);
+    append_create(batch, target, 47U);
+    append_command(batch, command::visual_create, viewport_handle);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        160U,
+        120U,
+        0U);
+    append_command(batch, command::target_set_root, target, viewport_handle);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8200U, 1U, stream) ==
+        status::unsupported_command);
+
+    const progpu_native_matrix_4x4 identity{
+        1.0F, 0.0F, 0.0F, 0.0F,
+        0.0F, 1.0F, 0.0F, 0.0F,
+        0.0F, 0.0F, 1.0F, 0.0F,
+        0.0F, 0.0F, 0.0F, 1.0F};
+    progpu_native_scene_camera_3d camera{};
+    camera.struct_size = sizeof(camera);
+    camera.projection = identity;
+    camera.view = identity;
+    camera.camera_position = {0.0F, 0.0F, 2.0F, 0.0F};
+    std::array<progpu_native_scene_mesh_3d_vertex, 3U> vertices{};
+    vertices[0].position = {-0.8F, -0.8F, 0.0F, 0.0F};
+    vertices[1].position = {0.8F, -0.8F, 0.0F, 0.0F};
+    vertices[2].position = {0.0F, 0.8F, 0.0F, 0.0F};
+    for (auto& vertex : vertices) {
+        vertex.normal = {0.0F, 0.0F, 1.0F, 0.0F};
+    }
+    const std::array<std::uint32_t, 3U> indices{0U, 1U, 2U};
+    progpu_native_scene_mesh_3d mesh{};
+    mesh.struct_size = sizeof(mesh);
+    mesh.topology = PROGPU_NATIVE_MESH_3D_TRIANGLES;
+    mesh.render_mode = PROGPU_NATIVE_MESH_3D_SOLID;
+    mesh.vertex_count = vertices.size();
+    mesh.index_count = indices.size();
+    mesh.model_transform = identity;
+    mesh.normal_transform = identity;
+    mesh.color = {0.25F, 0.5F, 0.75F, 1.0F};
+    mesh.light_direction = {0.0F, 0.0F, -1.0F, 1.0F};
+    mesh.ambient_color = {0.2F, 0.2F, 0.2F, 1.0F};
+    mesh.specular_color = {0.1F, 0.1F, 0.1F, 1.0F};
+    mesh.material_ambient = {1.0F, 1.0F, 1.0F, 1.0F};
+    mesh.opacity = 1.0F;
+    const progpu_native_image_rect viewport{12.0F, 18.0F, 80.0F, 60.0F};
+    PROGPU_REQUIRE(
+        state.set_viewport3d_scene(
+            viewport_handle,
+            camera,
+            viewport,
+            std::span<const progpu_native_scene_mesh_3d>{&mesh, 1U},
+            vertices,
+            indices) == status::success);
+    PROGPU_REQUIRE(
+        state.set_viewport3d_scene(
+            target,
+            camera,
+            viewport,
+            std::span<const progpu_native_scene_mesh_3d>{&mesh, 1U},
+            vertices,
+            indices) == status::invalid_handle);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8200U, 2U, stream) == status::success);
+
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_mesh = false;
+    bool found_draw = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH) {
+            PROGPU_REQUIRE(resource.payload_size == sizeof(mesh));
+            PROGPU_REQUIRE(
+                resource.auxiliary_size ==
+                sizeof(vertices) + sizeof(indices));
+            found_mesh = true;
+        }
+    }
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto scene_command = read_value<progpu_native_scene_command>(
+            stream,
+            header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (scene_command.kind ==
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) {
+            PROGPU_REQUIRE(scene_command.bounds_x == viewport.x);
+            PROGPU_REQUIRE(scene_command.bounds_y == viewport.y);
+            PROGPU_REQUIRE(scene_command.bounds_width == viewport.width);
+            PROGPU_REQUIRE(scene_command.bounds_height == viewport.height);
+            const auto retained_camera =
+                read_value<progpu_native_scene_camera_3d>(
+                    stream, scene_command.payload_offset);
+            PROGPU_REQUIRE(retained_camera.camera_position.z == 2.0F);
+            found_draw = true;
+        }
+    }
+    PROGPU_REQUIRE(found_mesh);
+    PROGPU_REQUIRE(found_draw);
+    return true;
+}
+
 bool malformed_and_unsupported_packets_fail_closed() {
     channel state;
     const std::array malformed{
@@ -11451,6 +11567,7 @@ int main() {
     PROGPU_REQUIRE(retained_geometry_group_compiles_to_one_semantic_path());
     PROGPU_REQUIRE(
         retained_gradient_brushes_compile_with_wpf_mapping_and_animation());
+    PROGPU_REQUIRE(retained_viewport3d_uses_pointer_free_mesh_sideband());
     PROGPU_REQUIRE(render_data_scope_errors_fail_closed());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
     PROGPU_REQUIRE(c_abi_is_typed_and_size_versioned());
