@@ -11347,6 +11347,158 @@ bool retained_gradient_brushes_compile_with_wpf_mapping_and_animation() {
     return true;
 }
 
+bool degenerate_gradient_pen_caps_use_wpf_stroke_bounds() {
+    constexpr std::uint32_t visual = 800U;
+    constexpr std::uint32_t content = 801U;
+    constexpr std::uint32_t target = 802U;
+    constexpr std::uint32_t linear = 803U;
+    constexpr std::uint32_t pen = 804U;
+    const std::array stops{
+        mil_gradient_stop{0.0, {1.0F, 0.0F, 0.0F, 1.0F}},
+        mil_gradient_stop{1.0, {0.0F, 0.0F, 1.0F, 1.0F}}};
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, linear, 77U);
+    append_create(batch, pen, 85U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_linear_gradient_brush(
+        batch,
+        linear,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0U,
+        0U,
+        0U,
+        1U,
+        1U,
+        0U,
+        0U,
+        0U,
+        stops);
+    append_command(
+        batch,
+        command::pen,
+        pen,
+        4.0,
+        10.0,
+        linear,
+        0U,
+        PROGPU_NATIVE_STROKE_CAP_FLAT,
+        PROGPU_NATIVE_STROKE_CAP_TRIANGLE,
+        PROGPU_NATIVE_STROKE_CAP_FLAT,
+        0U,
+        0U);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_line,
+        10.0,
+        20.0,
+        10.0,
+        20.0,
+        pen,
+        0U);
+    append_command(
+        nested,
+        command::draw_ellipse,
+        30.0,
+        20.0,
+        0.0,
+        0.0,
+        0U,
+        pen);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        48U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8102U, 1U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.line_count == 1U);
+    PROGPU_REQUIRE(metrics.ellipse_count == 1U);
+    PROGPU_REQUIRE(metrics.brush_count == 2U);
+
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_brushes = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE) {
+            continue;
+        }
+        PROGPU_REQUIRE(resource.payload_size ==
+            2U * sizeof(progpu_native_scene_brush));
+        const auto line_brush = read_value<progpu_native_scene_brush>(
+            stream, resource.payload_offset);
+        const auto ellipse_brush = read_value<progpu_native_scene_brush>(
+            stream,
+            resource.payload_offset + sizeof(progpu_native_scene_brush));
+        PROGPU_REQUIRE(line_brush.type ==
+            PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT);
+        PROGPU_REQUIRE(line_brush.start_point.x == 10.0F);
+        PROGPU_REQUIRE(line_brush.start_point.y == 18.0F);
+        PROGPU_REQUIRE(line_brush.end_point.x == 12.0F);
+        PROGPU_REQUIRE(line_brush.end_point.y == 18.0F);
+        PROGPU_REQUIRE(ellipse_brush.type ==
+            PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT);
+        PROGPU_REQUIRE(ellipse_brush.start_point.x == 28.0F);
+        PROGPU_REQUIRE(ellipse_brush.start_point.y == 18.0F);
+        PROGPU_REQUIRE(ellipse_brush.end_point.x == 32.0F);
+        PROGPU_REQUIRE(ellipse_brush.end_point.y == 18.0F);
+        found_brushes = true;
+    }
+    PROGPU_REQUIRE(found_brushes);
+
+    std::array<progpu_native_image_rect, 2U> draw_bounds{};
+    std::size_t draw_count = 0U;
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
+            continue;
+        }
+        PROGPU_REQUIRE(draw_count < draw_bounds.size());
+        draw_bounds[draw_count++] = {
+            record.bounds_x,
+            record.bounds_y,
+            record.bounds_width,
+            record.bounds_height};
+    }
+    PROGPU_REQUIRE(draw_count == 2U);
+    PROGPU_REQUIRE(draw_bounds[0].x == 10.0F);
+    PROGPU_REQUIRE(draw_bounds[0].y == 18.0F);
+    PROGPU_REQUIRE(draw_bounds[0].width == 2.0F);
+    PROGPU_REQUIRE(draw_bounds[0].height == 4.0F);
+    PROGPU_REQUIRE(draw_bounds[1].x == 28.0F);
+    PROGPU_REQUIRE(draw_bounds[1].y == 18.0F);
+    PROGPU_REQUIRE(draw_bounds[1].width == 4.0F);
+    PROGPU_REQUIRE(draw_bounds[1].height == 4.0F);
+    return true;
+}
+
 bool retained_gradient_stops_match_wpf_coincidence_and_pad_edges() {
     constexpr std::uint32_t visual = 820U;
     constexpr std::uint32_t content = 821U;
@@ -11811,6 +11963,7 @@ int main() {
     PROGPU_REQUIRE(retained_geometry_group_compiles_to_one_semantic_path());
     PROGPU_REQUIRE(
         retained_gradient_brushes_compile_with_wpf_mapping_and_animation());
+    PROGPU_REQUIRE(degenerate_gradient_pen_caps_use_wpf_stroke_bounds());
     PROGPU_REQUIRE(
         retained_gradient_stops_match_wpf_coincidence_and_pad_edges());
     PROGPU_REQUIRE(retained_viewport3d_uses_pointer_free_mesh_sideband());
