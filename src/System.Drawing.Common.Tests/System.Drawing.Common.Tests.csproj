@@ -29,4 +29,10 @@
           Link="Fonts\NotoSansCJKjp-Regular.otf"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\build\Assets\ProGpuAvaloniaIcon.png"
+                      Link="Resources\ProGpuAvaloniaIcon.png"
+                      LogicalName="ProGPU.SystemDrawing.Tests.Resources.ProGpuAvaloniaIcon.png" />
+  </ItemGroup>
 </Project>

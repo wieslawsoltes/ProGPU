@@ -155,6 +155,22 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
     {
     }
 
+    public Bitmap(Type type, string resource)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(resource);
+
+        using System.IO.Stream? stream = type.Assembly.GetManifestResourceStream(type, resource);
+        if (stream is null)
+        {
+            throw new ArgumentException(
+                "The requested bitmap resource was not found in the type's assembly.",
+                nameof(resource));
+        }
+
+        InitializeFromStream(stream);
+    }
+
     public Bitmap(System.IO.Stream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);
