@@ -318,6 +318,10 @@ an interactive browser picker/download smoke remains open.
   `ByLayer`, `ByBlock`, and the header-only `ByEntity` sentinel. It restores each
   prior table value and updates inherited entity RGB through the same immutable
   snapshot style resolution used by both picture compilers.
+- Layer lineweight assignment accepts declared explicit widths, hairline, and
+  `Default`, while rejecting entity-only `ByLayer`/`ByBlock` and undefined wire
+  values. Inherited entities resolve the new physical/cosmetic thickness in the
+  immutable snapshot; undo restores each authored layer enum.
 - Linetype assignment uses the same table-identity and rollback contract for
   explicit, `ByLayer`, and `ByBlock` entries. The immutable snapshot retains the
   newly resolved linetype name. Entity linetype-scale assignment accepts only

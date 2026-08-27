@@ -1119,6 +1119,79 @@ public sealed class CadSetLayerColorCommand : CadEditCommand
     }
 }
 
+/// <summary>Assigns an explicit or default lineweight to existing layers.</summary>
+public sealed class CadSetLayerLineWeightCommand : CadEditCommand
+{
+    private readonly string[] _layerNames;
+    private Layer[]? _layers;
+    private LineWeightType[]? _previousValues;
+
+    public ReadOnlyMemory<string> LayerNames => _layerNames;
+
+    public LineWeightType LineWeight { get; }
+
+    public CadSetLayerLineWeightCommand(
+        IEnumerable<string> layerNames,
+        LineWeightType lineWeight,
+        string description = "Set layer lineweight")
+        : base(description)
+    {
+        if (!Enum.IsDefined(lineWeight) ||
+            lineWeight is LineWeightType.ByLayer or LineWeightType.ByBlock)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(lineWeight),
+                "Layer lineweight must be an explicit or default CAD lineweight value.");
+        }
+        _layerNames = NormalizeLayerNames(layerNames, nameof(layerNames));
+        LineWeight = lineWeight;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Layer[] layers;
+        if (isRedo)
+        {
+            layers = GetRetainedLayers(document);
+        }
+        else
+        {
+            layers = ResolveLayers(document, _layerNames);
+            _layers = layers;
+            _previousValues = CaptureValues(
+                layers,
+                static layer => layer.LineWeight);
+        }
+        SetValuesTransactional(
+            layers,
+            LineWeight,
+            static layer => layer.LineWeight,
+            static (layer, value) => layer.LineWeight = value);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Layer[] layers = GetRetainedLayers(document);
+        LineWeightType[] previous = _previousValues ??
+            throw new InvalidOperationException(
+                "The layer-lineweight command has not been applied.");
+        SetValuesTransactional(
+            layers,
+            previous,
+            static layer => layer.LineWeight,
+            static (layer, value) => layer.LineWeight = value);
+    }
+
+    private Layer[] GetRetainedLayers(CadDocument document)
+    {
+        Layer[] layers = _layers ??
+            throw new InvalidOperationException(
+                "The layer-lineweight command has not been applied.");
+        ValidateLayers(document, layers);
+        return layers;
+    }
+}
+
 /// <summary>Assigns one existing linetype to a stable set of model-space entities.</summary>
 public sealed class CadSetEntityLineTypeCommand : CadEditCommand
 {

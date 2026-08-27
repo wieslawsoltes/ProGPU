@@ -512,6 +512,63 @@ public sealed class CadEditingTests
     }
 
     [Fact]
+    public void LayerLineWeightCommandUpdatesInheritedThicknessAndRestoresValues()
+    {
+        var document = new CadDocument();
+        var weightedLayer = new Layer("WEIGHTED_LAYER")
+        {
+            LineWeight = LineWeightType.W50,
+        };
+        var hairlineLayer = new Layer("HAIRLINE_LAYER")
+        {
+            LineWeight = LineWeightType.W0,
+        };
+        document.Layers.Add(weightedLayer);
+        document.Layers.Add(hairlineLayer);
+        document.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX)
+        {
+            Layer = weightedLayer,
+            LineWeight = LineWeightType.ByLayer,
+        });
+        document.Entities.Add(new Line(XYZ.AxisY, new XYZ(1, 1, 0))
+        {
+            Layer = hairlineLayer,
+            LineWeight = LineWeightType.ByLayer,
+        });
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetLayerLineWeightCommand(
+            ["weighted_layer", "HAIRLINE_LAYER"],
+            LineWeightType.W100));
+
+        Assert.Equal(LineWeightType.W100, weightedLayer.LineWeight);
+        Assert.Equal(LineWeightType.W100, hairlineLayer.LineWeight);
+        CadDocumentSnapshot applied = new CadSnapshotCompiler().Compile(session);
+        Assert.All(
+            applied.Styles.ToArray(),
+            style => Assert.Equal(1.0, style.LineWeightMillimeters));
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(LineWeightType.W50, weightedLayer.LineWeight);
+        Assert.Equal(LineWeightType.W0, hairlineLayer.LineWeight);
+        CadDocumentSnapshot reverted = new CadSnapshotCompiler().Compile(session);
+        Assert.Contains(reverted.Styles.ToArray(), style => style.LineWeightMillimeters == 0.5);
+        Assert.Contains(reverted.Styles.ToArray(), style => style.IsHairline);
+    }
+
+    [Fact]
+    public void LayerLineWeightCommandRejectsEntitySentinelsAndUndefinedValues()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadSetLayerLineWeightCommand(["0"], LineWeightType.ByLayer));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadSetLayerLineWeightCommand(["0"], LineWeightType.ByBlock));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadSetLayerLineWeightCommand(["0"], (LineWeightType)1234));
+    }
+
+    [Fact]
     public void LineTypeCommandRestoresInheritanceAndRetainsSnapshotName()
     {
         var document = new CadDocument();
