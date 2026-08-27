@@ -9998,64 +9998,156 @@ struct channel::implementation {
         } catch (const std::bad_alloc&) {
             return status::capacity_exceeded;
         }
-        const auto color_at = [&working](
-            float position,
-            bool prefer_first_exact) noexcept {
-            auto first_exact = working.end();
-            auto last_exact = working.end();
-            for (auto current = working.begin();
-                 current != working.end();
-                 ++current) {
-                const float current_position =
-                    static_cast<float>(current->position);
-                if (current_position == position) {
-                    if (first_exact == working.end()) {
-                        first_exact = current;
-                    }
-                    last_exact = current;
-                }
-            }
-            if (first_exact != working.end()) {
-                return (prefer_first_exact
-                    ? first_exact
-                    : last_exact)->color;
-            }
-            if (working.front().position > position) {
-                return working.front().color;
-            }
-            if (working.back().position < position) {
-                return working.back().color;
-            }
-            for (std::size_t index = 1U;
-                 index < working.size();
-                 ++index) {
-                const float right = static_cast<float>(
-                    working[index].position);
-                if (right > position) {
-                    const float left = static_cast<float>(
-                        working[index - 1U].position);
-                    const float factor =
-                        (position - left) / (right - left);
-                    return interpolate_color(
-                        working[index - 1U].color,
-                        working[index].color,
-                        factor);
-                }
-            }
-            return working.back().color;
+        // WPF's GradientTexture.cpp normalizes an ordered stop dependency
+        // chain with a relative float epsilon. This resource-compilation pass
+        // is intentionally scalar: stable ordering, in-place consolidation,
+        // and the previous normalized stop determine each next decision, so
+        // its lanes are not independent and intrinsic SIMD is inapplicable.
+        const auto coincident = [](float left, float right) noexcept {
+            const float divisor = right == 0.0F ? 1.0F : right;
+            return std::abs((left - right) / divisor) <
+                10.0F * std::numeric_limits<float>::epsilon();
         };
-        const progpu_native_color first_color = color_at(0.0F, false);
-        const progpu_native_color last_color = color_at(1.0F, true);
-        try {
-            stops.reserve(working.size() + 2U);
-            stops.push_back({first_color, 0.0F, 0U, 0U, 0U});
-            for (const auto& stop : working) {
-                const float position = static_cast<float>(stop.position);
-                if (position > 0.0F && position < 1.0F) {
-                    stops.push_back({stop.color, position, 0U, 0U, 0U});
-                }
+        const auto less_than = [&coincident](
+            float value, float boundary) noexcept {
+            return value < boundary && !coincident(value, boundary);
+        };
+        const auto less_than_or_equal = [&coincident](
+            float value, float boundary) noexcept {
+            return value < boundary || coincident(value, boundary);
+        };
+        const auto color_at = [](const gradient_stop_state& left,
+                                  const gradient_stop_state& right,
+                                  float position) noexcept {
+            const float left_position = static_cast<float>(left.position);
+            const float right_position = static_cast<float>(right.position);
+            const float factor = (position - left_position) /
+                (right_position - left_position);
+            return interpolate_color(left.color, right.color, factor);
+        };
+
+        progpu_native_color start_extend_color{};
+        progpu_native_color end_extend_color{};
+        std::size_t current_index = 0U;
+        if (less_than_or_equal(
+                static_cast<float>(working.front().position), 0.0F)) {
+            while (current_index < working.size() &&
+                   less_than(
+                       static_cast<float>(working[current_index].position),
+                       0.0F)) {
+                ++current_index;
             }
-            stops.push_back({last_color, 1.0F, 0U, 0U, 0U});
+            if (current_index == working.size()) {
+                working[0] = {0.0, working.back().color};
+                start_extend_color = working[0].color;
+            } else if (coincident(
+                           static_cast<float>(
+                               working[current_index].position),
+                           0.0F)) {
+                start_extend_color = working[current_index].color;
+                ++current_index;
+                while (current_index < working.size() &&
+                       coincident(
+                           static_cast<float>(
+                               working[current_index].position),
+                           0.0F)) {
+                    ++current_index;
+                }
+                working[0] = {0.0, working[current_index - 1U].color};
+            } else {
+                const auto color = color_at(
+                    working[current_index - 1U],
+                    working[current_index],
+                    0.0F);
+                working[0] = {0.0, color};
+                start_extend_color = color;
+            }
+        } else {
+            try {
+                working.insert(working.begin(), working.front());
+            } catch (const std::bad_alloc&) {
+                return status::capacity_exceeded;
+            }
+            working[0].position = 0.0;
+            start_extend_color = working[0].color;
+            current_index = 1U;
+        }
+
+        std::size_t next_free_index = 1U;
+        while (current_index < working.size() &&
+               less_than(
+                   static_cast<float>(working[current_index].position),
+                   1.0F)) {
+            if (coincident(
+                    static_cast<float>(
+                        working[current_index - 1U].position),
+                    static_cast<float>(working[current_index].position))) {
+                std::size_t not_coincident_index = current_index + 1U;
+                while (not_coincident_index < working.size() &&
+                       less_than(
+                           static_cast<float>(
+                               working[not_coincident_index].position),
+                           1.0F) &&
+                       coincident(
+                           static_cast<float>(
+                               working[current_index - 1U].position),
+                           static_cast<float>(
+                               working[not_coincident_index].position))) {
+                    ++not_coincident_index;
+                }
+                --not_coincident_index;
+                working[not_coincident_index].position =
+                    working[current_index - 1U].position;
+                current_index = not_coincident_index;
+            }
+            working[next_free_index++] = working[current_index++];
+        }
+
+        gradient_stop_state last_stop{};
+        if (current_index == working.size()) {
+            last_stop = {1.0, working.back().color};
+            end_extend_color = working.back().color;
+        } else if (coincident(
+                       static_cast<float>(working[current_index].position),
+                       1.0F)) {
+            last_stop = {1.0, working[current_index].color};
+            ++current_index;
+            while (current_index < working.size() &&
+                   coincident(
+                       static_cast<float>(working[current_index].position),
+                       1.0F)) {
+                ++current_index;
+            }
+            end_extend_color = working[current_index - 1U].color;
+        } else {
+            const auto color = color_at(
+                working[current_index - 1U],
+                working[current_index],
+                1.0F);
+            last_stop = {1.0, color};
+            end_extend_color = color;
+        }
+        try {
+            if (next_free_index == working.size()) {
+                working.push_back(last_stop);
+            } else {
+                working[next_free_index] = last_stop;
+            }
+        } catch (const std::bad_alloc&) {
+            return status::capacity_exceeded;
+        }
+        working.resize(next_free_index + 1U);
+
+        try {
+            stops.reserve(working.size());
+            for (const auto& stop : working) {
+                stops.push_back({
+                    stop.color,
+                    static_cast<float>(stop.position),
+                    0U,
+                    0U,
+                    0U});
+            }
         } catch (const std::bad_alloc&) {
             return status::capacity_exceeded;
         }
@@ -10063,6 +10155,8 @@ struct channel::implementation {
             for (auto& stop : stops) {
                 stop.color = sc_rgb_to_s_rgb(stop.color);
             }
+            start_extend_color = sc_rgb_to_s_rgb(start_extend_color);
+            end_extend_color = sc_rgb_to_s_rgb(end_extend_color);
         }
         native = {};
         native.type = source.type == gradient_brush_state::kind::linear
@@ -10088,6 +10182,19 @@ struct channel::implementation {
         native.radius_y = static_cast<float>(radius_y);
         native.stop_count = static_cast<std::uint32_t>(stops.size());
         native.spread_method = source.spread_method;
+        const auto same_color = [](const progpu_native_color& left,
+                                   const progpu_native_color& right) noexcept {
+            return left.r == right.r && left.g == right.g &&
+                left.b == right.b && left.a == right.a;
+        };
+        if (source.spread_method == PROGPU_NATIVE_SCENE_GRADIENT_PAD &&
+            (!same_color(start_extend_color, stops.front().color) ||
+                !same_color(end_extend_color, stops.back().color))) {
+            native.spread_method |=
+                PROGPU_NATIVE_SCENE_GRADIENT_PAD_OUTSIDE_COLORS;
+            native.colors[0] = start_extend_color;
+            native.colors[1] = end_extend_color;
+        }
         native.color_interpolation_mode =
             source.color_interpolation_mode == 0U
                 ? PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SCRGB

@@ -246,13 +246,52 @@ bool has_expected_colors(
         return pixels + y * row_bytes + x * 4U;
     };
     const std::uint8_t* blue = pixel(100U, 100U);
-    const std::uint8_t* amber = pixel(360U, 130U);
+    const std::uint8_t* pad_start = pixel(300U, 180U);
+    const std::uint8_t* inside_start = pixel(342U, 180U);
+    const std::uint8_t* inside_end = pixel(498U, 180U);
+    const std::uint8_t* pad_end = pixel(540U, 180U);
     const std::uint8_t* background = pixel(10U, 10U);
     if (!(blue[2] > 180U && blue[0] < 100U &&
-        amber[0] > 180U && amber[1] > 90U &&
+        pad_start[0] > 180U && pad_start[1] > 90U &&
+        pad_start[2] < 80U &&
+        inside_start[1] > 180U && inside_start[0] < 80U &&
+        inside_end[1] > 180U && inside_end[2] > 180U &&
+        pad_end[0] > 140U && pad_end[2] > 180U && pad_end[1] < 100U &&
         background[0] < 30U && background[1] < 30U)) {
+        const auto print_pixel = [](const char* name,
+                                    const std::uint8_t* value) {
+            std::cerr << name << "="
+                      << static_cast<unsigned int>(value[0]) << ","
+                      << static_cast<unsigned int>(value[1]) << ","
+                      << static_cast<unsigned int>(value[2]) << ","
+                      << static_cast<unsigned int>(value[3]) << " ";
+        };
+        std::cerr << "Native sample color evidence mismatch: ";
+        print_pixel("blue", blue);
+        print_pixel("pad-start", pad_start);
+        print_pixel("inside-start", inside_start);
+        print_pixel("inside-end", inside_end);
+        print_pixel("pad-end", pad_end);
+        print_pixel("background", background);
+        std::cerr << '\n';
         return false;
     }
+    std::cout << "[ProGPUNativeGradient] pad-start="
+              << static_cast<unsigned int>(pad_start[0]) << ","
+              << static_cast<unsigned int>(pad_start[1]) << ","
+              << static_cast<unsigned int>(pad_start[2])
+              << " inside-start="
+              << static_cast<unsigned int>(inside_start[0]) << ","
+              << static_cast<unsigned int>(inside_start[1]) << ","
+              << static_cast<unsigned int>(inside_start[2])
+              << " inside-end="
+              << static_cast<unsigned int>(inside_end[0]) << ","
+              << static_cast<unsigned int>(inside_end[1]) << ","
+              << static_cast<unsigned int>(inside_end[2])
+              << " pad-end="
+              << static_cast<unsigned int>(pad_end[0]) << ","
+              << static_cast<unsigned int>(pad_end[1]) << ","
+              << static_cast<unsigned int>(pad_end[2]) << '\n';
     if (!requires_decoded_glyph) {
         return true;
     }
@@ -446,10 +485,33 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
     std::array<std::uint32_t, 5U> brush_indices{};
+    const auto identity =
+        progpu::native::semantic_scene_builder::identity_transform();
+    const std::array pad_gradient_stops{
+        progpu_native_scene_gradient_stop{
+            {0.0F, 1.0F, 0.0F, 1.0F}, 0.0F, 0U, 0U, 0U},
+        progpu_native_scene_gradient_stop{
+            {0.0F, 1.0F, 1.0F, 1.0F}, 1.0F, 0U, 0U, 0U}};
+    progpu_native_scene_brush pad_gradient{};
+    pad_gradient.type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+    pad_gradient.opacity = 1.0F;
+    pad_gradient.start_point = {340.0F, 0.0F};
+    pad_gradient.end_point = {500.0F, 0.0F};
+    pad_gradient.stop_count = static_cast<std::uint32_t>(
+        pad_gradient_stops.size());
+    pad_gradient.spread_method =
+        static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_GRADIENT_PAD) |
+        PROGPU_NATIVE_SCENE_GRADIENT_PAD_OUTSIDE_COLORS;
+    pad_gradient.color_interpolation_mode =
+        PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB;
+    pad_gradient.colors[0] = {0.98F, 0.52F, 0.08F, 1.0F};
+    pad_gradient.colors[1] = {0.72F, 0.20F, 0.96F, 1.0F};
+    pad_gradient.coordinate_transform0[0] = 1.0F;
+    pad_gradient.coordinate_transform1[1] = 1.0F;
     if (!scene_builder.add_solid_brush(
             {0.08F, 0.42F, 0.95F, 1.0F}, 1.0F, brush_indices[0]) ||
-        !scene_builder.add_solid_brush(
-            {0.98F, 0.52F, 0.08F, 1.0F}, 1.0F, brush_indices[1]) ||
+        !scene_builder.add_brush(
+            pad_gradient, pad_gradient_stops, brush_indices[1]) ||
         !scene_builder.add_solid_brush(
             {0.20F, 0.82F, 0.48F, 1.0F}, 0.90F, brush_indices[2]) ||
         !scene_builder.add_solid_brush(
@@ -459,8 +521,6 @@ int main(int argc, char** argv) {
         std::cerr << "Could not record native retained brushes.\n";
         return EXIT_FAILURE;
     }
-    const auto identity =
-        progpu::native::semantic_scene_builder::identity_transform();
     progpu_native_scene_layer_mask scene_mask{};
     scene_mask.bounds = {36.0F, 36.0F, 600.0F, 314.0F};
     scene_mask.transform = identity;

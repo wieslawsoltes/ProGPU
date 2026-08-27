@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -11346,6 +11347,146 @@ bool retained_gradient_brushes_compile_with_wpf_mapping_and_animation() {
     return true;
 }
 
+bool retained_gradient_stops_match_wpf_coincidence_and_pad_edges() {
+    constexpr std::uint32_t visual = 820U;
+    constexpr std::uint32_t content = 821U;
+    constexpr std::uint32_t target = 822U;
+    constexpr std::uint32_t linear = 823U;
+    constexpr float epsilon = std::numeric_limits<float>::epsilon();
+    constexpr float coincident_base = 0.5F;
+    constexpr float separate_base = 0.75F;
+    constexpr float coincident_one = coincident_base + 2.0F * epsilon;
+    constexpr float coincident_two = coincident_base + 4.0F * epsilon;
+    constexpr float separate = separate_base + 10.0F * epsilon;
+
+    const progpu_native_color red{1.0F, 0.0F, 0.0F, 1.0F};
+    const progpu_native_color green{0.0F, 1.0F, 0.0F, 1.0F};
+    const progpu_native_color blue{0.0F, 0.0F, 1.0F, 1.0F};
+    const progpu_native_color yellow{1.0F, 1.0F, 0.0F, 1.0F};
+    const progpu_native_color magenta{1.0F, 0.0F, 1.0F, 1.0F};
+    const progpu_native_color orange{1.0F, 0.5F, 0.0F, 1.0F};
+    const progpu_native_color purple{0.5F, 0.0F, 1.0F, 1.0F};
+    const progpu_native_color cyan{0.0F, 1.0F, 1.0F, 1.0F};
+    const progpu_native_color white{1.0F, 1.0F, 1.0F, 1.0F};
+    const std::array source_stops{
+        // Deliberately unsorted. The stable WPF sort must retain the declared
+        // order inside each endpoint/coincident group.
+        mil_gradient_stop{1.0, cyan},
+        mil_gradient_stop{coincident_one, yellow},
+        mil_gradient_stop{0.0, red},
+        mil_gradient_stop{separate, purple},
+        mil_gradient_stop{coincident_base, blue},
+        mil_gradient_stop{1.0, white},
+        mil_gradient_stop{coincident_two, magenta},
+        mil_gradient_stop{separate_base, orange},
+        mil_gradient_stop{0.0, green}};
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, linear, 77U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_linear_gradient_brush(
+        batch,
+        linear,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0U,
+        0U,
+        0U,
+        1U,
+        0U,
+        0U,
+        0U,
+        0U,
+        source_stops);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_rectangle,
+        0.0,
+        0.0,
+        100.0,
+        20.0,
+        linear,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        100U,
+        20U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8101U, 1U, stream) == status::success);
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool found = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE) {
+            continue;
+        }
+        const auto brush = read_value<progpu_native_scene_brush>(
+            stream, resource.payload_offset);
+        PROGPU_REQUIRE(brush.stop_count == 6U);
+        PROGPU_REQUIRE((brush.spread_method &
+            PROGPU_NATIVE_SCENE_GRADIENT_SPREAD_MASK) ==
+            PROGPU_NATIVE_SCENE_GRADIENT_PAD);
+        PROGPU_REQUIRE((brush.spread_method &
+            PROGPU_NATIVE_SCENE_GRADIENT_PAD_OUTSIDE_COLORS) != 0U);
+        PROGPU_REQUIRE(brush.colors[0].r > 0.99F &&
+            brush.colors[0].g == 0.0F && brush.colors[0].b == 0.0F);
+        PROGPU_REQUIRE(brush.colors[1].r > 0.99F &&
+            brush.colors[1].g > 0.99F &&
+            brush.colors[1].b > 0.99F);
+        std::array<progpu_native_scene_gradient_stop, 6U> stops{};
+        for (std::size_t stop_index = 0U;
+             stop_index < stops.size();
+             ++stop_index) {
+            stops[stop_index] = read_value<
+                progpu_native_scene_gradient_stop>(
+                stream,
+                resource.auxiliary_offset +
+                    (brush.stop_offset + stop_index) *
+                        sizeof(progpu_native_scene_gradient_stop));
+        }
+        PROGPU_REQUIRE(stops[0].offset == 0.0F &&
+            stops[0].color.g > 0.99F);
+        PROGPU_REQUIRE(stops[1].offset == coincident_base &&
+            stops[1].color.b > 0.99F);
+        PROGPU_REQUIRE(stops[2].offset == coincident_base &&
+            stops[2].color.r > 0.99F &&
+            stops[2].color.b > 0.99F);
+        PROGPU_REQUIRE(stops[3].offset == separate_base &&
+            stops[3].color.g > 0.7F && stops[3].color.g < 0.8F);
+        PROGPU_REQUIRE(stops[4].offset == separate &&
+            stops[4].offset > stops[3].offset &&
+            stops[4].color.r > 0.7F && stops[4].color.r < 0.8F);
+        PROGPU_REQUIRE(stops[5].offset == 1.0F &&
+            stops[5].color.g > 0.99F &&
+            stops[5].color.b > 0.99F);
+        found = true;
+    }
+    PROGPU_REQUIRE(found);
+    return true;
+}
+
 bool retained_viewport3d_uses_pointer_free_mesh_sideband() {
     constexpr std::uint32_t viewport_handle = 920U;
     constexpr std::uint32_t target = 921U;
@@ -11670,6 +11811,8 @@ int main() {
     PROGPU_REQUIRE(retained_geometry_group_compiles_to_one_semantic_path());
     PROGPU_REQUIRE(
         retained_gradient_brushes_compile_with_wpf_mapping_and_animation());
+    PROGPU_REQUIRE(
+        retained_gradient_stops_match_wpf_coincidence_and_pad_edges());
     PROGPU_REQUIRE(retained_viewport3d_uses_pointer_free_mesh_sideband());
     PROGPU_REQUIRE(render_data_scope_errors_fail_closed());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
