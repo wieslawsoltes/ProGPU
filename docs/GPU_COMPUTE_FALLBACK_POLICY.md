@@ -289,6 +289,19 @@ regressed from 1.3922 ms to 1.6106 ms (+15.7%) and synchronized-frame p50
 from 4.9143 ms to 5.2848 ms (+7.5%); both p95 medians also worsened. The
 source therefore retains the branch-free qualified pair loop.
 
+Two explicitly staged sample-offset experiments were also rejected. The first
+precomputed scalar lane offsets once per glyph. With distinct baseline and
+candidate dylibs alternated for every process, it remained exact but regressed
+2x submission/frame p50 and frame p95. The refined form stored two native
+NEON/SSE2 offset vectors per glyph and formed each sample vector with a single
+vector add. Across eight alternating 120-frame runs per variant it remained
+exact at `5B6EF4F70536C862` (1x) and `706B261418EC5C3B` (2x). Submission p50
+improved 1.2428 -> 1.1567 ms at 1x and 1.8251 -> 1.7906 ms at 2x, but 2x
+synchronized-frame p50/p95 regressed 5.6951/8.4109 -> 5.8623/8.5459 ms.
+Moving arithmetic out of the pair loop is therefore not sufficient evidence;
+the qualified construction remains in source. The A/B harness verified the
+loaded dylib SHA-256 before measurement to prevent stale native-copy results.
+
 Exact pushed head `644a8d89` also rebuilt both native libraries with ARM64
 MSVC and passed all 11 native/Dawn CTests in the Windows Parallels VM. The
 zero-warning benchmark build ran the full 42-glyph forced-NEON D3D12 gate with
