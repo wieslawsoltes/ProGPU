@@ -10730,9 +10730,6 @@ struct channel::implementation {
         if (context == nullptr) {
             return status::unsupported_command;
         }
-        if (context->request.dpi_scale_x != context->request.dpi_scale_y) {
-            return status::unsupported_command;
-        }
         const std::size_t count_x = source.guidelines_x.size() / 2U;
         const std::size_t count_y = source.guidelines_y.size() / 2U;
         if (state.transform.m12 != 0.0 || state.transform.m21 != 0.0) {
@@ -10780,13 +10777,14 @@ struct channel::implementation {
             (static_cast<std::uint32_t>(context->request.flags) &
                 static_cast<std::uint32_t>(
                     scene_build_request_flags::visual_brush)) != 0U;
-        const float dpi = static_cast<float>(context->request.dpi_scale_x);
         const auto resolve_axis = [&](std::span<const double> values,
                                       std::vector<guideline_set_state::runtime_state>& runtime,
                                       double scale,
                                       double translation,
+                                      double dpi_scale,
                                       std::vector<double>& coordinates,
                                       std::vector<double>& offsets) {
+            const float dpi = static_cast<float>(dpi_scale);
             const float physical_scale = static_cast<float>(scale) * dpi;
             const float physical_translation =
                 static_cast<float>(translation) * dpi;
@@ -10820,6 +10818,7 @@ struct channel::implementation {
             source.runtime_x,
             state.transform.m11,
             state.transform.m31,
+            context->request.dpi_scale_x,
             coordinates_x,
             offsets_x);
         resolve_axis(
@@ -10827,6 +10826,7 @@ struct channel::implementation {
             source.runtime_y,
             state.transform.m22,
             state.transform.m32,
+            context->request.dpi_scale_y,
             coordinates_y,
             offsets_y);
         const bool multiple = count_x > 1U || count_y > 1U;
