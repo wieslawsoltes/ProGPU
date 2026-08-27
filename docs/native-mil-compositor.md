@@ -338,6 +338,19 @@ readback records start outside `250/133/20`, in-range start `0/255/4`, in-range
 end `0/255/253`, and end outside `184/51/245`; this keeps the shader branch in
 the normal macOS/Windows/Linux native sample gate instead of relying only on
 stream inspection.
+
+Exact checkpoint `ba7b5d74f40d554a6267aeabe3807fe989260cc4` was then
+qualified in the Windows 11 ARM64 Parallels guest from archive SHA-256
+`9A22CC63BB972FD2549C937B88503F4284D8AB3A1874182A87BC9D1EE4376D01`.
+Strict MSVC/Ninja rebuilt both native providers, all 11 CTests passed, and the
+native D3D12 sample on `Parallels Display Adapter (WDDM)` produced the exact
+same four RGB samples as Metal. The complete managed test graph built with zero
+warnings/errors and the eight focused stream-builder, 2D gradient, ordinary
+Mesh3D gradient, and specular Mesh3D gradient tests passed on D3D12. The staged
+provider hashes are
+`F46B10C0B21D171D4AF1830F85D7499BF4BE4E43B550A53B3D27145340657EEB`
+and
+`B32E22C7BCF4A11F7BB64D60199670DEE3E9DDA0718FC006190A55069CDE27DF`.
 Gradient brushes on cap-only degenerate pen strokes still fail closed until the
 cap path exposes its exact brush-sizing bounds.
 
