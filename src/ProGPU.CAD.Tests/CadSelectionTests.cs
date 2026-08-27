@@ -323,6 +323,287 @@ public sealed class CadSelectionTests
     }
 
     [Fact]
+    public void BoundsHitTesterDistinguishesWindowCrossingAndBroadPhaseOverlap()
+    {
+        var line = new Line(XYZ.Zero, new XYZ(10, 10, 0));
+        var crossing = new CadBounds3D(
+            new CadPoint3D(4, 4, -1),
+            new CadPoint3D(6, 6, 1));
+        var broadPhaseOnly = new CadBounds3D(
+            new CadPoint3D(0, 6, -1),
+            new CadPoint3D(4, 10, 1));
+        var containing = new CadBounds3D(
+            new CadPoint3D(-1, -1, -1),
+            new CadPoint3D(11, 11, 1));
+
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            HitBounds(line, crossing, CadBoundsSelectionMode.Crossing).Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Miss,
+            HitBounds(
+                (Entity)line.Clone(),
+                crossing,
+                CadBoundsSelectionMode.Window).Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Miss,
+            HitBounds(
+                (Entity)line.Clone(),
+                broadPhaseOnly,
+                CadBoundsSelectionMode.Crossing).Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            HitBounds(
+                (Entity)line.Clone(),
+                containing,
+                CadBoundsSelectionMode.Window).Status);
+    }
+
+    [Fact]
+    public void BoundsHitTesterPartitionsAffineCurvesAtBoxPlanes()
+    {
+        var circle = new Circle(XYZ.Zero, 5);
+        var centerBox = new CadBounds3D(
+            new CadPoint3D(-1, -1, -1),
+            new CadPoint3D(1, 1, 1));
+        var tangentBox = new CadBounds3D(
+            new CadPoint3D(5, 0, 0),
+            new CadPoint3D(5, 0, 0));
+        Assert.Equal(
+            CadBoundsHitStatus.Miss,
+            HitBounds(circle, centerBox, CadBoundsSelectionMode.Crossing).Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            HitBounds(
+                (Entity)circle.Clone(),
+                tangentBox,
+                CadBoundsSelectionMode.Crossing).Status);
+        var circleWindow = new CadBounds3D(
+            new CadPoint3D(-5, -5, 0),
+            new CadPoint3D(5, 5, 0));
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            HitBounds(
+                (Entity)circle.Clone(),
+                circleWindow,
+                CadBoundsSelectionMode.Window).Status);
+
+        var arc = new Arc
+        {
+            Center = XYZ.Zero,
+            Normal = XYZ.AxisZ,
+            Radius = 5,
+            StartAngle = 0,
+            EndAngle = Math.PI / 2.0,
+        };
+        var arcAabbOnly = new CadBounds3D(
+            new CadPoint3D(2, 2, -0.1),
+            new CadPoint3D(3, 3, 0.1));
+        var arcWindow = new CadBounds3D(
+            new CadPoint3D(0, 0, 0),
+            new CadPoint3D(5, 5, 0));
+        Assert.Equal(
+            CadBoundsHitStatus.Miss,
+            HitBounds(arc, arcAabbOnly, CadBoundsSelectionMode.Crossing).Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            HitBounds(
+                (Entity)arc.Clone(),
+                arcWindow,
+                CadBoundsSelectionMode.Window).Status);
+
+        var ellipse = new Ellipse
+        {
+            Center = XYZ.Zero,
+            MajorAxisEndPoint = new XYZ(8, 0, 0),
+            Normal = XYZ.AxisZ,
+            RadiusRatio = 0.25,
+        };
+        var ellipseCenter = new CadBounds3D(
+            new CadPoint3D(-0.5, -0.5, -0.5),
+            new CadPoint3D(0.5, 0.5, 0.5));
+        var ellipseEdge = new CadBounds3D(
+            new CadPoint3D(7.9, -0.1, -0.1),
+            new CadPoint3D(8.1, 0.1, 0.1));
+        Assert.Equal(
+            CadBoundsHitStatus.Miss,
+            HitBounds(ellipse, ellipseCenter, CadBoundsSelectionMode.Crossing).Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            HitBounds(
+                (Entity)ellipse.Clone(),
+                ellipseEdge,
+                CadBoundsSelectionMode.Crossing).Status);
+    }
+
+    [Fact]
+    public void BoundsHitTesterHandlesAffineBulgesAndThreeDimensionalPolylines()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("SELECT_AFFINE_BULGE");
+        var bulged = new LwPolyline();
+        bulged.Vertices.Add(new LwPolyline.Vertex(0, 0) { Bulge = 1.0 });
+        bulged.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        block.Entities.Add(bulged);
+        document.Entities.Add(new Insert(block)
+        {
+            XScale = 2.0,
+            YScale = 1.0,
+            ZScale = 1.0,
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        var curveBox = new CadBounds3D(
+            new CadPoint3D(9.9, -5.1, -0.1),
+            new CadPoint3D(10.1, -4.9, 0.1));
+
+        CadBoundsHitResult bulgeResult = CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            SingleCandidate(snapshot),
+            curveBox,
+            CadBoundsSelectionMode.Crossing);
+
+        Assert.Equal(CadBoundsHitStatus.Hit, bulgeResult.Status);
+
+        var polyline3D = new Polyline3D(
+            [XYZ.Zero, new XYZ(0, 0, 10), new XYZ(10, 0, 10)],
+            isClosed: false);
+        var verticalBox = new CadBounds3D(
+            new CadPoint3D(-0.1, -0.1, 4.9),
+            new CadPoint3D(0.1, 0.1, 5.1));
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            HitBounds(
+                polyline3D,
+                verticalBox,
+                CadBoundsSelectionMode.Crossing).Status);
+    }
+
+    [Fact]
+    public void BoundsHitTesterUsesFilledSolidsAndOnlyVisibleFaceEdges()
+    {
+        var solid = new Solid(
+            new XYZ(0, 0, 0),
+            new XYZ(4, 0, 0),
+            new XYZ(0, 4, 0),
+            new XYZ(0, 4, 0));
+        var solidInterior = new CadBounds3D(
+            new CadPoint3D(0.9, 0.9, -0.1),
+            new CadPoint3D(1.1, 1.1, 0.1));
+        var solidAabbOnly = new CadBounds3D(
+            new CadPoint3D(3.7, 3.7, -0.1),
+            new CadPoint3D(3.9, 3.9, 0.1));
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            HitBounds(solid, solidInterior, CadBoundsSelectionMode.Crossing).Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Miss,
+            HitBounds(
+                (Entity)solid.Clone(),
+                solidAabbOnly,
+                CadBoundsSelectionMode.Crossing).Status);
+
+        var face = new Face3D
+        {
+            FirstCorner = new XYZ(10, 0, 0),
+            SecondCorner = new XYZ(14, 0, 0),
+            ThirdCorner = new XYZ(14, 4, 0),
+            FourthCorner = new XYZ(10, 4, 0),
+            Flags = InvisibleEdgeFlags.Second | InvisibleEdgeFlags.Fourth,
+        };
+        var invisibleEdgeBox = new CadBounds3D(
+            new CadPoint3D(13.9, 1.9, -0.1),
+            new CadPoint3D(14.1, 2.1, 0.1));
+        var visibleEdgeBox = new CadBounds3D(
+            new CadPoint3D(11.9, -0.1, -0.1),
+            new CadPoint3D(12.1, 0.1, 0.1));
+        Assert.Equal(
+            CadBoundsHitStatus.Miss,
+            HitBounds(face, invisibleEdgeBox, CadBoundsSelectionMode.Crossing).Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            HitBounds(
+                (Entity)face.Clone(),
+                visibleEdgeBox,
+                CadBoundsSelectionMode.Crossing).Status);
+    }
+
+    [Fact]
+    public void BoundsHitTesterRejectsStaleCandidatesAndReportsUnsupportedKinds()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add spline", document =>
+        {
+            var spline = new Spline { Degree = 2 };
+            spline.ControlPoints.AddRange([
+                new XYZ(0, 0, 0),
+                new XYZ(5, 8, 0),
+                new XYZ(10, 0, 0),
+            ]);
+            spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+            document.Entities.Add(spline);
+        });
+        CadDocumentSnapshot first = new CadSnapshotCompiler().Compile(session);
+        CadSelectionCandidate candidate = SingleCandidate(first);
+
+        CadBoundsHitResult unsupported = CadSelectionHitTester.HitTestBounds(
+            first,
+            candidate,
+            first.Bounds,
+            CadBoundsSelectionMode.Crossing);
+
+        Assert.Equal(CadBoundsHitStatus.UnsupportedKind, unsupported.Status);
+        session.Edit("Advance generation", _ => { });
+        CadDocumentSnapshot second = new CadSnapshotCompiler().Compile(session);
+        Assert.Throws<InvalidOperationException>(() =>
+            CadSelectionHitTester.HitTestBounds(
+                second,
+                candidate,
+                first.Bounds,
+                CadBoundsSelectionMode.Crossing));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            CadSelectionHitTester.HitTestBounds(
+                first,
+                candidate,
+                first.Bounds,
+                (CadBoundsSelectionMode)byte.MaxValue));
+    }
+
+    [Fact]
+    public void WarmExactBoundsHitTestsAllocateNoManagedMemory()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add circle", document =>
+            document.Entities.Add(new Circle(XYZ.Zero, 10)));
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadSelectionCandidate candidate = SingleCandidate(snapshot);
+        var bounds = new CadBounds3D(
+            new CadPoint3D(9.9, -0.1, -0.1),
+            new CadPoint3D(10.1, 0.1, 0.1));
+        _ = CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            candidate,
+            bounds,
+            CadBoundsSelectionMode.Crossing);
+        _ = GC.GetAllocatedBytesForCurrentThread();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int checksum = 0;
+        for (int i = 0; i < 1_000; i++)
+        {
+            checksum += CadSelectionHitTester.HitTestBounds(
+                snapshot,
+                candidate,
+                bounds,
+                CadBoundsSelectionMode.Crossing).IsHit ? 1 : 0;
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(1_000, checksum);
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
     public void WarmExactLineHitTestsAllocateNoManagedMemory()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
@@ -389,6 +670,22 @@ public sealed class CadSelectionTests
             SingleCandidate(snapshot),
             point,
             tolerance);
+    }
+
+    private static CadBoundsHitResult HitBounds(
+        Entity entity,
+        CadBounds3D bounds,
+        CadBoundsSelectionMode mode)
+    {
+        var document = new CadDocument();
+        document.Entities.Add(entity);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        return CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            SingleCandidate(snapshot),
+            bounds,
+            mode);
     }
 
     private static CadSelectionCandidate SingleCandidate(CadDocumentSnapshot snapshot)

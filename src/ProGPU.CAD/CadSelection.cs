@@ -75,6 +75,34 @@ public readonly record struct CadPointHitResult(
         Status is CadPointHitStatus.Hit or CadPointHitStatus.Miss;
 }
 
+/// <summary>Inclusive world-space box-selection behavior.</summary>
+public enum CadBoundsSelectionMode : byte
+{
+    /// <summary>Select only geometry wholly contained by the box.</summary>
+    Window = 0,
+
+    /// <summary>Select geometry with any point inside or on the box.</summary>
+    Crossing = 1,
+}
+
+/// <summary>Typed result of an exact retained-geometry box test.</summary>
+public enum CadBoundsHitStatus : byte
+{
+    Miss = 0,
+    Hit = 1,
+    UnsupportedKind = 2,
+    UnsupportedGeometry = 3,
+}
+
+/// <summary>One exact box-test result without hidden approximation.</summary>
+public readonly record struct CadBoundsHitResult(CadBoundsHitStatus Status)
+{
+    public bool IsHit => Status == CadBoundsHitStatus.Hit;
+
+    public bool IsSupported =>
+        Status is CadBoundsHitStatus.Hit or CadBoundsHitStatus.Miss;
+}
+
 /// <summary>Exact world-space point proximity tests for supported snapshot primitives.</summary>
 public static class CadSelectionHitTester
 {
@@ -98,27 +126,7 @@ public static class CadSelectionHitTester
                 nameof(tolerance),
                 "Hit-test tolerance must be finite and non-negative.");
         }
-        if (candidate.ContentGeneration != snapshot.ContentGeneration)
-        {
-            throw new InvalidOperationException(
-                "The selection candidate belongs to a different snapshot generation.");
-        }
-
-        ReadOnlySpan<CadEntityHeader> entities = snapshot.Entities.Span;
-        if ((uint)candidate.EntityIndex >= (uint)entities.Length)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(candidate),
-                "The selection candidate entity index is outside the snapshot.");
-        }
-        CadEntityHeader header = entities[candidate.EntityIndex];
-        if (candidate.Handle != header.Handle ||
-            candidate.Kind != header.Kind ||
-            candidate.Bounds != header.Bounds)
-        {
-            throw new InvalidOperationException(
-                "The selection candidate does not match its snapshot entity.");
-        }
+        CadEntityHeader header = GetValidatedHeader(snapshot, candidate);
 
         return header.Kind switch
         {
@@ -148,6 +156,347 @@ public static class CadSelectionHitTester
                 CadPointHitStatus.UnsupportedKind,
                 double.NaN),
         };
+    }
+
+    /// <summary>
+    /// Tests one retained primitive against an inclusive world-space selection box.
+    /// </summary>
+    /// <remarks>
+    /// Window mode requires the complete selectable geometry to lie inside the box.
+    /// Crossing mode accepts any geometric intersection. Curved crossing tests partition
+    /// their bounded parameter interval at exact box-plane roots; filled SOLIDs use the
+    /// convex triangle/box separating axes. Work is O(S) for S polyline segments and O(1)
+    /// for the other supported primitives, with bounded stack storage and no allocation.
+    /// </remarks>
+    public static CadBoundsHitResult HitTestBounds(
+        CadDocumentSnapshot snapshot,
+        CadSelectionCandidate candidate,
+        CadBounds3D bounds,
+        CadBoundsSelectionMode mode)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (mode is not CadBoundsSelectionMode.Window and not CadBoundsSelectionMode.Crossing)
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode));
+        }
+        CadEntityHeader header = GetValidatedHeader(snapshot, candidate);
+
+        return header.Kind switch
+        {
+            CadEntityKind.Line => HitLineBounds(
+                snapshot.Lines.Span[header.PrimitiveIndex],
+                bounds,
+                mode),
+            CadEntityKind.Circle => HitCircleBounds(
+                snapshot.Circles.Span[header.PrimitiveIndex],
+                header.Bounds,
+                bounds,
+                mode),
+            CadEntityKind.Arc => HitArcBounds(
+                snapshot.Arcs.Span[header.PrimitiveIndex],
+                header.Bounds,
+                bounds,
+                mode),
+            CadEntityKind.Ellipse => HitEllipseBounds(
+                snapshot.Ellipses.Span[header.PrimitiveIndex],
+                header.Bounds,
+                bounds,
+                mode),
+            CadEntityKind.LightweightPolyline or CadEntityKind.Polyline2D =>
+                HitPolyline2DBounds(snapshot, header, bounds, mode),
+            CadEntityKind.Polyline3D =>
+                HitPolyline3DBounds(snapshot, header, bounds, mode),
+            CadEntityKind.Solid => HitSolidBounds(
+                snapshot.Faces.Span[header.PrimitiveIndex],
+                bounds,
+                mode),
+            CadEntityKind.Face3D => HitFaceBounds(
+                snapshot.Faces.Span[header.PrimitiveIndex],
+                bounds,
+                mode),
+            _ => new CadBoundsHitResult(CadBoundsHitStatus.UnsupportedKind),
+        };
+    }
+
+    private static CadBoundsHitResult HitLineBounds(
+        CadLinePrimitive line,
+        CadBounds3D bounds,
+        CadBoundsSelectionMode mode)
+    {
+        if (bounds.IsEmpty)
+        {
+            return BoundsMiss();
+        }
+        bool hit = mode == CadBoundsSelectionMode.Window
+            ? ContainsPoint(bounds, line.Start) && ContainsPoint(bounds, line.End)
+            : SegmentIntersectsBounds(line.Start, line.End, bounds);
+        return FromBoundsHit(hit);
+    }
+
+    private static CadBoundsHitResult HitCircleBounds(
+        CadCirclePrimitive circle,
+        CadBounds3D exactBounds,
+        CadBounds3D selectionBounds,
+        CadBoundsSelectionMode mode) =>
+        HitParametricBounds(
+            circle.Center,
+            circle.CoordinateSystem.XAxis * circle.Radius,
+            circle.CoordinateSystem.YAxis * circle.Radius,
+            0.0,
+            TwoPi,
+            exactBounds,
+            selectionBounds,
+            mode);
+
+    private static CadBoundsHitResult HitArcBounds(
+        CadArcPrimitive arc,
+        CadBounds3D exactBounds,
+        CadBounds3D selectionBounds,
+        CadBoundsSelectionMode mode) =>
+        HitParametricBounds(
+            arc.Center,
+            arc.CoordinateSystem.XAxis * arc.Radius,
+            arc.CoordinateSystem.YAxis * arc.Radius,
+            arc.StartAngle,
+            arc.SweepAngle,
+            exactBounds,
+            selectionBounds,
+            mode);
+
+    private static CadBoundsHitResult HitEllipseBounds(
+        CadEllipsePrimitive ellipse,
+        CadBounds3D exactBounds,
+        CadBounds3D selectionBounds,
+        CadBoundsSelectionMode mode) =>
+        HitParametricBounds(
+            ellipse.Center,
+            ellipse.MajorAxis,
+            ellipse.MinorAxis,
+            ellipse.StartParameter,
+            ellipse.SweepParameter,
+            exactBounds,
+            selectionBounds,
+            mode);
+
+    private static CadBoundsHitResult HitParametricBounds(
+        CadPoint3D center,
+        CadPoint3D cosineAxis,
+        CadPoint3D sineAxis,
+        double start,
+        double sweep,
+        CadBounds3D exactBounds,
+        CadBounds3D selectionBounds,
+        CadBoundsSelectionMode mode)
+    {
+        if (selectionBounds.IsEmpty)
+        {
+            return BoundsMiss();
+        }
+        if (mode == CadBoundsSelectionMode.Window)
+        {
+            return FromBoundsHit(ContainsBounds(selectionBounds, exactBounds));
+        }
+        if (!exactBounds.Intersects(selectionBounds))
+        {
+            return BoundsMiss();
+        }
+        if (ContainsBounds(selectionBounds, exactBounds))
+        {
+            return BoundsHit();
+        }
+        return TryParametricArcIntersectsBounds(
+            center,
+            cosineAxis,
+            sineAxis,
+            start,
+            sweep,
+            selectionBounds,
+            out bool intersects)
+            ? FromBoundsHit(intersects)
+            : BoundsUnsupportedGeometry();
+    }
+
+    private static CadBoundsHitResult HitPolyline2DBounds(
+        CadDocumentSnapshot snapshot,
+        CadEntityHeader header,
+        CadBounds3D bounds,
+        CadBoundsSelectionMode mode)
+    {
+        if (bounds.IsEmpty)
+        {
+            return BoundsMiss();
+        }
+        if (mode == CadBoundsSelectionMode.Window)
+        {
+            return FromBoundsHit(ContainsBounds(bounds, header.Bounds));
+        }
+        if (!header.Bounds.Intersects(bounds))
+        {
+            return BoundsMiss();
+        }
+
+        CadPolylinePrimitive polyline = snapshot.Polylines.Span[header.PrimitiveIndex];
+        ReadOnlySpan<CadPolylineVertex> vertices = snapshot.PolylineVertices.Span.Slice(
+            polyline.VertexOffset,
+            polyline.VertexCount);
+        int segmentCount = polyline.IsClosed ? vertices.Length : vertices.Length - 1;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            CadPolylineVertex start = vertices[i];
+            CadPolylineVertex end = vertices[(i + 1) % vertices.Length];
+            if (start.Bulge == 0.0)
+            {
+                if (SegmentIntersectsBounds(
+                        ToWorld(polyline, start),
+                        ToWorld(polyline, end),
+                        bounds))
+                {
+                    return BoundsHit();
+                }
+                continue;
+            }
+
+            if (!TryGetBulgeArc(
+                    polyline,
+                    start,
+                    end,
+                    out CadPoint3D center,
+                    out CadPoint3D cosineAxis,
+                    out CadPoint3D sineAxis,
+                    out _,
+                    out double startAngle,
+                    out double sweep))
+            {
+                return BoundsUnsupportedGeometry();
+            }
+            if (!TryParametricArcIntersectsBounds(
+                    center,
+                    cosineAxis,
+                    sineAxis,
+                    startAngle,
+                    sweep,
+                    bounds,
+                    out bool intersects))
+            {
+                return BoundsUnsupportedGeometry();
+            }
+            if (intersects)
+            {
+                return BoundsHit();
+            }
+        }
+        return BoundsMiss();
+    }
+
+    private static CadBoundsHitResult HitPolyline3DBounds(
+        CadDocumentSnapshot snapshot,
+        CadEntityHeader header,
+        CadBounds3D bounds,
+        CadBoundsSelectionMode mode)
+    {
+        if (bounds.IsEmpty)
+        {
+            return BoundsMiss();
+        }
+        if (mode == CadBoundsSelectionMode.Window)
+        {
+            return FromBoundsHit(ContainsBounds(bounds, header.Bounds));
+        }
+        if (!header.Bounds.Intersects(bounds))
+        {
+            return BoundsMiss();
+        }
+
+        CadPolyline3DPrimitive polyline = snapshot.Polylines3D.Span[header.PrimitiveIndex];
+        ReadOnlySpan<CadPoint3D> points = snapshot.Polyline3DPoints.Span.Slice(
+            polyline.PointOffset,
+            polyline.PointCount);
+        int segmentCount = polyline.IsClosed ? points.Length : points.Length - 1;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            if (SegmentIntersectsBounds(
+                    points[i],
+                    points[(i + 1) % points.Length],
+                    bounds))
+            {
+                return BoundsHit();
+            }
+        }
+        return BoundsMiss();
+    }
+
+    private static CadBoundsHitResult HitSolidBounds(
+        CadFacePrimitive face,
+        CadBounds3D bounds,
+        CadBoundsSelectionMode mode)
+    {
+        if (bounds.IsEmpty)
+        {
+            return BoundsMiss();
+        }
+        if (mode == CadBoundsSelectionMode.Window)
+        {
+            return FromBoundsHit(
+                ContainsPoint(bounds, face.First) &&
+                ContainsPoint(bounds, face.Second) &&
+                ContainsPoint(bounds, face.Third) &&
+                ContainsPoint(bounds, face.Fourth));
+        }
+
+        bool intersects = TriangleIntersectsBounds(
+            face.First,
+            face.Second,
+            face.Third,
+            bounds);
+        if (!intersects && face.Fourth != face.Third)
+        {
+            intersects = TriangleIntersectsBounds(
+                face.First,
+                face.Third,
+                face.Fourth,
+                bounds);
+        }
+        return FromBoundsHit(intersects);
+    }
+
+    private static CadBoundsHitResult HitFaceBounds(
+        CadFacePrimitive face,
+        CadBounds3D bounds,
+        CadBoundsSelectionMode mode)
+    {
+        if (bounds.IsEmpty)
+        {
+            return BoundsMiss();
+        }
+
+        bool hasVisibleEdge = false;
+        if (!TestFaceEdge(face.First, face.Second, face.InvisibleEdgeMask, 1, bounds, mode, ref hasVisibleEdge) ||
+            !TestFaceEdge(face.Second, face.Third, face.InvisibleEdgeMask, 2, bounds, mode, ref hasVisibleEdge) ||
+            !TestFaceEdge(face.Third, face.Fourth, face.InvisibleEdgeMask, 4, bounds, mode, ref hasVisibleEdge) ||
+            !TestFaceEdge(face.Fourth, face.First, face.InvisibleEdgeMask, 8, bounds, mode, ref hasVisibleEdge))
+        {
+            return mode == CadBoundsSelectionMode.Crossing ? BoundsHit() : BoundsMiss();
+        }
+        return FromBoundsHit(hasVisibleEdge && mode == CadBoundsSelectionMode.Window);
+    }
+
+    private static bool TestFaceEdge(
+        CadPoint3D start,
+        CadPoint3D end,
+        byte invisibleEdgeMask,
+        byte edgeFlag,
+        CadBounds3D bounds,
+        CadBoundsSelectionMode mode,
+        ref bool hasVisibleEdge)
+    {
+        if ((invisibleEdgeMask & edgeFlag) != 0 || start == end)
+        {
+            return true;
+        }
+        hasVisibleEdge = true;
+        return mode == CadBoundsSelectionMode.Window
+            ? ContainsPoint(bounds, start) && ContainsPoint(bounds, end)
+            : !SegmentIntersectsBounds(start, end, bounds);
     }
 
     private static CadPointHitResult HitCircle(
@@ -264,23 +613,21 @@ public static class CadSelectionHitTester
         CadPolylineVertex end,
         out double distance)
     {
-        double bulge = start.Bulge;
-        double deltaX = end.X - start.X;
-        double deltaY = end.Y - start.Y;
-        double chord = new CadPoint3D(deltaX, deltaY, 0.0).Length;
-        if (!double.IsFinite(bulge) || bulge == 0.0 ||
-            !double.IsFinite(chord) || chord == 0.0)
+        if (!TryGetBulgeArc(
+                polyline,
+                start,
+                end,
+                out CadPoint3D center,
+                out CadPoint3D cosineAxis,
+                out CadPoint3D sineAxis,
+                out double localRadius,
+                out double startAngle,
+                out double sweep))
         {
             distance = double.NaN;
             return false;
         }
-
-        double inverseBulge = 1.0 / bulge;
-        double centerOffset = (chord * 0.25) * (inverseBulge - bulge);
-        double localRadius = (chord * 0.25) *
-            (Math.Abs(bulge) + Math.Abs(inverseBulge));
-        if (!double.IsFinite(centerOffset) || !double.IsFinite(localRadius) ||
-            !TryGetCircularBasis(
+        if (!TryGetCircularBasis(
                 polyline.CoordinateSystem,
                 localRadius,
                 out CircularBasis basis))
@@ -288,19 +635,6 @@ public static class CadSelectionHitTester
             distance = double.NaN;
             return false;
         }
-
-        double centerX = (start.X * 0.5) + (end.X * 0.5) -
-            ((deltaY / chord) * centerOffset);
-        double centerY = (start.Y * 0.5) + (end.Y * 0.5) +
-            ((deltaX / chord) * centerOffset);
-        if (!double.IsFinite(centerX) || !double.IsFinite(centerY))
-        {
-            distance = double.NaN;
-            return false;
-        }
-        CadPoint3D center = ToWorld(polyline, centerX, centerY);
-        double startAngle = Math.Atan2(start.Y - centerY, start.X - centerX);
-        double sweep = 4.0 * Math.Atan(bulge);
         distance = DistanceToCircularArc(
             point,
             center,
@@ -308,6 +642,67 @@ public static class CadSelectionHitTester
             startAngle,
             sweep);
         return double.IsFinite(distance);
+    }
+
+    private static bool TryGetBulgeArc(
+        CadPolylinePrimitive polyline,
+        CadPolylineVertex start,
+        CadPolylineVertex end,
+        out CadPoint3D center,
+        out CadPoint3D cosineAxis,
+        out CadPoint3D sineAxis,
+        out double radius,
+        out double startAngle,
+        out double sweep)
+    {
+        double bulge = start.Bulge;
+        double deltaX = end.X - start.X;
+        double deltaY = end.Y - start.Y;
+        double chord = new CadPoint3D(deltaX, deltaY, 0.0).Length;
+        if (!double.IsFinite(bulge) || bulge == 0.0 ||
+            !double.IsFinite(chord) || chord == 0.0)
+        {
+            center = default;
+            cosineAxis = default;
+            sineAxis = default;
+            radius = double.NaN;
+            startAngle = double.NaN;
+            sweep = double.NaN;
+            return false;
+        }
+
+        double inverseBulge = 1.0 / bulge;
+        double centerOffset = (chord * 0.25) * (inverseBulge - bulge);
+        double localRadius = (chord * 0.25) *
+            (Math.Abs(bulge) + Math.Abs(inverseBulge));
+        double centerX = (start.X * 0.5) + (end.X * 0.5) -
+            ((deltaY / chord) * centerOffset);
+        double centerY = (start.Y * 0.5) + (end.Y * 0.5) +
+            ((deltaX / chord) * centerOffset);
+        if (!double.IsFinite(centerOffset) || !double.IsFinite(localRadius) ||
+            localRadius <= 0.0 ||
+            !double.IsFinite(centerX) || !double.IsFinite(centerY))
+        {
+            center = default;
+            cosineAxis = default;
+            sineAxis = default;
+            radius = double.NaN;
+            startAngle = double.NaN;
+            sweep = double.NaN;
+            return false;
+        }
+
+        center = ToWorld(polyline, centerX, centerY);
+        cosineAxis = polyline.CoordinateSystem.XAxis * localRadius;
+        sineAxis = polyline.CoordinateSystem.YAxis * localRadius;
+        radius = localRadius;
+        startAngle = Math.Atan2(start.Y - centerY, start.X - centerX);
+        sweep = 4.0 * Math.Atan(bulge);
+        return AreFinite(center) &&
+            AreFinite(cosineAxis) &&
+            AreFinite(sineAxis) &&
+            double.IsFinite(startAngle) &&
+            double.IsFinite(sweep);
     }
 
     private static CadPointHitResult HitPolyline3D(
@@ -403,6 +798,365 @@ public static class CadSelectionHitTester
         double y) =>
         polyline.WorldOrigin + polyline.CoordinateSystem.Transform(
             new CadPoint3D(x, y, 0.0));
+
+    private static bool TryParametricArcIntersectsBounds(
+        CadPoint3D center,
+        CadPoint3D cosineAxis,
+        CadPoint3D sineAxis,
+        double start,
+        double sweep,
+        CadBounds3D bounds,
+        out bool intersects)
+    {
+        intersects = false;
+        if (bounds.IsEmpty ||
+            !AreFinite(center) ||
+            !AreFinite(cosineAxis) ||
+            !AreFinite(sineAxis) ||
+            !double.IsFinite(start) ||
+            !double.IsFinite(sweep) ||
+            Math.Abs(sweep) > TwoPi + 1e-12)
+        {
+            return false;
+        }
+
+        double span = Math.Min(Math.Abs(sweep), TwoPi);
+        Span<double> partitions = stackalloc double[14];
+        int count = 0;
+        partitions[count++] = 0.0;
+        partitions[count++] = span;
+
+        for (int axis = 0; axis < 3; axis++)
+        {
+            double centerValue = Component(center, axis);
+            double cosine = Component(cosineAxis, axis);
+            double sine = Component(sineAxis, axis);
+            double amplitude = new CadPoint3D(cosine, sine, 0.0).Length;
+            double minimum = Component(bounds.Min, axis);
+            double maximum = Component(bounds.Max, axis);
+            if (!double.IsFinite(amplitude))
+            {
+                return false;
+            }
+            if (amplitude == 0.0)
+            {
+                if (!ContainsCoordinate(centerValue, minimum, maximum, useTolerance: true))
+                {
+                    return true;
+                }
+                continue;
+            }
+
+            if (!AddPlaneRoots(
+                    centerValue,
+                    cosine,
+                    sine,
+                    amplitude,
+                    minimum,
+                    start,
+                    sweep,
+                    span,
+                    partitions,
+                    ref count) ||
+                !AddPlaneRoots(
+                    centerValue,
+                    cosine,
+                    sine,
+                    amplitude,
+                    maximum,
+                    start,
+                    sweep,
+                    span,
+                    partitions,
+                    ref count))
+            {
+                return false;
+            }
+        }
+
+        InsertionSort(partitions[..count]);
+        for (int i = 0; i < count; i++)
+        {
+            if (ContainsParametricPoint(
+                    center,
+                    cosineAxis,
+                    sineAxis,
+                    start,
+                    sweep,
+                    partitions[i],
+                    bounds))
+            {
+                intersects = true;
+                return true;
+            }
+            if (i + 1 < count && partitions[i + 1] > partitions[i])
+            {
+                double midpoint =
+                    (partitions[i] * 0.5) + (partitions[i + 1] * 0.5);
+                if (ContainsParametricPoint(
+                        center,
+                        cosineAxis,
+                        sineAxis,
+                        start,
+                        sweep,
+                        midpoint,
+                        bounds))
+                {
+                    intersects = true;
+                    return true;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static bool AddPlaneRoots(
+        double center,
+        double cosine,
+        double sine,
+        double amplitude,
+        double boundary,
+        double start,
+        double sweep,
+        double span,
+        Span<double> partitions,
+        ref int count)
+    {
+        double normalized = (boundary - center) / amplitude;
+        double tolerance = CoordinateTolerance(normalized, -1.0, 1.0);
+        if (normalized < -1.0 - tolerance || normalized > 1.0 + tolerance)
+        {
+            return true;
+        }
+
+        normalized = Math.Clamp(normalized, -1.0, 1.0);
+        double phase = Math.Atan2(sine, cosine);
+        double delta = Math.Acos(normalized);
+        return AddPartition(phase + delta, start, sweep, span, partitions, ref count) &&
+            AddPartition(phase - delta, start, sweep, span, partitions, ref count);
+    }
+
+    private static bool AddPartition(
+        double angle,
+        double start,
+        double sweep,
+        double span,
+        Span<double> partitions,
+        ref int count)
+    {
+        double progress = sweep >= 0.0
+            ? NormalizePositive(angle - start)
+            : NormalizePositive(start - angle);
+        double tolerance = CoordinateTolerance(progress, 0.0, span);
+        if (progress > span + tolerance)
+        {
+            return true;
+        }
+        progress = Math.Clamp(progress, 0.0, span);
+        if (count >= partitions.Length)
+        {
+            return false;
+        }
+        partitions[count++] = progress;
+        return true;
+    }
+
+    private static bool ContainsParametricPoint(
+        CadPoint3D center,
+        CadPoint3D cosineAxis,
+        CadPoint3D sineAxis,
+        double start,
+        double sweep,
+        double progress,
+        CadBounds3D bounds)
+    {
+        double angle = start + Math.CopySign(progress, sweep == 0.0 ? 1.0 : sweep);
+        CadPoint3D point = center +
+            (cosineAxis * Math.Cos(angle)) +
+            (sineAxis * Math.Sin(angle));
+        return ContainsPoint(bounds, point, useTolerance: true);
+    }
+
+    private static void InsertionSort(Span<double> values)
+    {
+        for (int i = 1; i < values.Length; i++)
+        {
+            double value = values[i];
+            int destination = i;
+            while (destination > 0 && values[destination - 1] > value)
+            {
+                values[destination] = values[destination - 1];
+                destination--;
+            }
+            values[destination] = value;
+        }
+    }
+
+    private static bool SegmentIntersectsBounds(
+        CadPoint3D start,
+        CadPoint3D end,
+        CadBounds3D bounds)
+    {
+        if (bounds.IsEmpty)
+        {
+            return false;
+        }
+
+        CadPoint3D direction = end - start;
+        double minimumParameter = 0.0;
+        double maximumParameter = 1.0;
+        for (int axis = 0; axis < 3; axis++)
+        {
+            double origin = Component(start, axis);
+            double delta = Component(direction, axis);
+            double minimum = Component(bounds.Min, axis);
+            double maximum = Component(bounds.Max, axis);
+            if (delta == 0.0)
+            {
+                if (origin < minimum || origin > maximum)
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            double first = (minimum - origin) / delta;
+            double second = (maximum - origin) / delta;
+            if (first > second)
+            {
+                (first, second) = (second, first);
+            }
+            minimumParameter = Math.Max(minimumParameter, first);
+            maximumParameter = Math.Min(maximumParameter, second);
+            if (minimumParameter > maximumParameter)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool TriangleIntersectsBounds(
+        CadPoint3D first,
+        CadPoint3D second,
+        CadPoint3D third,
+        CadBounds3D bounds)
+    {
+        CadPoint3D center = bounds.Center;
+        CadPoint3D halfExtent = new(
+            (bounds.Max.X * 0.5) - (bounds.Min.X * 0.5),
+            (bounds.Max.Y * 0.5) - (bounds.Min.Y * 0.5),
+            (bounds.Max.Z * 0.5) - (bounds.Min.Z * 0.5));
+        CadPoint3D a = first - center;
+        CadPoint3D b = second - center;
+        CadPoint3D c = third - center;
+        CadPoint3D firstEdge = b - a;
+        CadPoint3D secondEdge = c - b;
+        CadPoint3D thirdEdge = a - c;
+
+        if (SeparatesTriangleAndBounds(a, b, c, new CadPoint3D(1.0, 0.0, 0.0), halfExtent) ||
+            SeparatesTriangleAndBounds(a, b, c, new CadPoint3D(0.0, 1.0, 0.0), halfExtent) ||
+            SeparatesTriangleAndBounds(a, b, c, new CadPoint3D(0.0, 0.0, 1.0), halfExtent) ||
+            SeparatesTriangleAndBounds(a, b, c, CadPoint3D.Cross(firstEdge, secondEdge), halfExtent))
+        {
+            return false;
+        }
+
+        return !EdgeAxesSeparate(a, b, c, firstEdge, halfExtent) &&
+            !EdgeAxesSeparate(a, b, c, secondEdge, halfExtent) &&
+            !EdgeAxesSeparate(a, b, c, thirdEdge, halfExtent);
+    }
+
+    private static bool EdgeAxesSeparate(
+        CadPoint3D first,
+        CadPoint3D second,
+        CadPoint3D third,
+        CadPoint3D edge,
+        CadPoint3D halfExtent) =>
+        SeparatesTriangleAndBounds(
+            first,
+            second,
+            third,
+            CadPoint3D.Cross(edge, new CadPoint3D(1.0, 0.0, 0.0)),
+            halfExtent) ||
+        SeparatesTriangleAndBounds(
+            first,
+            second,
+            third,
+            CadPoint3D.Cross(edge, new CadPoint3D(0.0, 1.0, 0.0)),
+            halfExtent) ||
+        SeparatesTriangleAndBounds(
+            first,
+            second,
+            third,
+            CadPoint3D.Cross(edge, new CadPoint3D(0.0, 0.0, 1.0)),
+            halfExtent);
+
+    private static bool SeparatesTriangleAndBounds(
+        CadPoint3D first,
+        CadPoint3D second,
+        CadPoint3D third,
+        CadPoint3D axis,
+        CadPoint3D halfExtent)
+    {
+        if (axis == CadPoint3D.Zero)
+        {
+            return false;
+        }
+        double firstProjection = CadPoint3D.Dot(first, axis);
+        double secondProjection = CadPoint3D.Dot(second, axis);
+        double thirdProjection = CadPoint3D.Dot(third, axis);
+        double minimum = Math.Min(firstProjection, Math.Min(secondProjection, thirdProjection));
+        double maximum = Math.Max(firstProjection, Math.Max(secondProjection, thirdProjection));
+        double radius =
+            (halfExtent.X * Math.Abs(axis.X)) +
+            (halfExtent.Y * Math.Abs(axis.Y)) +
+            (halfExtent.Z * Math.Abs(axis.Z));
+        return minimum > radius || maximum < -radius;
+    }
+
+    private static bool ContainsBounds(CadBounds3D outer, CadBounds3D inner) =>
+        !outer.IsEmpty && !inner.IsEmpty &&
+        ContainsPoint(outer, inner.Min) &&
+        ContainsPoint(outer, inner.Max);
+
+    private static bool ContainsPoint(
+        CadBounds3D bounds,
+        CadPoint3D point,
+        bool useTolerance = false) =>
+        !bounds.IsEmpty &&
+        ContainsCoordinate(point.X, bounds.Min.X, bounds.Max.X, useTolerance) &&
+        ContainsCoordinate(point.Y, bounds.Min.Y, bounds.Max.Y, useTolerance) &&
+        ContainsCoordinate(point.Z, bounds.Min.Z, bounds.Max.Z, useTolerance);
+
+    private static bool ContainsCoordinate(
+        double value,
+        double minimum,
+        double maximum,
+        bool useTolerance)
+    {
+        if (!useTolerance)
+        {
+            return value >= minimum && value <= maximum;
+        }
+        double tolerance = CoordinateTolerance(value, minimum, maximum);
+        return value >= minimum - tolerance && value <= maximum + tolerance;
+    }
+
+    private static double CoordinateTolerance(
+        double value,
+        double minimum,
+        double maximum) =>
+        1.4210854715202004e-14 * Math.Max(
+            1.0,
+            Math.Max(Math.Abs(value), Math.Max(Math.Abs(minimum), Math.Abs(maximum))));
+
+    private static double Component(CadPoint3D point, int axis) => axis switch
+    {
+        0 => point.X,
+        1 => point.Y,
+        _ => point.Z,
+    };
 
     private static double DistanceToCircularArc(
         CadPoint3D point,
@@ -579,6 +1333,34 @@ public static class CadSelectionHitTester
         return normalized < 0.0 ? normalized + TwoPi : normalized;
     }
 
+    private static CadEntityHeader GetValidatedHeader(
+        CadDocumentSnapshot snapshot,
+        CadSelectionCandidate candidate)
+    {
+        if (candidate.ContentGeneration != snapshot.ContentGeneration)
+        {
+            throw new InvalidOperationException(
+                "The selection candidate belongs to a different snapshot generation.");
+        }
+
+        ReadOnlySpan<CadEntityHeader> entities = snapshot.Entities.Span;
+        if ((uint)candidate.EntityIndex >= (uint)entities.Length)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(candidate),
+                "The selection candidate entity index is outside the snapshot.");
+        }
+        CadEntityHeader header = entities[candidate.EntityIndex];
+        if (candidate.Handle != header.Handle ||
+            candidate.Kind != header.Kind ||
+            candidate.Bounds != header.Bounds)
+        {
+            throw new InvalidOperationException(
+                "The selection candidate does not match its snapshot entity.");
+        }
+        return header;
+    }
+
     private static CadPointHitResult FromDistance(double distance, double tolerance) =>
         new(
             distance <= tolerance ? CadPointHitStatus.Hit : CadPointHitStatus.Miss,
@@ -586,6 +1368,18 @@ public static class CadSelectionHitTester
 
     private static CadPointHitResult UnsupportedGeometry() =>
         new(CadPointHitStatus.UnsupportedGeometry, double.NaN);
+
+    private static CadBoundsHitResult FromBoundsHit(bool hit) =>
+        new(hit ? CadBoundsHitStatus.Hit : CadBoundsHitStatus.Miss);
+
+    private static CadBoundsHitResult BoundsHit() =>
+        new(CadBoundsHitStatus.Hit);
+
+    private static CadBoundsHitResult BoundsMiss() =>
+        new(CadBoundsHitStatus.Miss);
+
+    private static CadBoundsHitResult BoundsUnsupportedGeometry() =>
+        new(CadBoundsHitStatus.UnsupportedGeometry);
 
     private static bool AreFinite(CadPoint3D point) =>
         double.IsFinite(point.X) &&

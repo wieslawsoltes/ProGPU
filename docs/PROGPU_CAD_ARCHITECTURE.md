@@ -144,6 +144,10 @@ coordinate specification; no third-party renderer source was used. No shader or
 managed/native compositor implementation changed, so the parity audit finds the
 native side not applicable to this typed CPU snapshot/recording adapter. Both
 compositors continue consuming the same pre-existing retained command contract.
+The exact box-selection implementation is likewise original ProGPU code derived
+from these retained parametric records, inclusive AABB inequalities, and the
+standard convex separating-axis theorem. No third-party selection implementation,
+helper layout, lookup data, or source structure was consulted or reproduced.
 
 ### Document authority
 
@@ -383,11 +387,21 @@ an interactive browser picker/download smoke remains open.
   3D polylines. Filled SOLID proximity uses the retained triangle union, while
   stroke-only 3DFACE proximity tests only non-degenerate edges not masked by
   its invisible-edge flags. It validates candidate generation and
-  immutable header identity before indexing primitive buffers. Anisotropically
+  immutable header identity before indexing primitive buffers. Inclusive
+  world-space box tests add distinct Window (whole selectable geometry) and
+  Crossing (any intersection) semantics. Window containment consumes the exact
+  retained extrema; crossing uses segment slabs, bounded analytic parameter
+  partitioning at box-plane roots for affine circles/arcs/ellipses and bulges,
+  and the complete convex triangle/box separating-axis set for filled SOLIDs.
+  3DFACE box tests again ignore masked and degenerate edges. These tests remain
+  O(S) for S polyline/face segments, O(1) otherwise, use bounded stack storage,
+  and allocate no managed memory after snapshot construction. Anisotropically
   transformed circular/bulge geometry, ellipses, splines, and text return typed
-  `UnsupportedGeometry`/`UnsupportedKind` results rather than AABB false hits;
-  their full distance contracts plus semantic-handle deduplication,
-  crossing/window semantics, and draw-order resolution remain explicit work.
+  `UnsupportedGeometry`/`UnsupportedKind` point results rather than AABB false
+  hits; affine curve box tests are supported without circular assumptions.
+  Spline/text box tests, their full distance contracts, semantic-handle
+  deduplication, screen-projected selection volumes, and draw-order resolution
+  remain explicit work.
 - Background compilation captures a generation and publishes only if it still
   matches; obsolete work is discarded. The UI may continue drawing the previous
   immutable snapshot while the next generation compiles.
