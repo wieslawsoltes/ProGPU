@@ -370,6 +370,15 @@ namespace ProGPU.Scene.Extensions
 
     public class Mesh3DExtensionPipeline : ICompositorExtension
     {
+        internal static ShadingMode3D ResolveShadingMode(
+            Viewport3DCompilationPayload payload,
+            MeshCompilationEntry mesh)
+        {
+            ArgumentNullException.ThrowIfNull(payload);
+            ArgumentNullException.ThrowIfNull(mesh);
+            return mesh.ShadingModeOverride ?? payload.ShadingMode;
+        }
+
 
 
         private static readonly string Mesh3DSolidShaderCode = ShaderResource.Load(typeof(Mesh3DExtensionPipeline), "Mesh3DSolid.wgsl");
@@ -1940,7 +1949,9 @@ namespace ProGPU.Scene.Extensions
                         Math.Clamp(mesh.SelfIllumination, 0.0f, 1.0f)),
                     Opacity = mesh.Opacity * compositor.ActiveOpacity,
                     RenderMode = rMode,
-                    ShadingMode = (float)payload.ShadingMode,
+                    ShadingMode = (float)ResolveShadingMode(
+                        payload,
+                        mesh),
                     TextureSamplingMode =
                         (mesh.TextureSamplingMode ==
                             TextureSamplingMode.Nearest ? 0f : 1f) +
@@ -2713,6 +2724,7 @@ namespace ProGPU.Scene.Extensions
         public float SelfIllumination { get; set; }
         public float Opacity { get; set; } = 1.0f;
         public bool IsBackFace { get; set; } = false;
+        public ShadingMode3D? ShadingModeOverride { get; set; }
     }
 
     /// <summary>

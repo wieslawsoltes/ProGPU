@@ -20,6 +20,16 @@ public enum PortableViewport3DLightKind
     Spot = 3
 }
 
+/// <summary>
+/// Identifies one ordered WPF material pass in a flattened Viewport3D scene.
+/// </summary>
+public enum PortableViewport3DMaterialKind
+{
+    Diffuse = 0,
+    Specular = 1,
+    Emissive = 2
+}
+
 public readonly struct PortableVector3
 {
     public PortableVector3(double x, double y, double z)
@@ -172,6 +182,8 @@ public sealed class PortableViewport3DMesh
     private static readonly PortableVector3[] s_emptyVectors = System.Array.Empty<PortableVector3>();
     private static readonly PortablePoint[] s_emptyPoints = System.Array.Empty<PortablePoint>();
     private static readonly int[] s_emptyIndices = System.Array.Empty<int>();
+    private static readonly PortableViewport3DMaterial[] s_emptyMaterials =
+        System.Array.Empty<PortableViewport3DMaterial>();
 
     public object? Geometry { get; set; }
 
@@ -202,6 +214,31 @@ public sealed class PortableViewport3DMesh
     public double Opacity { get; set; } = 1.0;
 
     public bool IsBackFace { get; set; }
+
+    /// <summary>
+    /// Gets or sets the ordered material passes produced by WPF material-group
+    /// flattening. An empty array selects the legacy aggregate material fields.
+    /// </summary>
+    public PortableViewport3DMaterial[] Materials { get; set; } =
+        s_emptyMaterials;
+}
+
+/// <summary>
+/// Neutral typed state for one WPF Viewport3D material pass. The brush DTO is
+/// intentionally retained so consumers can select a native uniform, gradient,
+/// or texture realization without probing the source WPF object.
+/// </summary>
+public sealed class PortableViewport3DMaterial
+{
+    public PortableViewport3DMaterialKind Kind { get; set; }
+
+    public PortableBrush? Brush { get; set; }
+
+    public PortableColor4 Color { get; set; } = new(1, 1, 1, 1);
+
+    public PortableVector3 AmbientColor { get; set; } = new(1, 1, 1);
+
+    public double SpecularPower { get; set; } = 40.0;
 }
 
 public sealed class PortableViewport3DLight

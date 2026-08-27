@@ -3544,9 +3544,21 @@ The WPF mesh DTO preserves `MeshGeometry3D.TextureCoordinates` as neutral
 and pads a short or missing WPF collection with `(0,0)`, matching MIL's
 `CopyTextureCoordinatesFromDoubles` behavior. Managed replay feeds those values
 to the existing ProGPU textured-mesh vertex path; native MIL writes them into
-the already-stable 40-byte mesh vertex record. This is required geometric state
+the already-stable 48-byte mesh vertex record. This is required geometric state
 for the following typed 3D brush-resource slice and does not introduce a CPU
 projection or texture fallback.
+
+The portable scene contract also carries an ordered
+`PortableViewport3DMaterial[]` per mesh. Each layer identifies diffuse,
+specular, or emissive behavior and retains its typed `PortableBrush`, material
+color, ambient color, and specular power. An empty layer array preserves the
+legacy aggregate fields for existing producers. The shared managed mesh
+compiler now supports a per-entry shading override, allowing an emissive layer
+to select the existing GPU unlit shader branch without forcing unrelated
+meshes in the viewport out of realistic lighting. Gradient and tile-brush
+realization remain explicit follow-up work and must fail closed until their
+typed GPU resource path is attached; consumers must not collapse them to one
+sampled color.
 
 Retained 3D command bounds are executable viewport state, not diagnostic
 metadata. The native replay camera retains both the current target extent and
