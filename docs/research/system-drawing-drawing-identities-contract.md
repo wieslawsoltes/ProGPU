@@ -12,7 +12,7 @@ The public shapes and numeric identities are checked against the reference assem
 
 ## Typed implementation and explicit boundary
 
-`Pen.PenType` uses direct type matches for the supported managed brush hierarchy: `SolidBrush`, `HatchBrush`, `TextureBrush`, and `LinearGradientBrush`. No native pen query, GDI+ handle, runtime reflection, private-field scan, or fake compatibility object is used. `PathGradient` remains a valid enum identity, but no pen can currently report it because `PathGradientBrush` is still reviewed API debt.
+`Pen.PenType` uses direct type matches for the supported managed brush hierarchy: `SolidBrush`, `HatchBrush`, `TextureBrush`, `PathGradientBrush`, and `LinearGradientBrush`. No native pen query, GDI+ handle, runtime reflection, private-field scan, or fake compatibility object is used. The typed path-gradient renderer is documented in [`system-drawing-path-gradient-contract.md`](system-drawing-path-gradient-contract.md).
 
 This checkpoint left the separate `Pen.Transform` family suppressed because transforming the centerline would have been incorrect. The later [pen-transform slice](system-drawing-pen-transform-contract.md) resolves that debt with a typed inverse-space widening model shared by rendering, widening, bounds, and hit testing.
 

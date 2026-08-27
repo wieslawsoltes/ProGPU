@@ -33,7 +33,8 @@ bool gradient_kind(std::uint32_t kind) noexcept {
     return kind == PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT ||
         kind == PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT ||
         kind == PROGPU_NATIVE_SCENE_BRUSH_TWO_POINT_CONICAL_GRADIENT ||
-        kind == PROGPU_NATIVE_SCENE_BRUSH_SWEEP_GRADIENT;
+        kind == PROGPU_NATIVE_SCENE_BRUSH_SWEEP_GRADIENT ||
+        kind == PROGPU_NATIVE_SCENE_BRUSH_PATH_GRADIENT;
 }
 
 bool valid_gradient_stop(
@@ -48,7 +49,7 @@ bool valid_brush_input(
     std::span<const progpu_native_scene_gradient_stop> stops) noexcept {
     const std::uint32_t spread = brush.spread_method & 0x7fffffffU;
     const bool outside = (brush.spread_method & 0x80000000U) != 0U;
-    if (brush.type > PROGPU_NATIVE_SCENE_BRUSH_TILE_PATTERN ||
+    if (brush.type > PROGPU_NATIVE_SCENE_BRUSH_PATH_GRADIENT ||
         !std::isfinite(brush.opacity) || brush.opacity < 0.0F ||
         brush.opacity > 1.0F || !finite_point(brush.start_point) ||
         !finite_point(brush.end_point) || !finite_point(brush.center) ||
@@ -109,6 +110,22 @@ bool valid_brush_input(
         (brush.type == PROGPU_NATIVE_SCENE_BRUSH_TWO_POINT_CONICAL_GRADIENT &&
             (brush.radius < 0.0F || brush.radius_y < 0.0F))) {
         return false;
+    }
+    if (brush.type == PROGPU_NATIVE_SCENE_BRUSH_PATH_GRADIENT) {
+        const auto boundary_count =
+            static_cast<std::uint32_t>(brush.radius);
+        const auto curve_count =
+            static_cast<std::uint32_t>(brush.radius_y);
+        if (brush.radius != static_cast<float>(boundary_count) ||
+            boundary_count < 2U ||
+            boundary_count >
+                PROGPU_NATIVE_SCENE_MAX_PATH_GRADIENT_BOUNDARY_POINTS ||
+            brush.radius_y != static_cast<float>(curve_count) ||
+            curve_count == 0U ||
+            brush.stop_count != boundary_count * 2U + curve_count ||
+            (brush.colors[1].r != 0.0F && brush.colors[1].r != 1.0F)) {
+            return false;
+        }
     }
     float previous = -std::numeric_limits<float>::infinity();
     for (const auto& stop : stops) {

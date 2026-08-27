@@ -567,7 +567,8 @@ public enum NativeSceneBrushKind : uint
     TwoPointConicalGradient = 5,
     SweepGradient = 6,
     PerlinNoise = 7,
-    TilePattern = 8
+    TilePattern = 8,
+    PathGradient = 9
 }
 
 public enum NativeSceneGradientSpread : uint
@@ -761,6 +762,7 @@ public struct NativeSceneBrush
 {
     public const uint PerlinTableRecordCount = 512U;
     public const uint MaximumPerlinOctaves = 255U;
+    public const uint MaximumPathGradientBoundaryPoints = 128U;
 
     [FieldOffset(0)] public NativeSceneBrushKind Kind;
     [FieldOffset(4)] public float Opacity;
@@ -849,6 +851,38 @@ public struct NativeSceneBrush
         brush.StartPoint = origin;
         brush.Radius = radiusX;
         brush.RadiusY = radiusY;
+        return brush;
+    }
+
+    public static NativeSceneBrush PathGradient(
+        Vector2 center,
+        Vector4 centerColor,
+        Vector2 focusScales,
+        uint boundaryPointCount,
+        uint curveCount,
+        bool usesPresetColors,
+        uint recordOffset,
+        ReadOnlySpan<NativeSceneGradientStop> records,
+        float opacity = 1f,
+        NativeSceneGradientSpread spread = NativeSceneGradientSpread.Pad,
+        NativeSceneGradientInterpolation interpolation =
+            NativeSceneGradientInterpolation.SRgb,
+        Matrix3x2? coordinateTransform = null)
+    {
+        var brush = CreateGradient(
+            NativeSceneBrushKind.PathGradient,
+            recordOffset,
+            records,
+            opacity,
+            spread,
+            interpolation,
+            coordinateTransform ?? Matrix3x2.Identity);
+        brush.Center = center;
+        brush.EndPoint = focusScales;
+        brush.Radius = boundaryPointCount;
+        brush.RadiusY = curveCount;
+        brush.Color0 = centerColor;
+        brush.Color1 = new Vector4(usesPresetColors ? 1f : 0f, 0f, 0f, 0f);
         return brush;
     }
 

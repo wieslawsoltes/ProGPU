@@ -19,7 +19,7 @@ namespace ProGPU.Scene;
 [StructLayout(LayoutKind.Explicit, Size = 256)]
 public struct GpuBrush
 {
-    [FieldOffset(0)] public uint Type;             // 0 = Solid, 1 = Linear, 2 = Radial, 5 = Two-point conical, 6 = Sweep, 7 = Perlin noise, 8 = 8x8 tile
+    [FieldOffset(0)] public uint Type;             // 0 = Solid, 1 = Linear, 2 = Radial, 5 = Two-point conical, 6 = Sweep, 7 = Perlin noise, 8 = 8x8 tile, 9 = Path gradient
     [FieldOffset(4)] public float Opacity;
     [FieldOffset(8)] public Vector2 StartPoint;
     [FieldOffset(16)] public Vector2 EndPoint;
@@ -6354,6 +6354,9 @@ SceneStateUploadComplete:
                 ColorInterpolationMode = radial.ColorInterpolationMode,
                 CoordinateTransform = inverseCommandTransform * radial.CoordinateTransform
             },
+            PathGradientBrush pathGradient => ClonePathGradientBrush(
+                pathGradient,
+                inverseCommandTransform * pathGradient.CoordinateTransform),
             TwoPointConicalGradientBrush conical => new TwoPointConicalGradientBrush(
                 conical.StartCenter,
                 conical.StartRadius,
@@ -12121,6 +12124,27 @@ SceneStateUploadComplete:
             gpuBrush.ColorInterpolationMode = (uint)radial.ColorInterpolationMode;
             ApplyGradientStops(ref gpuBrush, radial.Stops);
         }
+        else if (brush is PathGradientBrush pathGradient)
+        {
+            gpuBrush.Type = 9;
+            gpuBrush.Center = pathGradient.Center;
+            gpuBrush.EndPoint = pathGradient.FocusScales;
+            gpuBrush.Color0 = pathGradient.CenterColor;
+            gpuBrush.Color1 = new Vector4(pathGradient.UsesPresetColors ? 1f : 0f, 0f, 0f, 0f);
+            SetBrushCoordinateTransform(ref gpuBrush, pathGradient.CoordinateTransform);
+            gpuBrush.SpreadMethod = (uint)pathGradient.SpreadMethod;
+            gpuBrush.ColorInterpolationMode = (uint)pathGradient.ColorInterpolationMode;
+            if (!ApplyPathGradientRecords(ref gpuBrush, pathGradient))
+            {
+                gpuBrush = new GpuBrush
+                {
+                    Type = 0,
+                    Opacity = 0f,
+                    Color0 = Vector4.Zero
+                };
+                SetBrushCoordinateTransform(ref gpuBrush, Matrix4x4.Identity);
+            }
+        }
         else if (brush is TwoPointConicalGradientBrush conical)
         {
             gpuBrush.Type = 5;
@@ -12289,7 +12313,7 @@ SceneStateUploadComplete:
 
     private static bool IsGradientBrushType(uint brushType)
     {
-        return brushType == 1 || brushType == 2 || brushType == 5 || brushType == 6;
+        return brushType == 1 || brushType == 2 || brushType == 5 || brushType == 6 || brushType == 9;
     }
 
     private static void SetBrushCoordinateTransform(ref GpuBrush gpuBrush, Matrix4x4 transform)
@@ -12513,6 +12537,109 @@ SceneStateUploadComplete:
         var o7 = stopCount > 7 ? stops[7].Offset : 1f;
         gpuBrush.Offsets = new Vector4(o0, o1, o2, o3);
         gpuBrush.Offsets1 = new Vector4(o4, o5, o6, o7);
+    }
+
+    private bool ApplyPathGradientRecords(
+        ref GpuBrush gpuBrush,
+        PathGradientBrush brush)
+    {
+        ReadOnlySpan<Vector2> points = brush.BoundaryPoints.Span;
+        ReadOnlySpan<Vector4> colors = brush.SurroundColors.Span;
+        ReadOnlySpan<PathGradientBlendStop> blendStops = brush.BlendStops.Span;
+        ReadOnlySpan<GradientStop> presetStops = brush.PresetStops.Span;
+        int curveCount = brush.UsesPresetColors ? presetStops.Length : blendStops.Length;
+        int recordCount = checked(points.Length * 2 + curveCount);
+        if (!IsFinite(brush.Center) ||
+            !IsFiniteVector4(brush.CenterColor) ||
+            !IsFinite(brush.FocusScales) ||
+            !IsFiniteInvertibleAffine2D(brush.CoordinateTransform) ||
+            brush.SpreadMethod is < GradientSpreadMethod.Pad or > GradientSpreadMethod.Decal ||
+            brush.ColorInterpolationMode is < GradientColorInterpolationMode.SRgbLinearInterpolation or > GradientColorInterpolationMode.ScRgbLinearInterpolation ||
+            points.Length is < 2 or > PathGradientBrush.MaximumBoundaryPoints ||
+            colors.Length != points.Length ||
+            curveCount == 0 ||
+            recordCount > MaxGradientStops - _activeGradientStops.Count)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < points.Length; index++)
+        {
+            if (!IsFinite(points[index]) || !IsFiniteVector4(colors[index]))
+            {
+                return false;
+            }
+        }
+
+        float previousOffset = float.NegativeInfinity;
+        if (brush.UsesPresetColors)
+        {
+            foreach (GradientStop stop in presetStops)
+            {
+                if (!IsFiniteVector4(stop.Color) || !IsValidCurveOffset(stop.Offset, previousOffset))
+                {
+                    return false;
+                }
+                previousOffset = stop.Offset;
+            }
+        }
+        else
+        {
+            foreach (PathGradientBlendStop stop in blendStops)
+            {
+                if (!float.IsFinite(stop.Factor) || stop.Factor is < 0f or > 1f ||
+                    !IsValidCurveOffset(stop.Offset, previousOffset))
+                {
+                    return false;
+                }
+                previousOffset = stop.Offset;
+            }
+        }
+
+        gpuBrush.StopOffset = checked((uint)_activeGradientStops.Count);
+        gpuBrush.StopCount = checked((uint)recordCount);
+        gpuBrush.Radius = points.Length;
+        gpuBrush.RadiusY = curveCount;
+        for (int index = 0; index < points.Length; index++)
+        {
+            Vector2 point = points[index];
+            _activeGradientStops.Add(new GpuGradientStop
+            {
+                Color = new Vector4(point.X, point.Y, 0f, 0f)
+            });
+            _activeGradientStops.Add(new GpuGradientStop
+            {
+                Color = colors[index]
+            });
+        }
+
+        if (brush.UsesPresetColors)
+        {
+            foreach (GradientStop stop in presetStops)
+            {
+                _activeGradientStops.Add(new GpuGradientStop
+                {
+                    Color = stop.Color,
+                    Offset = stop.Offset
+                });
+            }
+        }
+        else
+        {
+            foreach (PathGradientBlendStop stop in blendStops)
+            {
+                _activeGradientStops.Add(new GpuGradientStop
+                {
+                    Color = new Vector4(stop.Factor, 0f, 0f, 0f),
+                    Offset = stop.Offset
+                });
+            }
+        }
+
+        return true;
+
+        static bool IsValidCurveOffset(float value, float prior) =>
+            float.IsFinite(value) && value is >= 0f and <= 1f && value >= prior;
     }
 
     private bool TryGetCachedTextLayout(TextLayoutCacheKey key, out TextLayout? layout)
@@ -13606,6 +13733,31 @@ SceneStateUploadComplete:
             default:
                 return layer.Brush;
         }
+    }
+
+    private static PathGradientBrush ClonePathGradientBrush(
+        PathGradientBrush source,
+        Matrix4x4 coordinateTransform)
+    {
+        PathGradientBrush clone = source.UsesPresetColors
+            ? new PathGradientBrush(
+                source.BoundaryPoints.Span,
+                source.SurroundColors.Span,
+                source.Center,
+                source.CenterColor,
+                source.PresetStops.Span)
+            : new PathGradientBrush(
+                source.BoundaryPoints.Span,
+                source.SurroundColors.Span,
+                source.Center,
+                source.CenterColor,
+                source.BlendStops.Span);
+        clone.Opacity = source.Opacity;
+        clone.FocusScales = source.FocusScales;
+        clone.SpreadMethod = source.SpreadMethod;
+        clone.ColorInterpolationMode = source.ColorInterpolationMode;
+        clone.CoordinateTransform = coordinateTransform;
+        return clone;
     }
 
     private void EnsureTextVertexCapacity(int additionalCapacity)

@@ -110,6 +110,39 @@ internal sealed class NativeBrushTableBuilder
                     radialInterpolation,
                     radialTransform);
                 break;
+            case PathGradientBrush pathGradient:
+                if (!IsFinite(pathGradient.Center) ||
+                    !IsFinite(pathGradient.CenterColor) ||
+                    !IsFinite(pathGradient.FocusScales) ||
+                    !TryGetAffine(pathGradient.CoordinateTransform, out Matrix3x2 pathTransform) ||
+                    !TryAppendPathGradientRecords(
+                        pathGradient,
+                        out uint pathRecordOffset,
+                        out ReadOnlySpan<NativeSceneGradientStop> pathRecords) ||
+                    !TryMapGradientOptions(
+                        pathGradient.SpreadMethod,
+                        pathGradient.ColorInterpolationMode,
+                        out NativeSceneGradientSpread pathSpread,
+                        out NativeSceneGradientInterpolation pathInterpolation))
+                {
+                    return Fail(out index, out error);
+                }
+                native = NativeSceneBrush.PathGradient(
+                    pathGradient.Center,
+                    pathGradient.CenterColor,
+                    pathGradient.FocusScales,
+                    checked((uint)pathGradient.BoundaryPoints.Length),
+                    checked((uint)(pathGradient.UsesPresetColors
+                        ? pathGradient.PresetStops.Length
+                        : pathGradient.BlendStops.Length)),
+                    pathGradient.UsesPresetColors,
+                    pathRecordOffset,
+                    pathRecords,
+                    brush.Opacity,
+                    pathSpread,
+                    pathInterpolation,
+                    pathTransform);
+                break;
             case TwoPointConicalGradientBrush conical:
                 if (!IsFinite(conical.StartCenter) ||
                     !IsFinite(conical.EndCenter) ||
@@ -294,7 +327,8 @@ internal sealed class NativeBrushTableBuilder
             NativeSceneBrushKind.LinearGradient or
             NativeSceneBrushKind.RadialGradient or
             NativeSceneBrushKind.TwoPointConicalGradient or
-            NativeSceneBrushKind.SweepGradient => native.StopCount,
+            NativeSceneBrushKind.SweepGradient or
+            NativeSceneBrushKind.PathGradient => native.StopCount,
             NativeSceneBrushKind.PerlinNoise
                 when native.StopCount != 0U &&
                     native.Interpolation ==
@@ -355,6 +389,84 @@ internal sealed class NativeBrushTableBuilder
         offset = checked((uint)start);
         appended = CollectionsMarshal.AsSpan(_gradientStops).Slice(start, source.Length);
         return true;
+    }
+
+    private bool TryAppendPathGradientRecords(
+        PathGradientBrush brush,
+        out uint offset,
+        out ReadOnlySpan<NativeSceneGradientStop> appended)
+    {
+        offset = 0U;
+        appended = default;
+        ReadOnlySpan<Vector2> points = brush.BoundaryPoints.Span;
+        ReadOnlySpan<Vector4> colors = brush.SurroundColors.Span;
+        ReadOnlySpan<PathGradientBlendStop> blendStops = brush.BlendStops.Span;
+        ReadOnlySpan<GradientStop> presetStops = brush.PresetStops.Span;
+        int curveCount = brush.UsesPresetColors ? presetStops.Length : blendStops.Length;
+        if (points.Length is < 2 or > PathGradientBrush.MaximumBoundaryPoints ||
+            colors.Length != points.Length || curveCount == 0)
+        {
+            return false;
+        }
+
+        int start = _gradientStops.Count;
+        for (int index = 0; index < points.Length; index++)
+        {
+            if (!IsFinite(points[index]) || !IsFinite(colors[index]))
+            {
+                RollBack();
+                return false;
+            }
+            _gradientStops.Add(new(
+                new Vector4(points[index].X, points[index].Y, 0f, 0f),
+                0f));
+            _gradientStops.Add(new(colors[index], 0f));
+        }
+
+        float previous = float.NegativeInfinity;
+        if (brush.UsesPresetColors)
+        {
+            foreach (GradientStop stop in presetStops)
+            {
+                if (!IsFinite(stop.Color) || !IsValidCurveOffset(stop.Offset, previous))
+                {
+                    RollBack();
+                    return false;
+                }
+                _gradientStops.Add(new(stop.Color, stop.Offset));
+                previous = stop.Offset;
+            }
+        }
+        else
+        {
+            foreach (PathGradientBlendStop stop in blendStops)
+            {
+                if (!float.IsFinite(stop.Factor) || stop.Factor is < 0f or > 1f ||
+                    !IsValidCurveOffset(stop.Offset, previous))
+                {
+                    RollBack();
+                    return false;
+                }
+                _gradientStops.Add(new(new Vector4(stop.Factor, 0f, 0f, 0f), stop.Offset));
+                previous = stop.Offset;
+            }
+        }
+
+        offset = checked((uint)start);
+        appended = CollectionsMarshal.AsSpan(_gradientStops)
+            .Slice(start, points.Length * 2 + curveCount);
+        return true;
+
+        bool IsValidCurveOffset(float value, float prior) =>
+            float.IsFinite(value) && value is >= 0f and <= 1f && value >= prior;
+
+        void RollBack()
+        {
+            if (_gradientStops.Count > start)
+            {
+                _gradientStops.RemoveRange(start, _gradientStops.Count - start);
+            }
+        }
     }
 
     private static bool TryMapGradientOptions(

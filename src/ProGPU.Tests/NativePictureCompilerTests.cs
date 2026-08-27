@@ -1476,13 +1476,36 @@ public class NativePictureCompilerTests
             StartAngle = 20f,
             EndAngle = 300f
         };
+        var pathGradient = new PathGradientBrush(
+            [
+                new Vector2(0f, 0f),
+                new Vector2(10f, 0f),
+                new Vector2(10f, 10f),
+                new Vector2(0f, 10f)
+            ],
+            [
+                new Vector4(1f, 0f, 0f, 1f),
+                new Vector4(0f, 1f, 0f, 1f),
+                new Vector4(0f, 0f, 1f, 1f),
+                new Vector4(1f, 1f, 0f, 1f)
+            ],
+            new Vector2(5f, 5f),
+            Vector4.One,
+            [
+                new PathGradientBlendStop(1f, 0f),
+                new PathGradientBlendStop(0f, 1f)
+            ])
+        {
+            FocusScales = new Vector2(0.2f, 0.4f)
+        };
         using var picture = new GpuPicture(
             new[]
             {
                 Rectangle(linear, 0f),
                 Rectangle(radial, 12f),
                 Rectangle(conical, 24f),
-                Rectangle(sweep, 36f)
+                Rectangle(sweep, 36f),
+                Rectangle(pathGradient, 48f)
             },
             Array.Empty<Vector2>(),
             Array.Empty<double>(),
@@ -1499,8 +1522,8 @@ public class NativePictureCompilerTests
         Assert.NotNull(compiled);
         Assert.Equal(1, compiled.NativeCommandCount);
         Assert.Equal(1, compiled.NativeDrawCount);
-        Assert.Equal(4, compiled.BrushCount);
-        Assert.Equal(8, compiled.GradientStopCount);
+        Assert.Equal(5, compiled.BrushCount);
+        Assert.Equal(18, compiled.GradientStopCount);
 
         var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
         Assert.Equal(1U, header.CommandCount);
@@ -1518,9 +1541,13 @@ public class NativePictureCompilerTests
         Assert.Equal(NativeSceneBrushKind.RadialGradient, brushes[1].Kind);
         Assert.Equal(NativeSceneBrushKind.TwoPointConicalGradient, brushes[2].Kind);
         Assert.Equal(NativeSceneBrushKind.SweepGradient, brushes[3].Kind);
+        Assert.Equal(NativeSceneBrushKind.PathGradient, brushes[4].Kind);
         Assert.Equal(0.75f, brushes[0].Opacity);
         Assert.Equal(4f, brushes[0].CoordinateTransform0.Z);
         Assert.Equal(5f, brushes[0].CoordinateTransform1.Z);
+        Assert.Equal(4f, brushes[4].Radius);
+        Assert.Equal(2f, brushes[4].RadiusY);
+        Assert.Equal(10U, brushes[4].StopCount);
 
         static RenderCommand Rectangle(Brush brush, float x) => new()
         {

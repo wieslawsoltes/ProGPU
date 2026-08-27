@@ -119,6 +119,7 @@ public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
             {
                 HatchBrush => PenType.HatchFill,
                 TextureBrush => PenType.TextureFill,
+                PathGradientBrush => PenType.PathGradient,
                 LinearGradientBrush => PenType.LinearGradient,
                 _ => PenType.SolidColor,
             };

@@ -167,6 +167,65 @@ bool semantic_perlin_brush_table_is_exact_and_bounded() {
             bytes.data(), resource, error_offset)) {
         return false;
     }
+
+    auto path = brush;
+    path.type = PROGPU_NATIVE_SCENE_BRUSH_PATH_GRADIENT;
+    path.center = {16.0F, 12.0F};
+    path.end_point = {0.25F, 0.5F};
+    path.radius = 3.0F;
+    path.radius_y = 2.0F;
+    path.stop_count = 8U;
+    path.stop_offset = 0U;
+    path.spread_method = PROGPU_NATIVE_SCENE_GRADIENT_PAD;
+    path.color_interpolation_mode =
+        PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB;
+    path.colors[0] = {1.0F, 1.0F, 1.0F, 1.0F};
+    path.colors[1] = {0.0F, 0.0F, 0.0F, 0.0F};
+    path.coordinate_transform0[0] = 1.0F;
+    path.coordinate_transform0[1] = 0.0F;
+    path.coordinate_transform0[2] = 0.0F;
+    path.coordinate_transform1[0] = 0.0F;
+    path.coordinate_transform1[1] = 1.0F;
+    path.coordinate_transform1[2] = 0.0F;
+    constexpr std::array<progpu_native_scene_gradient_stop, 8U>
+        path_records{{
+            {{0.0F, 0.0F, 0.0F, 0.0F}, 0.0F, 0U, 0U, 0U},
+            {{1.0F, 0.0F, 0.0F, 1.0F}, 0.0F, 0U, 0U, 0U},
+            {{32.0F, 0.0F, 0.0F, 0.0F}, 0.0F, 0U, 0U, 0U},
+            {{0.0F, 1.0F, 0.0F, 1.0F}, 0.0F, 0U, 0U, 0U},
+            {{16.0F, 32.0F, 0.0F, 0.0F}, 0.0F, 0U, 0U, 0U},
+            {{0.0F, 0.0F, 1.0F, 1.0F}, 0.0F, 0U, 0U, 0U},
+            {{1.0F, 0.0F, 0.0F, 0.0F}, 0.0F, 0U, 0U, 0U},
+            {{0.0F, 0.0F, 0.0F, 0.0F}, 1.0F, 0U, 0U, 0U}
+        }};
+    auto path_resource = resource;
+    path_resource.auxiliary_size =
+        path_records.size() * sizeof(path_records[0]);
+    std::memcpy(bytes.data() + brush_offset, &path, sizeof(path));
+    std::memcpy(
+        bytes.data() + table_offset,
+        path_records.data(),
+        sizeof(path_records));
+    semantic::semantic_brush_page path_page{};
+    if (!semantic::validate_brush_table(
+            bytes.data(), path_resource, error_offset) ||
+        !semantic::compile_brush_page(
+            bytes.data(), header, 0x9abcU, path_page) ||
+        path_page.brushes.size() != 2U ||
+        path_page.gradient_stops.size() != path_records.size() + 1U ||
+        path_page.brushes[1].type !=
+            PROGPU_NATIVE_SCENE_BRUSH_PATH_GRADIENT ||
+        path_page.brushes[1].stop_count != path_records.size() ||
+        path_page.brushes[1].stop_offset != 1U) {
+        return false;
+    }
+    path.radius = static_cast<float>(
+        PROGPU_NATIVE_SCENE_MAX_PATH_GRADIENT_BOUNDARY_POINTS + 1U);
+    std::memcpy(bytes.data() + brush_offset, &path, sizeof(path));
+    if (semantic::validate_brush_table(
+            bytes.data(), path_resource, error_offset)) {
+        return false;
+    }
     std::memcpy(bytes.data() + brush_offset, &brush, sizeof(brush));
 
     auto truncated = resource;

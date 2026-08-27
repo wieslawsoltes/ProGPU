@@ -12,6 +12,7 @@ public class GraphicsPathBenchmarks
     private Pen _strokePen = null!;
     private Pen _transformedStrokePen = null!;
     private Pen _compoundCapPen = null!;
+    private PathGradientBrush _pathGradient = null!;
     private PointF[] _warpDestination = null!;
     private StringFormat _textFormat = null!;
     private PointF[] _points = null!;
@@ -57,6 +58,28 @@ public class GraphicsPathBenchmarks
             new PointF(12f, 160f),
             new PointF(220f, 192f),
         ];
+        var gradientBoundary = new PointF[128];
+        var gradientColors = new Color[128];
+        for (int index = 0; index < gradientBoundary.Length; index++)
+        {
+            float angle = index * MathF.PI * 2f / gradientBoundary.Length;
+            gradientBoundary[index] = new PointF(
+                128f + MathF.Cos(angle) * 120f,
+                96f + MathF.Sin(angle) * 80f);
+            gradientColors[index] = (index % 3) switch
+            {
+                0 => Color.Red,
+                1 => Color.Lime,
+                _ => Color.Blue
+            };
+        }
+        _pathGradient = new PathGradientBrush(gradientBoundary)
+        {
+            CenterColor = Color.White,
+            SurroundColors = gradientColors,
+            FocusScales = new PointF(0.2f, 0.35f)
+        };
+        _pathGradient.SetBlendTriangularShape(0.35f, 0.9f);
         _textFormat = StringFormat.GenericTypographic;
     }
 
@@ -99,6 +122,13 @@ public class GraphicsPathBenchmarks
     }
 
     [Benchmark]
+    public int LowerMaximumBoundaryPathGradient()
+    {
+        var brush = (ProGPU.Vector.PathGradientBrush)_pathGradient.ToProGpuBrush();
+        return brush.BoundaryPoints.Length + brush.BlendStops.Length;
+    }
+
+    [Benchmark]
     public int WarpRetainedCurveClone()
     {
         using var clone = (GraphicsPath)_path.Clone();
@@ -123,6 +153,7 @@ public class GraphicsPathBenchmarks
         _strokePen.Dispose();
         _transformedStrokePen.Dispose();
         _compoundCapPen.Dispose();
+        _pathGradient.Dispose();
         _textFormat.Dispose();
     }
 }

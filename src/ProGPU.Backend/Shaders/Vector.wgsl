@@ -1,5 +1,5 @@
 // Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; reserved negative width encodings select either the Skia one-framebuffer-pixel hairline or an arbitrary positive fixed-device width, both expanded after the late transform, while one fixed quad evaluates each device or affine round cap and device join analytically with hard-owned body seams; evaluate analytic curves, arcs, and quarter-pixel-snapped periodic dot grids; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
-// Time complexity: O(1) per vertex or fragment under the shader's fixed primitive and gradient limits; static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic, and a semantic mask chain evaluates at most four analytic rounded masks.
+// Time complexity: O(1) per vertex or ordinary fragment under the shader's fixed primitive and gradient limits; path-gradient fragments test at most 128 retained boundary edges; static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic, and a semantic mask chain evaluates at most four analytic rounded masks.
 // Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth; a nested analytic chain reads one primary 96-byte record and one fixed 288-byte continuation record.
 struct Brush {
     brushType: u32,
@@ -292,6 +292,169 @@ fn sample_gradient_color(brush: Brush, t: f32) -> vec4<f32> {
     }
 
     return previousColor;
+}
+
+fn path_cross(left: vec2<f32>, right: vec2<f32>) -> f32 {
+    return left.x * right.y - left.y * right.x;
+}
+
+fn path_gradient_point(brush: Brush, index: u32) -> vec2<f32> {
+    return gradientStops[brush.stopOffset + index * 2u].color.xy;
+}
+
+fn path_gradient_surround_color(brush: Brush, index: u32) -> vec4<f32> {
+    return gradientStops[brush.stopOffset + index * 2u + 1u].color;
+}
+
+fn sample_path_curve_color(
+    brush: Brush,
+    curveOffset: u32,
+    curveCount: u32,
+    t: f32) -> vec4<f32> {
+    var previous = gradientStops[curveOffset];
+    var index = 1u;
+    loop {
+        if (index >= curveCount) {
+            break;
+        }
+        let current = gradientStops[curveOffset + index];
+        if (t < current.offset) {
+            let factor = clamp(
+                (t - previous.offset) /
+                    max(current.offset - previous.offset, 0.0001),
+                0.0,
+                1.0);
+            return interpolate_gradient_color(
+                brush,
+                previous.color,
+                current.color,
+                factor);
+        }
+        previous = current;
+        index = index + 1u;
+    }
+    return previous.color;
+}
+
+fn sample_path_blend_factor(
+    curveOffset: u32,
+    curveCount: u32,
+    t: f32) -> f32 {
+    var previous = gradientStops[curveOffset];
+    var index = 1u;
+    loop {
+        if (index >= curveCount) {
+            break;
+        }
+        let current = gradientStops[curveOffset + index];
+        if (t < current.offset) {
+            let interval = clamp(
+                (t - previous.offset) /
+                    max(current.offset - previous.offset, 0.0001),
+                0.0,
+                1.0);
+            return mix(previous.color.x, current.color.x, interval);
+        }
+        previous = current;
+        index = index + 1u;
+    }
+    return previous.color.x;
+}
+
+fn sample_path_gradient(brush: Brush, coordinate: vec2<f32>) -> vec4<f32> {
+    let boundaryCount = min(u32(round(brush.gradientRadius)), 128u);
+    let curveCount = u32(round(brush.gradientRadiusY));
+    if (boundaryCount < 2u || curveCount == 0u) {
+        return vec4<f32>(0.0);
+    }
+
+    let direction = coordinate - brush.gradientCenter;
+    var bestRay = 1e30;
+    var bestEdgeFactor = 0.0;
+    var bestEdge = 0u;
+    var bestFocusRay = 1e30;
+    let focusScale = clamp(abs(brush.gradientEnd), vec2<f32>(0.0), vec2<f32>(1.0));
+    var index = 0u;
+    loop {
+        if (index >= boundaryCount) {
+            break;
+        }
+        let next = select(index + 1u, 0u, index + 1u == boundaryCount);
+        let point0 = path_gradient_point(brush, index);
+        let point1 = path_gradient_point(brush, next);
+        let edge = point1 - point0;
+        let relative = point0 - brush.gradientCenter;
+        let denominator = path_cross(direction, edge);
+        if (abs(denominator) > 0.000001) {
+            let ray = path_cross(relative, edge) / denominator;
+            let edgeFactor = path_cross(relative, direction) / denominator;
+            if (ray > 0.0 && edgeFactor >= -0.00001 &&
+                edgeFactor <= 1.00001 && ray < bestRay) {
+                bestRay = ray;
+                bestEdgeFactor = clamp(edgeFactor, 0.0, 1.0);
+                bestEdge = index;
+            }
+
+            if (any(focusScale > vec2<f32>(0.000001))) {
+                let focus0 = brush.gradientCenter +
+                    (point0 - brush.gradientCenter) * focusScale;
+                let focus1 = brush.gradientCenter +
+                    (point1 - brush.gradientCenter) * focusScale;
+                let focusEdge = focus1 - focus0;
+                let focusDenominator = path_cross(direction, focusEdge);
+                if (abs(focusDenominator) > 0.000001) {
+                    let focusRay = path_cross(
+                        focus0 - brush.gradientCenter,
+                        focusEdge) / focusDenominator;
+                    let focusEdgeFactor = path_cross(
+                        focus0 - brush.gradientCenter,
+                        direction) / focusDenominator;
+                    if (focusRay > 0.0 && focusEdgeFactor >= -0.00001 &&
+                        focusEdgeFactor <= 1.00001 && focusRay < bestFocusRay) {
+                        bestFocusRay = focusRay;
+                    }
+                }
+            }
+        }
+        index = index + 1u;
+    }
+
+    var t = 0.0;
+    if (bestRay < 1e29) {
+        t = 1.0 / bestRay;
+        if (bestFocusRay < 1e29) {
+            let focusFraction = clamp(bestFocusRay / bestRay, 0.0, 0.999999);
+            t = max(0.0, (t - focusFraction) / (1.0 - focusFraction));
+        }
+    }
+
+    let spread = brush.spreadMethod & 0x7fffffffu;
+    if (spread == 3u && (t < 0.0 || t > 1.0)) {
+        return vec4<f32>(0.0);
+    }
+    t = apply_gradient_spread(t, spread);
+
+    let curveOffset = brush.stopOffset + boundaryCount * 2u;
+    if (brush.stopColors1.x > 0.5) {
+        return sample_path_curve_color(
+            brush,
+            curveOffset,
+            curveCount,
+            t);
+    }
+
+    let nextEdge = select(bestEdge + 1u, 0u, bestEdge + 1u == boundaryCount);
+    let surround = interpolate_gradient_color(
+        brush,
+        path_gradient_surround_color(brush, bestEdge),
+        path_gradient_surround_color(brush, nextEdge),
+        bestEdgeFactor);
+    let factor = sample_path_blend_factor(curveOffset, curveCount, t);
+    return interpolate_gradient_color(
+        brush,
+        surround,
+        brush.stopColors0,
+        clamp(factor, 0.0, 1.0));
 }
 
 fn transform_brush_coordinate(brush: Brush, coord: vec2<f32>) -> vec2<f32> {
@@ -2481,10 +2644,13 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         } else if (brush.brushType == 7u) {
             let noiseColor = sample_perlin_noise(brush, brushCoord);
             finalColor = vec4<f32>(noiseColor.rgb, noiseColor.a * brush.opacity);
+        } else if (brush.brushType == 9u) {
+            let pathColor = sample_path_gradient(brush, brushCoord);
+            finalColor = vec4<f32>(pathColor.rgb, pathColor.a * brush.opacity);
         }
         if (brush.brushType == 3u || brush.brushType == 4u ||
             brush.brushType == 8u ||
-            brush.brushType == 7u) {
+            brush.brushType == 7u || brush.brushType == 9u) {
             // Procedural hatch/noise was evaluated directly above.
         } else if (gradientCoverage <= 0.0) {
             if ((brush.spreadMethod & 0x80000000u) != 0u) {
