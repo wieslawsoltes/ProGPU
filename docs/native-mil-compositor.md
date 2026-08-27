@@ -631,6 +631,16 @@ region. The WebScene Dawn provider selected Apple M3 Pro and completed the
 live render/readback gate in 3.45 seconds. This qualifies actual shared-WGSL
 boolean evaluation rather than only the MIL-to-scene packet compiler.
 
+The standard cross-platform native hardware sample now carries the same
+postfix program in a small isolated vector-mask layer so Metal, D3D12, and the
+Linux/Vulkan lane share one pixel oracle. Apple M3 Pro Metal reads the surviving
+cyan point as `51/209/242` and both the Difference hole and XOR island as the
+clear color `5/6/10`; the established four Pad-gradient samples remain
+unchanged. The scene executes seven draws from twelve retained commands and
+uploads 12,064 vertex bytes. This adds no CPU mask construction, readback on
+the rendering path, shader variant, or public ABI; readback exists only in the
+validation executable.
+
 The shared WGSL path rasterizer keeps these arcs analytic. It rejects samples
 outside each path record's exact bounds, rejects quadratic and cubic work on
 rows outside the curve control hull, and tests arc sweep membership with

@@ -251,13 +251,19 @@ bool has_expected_colors(
     const std::uint8_t* inside_end = pixel(498U, 180U);
     const std::uint8_t* pad_end = pixel(540U, 180U);
     const std::uint8_t* background = pixel(10U, 10U);
+    const std::uint8_t* boolean_inside = pixel(204U, 12U);
+    const std::uint8_t* boolean_hole = pixel(214U, 12U);
+    const std::uint8_t* boolean_xor = pixel(244U, 12U);
     if (!(blue[2] > 180U && blue[0] < 100U &&
         pad_start[0] > 180U && pad_start[1] > 90U &&
         pad_start[2] < 80U &&
         inside_start[1] > 180U && inside_start[0] < 80U &&
         inside_end[1] > 180U && inside_end[2] > 180U &&
         pad_end[0] > 140U && pad_end[2] > 180U && pad_end[1] < 100U &&
-        background[0] < 30U && background[1] < 30U)) {
+        background[0] < 30U && background[1] < 30U &&
+        boolean_inside[1] > 180U && boolean_inside[2] > 180U &&
+        boolean_hole[0] < 30U && boolean_hole[1] < 30U &&
+        boolean_xor[0] < 30U && boolean_xor[1] < 30U)) {
         const auto print_pixel = [](const char* name,
                                     const std::uint8_t* value) {
             std::cerr << name << "="
@@ -273,6 +279,9 @@ bool has_expected_colors(
         print_pixel("inside-end", inside_end);
         print_pixel("pad-end", pad_end);
         print_pixel("background", background);
+        print_pixel("boolean-inside", boolean_inside);
+        print_pixel("boolean-hole", boolean_hole);
+        print_pixel("boolean-xor", boolean_xor);
         std::cerr << '\n';
         return false;
     }
@@ -292,6 +301,18 @@ bool has_expected_colors(
               << static_cast<unsigned int>(pad_end[0]) << ","
               << static_cast<unsigned int>(pad_end[1]) << ","
               << static_cast<unsigned int>(pad_end[2]) << '\n';
+    std::cout << "[ProGPUNativeBoolean] inside="
+              << static_cast<unsigned int>(boolean_inside[0]) << ","
+              << static_cast<unsigned int>(boolean_inside[1]) << ","
+              << static_cast<unsigned int>(boolean_inside[2])
+              << " difference-hole="
+              << static_cast<unsigned int>(boolean_hole[0]) << ","
+              << static_cast<unsigned int>(boolean_hole[1]) << ","
+              << static_cast<unsigned int>(boolean_hole[2])
+              << " xor-island="
+              << static_cast<unsigned int>(boolean_xor[0]) << ","
+              << static_cast<unsigned int>(boolean_xor[1]) << ","
+              << static_cast<unsigned int>(boolean_xor[2]) << '\n';
     if (!requires_decoded_glyph) {
         return true;
     }
@@ -480,7 +501,7 @@ int main(int argc, char** argv) {
     }
 
     progpu::native::semantic_scene_builder scene_builder(501U, 1U);
-    if (!scene_builder.reserve(9U, 11U, 9216U)) {
+    if (!scene_builder.reserve(16U, 16U, 12288U)) {
         std::cerr << "Could not reserve the native retained scene builder.\n";
         return EXIT_FAILURE;
     }
@@ -826,6 +847,122 @@ int main(int argc, char** argv) {
     }
     if (!scene_builder.pop_layer()) {
         std::cerr << "Could not close the native retained layer.\n";
+        return EXIT_FAILURE;
+    }
+    const std::array boolean_mask_segments{
+        progpu_native_path_segment{
+            {200.0F, 4.0F}, {260.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {260.0F, 4.0F}, {260.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {260.0F, 24.0F}, {200.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {200.0F, 24.0F}, {200.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {210.0F, 8.0F}, {220.0F, 8.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {220.0F, 8.0F}, {220.0F, 16.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {220.0F, 16.0F}, {210.0F, 16.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {210.0F, 16.0F}, {210.0F, 8.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {240.0F, 8.0F}, {250.0F, 8.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {250.0F, 8.0F}, {250.0F, 16.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {250.0F, 16.0F}, {240.0F, 16.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {240.0F, 16.0F}, {240.0F, 8.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const std::array boolean_mask_nodes{
+        progpu_native_scene_path_boolean_node{
+            0U, 4U, 200.0F, 4.0F, 260.0F, 24.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            4U, 4U, 210.0F, 8.0F, 220.0F, 16.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            8U, 4U, 240.0F, 8.0F, 250.0F, 16.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_XOR, 0U, 0U}};
+    const progpu_native_scene_clip_path boolean_mask_path{
+        0U,
+        boolean_mask_segments.size(),
+        0U,
+        boolean_mask_nodes.size(),
+        200.0F,
+        4.0F,
+        260.0F,
+        24.0F,
+        identity,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        8U,
+        PROGPU_NATIVE_CLIP_INTERSECT,
+        0U};
+    std::uint32_t boolean_mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scene_builder.add_vector_clip_mask(
+            std::span<const progpu_native_scene_clip_path>(
+                &boolean_mask_path,
+                1U),
+            boolean_mask_segments,
+            boolean_mask_nodes,
+            1.0F,
+            boolean_mask_index)) {
+        std::cerr << "Could not record native boolean vector mask.\n";
+        return EXIT_FAILURE;
+    }
+    progpu_native_scene_layer boolean_layer{};
+    boolean_layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    boolean_layer.bounds = {200.0F, 4.0F, 60.0F, 20.0F};
+    boolean_layer.opacity = 1.0F;
+    boolean_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    boolean_layer.mask_resource_index = boolean_mask_index;
+    boolean_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    boolean_layer.content_revision = 1U;
+    boolean_layer.composite_revision = 1U;
+    const progpu_native_analytic_primitive boolean_content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        200.0F,
+        4.0F,
+        60.0F,
+        20.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity};
+    if (!scene_builder.push_layer(boolean_layer) ||
+        !scene_builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &boolean_content,
+                1U),
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {200.0F, 4.0F, 60.0F, 20.0F}) ||
+        !scene_builder.pop_layer()) {
+        std::cerr << "Could not record native boolean vector-mask layer.\n";
         return EXIT_FAILURE;
     }
     progpu_native_hit_test_primitive hit_primitive{};
