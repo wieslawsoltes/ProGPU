@@ -94,6 +94,16 @@ internal static class RetainedViewport3DQualification
             reverseWinding: false,
             generation: 7U,
             gradient: true);
+        FrameResult specularGradient = Render(
+            compositor,
+            context,
+            target,
+            NativeMesh3DFlags.FrontFace |
+                NativeMesh3DFlags.SpecularMaterial,
+            reverseWinding: false,
+            generation: 8U,
+            gradient: true,
+            specularGradient: true);
 
         Require(
             front.Update.ValidationError == NativeSceneValidationError.None &&
@@ -103,6 +113,8 @@ internal static class RetainedViewport3DQualification
             pointLit.Update.ValidationError == NativeSceneValidationError.None &&
             spotLit.Update.ValidationError == NativeSceneValidationError.None &&
             gradient.Update.ValidationError == NativeSceneValidationError.None &&
+            specularGradient.Update.ValidationError ==
+                NativeSceneValidationError.None &&
             front.Frame.SubmissionCount > 0U &&
             back.Frame.SubmissionCount > 0U &&
             glossy.Frame.SubmissionCount > 0U &&
@@ -110,13 +122,15 @@ internal static class RetainedViewport3DQualification
             pointLit.Frame.SubmissionCount > 0U &&
             spotLit.Frame.SubmissionCount > 0U &&
             gradient.Frame.SubmissionCount > 0U &&
+            specularGradient.Frame.SubmissionCount > 0U &&
             front.Frame.DrawCallCount == 1U &&
             back.Frame.DrawCallCount == 1U &&
             glossy.Frame.DrawCallCount == 1U &&
             orthographic.Frame.DrawCallCount == 1U &&
             pointLit.Frame.DrawCallCount == 1U &&
             spotLit.Frame.DrawCallCount == 1U &&
-            gradient.Frame.DrawCallCount == 1U,
+            gradient.Frame.DrawCallCount == 1U &&
+            specularGradient.Frame.DrawCallCount == 1U,
             "retained MIL Viewport3D execution failed: " +
             $"front={front.Update}/{front.Frame}, " +
             $"back={back.Update}/{back.Frame}, " +
@@ -124,7 +138,9 @@ internal static class RetainedViewport3DQualification
             $"orthographic={orthographic.Update}/{orthographic.Frame}, " +
             $"point={pointLit.Update}/{pointLit.Frame}, " +
             $"spot={spotLit.Update}/{spotLit.Frame}, " +
-            $"gradient={gradient.Update}/{gradient.Frame}");
+            $"gradient={gradient.Update}/{gradient.Frame}, " +
+            $"specularGradient={specularGradient.Update}/" +
+            $"{specularGradient.Frame}");
         Require(
             IsInside(TransformedViewport, front.Extent) &&
             IsInside(TransformedViewport, back.Extent) &&
@@ -132,7 +148,8 @@ internal static class RetainedViewport3DQualification
             IsInside(EffectiveClip, front.Extent) &&
             IsInside(EffectiveClip, back.Extent) &&
             IsInside(EffectiveClip, orthographic.Extent) &&
-            IsInside(EffectiveClip, gradient.Extent),
+            IsInside(EffectiveClip, gradient.Extent) &&
+            IsInside(EffectiveClip, specularGradient.Extent),
             "retained MIL Viewport3D escaped its typed viewport: " +
             $"viewport={FormatRect(TransformedViewport)}, " +
             $"clip={FormatRect(EffectiveClip)}, " +
@@ -156,6 +173,13 @@ internal static class RetainedViewport3DQualification
         RequireColoredPixel(spotLit.Pixels, 56, 39, "spot");
         GradientEvidence gradientEvidence = RequireGradientPixels(
             gradient.Pixels);
+        GradientEvidence specularGradientEvidence = RequireGradientPixels(
+            specularGradient.Pixels);
+        Require(
+            !gradient.Pixels.AsSpan().SequenceEqual(
+                specularGradient.Pixels),
+            "retained MIL specular gradient matched the unlit material " +
+            "gradient output");
 
         Console.WriteLine(
             "Qualified live retained MIL Viewport3D placement and exact " +
@@ -169,7 +193,9 @@ internal static class RetainedViewport3DQualification
             $"orthographic={orthographic.Extent}/{orthographic.Frame}, " +
             $"point={FormatPixel(pointLit.Pixels, 56, 39)}, " +
             $"spot={FormatPixel(spotLit.Pixels, 56, 39)}, " +
-            $"gradient={gradientEvidence}/{gradient.Frame}.");
+            $"gradient={gradientEvidence}/{gradient.Frame}, " +
+            $"specularGradient={specularGradientEvidence}/" +
+            $"{specularGradient.Frame}.");
     }
 
     private static FrameResult Render(
@@ -182,7 +208,8 @@ internal static class RetainedViewport3DQualification
         float shininess = 1f,
         bool orthographic = false,
         NativeSceneLight3D[]? lights = null,
-        bool gradient = false)
+        bool gradient = false,
+        bool specularGradient = false)
     {
         byte[] scene = BuildScene(
             faceMode,
@@ -191,7 +218,8 @@ internal static class RetainedViewport3DQualification
             shininess,
             orthographic,
             lights,
-            gradient);
+            gradient,
+            specularGradient);
         NativeSceneUpdateMetrics update = compositor.UpdateScene(scene);
         NativeSceneFrameMetrics frame = compositor.RenderScene(
             target,
@@ -215,7 +243,8 @@ internal static class RetainedViewport3DQualification
         float shininess,
         bool orthographic,
         NativeSceneLight3D[]? lights,
-        bool gradient)
+        bool gradient,
+        bool specularGradient)
     {
         var batch = new NativeMilBatchBuilder();
         batch.CreateResource(
@@ -259,7 +288,8 @@ internal static class RetainedViewport3DQualification
                 shininess,
                 orthographic,
                 lights,
-                gradient));
+                gradient,
+                specularGradient));
         NativeMilCompiledScene scene = channel.CompileScene(
             TargetHandle,
             SceneId,
@@ -276,7 +306,8 @@ internal static class RetainedViewport3DQualification
         float shininess,
         bool orthographic,
         NativeSceneLight3D[]? lights,
-        bool gradient)
+        bool gradient,
+        bool specularGradient)
     {
         var vertices = new NativeSceneMesh3DVertex[3];
         vertices[0] = CreateVertex(
@@ -298,15 +329,23 @@ internal static class RetainedViewport3DQualification
             IndexCount = 3U,
             ModelTransform = new NativeMatrix4x4(Matrix4x4.Identity),
             NormalTransform = new NativeMatrix4x4(Matrix4x4.Identity),
-            Color = gradient
-                ? Vector4.One
-                : new Vector4(1f, 0f, 0f, 1f),
-            LightDirection = Float4(0f, 0f, -1f, 0.4f),
+            Color = specularGradient
+                ? Vector4.UnitW
+                : gradient
+                    ? Vector4.One
+                    : new Vector4(1f, 0f, 0f, 1f),
+            LightDirection = Float4(
+                0f,
+                0f,
+                -1f,
+                specularGradient ? 1f : 0.4f),
             AmbientColor = Float4(1f, 1f, 1f, 0.2f),
-            SpecularColor = Float4(0f, 1f, 0f, shininess),
+            SpecularColor = specularGradient
+                ? Float4(1f, 1f, 1f, 8f)
+                : Float4(0f, 1f, 0f, shininess),
             MaterialAmbient = Float4(1f, 1f, 1f, 1f),
             Opacity = 1f,
-            ShadingMode = gradient ? 0U : 1U,
+            ShadingMode = gradient && !specularGradient ? 0U : 1U,
             LightOffset = 0U,
             LightCount = (uint)retainedLights.Length
         };
@@ -469,13 +508,23 @@ internal static class RetainedViewport3DQualification
     {
         int redDominant = 0;
         int blueDominant = 0;
+        int nonBlack = 0;
+        int maximumRed = 0;
+        int maximumBlue = 0;
         for (int y = 0; y < Height; ++y)
         {
             for (int x = 0; x < Width; ++x)
             {
                 int offset = checked((y * (int)Width + x) * 4);
                 int red = pixels[offset];
+                int green = pixels[offset + 1];
                 int blue = pixels[offset + 2];
+                maximumRed = Math.Max(maximumRed, red);
+                maximumBlue = Math.Max(maximumBlue, blue);
+                if (red != 0 || green != 0 || blue != 0)
+                {
+                    ++nonBlack;
+                }
                 if (red > blue + 24)
                 {
                     ++redDominant;
@@ -489,7 +538,9 @@ internal static class RetainedViewport3DQualification
         Require(
             redDominant >= 8 && blueDominant >= 8,
             "retained MIL gradient material did not produce distinct " +
-            $"red/blue GPU regions: red={redDominant}, blue={blueDominant}");
+            $"red/blue GPU regions: red={redDominant}, blue={blueDominant}, " +
+            $"nonBlack={nonBlack}, maxRed={maximumRed}, " +
+            $"maxBlue={maximumBlue}");
         return new GradientEvidence(redDominant, blueDominant);
     }
 

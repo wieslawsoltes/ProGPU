@@ -697,6 +697,17 @@ generation additionally renders one red-to-blue linear gradient through the
 native C++ MIL sideband and currently observes 75 red-dominant plus 96
 blue-dominant pixels on Apple M3 Pro Metal, with no WebGPU validation error.
 
+The mesh flag bit `SPECULAR_MATERIAL` makes that same canonical brush table a
+typed specular-color multiplier. Diffuse and emissive passes retain their
+existing material-color multiplication, while a flagged specular pass keeps
+the mesh diffuse color black and multiplies `specular_color.rgb` in WGSL. This
+preserves WPF's ordered material-pass behavior without widening the public
+256-byte mesh record or introducing a CPU texture. Unknown bits and mutually
+exclusive front/back flags still fail validation. The live Metal gate now
+renders a second retained generation using only the specular term and observes
+64 red-dominant plus 85 blue-dominant pixels inside the same 291-pixel clip;
+it also requires this readback to differ from the unlit gradient generation.
+
 Exact pushed implementation `318c0b0a` is also qualified from a SHA-256-
 verified isolated source archive in the Windows 11 ARM64 Parallels guest.
 ARM64 MSVC 19.44 compiled both native providers under `/W4 /WX`; both export

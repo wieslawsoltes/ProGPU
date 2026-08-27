@@ -119,6 +119,8 @@ struct MaterialGradientStop3D {
 @group(0) @binding(6) var<storage, read> materials: array<MaterialBrush3D>;
 @group(0) @binding(7) var<storage, read> material_gradient_stops: array<MaterialGradientStop3D>;
 
+const MESH_FLAG_SPECULAR_MATERIAL: u32 = 4u;
+
 struct LineOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
@@ -338,8 +340,13 @@ fn sample_mesh_material(
 @fragment
 fn fs_mesh_3d(input: MeshOutput) -> @location(0) vec4<f32> {
     let mesh = meshes[input.material];
-    let material_color = input.color * sample_mesh_material(
+    let material_sample = sample_mesh_material(
         materials[input.material], input.texture_coordinate);
+    let material_color = input.color * material_sample;
+    let material_specular = select(
+        mesh.specular_color.rgb,
+        mesh.specular_color.rgb * material_sample.rgb,
+        (mesh.flags & MESH_FLAG_SPECULAR_MATERIAL) != 0u);
     let camera = cameras[mesh.camera_index];
     let n = normalize(input.normal);
     let view = normalize(camera.camera_position.xyz - input.world_position);
@@ -406,7 +413,7 @@ fn fs_mesh_3d(input: MeshOutput) -> @location(0) vec4<f32> {
     }
     ambient *= mesh.material_ambient.rgb;
     var rgb = material_color.rgb * (ambient + diffuse) +
-        mesh.specular_color.rgb * specular;
+        material_specular * specular;
     if (mesh.shading_mode == 0u) {
         rgb = material_color.rgb;
     }

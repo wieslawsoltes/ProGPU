@@ -592,10 +592,14 @@ bool is_valid_semantic_mesh_3d(
     const std::size_t mesh_light_offset = mesh.light_offset;
     constexpr std::uint32_t known_flags =
         PROGPU_NATIVE_MESH_3D_FRONT_FACE |
+        PROGPU_NATIVE_MESH_3D_BACK_FACE |
+        PROGPU_NATIVE_MESH_3D_SPECULAR_MATERIAL;
+    constexpr std::uint32_t face_mask =
+        PROGPU_NATIVE_MESH_3D_FRONT_FACE |
         PROGPU_NATIVE_MESH_3D_BACK_FACE;
-    const auto face_flags = mesh.flags & known_flags;
+    const auto face_flags = mesh.flags & face_mask;
     return mesh.struct_size == sizeof(mesh) &&
-        (mesh.flags & ~known_flags) == 0U && face_flags != known_flags &&
+        (mesh.flags & ~known_flags) == 0U && face_flags != face_mask &&
         mesh.topology <= PROGPU_NATIVE_MESH_3D_TRIANGLE_STRIP &&
         mesh.render_mode <= PROGPU_NATIVE_MESH_3D_SOLID_WIREFRAME &&
         mesh.vertex_count >= 3U && mesh.index_count >= 3U &&

@@ -2143,6 +2143,7 @@ public class NativeRendererInteropTests
             (uint)NativeImageSampling.MagNearestMinNearestMipLinear);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(16, Unsafe.SizeOf<NativeSceneMesh3DMaterials>());
+        Assert.Equal(4U, (uint)NativeMesh3DFlags.SpecularMaterial);
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(5U, (uint)NativeGeometryPrimitiveKind.DotGrid);

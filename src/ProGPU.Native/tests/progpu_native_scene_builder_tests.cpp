@@ -1934,7 +1934,8 @@ bool semantic_scene_builder_records_retained_3d_families() {
     lights[3].attenuation_outer_cos = {1.0F, 0.0F, 0.0F, 0.7F};
     progpu_native_scene_mesh_3d mesh{};
     mesh.struct_size = sizeof(mesh);
-    mesh.flags = PROGPU_NATIVE_MESH_3D_FRONT_FACE;
+    mesh.flags = PROGPU_NATIVE_MESH_3D_FRONT_FACE |
+        PROGPU_NATIVE_MESH_3D_SPECULAR_MATERIAL;
     mesh.topology = PROGPU_NATIVE_MESH_3D_TRIANGLES;
     mesh.render_mode = PROGPU_NATIVE_MESH_3D_SOLID;
     mesh.vertex_count = static_cast<std::uint32_t>(vertices.size());
@@ -2165,7 +2166,8 @@ bool semantic_scene_builder_records_retained_3d_families() {
         mesh_resource.kind ==
             PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH &&
         mesh_resource.payload_size == sizeof(mesh) &&
-        retained_mesh.flags == PROGPU_NATIVE_MESH_3D_FRONT_FACE &&
+        retained_mesh.flags == (PROGPU_NATIVE_MESH_3D_FRONT_FACE |
+            PROGPU_NATIVE_MESH_3D_SPECULAR_MATERIAL) &&
         retained_mesh.light_count == lights.size() &&
         mesh_resource.auxiliary_size == sizeof(vertices) +
             sizeof(indices) + sizeof(lights) &&
