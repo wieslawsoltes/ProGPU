@@ -4250,6 +4250,8 @@ public class Graphics :
         }
     }
 
+    internal void EnsureNotDisposed() => ThrowIfDisposed();
+
     public IntPtr GetHdc() =>
         throw new PlatformNotSupportedException(
             "The portable ProGPU drawing context does not expose a native HDC.");

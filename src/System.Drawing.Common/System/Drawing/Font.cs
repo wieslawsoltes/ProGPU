@@ -1,4 +1,6 @@
 ﻿using System.ComponentModel;
+using System.Drawing.Interop;
+using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using ProGPU.Text;
 
@@ -248,7 +250,183 @@ public sealed class Font : MarshalByRefObject, ICloneable, IDisposable, ISeriali
     public static Font FromHfont(IntPtr hfont) =>
         throw new PlatformNotSupportedException("HFONT import requires the explicit Windows GDI font adapter.");
 
+    public static Font FromLogFont(in LOGFONT logFont)
+        => CreateFromLogFont(in logFont);
+
+    public static Font FromLogFont(in LOGFONT logFont, IntPtr hdc)
+    {
+        if (hdc == IntPtr.Zero)
+        {
+            throw new ArgumentException("A nonzero HDC is required.", nameof(hdc));
+        }
+
+        throw new PlatformNotSupportedException(
+            "HDC-aware LOGFONT import requires the explicit Windows GDI font adapter.");
+    }
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static Font FromLogFont(object lf)
+    {
+        ArgumentNullException.ThrowIfNull(lf);
+        if (lf is not LOGFONT logFont)
+        {
+            throw new ArgumentException(
+                "Portable LOGFONT import accepts the canonical System.Drawing.Interop.LOGFONT value.",
+                nameof(lf));
+        }
+
+        return CreateFromLogFont(in logFont);
+    }
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static Font FromLogFont(object lf, IntPtr hdc)
+    {
+        ArgumentNullException.ThrowIfNull(lf);
+        if (lf is not LOGFONT logFont)
+        {
+            throw new ArgumentException(
+                "Portable LOGFONT import accepts the canonical System.Drawing.Interop.LOGFONT value.",
+                nameof(lf));
+        }
+
+        return FromLogFont(in logFont, hdc);
+    }
+
+    public void ToLogFont(out LOGFONT logFont)
+    {
+        ThrowIfDisposed();
+        WriteLogFont(out logFont, dpi: 96f);
+    }
+
+    public void ToLogFont(out LOGFONT logFont, Graphics graphics)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(graphics);
+        graphics.EnsureNotDisposed();
+        WriteLogFont(out logFont, graphics.DpiY);
+    }
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public void ToLogFont(object logFont)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(logFont);
+        WriteCanonicalLogFontBox(logFont, graphics: null);
+    }
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public void ToLogFont(object logFont, Graphics graphics)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(logFont);
+        ArgumentNullException.ThrowIfNull(graphics);
+        graphics.EnsureNotDisposed();
+        WriteCanonicalLogFontBox(logFont, graphics);
+    }
+
     public void Dispose() => _disposed = true;
+
+    private static Font CreateFromLogFont(in LOGFONT logFont)
+    {
+        string faceName = logFont.GetFaceName();
+        if (faceName.Length == 0 && IsEmptyLogFont(in logFont))
+        {
+            throw new ArgumentException("The LOGFONT does not describe a font.", nameof(logFont));
+        }
+
+        bool vertical = faceName.Length > 1 && faceName[0] == '@';
+        if (vertical)
+        {
+            faceName = faceName[1..];
+        }
+
+        if (string.IsNullOrWhiteSpace(faceName))
+        {
+            using FontFamily fallback = FontFamily.GenericSansSerif;
+            faceName = fallback.Name;
+        }
+
+        FontStyle style = FontStyle.Regular;
+        if (logFont.lfWeight >= 550)
+        {
+            style |= FontStyle.Bold;
+        }
+
+        if (logFont.lfItalic != 0)
+        {
+            style |= FontStyle.Italic;
+        }
+
+        if (logFont.lfUnderline != 0)
+        {
+            style |= FontStyle.Underline;
+        }
+
+        if (logFont.lfStrikeOut != 0)
+        {
+            style |= FontStyle.Strikeout;
+        }
+
+        float size = MathF.Abs((float)logFont.lfHeight);
+        if (!(size > 0f) || !float.IsFinite(size))
+        {
+            size = 12f;
+        }
+
+        return new Font(
+            faceName,
+            size,
+            style,
+            GraphicsUnit.World,
+            logFont.lfCharSet,
+            vertical);
+    }
+
+    private static bool IsEmptyLogFont(in LOGFONT logFont)
+        => logFont.lfHeight == 0
+            && logFont.lfWidth == 0
+            && logFont.lfEscapement == 0
+            && logFont.lfOrientation == 0
+            && logFont.lfWeight == 0
+            && logFont.lfItalic == 0
+            && logFont.lfUnderline == 0
+            && logFont.lfStrikeOut == 0
+            && logFont.lfCharSet == 0
+            && logFont.lfOutPrecision == 0
+            && logFont.lfClipPrecision == 0
+            && logFont.lfQuality == 0
+            && logFont.lfPitchAndFamily == 0;
+
+    private void WriteCanonicalLogFontBox(object destination, Graphics? graphics)
+    {
+        if (destination is not LOGFONT)
+        {
+            throw new ArgumentException(
+                "Portable LOGFONT export accepts a boxed System.Drawing.Interop.LOGFONT value.",
+                nameof(destination));
+        }
+
+        WriteLogFont(out LOGFONT result, graphics?.DpiY ?? 96f);
+        Unsafe.Unbox<LOGFONT>(destination) = result;
+    }
+
+    private void WriteLogFont(out LOGFONT logFont, float dpi)
+    {
+        logFont = default;
+        float pixelHeight = Graphics.ConvertFontSizeToPixels(Size, Unit, dpi);
+        double negativeHeight = -Math.Truncate(pixelHeight);
+        logFont.lfHeight = negativeHeight < int.MinValue
+            ? int.MinValue
+            : negativeHeight > -1d
+                ? -1
+                : (int)negativeHeight;
+        logFont.lfWeight = Bold ? 700 : 400;
+        logFont.lfItalic = Italic ? (byte)1 : (byte)0;
+        logFont.lfUnderline = Underline ? (byte)1 : (byte)0;
+        logFont.lfStrikeOut = Strikeout ? (byte)1 : (byte)0;
+        logFont.lfCharSet = GdiCharSet;
+        logFont.SetFaceName(GdiVerticalFont ? $"@{Name}" : Name);
+    }
 
     private static FontFamily CreateFamilyForFont(string familyName)
     {

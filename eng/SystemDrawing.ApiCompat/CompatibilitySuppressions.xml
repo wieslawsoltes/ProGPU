@@ -46,10 +46,6 @@
     <Target>T:System.Drawing.Imaging.PlayRecordCallback</Target>
   </Suppression>
   <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Interop.LOGFONT</Target>
-  </Suppression>
-  <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Bitmap.#ctor(System.Type,System.String)</Target>
   </Suppression>
@@ -64,38 +60,6 @@
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Font.FromHdc(System.IntPtr)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Font.FromLogFont(System.Drawing.Interop.LOGFONT@,System.IntPtr)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Font.FromLogFont(System.Drawing.Interop.LOGFONT@)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Font.FromLogFont(System.Object,System.IntPtr)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Font.FromLogFont(System.Object)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Font.ToLogFont(System.Drawing.Interop.LOGFONT@,System.Drawing.Graphics)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Font.ToLogFont(System.Drawing.Interop.LOGFONT@)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Font.ToLogFont(System.Object,System.Drawing.Graphics)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Font.ToLogFont(System.Object)</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
