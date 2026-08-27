@@ -91,6 +91,66 @@ public sealed class CadEditingTests
     }
 
     [Fact]
+    public void ScaleCommandUsesPivotAndRoundTripsUndoRedo()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(2, 4, 6), new XYZ(4, 8, 10));
+        var circle = new Circle(new XYZ(2, 4, 6), 3.0);
+        document.Entities.Add(line);
+        document.Entities.Add(circle);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadScaleEntitiesCommand(
+            [line.Handle, circle.Handle],
+            2.5,
+            new CadPoint3D(1, 2, 3));
+
+        history.Execute(command);
+
+        Assert.Equal(2.5, command.Factor);
+        Assert.Equal(new CadPoint3D(1, 2, 3), command.Origin);
+        AssertPoint(new XYZ(3.5, 7, 10.5), line.StartPoint);
+        AssertPoint(new XYZ(8.5, 17, 20.5), line.EndPoint);
+        AssertPoint(new XYZ(3.5, 7, 10.5), circle.Center);
+        Assert.Equal(7.5, circle.Radius, 12);
+
+        Assert.True(history.TryUndo(out _));
+        AssertPoint(new XYZ(2, 4, 6), line.StartPoint);
+        AssertPoint(new XYZ(4, 8, 10), line.EndPoint);
+        AssertPoint(new XYZ(2, 4, 6), circle.Center);
+        Assert.Equal(3.0, circle.Radius, 12);
+
+        Assert.True(history.TryRedo(out _));
+        AssertPoint(new XYZ(3.5, 7, 10.5), line.StartPoint);
+        AssertPoint(new XYZ(8.5, 17, 20.5), line.EndPoint);
+        AssertPoint(new XYZ(3.5, 7, 10.5), circle.Center);
+        Assert.Equal(7.5, circle.Radius, 12);
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-1.0)]
+    [InlineData(1.0)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.Epsilon)]
+    public void ScaleCommandRejectsNonReversibleFactors(double factor)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadScaleEntitiesCommand([1UL], factor));
+    }
+
+    [Fact]
+    public void ScaleCommandRejectsNonFiniteOrigin()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new CadScaleEntitiesCommand(
+                [1UL],
+                2.0,
+                new CadPoint3D(double.NegativeInfinity, 0, 0)));
+    }
+
+    [Fact]
     public void VisibilityCommandUpdatesSnapshotAndRestoresPriorValues()
     {
         var document = new CadDocument();

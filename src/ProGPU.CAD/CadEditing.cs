@@ -575,6 +575,114 @@ public sealed class CadRotateEntitiesCommand : CadEditCommand
     }
 }
 
+/// <summary>Uniformly scales a stable set of entity handles around an origin.</summary>
+public sealed class CadScaleEntitiesCommand : CadEditCommand
+{
+    private readonly ulong[] _handles;
+    private readonly XYZ _origin;
+    private readonly XYZ _scale;
+    private readonly XYZ _inverseScale;
+    private Entity[]? _entities;
+
+    public ReadOnlyMemory<ulong> Handles => _handles;
+
+    public double Factor { get; }
+
+    public CadPoint3D Origin { get; }
+
+    public CadScaleEntitiesCommand(
+        IEnumerable<ulong> handles,
+        double factor,
+        CadPoint3D origin = default,
+        string description = "Scale entities")
+        : base(description)
+    {
+        ArgumentNullException.ThrowIfNull(handles);
+        double inverseFactor = 1.0 / factor;
+        if (!double.IsFinite(factor) ||
+            factor <= 0.0 ||
+            factor == 1.0 ||
+            !double.IsFinite(inverseFactor))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(factor),
+                "A scale factor must be positive, finite, non-unit, and have a finite inverse.");
+        }
+        if (!double.IsFinite(origin.X) ||
+            !double.IsFinite(origin.Y) ||
+            !double.IsFinite(origin.Z))
+        {
+            throw new ArgumentException("A scale origin must be finite.", nameof(origin));
+        }
+
+        _handles = handles.Distinct().ToArray();
+        if (_handles.Length == 0 || _handles.Any(static handle => handle == 0))
+        {
+            throw new ArgumentException(
+                "At least one non-zero entity handle is required.",
+                nameof(handles));
+        }
+
+        Factor = factor;
+        Origin = origin;
+        _origin = new XYZ(origin.X, origin.Y, origin.Z);
+        _scale = new XYZ(factor, factor, factor);
+        _inverseScale = new XYZ(inverseFactor, inverseFactor, inverseFactor);
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Entity[] entities;
+        if (isRedo)
+        {
+            entities = GetRetainedEntities(document);
+        }
+        else
+        {
+            entities = ResolveModelSpaceEntities(document, _handles);
+            _entities = entities;
+        }
+        ScaleTransactional(entities, _scale, _inverseScale);
+    }
+
+    internal override void Revert(CadDocument document) =>
+        ScaleTransactional(
+            GetRetainedEntities(document),
+            _inverseScale,
+            _scale);
+
+    private Entity[] GetRetainedEntities(CadDocument document)
+    {
+        Entity[] entities = _entities ??
+            throw new InvalidOperationException("The scale command has not been applied.");
+        ValidateModelSpaceEntities(document, entities);
+        return entities;
+    }
+
+    private void ScaleTransactional(
+        Entity[] entities,
+        XYZ scale,
+        XYZ rollbackScale)
+    {
+        int applied = 0;
+        try
+        {
+            for (; applied < entities.Length; applied++)
+            {
+                entities[applied].ApplyScaling(scale, _origin);
+            }
+        }
+        catch
+        {
+            for (int i = applied - 1; i >= 0; i--)
+            {
+                entities[i].ApplyScaling(rollbackScale, _origin);
+            }
+            throw;
+        }
+    }
+}
+
 /// <summary>Sets visibility for a stable set of model-space entity handles.</summary>
 public sealed class CadSetEntityVisibilityCommand : CadEditCommand
 {
