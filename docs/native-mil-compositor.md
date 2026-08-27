@@ -3284,6 +3284,17 @@ submission/frame p50 from 1.0344/5.3215 to 1.5310/5.9844 ms at 1x and from
 result was decisive enough to stop before the longer alternating matrix; the
 qualified interleaved crossing layout remains unchanged.
 
+Precomputing all eight row-local crossing `span` descriptors was also exact
+and rejected. The candidate replaced the repeated offset-based `subspan`
+construction in each pixel-pair and odd-tail loop with a stack-resident span
+array built once per raster row. Apple M3 Pro Metal 120-frame gates retained
+hashes `5B6EF4F70536C862` (1x) and `706B261418EC5C3B` (2x), but submission p50
+regressed `1.4922 -> 1.7465` ms at 1x and `1.9650 -> 2.6905` ms at 2x;
+synchronized-frame p50 changed `5.5365 -> 5.2648` and
+`6.1749 -> 6.3856` ms respectively. The added descriptor loads and stack
+traffic therefore outweigh any saved view arithmetic, and the source retains
+the compiler-optimized offset array with inline `subspan` construction.
+
 The accepted NEON follow-up instead folds exact integer lane reduction. It
 adds the low/high 0-or-1 coverage vectors before reducing their halves, saving
 one vector add per pixel without a new branch, metadata read, or floating-point
