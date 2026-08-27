@@ -2717,6 +2717,86 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void SharedPcm16StereoProcessorMatchesScalarOracleAcrossVectorTails()
+    {
+        int[] lengths = [1, 7, 8, 15, 16, 17, 31, 32, 33, 257];
+        MediaAudioStereoLevels[] levels =
+        [
+            new(0f, 0f),
+            new(0.001f, 2f),
+            new(0.5f, 1.5f),
+            new(1f, 1f),
+            new(1.999f, 0.125f),
+            new(2f, 2f)
+        ];
+        var random = new Random(0x51_4D_44);
+
+        foreach (int length in lengths)
+        {
+            short[] source = new short[length];
+            random.NextBytes(
+                System.Runtime.InteropServices.MemoryMarshal.AsBytes(
+                    source.AsSpan()));
+            if (length > 0)
+            {
+                source[0] = short.MinValue;
+                source[^1] = short.MaxValue;
+            }
+
+            foreach (MediaAudioStereoLevels stereoLevels in levels)
+            {
+                for (int initialOffset = 0;
+                     initialOffset < 2;
+                     initialOffset++)
+                {
+                    short[] expected = source.ToArray();
+                    ApplyPcm16ScalarOracle(
+                        expected,
+                        stereoLevels,
+                        initialOffset);
+                    short[] actual = source.ToArray();
+                    int channelOffset = initialOffset;
+
+                    MediaPcm16StereoProcessor.ApplyStereo(
+                        actual,
+                        channelCount: 2,
+                        stereoLevels,
+                        ref channelOffset);
+
+                    Assert.Equal(expected, actual);
+                    Assert.Equal(
+                        (initialOffset + length) & 1,
+                        channelOffset);
+                }
+            }
+        }
+    }
+
+    private static void ApplyPcm16ScalarOracle(
+        Span<short> samples,
+        in MediaAudioStereoLevels levels,
+        int channelOffset)
+    {
+        int left = (int)Math.Round(
+            levels.Left * 32_768d,
+            MidpointRounding.AwayFromZero);
+        int right = (int)Math.Round(
+            levels.Right * 32_768d,
+            MidpointRounding.AwayFromZero);
+        int channel = channelOffset;
+        for (int index = 0; index < samples.Length; index++)
+        {
+            int fixedLevel = channel == 0 ? left : right;
+            int scaled = samples[index] * fixedLevel / 32_768;
+            samples[index] = (short)Math.Clamp(
+                scaled,
+                short.MinValue,
+                short.MaxValue);
+            channel ^= 1;
+        }
+    }
+
+    [Fact]
     public void SharedPcmTimelineMathUsesHalfOpenFrameBoundaries()
     {
         const uint sampleRate = 48_000;

@@ -60,6 +60,17 @@ if (Array.Exists(
         args,
         static value => string.Equals(
             value,
+            "--pcm16-simd",
+            StringComparison.OrdinalIgnoreCase)))
+{
+    Pcm16SimdBenchmark.Run(args);
+    return;
+}
+
+if (Array.Exists(
+        args,
+        static value => string.Equals(
+            value,
             "--semantic-viewport3d",
             StringComparison.OrdinalIgnoreCase)))
 {
