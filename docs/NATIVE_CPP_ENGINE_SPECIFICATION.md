@@ -3567,6 +3567,15 @@ LibreWPF therefore share the same shader path instead of sampling the first
 stop or rasterizing a CPU texture. Tile-brush realization and the native C++
 3D material-resource ABI remain explicit follow-up work and fail closed.
 
+The managed gradient shader is cross-backend qualified rather than inferred
+from Metal alone. Exact commit `8eee2170` builds warning-free with .NET SDK
+10.0.400 in the Windows 11 ARM64 Parallels VM; all 18 focused Mesh3D tests
+pass. The live gradient readback independently reports
+`Parallels Display Adapter (WDDM)` and `D3D12` and passes without WebGPU
+validation/device errors. The isolated archive is completed only with the
+exact `microsoft-ui-xaml` submodule file pinned by the commit, so the gate does
+not depend on or mutate the VM's existing checkout.
+
 Retained 3D command bounds are executable viewport state, not diagnostic
 metadata. The native replay camera retains both the current target extent and
 the command-local viewport rectangle in physical pixels. The shared WGSL maps

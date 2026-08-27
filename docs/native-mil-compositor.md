@@ -638,6 +638,20 @@ guards the expanded 560-byte record ABI. WinUI no longer approximates mesh
 gradients with the first stop. Texture-plus-gradient ambiguity and unsupported
 brush kinds fail closed; no CPU texture staging or readback is introduced.
 
+Exact pushed implementation `8eee2170` is also qualified on Windows ARM64
+from an isolated source archive plus the repository's exact pinned
+`microsoft-ui-xaml` submodule file at `25d2cb1c`. .NET SDK 10.0.400 built the
+complete `ProGPU.Tests` graph with zero warnings and zero errors. The focused
+`FullyQualifiedName~Mesh3D` family passed 18/18 in 4.6601 minutes, including
+typed linear/radial compilation, the live linear-gradient readback, point and
+spot lights, planar video surfaces, and retained scratch reuse. A separate
+diagnostic run of the live gradient test selected
+`Parallels Display Adapter (WDDM)`, backend `D3D12`, device type
+`DiscreteGpu`, and passed in 38.0304 seconds without a WebGPU validation or
+device error. This gate proves the same WGSL gradient ABI on Metal and D3D12;
+it does not claim native C++ gradient-material parity, which remains the next
+versioned resource slice.
+
 The corresponding MIL channel API now binds a copied, pointer-free flattened
 scene to a canonical `TYPE_VIEWPORT3DVISUAL` handle. It accepts the public
 semantic camera/mesh/vertex ABI plus uint32 indices, validates every finite
