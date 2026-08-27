@@ -377,10 +377,11 @@ an interactive browser picker/download smoke remains open.
   records with no managed allocation. AABB overlap is explicitly broad phase:
   expanded block primitives remain separate even when they share one root
   handle. `CadSelectionHitTester` then performs exact allocation-free world-space
-  proximity tests for lines, conformal circles/arcs, straight lightweight and
-  legacy 2D polylines, and 3D polylines. It validates candidate generation and
-  immutable header identity before indexing primitive buffers. Affine circular
-  geometry, bulge arcs, ellipses, splines, faces, and text return typed
+  proximity tests for lines, conformal circles/arcs, lightweight and legacy 2D
+  polylines (including signed circular bulges under conformal transforms), and
+  3D polylines. It validates candidate generation and
+  immutable header identity before indexing primitive buffers. Anisotropically
+  transformed circular/bulge geometry, ellipses, splines, faces, and text return typed
   `UnsupportedGeometry`/`UnsupportedKind` results rather than AABB false hits;
   their full distance contracts plus semantic-handle deduplication,
   crossing/window semantics, and draw-order resolution remain explicit work.

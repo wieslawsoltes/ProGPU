@@ -163,7 +163,7 @@ public sealed class CadSelectionTests
     }
 
     [Fact]
-    public void PointHitTesterHandlesStraightPolylinesAndReportsBulgesExplicitly()
+    public void PointHitTesterHandlesStraightAndCircularBulgePolylines()
     {
         var straight = new LwPolyline();
         straight.Vertices.Add(new LwPolyline.Vertex(0, 0));
@@ -181,8 +181,28 @@ public sealed class CadSelectionTests
             bulged,
             new CadPoint3D(5, -5, 0),
             0.1);
-        Assert.Equal(CadPointHitStatus.UnsupportedGeometry, bulgedResult.Status);
-        Assert.False(bulgedResult.IsSupported);
+        Assert.Equal(CadPointHitStatus.Hit, bulgedResult.Status);
+        Assert.Equal(0.0, bulgedResult.Distance, 10);
+
+        var reverseBulge = new LwPolyline();
+        reverseBulge.Vertices.Add(new LwPolyline.Vertex(0, 0) { Bulge = -1.0 });
+        reverseBulge.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        CadPointHitResult reverseBulgeResult = Hit(
+            reverseBulge,
+            new CadPoint3D(5, 5, 0),
+            0.1);
+        Assert.Equal(CadPointHitStatus.Hit, reverseBulgeResult.Status);
+        Assert.Equal(0.0, reverseBulgeResult.Distance, 10);
+
+        var missedBulge = new LwPolyline();
+        missedBulge.Vertices.Add(new LwPolyline.Vertex(0, 0) { Bulge = 1.0 });
+        missedBulge.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        CadPointHitResult missedBulgeResult = Hit(
+            missedBulge,
+            new CadPoint3D(5, 5, 0),
+            0.1);
+        Assert.Equal(CadPointHitStatus.Miss, missedBulgeResult.Status);
+        Assert.Equal(Math.Sqrt(50), missedBulgeResult.Distance, 10);
 
         var polyline3D = new Polyline3D(
             [XYZ.Zero, new XYZ(0, 0, 10), new XYZ(10, 0, 10)],
@@ -192,6 +212,34 @@ public sealed class CadSelectionTests
             new CadPoint3D(0.2, 0, 5),
             0.2);
         Assert.Equal(CadPointHitStatus.Hit, threeDimensional.Status);
+    }
+
+    [Fact]
+    public void NonUniformlyTransformedBulgeReportsUnsupportedGeometry()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("SCALED_BULGE");
+        var bulged = new LwPolyline();
+        bulged.Vertices.Add(new LwPolyline.Vertex(0, 0) { Bulge = 1.0 });
+        bulged.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        block.Entities.Add(bulged);
+        document.Entities.Add(new Insert(block)
+        {
+            XScale = 2.0,
+            YScale = 1.0,
+            ZScale = 1.0,
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        CadPointHitResult result = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            SingleCandidate(snapshot),
+            new CadPoint3D(10, -5, 0),
+            0.1);
+
+        Assert.Equal(CadPointHitStatus.UnsupportedGeometry, result.Status);
+        Assert.False(result.IsSupported);
     }
 
     [Fact]

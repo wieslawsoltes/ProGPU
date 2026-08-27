@@ -182,27 +182,14 @@ public static class CadSelectionHitTester
         {
             return UnsupportedGeometry();
         }
-        CadPoint3D delta = point - arc.Center;
-        double x = CadPoint3D.Dot(delta, basis.XAxis);
-        double y = CadPoint3D.Dot(delta, basis.YAxis);
-        double radial = new CadPoint3D(x, y, 0.0).Length;
-        double angle = radial == 0.0 ? arc.StartAngle : Math.Atan2(y, x);
-        double distance;
-        if (ContainsAngle(arc.StartAngle, arc.SweepAngle, angle))
-        {
-            double plane = Math.Abs(CadPoint3D.Dot(delta, basis.Normal));
-            distance = new CadPoint3D(
-                radial - basis.Radius,
-                plane,
-                0.0).Length;
-        }
-        else
-        {
-            distance = Math.Min(
-                (point - arc.StartPoint).Length,
-                (point - arc.EndPoint).Length);
-        }
-        return FromDistance(distance, tolerance);
+        return FromDistance(
+            DistanceToCircularArc(
+                point,
+                arc.Center,
+                basis,
+                arc.StartAngle,
+                arc.SweepAngle),
+            tolerance);
     }
 
     private static CadPointHitResult HitPolyline2D(
@@ -235,7 +222,19 @@ public static class CadSelectionHitTester
             CadPolylineVertex end = vertices[(i + 1) % vertices.Length];
             if (start.Bulge != 0.0)
             {
-                hasUnsupportedBulge = true;
+                if (TryDistanceToBulge(
+                        point,
+                        polyline,
+                        start,
+                        end,
+                        out double bulgeDistance))
+                {
+                    minimum = Math.Min(minimum, bulgeDistance);
+                }
+                else
+                {
+                    hasUnsupportedBulge = true;
+                }
                 continue;
             }
             minimum = Math.Min(
@@ -252,6 +251,59 @@ public static class CadSelectionHitTester
         return hasUnsupportedBulge
             ? UnsupportedGeometry()
             : FromDistance(minimum, tolerance);
+    }
+
+    private static bool TryDistanceToBulge(
+        CadPoint3D point,
+        CadPolylinePrimitive polyline,
+        CadPolylineVertex start,
+        CadPolylineVertex end,
+        out double distance)
+    {
+        double bulge = start.Bulge;
+        double deltaX = end.X - start.X;
+        double deltaY = end.Y - start.Y;
+        double chord = new CadPoint3D(deltaX, deltaY, 0.0).Length;
+        if (!double.IsFinite(bulge) || bulge == 0.0 ||
+            !double.IsFinite(chord) || chord == 0.0)
+        {
+            distance = double.NaN;
+            return false;
+        }
+
+        double inverseBulge = 1.0 / bulge;
+        double centerOffset = (chord * 0.25) * (inverseBulge - bulge);
+        double localRadius = (chord * 0.25) *
+            (Math.Abs(bulge) + Math.Abs(inverseBulge));
+        if (!double.IsFinite(centerOffset) || !double.IsFinite(localRadius) ||
+            !TryGetCircularBasis(
+                polyline.CoordinateSystem,
+                localRadius,
+                out CircularBasis basis))
+        {
+            distance = double.NaN;
+            return false;
+        }
+
+        double centerX = (start.X * 0.5) + (end.X * 0.5) -
+            ((deltaY / chord) * centerOffset);
+        double centerY = (start.Y * 0.5) + (end.Y * 0.5) +
+            ((deltaX / chord) * centerOffset);
+        if (!double.IsFinite(centerX) || !double.IsFinite(centerY))
+        {
+            distance = double.NaN;
+            return false;
+        }
+        CadPoint3D center = ToWorld(polyline, centerX, centerY);
+        double startAngle = Math.Atan2(start.Y - centerY, start.X - centerX);
+        double sweep = 4.0 * Math.Atan(bulge);
+        distance = DistanceToCircularArc(
+            point,
+            center,
+            basis,
+            startAngle,
+            sweep);
+        return double.IsFinite(distance);
     }
 
     private static CadPointHitResult HitPolyline3D(
@@ -289,9 +341,48 @@ public static class CadSelectionHitTester
 
     private static CadPoint3D ToWorld(
         CadPolylinePrimitive polyline,
-        CadPolylineVertex vertex) =>
+        CadPolylineVertex vertex) => ToWorld(polyline, vertex.X, vertex.Y);
+
+    private static CadPoint3D ToWorld(
+        CadPolylinePrimitive polyline,
+        double x,
+        double y) =>
         polyline.WorldOrigin + polyline.CoordinateSystem.Transform(
-            new CadPoint3D(vertex.X, vertex.Y, 0.0));
+            new CadPoint3D(x, y, 0.0));
+
+    private static double DistanceToCircularArc(
+        CadPoint3D point,
+        CadPoint3D center,
+        CircularBasis basis,
+        double startAngle,
+        double sweepAngle)
+    {
+        CadPoint3D delta = point - center;
+        double x = CadPoint3D.Dot(delta, basis.XAxis);
+        double y = CadPoint3D.Dot(delta, basis.YAxis);
+        double radial = new CadPoint3D(x, y, 0.0).Length;
+        double angle = radial == 0.0 ? startAngle : Math.Atan2(y, x);
+        if (ContainsAngle(startAngle, sweepAngle, angle))
+        {
+            double plane = Math.Abs(CadPoint3D.Dot(delta, basis.Normal));
+            return new CadPoint3D(
+                radial - basis.Radius,
+                plane,
+                0.0).Length;
+        }
+
+        CadPoint3D start = PointOnCircle(center, basis, startAngle);
+        CadPoint3D end = PointOnCircle(center, basis, startAngle + sweepAngle);
+        return Math.Min((point - start).Length, (point - end).Length);
+    }
+
+    private static CadPoint3D PointOnCircle(
+        CadPoint3D center,
+        CircularBasis basis,
+        double angle) =>
+        center +
+        (basis.XAxis * (basis.Radius * Math.Cos(angle))) +
+        (basis.YAxis * (basis.Radius * Math.Sin(angle)));
 
     private static double DistanceToSegment(
         CadPoint3D point,
