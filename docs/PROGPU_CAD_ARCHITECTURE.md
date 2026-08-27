@@ -125,9 +125,11 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   standard font header metrics. `CadShxInterpreter` executes standard commands
   0 through 14 into caller-owned retained analytic line/arc paths with bounded
   recursion, commands, output, scale, coordinates, and the specified four-entry
-  position stack. Unicode and Big Font containers, font resolution, glyph-path
-  caching, TEXT lowering, and rendering remain explicit gates; this checkpoint
-  does not claim SHX TEXT support.
+  position stack. `CadShxGlyphCache` and `CadShxTextLayout` retain interpreted
+  glyphs per font/shape/orientation and produce bounded standard-font character
+  placements. Unicode and Big Font containers, host font resolution, snapshot
+  TEXT lowering, and rendering remain explicit gates; this checkpoint does not
+  claim SHX TEXT rendering support.
 
 The exact approved ProGPU-owned implementation provenance for this slice is
 `src/ProGPU.Scene/RenderCommand.cs` (`DrawingContext.DrawLine`, `DrawEllipse`,
@@ -455,11 +457,26 @@ absolute coordinates and cumulative scale at one billion, and position depth
 at the format-defined four entries. Cycles, missing/reserved subshapes,
 unbalanced stack operations, zero/overflowing scale, malformed operands,
 unreachable terminators, unsupported vertical commands, and limit overruns fail
-the whole interpretation. Each call returns a fresh caller-owned path; later
-font integration must cache one immutable interpreted glyph per font identity,
-shape number, and orientation rather than reinterpreting per placed character.
+the whole interpretation. Each direct call returns a fresh caller-owned path.
+`CadShxGlyphCache` instead interprets once per immutable font identity, shape
+number, and orientation, keeps the mutable path private, and exposes immutable
+advance/bounds/segment metadata. Its locked cache is safe for concurrent
+snapshot workers; lookup is expected `O(1)` after the first bounded execution.
 Unicode two-byte subshape references and Big Font ranges use different
 contracts and are rejected instead of being guessed as standard records.
+
+`CadShxTextLayout` scans one standard-font TEXT value in `O(C + G)` time and
+retains `O(G)` placements for `C` UTF-16/control-code units and `G` characters.
+It accumulates each font-authored pen-up endpoint as the next origin rather than
+estimating character widths. Autodesk decimal controls address their exact
+three-digit shape number; degree, plus/minus, and diameter controls and literal
+Unicode equivalents map to the standard format's reserved shapes 256, 257, and
+258. Percent, DXF four-hex-digit escapes, and decoration toggles are decoded
+without changing glyph identity. Missing shapes, malformed controls, surrogate
+pairs, unsupported nonstandard Unicode, empty control-only strings, coordinate
+growth, and code-unit/glyph limits fail explicitly. Decoration flags are
+retained per placement for the later metric policy; they are not silently
+dropped or rendered at guessed positions.
 
 The binary container layout was independently observed from the compiled
 `external/ACadSharp/samples/test_shape.shx` artifact pinned by this repository;
@@ -485,8 +502,17 @@ managed bytes per batch in both runs. The synthetic shape exercises direction
 vectors plus octant, bulge, and polyarc output. These numbers establish the
 interpreter construction baseline only; process-to-process tails vary, no
 improvement claim is made, and they are not a steady TEXT replay target. The
-allocation result reinforces the required later per-font glyph cache: normal
+allocation result motivated the implemented per-font glyph cache: normal
 retained replay must not construct a `PathGeometry` for every placed character.
+Snapshot/scene integration remains the gate that must prove cache reuse under a
+representative document workload.
+
+The same two runs measured 1,000 warm-cache layouts of eight standard glyphs at
+p50/p95/p99 2.475/3.695/4.089 ms and 1.565/2.212/2.507 ms, with 584,024 managed
+bytes per batch in both runs. This is a device-independent placement baseline,
+not retained replay and not an improvement claim. Snapshot integration must
+pack those placements into generation-owned arrays and reuse the cached glyph
+paths; it may not reinterpret or clone eight path graphs per TEXT entity.
 
 The 2026-08-27 Release applicability/performance audit compared commit
 `778dc69f` with this lowering on the same Apple Silicon/.NET 10 machine and the

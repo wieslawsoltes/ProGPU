@@ -13,6 +13,7 @@ int blockArrayColumnCount = ReadNonNegativeInt("--block-array-columns", 0);
 int textEntityCount = ReadNonNegativeInt("--text-entities", 0);
 bool decorateText = HasFlag("--text-decorations");
 int shxInterpretationCount = ReadNonNegativeInt("--shx-interpretations", 0);
+int shxLayoutCount = ReadNonNegativeInt("--shx-layouts", 0);
 int warmupCount = ReadNonNegativeInt("--warmup", 3);
 int iterationCount = ReadPositiveInt("--iterations", 24);
 int queryCount = ReadPositiveInt("--queries", 10_000);
@@ -38,7 +39,12 @@ CadDocumentSession session = CreateDocument(
     decorateText);
 var snapshotCompiler = new CadSnapshotCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
-CadShxFont? shxFont = shxInterpretationCount == 0 ? null : CreateBenchmarkShxFont();
+CadShxFont? shxFont = shxInterpretationCount == 0 && shxLayoutCount == 0
+    ? null
+    : CreateBenchmarkShxFont();
+CadShxGlyphCache? shxCache = shxLayoutCount == 0
+    ? null
+    : new CadShxGlyphCache(shxFont!);
 CadSnapshotOptions snapshotOptions = textEntityCount == 0
     ? new CadSnapshotOptions()
     : new CadSnapshotOptions
@@ -52,7 +58,14 @@ for (int i = 0; i < warmupCount; i++)
     _ = sceneCompiler.Compile(warmSnapshot);
     if (shxFont is not null)
     {
-        _ = InterpretShxBatch(shxFont, shxInterpretationCount);
+        if (shxInterpretationCount != 0)
+        {
+            _ = InterpretShxBatch(shxFont, shxInterpretationCount);
+        }
+        if (shxCache is not null)
+        {
+            _ = LayoutShxBatch(shxCache, shxLayoutCount);
+        }
     }
 }
 
@@ -67,12 +80,18 @@ Measurement sceneMeasurement = Measure(
     () => sceneCompiler.Compile(snapshot));
 CadRecordedPlanScene recordedScene = sceneCompiler.Compile(snapshot);
 Measurement queryMeasurement = MeasureQueries(snapshot, queryCount);
-Measurement? shxMeasurement = shxFont is null
+Measurement? shxMeasurement = shxInterpretationCount == 0
     ? null
     : Measure(
         "shx-interpret-batch",
         iterationCount,
-        () => InterpretShxBatch(shxFont, shxInterpretationCount));
+        () => InterpretShxBatch(shxFont!, shxInterpretationCount));
+Measurement? shxLayoutMeasurement = shxCache is null
+    ? null
+    : Measure(
+        "shx-layout-batch",
+        iterationCount,
+        () => LayoutShxBatch(shxCache, shxLayoutCount));
 
 var report = new CadBenchmarkReport(
     DateTimeOffset.UtcNow,
@@ -83,6 +102,7 @@ var report = new CadBenchmarkReport(
     textEntityCount,
     decorateText,
     shxInterpretationCount,
+    shxLayoutCount,
     warmupCount,
     iterationCount,
     queryCount,
@@ -93,6 +113,7 @@ var report = new CadBenchmarkReport(
     sceneMeasurement,
     queryMeasurement,
     shxMeasurement,
+    shxLayoutMeasurement,
     Process.GetCurrentProcess().WorkingSet64);
 
 var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
@@ -187,6 +208,7 @@ CadDocumentSession CreateDocument(
 
 CadShxFont CreateBenchmarkShxFont()
 {
+    byte[] header = { 10, 2, 0, 0 };
     byte[] program =
     {
         0x14, 0x10, 0x1C, 0x18, 0x12,
@@ -198,11 +220,16 @@ CadShxFont CreateBenchmarkShxFont()
     using var stream = new MemoryStream();
     using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);
     writer.Write("AutoCAD-86 shapes 1.0\r\n\x1A"u8);
+    writer.Write((ushort)0);
     writer.Write((ushort)65);
-    writer.Write((ushort)65);
-    writer.Write((ushort)1);
+    writer.Write((ushort)2);
+    writer.Write((ushort)0);
+    writer.Write(checked((ushort)("BENCHMARK".Length + 1 + header.Length)));
     writer.Write((ushort)65);
     writer.Write(checked((ushort)("BENCHMARK".Length + 1 + program.Length)));
+    writer.Write("BENCHMARK"u8);
+    writer.Write((byte)0);
+    writer.Write(header);
     writer.Write("BENCHMARK"u8);
     writer.Write((byte)0);
     writer.Write(program);
@@ -217,6 +244,17 @@ object InterpretShxBatch(CadShxFont font, int count)
     {
         CadShxGeometry geometry = CadShxInterpreter.Interpret(font, 65);
         checksum = HashCode.Combine(checksum, geometry.SegmentCount, geometry.EndPoint);
+    }
+    return checksum;
+}
+
+object LayoutShxBatch(CadShxGlyphCache cache, int count)
+{
+    int checksum = 0;
+    for (int i = 0; i < count; i++)
+    {
+        var layout = new CadShxTextLayout("AAAAAAAA", cache);
+        checksum = HashCode.Combine(checksum, layout.Glyphs.Length, layout.Advance);
     }
     return checksum;
 }
@@ -332,6 +370,7 @@ internal sealed record CadBenchmarkReport(
     int TextEntityCount,
     bool DecoratedText,
     int ShxInterpretationCount,
+    int ShxLayoutCount,
     int WarmupCount,
     int IterationCount,
     int QueryCount,
@@ -342,6 +381,7 @@ internal sealed record CadBenchmarkReport(
     Measurement PlanSceneMilliseconds,
     Measurement SpatialQueryNanoseconds,
     Measurement? ShxInterpretBatchMilliseconds,
+    Measurement? ShxLayoutBatchMilliseconds,
     long WorkingSetBytes);
 
 internal sealed class BenchmarkTextFontResolver(TtfFont font) : ICadTextFontResolver
