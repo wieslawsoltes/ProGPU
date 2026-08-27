@@ -699,6 +699,8 @@ struct channel::implementation {
     struct solid_brush_state {
         double opacity{1.0};
         progpu_native_color color{};
+        std::uint32_t transform_handle{};
+        std::uint32_t relative_transform_handle{};
         std::uint32_t opacity_animation_handle{};
         std::uint32_t color_animation_handle{};
     };
@@ -1755,7 +1757,9 @@ struct channel::implementation {
             }
             for (const auto& [brush_handle, brush] : solid_brushes) {
                 if (brush_handle != handle &&
-                    (brush.opacity_animation_handle == handle ||
+                    (brush.transform_handle == handle ||
+                     brush.relative_transform_handle == handle ||
+                     brush.opacity_animation_handle == handle ||
                      brush.color_animation_handle == handle)) {
                     return status::invalid_graph;
                 }
@@ -3820,10 +3824,10 @@ struct channel::implementation {
             if (!require_resource(handle, type_solid_color_brush)) {
                 return status::invalid_handle;
             }
-            if (transform != 0U || relative_transform != 0U) {
-                return status::unsupported_command;
-            }
-            if ((opacity_animations != 0U &&
+            if ((transform != 0U && !require_transform(transform)) ||
+                (relative_transform != 0U &&
+                 !require_transform(relative_transform)) ||
+                (opacity_animations != 0U &&
                  !require_resource(
                      opacity_animations,
                      type_double_resource)) ||
@@ -3843,6 +3847,8 @@ struct channel::implementation {
                 solid_brush_state{
                     opacity,
                     color,
+                    transform,
+                    relative_transform,
                     opacity_animations,
                     color_animations});
             increment_generation(handle);
@@ -10886,6 +10892,9 @@ struct channel::implementation {
             if (brush == solid_brushes.end()) {
                 result = status::invalid_handle;
             } else {
+                append_if_success(brush->second.transform_handle);
+                append_if_success(
+                    brush->second.relative_transform_handle);
                 append_if_success(brush->second.opacity_animation_handle);
                 append_if_success(brush->second.color_animation_handle);
             }

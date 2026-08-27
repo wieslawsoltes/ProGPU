@@ -942,6 +942,8 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     constexpr std::uint32_t target = 4U;
     constexpr std::uint32_t brush = 5U;
     constexpr std::uint32_t opacity_animation = 6U;
+    constexpr std::uint32_t transform = 7U;
+    constexpr std::uint32_t relative_transform = 8U;
 
     std::vector<std::byte> batch;
     append_create(batch, root, visual_type);
@@ -950,6 +952,8 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     append_create(batch, target, target_type);
     append_create(batch, brush, solid_brush_type);
     append_create(batch, opacity_animation, double_resource_type);
+    append_create(batch, transform, 66U);
+    append_create(batch, relative_transform, 62U);
     append_command(batch, command::visual_create, root);
     append_command(batch, command::visual_create, child);
     append_command(batch, command::visual_set_offset, root, 10.0, 20.0);
@@ -971,6 +975,25 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     append_command(batch, command::visual_insert_child_at, root, child, 0U);
     append_command(
         batch, command::double_resource, opacity_animation, 0.5);
+    append_command(
+        batch,
+        command::matrix_transform,
+        transform,
+        2.0,
+        0.0,
+        0.0,
+        3.0,
+        17.0,
+        19.0,
+        0U);
+    append_command(
+        batch,
+        command::translate_transform,
+        relative_transform,
+        0.25,
+        0.5,
+        0U,
+        0U);
 
     const progpu_native_color color{0.25F, 0.5F, 0.75F, 0.9F};
     append_command(
@@ -980,8 +1003,8 @@ bool solid_rectangle_compiles_to_semantic_scene() {
         0.75,
         color,
         0U,
-        0U,
-        0U,
+        transform,
+        relative_transform,
         0U);
     std::vector<std::byte> nested;
     append_command(
@@ -1132,6 +1155,28 @@ bool solid_rectangle_compiles_to_semantic_scene() {
     PROGPU_REQUIRE(found_ellipse);
     PROGPU_REQUIRE(found_rounded_rectangle);
     PROGPU_REQUIRE(found_brush);
+
+    std::vector<std::byte> invalid_brush_transform;
+    append_command(
+        invalid_brush_transform,
+        command::solid_color_brush,
+        brush,
+        0.75,
+        color,
+        0U,
+        opacity_animation,
+        relative_transform,
+        0U);
+    PROGPU_REQUIRE(
+        state.apply(invalid_brush_transform) == status::invalid_handle);
+    std::vector<std::byte> delete_brush_transform;
+    append_command(
+        delete_brush_transform,
+        command::channel_delete_resource,
+        transform,
+        66U);
+    PROGPU_REQUIRE(
+        state.apply(delete_brush_transform) == status::invalid_graph);
 
     std::vector<std::byte> opacity_update;
     append_command(
