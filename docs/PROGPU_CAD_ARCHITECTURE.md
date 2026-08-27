@@ -368,6 +368,12 @@ an interactive browser picker/download smoke remains open.
   deterministic undo/redo, never a duplicate full document.
 - Nested edits publish one atomic generation. Selection, hover, camera, and
   temporary tool overlays are view state and do not dirty the document.
+- `CadSelectionQuery` is the first selection seam over immutable snapshots. It
+  maps BVH intersections into caller-owned, generation-tagged primitive/handle
+  records with no managed allocation. AABB overlap is explicitly broad phase:
+  expanded block primitives remain separate even when they share one root
+  handle, and later exact geometry hit testing owns deduplication, tolerance,
+  crossing/window semantics, and draw-order resolution.
 - Background compilation captures a generation and publishes only if it still
   matches; obsolete work is discarded. The UI may continue drawing the previous
   immutable snapshot while the next generation compiles.

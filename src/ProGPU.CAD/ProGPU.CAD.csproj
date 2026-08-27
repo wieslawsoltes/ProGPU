@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <Description>ACadSharp-backed DXF/DWG document sessions and the foundation for retained GPU-accelerated 2D/3D CAD rendering, editing, printing, and save workflows.</Description>
     <PackageDescription>ACadSharp-backed DXF/DWG document sessions and the foundation for retained GPU-accelerated 2D/3D CAD rendering, editing, printing, and save workflows.</PackageDescription>
-    <PackageReleaseNotes>Introduces the ProGPU.CAD foundation and first immutable-scene slice: pinned ACadSharp object model, typed DXF/DWG stream IO, generation-tagged WCS snapshots, bounded reversible transform/entity-property/layer-property/layer-add/entity-add-remove edits including inherited color, lineweight, and linetype, hierarchical spatial queries, large-coordinate rebasing, retained analytic geometry, bounded static block arrays, shaped TrueType TEXT, and bounded standard horizontal SHX TEXT parsing, caching, catalog/FMP resolution, ordered desktop discovery, and retained path recording.</PackageReleaseNotes>
+    <PackageReleaseNotes>Introduces the ProGPU.CAD foundation and first immutable-scene slice: pinned ACadSharp object model, typed DXF/DWG stream IO, generation-tagged WCS snapshots, bounded reversible transform/entity-property/layer-property/layer-add/entity-add-remove edits, caller-buffered selection candidates, hierarchical spatial queries, large-coordinate rebasing, retained analytic geometry, bounded static block arrays, shaped TrueType TEXT, and bounded standard horizontal SHX TEXT parsing, caching, catalog/FMP resolution, ordered desktop discovery, and retained path recording.</PackageReleaseNotes>
     <PackageTags>progpu;cad;dxf;dwg;acadsharp;webgpu;rendering;editing</PackageTags>
   </PropertyGroup>
 
