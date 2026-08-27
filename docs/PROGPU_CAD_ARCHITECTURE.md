@@ -210,8 +210,8 @@ It freezes one generation-tagged scene into an owned `GpuPicture`; wheel zoom
 and pointer pan then update only the replay camera matrix. Camera motion never
 revisits ACadSharp or recompiles geometry. The representative scene exercises
 lines, OCS circles/arcs, analytic ellipses, bulge polylines, NURBS, filled
-SOLID, and 3DFACE visible-edge semantics while framework chrome uses dynamic
-theme resources.
+SOLID, 3DFACE visible-edge semantics, and a rotated non-uniform MINSERT array
+while framework chrome uses dynamic theme resources.
 
 The desktop host uses the existing ProGPU WinUI/GLFW presentation path. The
 browser host uses `BrowserGpuRuntime`, canonical ProGPU browser assets, SIMD,
@@ -296,16 +296,27 @@ effective INSERT layer, while ByBlock color, lineweight, linetype, and
 transparency inherit the resolved parent INSERT style. All descendants retain
 their own nonzero layers and explicit properties.
 
-Expansion is bounded by configurable depth and entity-count limits and detects
-cycles along the active block path. Exceeding the global entity budget fails the
-snapshot explicitly at the bound instead of returning a partially rendered
+MINSERT uses the same lowering. For zero-based column `c` and row `r`, column
+spacing `dc`, and row spacing `dr`, its cell origin is
+`P + O * R * (c * dc, r * dr, 0)`. Thus rotation applies to both each block and
+the whole array, while the independently specified spacing is not multiplied by
+the per-block scale. Cells are emitted row-major and every primitive retains the
+single top-level INSERT handle. The affine axes are composed once per array;
+each cell changes only the translation, so lowering remains allocation-free per
+instance apart from the immutable primitive output itself.
+
+Expansion is bounded by configurable depth, array-instance, and entity-count
+limits and detects cycles along the active block path. The array limit is
+checked before any cell is emitted, including for an empty block whose instances
+would not consume the entity budget. Exceeding the global entity budget fails
+the snapshot explicitly at the bound instead of returning a partially rendered
 drawing; depth and cycle failures diagnose only the affected INSERT. Expansion
-is `O(E)` before the `O(E log E)` BVH build for `E` expanded visible entities;
-camera replay remains independent of both source and expanded entity counts.
-MINSERT arrays, dynamic evaluation graphs, XRefs, and attribute text are
-explicitly diagnosed rather than rendered approximately. Shared block-fragment/
-GPU instance reuse remains a later optimization after inherited-style variants
-and instance hit identity are fully specified.
+is `O(I + E)` before the `O(E log E)` BVH build for `I` block instances and `E`
+expanded visible entities; camera replay remains independent of both source and
+expanded entity counts. Dynamic evaluation graphs, XRefs, and attribute text
+are explicitly diagnosed rather than rendered approximately. Shared block-
+fragment/GPU instance reuse remains a later optimization after inherited-style
+variants and instance hit identity are fully specified.
 
 The 2026-08-27 Release applicability/performance audit compared commit
 `778dc69f` with this lowering on the same Apple Silicon/.NET 10 machine and the
@@ -365,6 +376,7 @@ snapshot construction, retained plan-scene recording, and spatial queries. Run:
 
 ```bash
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --block-array-columns 10000 --warmup 5 --iterations 100 --queries 10000
 ```
 
 The initial 2026-08-27 Apple Silicon/.NET 10 baseline for 10,000 mixed analytic
@@ -376,6 +388,18 @@ respectively. These are transparent starting measurements, not an improvement or
 release-acceptance claim. Full representative viewer workloads, GPU counters,
 matched managed/native results, and required macOS Instruments traces remain
 open gates before performance acceptance.
+
+The MINSERT mode creates one block reference whose single line expands across
+the requested number of columns. Two consecutive 100-iteration Release runs at
+10,000 cells measured snapshot p50/p95/p99 of
+4.856/13.501/15.956 ms and 5.258/9.713/11.030 ms, with
+8,410,515 and 8,410,267 managed bytes per generation. Retained plan recording
+measured 11.462/38.207/41.159 ms and 10.727/37.593/45.143 ms, with
+10,240,521 and 10,240,498 bytes per generation. The snapshot reported one
+source INSERT, 10,001 expanded entities including the root, and 10,000 recorded
+commands. Alternating 10,000 ordinary-entity controls were intentionally kept
+alongside these runs; graph shape and spatial distribution differ, so the data
+is a feature baseline and makes no relative speed or regression claim.
 
 Run the standalone samples with:
 
@@ -433,6 +457,16 @@ Sources consulted on 2026-08-27:
   adapted them into bounded immutable analytic expansion while retaining root
   handle identity; rejected approximate transformed extents and unbounded
   recursion.
+- [Autodesk MINSERT command contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-A780A2FA-4A2E-4574-950F-E788AB71F527.htm),
+  [AddMInsertBlock API](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-ActiveX-Reference/files/GUID-AAEFDED2-34A3-4466-A7AA-71CAD8DCB35C.htm),
+  and [AcDbMInsertBlock methods](https://help.autodesk.com/cloudhelp/2018/ENU/OARXMAC-RefGuide/files/OREFMAC-__MEMBERTYPE_Methods_AcDbMInsertBlock.html):
+  adopted independent row/column counts and spacings plus rotation of both each
+  block and the complete array; adapted cells into row-major bounded affine
+  lowering with one semantic root handle. The scale-independent spacing order
+  is an inference from Autodesk exposing scale factors and spacing distances as
+  independent inputs and describing rotation, but not scale, as applying to the
+  entire array. Rejected unbounded expansion and undocumented scale-dependent
+  spacing.
 - [Autodesk common entity property codes](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-3610039E-27D1-4E23-B6D3-7E60B22BB5BD.htm)
   and [ByBlock color behavior](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-14BC039D-238D-4D9E-921B-F4015F96CB54.htm):
   adopted layer `0`, ByLayer, and ByBlock inheritance without mutating block

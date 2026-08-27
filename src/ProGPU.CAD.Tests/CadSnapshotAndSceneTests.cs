@@ -600,17 +600,16 @@ public sealed class CadSnapshotAndSceneTests
     }
 
     [Fact]
-    public void UnsupportedInsertVariantsAreBoundedAndReported()
+    public void InsertNestingDepthIsBoundedAndReported()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
-        session.Edit("Add nested and array inserts", document =>
+        session.Edit("Add nested insert", document =>
         {
             var leaf = new BlockRecord("LEAF");
             leaf.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
             var outer = new BlockRecord("OUTER");
             outer.Entities.Add(new Insert(leaf));
             document.Entities.Add(new Insert(outer));
-            document.Entities.Add(new Insert(leaf) { ColumnCount = 2 });
         });
 
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
@@ -618,13 +617,180 @@ public sealed class CadSnapshotAndSceneTests
             new CadSnapshotOptions { MaxBlockNestingDepth = 1 });
 
         Assert.Empty(snapshot.Entities.ToArray());
-        Assert.Equal(2, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Contains(
             snapshot.Diagnostics.ToArray(),
             diagnostic => diagnostic.Message.Contains("nesting", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void MInsertRotatesArraySpacingWithoutScalingItAndKeepsRootHandle()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        ulong insertHandle = 0;
+        session.Edit("Add block array", document =>
+        {
+            var block = new BlockRecord("ARRAY_ITEM");
+            block.BlockEntity.BasePoint = new XYZ(1, 2, 0);
+            block.Entities.Add(new Line(new XYZ(1, 2, 0), new XYZ(2, 3, 0)));
+            var insert = new Insert(block)
+            {
+                InsertPoint = new XYZ(100, 200, 0),
+                XScale = 2,
+                YScale = 3,
+                Rotation = Math.PI / 2,
+                ColumnCount = 3,
+                ColumnSpacing = 10,
+                RowCount = 2,
+                RowSpacing = 20,
+            };
+            document.Entities.Add(insert);
+            insertHandle = insert.Handle;
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadLinePrimitive[] lines = snapshot.Lines.ToArray();
+
+        Assert.Equal(6, lines.Length);
+        AssertPoint(new CadPoint3D(100, 200, 0), lines[0].Start);
+        AssertPoint(new CadPoint3D(97, 202, 0), lines[0].End);
+        AssertPoint(new CadPoint3D(100, 210, 0), lines[1].Start);
+        AssertPoint(new CadPoint3D(100, 220, 0), lines[2].Start);
+        AssertPoint(new CadPoint3D(80, 200, 0), lines[3].Start);
+        AssertPoint(new CadPoint3D(80, 220, 0), lines[5].Start);
+        Assert.All(snapshot.Entities.ToArray(), entity => Assert.Equal(insertHandle, entity.Handle));
+        AssertPoint(new CadPoint3D(77, 200, 0), snapshot.Bounds.Min);
+        AssertPoint(new CadPoint3D(100, 222, 0), snapshot.Bounds.Max);
+        Assert.Equal(7, snapshot.Statistics.ExpandedEntityCount);
+        Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Equal(0, snapshot.Statistics.InvalidEntityCount);
+    }
+
+    [Fact]
+    public void NestedMInsertComposesItsArrayPlaneThroughTheParentInsert()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        ulong rootHandle = 0;
+        session.Edit("Add nested block array", document =>
+        {
+            var item = new BlockRecord("ITEM");
+            item.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
+
+            var assembly = new BlockRecord("ASSEMBLY");
+            assembly.Entities.Add(new Insert(item)
+            {
+                ColumnCount = 2,
+                ColumnSpacing = 3,
+                RowCount = 2,
+                RowSpacing = 4,
+            });
+
+            var root = new Insert(assembly)
+            {
+                InsertPoint = new XYZ(10, 20, 0),
+                XScale = 2,
+                YScale = 3,
+                Rotation = Math.PI / 2,
+            };
+            document.Entities.Add(root);
+            rootHandle = root.Handle;
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadLinePrimitive[] lines = snapshot.Lines.ToArray();
+
+        Assert.Equal(4, lines.Length);
+        AssertPoint(new CadPoint3D(10, 20, 0), lines[0].Start);
+        AssertPoint(new CadPoint3D(10, 22, 0), lines[0].End);
+        AssertPoint(new CadPoint3D(10, 26, 0), lines[1].Start);
+        AssertPoint(new CadPoint3D(-2, 20, 0), lines[2].Start);
+        AssertPoint(new CadPoint3D(-2, 26, 0), lines[3].Start);
+        Assert.All(snapshot.Entities.ToArray(), entity => Assert.Equal(rootHandle, entity.Handle));
+        Assert.Equal(6, snapshot.Statistics.ExpandedEntityCount);
+    }
+
+    [Fact]
+    public void MInsertSpacingUsesTheInsertionOcsPlane()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add non-world block array", document =>
+        {
+            var block = new BlockRecord("ARRAY_ITEM");
+            block.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
+            document.Entities.Add(new Insert(block)
+            {
+                InsertPoint = new XYZ(10, 20, 30),
+                Normal = XYZ.AxisY,
+                ColumnCount = 2,
+                ColumnSpacing = 5,
+            });
+        });
+
+        CadLinePrimitive[] lines = new CadSnapshotCompiler()
+            .Compile(session)
+            .Lines
+            .ToArray();
+
+        Assert.Equal(2, lines.Length);
+        AssertPoint(new CadPoint3D(10, 20, 30), lines[0].Start);
+        AssertPoint(new CadPoint3D(9, 20, 30), lines[0].End);
+        AssertPoint(new CadPoint3D(5, 20, 30), lines[1].Start);
+        AssertPoint(new CadPoint3D(4, 20, 30), lines[1].End);
+    }
+
+    [Fact]
+    public void MInsertInstanceLimitRejectsTheArrayBeforeEmittingGeometry()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add oversized block array", document =>
+        {
+            var block = new BlockRecord("ARRAY_ITEM");
+            block.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
+            document.Entities.Add(new Insert(block)
+            {
+                ColumnCount = 3,
+                RowCount = 2,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions { MaxBlockArrayInstances = 5 });
+
+        Assert.Empty(snapshot.Entities.ToArray());
+        Assert.Equal(1, snapshot.Statistics.ExpandedEntityCount);
+        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Contains(
             snapshot.Diagnostics.ToArray(),
-            diagnostic => diagnostic.Message.Contains("MINSERT", StringComparison.Ordinal));
+            diagnostic => diagnostic.Message.Contains("instance count 6", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void InvalidMInsertCountsAndSpacingAreRejected()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add invalid block arrays", document =>
+        {
+            var block = new BlockRecord("ARRAY_ITEM");
+            block.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
+            document.Entities.Add(new Insert(block) { ColumnCount = 0 });
+            document.Entities.Add(new Insert(block)
+            {
+                ColumnCount = 2,
+                ColumnSpacing = double.NaN,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+
+        Assert.Empty(snapshot.Entities.ToArray());
+        Assert.Equal(2, snapshot.Statistics.InvalidEntityCount);
+        Assert.Contains(
+            snapshot.Diagnostics.ToArray(),
+            diagnostic => diagnostic.Message.Contains("counts", StringComparison.Ordinal));
+        Assert.Contains(
+            snapshot.Diagnostics.ToArray(),
+            diagnostic => diagnostic.Message.Contains("spacing", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -657,6 +823,25 @@ public sealed class CadSnapshotAndSceneTests
             block.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
             block.Entities.Add(new Line(XYZ.AxisY, new XYZ(1, 1, 1)));
             document.Entities.Add(new Insert(block));
+        });
+
+        InvalidOperationException exception = Assert.ThrowsAny<InvalidOperationException>(() =>
+            new CadSnapshotCompiler().Compile(
+                session,
+                new CadSnapshotOptions { MaxExpandedEntities = 2 }));
+
+        Assert.Contains("limit of 2", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExpandedEntityLimitFailsMidArrayInsteadOfReturningPartialGeometry()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add budgeted block array", document =>
+        {
+            var block = new BlockRecord("ARRAY_ITEM");
+            block.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
+            document.Entities.Add(new Insert(block) { ColumnCount = 2 });
         });
 
         InvalidOperationException exception = Assert.ThrowsAny<InvalidOperationException>(() =>

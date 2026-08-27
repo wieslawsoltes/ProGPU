@@ -206,10 +206,12 @@ public sealed class CadSampleCanvas : FrameworkElement
             block.Entities.Add(new Line(new XYZ(0, 5, 0), new XYZ(10, 5, 0)));
             document.Entities.Add(new Insert(block)
             {
-                InsertPoint = new XYZ(53, -13, 0),
+                InsertPoint = new XYZ(45, -13, 0),
                 XScale = 1.7,
                 YScale = 0.8,
                 Rotation = 0.42,
+                ColumnCount = 2,
+                ColumnSpacing = 16,
             });
         });
         return session;

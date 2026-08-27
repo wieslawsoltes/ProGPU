@@ -4,13 +4,27 @@ using ACadSharp.Entities;
 using CSMath;
 using ProGPU.CAD;
 
-int entityCount = ReadPositiveInt("--entities", 10_000);
+int entityCount = ReadNonNegativeInt("--entities", 10_000);
+int blockArrayColumnCount = ReadNonNegativeInt("--block-array-columns", 0);
 int warmupCount = ReadNonNegativeInt("--warmup", 3);
 int iterationCount = ReadPositiveInt("--iterations", 24);
 int queryCount = ReadPositiveInt("--queries", 10_000);
 string? outputPath = ReadString("--output-json");
 
-CadDocumentSession session = CreateDocument(entityCount);
+if (entityCount == 0 && blockArrayColumnCount == 0)
+{
+    throw new ArgumentException(
+        "At least one ordinary entity or block-array column is required.");
+}
+
+if (blockArrayColumnCount > ushort.MaxValue)
+{
+    throw new ArgumentOutOfRangeException(
+        nameof(blockArrayColumnCount),
+        $"--block-array-columns cannot exceed {ushort.MaxValue}.");
+}
+
+CadDocumentSession session = CreateDocument(entityCount, blockArrayColumnCount);
 var snapshotCompiler = new CadSnapshotCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
 
@@ -37,6 +51,7 @@ var report = new CadBenchmarkReport(
     Environment.OSVersion.ToString(),
     System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
     entityCount,
+    blockArrayColumnCount,
     warmupCount,
     iterationCount,
     queryCount,
@@ -56,7 +71,7 @@ if (outputPath is not null)
     File.WriteAllText(outputPath, json);
 }
 
-CadDocumentSession CreateDocument(int count)
+CadDocumentSession CreateDocument(int count, int arrayColumns)
 {
     CadDocumentSession result = CadDocumentSession.CreateNew();
     result.Edit("Build benchmark document", document =>
@@ -96,8 +111,19 @@ CadDocumentSession CreateDocument(int count)
                     polyline.Vertices.Add(new LwPolyline.Vertex(x + 5, y + 8));
                     polyline.Vertices.Add(new LwPolyline.Vertex(x + 10, y));
                     document.Entities.Add(polyline);
-                    break;
+                break;
             }
+        }
+
+        if (arrayColumns > 0)
+        {
+            var block = new ACadSharp.Tables.BlockRecord("BENCHMARK_ARRAY_ITEM");
+            block.Entities.Add(new Line(XYZ.Zero, new XYZ(9, 7, 0)));
+            document.Entities.Add(new Insert(block)
+            {
+                ColumnCount = checked((ushort)arrayColumns),
+                ColumnSpacing = 12,
+            });
         }
     });
     return result;
@@ -207,6 +233,7 @@ internal sealed record CadBenchmarkReport(
     string OperatingSystem,
     string Runtime,
     int EntityCount,
+    int BlockArrayColumnCount,
     int WarmupCount,
     int IterationCount,
     int QueryCount,

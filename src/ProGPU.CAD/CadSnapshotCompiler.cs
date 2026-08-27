@@ -11,11 +11,13 @@ public sealed class CadSnapshotOptions
 {
     public const int DefaultDiagnosticLimit = 256;
     public const int DefaultMaxBlockNestingDepth = 32;
+    public const int DefaultMaxBlockArrayInstances = 1_000_000;
     public const int DefaultMaxExpandedEntities = 5_000_000;
 
     public double DefaultLineWeightMillimeters { get; init; } = 0.25;
     public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
     public int MaxBlockNestingDepth { get; init; } = DefaultMaxBlockNestingDepth;
+    public int MaxBlockArrayInstances { get; init; } = DefaultMaxBlockArrayInstances;
     public int MaxExpandedEntities { get; init; } = DefaultMaxExpandedEntities;
     public bool IncludeNonPlottableLayers { get; init; } = true;
 }
@@ -270,12 +272,6 @@ public sealed class CadSnapshotCompiler
                     $"Block nesting exceeds the configured depth of {options.MaxBlockNestingDepth}.");
             }
 
-            if (insert.IsMultiple)
-            {
-                throw new CadUnsupportedEntityException(
-                    "MINSERT row/column arrays require retained instance-array lowering.");
-            }
-
             BlockRecord block = insert.Block ?? throw new ArgumentException(
                 "INSERT has no block definition.");
             if ((block.Flags & (BlockTypeFlags.XRef | BlockTypeFlags.XRefOverlay | BlockTypeFlags.XRefDependent)) != 0 ||
@@ -291,6 +287,28 @@ public sealed class CadSnapshotCompiler
                     "Dynamic blocks require evaluation-state lowering before expansion.");
             }
 
+            int columnCount = insert.ColumnCount;
+            int rowCount = insert.RowCount;
+            if (columnCount < 1 || rowCount < 1)
+            {
+                throw new ArgumentException(
+                    "INSERT row and column counts must be positive.");
+            }
+
+            if (!double.IsFinite(insert.ColumnSpacing) ||
+                !double.IsFinite(insert.RowSpacing))
+            {
+                throw new ArgumentException(
+                    "INSERT row and column spacing must be finite.");
+            }
+
+            long instanceCount = checked((long)columnCount * rowCount);
+            if (instanceCount > options.MaxBlockArrayInstances)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"MINSERT instance count {instanceCount} exceeds the configured limit of {options.MaxBlockArrayInstances}.");
+            }
+
             if (!activeBlocks.Add(block))
             {
                 throw new CadUnsupportedEntityException(
@@ -299,18 +317,45 @@ public sealed class CadSnapshotCompiler
 
             try
             {
-                CadAffineTransform3D instanceTransform = parentTransform.Compose(
-                    CreateInsertTransform(insert));
-                foreach (Entity child in block.Entities)
+                CadAffineTransform3D localTransform = CreateInsertTransform(insert);
+                CadAffineTransform3D baseInstanceTransform = parentTransform.Compose(localTransform);
+                CadPoint3D columnStep = parentTransform.TransformVector(
+                    localTransform.XAxis / insert.XScale) * insert.ColumnSpacing;
+                CadPoint3D rowStep = parentTransform.TransformVector(
+                    localTransform.YAxis / insert.YScale) * insert.RowSpacing;
+                EnsureFinite(baseInstanceTransform);
+                EnsureFinite(columnStep);
+                EnsureFinite(rowStep);
+                for (int row = 0; row < rowCount; row++)
                 {
-                    CompileEntityTree(
-                        child,
-                        instanceTransform,
-                        true,
-                        rootHandle,
-                        effectiveLayer,
-                        resolvedStyle,
-                        depth + 1);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    CadPoint3D rowTranslation = baseInstanceTransform.Translation + (rowStep * row);
+                    for (int column = 0; column < columnCount; column++)
+                    {
+                        if ((column & 255) == 0)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                        }
+
+                        CadPoint3D translation = rowTranslation + (columnStep * column);
+                        EnsureFinite(translation);
+                        var instanceTransform = new CadAffineTransform3D(
+                            baseInstanceTransform.XAxis,
+                            baseInstanceTransform.YAxis,
+                            baseInstanceTransform.ZAxis,
+                            translation);
+                        foreach (Entity child in block.Entities)
+                        {
+                            CompileEntityTree(
+                                child,
+                                instanceTransform,
+                                true,
+                                rootHandle,
+                                effectiveLayer,
+                                resolvedStyle,
+                                depth + 1);
+                        }
+                    }
                 }
 
                 if (insert.Attributes.Count > 0)
@@ -1148,6 +1193,9 @@ public sealed class CadSnapshotCompiler
             options.MaxBlockNestingDepth,
             1);
         ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxBlockArrayInstances,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
             options.MaxExpandedEntities,
             1);
     }
@@ -1171,6 +1219,14 @@ public sealed class CadSnapshotCompiler
         {
             throw new ArgumentException("CAD coordinates must be finite.");
         }
+    }
+
+    private static void EnsureFinite(CadAffineTransform3D transform)
+    {
+        EnsureFinite(transform.XAxis);
+        EnsureFinite(transform.YAxis);
+        EnsureFinite(transform.ZAxis);
+        EnsureFinite(transform.Translation);
     }
 
     private readonly record struct CadResolvedStyle(
