@@ -1658,6 +1658,12 @@ image/drawing ownership is rejected as `invalid_graph`, and an empty
 DrawingImage remains a no-op. Native coverage locks down distinct retained,
 direct-static, and direct-animated destination mappings in one scene.
 
+`NativeMilRenderDataBuilder.DrawImage(...)` now exposes the same canonical
+static packet to typed hosts. It validates finite nonnegative destination
+bounds and a nonzero image handle, writes the required zero padding, and is
+covered byte-for-byte by the managed native interop suite. This keeps WPF,
+WinUI, and Avalonia adapters from hand-encoding the protocol.
+
 The canonical BitmapSource command still contains a process-local
 `IWICBitmapSource*`, so the portable decoder deliberately does not accept that
 packet or BitmapInvalidate as proof of portable pixels. D3DImage/video and
