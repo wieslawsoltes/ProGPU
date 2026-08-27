@@ -3221,6 +3221,15 @@ for `progpu_native.dll` and
 `F58F610CF3513C275C59254510D646C3B7F2BA175B3927F6679ABC36067A8721`
 for `progpu_native_dawn.dll`.
 
+Portable WPF animation-clock resources now have narrow current-value contracts
+for `Double`, `Point`, `Size`, and `Rect`. The contracts carry only neutral
+scalar/portable structs and deliberately expose neither `AnimationClock` nor
+WPF runtime types. Source-built WPF can publish the value at scene compilation
+time and use `IPortableInvalidationSource` to reschedule compilation whenever
+the clock invalidates. This is the typed basis for retaining canonical MIL
+animation handles in LibreWPF instead of reflecting over generated resource
+classes or silently replaying their stale base values.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool
