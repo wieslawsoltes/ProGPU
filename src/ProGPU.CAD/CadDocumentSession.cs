@@ -119,6 +119,18 @@ public sealed class CadDocumentSession
     }
 
     public ulong Edit(string reason, CadDocumentEdit edit)
+        => EditCore(reason, expectedGeneration: null, edit);
+
+    internal ulong Edit(
+        string reason,
+        ulong expectedGeneration,
+        CadDocumentEdit edit) =>
+        EditCore(reason, expectedGeneration, edit);
+
+    private ulong EditCore(
+        string reason,
+        ulong? expectedGeneration,
+        CadDocumentEdit edit)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
         ArgumentNullException.ThrowIfNull(edit);
@@ -126,6 +138,11 @@ public sealed class CadDocumentSession
         ulong generation;
         lock (_gate)
         {
+            if (expectedGeneration is ulong expected && _contentGeneration != expected)
+            {
+                throw new CadEditHistoryDivergedException(expected, _contentGeneration);
+            }
+
             edit(_document);
             generation = checked(++_contentGeneration);
         }

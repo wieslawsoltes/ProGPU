@@ -228,6 +228,18 @@ implementation was copied.
 
 ## Editing model
 
+- `CadDocumentHistory` is a bounded, generation-synchronized undo/redo owner.
+  It executes only repository-defined `CadEditCommand` implementations; the
+  abstract mutation methods are internal so consumers cannot inject an
+  unvalidated arbitrary command behind the history contract.
+- The first commands translate a deduplicated stable handle set and set entity
+  visibility. They resolve every model-space handle before mutation, preserve
+  the original visibility vector, apply exact inverse translation for undo,
+  and advance one document generation for execute, undo, or redo.
+- A direct session edit from another owner invalidates both history branches.
+  The expected generation is checked again under the document lock so a race
+  cannot apply an undo to the wrong document state. Failed resolution or command
+  execution does not publish a generation or enter history.
 - Commands are typed and operate on handles. Each command records enough prior
   semantic state for deterministic undo/redo without retaining a duplicate full
   document.

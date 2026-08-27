@@ -8,7 +8,7 @@ Status values: `planned`, `foundation`, `in progress`, `verified`.
 | IO | DXF/DWG stream open with progress, diagnostics, cancellation, and initial byte/entity limits | foundation | version/corrupt/fuzz fixtures and path host adapter |
 | Save | caller-owned stream save with version/certification gates | foundation | atomic path replacement and advertised-version semantic round trips |
 | Model | ACadSharp `CadDocument` authority with locked callbacks, atomic generation capture, and content/saved generations | in progress | broader edit transaction and concurrency tests |
-| Editing | typed atomic commands, undo/redo, dirty generations | planned | command property/fuzz tests |
+| Editing | typed atomic commands, undo/redo, dirty generations | in progress | bounded generation-synchronized history plus translate/visibility commands and divergence tests implemented; add/remove/property/tool command families and fuzz tests remain |
 | 2D | all standard entities, blocks, XRefs, hatches, dimensions, images | in progress | line/circle/arc/ellipse/NURBS/lightweight-polyline/SOLID/3DFACE snapshot and top projection implemented; remaining families plus multi-DPI/zoom image tests |
 | 3D | meshes, surfaces, solids, ACIS SAT/SAB, orbit/depth | in progress | immutable 3DFACE records and exact 3D bounds implemented; shaded/depth compiler and matched managed/native 3D fixtures remain |
 | Text | complete ProGPU Unicode/OpenType text stack | planned | shaping/fallback/color/variable-font regressions |
