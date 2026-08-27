@@ -1842,3 +1842,94 @@ public sealed class CadRemoveModelSpaceEntityCommand : CadEditCommand
         document.Entities.Add(entity);
     }
 }
+
+/// <summary>Duplicates one model-space entity with optional translation.</summary>
+public sealed class CadDuplicateModelSpaceEntityCommand : CadEditCommand
+{
+    private readonly ulong _sourceHandle;
+    private readonly XYZ? _translation;
+    private Entity? _duplicate;
+
+    public ulong SourceHandle => _sourceHandle;
+
+    public CadPoint3D? Translation { get; }
+
+    public Entity? Duplicate => _duplicate;
+
+    public ulong CurrentHandle => _duplicate?.Handle ?? 0;
+
+    public CadDuplicateModelSpaceEntityCommand(
+        ulong sourceHandle,
+        CadPoint3D? translation = null,
+        string description = "Duplicate entity")
+        : base(description)
+    {
+        if (sourceHandle == 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sourceHandle),
+                "A non-zero model-space entity handle is required.");
+        }
+        if (translation is CadPoint3D value &&
+            (!double.IsFinite(value.X) ||
+             !double.IsFinite(value.Y) ||
+             !double.IsFinite(value.Z)))
+        {
+            throw new ArgumentException(
+                "A duplicate translation must be finite.",
+                nameof(translation));
+        }
+
+        _sourceHandle = sourceHandle;
+        Translation = translation;
+        _translation = translation is CadPoint3D point
+            ? new XYZ(point.X, point.Y, point.Z)
+            : null;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Entity duplicate;
+        if (isRedo)
+        {
+            duplicate = _duplicate ??
+                throw new InvalidOperationException(
+                    "The duplicate command has not been applied.");
+        }
+        else
+        {
+            Entity source = ResolveModelSpaceEntity(document, _sourceHandle);
+            duplicate = (Entity)source.Clone();
+            if (duplicate.Owner is not null || duplicate.Handle != 0)
+            {
+                throw new InvalidOperationException(
+                    "The cloned entity is not detached from its source document.");
+            }
+            if (_translation is XYZ translation && translation != XYZ.Zero)
+            {
+                duplicate.ApplyTranslation(translation);
+            }
+            _duplicate = duplicate;
+        }
+
+        if (duplicate.Owner is not null || duplicate.Handle != 0)
+        {
+            throw new InvalidOperationException(
+                "The duplicated entity is not detached and cannot be restored.");
+        }
+        document.Entities.Add(duplicate);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Entity duplicate = _duplicate ??
+            throw new InvalidOperationException(
+                "The duplicate command has not been applied.");
+        ValidateModelSpaceEntity(document, duplicate);
+        if (!document.Entities.Remove(duplicate))
+        {
+            throw new InvalidOperationException(
+                "The duplicated entity could not be removed from model space.");
+        }
+    }
+}

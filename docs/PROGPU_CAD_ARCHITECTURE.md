@@ -331,6 +331,10 @@ an interactive browser picker/download smoke remains open.
   in-history edits are undone first; arbitrary populated-layer deletion remains
   unsupported until entity/block reference reassignment has a complete semantic
   transaction.
+- Entity duplication uses ACadSharp's public detached-clone contract, applies an
+  optional finite translation before ownership transfer, and retains the one
+  cloned object across undo/redo handle reassignment. The source is never
+  mutated, and failed source resolution publishes no generation.
 - Linetype assignment uses the same table-identity and rollback contract for
   explicit, `ByLayer`, and `ByBlock` entries. The immutable snapshot retains the
   newly resolved linetype name. Entity linetype-scale assignment accepts only
@@ -824,6 +828,7 @@ Sources consulted on 2026-08-27:
   [reader API](https://github.com/DomCR/ACadSharp/blob/master/docs/articles/samples/reading.md),
   and the pinned fork's public
   [`CadObjectCollection<T>` contract](https://github.com/wieslawsoltes/ACadSharp/blob/b469bd1ec7db6d7d364425f6165609e5ccf09b04/src/ACadSharp/CadObjectCollection.cs),
+  [`CadObject.Clone` contract](https://github.com/wieslawsoltes/ACadSharp/blob/b469bd1ec7db6d7d364425f6165609e5ccf09b04/src/ACadSharp/CadObject.cs),
   [`Entity` transform contract](https://github.com/wieslawsoltes/ACadSharp/blob/b469bd1ec7db6d7d364425f6165609e5ccf09b04/src/ACadSharp/Entities/Entity.cs),
   and [`Transform` construction surface](https://github.com/wieslawsoltes/ACadSharp/blob/b469bd1ec7db6d7d364425f6165609e5ccf09b04/src/CSUtilities/CSMath/Transform.cs):
   adopted `CadDocument` plus format-specific reader/writer ownership; adapted
@@ -833,7 +838,9 @@ Sources consulted on 2026-08-27:
   collection implementation text or structure. Rotation likewise uses only the
   public axis-angle/radians entity operation, normalizes the caller's axis in
   ProGPU, and applies the public inverse operation for undo. Uniform scale uses
-  the documented origin overload and a reciprocal factor. Rejected
+  the documented origin overload and a reciprocal factor. Duplication consumes
+  only the documented detached-copy result and adds ProGPU-owned command state
+  plus optional translation. Rejected
   extension-only validation, unconditional DWG-save claims, private handle
   manipulation, pivot rotation based on undocumented matrix order, and exposing
   anisotropic scaling without type-preserving entity conformance.

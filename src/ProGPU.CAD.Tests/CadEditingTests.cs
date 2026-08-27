@@ -319,6 +319,73 @@ public sealed class CadEditingTests
     }
 
     [Fact]
+    public void DuplicateCommandClonesOnceAndRoundTripsTranslatedEntity()
+    {
+        var document = new CadDocument();
+        var layer = new Layer("DUPLICATES") { Color = ACadSharp.Color.Red };
+        document.Layers.Add(layer);
+        var source = new Line(new XYZ(1, 2, 3), new XYZ(4, 5, 6))
+        {
+            Layer = layer,
+            Color = ACadSharp.Color.ByLayer,
+            LineWeight = LineWeightType.W50,
+        };
+        document.Entities.Add(source);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadDuplicateModelSpaceEntityCommand(
+            source.Handle,
+            new CadPoint3D(10, -2, 4));
+
+        history.Execute(command);
+
+        var duplicate = Assert.IsType<Line>(command.Duplicate);
+        Assert.NotSame(source, duplicate);
+        Assert.NotEqual(0UL, command.CurrentHandle);
+        Assert.Equal(new XYZ(1, 2, 3), source.StartPoint);
+        Assert.Equal(new XYZ(11, 0, 7), duplicate.StartPoint);
+        Assert.Equal(new XYZ(14, 3, 10), duplicate.EndPoint);
+        Assert.Same(layer, duplicate.Layer);
+        Assert.Equal(ACadSharp.Color.ByLayer, duplicate.Color);
+        Assert.Equal(LineWeightType.W50, duplicate.LineWeight);
+        Assert.Equal(2, new CadSnapshotCompiler().Compile(session).Entities.Length);
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(0UL, command.CurrentHandle);
+        Assert.Null(duplicate.Owner);
+        Assert.Single(new CadSnapshotCompiler().Compile(session).Entities.ToArray());
+
+        Assert.True(history.TryRedo(out _));
+        Assert.Same(duplicate, command.Duplicate);
+        Assert.NotEqual(0UL, command.CurrentHandle);
+        Assert.Equal(2, new CadSnapshotCompiler().Compile(session).Entities.Length);
+    }
+
+    [Fact]
+    public void DuplicateCommandRejectsInvalidHandleOrTranslation()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadDuplicateModelSpaceEntityCommand(0));
+        Assert.Throws<ArgumentException>(() =>
+            new CadDuplicateModelSpaceEntityCommand(
+                1,
+                new CadPoint3D(0, double.NaN, 0)));
+    }
+
+    [Fact]
+    public void MissingDuplicateSourceDoesNotAdvanceGenerationOrHistory()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        var history = new CadDocumentHistory(session);
+
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadDuplicateModelSpaceEntityCommand(ulong.MaxValue)));
+
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(0, history.UndoCount);
+    }
+
+    [Fact]
     public void LayerCommandRestoresEachPriorLayerAcrossUndoRedo()
     {
         var document = new CadDocument();
