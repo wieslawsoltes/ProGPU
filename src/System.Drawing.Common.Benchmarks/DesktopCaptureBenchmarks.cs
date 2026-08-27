@@ -5,7 +5,7 @@ using System.Drawing;
 namespace ProGPU.SystemDrawing.Benchmarks;
 
 [MemoryDiagnoser]
-public sealed class DesktopCaptureBenchmarks
+public class DesktopCaptureBenchmarks
 {
     private readonly IDisposable _registration;
     private readonly Bitmap _target = new(64, 64);

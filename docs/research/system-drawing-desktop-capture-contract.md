@@ -57,6 +57,13 @@ is the unavoidable lower-order component.
 
 `DesktopCaptureBenchmarks.CaptureAndMaterialize64x64` measures the complete
 typed-provider, owned-pixel, retained-command, and bitmap-materialization path.
+The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured a 578.0 us median
+(789.3 us mean, 466.4 us standard deviation) and 33.25 KB per 64-by-64
+capture. The three measured iterations had high timing variance, so the
+focused allocation ceiling is the stable gate and this timing is only a coarse
+local checkpoint. The filling provider intentionally excludes OS/compositor
+capture latency.
+
 The full Debug/Release drawing suites, strict ApiCompat gate, documentation
 verifier, package build, and downstream LibreWinForms source/package lanes are
 required before delivery.

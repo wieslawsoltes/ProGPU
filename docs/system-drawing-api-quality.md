@@ -274,12 +274,15 @@ The 2026-08-21 ARM64 in-process ShortRun checkpoint measured the 64×64 remap at
 
 `DesktopCaptureBenchmarks.CaptureAndMaterialize64x64` guards the complete typed
 provider, owned RGBA snapshot, retained texture command, and destination bitmap
-materialization path. The focused gate independently permits at most 65,536
-managed bytes across sixteen warmed 16-by-16 captures (4 KiB per operation),
-including the unavoidable 1 KiB pixel payload. Exact local ShortRun evidence is
-recorded with the delivery checkpoint; OS capture latency remains adapter
-specific and is not represented by the filling-provider benchmark. Contract
-and boundary evidence is recorded in
+materialization path. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured a
+578.0 us median (789.3 us mean, 466.4 us standard deviation) and 33.25 KB per
+64-by-64 capture. One launch and three measured iterations produced high timing
+variance, so this is coarse subsystem evidence rather than a regression
+threshold. The focused gate independently permits at most 65,536 managed bytes
+across sixteen warmed 16-by-16 captures (4 KiB per operation), including the
+unavoidable 1 KiB pixel payload. OS capture latency remains adapter specific
+and is not represented by the filling-provider benchmark. Contract and
+boundary evidence is recorded in
 [`docs/research/system-drawing-desktop-capture-contract.md`](research/system-drawing-desktop-capture-contract.md).
 
 ## Implementation order
