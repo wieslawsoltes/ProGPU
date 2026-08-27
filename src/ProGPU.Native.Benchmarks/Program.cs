@@ -49,6 +49,17 @@ if (Array.Exists(
         args,
         static value => string.Equals(
             value,
+            "--glyph-cpu-fallback",
+            StringComparison.OrdinalIgnoreCase)))
+{
+    GlyphCpuFallbackBenchmark.Run(args);
+    return;
+}
+
+if (Array.Exists(
+        args,
+        static value => string.Equals(
+            value,
             "--semantic-viewport3d",
             StringComparison.OrdinalIgnoreCase)))
 {
