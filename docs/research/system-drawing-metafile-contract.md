@@ -75,24 +75,34 @@ record, and a callback returning `false` stops cleanly. The public
 `callbackData` pointer remains ABI-compatible; matching the official managed
 adapter, the managed callback's `PlayRecordCallback` argument is null.
 
-This checkpoint validates destination parallelograms, source units, object
-lifetime, callbacks, and image attributes, but does not yet render. Destination
-point, rectangle, parallelogram, source rectangle, source unit, and image
-attributes become inputs to the typed world-to-device playback mapping in the
-next checkpoint. `Metafile.PlayRecord` therefore continues to reject playback
-rather than silently ignoring those inputs or accepting arbitrary native
-addresses.
+Direct `Graphics.DrawImage` playback now has a first bounded EMF vector tranche.
+Rectangle, point, source-rectangle, and three-point affine overloads compose the
+metafile source bounds, caller destination mapping, and host graphics transform.
+Four-point projective playback and `ImageAttributes` fail explicitly until the
+typed vector player can preserve those semantics. Enumeration remains a
+separate callback walk; its destination arguments do not trigger rendering, and
+`Metafile.PlayRecord` remains unavailable until it can bind to a typed active
+enumeration session without accepting arbitrary native addresses.
 
-The first rendering tranche covers state and vector primitives needed by
-LibreWinForms resources: save/restore, map/window/viewport transforms, world
-transform, clip rectangles, object creation/selection/deletion, color and fill
-state, move/line, rectangles, ellipses, polygons/polylines, paths, text, and
-embedded DIB images. EMF+ adds header/end, object tables, transforms, clips,
-clear, lines, rectangles, ellipses, paths, images, and strings. Each supported
-record lowers to existing typed `Graphics`, `GraphicsPath`, brush, pen, font,
-image, and clip operations. Unsupported records fail with the record type and
-offset before the destination command list is committed. They are never
-silently skipped during rendering.
+The implemented EMF record set is deliberately narrow: `EMR_SAVEDC`, relative
+negative `EMR_RESTOREDC`, `MM_TEXT` and `MM_ANISOTROPIC` window/viewport state,
+world-transform set/modify, polygon fill mode, move/line, rectangle, ellipse,
+polygon/polyline, solid or null cosmetic pen creation, solid or null brush
+creation, stock/dynamic selection, and safe deletion. EMF/EMF+ structural and
+comment records are nonvisual. The byte layouts and playback state follow the
+official [EMR_RECTANGLE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/3c471238-0a02-4992-90a2-bfd2afd98f2a),
+[EMR_CREATEBRUSHINDIRECT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/b9a8ef5d-0089-4e42-b317-e6ebc0ff098f),
+[EMR_CREATEPEN](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/2374647f-df67-48e3-86aa-384715c28e71),
+[EMR_SELECTOBJECT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/145b063d-5f96-41fe-b7ae-1e615b2bc2bf),
+[EMR_SETMAPMODE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/aa4ad35d-fa42-4a4f-959a-8b41304e1b05),
+[EMR_SETWORLDTRANSFORM](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/985724c0-4db1-48f0-b346-67288b3288cb), and
+[EMR_POLYGON](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/eb916781-58b6-4e92-b606-68071aa65733)
+contracts. Each supported record lowers to existing typed `Graphics`, brush,
+and pen operations. Playback records into a temporary `DrawingContext`; an
+unsupported or malformed record reports its type and byte offset and prevents
+the entire temporary command stream from being appended. Paths, clipping
+records, text, DIB images, richer GDI objects, WMF drawing, and nonstructural
+EMF+ drawing records remain explicit later tranches.
 
 Portable comment recording is a typed encoder over the same immutable record
 model. `ProGPU.SystemDrawing.PortableMetafile.Create` accepts a caller-owned,
@@ -126,11 +136,13 @@ and explicit handle seams. Mutation fuzzing must reject malformed input without
 access violations, hangs, partial objects, or unbounded allocation.
 
 Rendering gates compare representative primitives and state transitions in the
-managed bitmap compositor and headless GPU renderer. Windows differential
-fixtures compare record enumeration, headers, bounds, and pixels against
-official `System.Drawing.Common`. Native compiler snapshots prove that
-supported records lower to ordinary typed ProGPU scene commands and that no
-metafile-specific opaque payload crosses the renderer boundary.
+managed bitmap compositor. The first gate covers retained pixels, destination
+scaling and translation, object selection, map/world/save/restore composition,
+explicit image-attribute/projective rejection, and transactional rollback after
+a supported draw but before an unsupported record. Windows differential and
+headless GPU fixtures remain follow-up evidence. Supported records lower to
+ordinary typed ProGPU scene commands; no metafile-specific opaque payload
+crosses the renderer boundary.
 
 `MetafileBenchmarks.ParseAndEnumerate4096RecordFixture` measures owned parsing
 and record-table creation. The 2026-08-27 ARM64/.NET 10.0.11
@@ -140,9 +152,15 @@ source and 4,098 typed records. `Enumerate4098RecordsWithoutPayloadCopies`
 isolates the warmed callback walk. On the same host its ShortRun measured a
 1.593 microsecond median (1.495 microsecond mean, 0.177 microsecond standard
 deviation) with zero managed allocation. One launch, three warmups, and three
-measured iterations make these coarse subsystem evidence. A later benchmark
-will measure
-playback into a retained `DrawingContext`. CI stores BenchmarkDotNet JSON and
+measured iterations make these coarse subsystem evidence.
+`Playback256RectanglesToRetainedCommands` measures the bounded parser-table
+walk, transform/object state, transactional temporary recording, append, and
+cleanup for 256 filled rectangles. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun
+measured a 154.013 microsecond median (163.161 microsecond mean, 32.602
+microsecond standard deviation) and 305.26 KB managed allocation. This is a
+first coarse retained-command baseline, not an allocation target; the next
+optimization tranche should reduce temporary command/resource copying without
+weakening rollback. CI stores BenchmarkDotNet JSON and
 focused tests enforce a maximum 4,096 bytes across sixteen warmed 4,098-record
 walks. Parser complexity must remain linear in source bytes plus record count;
 no record can trigger an unbounded scan of the complete source.
@@ -171,13 +189,14 @@ aborts without partial output.
 5. Remove each ApiCompat suppression only with matching behavior, malformed
    input, pixel, native-boundary, and performance evidence.
 
-API presence alone is not subsystem completion. Until typed playback in
-checkpoint three lands, the quality report must describe parsing and
-enumeration as partial metafile support and must not claim portable rendering
-parity.
+API presence alone is not subsystem completion. Until every required record
+family in checkpoint three lands, the quality report must describe the current
+vector player as partial metafile support and must not claim complete portable
+rendering parity.
 
-Checkpoints one, the enumeration half of checkpoint two, and the portable
-comment portion of checkpoint four are implemented at this revision. Checkpoint
+Checkpoints one, the enumeration half of checkpoint two, the first direct EMF
+vector slice of checkpoint three, and the portable comment portion of checkpoint
+four are implemented at this revision. Checkpoint
 one removes all eight
 missing-type diagnostics and 44 `Metafile` missing-member diagnostics, reducing
 measured ApiCompat debt from 8 missing types, 98 missing members, 15 other
@@ -187,5 +206,6 @@ suppressions, leaving 0 missing types, 18 missing members, 15 other diagnostics,
 and 33 total at that checkpoint. Later compatibility slices reduce other debt;
 portable comment recording removes the final `Graphics.AddMetafileComment`
 suppression and leaves 0 missing types, 0 missing members, 13 reviewed shape
-diagnostics, and 13 total. No playback, drawing-record encoding, or rendering
-claim is made by these parser/enumerator/comment checkpoints.
+diagnostics, and 13 total. Direct playback changes behavior rather than public
+API shape, so those counts remain unchanged. No claim is made yet for complete
+WMF/EMF/EMF+ playback or drawing-record encoding.

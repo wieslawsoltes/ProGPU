@@ -3469,6 +3469,10 @@ public partial class Graphics :
         {
             DrawBitmap(bmp, new RectangleF(x, y, bmp.Width, bmp.Height));
         }
+        else if (image is Metafile metafile)
+        {
+            DrawMetafile(metafile, new RectangleF(x, y, metafile.Width, metafile.Height));
+        }
     }
 
     public void DrawImage(Image image, int x, int y, int width, int height)
@@ -3487,6 +3491,10 @@ public partial class Graphics :
         if (image is Bitmap bmp)
         {
             DrawBitmap(bmp, rect, default, null);
+        }
+        else if (image is Metafile metafile)
+        {
+            DrawMetafile(metafile, rect);
         }
     }
 
@@ -3612,7 +3620,7 @@ public partial class Graphics :
             destPoints[1],
             destPoints[2],
             destPoints.Length == 4 ? destPoints[3] : null,
-            new RectangleF(0f, 0f, image.Width, image.Height),
+            GetNaturalImageSourceRectangle(image),
             GraphicsUnit.Pixel,
             null,
             null,
@@ -3629,7 +3637,7 @@ public partial class Graphics :
             destPoints[1],
             destPoints[2],
             destPoints.Length == 4 ? destPoints[3] : null,
-            new RectangleF(0f, 0f, image.Width, image.Height),
+            GetNaturalImageSourceRectangle(image),
             GraphicsUnit.Pixel,
             null,
             null,
@@ -3743,6 +3751,17 @@ public partial class Graphics :
         if (image is Bitmap bmp)
         {
             DrawBitmap(bmp, destRect, ConvertSourceRect(srcRect, srcUnit), null);
+        }
+        else if (image is Metafile metafile)
+        {
+            RectangleF source = ConvertSourceRect(srcRect, srcUnit);
+            DrawMetafile(
+                metafile,
+                destRect.Location,
+                new PointF(destRect.Right, destRect.Top),
+                new PointF(destRect.Left, destRect.Bottom),
+                source,
+                imageAttributes: null);
         }
     }
 
@@ -3894,6 +3913,19 @@ public partial class Graphics :
                 srcUnit);
             DrawBitmap(bitmap, destRect, source, imageAttr);
         }
+        else if (image is Metafile metafile)
+        {
+            RectangleF source = ConvertSourceRect(
+                new RectangleF(srcX, srcY, srcWidth, srcHeight),
+                srcUnit);
+            DrawMetafile(
+                metafile,
+                destRect.Location,
+                new PointF(destRect.Right, destRect.Top),
+                new PointF(destRect.Left, destRect.Bottom),
+                source,
+                imageAttr);
+        }
     }
 
     public void DrawImage(
@@ -4014,7 +4046,29 @@ public partial class Graphics :
                 ConvertSourceRect(sourceRect, sourceUnit),
                 imageAttributes);
         }
+        else if (image is Metafile metafile)
+        {
+            Vector2 affineBottomRight = v1 + v3 - v0;
+            if (Vector2.DistanceSquared(v2, affineBottomRight) > 1e-6f)
+            {
+                throw new NotSupportedException(
+                    "Metafile playback currently supports affine destination parallelograms only.");
+            }
+
+            DrawMetafile(
+                metafile,
+                topLeft,
+                topRight,
+                bottomLeft,
+                ConvertSourceRect(sourceRect, sourceUnit),
+                imageAttributes);
+        }
     }
+
+    private static RectangleF GetNaturalImageSourceRectangle(Image image) =>
+        image is Metafile metafile
+            ? metafile.GetMetafileHeader().Bounds
+            : new RectangleF(0f, 0f, image.Width, image.Height);
 
     private void DrawMappedBitmap(
         Bitmap bitmap,

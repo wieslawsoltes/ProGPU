@@ -271,6 +271,101 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfPlaybackDrawsTypedGdiRecordsIntoTheDestinationRectangle()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreatePlaybackEmf()));
+        using var target = new Bitmap(32, 32);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new RectangleF(4, 6, 20, 20));
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(10, 12).ToArgb());
+        Assert.Equal(0, target.GetPixel(2, 2).A);
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(14, 24).ToArgb());
+    }
+
+    [Fact]
+    public void EmfPlaybackFailureDoesNotPublishPartialCommands()
+    {
+        byte[] bytes = CreatePlaybackEmf();
+        WriteUInt32(bytes, 204, (uint)EmfPlusRecordType.EmfSetBkMode);
+        using var metafile = new Metafile(new MemoryStream(bytes));
+        using var target = new Bitmap(16, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 16, 16)));
+            Assert.Contains(nameof(EmfPlusRecordType.EmfSetBkMode), exception.Message, StringComparison.Ordinal);
+            Assert.Contains("byte offset 204", exception.Message, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(4, 4).ToArgb());
+    }
+
+    [Fact]
+    public void EmfPlaybackRejectsImageAttributesAndPerspectiveMappingExplicitly()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreatePlaybackEmf()));
+        using var target = new Bitmap(16, 16);
+        using Graphics graphics = Graphics.FromImage(target);
+        using var attributes = new ImageAttributes();
+
+        Assert.Throws<NotSupportedException>(() => graphics.DrawImage(
+            metafile,
+            new Rectangle(0, 0, 16, 16),
+            0,
+            0,
+            10,
+            10,
+            GraphicsUnit.Pixel,
+            attributes));
+        Assert.Throws<NotSupportedException>(() => graphics.DrawImage(
+            metafile,
+            [new PointF(0, 0), new PointF(16, 0), new PointF(0, 16), new PointF(15, 15)]));
+    }
+
+    [Fact]
+    public void EmfPlaybackComposesMapWorldAndSavedDcState()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreateStatefulPlaybackEmf()));
+        using var target = new Bitmap(20, 20);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 20, 20));
+        }
+
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(4, 4).ToArgb());
+        Assert.Equal(0, target.GetPixel(9, 4).A);
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(14, 4).ToArgb());
+    }
+
+    [Fact]
+    public void PortableCommentOnlyMetafilePlaybackIsNonvisual()
+    {
+        using var encoded = new MemoryStream();
+        using (Metafile recording = PortableMetafile.Create(encoded, new Rectangle(0, 0, 8, 8)))
+        {
+            using Graphics recorder = Graphics.FromImage(recording);
+            recorder.AddMetafileComment([1, 2, 3]);
+        }
+
+        encoded.Position = 0;
+        using var metafile = new Metafile(encoded);
+        using var target = new Bitmap(8, 8);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Green);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 8, 8));
+        }
+
+        Assert.Equal(Color.Green.ToArgb(), target.GetPixel(4, 4).ToArgb());
+    }
+
+    [Fact]
     public void LargeRecordTableParsingHasBoundedAllocation()
     {
         byte[] fixture = CreateLargeEmf(4_096);
@@ -586,6 +681,164 @@ public sealed class MetafileParserTests
         return bytes;
     }
 
+    private static byte[] CreatePlaybackEmf()
+    {
+        byte[] bytes = new byte[240];
+        WriteUInt32(bytes, 0, (uint)EmfPlusRecordType.EmfHeader);
+        WriteUInt32(bytes, 4, 88);
+        WriteInt32(bytes, 16, 10);
+        WriteInt32(bytes, 20, 10);
+        WriteInt32(bytes, 32, 264);
+        WriteInt32(bytes, 36, 264);
+        WriteUInt32(bytes, 40, 0x464D_4520);
+        WriteUInt32(bytes, 44, 0x0001_0000);
+        WriteUInt32(bytes, 48, (uint)bytes.Length);
+        WriteUInt32(bytes, 52, 9);
+        WriteUInt16(bytes, 56, 3);
+        WriteInt32(bytes, 72, 96);
+        WriteInt32(bytes, 76, 96);
+        WriteInt32(bytes, 80, 25);
+        WriteInt32(bytes, 84, 25);
+
+        WriteUInt32(bytes, 88, (uint)EmfPlusRecordType.EmfCreateBrushIndirect);
+        WriteUInt32(bytes, 92, 24);
+        WriteUInt32(bytes, 96, 1);
+        WriteUInt32(bytes, 100, 0);
+        WriteUInt32(bytes, 104, 0x0000_00FF);
+
+        WriteUInt32(bytes, 112, (uint)EmfPlusRecordType.EmfSelectObject);
+        WriteUInt32(bytes, 116, 12);
+        WriteUInt32(bytes, 120, 1);
+
+        WriteUInt32(bytes, 124, (uint)EmfPlusRecordType.EmfCreatePen);
+        WriteUInt32(bytes, 128, 28);
+        WriteUInt32(bytes, 132, 2);
+        WriteUInt32(bytes, 136, 0);
+        WriteInt32(bytes, 140, 1);
+        WriteUInt32(bytes, 148, 0x0000_0000);
+
+        WriteUInt32(bytes, 152, (uint)EmfPlusRecordType.EmfSelectObject);
+        WriteUInt32(bytes, 156, 12);
+        WriteUInt32(bytes, 160, 2);
+
+        WriteUInt32(bytes, 164, (uint)EmfPlusRecordType.EmfRectangle);
+        WriteUInt32(bytes, 168, 24);
+        WriteInt32(bytes, 172, 1);
+        WriteInt32(bytes, 176, 1);
+        WriteInt32(bytes, 180, 5);
+        WriteInt32(bytes, 184, 5);
+
+        WriteUInt32(bytes, 188, (uint)EmfPlusRecordType.EmfMoveToEx);
+        WriteUInt32(bytes, 192, 16);
+        WriteInt32(bytes, 196, 0);
+        WriteInt32(bytes, 200, 9);
+
+        WriteUInt32(bytes, 204, (uint)EmfPlusRecordType.EmfLineTo);
+        WriteUInt32(bytes, 208, 16);
+        WriteInt32(bytes, 212, 10);
+        WriteInt32(bytes, 216, 9);
+
+        WriteUInt32(bytes, 220, (uint)EmfPlusRecordType.EmfEof);
+        WriteUInt32(bytes, 224, 20);
+        WriteUInt32(bytes, 236, 20);
+        return bytes;
+    }
+
+    private static byte[] CreateStatefulPlaybackEmf()
+    {
+        byte[] bytes = new byte[308];
+        WriteUInt32(bytes, 0, (uint)EmfPlusRecordType.EmfHeader);
+        WriteUInt32(bytes, 4, 88);
+        WriteInt32(bytes, 16, 10);
+        WriteInt32(bytes, 20, 10);
+        WriteInt32(bytes, 32, 264);
+        WriteInt32(bytes, 36, 264);
+        WriteUInt32(bytes, 40, 0x464D_4520);
+        WriteUInt32(bytes, 44, 0x0001_0000);
+        WriteUInt32(bytes, 48, (uint)bytes.Length);
+        WriteUInt32(bytes, 52, 14);
+        WriteUInt16(bytes, 56, 1);
+        WriteInt32(bytes, 72, 96);
+        WriteInt32(bytes, 76, 96);
+        WriteInt32(bytes, 80, 25);
+        WriteInt32(bytes, 84, 25);
+
+        WriteRecordUInt32(bytes, 88, EmfPlusRecordType.EmfSelectObject, 0x8000_0004);
+        WriteRecordUInt32(bytes, 100, EmfPlusRecordType.EmfSelectObject, 0x8000_0008);
+        WriteRecordInt32(bytes, 112, EmfPlusRecordType.EmfSetMapMode, 8);
+        WriteRecordPoint(bytes, 124, EmfPlusRecordType.EmfSetWindowExtEx, 10, 10);
+        WriteRecordPoint(bytes, 140, EmfPlusRecordType.EmfSetViewportExtEx, 5, 5);
+        WriteRecordPoint(bytes, 156, EmfPlusRecordType.EmfSetWindowOrgEx, 2, 2);
+        WriteRecordPoint(bytes, 172, EmfPlusRecordType.EmfSetViewportOrgEx, 1, 1);
+        WriteUInt32(bytes, 188, (uint)EmfPlusRecordType.EmfSaveDC);
+        WriteUInt32(bytes, 192, 8);
+
+        WriteUInt32(bytes, 196, (uint)EmfPlusRecordType.EmfSetWorldTransform);
+        WriteUInt32(bytes, 200, 32);
+        WriteSingle(bytes, 204, 1f);
+        WriteSingle(bytes, 216, 1f);
+        WriteSingle(bytes, 220, 10f);
+        WriteRectangleRecord(bytes, 228, 2, 2, 6, 6);
+        WriteRecordInt32(bytes, 252, EmfPlusRecordType.EmfRestoreDC, -1);
+        WriteRectangleRecord(bytes, 264, 2, 2, 6, 6);
+
+        WriteUInt32(bytes, 288, (uint)EmfPlusRecordType.EmfEof);
+        WriteUInt32(bytes, 292, 20);
+        WriteUInt32(bytes, 304, 20);
+        return bytes;
+    }
+
+    private static void WriteRecordUInt32(
+        byte[] target,
+        int offset,
+        EmfPlusRecordType type,
+        uint value)
+    {
+        WriteUInt32(target, offset, (uint)type);
+        WriteUInt32(target, offset + 4, 12);
+        WriteUInt32(target, offset + 8, value);
+    }
+
+    private static void WriteRecordInt32(
+        byte[] target,
+        int offset,
+        EmfPlusRecordType type,
+        int value)
+    {
+        WriteUInt32(target, offset, (uint)type);
+        WriteUInt32(target, offset + 4, 12);
+        WriteInt32(target, offset + 8, value);
+    }
+
+    private static void WriteRecordPoint(
+        byte[] target,
+        int offset,
+        EmfPlusRecordType type,
+        int x,
+        int y)
+    {
+        WriteUInt32(target, offset, (uint)type);
+        WriteUInt32(target, offset + 4, 16);
+        WriteInt32(target, offset + 8, x);
+        WriteInt32(target, offset + 12, y);
+    }
+
+    private static void WriteRectangleRecord(
+        byte[] target,
+        int offset,
+        int left,
+        int top,
+        int right,
+        int bottom)
+    {
+        WriteUInt32(target, offset, (uint)EmfPlusRecordType.EmfRectangle);
+        WriteUInt32(target, offset + 4, 24);
+        WriteInt32(target, offset + 8, left);
+        WriteInt32(target, offset + 12, top);
+        WriteInt32(target, offset + 16, right);
+        WriteInt32(target, offset + 20, bottom);
+    }
+
     private static void WriteUInt16(byte[] target, int offset, ushort value) =>
         BinaryPrimitives.WriteUInt16LittleEndian(target.AsSpan(offset, 2), value);
 
@@ -597,6 +850,9 @@ public sealed class MetafileParserTests
 
     private static void WriteInt32(byte[] target, int offset, int value) =>
         BinaryPrimitives.WriteInt32LittleEndian(target.AsSpan(offset, 4), value);
+
+    private static void WriteSingle(byte[] target, int offset, float value) =>
+        WriteInt32(target, offset, BitConverter.SingleToInt32Bits(value));
 
     private sealed class NonSeekableReadStream(byte[] source) : Stream
     {

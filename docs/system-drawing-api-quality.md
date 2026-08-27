@@ -36,7 +36,7 @@ Baseline regeneration removes machine-specific left/right assembly paths, so sup
 
 ## Current measured debt
 
-After the component-model converter, hosted graphics-flush, graphics-state, point/source-rectangle and destination-point image-overload, coordinate-space, graphics-container, image-convenience, drawing-identity, brush-base, pen-ownership, stock-icon, printer-settings collection, image-attributes, page device-selection, managed printing-shape, effects, cached-bitmap, managed-metadata, managed-identity, pen-transform, typed-LOGFONT, custom-cap/compound-pen, path-gradient, metafile parser, metafile enumeration, type-scoped bitmap-resource, cumulative graphics-context, managed icon-extraction, managed serialization/base-shape, typed desktop-capture, typed native-image-import, typed native font/graphics interop, and portable metafile-comment recording compatibility slices:
+After the component-model converter, hosted graphics-flush, graphics-state, point/source-rectangle and destination-point image-overload, coordinate-space, graphics-container, image-convenience, drawing-identity, brush-base, pen-ownership, stock-icon, printer-settings collection, image-attributes, page device-selection, managed printing-shape, effects, cached-bitmap, managed-metadata, managed-identity, pen-transform, typed-LOGFONT, custom-cap/compound-pen, path-gradient, metafile parser, metafile enumeration, type-scoped bitmap-resource, cumulative graphics-context, managed icon-extraction, managed serialization/base-shape, typed desktop-capture, typed native-image-import, typed native font/graphics interop, portable metafile-comment recording, and first typed EMF vector playback compatibility slices:
 
 | Diagnostic group | Count |
 | --- | ---: |
@@ -71,8 +71,16 @@ headers, and disposed owners fail explicitly. Ordinary drawing records are not
 silently discarded: this initial encoder aborts without writing when its
 retained command list is nonempty. The checkpoint removes the last missing
 member suppression, leaving zero missing types, zero missing members, and 13
-reviewed shape diagnostics. It does not claim record playback or portable
-drawing-record encoding. Contract, security bounds, and benchmark evidence are recorded
+    reviewed shape diagnostics. It does not claim drawing-record encoding.
+    The following direct-playback slice adds transactional `Graphics.DrawImage`
+    lowering for an initial bounded EMF vector family: affine destination/source
+    mapping; `MM_TEXT` and anisotropic window/viewport state; world transforms;
+    save/relative restore; fill mode; move/line, rectangle, ellipse,
+    polygon/polyline; and solid/null cosmetic pens and brushes with stock/dynamic
+    object selection. Unsupported or malformed records report their type and
+    source offset and publish no partial commands. Four-point perspective,
+    image attributes, paths, clips, text, DIBs, WMF drawing, and nonstructural
+    EMF+ drawing remain explicit follow-up work. Contract, security bounds, and benchmark evidence are recorded
 in
 [`docs/research/system-drawing-metafile-contract.md`](research/system-drawing-metafile-contract.md).
 
@@ -170,8 +178,18 @@ pinned callback walk independently from parsing. The 2026-08-27 ARM64/.NET
 10.0.11 ShortRun measured a 1.593 microsecond median (1.495 microsecond mean,
 0.177 microsecond standard deviation) with zero managed allocation. The focused
 suite independently executes all 36 overloads and permits at most 4,096 bytes
-across sixteen warmed 4,098-record walks. This is enumeration evidence only;
-typed playback and rendering remain separate checkpoints.
+    across sixteen warmed 4,098-record walks. This remains enumeration evidence;
+    direct rendering has its own gate below.
+
+`MetafileBenchmarks.Playback256RectanglesToRetainedCommands` measures typed EMF
+record traversal, state lowering, transactional temporary recording, append,
+and cleanup. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun measured a 154.013
+microsecond median (163.161 microsecond mean, 32.602 microsecond standard
+deviation) and 305.26 KB allocation for 256 filled rectangles. This first
+coarse baseline includes transactional command/resource ownership and is an
+optimization target, not a zero-allocation claim. Focused gates independently
+verify pixels, destination transforms, saved/map/world state, explicit feature
+boundaries, and rollback after partial temporary lowering.
 
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the
