@@ -3160,6 +3160,88 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void Mesh3DCompilesTypedGradientMaterialWithoutTextureStaging()
+    {
+        var stops = new List<GpuGradientStop>();
+        var record = new GpuMesh3DRecord();
+        var brush = new global::ProGPU.Vector.LinearGradientBrush(
+            new Vector2(0f, 0.5f),
+            new Vector2(1f, 0.5f),
+            new[]
+            {
+                new global::ProGPU.Vector.GradientStop(
+                    new Vector4(1f, 0f, 0f, 0.5f),
+                    0f),
+                new global::ProGPU.Vector.GradientStop(
+                    new Vector4(0f, 0f, 1f, 1f),
+                    1f)
+            })
+        {
+            Opacity = 0.75f,
+            SpreadMethod =
+                global::ProGPU.Vector.GradientSpreadMethod.Reflect,
+            ColorInterpolationMode =
+                global::ProGPU.Vector.GradientColorInterpolationMode
+                    .ScRgbLinearInterpolation,
+            CoordinateTransform = Matrix4x4.CreateTranslation(
+                0.25f,
+                0.5f,
+                0f)
+        };
+
+        Mesh3DExtensionPipeline.ApplyMaterialBrush(
+            brush,
+            ref record,
+            stops);
+
+        Assert.Equal(2, stops.Count);
+        Assert.Equal(new Vector4(0f, 0.5f, 1f, 0.5f),
+            record.MaterialGradientPoints);
+        Assert.Equal(new Vector4(1f, 0.75f, 1f, 1f),
+            record.MaterialBrushMetadata);
+        Assert.Equal(new Vector4(0f, 2f, 0f, 0f),
+            record.MaterialStopMetadata);
+        Assert.Equal(0.25f, record.MaterialBrushTransform0.Z);
+        Assert.Equal(0.5f, record.MaterialBrushTransform1.Z);
+        Assert.Equal(new Vector4(1f, 0f, 0f, 0.5f),
+            stops[0].Color);
+        Assert.Equal(1f, stops[1].Offset);
+    }
+
+    [Fact]
+    public void Mesh3DCompilesTypedRadialGradientMaterial()
+    {
+        var stops = new List<GpuGradientStop>();
+        var record = new GpuMesh3DRecord();
+        var brush = new global::ProGPU.Vector.RadialGradientBrush(
+            new Vector2(0.5f, 0.5f),
+            new Vector2(0.25f, 0.5f),
+            0.5f,
+            0.25f,
+            new[]
+            {
+                new global::ProGPU.Vector.GradientStop(
+                    Vector4.One,
+                    0f),
+                new global::ProGPU.Vector.GradientStop(
+                    Vector4.Zero,
+                    1f)
+            });
+
+        Mesh3DExtensionPipeline.ApplyMaterialBrush(
+            brush,
+            ref record,
+            stops);
+
+        Assert.Equal(new Vector4(0.25f, 0.5f, 0f, 0f),
+            record.MaterialGradientPoints);
+        Assert.Equal(new Vector4(0.5f, 0.5f, 0.5f, 0.25f),
+            record.MaterialGradientEllipse);
+        Assert.Equal(2f, record.MaterialBrushMetadata.X);
+        Assert.Equal(2, stops.Count);
+    }
+
+    [Fact]
     public void Mesh3DShadersSharePlanarStorageRecordAbi()
     {
         string solid = ShaderResource.Load(
@@ -3169,7 +3251,7 @@ public sealed class MediaPlaybackEngineTests
             typeof(Mesh3DExtensionPipeline),
             "Mesh3DWireframe.wgsl");
 
-        Assert.Equal(464, System.Runtime.InteropServices.Marshal
+        Assert.Equal(560, System.Runtime.InteropServices.Marshal
             .SizeOf<GpuMesh3DRecord>());
         Assert.Equal(80, System.Runtime.InteropServices.Marshal
             .SizeOf<GpuLight3DRecord>());
@@ -3186,6 +3268,14 @@ public sealed class MediaPlaybackEngineTests
             StringComparison.Ordinal);
         Assert.Contains(
             "@group(0) @binding(2) var<storage, read> lightRecords",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "@group(0) @binding(3) var<storage, read> materialGradientStops",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SampleMaterialGradient(",
             solid,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -3363,6 +3453,110 @@ public sealed class MediaPlaybackEngineTests
             {
                 window.Content = null;
             }
+        }
+    }
+
+    [Fact]
+    public void WinUiMesh3DExecutesLinearGradientMaterialOnGpu()
+    {
+        using var window = new HeadlessWindow(160, 90);
+        var mesh = new MeshGeometry3D
+        {
+            Positions =
+            [
+                new Vector3(-1.5f, -0.8f, 0f),
+                new Vector3(1.5f, -0.8f, 0f),
+                new Vector3(1.5f, 0.8f, 0f),
+                new Vector3(-1.5f, 0.8f, 0f)
+            ],
+            Normals =
+            [
+                -Vector3.UnitZ,
+                -Vector3.UnitZ,
+                -Vector3.UnitZ,
+                -Vector3.UnitZ
+            ],
+            TextureCoordinates =
+            [
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(1f, 0f),
+                new Vector2(0f, 0f)
+            ],
+            TriangleIndices = [0, 1, 2, 0, 2, 3]
+        };
+        var brush = new global::ProGPU.Vector.LinearGradientBrush(
+            new Vector2(0f, 0.5f),
+            new Vector2(1f, 0.5f),
+            new[]
+            {
+                new global::ProGPU.Vector.GradientStop(
+                    new Vector4(1f, 0f, 0f, 1f),
+                    0f),
+                new global::ProGPU.Vector.GradientStop(
+                    new Vector4(0f, 0f, 1f, 1f),
+                    1f)
+            });
+        var material = new DiffuseMaterial(brush);
+        var viewport = new Viewport3D
+        {
+            Camera = new OrthographicCamera { Width = 4f },
+            ShadingMode = ShadingMode3D.Flat
+        };
+        viewport.Children.Add(new ModelVisual3D
+        {
+            Content = new GeometryModel3D
+            {
+                Geometry = mesh,
+                Material = material,
+                BackMaterial = material
+            }
+        });
+        window.Content = viewport;
+        var webGpuErrors = new List<string>();
+        void OnWebGpuError(ErrorType _, string message) =>
+            webGpuErrors.Add(message);
+        WgpuContext.OnWebGpuError += OnWebGpuError;
+        try
+        {
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            int redDominant = 0;
+            int blueDominant = 0;
+            int maximumRedDelta = int.MinValue;
+            int maximumBlueDelta = int.MinValue;
+            for (int offset = 0;
+                 offset < pixels.Length;
+                 offset += 4)
+            {
+                if (pixels[offset] > pixels[offset + 2] + 48)
+                {
+                    redDominant++;
+                }
+                if (pixels[offset + 2] > pixels[offset] + 48)
+                {
+                    blueDominant++;
+                }
+                maximumRedDelta = Math.Max(
+                    maximumRedDelta,
+                    pixels[offset] - pixels[offset + 2]);
+                maximumBlueDelta = Math.Max(
+                    maximumBlueDelta,
+                    pixels[offset + 2] - pixels[offset]);
+            }
+
+            Assert.True(redDominant >= 1_000,
+                $"Expected a red gradient region, found {redDominant} pixels; " +
+                $"maximum red delta was {maximumRedDelta}; " +
+                $"WebGPU errors: {string.Join(" | ", webGpuErrors)}.");
+            Assert.True(blueDominant >= 1_000,
+                $"Expected a blue gradient region, found {blueDominant} pixels; " +
+                $"maximum blue delta was {maximumBlueDelta}.");
+        }
+        finally
+        {
+            WgpuContext.OnWebGpuError -= OnWebGpuError;
+            window.Content = null;
         }
     }
 

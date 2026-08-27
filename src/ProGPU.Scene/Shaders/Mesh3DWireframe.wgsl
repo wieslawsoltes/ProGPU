@@ -37,6 +37,12 @@ struct GpuMesh3DRecord {
     lightOffset: u32,
     lightCount: u32,
     lightPadding: vec2<u32>,
+    materialGradientPoints: vec4<f32>,
+    materialGradientEllipse: vec4<f32>,
+    materialBrushTransform0: vec4<f32>,
+    materialBrushTransform1: vec4<f32>,
+    materialBrushMetadata: vec4<f32>,
+    materialStopMetadata: vec4<f32>,
 };
 
 struct GpuLight3DRecord {

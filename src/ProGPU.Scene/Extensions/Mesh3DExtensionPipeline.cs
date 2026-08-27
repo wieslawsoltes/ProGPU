@@ -85,6 +85,12 @@ namespace ProGPU.Scene.Extensions
         public uint LightOffset;
         public uint LightCount;
         private Vector2 _lightPadding;
+        public Vector4 MaterialGradientPoints; // start.xy, end.xy
+        public Vector4 MaterialGradientEllipse; // center.xy, radius.xy
+        public Vector4 MaterialBrushTransform0;
+        public Vector4 MaterialBrushTransform1;
+        public Vector4 MaterialBrushMetadata;  // kind, opacity, spread, interpolation
+        public Vector4 MaterialStopMetadata;   // offset, count, unused, unused
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 16)]
@@ -118,6 +124,7 @@ namespace ProGPU.Scene.Extensions
             Array.Empty<byte>();
         private GpuLight3DRecord[] _lights =
             new GpuLight3DRecord[16];
+        private readonly List<GpuGradientStop> _gradientStops = new();
 
         internal int Capacity => _records.Length;
 
@@ -135,6 +142,9 @@ namespace ProGPU.Scene.Extensions
 
         internal Span<GpuLight3DRecord> Lights =>
             _lights;
+
+        internal List<GpuGradientStop> GradientStops =>
+            _gradientStops;
 
         internal void EnsureCapacity(int requiredCapacity)
         {
@@ -197,6 +207,157 @@ namespace ProGPU.Scene.Extensions
             return mesh.ShadingModeOverride ?? payload.ShadingMode;
         }
 
+        internal static void ApplyMaterialBrush(
+            Brush? brush,
+            ref GpuMesh3DRecord record,
+            List<GpuGradientStop> gradientStops)
+        {
+            ArgumentNullException.ThrowIfNull(gradientStops);
+            if (brush is null)
+            {
+                return;
+            }
+            if (!float.IsFinite(brush.Opacity))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(brush),
+                    "Mesh3D material brush opacity must be finite.");
+            }
+
+            uint kind;
+            Vector2 start;
+            Vector2 end;
+            Vector2 center;
+            Vector2 radii;
+            Matrix4x4 coordinateTransform;
+            GradientSpreadMethod spreadMethod;
+            GradientColorInterpolationMode interpolationMode;
+            GradientStop[] stops;
+            if (brush is LinearGradientBrush linear)
+            {
+                kind = 1U;
+                start = linear.StartPoint;
+                end = linear.EndPoint;
+                center = default;
+                radii = default;
+                coordinateTransform = linear.CoordinateTransform;
+                spreadMethod = linear.SpreadMethod;
+                interpolationMode = linear.ColorInterpolationMode;
+                stops = linear.Stops;
+            }
+            else if (brush is RadialGradientBrush radial)
+            {
+                kind = 2U;
+                start = radial.GradientOrigin;
+                end = default;
+                center = radial.Center;
+                radii = new Vector2(radial.RadiusX, radial.RadiusY);
+                coordinateTransform = radial.CoordinateTransform;
+                spreadMethod = radial.SpreadMethod;
+                interpolationMode = radial.ColorInterpolationMode;
+                stops = radial.Stops;
+            }
+            else
+            {
+                throw new NotSupportedException(
+                    "Mesh3D material brushes currently support typed linear and radial gradients.");
+            }
+
+            if (!IsFinite(start) || !IsFinite(end) ||
+                !IsFinite(center) || !IsFinite(radii) ||
+                !IsFinite2DAffine(coordinateTransform) ||
+                (uint)spreadMethod >
+                    (uint)GradientSpreadMethod.Decal ||
+                (uint)interpolationMode >
+                    (uint)GradientColorInterpolationMode
+                        .ScRgbLinearInterpolation ||
+                stops is null || stops.Length == 0 ||
+                stops.Length > Compositor.MaxGradientStops -
+                    gradientStops.Count)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(brush),
+                    "Mesh3D gradient material state is invalid or exceeds the bounded stop arena.");
+            }
+
+            int stopOffset = gradientStops.Count;
+            for (int stopIndex = 0;
+                 stopIndex < stops.Length;
+                 stopIndex++)
+            {
+                GradientStop stop = stops[stopIndex];
+                if (!IsFinite(stop.Color) ||
+                    !float.IsFinite(stop.Offset))
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(brush),
+                        "Mesh3D gradient stops must be finite.");
+                }
+                gradientStops.Add(new GpuGradientStop
+                {
+                    Color = stop.Color,
+                    Offset = stop.Offset
+                });
+            }
+
+            record.MaterialGradientPoints = new Vector4(
+                start.X,
+                start.Y,
+                end.X,
+                end.Y);
+            record.MaterialGradientEllipse = new Vector4(
+                center.X,
+                center.Y,
+                radii.X,
+                radii.Y);
+            record.MaterialBrushTransform0 = new Vector4(
+                coordinateTransform.M11,
+                coordinateTransform.M21,
+                coordinateTransform.M41,
+                0.0f);
+            record.MaterialBrushTransform1 = new Vector4(
+                coordinateTransform.M12,
+                coordinateTransform.M22,
+                coordinateTransform.M42,
+                0.0f);
+            record.MaterialBrushMetadata = new Vector4(
+                kind,
+                Math.Clamp(brush.Opacity, 0.0f, 1.0f),
+                (uint)spreadMethod,
+                (uint)interpolationMode);
+            record.MaterialStopMetadata = new Vector4(
+                stopOffset,
+                stops.Length,
+                0.0f,
+                0.0f);
+        }
+
+        private static bool IsFinite(Vector2 value) =>
+            float.IsFinite(value.X) &&
+            float.IsFinite(value.Y);
+
+        private static bool IsFinite2DAffine(Matrix4x4 value) =>
+            IsFinite(new Vector4(
+                value.M11,
+                value.M12,
+                value.M21,
+                value.M22)) &&
+            IsFinite(new Vector4(
+                value.M41,
+                value.M42,
+                value.M33,
+                value.M44)) &&
+            value.M13 == 0.0f &&
+            value.M14 == 0.0f &&
+            value.M23 == 0.0f &&
+            value.M24 == 0.0f &&
+            value.M31 == 0.0f &&
+            value.M32 == 0.0f &&
+            value.M33 == 1.0f &&
+            value.M34 == 0.0f &&
+            value.M43 == 0.0f &&
+            value.M44 == 1.0f;
+
 
 
         private static readonly string Mesh3DSolidShaderCode = ShaderResource.Load(typeof(Mesh3DExtensionPipeline), "Mesh3DSolid.wgsl");
@@ -216,6 +377,7 @@ namespace ProGPU.Scene.Extensions
             public GpuBuffer? DynamicRecordsBuffer;
             public GpuBuffer? RecordIndexBuffer;
             public GpuBuffer? LightBuffer;
+            public GpuBuffer? GradientStopBuffer;
             public unsafe BindGroup* SolidBindGroup;
             public unsafe BindGroup* WireframeBindGroup;
             public int RecordGen = -1;
@@ -232,6 +394,7 @@ namespace ProGPU.Scene.Extensions
                 DynamicRecordsBuffer?.Dispose();
                 RecordIndexBuffer?.Dispose();
                 LightBuffer?.Dispose();
+                GradientStopBuffer?.Dispose();
                 if (SolidBindGroup != null) context.Api.BindGroupRelease(SolidBindGroup);
                 if (WireframeBindGroup != null) context.Api.BindGroupRelease(WireframeBindGroup);
             }
@@ -488,7 +651,7 @@ namespace ProGPU.Scene.Extensions
             var wgpu = compositor.Context.Api;
             var device = compositor.Context.Device;
 
-            var solidEntries = stackalloc BindGroupLayoutEntry[3];
+            var solidEntries = stackalloc BindGroupLayoutEntry[4];
             solidEntries[0] = new BindGroupLayoutEntry
             {
                 Binding = 0,
@@ -522,9 +685,20 @@ namespace ProGPU.Scene.Extensions
                     MinBindingSize = 0
                 }
             };
+            solidEntries[3] = new BindGroupLayoutEntry
+            {
+                Binding = 3,
+                Visibility = ShaderStage.Fragment,
+                Buffer = new BufferBindingLayout
+                {
+                    Type = BufferBindingType.ReadOnlyStorage,
+                    HasDynamicOffset = false,
+                    MinBindingSize = 0
+                }
+            };
             var solidLayoutDesc = new BindGroupLayoutDescriptor
             {
-                EntryCount = 3,
+                EntryCount = 4,
                 Entries = solidEntries
             };
             _solidBindGroupLayout =
@@ -1338,6 +1512,10 @@ namespace ProGPU.Scene.Extensions
                 res.RecordGen = -1;
             }
 
+            List<GpuGradientStop> gradientStops =
+                _compileScratch.GradientStops;
+            gradientStops.Clear();
+
             // 2. Upload records data
             _compileScratch.EnsureCapacity(recordCount);
             Span<GpuMesh3DRecord> cpuRecords =
@@ -1365,6 +1543,12 @@ namespace ProGPU.Scene.Extensions
             {
                 recordIndices[i] = (uint)i;
                 var mesh = payload.Meshes[i];
+                if (mesh.MaterialBrush is not null &&
+                    mesh.TextureSource is not null)
+                {
+                    throw new NotSupportedException(
+                        "Mesh3D entries cannot combine a gradient material brush with a leased material texture.");
+                }
                 textureBindGroups[i] =
                     (nint)GetTextureBindGroup(
                         compositor,
@@ -1478,10 +1662,40 @@ namespace ProGPU.Scene.Extensions
                     LightOffset = 0U,
                     LightCount = (uint)lightCount
                 };
+                ApplyMaterialBrush(
+                    mesh.MaterialBrush,
+                    ref cpuRecords[i],
+                    gradientStops);
+            }
+            int uploadGradientStopCount =
+                Math.Max(1, gradientStops.Count);
+            uint requiredGradientStopBytes = checked(
+                (uint)uploadGradientStopCount *
+                (uint)Marshal.SizeOf<GpuGradientStop>());
+            if (res.GradientStopBuffer == null ||
+                res.GradientStopBuffer.Size < requiredGradientStopBytes)
+            {
+                res.GradientStopBuffer?.Dispose();
+                res.GradientStopBuffer = new GpuBuffer(
+                    compositor.Context,
+                    requiredGradientStopBytes,
+                    BufferUsage.Storage | BufferUsage.CopyDst,
+                    "Dynamic Mesh3D Gradient Stops Buffer");
+                res.RecordGen = -1;
             }
             res.DynamicRecordsBuffer.Write(cpuRecords);
             res.RecordIndexBuffer.Write(recordIndices);
             res.LightBuffer.Write(cpuLights);
+            if (gradientStops.Count == 0)
+            {
+                res.GradientStopBuffer.WriteSingle(
+                    default(GpuGradientStop));
+            }
+            else
+            {
+                res.GradientStopBuffer.Write(
+                    CollectionsMarshal.AsSpan(gradientStops));
+            }
 
             Matrix4x4.Invert(cmd.CameraView, out var invView);
             Vector3 cameraPos = invView.Translation;
@@ -1519,6 +1733,11 @@ namespace ProGPU.Scene.Extensions
                     CullMode.Back,
                     sampleCount,
                     _solidPipelineLayout);
+                if (cachedPipeline == null)
+                {
+                    throw new InvalidOperationException(
+                        "Failed to create the Mesh3D solid material pipeline.");
+                }
                 if (sampleCount == 1) _cachedPipelineSingle = cachedPipeline;
                 else _cachedPipelineMsaa = cachedPipeline;
             }
@@ -1608,7 +1827,8 @@ namespace ProGPU.Scene.Extensions
             // 5. Create or get cached BindGroup
             int currentGen = res.DynamicRecordsBuffer.GetHashCode() ^
                 res.UniformsBuffer.GetHashCode() ^
-                res.LightBuffer.GetHashCode();
+                res.LightBuffer.GetHashCode() ^
+                res.GradientStopBuffer.GetHashCode();
             if (res.SolidBindGroup == null ||
                 res.WireframeBindGroup == null ||
                 currentGen != res.RecordGen ||
@@ -1617,7 +1837,7 @@ namespace ProGPU.Scene.Extensions
                 res.RecordGen = currentGen;
                 res.SampleCount = sampleCount;
 
-                var bgEntries = stackalloc BindGroupEntry[3];
+                var bgEntries = stackalloc BindGroupEntry[4];
                 bgEntries[0] = new BindGroupEntry
                 {
                     Binding = 0,
@@ -1639,12 +1859,19 @@ namespace ProGPU.Scene.Extensions
                     Offset = 0,
                     Size = res.LightBuffer.Size
                 };
+                bgEntries[3] = new BindGroupEntry
+                {
+                    Binding = 3,
+                    Buffer = res.GradientStopBuffer.BufferPtr,
+                    Offset = 0,
+                    Size = res.GradientStopBuffer.Size
+                };
 
                 // Bind group for Solid Pipeline
                 var bgDesc = new BindGroupDescriptor
                 {
                     Layout = _solidBindGroupLayout,
-                    EntryCount = 3,
+                    EntryCount = 4,
                     Entries = bgEntries,
                     Label = (byte*)SilkMarshal.StringToPtr("Mesh3D 3D BindGroup")
                 };
@@ -1652,6 +1879,11 @@ namespace ProGPU.Scene.Extensions
                 if (res.SolidBindGroup != null) wgpu.BindGroupRelease(res.SolidBindGroup);
                 res.SolidBindGroup = wgpu.DeviceCreateBindGroup(device, &bgDesc);
                 SilkMarshal.Free((nint)bgDesc.Label);
+                if (res.SolidBindGroup == null)
+                {
+                    throw new InvalidOperationException(
+                        "Failed to create the Mesh3D material bind group.");
+                }
 
                 // Bind group for Wireframe Pipeline
                 var wireframeLayout = wgpu.RenderPipelineGetBindGroupLayout(cachedWireframePipeline, 0);
@@ -1667,6 +1899,11 @@ namespace ProGPU.Scene.Extensions
                 res.WireframeBindGroup = wgpu.DeviceCreateBindGroup(device, &wireframeBgDesc);
                 SilkMarshal.Free((nint)wireframeBgDesc.Label);
                 wgpu.BindGroupLayoutRelease(wireframeLayout);
+                if (res.WireframeBindGroup == null)
+                {
+                    throw new InvalidOperationException(
+                        "Failed to create the Mesh3D wireframe bind group.");
+                }
             }
 
             // 6. Begin offscreen WebGPU Render Pass targeting the custom color and depth textures!
@@ -1967,6 +2204,7 @@ namespace ProGPU.Scene.Extensions
         public Vector2[] TextureCoordinates { get; set; } =
             Array.Empty<Vector2>();
         public IProGpuTextureLeaseSource? TextureSource { get; set; }
+        public global::ProGPU.Vector.Brush? MaterialBrush { get; set; }
         public MeshTextureEffect TextureEffect { get; set; } =
             MeshTextureEffect.Identity;
         public TextureSamplingMode TextureSamplingMode { get; set; } =

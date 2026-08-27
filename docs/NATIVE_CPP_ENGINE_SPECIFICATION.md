@@ -3554,12 +3554,18 @@ specular, or emissive behavior and retains its typed `PortableBrush` or
 `PortableTileBrush`, material color, ambient color, and specular power. An
 empty layer array preserves the
 legacy aggregate fields for existing producers. The shared managed mesh
-compiler now supports a per-entry shading override, allowing an emissive layer
-to select the existing GPU unlit shader branch without forcing unrelated
-meshes in the viewport out of realistic lighting. Gradient and tile-brush
-realization remain explicit follow-up work and must fail closed until their
-typed GPU resource path is attached; consumers must not collapse them to one
-sampled color.
+compiler supports a per-entry shading override, allowing an emissive layer to
+select the existing GPU unlit shader branch without forcing unrelated meshes
+in the viewport out of realistic lighting. It now also realizes typed linear
+and radial gradient layers directly in its fragment shader. Each entry
+references the framework-neutral `ProGPU.Vector.Brush`; retained compile
+scratch appends finite stops to a bounded storage buffer and uploads the
+caller-owned list through `CollectionsMarshal.AsSpan(...)`. UV-space
+coordinates, inverse affine transforms, Pad/Reflect/Repeat spread, sRGB/scRGB
+interpolation, brush opacity, and stop alpha remain GPU state. WinUI and
+LibreWPF therefore share the same shader path instead of sampling the first
+stop or rasterizing a CPU texture. Tile-brush realization and the native C++
+3D material-resource ABI remain explicit follow-up work and fail closed.
 
 Retained 3D command bounds are executable viewport state, not diagnostic
 metadata. The native replay camera retains both the current target extent and
@@ -3621,7 +3627,8 @@ The portable managed `Mesh3DExtensionPipeline` exposes the same bounded
 vocabulary through `Light3DCompilationEntry`. Its 80-byte `GpuLight3DRecord`
 array is retained in the viewport resource, uploaded from reusable compile
 scratch, and bound to both solid/material and wireframe WGSL pipelines. Each
-464-byte managed mesh record carries a light range; zero lights preserves the
+560-byte managed mesh record carries a light range plus typed gradient
+coordinates and stop range; zero lights preserves the
 existing ProGPU three-light PBR presentation path for WinUI/Avalonia consumers,
 while an explicit array selects WPF-compatible ambient/diffuse/half-vector
 specular, range, attenuation, and spot-cone evaluation. The public WinUI

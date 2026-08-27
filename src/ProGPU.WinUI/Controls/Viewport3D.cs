@@ -819,6 +819,7 @@ namespace Microsoft.UI.Xaml.Controls
                                 float opacity = 1.0f;
                                 IProGpuTextureLeaseSource?
                                     textureSource = null;
+                                Brush? materialBrush = null;
                                 MeshTextureEffect textureEffect =
                                     MeshTextureEffect.Identity;
                                 TextureSamplingMode textureSamplingMode =
@@ -849,14 +850,16 @@ namespace Microsoft.UI.Xaml.Controls
                                     {
                                         diffuseColor = solid.Color;
                                     }
-                                    else if (activeBrush is LinearGradientBrush gradient && gradient.Stops.Length > 0)
+                                    else if (activeBrush is LinearGradientBrush or RadialGradientBrush)
                                     {
-                                        diffuseColor = gradient.Stops[0].Color; // Fallback to first stop for mesh base color
+                                        materialBrush = activeBrush;
+                                        opacity = 1.0f;
                                     }
 
                                     // Blend with DiffuseMaterial.Color if it is set
                                     diffuseColor *= diffuse.Color;
                                     opacity *= diffuseColor.W;
+                                    diffuseColor.W = 1.0f;
 
                                     if (diffuse is
                                         ProGpuMediaTextureMaterial
@@ -903,6 +906,7 @@ namespace Microsoft.UI.Xaml.Controls
                                         TextureCoordinates =
                                             mesh.TextureCoordinates,
                                         TextureSource = textureSource,
+                                        MaterialBrush = materialBrush,
                                         TextureEffect = textureEffect,
                                         TextureSamplingMode =
                                             textureSamplingMode,
@@ -929,6 +933,7 @@ namespace Microsoft.UI.Xaml.Controls
                                     float backOpacity = backDiffuse.Brush.Opacity;
                                     IProGpuTextureLeaseSource?
                                         backTextureSource = null;
+                                    Brush? backMaterialBrush = null;
                                     MeshTextureEffect backTextureEffect =
                                         MeshTextureEffect.Identity;
                                     TextureSamplingMode
@@ -953,13 +958,15 @@ namespace Microsoft.UI.Xaml.Controls
                                     {
                                         backDiffuseColor = solidBack.Color;
                                     }
-                                    else if (activeBackBrush is LinearGradientBrush gradientBack && gradientBack.Stops.Length > 0)
+                                    else if (activeBackBrush is LinearGradientBrush or RadialGradientBrush)
                                     {
-                                        backDiffuseColor = gradientBack.Stops[0].Color;
+                                        backMaterialBrush = activeBackBrush;
+                                        backOpacity = 1.0f;
                                     }
 
                                     backDiffuseColor *= backDiffuse.Color;
                                     backOpacity *= backDiffuseColor.W;
+                                    backDiffuseColor.W = 1.0f;
 
                                     if (backDiffuse is
                                         ProGpuMediaTextureMaterial
@@ -1006,6 +1013,8 @@ namespace Microsoft.UI.Xaml.Controls
                                             mesh.TextureCoordinates,
                                         TextureSource =
                                             backTextureSource,
+                                        MaterialBrush =
+                                            backMaterialBrush,
                                         TextureEffect =
                                             backTextureEffect,
                                         TextureSamplingMode =

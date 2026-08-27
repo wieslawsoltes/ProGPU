@@ -1,5 +1,5 @@
 // Algorithm: Transform instanced UV meshes, apply a normalized crop plus quarter-turn/mirror presentation transform, sample a leased filterable RGB/NV12 texture or manually reconstruct an unfilterable P010 plane pair, apply the bounded fallback kernel and fused color effects, then evaluate bounded multi-light shading.
-// Time complexity: O(L + S) per fragment for L fixed lights and S source taps, where S is exactly 1 or 9; filterable RGB uses S samples, filterable NV12 uses 2S samples, and unfilterable P010 uses 2S nearest or 8S bilinear texel loads.
+// Time complexity: O(L + S + G) per fragment for L fixed lights, S source taps, and G bounded material-gradient stops; S is exactly 1 or 9, filterable RGB uses S samples, filterable NV12 uses 2S samples, and unfilterable P010 uses 2S nearest or 8S bilinear texel loads.
 // Space complexity: O(1) local/private storage, O(1) material records per mesh, and at most 72 unfilterable texel loads per fragment for the fixed nine-tap fallback.
 struct VSUniforms {
     projection: mat4x4<f32>,
@@ -37,6 +37,20 @@ struct GpuMesh3DRecord {
     lightOffset: u32,
     lightCount: u32,
     lightPadding: vec2<u32>,
+    materialGradientPoints: vec4<f32>,
+    materialGradientEllipse: vec4<f32>,
+    materialBrushTransform0: vec4<f32>,
+    materialBrushTransform1: vec4<f32>,
+    materialBrushMetadata: vec4<f32>,
+    materialStopMetadata: vec4<f32>,
+};
+
+struct GpuGradientStop {
+    color: vec4<f32>,
+    offset: f32,
+    padding0: f32,
+    padding1: f32,
+    padding2: f32,
 };
 
 struct GpuLight3DRecord {
@@ -50,6 +64,7 @@ struct GpuLight3DRecord {
 @group(0) @binding(0) var<uniform> uniforms: VSUniforms;
 @group(0) @binding(1) var<storage, read> meshRecords: array<GpuMesh3DRecord>;
 @group(0) @binding(2) var<storage, read> lightRecords: array<GpuLight3DRecord>;
+@group(0) @binding(3) var<storage, read> materialGradientStops: array<GpuGradientStop>;
 @group(1) @binding(0) var materialSampler: sampler;
 @group(1) @binding(1) var materialTexture: texture_2d<f32>;
 @group(1) @binding(2) var materialChromaTexture: texture_2d<f32>;
@@ -376,6 +391,146 @@ fn TransformMaterialCoordinate(
         localCoordinate * record.textureSourceRect.zw;
 }
 
+fn TransformMaterialBrushCoordinate(
+    record: GpuMesh3DRecord,
+    coordinate: vec2<f32>
+) -> vec2<f32> {
+    let point = vec3<f32>(coordinate, 1.0);
+    return vec2<f32>(
+        dot(point, record.materialBrushTransform0.xyz),
+        dot(point, record.materialBrushTransform1.xyz));
+}
+
+fn ApplyMaterialGradientSpread(value: f32, method: u32) -> f32 {
+    if (method == 1u) {
+        let period = fract(value * 0.5) * 2.0;
+        return select(period, 2.0 - period, period > 1.0);
+    }
+    if (method == 2u) {
+        return fract(value);
+    }
+    return value;
+}
+
+fn SrgbToLinearMaterialComponent(value: f32) -> f32 {
+    if (value <= 0.04045) {
+        return value / 12.92;
+    }
+    return pow((value + 0.055) / 1.055, 2.4);
+}
+
+fn LinearToSrgbMaterialComponent(value: f32) -> f32 {
+    let clamped = max(value, 0.0);
+    if (clamped <= 0.0031308) {
+        return clamped * 12.92;
+    }
+    return 1.055 * pow(clamped, 1.0 / 2.4) - 0.055;
+}
+
+fn InterpolateMaterialGradient(
+    startColor: vec4<f32>,
+    endColor: vec4<f32>,
+    factor: f32,
+    interpolationMode: u32
+) -> vec4<f32> {
+    if (interpolationMode == 1u) {
+        let startLinear = vec3<f32>(
+            SrgbToLinearMaterialComponent(startColor.r),
+            SrgbToLinearMaterialComponent(startColor.g),
+            SrgbToLinearMaterialComponent(startColor.b));
+        let endLinear = vec3<f32>(
+            SrgbToLinearMaterialComponent(endColor.r),
+            SrgbToLinearMaterialComponent(endColor.g),
+            SrgbToLinearMaterialComponent(endColor.b));
+        let mixed = mix(startLinear, endLinear, factor);
+        return vec4<f32>(
+            LinearToSrgbMaterialComponent(mixed.r),
+            LinearToSrgbMaterialComponent(mixed.g),
+            LinearToSrgbMaterialComponent(mixed.b),
+            mix(startColor.a, endColor.a, factor));
+    }
+    return mix(startColor, endColor, factor);
+}
+
+fn SampleMaterialGradientStops(
+    record: GpuMesh3DRecord,
+    value: f32
+) -> vec4<f32> {
+    let stopOffset = u32(record.materialStopMetadata.x + 0.5);
+    let stopCount = u32(record.materialStopMetadata.y + 0.5);
+    var previous = materialGradientStops[stopOffset];
+    if (value < previous.offset) {
+        return previous.color;
+    }
+    for (var index = 1u; index < stopCount; index++) {
+        let current = materialGradientStops[stopOffset + index];
+        if (value < current.offset) {
+            let factor = clamp(
+                (value - previous.offset) /
+                    max(current.offset - previous.offset, 0.0001),
+                0.0,
+                1.0);
+            return InterpolateMaterialGradient(
+                previous.color,
+                current.color,
+                factor,
+                u32(record.materialBrushMetadata.w + 0.5));
+        }
+        previous = current;
+    }
+    return previous.color;
+}
+
+fn SampleMaterialGradient(
+    record: GpuMesh3DRecord,
+    textureCoordinate: vec2<f32>
+) -> vec4<f32> {
+    let coordinate = TransformMaterialBrushCoordinate(
+        record,
+        textureCoordinate);
+    let kind = u32(record.materialBrushMetadata.x + 0.5);
+    var value = 0.0;
+    if (kind == 1u) {
+        let start = record.materialGradientPoints.xy;
+        let direction = record.materialGradientPoints.zw - start;
+        let lengthSquared = dot(direction, direction);
+        if (lengthSquared > 0.0001) {
+            value = dot(coordinate - start, direction) /
+                lengthSquared;
+        }
+    } else {
+        let center = record.materialGradientEllipse.xy;
+        let radii = max(
+            record.materialGradientEllipse.zw,
+            vec2<f32>(0.0001));
+        let point = (coordinate - center) / radii;
+        let origin =
+            (record.materialGradientPoints.xy - center) /
+            radii;
+        let direction = point - origin;
+        let a = dot(direction, direction);
+        if (a > 0.0001) {
+            let b = 2.0 * dot(origin, direction);
+            let c = dot(origin, origin) - 1.0;
+            let discriminant = max(b * b - 4.0 * a * c, 0.0);
+            let boundary = (-b + sqrt(discriminant)) / (2.0 * a);
+            if (boundary > 0.0001) {
+                value = 1.0 / boundary;
+            }
+        }
+    }
+    let spread = u32(record.materialBrushMetadata.z + 0.5);
+    if (spread == 3u && (value < 0.0 || value > 1.0)) {
+        return vec4<f32>(0.0);
+    }
+    let color = SampleMaterialGradientStops(
+        record,
+        ApplyMaterialGradientSpread(value, spread));
+    return vec4<f32>(
+        color.rgb,
+        color.a * record.materialBrushMetadata.y);
+}
+
 fn ApplyMaterialEffects(
     record: GpuMesh3DRecord,
     sampledColor: vec4<f32>
@@ -468,6 +623,11 @@ fn SampleMaterial(
     record: GpuMesh3DRecord,
     textureCoordinate: vec2<f32>
 ) -> vec4<f32> {
+    if (record.materialBrushMetadata.x > 0.5) {
+        return SampleMaterialGradient(
+            record,
+            textureCoordinate);
+    }
     let sourceCoordinate = TransformMaterialCoordinate(
         record,
         textureCoordinate);
@@ -532,6 +692,11 @@ fn SampleMaterialUnfilterable(
     record: GpuMesh3DRecord,
     textureCoordinate: vec2<f32>
 ) -> vec4<f32> {
+    if (record.materialBrushMetadata.x > 0.5) {
+        return SampleMaterialGradient(
+            record,
+            textureCoordinate);
+    }
     let sourceCoordinate = TransformMaterialCoordinate(
         record,
         textureCoordinate);
