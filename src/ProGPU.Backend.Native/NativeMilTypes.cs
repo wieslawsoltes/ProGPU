@@ -473,6 +473,62 @@ public readonly record struct NativeMilSceneBuildResult(
     ulong NextDueTimeNanoseconds,
     ulong StreamBytes);
 
+/// <summary>
+/// Interprets stateful MIL scheduler feedback without depending on a
+/// framework-specific dispatcher or timer implementation.
+/// </summary>
+public static class NativeMilSceneBuildTiming
+{
+    private const ulong NanosecondsPerTimeSpanTick = 100;
+
+    /// <summary>
+    /// Returns the delay until the next native MIL phase cycle. The delay is
+    /// rounded up to the next <see cref="TimeSpan"/> tick so a host never asks
+    /// the compositor to advance before its absolute monotonic due time.
+    /// </summary>
+    public static bool TryGetContinuationDelay(
+        NativeMilSceneBuildRequest request,
+        NativeMilSceneBuildResult result,
+        out TimeSpan delay)
+    {
+        const NativeMilSceneBuildResultFlags knownFlags =
+            NativeMilSceneBuildResultFlags.NeedsMoreCycles;
+        if ((result.Flags & ~knownFlags) != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(result),
+                result.Flags,
+                "The native MIL scene result contains unknown scheduler flags.");
+        }
+        if (request.RequestSerial == 0 ||
+            result.RequestSerial != request.RequestSerial)
+        {
+            throw new ArgumentException(
+                "The native MIL scene result does not match the frame request serial.",
+                nameof(result));
+        }
+        if ((result.Flags &
+                NativeMilSceneBuildResultFlags.NeedsMoreCycles) == 0)
+        {
+            delay = TimeSpan.Zero;
+            return false;
+        }
+
+        ulong remainingNanoseconds =
+            result.NextDueTimeNanoseconds > request.MonotonicTimeNanoseconds
+                ? result.NextDueTimeNanoseconds -
+                    request.MonotonicTimeNanoseconds
+                : 0;
+        ulong ticks = remainingNanoseconds / NanosecondsPerTimeSpanTick;
+        if (remainingNanoseconds % NanosecondsPerTimeSpanTick != 0)
+        {
+            ++ticks;
+        }
+        delay = TimeSpan.FromTicks((long)ticks);
+        return true;
+    }
+}
+
 public sealed record NativeMilCompiledScene(
     byte[] Stream,
     NativeMilSceneMetrics Metrics);

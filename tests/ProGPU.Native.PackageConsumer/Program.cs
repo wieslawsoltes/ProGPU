@@ -26,6 +26,7 @@ if (info.AbiVersion != 3 ||
 {
     throw new InvalidOperationException("The packaged native ABI is incomplete.");
 }
+ValidateNativeMilSceneBuildTiming();
 
 bool milOnly = args.Contains("--mil-only", StringComparer.Ordinal);
 bool renderOnly = args.Contains("--render-only", StringComparer.Ordinal);
@@ -378,6 +379,48 @@ Console.WriteLine(
     $"ProGPU.Backend.Native package smoke passed: ABI {info.AbiVersion}, " +
     $"Dawn ABI {NativeDawnAdapter.AdapterAbiVersion}, " +
     $"draws={metrics.DrawCallCount}, pixels={pixels.Length}.");
+
+static void ValidateNativeMilSceneBuildTiming()
+{
+    var request = new NativeMilSceneBuildRequest(
+        TargetHandle: 1,
+        SceneId: 2,
+        Generation: 3,
+        MonotonicTimeNanoseconds: 1_000,
+        RequestSerial: 4);
+    var continuation = new NativeMilSceneBuildResult(
+        NativeMilSceneBuildResultFlags.NeedsMoreCycles,
+        RequestSerial: 4,
+        NextDueTimeNanoseconds: 1_101,
+        StreamBytes: 5);
+    if (!NativeMilSceneBuildTiming.TryGetContinuationDelay(
+            request, continuation, out TimeSpan delay) ||
+        delay != TimeSpan.FromTicks(2))
+    {
+        throw new InvalidOperationException(
+            "The packaged native MIL continuation timing is incomplete.");
+    }
+
+    var complete = continuation with
+    {
+        Flags = NativeMilSceneBuildResultFlags.None,
+        NextDueTimeNanoseconds = 0
+    };
+    if (NativeMilSceneBuildTiming.TryGetContinuationDelay(
+            request, complete, out delay) || delay != TimeSpan.Zero)
+    {
+        throw new InvalidOperationException(
+            "The packaged native MIL completion timing is incomplete.");
+    }
+
+    var overdue = continuation with { NextDueTimeNanoseconds = 999 };
+    if (!NativeMilSceneBuildTiming.TryGetContinuationDelay(
+            request, overdue, out delay) || delay != TimeSpan.Zero)
+    {
+        throw new InvalidOperationException(
+            "The packaged native MIL overdue timing is incomplete.");
+    }
+}
 
 static byte[] CreateMilGradientBatch()
 {
