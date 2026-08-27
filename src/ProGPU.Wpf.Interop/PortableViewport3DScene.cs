@@ -8,7 +8,8 @@ public interface IPortableViewport3DSceneSource
 public enum PortableViewport3DCameraKind
 {
     Perspective = 0,
-    Orthographic = 1
+    Orthographic = 1,
+    Matrix = 2
 }
 
 public enum PortableViewport3DLightKind
@@ -152,6 +153,18 @@ public sealed class PortableViewport3DCamera
     public bool HasTransform { get; set; }
 
     public PortableMatrix4x4 Transform { get; set; } = PortableMatrix4x4.Identity;
+
+    /// <summary>
+    /// Gets or sets the complete world-to-camera matrix when <see cref="Kind"/>
+    /// is <see cref="PortableViewport3DCameraKind.Matrix"/>.
+    /// </summary>
+    public PortableMatrix4x4 ViewMatrix { get; set; } = PortableMatrix4x4.Identity;
+
+    /// <summary>
+    /// Gets or sets the complete camera projection matrix when <see cref="Kind"/>
+    /// is <see cref="PortableViewport3DCameraKind.Matrix"/>.
+    /// </summary>
+    public PortableMatrix4x4 ProjectionMatrix { get; set; } = PortableMatrix4x4.Identity;
 }
 
 public sealed class PortableViewport3DMesh
