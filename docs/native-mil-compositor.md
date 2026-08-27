@@ -542,7 +542,9 @@ cancellation is significant. EvenOdd groups compile the same child leaves into
 an exact postfix XOR program; XOR of the child-inside predicates is the outer
 EvenOdd result and bounds each raster operation to its own leaf without changing
 WPF parity semantics. A temporary typed compiler guard rejects overlapping
-nonzero translated-equivalent leaf streams before scene submission; that exact
+translated-equivalent simple leaf streams participating in the same group XOR
+before scene submission; boolean operand leaves are not conflated with sibling
+group contours. That exact
 pattern removes the current Parallels D3D12 device in the shared path backend,
 so it remains an observable `unsupported_command` until the backend can execute
 it safely. Nonsingular affine transforms on native arc records are
@@ -551,8 +553,13 @@ factors the resulting `T*T^T` metric into orthogonal output axes/radii, projects
 the start parameter into that basis, and reverses the sweep exactly when the
 affine determinant is negative. A translation-only fast path preserves the
 source radii, axis, angles, sweep, and padding bit-for-bit while translating only
-the endpoints and center. Combined-geometry children and meaningful group pens
-currently fail closed until their contours or strokes can be composed without
+the endpoints and center. An EvenOdd group may now contain a CombinedGeometry
+child: ordinary descendants retain the compact outer-fill contour leaf, while
+the boolean child retains its existing postfix subtree and each subsequent
+nonempty child adds one group-level XOR node. DrawGeometry fills and vector
+PushClip use this same bounded compiler, including per-point guideline segments
+for fills. A Nonzero group containing a boolean child and meaningful group pens
+remain fail closed until their winding/stroke contours can be composed without
 approximation. Exact singular affine transforms now lower fill and stroke
 coverage to empty, matching WPF's zero-determinant area semantics without
 attempting to invert or factor an arc basis.
@@ -579,10 +586,20 @@ checked geometry DAG; deletion and malformed operation updates fail
 transactionally. The same exact nonsingular affine arc factorization is shared
 by group leaves and arbitrary-depth boolean leaves, including reflected/sheared
 arcs and sweep reversal. Singular transformed operands become exact empty
-leaves. Stroked operands remain fail closed. Combined children inside a
-`GeometryGroup` also remain fail closed
-because treating a boolean result as raw outer-fill contours would change WPF
-semantics.
+leaves. Stroked operands remain fail closed. Combined children inside an
+EvenOdd `GeometryGroup` preserve the child predicate and combine it with
+ordinary child predicates through XOR; they are never flattened into raw
+contours. The compiler retains the existing 32-child and 63-boolean-node limits
+and rolls segment/node appends back together on failure. Nonzero groups with a
+boolean child still fail closed because a postfix inside predicate cannot
+recover the signed contour winding required by WPF's outer Nonzero rule.
+
+This extension changes no public ABI, backend selection, shader, or CPU raster
+fallback. The native compiler performs one bounded, order-dependent `O(S + N)`
+walk over segments `S` and postfix nodes `N`; the dependency chain is not an
+independent-lane SIMD candidate. Pixel coverage remains on the existing shared
+GPU path rasterizer on Metal, D3D12, Vulkan, and browser WebGPU, with no CPU
+readback, repacking, or per-child submission.
 
 The shared WGSL path rasterizer keeps these arcs analytic. It rejects samples
 outside each path record's exact bounds, rejects quadratic and cubic work on

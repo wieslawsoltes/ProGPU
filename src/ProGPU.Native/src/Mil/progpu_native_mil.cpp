@@ -5873,7 +5873,9 @@ struct channel::implementation {
         std::vector<progpu_native_scene_path_boolean_node>& nodes,
         shallow_fill_leaf& tree,
         affine_2d_double parent_transform = {},
-        std::uint32_t depth = 1U) const {
+        std::uint32_t depth = 1U,
+        bool per_point_guidelines = false,
+        bool expand_root_group = false) const {
         if (depth == 0U || depth > maximum_visual_depth) {
             return status::invalid_graph;
         }
@@ -5888,34 +5890,162 @@ struct channel::implementation {
             return status::success;
         }
 
-        const auto combined = combined_geometries.find(geometry_handle);
-        if (combined == combined_geometries.end()) {
-            const status leaf_status = append_group_fill_leaf(
+        const auto group = geometry_groups.find(geometry_handle);
+        if (!expand_root_group || group == geometry_groups.end()) {
+            const status shallow_status = append_group_fill_leaf(
                 geometry_handle,
                 segments,
                 tree,
                 parent_transform,
-                depth);
-            if (leaf_status != status::success) {
+                depth,
+                per_point_guidelines);
+            if (shallow_status == status::success) {
+                progpu_native_scene_path_boolean_node leaf{};
+                if (!tree.has_bounds) {
+                    leaf.kind = PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
+                } else {
+                    leaf.segment_offset = tree.segment_offset;
+                    leaf.segment_count = tree.segment_count;
+                    leaf.min_x = static_cast<float>(tree.left);
+                    leaf.min_y = static_cast<float>(tree.top);
+                    leaf.max_x = static_cast<float>(tree.right);
+                    leaf.max_y = static_cast<float>(tree.bottom);
+                    leaf.fill_rule = tree.fill_rule;
+                    leaf.kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
+                }
+                nodes.push_back(leaf);
+                return status::success;
+            }
+            segments.resize(original_segment_size);
+            nodes.resize(original_node_size);
+            tree = {};
+            tree.segment_offset = original_segment_size;
+            if (shallow_status != status::unsupported_command) {
+                return shallow_status;
+            }
+        }
+
+        if (group != geometry_groups.end() &&
+            group->second.fill_rule == 0U &&
+            group->second.children.size() <= 32U) {
+            affine_2d_double transform = parent_transform;
+            if (group->second.transform_handle != 0U) {
+                affine_2d_double local_transform{};
+                const status transform_status = resolve_transform(
+                    group->second.transform_handle,
+                    local_transform);
+                if (transform_status != status::success) {
+                    return transform_status;
+                }
+                transform = compose_affine(
+                    local_transform,
+                    parent_transform);
+            }
+            if (affine_has_zero_area(transform) ||
+                group->second.children.empty()) {
+                progpu_native_scene_path_boolean_node empty{};
+                empty.kind = PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
+                nodes.push_back(empty);
+                return status::success;
+            }
+            std::vector<shallow_fill_leaf> group_leaves;
+            group_leaves.reserve(group->second.children.size());
+            std::size_t appended_child_count = 0U;
+            for (std::size_t child_index = 0U;
+                 child_index < group->second.children.size();
+                 ++child_index) {
+                const std::size_t child_segment_offset = segments.size();
+                const std::size_t child_node_offset = nodes.size();
+                shallow_fill_leaf child{};
+                status child_status = append_group_fill_leaf(
+                    group->second.children[child_index],
+                    segments,
+                    child,
+                    transform,
+                    depth + 1U,
+                    per_point_guidelines);
+                bool child_is_shallow_leaf =
+                    child_status == status::success;
+                if (child_status == status::success && child.has_bounds) {
+                    nodes.push_back({
+                        child.segment_offset,
+                        child.segment_count,
+                        static_cast<float>(child.left),
+                        static_cast<float>(child.top),
+                        static_cast<float>(child.right),
+                        static_cast<float>(child.bottom),
+                        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+                        PROGPU_NATIVE_PATH_BOOLEAN_LEAF,
+                        0U,
+                        0U});
+                } else if (child_status == status::unsupported_command) {
+                    child_is_shallow_leaf = false;
+                    segments.resize(child_segment_offset);
+                    nodes.resize(child_node_offset);
+                    child_status = append_boolean_geometry(
+                        group->second.children[child_index],
+                        segments,
+                        nodes,
+                        child,
+                        transform,
+                        depth + 1U,
+                        per_point_guidelines);
+                }
+                if (child_status != status::success) {
+                    segments.resize(original_segment_size);
+                    nodes.resize(original_node_size);
+                    tree = {};
+                    tree.segment_offset = original_segment_size;
+                    return child_status;
+                }
+                if (!child.has_bounds) {
+                    segments.resize(child_segment_offset);
+                    nodes.resize(child_node_offset);
+                    continue;
+                }
+                if (child_is_shallow_leaf) {
+                    group_leaves.push_back(child);
+                }
+                if (!tree.has_bounds) {
+                    tree.left = child.left;
+                    tree.top = child.top;
+                    tree.right = child.right;
+                    tree.bottom = child.bottom;
+                    tree.has_bounds = true;
+                } else {
+                    tree.left = std::min(tree.left, child.left);
+                    tree.top = std::min(tree.top, child.top);
+                    tree.right = std::max(tree.right, child.right);
+                    tree.bottom = std::max(tree.bottom, child.bottom);
+                }
+                if (appended_child_count != 0U) {
+                    progpu_native_scene_path_boolean_node operation{};
+                    operation.kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+                    nodes.push_back(operation);
+                }
+                ++appended_child_count;
+            }
+            if (has_overlapping_translated_equivalent_leaves(
+                    segments,
+                    group_leaves)) {
                 segments.resize(original_segment_size);
                 nodes.resize(original_node_size);
-                return leaf_status;
+                tree = {};
+                tree.segment_offset = original_segment_size;
+                return status::unsupported_command;
             }
-            progpu_native_scene_path_boolean_node leaf{};
-            if (!tree.has_bounds) {
-                leaf.kind = PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
-            } else {
-                leaf.segment_offset = tree.segment_offset;
-                leaf.segment_count = tree.segment_count;
-                leaf.min_x = static_cast<float>(tree.left);
-                leaf.min_y = static_cast<float>(tree.top);
-                leaf.max_x = static_cast<float>(tree.right);
-                leaf.max_y = static_cast<float>(tree.bottom);
-                leaf.fill_rule = tree.fill_rule;
-                leaf.kind = PROGPU_NATIVE_PATH_BOOLEAN_LEAF;
+            if (appended_child_count == 0U) {
+                progpu_native_scene_path_boolean_node empty{};
+                empty.kind = PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
+                nodes.push_back(empty);
             }
-            nodes.push_back(leaf);
+            tree.segment_count = segments.size() - original_segment_size;
             return status::success;
+        }
+
+        const auto combined = combined_geometries.find(geometry_handle);
+        if (combined == combined_geometries.end()) {
+            return status::unsupported_command;
         }
 
         affine_2d_double transform = parent_transform;
@@ -5946,7 +6076,8 @@ struct channel::implementation {
                 nodes,
                 operand,
                 transform,
-                depth + 1U);
+                depth + 1U,
+                per_point_guidelines);
             if (operand_status != status::success) {
                 segments.resize(original_segment_size);
                 nodes.resize(original_node_size);
@@ -6112,86 +6243,24 @@ struct channel::implementation {
                     target_transform);
             } else if (group != geometry_groups.end() &&
                 group->second.fill_rule == 0U &&
-                group->second.children.size() > 1U &&
                 group->second.children.size() <= 32U) {
-                affine_2d_double group_transform = target_transform;
-                if (group->second.transform_handle != 0U) {
-                    affine_2d_double local_transform{};
-                    const status transform_status = resolve_transform(
-                        group->second.transform_handle,
-                        local_transform);
-                    if (transform_status != status::success) {
-                        return transform_status;
-                    }
-                    group_transform = compose_affine(
-                        local_transform,
-                        target_transform);
-                }
-                std::vector<shallow_fill_leaf> leaves;
-                leaves.reserve(group->second.children.size());
-                for (const std::uint32_t child_handle :
-                     group->second.children) {
-                    shallow_fill_leaf child{};
-                    append_status = append_group_fill_leaf(
-                        child_handle,
-                        clip_segments,
-                        child,
-                        group_transform);
-                    if (append_status != status::success) {
-                        break;
-                    }
-                    if (!child.has_bounds) {
-                        continue;
-                    }
-                    if (!tree.has_bounds) {
-                        tree.left = child.left;
-                        tree.top = child.top;
-                        tree.right = child.right;
-                        tree.bottom = child.bottom;
-                        tree.has_bounds = true;
-                    } else {
-                        tree.left = std::min(tree.left, child.left);
-                        tree.top = std::min(tree.top, child.top);
-                        tree.right = std::max(tree.right, child.right);
-                        tree.bottom = std::max(tree.bottom, child.bottom);
-                    }
-                    if (child.segment_count != 0U) {
-                        leaves.push_back(child);
-                    }
-                }
+                append_status = append_boolean_geometry(
+                    geometry_handle,
+                    clip_segments,
+                    clip_boolean_nodes,
+                    tree,
+                    target_transform,
+                    1U,
+                    false,
+                    true);
                 if (append_status == status::success &&
-                    has_overlapping_translated_equivalent_leaves(
-                        clip_segments,
-                        leaves)) {
-                    append_status = status::unsupported_command;
+                    clip_boolean_nodes.size() ==
+                        boolean_node_offset + 1U &&
+                    clip_boolean_nodes.back().kind ==
+                        PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
+                    clip_boolean_nodes.resize(boolean_node_offset);
                 }
-                if (append_status == status::success) {
-                    for (std::size_t leaf_index = 0U;
-                         leaf_index < leaves.size();
-                         ++leaf_index) {
-                        const auto& leaf = leaves[leaf_index];
-                        clip_boolean_nodes.push_back({
-                            leaf.segment_offset,
-                            leaf.segment_count,
-                            static_cast<float>(leaf.left),
-                            static_cast<float>(leaf.top),
-                            static_cast<float>(leaf.right),
-                            static_cast<float>(leaf.bottom),
-                            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
-                            PROGPU_NATIVE_PATH_BOOLEAN_LEAF,
-                            0U,
-                            0U});
-                        if (leaf_index != 0U) {
-                            progpu_native_scene_path_boolean_node operation{};
-                            operation.kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
-                            clip_boolean_nodes.push_back(operation);
-                        }
-                    }
-                    tree.segment_offset = segment_offset;
-                    tree.segment_count =
-                        clip_segments.size() - segment_offset;
-                    fill_rule = PROGPU_NATIVE_FILL_RULE_EVEN_ODD;
-                }
+                fill_rule = PROGPU_NATIVE_FILL_RULE_EVEN_ODD;
             } else {
                 append_status = append_group_fill_leaf(
                     geometry_handle,
@@ -8911,8 +8980,18 @@ struct channel::implementation {
                     }
                     std::vector<progpu_native_path_segment> group_segments;
                     std::vector<shallow_fill_leaf> group_leaves;
+                    std::vector<progpu_native_scene_path_boolean_node>
+                        group_boolean_nodes;
+                    const bool use_even_odd_leaf_program =
+                        geometry_group->second.fill_rule == 0U &&
+                        geometry_group->second.children.size() <= 32U;
                     group_leaves.reserve(
                         geometry_group->second.children.size());
+                    if (use_even_odd_leaf_program) {
+                        group_boolean_nodes.reserve(
+                            geometry_group->second.children.size() * 2U -
+                            1U);
+                    }
                     bool has_group_bounds = false;
                     double group_left = 0.0;
                     double group_top = 0.0;
@@ -8937,21 +9016,68 @@ struct channel::implementation {
                         group_right = std::max(group_right, double{point.x});
                         group_bottom = std::max(group_bottom, double{point.y});
                     };
-                    for (const std::uint32_t child_handle :
-                         geometry_group->second.children) {
+                    std::size_t appended_boolean_child_count = 0U;
+                    for (std::size_t child_index = 0U;
+                         child_index <
+                            geometry_group->second.children.size();
+                         ++child_index) {
+                        const std::uint32_t child_handle =
+                            geometry_group->second.children[child_index];
+                        const std::size_t child_segment_offset =
+                            group_segments.size();
+                        const std::size_t child_node_offset =
+                            group_boolean_nodes.size();
                         shallow_fill_leaf child{};
-                        const status child_status = append_group_fill_leaf(
+                        status child_status = append_group_fill_leaf(
                             child_handle,
                             group_segments,
                             child,
                             {},
                             1U,
                             current.per_point_guidelines);
+                        bool child_is_shallow_leaf =
+                            child_status == status::success;
+                        if (use_even_odd_leaf_program &&
+                            child_status == status::success &&
+                            child.has_bounds) {
+                            group_boolean_nodes.push_back({
+                                child.segment_offset,
+                                child.segment_count,
+                                static_cast<float>(child.left),
+                                static_cast<float>(child.top),
+                                static_cast<float>(child.right),
+                                static_cast<float>(child.bottom),
+                                PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+                                PROGPU_NATIVE_PATH_BOOLEAN_LEAF,
+                                0U,
+                                0U});
+                        } else if (use_even_odd_leaf_program &&
+                            child_status == status::unsupported_command) {
+                            child_is_shallow_leaf = false;
+                            group_segments.resize(child_segment_offset);
+                            group_boolean_nodes.resize(child_node_offset);
+                            child_status = append_boolean_geometry(
+                                child_handle,
+                                group_segments,
+                                group_boolean_nodes,
+                                child,
+                                {},
+                                1U,
+                                current.per_point_guidelines);
+                        }
                         if (child_status != status::success) {
                             return child_status;
                         }
+                        if (use_even_odd_leaf_program &&
+                            !child.has_bounds) {
+                            group_segments.resize(child_segment_offset);
+                            group_boolean_nodes.resize(child_node_offset);
+                            continue;
+                        }
                         if (child.has_bounds) {
-                            if (child.segment_count != 0U) {
+                            if ((!use_even_odd_leaf_program ||
+                                    child_is_shallow_leaf) &&
+                                child.segment_count != 0U) {
                                 group_leaves.push_back(child);
                             }
                             include_group_point({
@@ -8961,46 +9087,35 @@ struct channel::implementation {
                                 static_cast<float>(child.right),
                                 static_cast<float>(child.bottom)});
                         }
+                        if (use_even_odd_leaf_program &&
+                            appended_boolean_child_count != 0U) {
+                            progpu_native_scene_path_boolean_node
+                                operation{};
+                            operation.kind =
+                                PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+                            group_boolean_nodes.push_back(operation);
+                        }
+                        if (use_even_odd_leaf_program) {
+                            ++appended_boolean_child_count;
+                        }
                     }
                     if (group_segments.empty() || !has_group_bounds) {
                         continue;
                     }
-                    std::vector<progpu_native_scene_path_boolean_node>
-                        group_boolean_nodes;
-                    const bool use_even_odd_leaf_program =
-                        geometry_group->second.fill_rule == 0U &&
-                        group_leaves.size() > 1U &&
-                        group_leaves.size() <= 32U;
+                    if (use_even_odd_leaf_program &&
+                        group_boolean_nodes.size() == 1U &&
+                        group_boolean_nodes.front().kind ==
+                            PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
+                        group_boolean_nodes.clear();
+                    }
                     if (use_even_odd_leaf_program) {
                         if (has_overlapping_translated_equivalent_leaves(
                                 group_segments,
                                 group_leaves)) {
                             return status::unsupported_command;
                         }
-                        group_boolean_nodes.reserve(
-                            group_leaves.size() * 2U - 1U);
-                        for (std::size_t leaf_index = 0U;
-                             leaf_index < group_leaves.size();
-                             ++leaf_index) {
-                            const auto& leaf = group_leaves[leaf_index];
-                            group_boolean_nodes.push_back({
-                                leaf.segment_offset,
-                                leaf.segment_count,
-                                static_cast<float>(leaf.left),
-                                static_cast<float>(leaf.top),
-                                static_cast<float>(leaf.right),
-                                static_cast<float>(leaf.bottom),
-                                PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
-                                PROGPU_NATIVE_PATH_BOOLEAN_LEAF,
-                                0U,
-                                0U});
-                            if (leaf_index != 0U) {
-                                progpu_native_scene_path_boolean_node
-                                    operation{};
-                                operation.kind =
-                                    PROGPU_NATIVE_PATH_BOOLEAN_XOR;
-                                group_boolean_nodes.push_back(operation);
-                            }
+                        if (group_boolean_nodes.size() > 63U) {
+                            return status::unsupported_command;
                         }
                     }
                     std::uint32_t brush_index =

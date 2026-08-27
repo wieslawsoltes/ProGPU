@@ -148,6 +148,13 @@ Semantic-scene execution follows the same boundary:
 snapshot updates, `progpu_native_semantic_draw_execution.cpp` owns packed-page
 render-bundle encoding, and `progpu_native_semantic_render_execution.cpp` owns
 scene compilation and replay orchestration.
+The native MIL compiler preserves CombinedGeometry children inside EvenOdd
+GeometryGroup fills and vector clips as bounded postfix boolean subtrees, then
+XORs those child predicates with ordinary outer-fill contour leaves. Nonzero
+groups with boolean children remain explicitly unsupported because signed
+winding cannot be recovered from an inside predicate. This is backend-neutral
+scene compilation: all pixel coverage stays in the shared GPU path rasterizer,
+with no CPU readback or scalar raster fallback.
 `progpu_native_semantic_identity.cpp` computes allocation-free typed content
 identities once per accepted update. Brush, text-style, analytic, path, glyph,
 and image pages are therefore retained independently across scene generations;
