@@ -72,6 +72,35 @@ public sealed class CadEditingTests
         AssertPoint(new XYZ(0, -1, 2), line.EndPoint);
     }
 
+    [Fact]
+    public void RotateCommandUsesThreeDimensionalPivotAndRoundTripsUndoRedo()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(2, 1, 3), new XYZ(1, 2, 4));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadRotateEntitiesCommand(
+            [line.Handle],
+            new CadPoint3D(0, 0, 5),
+            Math.PI / 2.0,
+            new CadPoint3D(1, 1, 3));
+
+        history.Execute(command);
+
+        Assert.Equal(new CadPoint3D(1, 1, 3), command.Pivot);
+        AssertPoint(new XYZ(1, 2, 3), line.StartPoint);
+        AssertPoint(new XYZ(0, 1, 4), line.EndPoint);
+
+        Assert.True(history.TryUndo(out _));
+        AssertPoint(new XYZ(2, 1, 3), line.StartPoint);
+        AssertPoint(new XYZ(1, 2, 4), line.EndPoint);
+
+        Assert.True(history.TryRedo(out _));
+        AssertPoint(new XYZ(1, 2, 3), line.StartPoint);
+        AssertPoint(new XYZ(0, 1, 4), line.EndPoint);
+    }
+
     [Theory]
     [InlineData(0.0, 0.0, 0.0, 1.0)]
     [InlineData(double.NaN, 0.0, 0.0, 1.0)]
@@ -88,6 +117,17 @@ public sealed class CadEditingTests
                 [1UL],
                 new CadPoint3D(x, y, z),
                 radians));
+    }
+
+    [Fact]
+    public void RotateCommandRejectsNonFinitePivot()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new CadRotateEntitiesCommand(
+                [1UL],
+                new CadPoint3D(0, 0, 1),
+                Math.PI,
+                new CadPoint3D(0, double.PositiveInfinity, 0)));
     }
 
     [Fact]

@@ -292,10 +292,11 @@ an interactive browser picker/download smoke remains open.
   one model-space entity. They resolve every model-space handle before mutation,
   preserve the original visibility vector, apply the inverse transform for
   undo, and advance one document generation for execute, undo, or redo. The
-  rotate command accepts a finite non-zero axis and radians, normalizes the axis
-  without overflow, and deliberately exposes ACadSharp's documented origin-axis
-  operation only; pivoted composition remains unsupported until a public
-  composition-order contract is established. Uniform scaling uses the public
+  rotate command accepts a finite non-zero axis/radians plus a finite optional
+  pivot and normalizes the axis without overflow. Pivot rotation uses the
+  documented translate-to-pivot, axis-angle rotate, and translate-back entity
+  operations sequentially, with staged rollback, so it does not depend on an
+  undocumented matrix composition order. Uniform scaling uses the public
   origin overload and accepts only a positive, finite, non-unit factor with a
   finite inverse. Non-uniform scaling is not exposed because entity families
   such as circles cannot preserve their authored type under anisotropic scale.
@@ -846,12 +847,14 @@ Sources consulted on 2026-08-27:
   reassignment contracts; it retains ProGPU command state rather than copying
   collection implementation text or structure. Rotation likewise uses only the
   public axis-angle/radians entity operation, normalizes the caller's axis in
-  ProGPU, and applies the public inverse operation for undo. Uniform scale uses
+  ProGPU, and applies the public inverse operation for undo. Pivot rotation
+  composes only public translation/rotation calls and rejects private matrix
+  ordering as an implementation dependency. Uniform scale uses
   the documented origin overload and a reciprocal factor. Duplication consumes
   only the documented detached-copy result and adds ProGPU-owned command state
   plus optional translation. Rejected
   extension-only validation, unconditional DWG-save claims, private handle
-  manipulation, pivot rotation based on undocumented matrix order, and exposing
+  manipulation, pivot matrices based on undocumented composition order, and exposing
   anisotropic scaling without type-preserving entity conformance.
 - [Autodesk DXF object coordinate systems](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-D99F1509-E4E4-47A3-8691-92EA07DC88F5.htm):
   adopted OCS/elevation/extrusion normalization and arbitrary-axis conformance.

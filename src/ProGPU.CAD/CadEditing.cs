@@ -565,11 +565,14 @@ public sealed class CadTranslateEntitiesCommand : CadEditCommand
 
 }
 
-/// <summary>Rotates a stable set of entity handles around an origin axis.</summary>
+/// <summary>Rotates a stable set of entity handles around an axis through a pivot.</summary>
 public sealed class CadRotateEntitiesCommand : CadEditCommand
 {
     private readonly ulong[] _handles;
     private readonly XYZ _axis;
+    private readonly XYZ _pivot;
+    private readonly XYZ _inversePivot;
+    private readonly bool _hasPivot;
     private readonly double _radians;
     private Entity[]? _entities;
 
@@ -577,12 +580,24 @@ public sealed class CadRotateEntitiesCommand : CadEditCommand
 
     public CadPoint3D Axis { get; }
 
+    public CadPoint3D Pivot { get; }
+
     public double Radians => _radians;
 
     public CadRotateEntitiesCommand(
         IEnumerable<ulong> handles,
         CadPoint3D axis,
         double radians,
+        string description = "Rotate entities")
+        : this(handles, axis, radians, CadPoint3D.Zero, description)
+    {
+    }
+
+    public CadRotateEntitiesCommand(
+        IEnumerable<ulong> handles,
+        CadPoint3D axis,
+        double radians,
+        CadPoint3D pivot,
         string description = "Rotate entities")
         : base(description)
     {
@@ -598,6 +613,12 @@ public sealed class CadRotateEntitiesCommand : CadEditCommand
             throw new ArgumentOutOfRangeException(
                 nameof(radians),
                 "A rotation angle must be finite and non-zero.");
+        }
+        if (!double.IsFinite(pivot.X) ||
+            !double.IsFinite(pivot.Y) ||
+            !double.IsFinite(pivot.Z))
+        {
+            throw new ArgumentException("A rotation pivot must be finite.", nameof(pivot));
         }
 
         double largestComponent = Math.Max(
@@ -628,6 +649,10 @@ public sealed class CadRotateEntitiesCommand : CadEditCommand
             scaledX / scaledLength,
             scaledY / scaledLength,
             scaledZ / scaledLength);
+        Pivot = pivot;
+        _pivot = new XYZ(pivot.X, pivot.Y, pivot.Z);
+        _inversePivot = new XYZ(-pivot.X, -pivot.Y, -pivot.Z);
+        _hasPivot = pivot != CadPoint3D.Zero;
         _radians = radians;
     }
 
@@ -664,14 +689,47 @@ public sealed class CadRotateEntitiesCommand : CadEditCommand
         {
             for (; applied < entities.Length; applied++)
             {
-                entities[applied].ApplyRotation(_axis, radians);
+                RotateEntity(entities[applied], radians);
             }
         }
         catch
         {
             for (int i = applied - 1; i >= 0; i--)
             {
-                entities[i].ApplyRotation(_axis, -radians);
+                RotateEntity(entities[i], -radians);
+            }
+            throw;
+        }
+    }
+
+    private void RotateEntity(Entity entity, double radians)
+    {
+        if (!_hasPivot)
+        {
+            entity.ApplyRotation(_axis, radians);
+            return;
+        }
+
+        bool translatedToPivot = false;
+        bool rotated = false;
+        try
+        {
+            entity.ApplyTranslation(_inversePivot);
+            translatedToPivot = true;
+            entity.ApplyRotation(_axis, radians);
+            rotated = true;
+            entity.ApplyTranslation(_pivot);
+            translatedToPivot = false;
+        }
+        catch
+        {
+            if (rotated)
+            {
+                entity.ApplyRotation(_axis, -radians);
+            }
+            if (translatedToPivot)
+            {
+                entity.ApplyTranslation(_pivot);
             }
             throw;
         }
