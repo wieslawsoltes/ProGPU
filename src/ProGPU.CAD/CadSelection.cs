@@ -140,6 +140,10 @@ public static class CadSelectionHitTester
                 HitPolyline2D(snapshot, header, point, tolerance),
             CadEntityKind.Polyline3D =>
                 HitPolyline3D(snapshot, header, point, tolerance),
+            CadEntityKind.Solid =>
+                HitSolid(snapshot.Faces.Span[header.PrimitiveIndex], point, tolerance),
+            CadEntityKind.Face3D =>
+                HitFaceEdges(snapshot.Faces.Span[header.PrimitiveIndex], point, tolerance),
             _ => new CadPointHitResult(
                 CadPointHitStatus.UnsupportedKind,
                 double.NaN),
@@ -339,6 +343,56 @@ public static class CadSelectionHitTester
         return FromDistance(minimum, tolerance);
     }
 
+    private static CadPointHitResult HitSolid(
+        CadFacePrimitive face,
+        CadPoint3D point,
+        double tolerance)
+    {
+        double distance = DistanceToTriangle(
+            point,
+            face.First,
+            face.Second,
+            face.Third);
+        if (face.Fourth != face.Third)
+        {
+            distance = Math.Min(
+                distance,
+                DistanceToTriangle(
+                    point,
+                    face.First,
+                    face.Third,
+                    face.Fourth));
+        }
+        return FromDistance(distance, tolerance);
+    }
+
+    private static CadPointHitResult HitFaceEdges(
+        CadFacePrimitive face,
+        CadPoint3D point,
+        double tolerance)
+    {
+        double minimum = double.PositiveInfinity;
+        IncludeVisibleEdge(ref minimum, point, face.First, face.Second, face.InvisibleEdgeMask, 1);
+        IncludeVisibleEdge(ref minimum, point, face.Second, face.Third, face.InvisibleEdgeMask, 2);
+        IncludeVisibleEdge(ref minimum, point, face.Third, face.Fourth, face.InvisibleEdgeMask, 4);
+        IncludeVisibleEdge(ref minimum, point, face.Fourth, face.First, face.InvisibleEdgeMask, 8);
+        return FromDistance(minimum, tolerance);
+    }
+
+    private static void IncludeVisibleEdge(
+        ref double minimum,
+        CadPoint3D point,
+        CadPoint3D start,
+        CadPoint3D end,
+        byte invisibleEdgeMask,
+        byte edgeFlag)
+    {
+        if ((invisibleEdgeMask & edgeFlag) == 0 && start != end)
+        {
+            minimum = Math.Min(minimum, DistanceToSegment(point, start, end));
+        }
+    }
+
     private static CadPoint3D ToWorld(
         CadPolylinePrimitive polyline,
         CadPolylineVertex vertex) => ToWorld(polyline, vertex.X, vertex.Y);
@@ -406,6 +460,68 @@ public static class CadSelectionHitTester
             return (point - end).Length;
         }
         return (point - (start + (direction * projection))).Length;
+    }
+
+    private static double DistanceToTriangle(
+        CadPoint3D point,
+        CadPoint3D first,
+        CadPoint3D second,
+        CadPoint3D third)
+    {
+        CadPoint3D firstToSecond = second - first;
+        CadPoint3D firstToThird = third - first;
+        CadPoint3D normal = CadPoint3D.Cross(firstToSecond, firstToThird);
+        double normalLength = normal.Length;
+        if (!double.IsFinite(normalLength) || normalLength == 0.0)
+        {
+            return Math.Min(
+                DistanceToSegment(point, first, second),
+                Math.Min(
+                    DistanceToSegment(point, second, third),
+                    DistanceToSegment(point, third, first)));
+        }
+
+        CadPoint3D unitNormal = normal / normalLength;
+        double signedPlaneDistance = CadPoint3D.Dot(point - first, unitNormal);
+        if (!double.IsFinite(signedPlaneDistance))
+        {
+            return double.PositiveInfinity;
+        }
+        CadPoint3D projected = point - (unitNormal * signedPlaneDistance);
+        CadPoint3D fromFirst = projected - first;
+        double secondSquared = CadPoint3D.Dot(firstToSecond, firstToSecond);
+        double secondThird = CadPoint3D.Dot(firstToSecond, firstToThird);
+        double thirdSquared = CadPoint3D.Dot(firstToThird, firstToThird);
+        double projectedSecond = CadPoint3D.Dot(fromFirst, firstToSecond);
+        double projectedThird = CadPoint3D.Dot(fromFirst, firstToThird);
+        double denominator =
+            (secondSquared * thirdSquared) - (secondThird * secondThird);
+        if (!double.IsFinite(denominator) || denominator <= 0.0)
+        {
+            return Math.Min(
+                DistanceToSegment(point, first, second),
+                Math.Min(
+                    DistanceToSegment(point, second, third),
+                    DistanceToSegment(point, third, first)));
+        }
+        double secondWeight =
+            ((thirdSquared * projectedSecond) - (secondThird * projectedThird)) /
+            denominator;
+        double thirdWeight =
+            ((secondSquared * projectedThird) - (secondThird * projectedSecond)) /
+            denominator;
+        if (secondWeight >= 0.0 &&
+            thirdWeight >= 0.0 &&
+            secondWeight + thirdWeight <= 1.0)
+        {
+            return Math.Abs(signedPlaneDistance);
+        }
+
+        return Math.Min(
+            DistanceToSegment(point, first, second),
+            Math.Min(
+                DistanceToSegment(point, second, third),
+                DistanceToSegment(point, third, first)));
     }
 
     private static bool TryGetCircularBasis(

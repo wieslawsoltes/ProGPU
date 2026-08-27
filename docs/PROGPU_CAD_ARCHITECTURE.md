@@ -379,9 +379,11 @@ an interactive browser picker/download smoke remains open.
   handle. `CadSelectionHitTester` then performs exact allocation-free world-space
   proximity tests for lines, conformal circles/arcs, lightweight and legacy 2D
   polylines (including signed circular bulges under conformal transforms), and
-  3D polylines. It validates candidate generation and
+  3D polylines. Filled SOLID proximity uses the retained triangle union, while
+  stroke-only 3DFACE proximity tests only non-degenerate edges not masked by
+  its invisible-edge flags. It validates candidate generation and
   immutable header identity before indexing primitive buffers. Anisotropically
-  transformed circular/bulge geometry, ellipses, splines, faces, and text return typed
+  transformed circular/bulge geometry, ellipses, splines, and text return typed
   `UnsupportedGeometry`/`UnsupportedKind` results rather than AABB false hits;
   their full distance contracts plus semantic-handle deduplication,
   crossing/window semantics, and draw-order resolution remain explicit work.

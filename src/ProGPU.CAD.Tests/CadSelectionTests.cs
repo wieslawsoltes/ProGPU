@@ -243,6 +243,55 @@ public sealed class CadSelectionTests
     }
 
     [Fact]
+    public void PointHitTesterMatchesFilledSolidAndVisibleFaceEdges()
+    {
+        var solid = new Solid(
+            new XYZ(0, 0, 0),
+            new XYZ(4, 0, 0),
+            new XYZ(4, 3, 0),
+            new XYZ(0, 3, 0));
+        CadPointHitResult solidInterior = Hit(
+            solid,
+            new CadPoint3D(2, 1, 0.25),
+            0.25);
+        Assert.Equal(CadPointHitStatus.Hit, solidInterior.Status);
+        Assert.Equal(0.25, solidInterior.Distance, 10);
+
+        CadPointHitResult solidExterior = Hit(
+            (Entity)solid.Clone(),
+            new CadPoint3D(5, 1, 0),
+            0.5);
+        Assert.Equal(CadPointHitStatus.Miss, solidExterior.Status);
+        Assert.Equal(1.0, solidExterior.Distance, 10);
+
+        var face = new Face3D
+        {
+            FirstCorner = new XYZ(10, 0, 1),
+            SecondCorner = new XYZ(14, 0, 2),
+            ThirdCorner = new XYZ(14, 3, 3),
+            FourthCorner = new XYZ(10, 3, 4),
+            Flags = InvisibleEdgeFlags.Second | InvisibleEdgeFlags.Fourth,
+        };
+        CadPointHitResult visibleEdge = Hit(
+            face,
+            new CadPoint3D(12, 0, 1.5),
+            1e-10);
+        Assert.Equal(CadPointHitStatus.Hit, visibleEdge.Status);
+
+        CadPointHitResult invisibleEdge = Hit(
+            (Entity)face.Clone(),
+            new CadPoint3D(14, 1.5, 2.5),
+            0.25);
+        Assert.Equal(CadPointHitStatus.Miss, invisibleEdge.Status);
+
+        CadPointHitResult faceInterior = Hit(
+            (Entity)face.Clone(),
+            new CadPoint3D(12, 1.5, 2.5),
+            0.25);
+        Assert.Equal(CadPointHitStatus.Miss, faceInterior.Status);
+    }
+
+    [Fact]
     public void PointHitTesterRejectsStaleCandidatesAndReportsUnsupportedKinds()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
