@@ -333,6 +333,12 @@ submission/frame p50 improved 1.0547/4.6895 -> 1.0211/4.4603 ms at 1x and
 2.2952/7.7180 ms. The complete local native suite and strict x86_64 SSE2
 syntax gate pass.
 
+Exact pushed checkpoint `deb50413` also rebuilt the changed intrinsic source
+with ARM64 MSVC/Ninja in the Windows 11 Parallels VM and passed all ten
+non-Dawn native CTests. This is cross-compiler and DirectX-host correctness
+evidence; performance qualification remains the alternating Apple M3 Pro gate
+above.
+
 Exact pushed head `644a8d89` also rebuilt both native libraries with ARM64
 MSVC and passed all 11 native/Dawn CTests in the Windows Parallels VM. The
 zero-warning benchmark build ran the full 42-glyph forced-NEON D3D12 gate with

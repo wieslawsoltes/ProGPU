@@ -3201,6 +3201,11 @@ at both hashes. Submission/frame p50 improved 1.0547/4.6895 ->
 improved in all four comparisons. The ten-test local native suite and strict
 x86_64 SSE2 syntax compile pass.
 
+The exact pushed `deb50413` source also rebuilds with ARM64 MSVC/Ninja and
+passes all ten non-Dawn native CTests in the Windows 11 Parallels VM. That run
+qualifies the changed NEON source under the Windows compiler and runtime; the
+Apple measurements above remain the performance evidence.
+
 The WPF Box blur checkpoint closes the second canonical `KernelType` without a
 managed or CPU rendering fallback. Native MIL accepts kernel 1, retains live
 animated radius dependencies, and emits a typed reusable Box group effect;
