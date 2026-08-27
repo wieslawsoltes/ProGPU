@@ -3191,6 +3191,18 @@ fully GPU-resident. Gaussian is still the source-compatible default. Headless
 WebGPU tests execute both kernels without adding another shader or pipeline
 and assert bounded parameter layout plus distinct transparent-edge output.
 
+Exact native Box checkpoint `0866b919` completed the full Windows ARM64
+Parallels D3D12 lane from LibreWPF `8dabd9d84`: strict MSVC `/W4 /WX`, 11/11
+native/Dawn CTests, native and managed samples, forced raster/NEON/scalar
+parity, expected typed compute rejection, Microsoft D3D12 triangle/texture
+oracles, retained cache/effect/mask/clip/text/blend profiles, and package
+staging. The new Box profile was byte-exact against its independent two-pass
+oracle at hash `D77D5DC8AC370BCE`. SHA-256 is
+`3A64CFDD974448B71F8BF645AFCBDE95DC10C64256F73D7CEF1E12776DB3DA20`
+for `progpu_native.dll` and
+`B77C8A4157D4432F8C74F6067DE2944F96C8ECE0FA16B4967B24D330326DD70A`
+for `progpu_native_dawn.dll`.
+
 Exact pre-Box Windows checkpoint `edd98b71` completed the full Parallels D3D12
 Smoke/package lane after the PowerShell 5 expected-failure harness was made
 host-independent. ARM64 MSVC `/W4 /WX` rebuilt both providers, all 11 CTests
