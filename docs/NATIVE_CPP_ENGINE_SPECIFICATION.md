@@ -3649,6 +3649,21 @@ and ambient-plus-spot scenes. Metal readback observes center RGBA
 directional result and proves that position, attenuation, cone, and light-range
 storage reach the shared GPU shader rather than a CPU or default-light fallback.
 
+Windows 11 ARM64 qualification on the Parallels Display Adapter (WDDM) rebuilds
+both native modules with MSVC `/W4 /WX` and passes all 11 native/Dawn CTests.
+Both DLL export tables contain the versioned light-sideband entry point. The
+bounded retained MIL gate then executes the same generations on D3D12 and reads
+point RGBA `91/85/0/255` and spot RGBA `103/79/0/255`; the one-code-value blue
+rounding difference from Metal is within the gate's backend tolerance. The
+Microsoft D3D12HelloTriangle and D3D12HelloTexture semantic oracle scenes also
+render and read back successfully on that adapter, with SHA-256
+`AE1BC0A9B0623BACAB15BE1706FFA3E7FC15E33676A66F05C969C1B86A66FEA3`
+and `591CC311F35E3C2612F529C3D4D7061FC93751A9B8614BF588A73599B0AA2790`.
+The broad standalone sample and the managed headless Mesh3D test currently
+stall in unrelated mixed-scene/headless submission on this Parallels driver;
+they are explicitly not counted as light-path passes. Hardware Windows and a
+non-Parallels D3D12 adapter remain required before removing that deferral.
+
 The native validation boundary requires directional and ambient intensities to
 be nonnegative and shininess to be strictly positive. Invalid values fail before
 scene retention or GPU resource allocation; the shader's minimum clamps are
