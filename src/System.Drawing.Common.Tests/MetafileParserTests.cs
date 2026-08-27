@@ -315,7 +315,14 @@ public sealed class MetafileParserTests
             return true;
         };
 
-        graphics.EnumerateMetafile(metafile, Point.Empty, callback);
+        // Exercise enough complete walks for tiered compilation and dynamic PGO to
+        // settle before the allocation window. A single walk is not a stable warmup
+        // on hosted Linux runners even though it invokes the callback 4,098 times.
+        for (int iteration = 0; iteration < 16; iteration++)
+        {
+            graphics.EnumerateMetafile(metafile, Point.Empty, callback);
+        }
+
         count = 0;
         long before = GC.GetAllocatedBytesForCurrentThread();
         for (int iteration = 0; iteration < 16; iteration++)
