@@ -372,6 +372,58 @@ public sealed class CadEditingTests
     }
 
     [Fact]
+    public void LayerVisibilityCommandFiltersSnapshotAndRestoresPriorStates()
+    {
+        var document = new CadDocument();
+        var firstLayer = new Layer("FIRST");
+        var secondLayer = new Layer("SECOND") { IsOn = false };
+        document.Layers.Add(firstLayer);
+        document.Layers.Add(secondLayer);
+        var first = new Line(XYZ.Zero, XYZ.AxisX) { Layer = firstLayer };
+        var second = new Line(XYZ.AxisY, new XYZ(1, 1, 0)) { Layer = secondLayer };
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetLayerVisibilityCommand(
+            ["first", "SECOND", "FIRST"],
+            isOn: false));
+
+        Assert.False(firstLayer.IsOn);
+        Assert.False(secondLayer.IsOn);
+        Assert.Empty(new CadSnapshotCompiler().Compile(session).Entities.ToArray());
+
+        Assert.True(history.TryUndo(out _));
+        Assert.True(firstLayer.IsOn);
+        Assert.False(secondLayer.IsOn);
+        Assert.Single(new CadSnapshotCompiler().Compile(session).Entities.ToArray());
+
+        Assert.True(history.TryRedo(out _));
+        Assert.False(firstLayer.IsOn);
+        Assert.False(secondLayer.IsOn);
+    }
+
+    [Fact]
+    public void MissingLayerVisibilityTargetFailsBeforeMutation()
+    {
+        var document = new CadDocument();
+        var layer = new Layer("EXISTING");
+        document.Layers.Add(layer);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadSetLayerVisibilityCommand(
+                ["EXISTING", "MISSING"],
+                isOn: false)));
+
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(0, history.UndoCount);
+        Assert.True(layer.IsOn);
+    }
+
+    [Fact]
     public void LineTypeCommandRestoresInheritanceAndRetainsSnapshotName()
     {
         var document = new CadDocument();

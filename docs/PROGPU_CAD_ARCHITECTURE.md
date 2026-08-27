@@ -308,6 +308,11 @@ an interactive browser picker/download smoke remains open.
   identity before undo/redo. A missing or externally replaced layer therefore
   fails before partial property changes; setter failure rolls back the already
   applied prefix.
+- Layer visibility is a separate multi-layer command over the authored `IsOn`
+  state. It resolves every case-insensitively deduplicated table name before
+  mutation, retains each prior state, and restores the snapshot's existing
+  visibility filtering on undo. Plot eligibility remains a distinct
+  `PlotFlag` concern and is not changed by this command.
 - Linetype assignment uses the same table-identity and rollback contract for
   explicit, `ByLayer`, and `ByBlock` entries. The immutable snapshot retains the
   newly resolved linetype name. Entity linetype-scale assignment accepts only

@@ -122,59 +122,76 @@ public abstract class CadEditCommand
 
     protected static TValue[] CaptureEntityValues<TValue>(
         Entity[] entities,
-        Func<Entity, TValue> getter) =>
-        entities.Select(getter).ToArray();
+        Func<Entity, TValue> getter) => CaptureValues(entities, getter);
 
     protected static void SetEntityValuesTransactional<TValue>(
         Entity[] entities,
         TValue target,
         Func<Entity, TValue> getter,
-        Action<Entity, TValue> setter)
-    {
-        TValue[] rollback = CaptureEntityValues(entities, getter);
-        int applied = 0;
-        try
-        {
-            for (; applied < entities.Length; applied++)
-            {
-                setter(entities[applied], target);
-            }
-        }
-        catch
-        {
-            for (int i = applied - 1; i >= 0; i--)
-            {
-                setter(entities[i], rollback[i]);
-            }
-            throw;
-        }
-    }
+        Action<Entity, TValue> setter) =>
+        SetValuesTransactional(entities, target, getter, setter);
 
     protected static void SetEntityValuesTransactional<TValue>(
         Entity[] entities,
         TValue[] targets,
         Func<Entity, TValue> getter,
-        Action<Entity, TValue> setter)
+        Action<Entity, TValue> setter) =>
+        SetValuesTransactional(entities, targets, getter, setter);
+
+    protected static TValue[] CaptureValues<TItem, TValue>(
+        TItem[] items,
+        Func<TItem, TValue> getter) => items.Select(getter).ToArray();
+
+    protected static void SetValuesTransactional<TItem, TValue>(
+        TItem[] items,
+        TValue target,
+        Func<TItem, TValue> getter,
+        Action<TItem, TValue> setter)
     {
-        if (targets.Length != entities.Length)
-        {
-            throw new InvalidOperationException(
-                "Retained entity property state does not match the entity set.");
-        }
-        TValue[] rollback = CaptureEntityValues(entities, getter);
+        TValue[] rollback = CaptureValues(items, getter);
         int applied = 0;
         try
         {
-            for (; applied < entities.Length; applied++)
+            for (; applied < items.Length; applied++)
             {
-                setter(entities[applied], targets[applied]);
+                setter(items[applied], target);
             }
         }
         catch
         {
             for (int i = applied - 1; i >= 0; i--)
             {
-                setter(entities[i], rollback[i]);
+                setter(items[i], rollback[i]);
+            }
+            throw;
+        }
+    }
+
+    protected static void SetValuesTransactional<TItem, TValue>(
+        TItem[] items,
+        TValue[] targets,
+        Func<TItem, TValue> getter,
+        Action<TItem, TValue> setter)
+    {
+        if (targets.Length != items.Length)
+        {
+            throw new InvalidOperationException(
+                "Retained property state does not match the target set.");
+        }
+        TValue[] rollback = CaptureValues(items, getter);
+        int applied = 0;
+        try
+        {
+            for (; applied < items.Length; applied++)
+            {
+                setter(items[applied], targets[applied]);
+            }
+        }
+        catch
+        {
+            for (int i = applied - 1; i >= 0; i--)
+            {
+                setter(items[i], rollback[i]);
             }
             throw;
         }
@@ -853,6 +870,108 @@ public sealed class CadSetEntityLayerCommand : CadEditCommand
         }
     }
 
+}
+
+/// <summary>Sets model visibility for a stable set of existing layers.</summary>
+public sealed class CadSetLayerVisibilityCommand : CadEditCommand
+{
+    private readonly string[] _layerNames;
+    private Layer[]? _layers;
+    private bool[]? _previousValues;
+
+    public ReadOnlyMemory<string> LayerNames => _layerNames;
+
+    public bool IsOn { get; }
+
+    public CadSetLayerVisibilityCommand(
+        IEnumerable<string> layerNames,
+        bool isOn,
+        string description = "Set layer visibility")
+        : base(description)
+    {
+        ArgumentNullException.ThrowIfNull(layerNames);
+        string[] names = layerNames.ToArray();
+        if (names.Length == 0 || names.Any(string.IsNullOrWhiteSpace))
+        {
+            throw new ArgumentException(
+                "At least one non-empty layer name is required.",
+                nameof(layerNames));
+        }
+        _layerNames = names.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        IsOn = isOn;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Layer[] layers;
+        if (isRedo)
+        {
+            layers = GetRetainedLayers(document);
+        }
+        else
+        {
+            layers = ResolveLayers(document);
+            _layers = layers;
+            _previousValues = CaptureValues(
+                layers,
+                static layer => layer.IsOn);
+        }
+        SetValuesTransactional(
+            layers,
+            IsOn,
+            static layer => layer.IsOn,
+            static (layer, value) => layer.IsOn = value);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Layer[] layers = GetRetainedLayers(document);
+        bool[] previous = _previousValues ??
+            throw new InvalidOperationException(
+                "The layer-visibility command has not been applied.");
+        SetValuesTransactional(
+            layers,
+            previous,
+            static layer => layer.IsOn,
+            static (layer, value) => layer.IsOn = value);
+    }
+
+    private Layer[] ResolveLayers(CadDocument document)
+    {
+        var layers = new Layer[_layerNames.Length];
+        for (int i = 0; i < _layerNames.Length; i++)
+        {
+            if (!document.Layers.TryGetValue(_layerNames[i], out Layer? layer))
+            {
+                throw new InvalidOperationException(
+                    $"Document layer '{_layerNames[i]}' does not exist.");
+            }
+            layers[i] = layer;
+        }
+        return layers;
+    }
+
+    private Layer[] GetRetainedLayers(CadDocument document)
+    {
+        Layer[] layers = _layers ??
+            throw new InvalidOperationException(
+                "The layer-visibility command has not been applied.");
+        foreach (Layer layer in layers)
+        {
+            ValidateLayer(document, layer);
+        }
+        return layers;
+    }
+
+    private static void ValidateLayer(CadDocument document, Layer layer)
+    {
+        if (!document.Layers.TryGetValue(layer.Name, out Layer? registered) ||
+            !ReferenceEquals(registered, layer))
+        {
+            throw new InvalidOperationException(
+                $"Retained document layer '{layer.Name}' is no longer registered.");
+        }
+    }
 }
 
 /// <summary>Assigns one existing linetype to a stable set of model-space entities.</summary>
