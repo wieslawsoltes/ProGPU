@@ -339,6 +339,20 @@ non-Dawn native CTests. This is cross-compiler and DirectX-host correctness
 evidence; performance qualification remains the alternating Apple M3 Pro gate
 above.
 
+The same exact `23f6848d` checkout then completed the extended ARM64
+MSVC/Ninja D3D12 smoke/package lane. Both native providers built with zero
+warnings, all 11 native/Dawn CTests passed, native and managed allocation/
+readback samples completed, automatic raster, forced raster, forced SIMD, and
+bounded scalar routes remained exact, and forced compute failed at the typed
+pre-resource boundary. The SIMD route retained `5B6EF4F70536C862`; GPU Box
+blur retained `D77D5DC8AC370BCE`. Microsoft D3D12 triangle/texture oracles,
+the cache/effect/mask/clip/text/blend matrix, and runtime staging all passed.
+Staged SHA-256 values are
+`9D2E6713B9CF8EE97B58B6ED8BB6B73A4C4DF19AED9C5AF5248C0DF522D45266`
+for `progpu_native.dll` and
+`51BA93113AB6CA6D76DE29BD5DE83C8397808C44EDD21F277244772779B353EC`
+for `progpu_native_dawn.dll`.
+
 Exact pushed head `644a8d89` also rebuilt both native libraries with ARM64
 MSVC and passed all 11 native/Dawn CTests in the Windows Parallels VM. The
 zero-warning benchmark build ran the full 42-glyph forced-NEON D3D12 gate with

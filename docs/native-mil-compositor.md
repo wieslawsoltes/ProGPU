@@ -3206,6 +3206,20 @@ passes all ten non-Dawn native CTests in the Windows 11 Parallels VM. That run
 qualifies the changed NEON source under the Windows compiler and runtime; the
 Apple measurements above remain the performance evidence.
 
+Exact current head `23f6848d` subsequently completed the extended Windows 11
+Parallels ARM64 MSVC/Ninja D3D12 smoke/package lane. Both providers built with
+zero warnings, all 11 native/Dawn CTests passed, allocation/readback samples
+completed, and automatic raster, forced raster, forced SIMD, bounded scalar,
+and typed forced-compute-rejection routes behaved as declared. The full SIMD
+hash remained `5B6EF4F70536C862`; Box blur remained byte-exact at
+`D77D5DC8AC370BCE`. Both Microsoft D3D12 sample oracles and the retained
+cache/effect/mask/clip/text/blend matrix passed, including byte-exact Overlay
+and ColorDodge. Staged SHA-256 is
+`9D2E6713B9CF8EE97B58B6ED8BB6B73A4C4DF19AED9C5AF5248C0DF522D45266`
+for `progpu_native.dll` and
+`51BA93113AB6CA6D76DE29BD5DE83C8397808C44EDD21F277244772779B353EC`
+for `progpu_native_dawn.dll`.
+
 The WPF Box blur checkpoint closes the second canonical `KernelType` without a
 managed or CPU rendering fallback. Native MIL accepts kernel 1, retains live
 animated radius dependencies, and emits a typed reusable Box group effect;
