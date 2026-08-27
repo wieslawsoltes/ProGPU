@@ -714,6 +714,121 @@ public sealed class CadSetEntityLineWeightCommand : CadEditCommand
     }
 }
 
+/// <summary>Assigns indexed, true, ByLayer, or ByBlock color to model-space entities.</summary>
+public sealed class CadSetEntityColorCommand : CadEditCommand
+{
+    private readonly ulong[] _handles;
+    private Entity[]? _entities;
+    private ACadSharp.Color[]? _previousValues;
+
+    public ReadOnlyMemory<ulong> Handles => _handles;
+
+    public ACadSharp.Color Color { get; }
+
+    public CadSetEntityColorCommand(
+        IEnumerable<ulong> handles,
+        ACadSharp.Color color,
+        string description = "Set entity color")
+        : base(description)
+    {
+        ArgumentNullException.ThrowIfNull(handles);
+        if (!color.IsTrueColor && color.Index == ACadSharp.Color.ByEntity.Index)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(color),
+                "The ByEntity color sentinel is not valid for CAD entities.");
+        }
+        _handles = handles.Distinct().ToArray();
+        if (_handles.Length == 0 || _handles.Any(static handle => handle == 0))
+        {
+            throw new ArgumentException(
+                "At least one non-zero entity handle is required.",
+                nameof(handles));
+        }
+        Color = color;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Entity[] entities;
+        if (isRedo)
+        {
+            entities = GetRetainedEntities(document);
+        }
+        else
+        {
+            entities = ResolveModelSpaceEntities(document, _handles);
+            _entities = entities;
+            _previousValues = entities.Select(static entity => entity.Color).ToArray();
+        }
+        SetTransactional(entities, Color);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Entity[] entities = GetRetainedEntities(document);
+        ACadSharp.Color[] previous = _previousValues ??
+            throw new InvalidOperationException("The color command has not been applied.");
+        SetTransactional(entities, previous);
+    }
+
+    private Entity[] GetRetainedEntities(CadDocument document)
+    {
+        Entity[] entities = _entities ??
+            throw new InvalidOperationException("The color command has not been applied.");
+        ValidateModelSpaceEntities(document, entities);
+        return entities;
+    }
+
+    private static void SetTransactional(
+        Entity[] entities,
+        ACadSharp.Color target)
+    {
+        ACadSharp.Color[] rollback =
+            entities.Select(static entity => entity.Color).ToArray();
+        int applied = 0;
+        try
+        {
+            for (; applied < entities.Length; applied++)
+            {
+                entities[applied].Color = target;
+            }
+        }
+        catch
+        {
+            for (int i = applied - 1; i >= 0; i--)
+            {
+                entities[i].Color = rollback[i];
+            }
+            throw;
+        }
+    }
+
+    private static void SetTransactional(
+        Entity[] entities,
+        ACadSharp.Color[] targets)
+    {
+        ACadSharp.Color[] rollback =
+            entities.Select(static entity => entity.Color).ToArray();
+        int applied = 0;
+        try
+        {
+            for (; applied < entities.Length; applied++)
+            {
+                entities[applied].Color = targets[applied];
+            }
+        }
+        catch
+        {
+            for (int i = applied - 1; i >= 0; i--)
+            {
+                entities[i].Color = rollback[i];
+            }
+            throw;
+        }
+    }
+}
+
 /// <summary>Adds one detached entity to model space with reversible ownership.</summary>
 public sealed class CadAddModelSpaceEntityCommand : CadEditCommand
 {

@@ -318,4 +318,57 @@ public sealed class CadEditingTests
                 [1UL],
                 (LineWeightType)1234));
     }
+
+    [Fact]
+    public void ColorCommandRestoresInheritanceAndRetainsTrueColorOutput()
+    {
+        var document = new CadDocument();
+        var layer = new Layer("RED") { Color = ACadSharp.Color.Red };
+        document.Layers.Add(layer);
+        var inherited = new Line(XYZ.Zero, XYZ.AxisX)
+        {
+            Layer = layer,
+            Color = ACadSharp.Color.ByLayer,
+        };
+        var byBlock = new Line(XYZ.AxisY, new XYZ(1, 1, 0))
+        {
+            Layer = layer,
+            Color = ACadSharp.Color.ByBlock,
+        };
+        document.Entities.Add(inherited);
+        document.Entities.Add(byBlock);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var trueColor = new ACadSharp.Color(12, 34, 56);
+
+        history.Execute(new CadSetEntityColorCommand(
+            [inherited.Handle, byBlock.Handle],
+            trueColor));
+
+        Assert.Equal(trueColor, inherited.Color);
+        Assert.Equal(trueColor, byBlock.Color);
+        CadDocumentSnapshot applied = new CadSnapshotCompiler().Compile(session);
+        Assert.All(applied.Styles.ToArray(), style =>
+        {
+            Assert.Equal((byte)12, style.Red);
+            Assert.Equal((byte)34, style.Green);
+            Assert.Equal((byte)56, style.Blue);
+        });
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(ACadSharp.Color.ByLayer, inherited.Color);
+        Assert.Equal(ACadSharp.Color.ByBlock, byBlock.Color);
+        Assert.True(history.TryRedo(out _));
+        Assert.Equal(trueColor, inherited.Color);
+        Assert.Equal(trueColor, byBlock.Color);
+    }
+
+    [Fact]
+    public void ColorCommandRejectsNonEntitySentinel()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadSetEntityColorCommand(
+                [1UL],
+                ACadSharp.Color.ByEntity));
+    }
 }

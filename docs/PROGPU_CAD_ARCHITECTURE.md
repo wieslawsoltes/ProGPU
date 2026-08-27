@@ -305,6 +305,11 @@ an interactive browser picker/download smoke remains open.
   the next immutable snapshot resolves it through the existing layer/block
   style contract, so both picture compilers receive the same physical or
   cosmetic stroke policy.
+- Color assignment retains indexed, true-color, `ByLayer`, and `ByBlock` values
+  as authored and rejects the header-only `ByEntity` sentinel before mutation.
+  Undo restores each semantic value rather than baking resolved RGB, while the
+  snapshot regression verifies that an explicit true color reaches the shared
+  retained stroke style unchanged.
 - A direct session edit from another owner invalidates both history branches.
   The expected generation is checked again under the document lock so a race
   cannot apply an undo to the wrong document state. Failed resolution or command
@@ -833,6 +838,30 @@ Sources consulted on 2026-08-27:
   definitions or cloning third-party entities.
 - [Autodesk lineweights](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-4B33ACD3-F6DD-4CB5-8C55-D6D0D7130905.htm):
   adopted distinct cosmetic model-space and physical paper/plot policies.
+- [Autodesk LTYPE records](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-DXF/files/GUID-F57A316C-94A2-416C-8280-191E34B182AC.htm),
+  [simple-linetype semantics](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Customization/files/GUID-EF1DF0A9-2088-487C-8085-16FEE6425405.htm),
+  and [linetype scaling](https://help.autodesk.com/view/ACD/2026/ENU/?guid=GUID-20B4D4B3-1220-426A-847B-5BBE36EC6FDF):
+  adopted positive dash, negative gap, zero dot, entity/global scaling, and
+  A-aligned endpoint requirements. A fixed repeating phase was rejected because
+  AutoCAD adjusts endpoint dashes per line/arc and draws a too-short primitive
+  continuously. The current snapshot therefore retains name/scale and the plan
+  emits an unsupported diagnostic rather than approximating the pattern.
+- [Skia dash effects](https://api.skia.org/classSkDashPathEffect.html),
+  [Direct2D retained stroke styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1strokestyle),
+  [Win2D custom dash styles](https://learn.microsoft.com/en-us/dotnet/communitytoolkit/archive/windows/win2d-path-mini-language),
+  [Vello stroke encoding](https://github.com/linebender/vello/blob/main/vello_encoding/src/path.rs),
+  and [WebRender's retained display-list architecture](https://github.com/servo/servo/wiki/Webrender-Overview):
+  adopted reusable interval/phase/cap concepts and retained device-independent
+  style ownership, but none is treated as an oracle for CAD A-alignment. The
+  existing ProGPU dash path remains the eventual backend after a CAD-specific
+  endpoint planner produces conformance-tested intervals.
+- [HarfBuzz shaping](https://harfbuzz.github.io/what-is-harfbuzz.html),
+  [Parley rich-text architecture](https://github.com/linebender/parley/blob/main/doc/concept.md),
+  [SkParagraph](https://docs.skia.org/docs/dev/design/text_shaper/), and
+  [DirectWrite](https://learn.microsoft.com/en-us/windows/win32/directwrite/getting-started-with-directwrite):
+  confirmed that shaping/layout stays separate from stroke patterns; these
+  stacks become applicable to embedded-text complex linetypes, not simple dash
+  alignment, so no text shortcut or foreign layout structure was adopted.
 - [Autodesk shape/font descriptions](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-DE941DB5-7044-433C-AA68-2A9AE98A5713.htm),
   [special codes](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Customization/files/GUID-06832147-16BE-4A66-A6D0-3ADF98DC8228.htm),
   [vector directions](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Customization/files/GUID-0A8E12A1-F4AB-44AD-8A9B-2140E0D5FD23.htm),
