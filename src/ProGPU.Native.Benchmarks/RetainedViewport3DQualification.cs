@@ -62,34 +62,56 @@ internal static class RetainedViewport3DQualification
             reverseWinding: false,
             generation: 3U,
             shininess: 256f);
+        FrameResult orthographic = Render(
+            compositor,
+            context,
+            target,
+            NativeMesh3DFlags.FrontFace,
+            reverseWinding: false,
+            generation: 4U,
+            orthographic: true);
 
         Require(
             front.Update.ValidationError == NativeSceneValidationError.None &&
             back.Update.ValidationError == NativeSceneValidationError.None &&
+            glossy.Update.ValidationError == NativeSceneValidationError.None &&
+            orthographic.Update.ValidationError == NativeSceneValidationError.None &&
             front.Frame.SubmissionCount > 0U &&
             back.Frame.SubmissionCount > 0U &&
+            glossy.Frame.SubmissionCount > 0U &&
+            orthographic.Frame.SubmissionCount > 0U &&
             front.Frame.DrawCallCount == 1U &&
-            back.Frame.DrawCallCount == 1U,
+            back.Frame.DrawCallCount == 1U &&
+            glossy.Frame.DrawCallCount == 1U &&
+            orthographic.Frame.DrawCallCount == 1U,
             "retained MIL Viewport3D execution failed: " +
             $"front={front.Update}/{front.Frame}, " +
-            $"back={back.Update}/{back.Frame}");
+            $"back={back.Update}/{back.Frame}, " +
+            $"glossy={glossy.Update}/{glossy.Frame}, " +
+            $"orthographic={orthographic.Update}/{orthographic.Frame}");
         Require(
             IsInside(TransformedViewport, front.Extent) &&
             IsInside(TransformedViewport, back.Extent) &&
+            IsInside(TransformedViewport, orthographic.Extent) &&
             IsInside(EffectiveClip, front.Extent) &&
-            IsInside(EffectiveClip, back.Extent),
+            IsInside(EffectiveClip, back.Extent) &&
+            IsInside(EffectiveClip, orthographic.Extent),
             "retained MIL Viewport3D escaped its typed viewport: " +
             $"viewport={FormatRect(TransformedViewport)}, " +
             $"clip={FormatRect(EffectiveClip)}, " +
             $"front={front.Extent}, " +
-            $"back={back.Extent}");
+            $"back={back.Extent}, orthographic={orthographic.Extent}");
         Require(
             front.Pixels.AsSpan().SequenceEqual(back.Pixels),
             "front/back retained MIL face selection produced different pixels");
         Require(
             !front.Pixels.AsSpan().SequenceEqual(glossy.Pixels),
             "retained MIL material shininess did not affect GPU output");
+        Require(
+            !front.Pixels.AsSpan().SequenceEqual(orthographic.Pixels),
+            "retained MIL orthographic camera matched perspective output");
         RequireLitPixel(front.Pixels, 56, 39);
+        RequireLitPixel(orthographic.Pixels, 56, 39);
 
         Console.WriteLine(
             "Qualified live retained MIL Viewport3D placement and exact " +
@@ -99,7 +121,8 @@ internal static class RetainedViewport3DQualification
             $"viewport={FormatRect(TransformedViewport)}, " +
             $"clip={FormatRect(EffectiveClip)}, " +
             $"opacity={Opacity.ToString(System.Globalization.CultureInfo.InvariantCulture)}, " +
-            $"extent={front.Extent}, front={front.Frame}, back={back.Frame}.");
+            $"extent={front.Extent}, front={front.Frame}, back={back.Frame}, " +
+            $"orthographic={orthographic.Extent}/{orthographic.Frame}.");
     }
 
     private static FrameResult Render(
@@ -109,13 +132,15 @@ internal static class RetainedViewport3DQualification
         NativeMesh3DFlags faceMode,
         bool reverseWinding,
         ulong generation,
-        float shininess = 1f)
+        float shininess = 1f,
+        bool orthographic = false)
     {
         byte[] scene = BuildScene(
             faceMode,
             reverseWinding,
             generation,
-            shininess);
+            shininess,
+            orthographic);
         NativeSceneUpdateMetrics update = compositor.UpdateScene(scene);
         NativeSceneFrameMetrics frame = compositor.RenderScene(
             target,
@@ -136,7 +161,8 @@ internal static class RetainedViewport3DQualification
         NativeMesh3DFlags faceMode,
         bool reverseWinding,
         ulong generation,
-        float shininess)
+        float shininess,
+        bool orthographic)
     {
         var batch = new NativeMilBatchBuilder();
         batch.CreateResource(
@@ -174,7 +200,11 @@ internal static class RetainedViewport3DQualification
         _ = channel.Apply(batch.WrittenSpan);
         channel.SetViewport3DScene(
             ViewportHandle,
-            CreateViewportScene(faceMode, reverseWinding, shininess));
+            CreateViewportScene(
+                faceMode,
+                reverseWinding,
+                shininess,
+                orthographic));
         NativeMilCompiledScene scene = channel.CompileScene(
             TargetHandle,
             SceneId,
@@ -188,7 +218,8 @@ internal static class RetainedViewport3DQualification
     private static NativeMilViewport3DScene CreateViewportScene(
         NativeMesh3DFlags faceMode,
         bool reverseWinding,
-        float shininess)
+        float shininess,
+        bool orthographic)
     {
         var vertices = new NativeSceneMesh3DVertex[3];
         vertices[0] = CreateVertex(new Vector3(-0.8f, -0.8f, 0f));
@@ -218,11 +249,17 @@ internal static class RetainedViewport3DQualification
         };
         return new NativeMilViewport3DScene(
             new NativeSceneCamera3D(
-                Matrix4x4.CreatePerspectiveFieldOfView(
-                    MathF.PI / 4f,
-                    Viewport.Width / Viewport.Height,
-                    0.1f,
-                    100f),
+                orthographic
+                    ? Matrix4x4.CreateOrthographic(
+                        2.4f,
+                        1.8f,
+                        0.1f,
+                        100f)
+                    : Matrix4x4.CreatePerspectiveFieldOfView(
+                        MathF.PI / 4f,
+                        Viewport.Width / Viewport.Height,
+                        0.1f,
+                        100f),
                 Matrix4x4.CreateLookAt(
                     new Vector3(0f, 0f, 2f),
                     Vector3.Zero,
