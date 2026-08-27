@@ -268,6 +268,14 @@ fn sample_material_stops(
     brush: MaterialBrush3D,
     value: f32
 ) -> vec4<f32> {
+    if ((brush.spread_method & 0x40000000u) != 0u) {
+        if (value < 0.0) {
+            return brush.stop_colors0;
+        }
+        if (value > 1.0) {
+            return brush.stop_colors1;
+        }
+    }
     var previous = material_gradient_stops[brush.stop_offset];
     if (value < previous.offset) {
         return previous.color;
@@ -327,13 +335,14 @@ fn sample_mesh_material(
             }
         }
     }
-    if (brush.spread_method == 3u &&
+    let spread = brush.spread_method & 0x3fffffffu;
+    if (spread == 3u &&
         (value < 0.0 || value > 1.0)) {
         return vec4<f32>(0.0);
     }
     let color = sample_material_stops(
         brush,
-        apply_material_spread(value, brush.spread_method));
+        apply_material_spread(value, spread));
     return vec4<f32>(color.rgb, color.a * brush.opacity);
 }
 

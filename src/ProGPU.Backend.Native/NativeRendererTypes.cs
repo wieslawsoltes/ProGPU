@@ -831,13 +831,19 @@ public readonly struct NativeSceneGradientStop
 /// Gradient stop offsets are local to the matching brush-table resource. The
 /// native compiler remaps them into one scene-wide retained GPU page. Factory
 /// methods initialize the coordinate transform and the first eight inline
-/// stop values consistently with the production managed compositor.
+/// stop values consistently with the production managed compositor. A brush
+/// returned by <see cref="WithPadOutsideColors"/> instead uses the first two
+/// inline colors for its start/end Pad extension while the authoritative
+/// gradient stops remain in the auxiliary table.
 /// </remarks>
 [StructLayout(LayoutKind.Explicit, Size = 256)]
 public struct NativeSceneBrush
 {
     public const uint PerlinTableRecordCount = 512U;
     public const uint MaximumPerlinOctaves = 255U;
+    public const uint GradientSpreadMask = 0x3FFFFFFFU;
+    public const uint PadOutsideColorsFlag = 0x40000000U;
+    public const uint ConicalOutsideColorFlag = 0x80000000U;
 
     [FieldOffset(0)] public NativeSceneBrushKind Kind;
     [FieldOffset(4)] public float Opacity;
@@ -864,6 +870,43 @@ public struct NativeSceneBrush
     [FieldOffset(208)] public Vector4 Offsets1;
     [FieldOffset(224)] public Vector4 CoordinateTransform0;
     [FieldOffset(240)] public Vector4 CoordinateTransform1;
+
+    /// <summary>
+    /// Gets whether <see cref="Color0"/> and <see cref="Color1"/> are the
+    /// colors sampled before and after a Pad gradient. Exact endpoint
+    /// coordinates continue to sample the first and last gradient stops.
+    /// </summary>
+    public readonly bool HasPadOutsideColors =>
+        ((uint)Spread & PadOutsideColorsFlag) != 0U;
+
+    /// <summary>
+    /// Returns a canonical gradient brush with distinct colors for coordinates
+    /// before and after its Pad interval. The 256-byte ABI is unchanged.
+    /// </summary>
+    public readonly NativeSceneBrush WithPadOutsideColors(
+        Vector4 startColor,
+        Vector4 endColor)
+    {
+        uint spread = (uint)Spread;
+        bool gradient = Kind is NativeSceneBrushKind.LinearGradient or
+            NativeSceneBrushKind.RadialGradient or
+            NativeSceneBrushKind.TwoPointConicalGradient or
+            NativeSceneBrushKind.SweepGradient;
+        if (!gradient ||
+            (spread & GradientSpreadMask) !=
+                (uint)NativeSceneGradientSpread.Pad)
+        {
+            throw new InvalidOperationException(
+                "Distinct outside colors require a Pad gradient brush.");
+        }
+
+        var result = this;
+        result.Spread = (NativeSceneGradientSpread)(
+            spread | PadOutsideColorsFlag);
+        result.Color0 = startColor;
+        result.Color1 = endColor;
+        return result;
+    }
 
     public static NativeSceneBrush Solid(
         Vector4 color,
@@ -978,7 +1021,7 @@ public struct NativeSceneBrush
         if (outsideColor is { } color)
         {
             brush.Spread = (NativeSceneGradientSpread)(
-                (uint)brush.Spread | 0x80000000U);
+                (uint)brush.Spread | ConicalOutsideColorFlag);
             brush.Color0 = color;
         }
         return brush;

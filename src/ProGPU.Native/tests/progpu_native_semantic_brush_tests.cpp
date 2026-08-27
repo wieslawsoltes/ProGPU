@@ -137,6 +137,37 @@ bool semantic_perlin_brush_table_is_exact_and_bounded() {
             bytes.data(), resource, error_offset)) {
         return false;
     }
+
+    auto pad_outside = brush;
+    pad_outside.type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+    pad_outside.stop_count = 2U;
+    pad_outside.stop_offset = 0U;
+    pad_outside.spread_method =
+        static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_GRADIENT_PAD) |
+        PROGPU_NATIVE_SCENE_GRADIENT_PAD_OUTSIDE_COLORS;
+    pad_outside.color_interpolation_mode =
+        PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB;
+    pad_outside.colors[0] = {1.0F, 0.0F, 0.0F, 1.0F};
+    pad_outside.colors[1] = {0.0F, 0.0F, 1.0F, 1.0F};
+    std::memcpy(
+        bytes.data() + brush_offset,
+        &pad_outside,
+        sizeof(pad_outside));
+    if (!semantic::validate_brush_table(
+            bytes.data(), resource, error_offset)) {
+        return false;
+    }
+    pad_outside.spread_method =
+        static_cast<std::uint32_t>(PROGPU_NATIVE_SCENE_GRADIENT_REFLECT) |
+        PROGPU_NATIVE_SCENE_GRADIENT_PAD_OUTSIDE_COLORS;
+    std::memcpy(
+        bytes.data() + brush_offset,
+        &pad_outside,
+        sizeof(pad_outside));
+    if (semantic::validate_brush_table(
+            bytes.data(), resource, error_offset)) {
+        return false;
+    }
     std::memcpy(bytes.data() + brush_offset, &brush, sizeof(brush));
 
     auto truncated = resource;

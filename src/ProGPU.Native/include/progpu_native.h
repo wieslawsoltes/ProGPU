@@ -165,6 +165,19 @@ typedef enum progpu_native_scene_gradient_spread {
     PROGPU_NATIVE_SCENE_GRADIENT_DECAL = 3
 } progpu_native_scene_gradient_spread;
 
+enum {
+    PROGPU_NATIVE_SCENE_GRADIENT_SPREAD_MASK = 0x3fffffffU,
+    /*
+     * Colors[0]/Colors[1] contain the distinct start/end colors sampled only
+     * outside a Pad gradient. Exact t=0/t=1 coordinates still sample the
+     * normalized stop range. This preserves WPF duplicate-endpoint semantics
+     * without widening the canonical 256-byte brush ABI.
+     */
+    PROGPU_NATIVE_SCENE_GRADIENT_PAD_OUTSIDE_COLORS = 0x40000000U,
+    /* Colors[0] is returned when a two-point conical solve has no coverage. */
+    PROGPU_NATIVE_SCENE_GRADIENT_CONICAL_OUTSIDE_COLOR = 0x80000000U
+};
+
 typedef enum progpu_native_scene_gradient_interpolation {
     PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB = 0,
     PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SCRGB = 1

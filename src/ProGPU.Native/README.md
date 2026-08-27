@@ -1273,8 +1273,10 @@ Current native parity:
 - pointer-free retained semantic solid/linear/radial/two-point-conical/sweep
   brushes with exact production `GpuBrush`/gradient-stop layout, compact
   analytic/path maps, scene-wide referenced-range deduplication, GPU-only
-  gradient evaluation, transactional material-buffer growth, and zero stable
-  brush/stop upload on Metal and browser WebGPU;
+  gradient evaluation, WPF-exact stable epsilon-coincident stop consolidation,
+  distinct duplicate-endpoint Pad outside colors in the unchanged 256-byte
+  brush ABI, transactional material-buffer growth, and zero stable brush/stop
+  upload on Metal and browser WebGPU;
 - retained Perlin-noise brushes with independent affine brush coordinates,
   bounded 255-octave evaluation, a zero-table deterministic fallback, or one
   exact validated/remapped 512-record permutation/gradient table; stable replay

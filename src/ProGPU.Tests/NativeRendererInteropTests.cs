@@ -2833,11 +2833,14 @@ public class NativeRendererInteropTests
             stackalloc NativeSceneBrush[2];
         brushes[0] = NativeSceneBrush.Solid(
             new Vector4(0.25f, 0.5f, 0.75f, 1f));
+        Vector4 padStartOutside = new(0f, 1f, 0f, 1f);
+        Vector4 padEndOutside = new(1f, 1f, 0f, 1f);
         brushes[1] = NativeSceneBrush.LinearGradient(
-            Vector2.Zero,
-            new Vector2(64f, 0f),
-            0U,
-            stops);
+                Vector2.Zero,
+                new Vector2(64f, 0f),
+                0U,
+                stops)
+            .WithPadOutsideColors(padStartOutside, padEndOutside);
         Span<uint> brushIndices = stackalloc uint[2] { 0U, 1U };
 
         static bool BuildBrushScene(
@@ -2899,8 +2902,9 @@ public class NativeRendererInteropTests
         Assert.Equal(2U, drawBrushes.BrushCount);
         Assert.Equal(NativeSceneBrushKind.LinearGradient, storedGradient.Kind);
         Assert.Equal(2U, storedGradient.StopCount);
-        Assert.Equal(new Vector4(1f, 0f, 0f, 1f), storedGradient.Color0);
-        Assert.Equal(new Vector4(0f, 0f, 1f, 1f), storedGradient.Color1);
+        Assert.True(storedGradient.HasPadOutsideColors);
+        Assert.Equal(padStartOutside, storedGradient.Color0);
+        Assert.Equal(padEndOutside, storedGradient.Color1);
 
         long before = GC.GetAllocatedBytesForCurrentThread();
         bool success = true;
@@ -2917,6 +2921,15 @@ public class NativeRendererInteropTests
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         Assert.True(success);
         Assert.Equal(0L, allocated);
+
+        NativeSceneBrush reflected = NativeSceneBrush.LinearGradient(
+            Vector2.Zero,
+            Vector2.One,
+            0U,
+            stops,
+            spread: NativeSceneGradientSpread.Reflect);
+        Assert.Throws<InvalidOperationException>(() =>
+            reflected.WithPadOutsideColors(Vector4.Zero, Vector4.One));
 
         Span<NativeAnalyticPrimitive> one =
             stackalloc NativeAnalyticPrimitive[1];

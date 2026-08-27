@@ -3073,6 +3073,11 @@ public ref struct NativeSceneStreamBuilder
         foreach (ref readonly NativeSceneBrush brush in brushes)
         {
             uint spread = (uint)brush.Spread;
+            uint baseSpread = spread & NativeSceneBrush.GradientSpreadMask;
+            bool padOutsideColors =
+                (spread & NativeSceneBrush.PadOutsideColorsFlag) != 0U;
+            bool conicalOutsideColor =
+                (spread & NativeSceneBrush.ConicalOutsideColorFlag) != 0U;
             bool conical = brush.Kind ==
                 NativeSceneBrushKind.TwoPointConicalGradient;
             bool perlin = brush.Kind == NativeSceneBrushKind.PerlinNoise;
@@ -3109,9 +3114,11 @@ public ref struct NativeSceneStreamBuilder
                 brush.CoordinateTransform1.W != 0f ||
                 (uint)brush.Interpolation >
                     (uint)NativeSceneGradientInterpolation.ScRgb ||
-                (spread & 0x7FFFFFFFU) >
+                baseSpread >
                     (uint)NativeSceneGradientSpread.Decal ||
-                ((spread & 0x80000000U) != 0U && !conical))
+                (conicalOutsideColor && !conical) ||
+                (padOutsideColors && (!gradient || baseSpread !=
+                    (uint)NativeSceneGradientSpread.Pad)))
             {
                 return false;
             }
@@ -3123,7 +3130,8 @@ public ref struct NativeSceneStreamBuilder
                     ? 0U
                     : NativeSceneBrush.PerlinTableRecordCount;
                 if (brush.StopCount > NativeSceneBrush.MaximumPerlinOctaves ||
-                    spread > 1U ||
+                    padOutsideColors || conicalOutsideColor ||
+                    baseSpread > 1U ||
                     (tableRecordCount == 0U && brush.StopOffset != 0U) ||
                     brush.StopOffset > (uint)gradientStops.Length ||
                     tableRecordCount >

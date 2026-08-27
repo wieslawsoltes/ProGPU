@@ -317,12 +317,29 @@ Gradient stops are stably sorted after WPF double-to-float position
 quantization. Out-of-range endpoints are clamped or interpolated in the selected
 WPF color space, scRGB packet colors are converted to the shader's sRGB storage
 contract, zero stops become an empty material, and one stop becomes a solid
-material. Internal exact duplicate stops remain ordered for hard transitions.
-WPF's epsilon-based near-coincident consolidation and its distinct Pad outside
-color at duplicate 0/1 endpoints are not yet represented by the semantic brush
-ABI; those cases remain an explicit differential-parity task rather than an
-approximate claim. Gradient brushes on cap-only degenerate pen strokes also
-fail closed until the cap path exposes its exact brush-sizing bounds.
+material. The native compiler now directly follows WPF
+`CreateWellFormedGradientArray`: positions are coincident only when the strict
+relative `10 * FLT_EPSILON` comparison succeeds, redundant middle colors in a
+coincident chain are removed, and the retained first/last pair is assigned one
+exact offset for a hard transition. Duplicate endpoint groups retain WPF's
+asymmetry: the left-most color at zero and right-most color at one are the Pad
+outside colors, while the opposite colors remain the exact in-range endpoint
+stops. A validated `0x40000000` spread flag stores those two outside colors in
+the canonical brush's existing `Colors[0..1]`; `Vector.wgsl`, `Hatch.wgsl`, and
+native `Native3D.wgsl` sample them only for `t < 0`/`t > 1`, so the 256-byte ABI
+does not widen. This small resource-compilation pass intentionally remains
+scalar because stable ordering and the previous normalized stop control every
+subsequent decision; unlike the pixel, glyph, and geometry hot loops, it has no
+independent SIMD lanes. Oracle tests cover stable sorting, a three-stop
+near-coincident chain, a beyond-tolerance pair, and both endpoint directions.
+The default native hardware sample now makes its second retained rectangle a
+Pad gradient whose span is narrower than the geometry. Its Apple M3 Pro Metal
+readback records start outside `250/133/20`, in-range start `0/255/4`, in-range
+end `0/255/253`, and end outside `184/51/245`; this keeps the shader branch in
+the normal macOS/Windows/Linux native sample gate instead of relying only on
+stream inspection.
+Gradient brushes on cap-only degenerate pen strokes still fail closed until the
+cap path exposes its exact brush-sizing bounds.
 
 Canonical `MILCMD_GEOMETRYDRAWING` resource `87` and nested
 `MILCMD_DRAW_DRAWING` command `0x4a` are retained as typed native state. A
