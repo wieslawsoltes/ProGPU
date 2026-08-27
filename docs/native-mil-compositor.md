@@ -3156,6 +3156,13 @@ submission/frame p50 improved 1.7587/5.3875 -> 1.6904/5.0735 ms at 1x and
 The local native suite passes 10/10 and the SSE2 source passes strict x86_64
 Clang warnings-as-errors compilation.
 
+A conservative right-bound early-exit candidate was also exact and rejected.
+Eight 120-frame 1x runs per variant kept hash `5B6EF4F70536C862` and zero
+pixel difference, but median submission/frame p50 regressed
+1.3922/4.9143 -> 1.6106/5.2848 ms (+15.7%/+7.5%), with worse p95 medians as
+well. The qualified SIMD loop therefore remains branch-free across full pixel
+pairs; typed outline bounds are not used as an assumed hot-path shortcut.
+
 The WPF Box blur checkpoint closes the second canonical `KernelType` without a
 managed or CPU rendering fallback. Native MIL accepts kernel 1, retains live
 animated radius dependencies, and emits a typed reusable Box group effect;
