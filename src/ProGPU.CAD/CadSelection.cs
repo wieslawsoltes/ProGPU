@@ -16,6 +16,14 @@ public readonly record struct CadSelectionQueryResult(
     public bool IsTruncated => WrittenCount != TotalCount;
 }
 
+public readonly record struct CadSelectionHandleResult(
+    ulong ContentGeneration,
+    int WrittenCount,
+    int TotalCount)
+{
+    public bool IsTruncated => WrittenCount != TotalCount;
+}
+
 /// <summary>Caller-buffered broad-phase selection over immutable snapshot bounds.</summary>
 public static class CadSelectionQuery
 {
@@ -54,6 +62,111 @@ public static class CadSelectionQuery
             snapshot.ContentGeneration,
             spatial.WrittenCount,
             spatial.TotalCount);
+    }
+
+    /// <summary>Returns the caller scratch length required to deduplicate candidates.</summary>
+    public static int GetUniqueHandleScratchLength(int candidateCount)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(candidateCount);
+        if (candidateCount == 0)
+        {
+            return 0;
+        }
+        if (candidateCount > 1 << 29)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(candidateCount),
+                "The candidate count is too large for bounded handle scratch.");
+        }
+
+        int required = 2;
+        while (required < candidateCount * 2)
+        {
+            required <<= 1;
+        }
+        return required;
+    }
+
+    /// <summary>
+    /// Writes each semantic root handle once, preserving its first candidate order.
+    /// </summary>
+    /// <remarks>
+    /// All candidates must belong to one immutable content generation. Scratch uses
+    /// open addressing at a maximum 50% load and is cleared by the operation. Work is
+    /// O(K) average and O(K^2) worst-case for K primitive candidates; storage is O(K)
+    /// in caller-owned spans. Destination capacity affects only WrittenCount, never
+    /// TotalCount, so truncation is explicit.
+    /// </remarks>
+    public static CadSelectionHandleResult CollectUniqueHandles(
+        ReadOnlySpan<CadSelectionCandidate> candidates,
+        Span<int> hashScratch,
+        Span<ulong> destination)
+    {
+        if (candidates.IsEmpty)
+        {
+            return default;
+        }
+
+        ulong contentGeneration = candidates[0].ContentGeneration;
+        for (int i = 1; i < candidates.Length; i++)
+        {
+            if (candidates[i].ContentGeneration != contentGeneration)
+            {
+                throw new InvalidOperationException(
+                    "Selection candidates from different snapshot generations cannot be combined.");
+            }
+        }
+
+        int requiredScratch = GetUniqueHandleScratchLength(candidates.Length);
+        if (hashScratch.Length < requiredScratch)
+        {
+            throw new ArgumentException(
+                $"At least {requiredScratch} hash scratch entries are required.",
+                nameof(hashScratch));
+        }
+
+        Span<int> slots = hashScratch[..requiredScratch];
+        slots.Clear();
+        int mask = slots.Length - 1;
+        int written = 0;
+        int total = 0;
+        for (int candidateIndex = 0; candidateIndex < candidates.Length; candidateIndex++)
+        {
+            ulong handle = candidates[candidateIndex].Handle;
+            int slot = (int)(FoldHandle(handle) & (uint)mask);
+            while (slots[slot] != 0)
+            {
+                if (candidates[slots[slot] - 1].Handle == handle)
+                {
+                    slot = -1;
+                    break;
+                }
+                slot = (slot + 1) & mask;
+            }
+            if (slot < 0)
+            {
+                continue;
+            }
+
+            slots[slot] = candidateIndex + 1;
+            if (written < destination.Length)
+            {
+                destination[written++] = handle;
+            }
+            total++;
+        }
+
+        return new CadSelectionHandleResult(
+            contentGeneration,
+            written,
+            total);
+    }
+
+    private static uint FoldHandle(ulong handle)
+    {
+        ulong folded = handle ^ (handle >> 32);
+        folded ^= folded >> 16;
+        return (uint)(folded ^ (folded >> 8));
     }
 }
 

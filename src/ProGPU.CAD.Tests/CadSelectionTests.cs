@@ -85,6 +85,117 @@ public sealed class CadSelectionTests
         Assert.Equal(insert.Handle, candidates[0].Handle);
         Assert.Equal(insert.Handle, candidates[1].Handle);
         Assert.NotEqual(candidates[0].EntityIndex, candidates[1].EntityIndex);
+
+        Span<int> handleScratch = stackalloc int[
+            CadSelectionQuery.GetUniqueHandleScratchLength(result.WrittenCount)];
+        Span<ulong> handles = stackalloc ulong[2];
+        CadSelectionHandleResult handlesResult = CadSelectionQuery.CollectUniqueHandles(
+            candidates[..result.WrittenCount],
+            handleScratch,
+            handles);
+
+        Assert.Equal(snapshot.ContentGeneration, handlesResult.ContentGeneration);
+        Assert.Equal(1, handlesResult.WrittenCount);
+        Assert.Equal(1, handlesResult.TotalCount);
+        Assert.False(handlesResult.IsTruncated);
+        Assert.Equal(insert.Handle, handles[0]);
+    }
+
+    [Fact]
+    public void UniqueHandleCollectionPreservesFirstOrderAcrossHashCollisions()
+    {
+        CadSelectionCandidate[] candidates =
+        [
+            Candidate(generation: 7, entityIndex: 0, handle: 1),
+            Candidate(generation: 7, entityIndex: 1, handle: 9),
+            Candidate(generation: 7, entityIndex: 2, handle: 1),
+        ];
+        var scratch = new int[CadSelectionQuery.GetUniqueHandleScratchLength(
+            candidates.Length)];
+        var handles = new ulong[2];
+
+        CadSelectionHandleResult result = CadSelectionQuery.CollectUniqueHandles(
+            candidates,
+            scratch,
+            handles);
+
+        Assert.Equal(7UL, result.ContentGeneration);
+        Assert.Equal(2, result.WrittenCount);
+        Assert.Equal(2, result.TotalCount);
+        Assert.Equal([1UL, 9UL], handles);
+    }
+
+    [Fact]
+    public void UniqueHandleCollectionReportsTruncationAndValidatesInputsTransactionally()
+    {
+        CadSelectionCandidate[] candidates =
+        [
+            Candidate(generation: 3, entityIndex: 0, handle: 4),
+            Candidate(generation: 3, entityIndex: 1, handle: 5),
+            Candidate(generation: 3, entityIndex: 2, handle: 6),
+        ];
+        int required = CadSelectionQuery.GetUniqueHandleScratchLength(candidates.Length);
+        var scratch = new int[required];
+        var handles = new ulong[1];
+
+        CadSelectionHandleResult result = CadSelectionQuery.CollectUniqueHandles(
+            candidates,
+            scratch,
+            handles);
+
+        Assert.Equal(1, result.WrittenCount);
+        Assert.Equal(3, result.TotalCount);
+        Assert.True(result.IsTruncated);
+        Assert.Equal(4UL, handles[0]);
+
+        candidates[2] = Candidate(generation: 4, entityIndex: 2, handle: 6);
+        Array.Fill(scratch, 23);
+        handles[0] = 42;
+        Assert.Throws<InvalidOperationException>(() =>
+            CadSelectionQuery.CollectUniqueHandles(candidates, scratch, handles));
+        Assert.All(scratch, value => Assert.Equal(23, value));
+        Assert.Equal(42UL, handles[0]);
+
+        candidates[2] = Candidate(generation: 3, entityIndex: 2, handle: 6);
+        Assert.Throws<ArgumentException>(() =>
+            CadSelectionQuery.CollectUniqueHandles(
+                candidates,
+                scratch.AsSpan(1),
+                handles));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            CadSelectionQuery.GetUniqueHandleScratchLength(-1));
+    }
+
+    [Fact]
+    public void WarmUniqueHandleCollectionAllocatesNoManagedMemory()
+    {
+        var candidates = new CadSelectionCandidate[256];
+        for (int i = 0; i < candidates.Length; i++)
+        {
+            candidates[i] = Candidate(
+                generation: 11,
+                entityIndex: i,
+                handle: (ulong)((i % 64) + 1));
+        }
+        var scratch = new int[CadSelectionQuery.GetUniqueHandleScratchLength(
+            candidates.Length)];
+        var handles = new ulong[64];
+        _ = CadSelectionQuery.CollectUniqueHandles(candidates, scratch, handles);
+        _ = GC.GetAllocatedBytesForCurrentThread();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int checksum = 0;
+        for (int i = 0; i < 1_000; i++)
+        {
+            checksum += CadSelectionQuery.CollectUniqueHandles(
+                candidates,
+                scratch,
+                handles).TotalCount;
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(64_000, checksum);
+        Assert.Equal(0, allocated);
     }
 
     [Fact]
@@ -701,4 +812,15 @@ public sealed class CadSelectionTests
         Assert.Equal(1, result.TotalCount);
         return candidates[0];
     }
+
+    private static CadSelectionCandidate Candidate(
+        ulong generation,
+        int entityIndex,
+        ulong handle) =>
+        new(
+            generation,
+            entityIndex,
+            handle,
+            CadEntityKind.Line,
+            CadBounds3D.Empty);
 }

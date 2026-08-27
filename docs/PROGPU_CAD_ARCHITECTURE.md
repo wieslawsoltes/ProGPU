@@ -147,7 +147,10 @@ compositors continue consuming the same pre-existing retained command contract.
 The exact box-selection implementation is likewise original ProGPU code derived
 from these retained parametric records, inclusive AABB inequalities, and the
 standard convex separating-axis theorem. No third-party selection implementation,
-helper layout, lookup data, or source structure was consulted or reproduced.
+helper layout, lookup data, or source structure was consulted or reproduced. The
+semantic-handle collector is an original bounded open-addressed table over the
+existing ProGPU candidate records; its folding, probing, ordering, and capacity
+contract were designed here rather than taken from a foreign container.
 
 ### Document authority
 
@@ -398,10 +401,15 @@ an interactive browser picker/download smoke remains open.
   and allocate no managed memory after snapshot construction. Anisotropically
   transformed circular/bulge geometry, ellipses, splines, and text return typed
   `UnsupportedGeometry`/`UnsupportedKind` point results rather than AABB false
-  hits; affine curve box tests are supported without circular assumptions.
-  Spline/text box tests, their full distance contracts, semantic-handle
-  deduplication, screen-projected selection volumes, and draw-order resolution
-  remain explicit work.
+  hits; affine curve box tests are supported without circular assumptions. A
+  caller-buffered open-addressed collector then collapses primitive hits to one
+  semantic root handle while preserving first-candidate order. It rejects mixed
+  snapshot generations before touching scratch/output, keeps its table at no
+  more than 50% load, reports destination truncation without changing the total,
+  and is O(K) average/O(K^2) collision worst case with O(K) caller-owned storage
+  for K candidates. Spline/text box tests, their full distance contracts,
+  screen-projected selection volumes, and draw-order resolution remain explicit
+  work.
 - Background compilation captures a generation and publishes only if it still
   matches; obsolete work is discarded. The UI may continue drawing the previous
   immutable snapshot while the next generation compiles.
