@@ -3559,6 +3559,15 @@ closed. The source-built WPF host remains responsible only for typed scene
 flattening; projection, viewport placement, lighting, depth, and rasterization
 remain reusable ProGPU GPU work.
 
+Live qualification must execute this route, not merely validate its retained
+bytes. The shared gate renders a typed MIL mesh into a non-origin sub-viewport
+and proves by GPU readback that every colored pixel remains inside it. Mesh
+vertex storage keeps the public `NativePoint3D` reserved field canonical at
+zero; WGSL must construct a homogeneous position with `w = 1` rather than
+interpreting that reserved field as position state. Shader code must also stay
+valid on wgpu-native/Naga and initialize unused depth-stencil descriptor enums
+to valid WebGPU values on both wgpu-native and Dawn.
+
 The engine validates every untrusted count, offset, size, enum, finite float,
 resource generation, and nesting depth before allocation or GPU submission.
 Integer arithmetic is checked. User shaders remain a separately permissioned

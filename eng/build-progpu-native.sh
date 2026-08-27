@@ -488,6 +488,11 @@ run_common_mask_benchmark \
 run_common_mask_benchmark \
   --semantic-per-point-path-guideline
 
+# Canonical retained Viewport3D must compile through the pointer-free MIL
+# sideband and remain confined to its typed sub-viewport on every live backend.
+run_common_mask_benchmark \
+  --semantic-viewport3d
+
 for mask_mode in \
   --group-texture-mask \
   --group-rounded-mask \

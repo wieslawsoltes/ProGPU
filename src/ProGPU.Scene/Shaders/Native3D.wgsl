@@ -338,7 +338,8 @@ fn vs_mesh_3d(
     let camera = cameras[mesh.camera_index];
     let source_index = indices[mesh.index_offset + vertex_index];
     let vertex = vertices[mesh.vertex_offset + source_index];
-    let world = mesh.model_transform * vertex.position;
+    let world = mesh.model_transform *
+        vec4<f32>(vertex.position.xyz, 1.0);
     var output: MeshOutput;
     output.position = map_clip_to_viewport(
         camera.projection * camera.view * world,
