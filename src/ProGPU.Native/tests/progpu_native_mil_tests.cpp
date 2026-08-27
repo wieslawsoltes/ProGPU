@@ -158,6 +158,44 @@ T read_value(const std::vector<std::byte>& bytes, std::size_t offset) {
     return value;
 }
 
+struct explicit_guideline_snapshot {
+    std::uint32_t count_x{};
+    std::uint32_t count_y{};
+    double coordinate{};
+    double offset{};
+};
+
+bool try_get_single_explicit_guideline(
+    const std::vector<std::byte>& stream,
+    explicit_guideline_snapshot& snapshot) {
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_GUIDELINE_SET) {
+            continue;
+        }
+        const auto set = read_value<progpu_native_scene_guideline_set>(
+            stream, resource.payload_offset);
+        if ((set.flags & PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS) ==
+                0U ||
+            set.guideline_x_count + set.guideline_y_count != 1U) {
+            return false;
+        }
+        snapshot.count_x = set.guideline_x_count;
+        snapshot.count_y = set.guideline_y_count;
+        snapshot.coordinate = read_value<double>(
+            stream, resource.payload_offset + sizeof(set));
+        snapshot.offset = read_value<double>(
+            stream,
+            resource.payload_offset + sizeof(set) + sizeof(double));
+        return true;
+    }
+    return false;
+}
+
 bool scene_contains_text_style_mode(
     const std::vector<std::byte>& stream,
     std::uint32_t expected_mode) {
@@ -8936,7 +8974,15 @@ bool dynamic_guidelines_follow_wpf_phase_state() {
         8.0,
         brush,
         0U);
-    append_command(invalid_nested, command::push_guideline_y1, 1.0);
+    append_command(
+        invalid_nested,
+        command::draw_video,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        0U,
+        0U);
     std::vector<std::byte> invalid_content;
     append_render_data(invalid_content, content, invalid_nested);
     PROGPU_REQUIRE(state.apply(invalid_content) == status::success);
@@ -9009,6 +9055,149 @@ bool dynamic_guidelines_follow_wpf_phase_state() {
         10U, 650U, scene_build_request_flags::none, big_jump, result) ==
         status::success);
     PROGPU_REQUIRE(std::abs(read_offset(big_jump) - 0.15) < 0.0001);
+    PROGPU_REQUIRE(result.flags == scene_build_result_flags::none);
+    return true;
+}
+
+bool compact_dynamic_guidelines_retain_and_reset_phase_state() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t transform = 5U;
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, transform, 66U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.25F, 0.5F, 0.75F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::matrix_transform,
+        transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0U);
+    const auto make_content = [brush, transform](bool pair) {
+        std::vector<std::byte> nested;
+        append_command(nested, command::push_transform, transform, 0U);
+        if (pair) {
+            append_command(
+                nested, command::push_guideline_y2, 0.25, 0.5);
+        } else {
+            append_command(nested, command::push_guideline_y1, 0.25);
+        }
+        append_command(
+            nested,
+            command::draw_rectangle,
+            0.0,
+            0.0,
+            8.0,
+            8.0,
+            brush,
+            0U);
+        append_command(nested, command::pop);
+        append_command(nested, command::pop);
+        std::vector<std::byte> update;
+        append_render_data(update, content, nested);
+        return update;
+    };
+    const std::vector<std::byte> initial_content = make_content(false);
+    batch.insert(batch.end(), initial_content.begin(), initial_content.end());
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        16U,
+        16U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> legacy;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 9'200U, 1U, legacy) ==
+        status::unsupported_command);
+    const auto build = [&state](
+        std::uint64_t serial,
+        std::uint64_t milliseconds,
+        std::vector<std::byte>& copy,
+        scene_build_result& result) {
+        const scene_build_request request{
+            scene_build_request_flags::none,
+            target,
+            9'200U,
+            serial,
+            1.0,
+            1.0,
+            milliseconds * 1'000'000U,
+            serial};
+        std::span<const std::byte> stream;
+        const status build_status = state.build_scene(
+            request, stream, nullptr, &result);
+        copy.assign(stream.begin(), stream.end());
+        return build_status;
+    };
+
+    scene_build_result result{};
+    explicit_guideline_snapshot guideline{};
+    std::vector<std::byte> initial;
+    PROGPU_REQUIRE(build(1U, 0U, initial, result) == status::success);
+    PROGPU_REQUIRE(try_get_single_explicit_guideline(initial, guideline));
+    PROGPU_REQUIRE(guideline.count_x == 0U);
+    PROGPU_REQUIRE(guideline.count_y == 1U);
+    PROGPU_REQUIRE(std::abs(guideline.coordinate - 0.25) < 0.0001);
+    PROGPU_REQUIRE(std::abs(guideline.offset + 0.25) < 0.0001);
+    PROGPU_REQUIRE(result.flags == scene_build_result_flags::none);
+
+    std::vector<std::byte> moved_transform;
+    append_command(
+        moved_transform,
+        command::matrix_transform,
+        transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.1,
+        0U);
+    PROGPU_REQUIRE(state.apply(moved_transform) == status::success);
+    std::vector<std::byte> animated;
+    PROGPU_REQUIRE(build(2U, 100U, animated, result) == status::success);
+    PROGPU_REQUIRE(try_get_single_explicit_guideline(animated, guideline));
+    PROGPU_REQUIRE(std::abs(guideline.coordinate - 0.35) < 0.0001);
+    PROGPU_REQUIRE(std::abs(guideline.offset) < 0.0001);
+    PROGPU_REQUIRE(result.flags ==
+        scene_build_result_flags::needs_more_cycles);
+
+    const std::vector<std::byte> replacement_content = make_content(true);
+    PROGPU_REQUIRE(state.apply(replacement_content) == status::success);
+    std::vector<std::byte> replacement;
+    PROGPU_REQUIRE(build(3U, 150U, replacement, result) == status::success);
+    PROGPU_REQUIRE(try_get_single_explicit_guideline(
+        replacement, guideline));
+    PROGPU_REQUIRE(std::abs(guideline.coordinate - 0.85) < 0.0001);
+    PROGPU_REQUIRE(std::abs(guideline.offset - 0.15) < 0.0001);
     PROGPU_REQUIRE(result.flags == scene_build_result_flags::none);
     return true;
 }
@@ -12680,6 +12869,8 @@ int main() {
     PROGPU_REQUIRE(
         render_data_static_guideline_scope_uses_active_transform());
     PROGPU_REQUIRE(dynamic_guidelines_follow_wpf_phase_state());
+    PROGPU_REQUIRE(
+        compact_dynamic_guidelines_retain_and_reset_phase_state());
     PROGPU_REQUIRE(render_data_opacity_mask_scope_uses_gpu_brush_layer());
     PROGPU_REQUIRE(
         retained_image_drawing_uses_pointer_free_bitmap_sideband());

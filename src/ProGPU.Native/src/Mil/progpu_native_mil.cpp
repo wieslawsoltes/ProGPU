@@ -114,6 +114,22 @@ status validate_render_data_command_framing(
         : status::malformed_batch;
 }
 
+bool render_data_contains_compact_guidelines(
+    std::span<const std::byte> bytes) noexcept {
+    batch_reader reader(bytes);
+    command_view view{};
+    for (;;) {
+        const status read_status = reader.next(view);
+        if (read_status != status::success) {
+            return false;
+        }
+        if (view.kind == command::push_guideline_y1 ||
+            view.kind == command::push_guideline_y2) {
+            return true;
+        }
+    }
+}
+
 bool is_visual_type(std::uint32_t type) noexcept {
     return type == type_visual || type == type_viewport3d_visual;
 }
@@ -848,6 +864,10 @@ struct channel::implementation {
         mutable std::vector<runtime_state> runtime_y;
     };
 
+    using compact_guideline_state_map = std::unordered_map<
+        std::uint32_t,
+        guideline_set_state>;
+
     struct bitmap_cache_state {
         double render_at_scale{1.0};
         std::uint32_t render_at_scale_animation_handle{};
@@ -976,6 +996,8 @@ struct channel::implementation {
         std::uint32_t type{};
         std::uint64_t generation{1U};
         std::vector<std::byte> render_data;
+        bool has_compact_dynamic_guidelines{};
+        mutable compact_guideline_state_map compact_guidelines;
     };
 
     struct viewport3d_scene_state {
@@ -2574,6 +2596,10 @@ struct channel::implementation {
             resource.render_data.assign(
                 view.packet.begin() + layout::fixed_size,
                 view.packet.begin() + layout::fixed_size + data_size);
+            resource.has_compact_dynamic_guidelines =
+                render_data_contains_compact_guidelines(
+                    resource.render_data);
+            resource.compact_guidelines.clear();
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -6177,6 +6203,7 @@ struct channel::implementation {
             clip_boolean_nodes;
         return append_render_stream(
             resource->second.render_data,
+            &resource->second.compact_guidelines,
             base_state,
             1U,
             builder,
@@ -6193,6 +6220,7 @@ struct channel::implementation {
 
     status append_render_stream(
         std::span<const std::byte> bytes,
+        compact_guideline_state_map* compact_guidelines,
         render_scope_state current,
         std::uint32_t drawing_depth,
         native::semantic_scene_builder& builder,
@@ -7979,6 +8007,7 @@ struct channel::implementation {
             }
             const status image_status = append_render_stream(
                 source.child_render_data,
+                nullptr,
                 next,
                 drawing_depth + 1U,
                 builder,
@@ -8394,6 +8423,70 @@ struct channel::implementation {
                             return guideline_status;
                         }
                     }
+                }
+                if (!save_state(next)) {
+                    return status::invalid_graph;
+                }
+                scope_states.push_back(current);
+                scope_layers.push_back(false);
+                current = next;
+                continue;
+            }
+            if (view.kind == command::push_guideline_y1 ||
+                view.kind == command::push_guideline_y2) {
+                if (compact_guidelines == nullptr ||
+                    compile_context == nullptr) {
+                    return status::unsupported_command;
+                }
+                double leading = 0.0;
+                double shift = 0.0;
+                if (view.kind == command::push_guideline_y1) {
+                    using layout = command_layouts::push_guideline_y1;
+                    if (!read_at(
+                            view.packet,
+                            layout::coordinate_offset,
+                            leading)) {
+                        return status::malformed_batch;
+                    }
+                } else {
+                    using layout = command_layouts::push_guideline_y2;
+                    if (!read_at(
+                            view.packet,
+                            layout::leading_coordinate_offset,
+                            leading) ||
+                        !read_at(
+                            view.packet,
+                            layout::offset_to_driven_coordinate_offset,
+                            shift)) {
+                        return status::malformed_batch;
+                    }
+                }
+                if (!finite_double_as_float(leading) ||
+                    !finite_double_as_float(shift)) {
+                    return status::malformed_batch;
+                }
+                auto compact = compact_guidelines->find(view.batch_offset);
+                if (compact == compact_guidelines->end()) {
+                    try {
+                        guideline_set_state state{};
+                        state.is_dynamic = true;
+                        state.guidelines_y = {leading, shift};
+                        compact = compact_guidelines->emplace(
+                            view.batch_offset,
+                            std::move(state)).first;
+                    } catch (const std::bad_alloc&) {
+                        return status::capacity_exceeded;
+                    }
+                }
+                render_scope_state next = current;
+                const status guideline_status = apply_dynamic_guidelines(
+                    compact->second,
+                    next,
+                    builder,
+                    false,
+                    compile_context);
+                if (guideline_status != status::success) {
+                    return guideline_status;
                 }
                 if (!save_state(next)) {
                     return status::invalid_graph;
@@ -8911,6 +9004,7 @@ struct channel::implementation {
                     }
                     const status group_status = append_render_stream(
                         group->second.child_render_data,
+                        nullptr,
                         next,
                         drawing_depth + 1U,
                         builder,
@@ -11327,6 +11421,8 @@ struct channel::implementation {
                     }
                 };
                 if (view.kind == command::push_opacity ||
+                    view.kind == command::push_guideline_y1 ||
+                    view.kind == command::push_guideline_y2 ||
                     view.kind == command::pop) {
                     continue;
                 } else if (view.kind == command::push_opacity_animate) {
@@ -12882,9 +12978,17 @@ status channel::build_scene(
         !same_scene_build_request(build_cache_->request, request)) {
         try {
             auto candidate = std::make_unique<build_cache>();
-            const bool has_dynamic_guidelines = std::ranges::any_of(
-                implementation_->guideline_sets,
-                [](const auto& entry) { return entry.second.is_dynamic; });
+            const bool has_dynamic_guidelines =
+                std::ranges::any_of(
+                    implementation_->guideline_sets,
+                    [](const auto& entry) {
+                        return entry.second.is_dynamic;
+                    }) ||
+                std::ranges::any_of(
+                    implementation_->resources,
+                    [](const auto& entry) {
+                        return entry.second.has_compact_dynamic_guidelines;
+                    });
             std::unique_ptr<implementation> state_candidate;
             const implementation* compile_source = implementation_.get();
             if (has_dynamic_guidelines) {

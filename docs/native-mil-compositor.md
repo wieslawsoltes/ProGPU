@@ -3832,6 +3832,26 @@ slice: nonuniform X/Y DPI fails closed until the shared state cursor accepts
 per-axis DPI, and compact PushGuidelineY1/Y2 records still require lowering
 into the same retained pair state.
 
+The compact render-data checkpoint closes the second limit. Canonical
+`PushGuidelineY1` is lowered to one Y-axis dynamic pair with zero driven shift;
+`PushGuidelineY2` retains its leading coordinate and offset-to-driven value.
+Each render-data resource owns phase state by stable packet offset, matching
+milcore's per-`RenderData` guideline-kit lifetime. Updating that resource
+clears all compact histories just as WPF reconstructs its kits, while unrelated
+resource updates preserve them. The stateful compiler recognizes compact
+records before choosing its transactional graph copy, so a later failing
+command cannot leak phase mutation; legacy builds reject them before even
+allocating history.
+
+Both compact forms flow through the same Start/Quiet/Animation/Landing/Flight
+implementation and explicit-offset semantic resource as retained
+`GuidelineSet`; no backend-specific path was added. Focused tests prove Y1
+initial snapping, movement into Animation and scheduler feedback, Y2 driven
+gap stabilization, render-data replacement reset, Y-only semantic shape, and
+legacy fail-closed behavior. Nonuniform X/Y DPI is now the remaining native
+dynamic-guideline limitation, and `NeedsMoreCycles` still has to be consumed by
+the typed LibreWPF render scheduler.
+
 Exact implementation checkpoint `b97b99e3` completed the full Windows 11
 ARM64 Parallels D3D12 smoke/package lane from an immutable source archive.
 MSVC 19.44 rebuilt both native providers in the 312-step `/W4 /WX` graph and
