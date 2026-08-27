@@ -714,30 +714,6 @@
     <Target>M:System.Drawing.Printing.InvalidPrinterException.#ctor(System.Runtime.Serialization.SerializationInfo,System.Runtime.Serialization.StreamingContext)</Target>
   </Suppression>
   <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PageSettings.#ctor(System.Drawing.Printing.PrinterSettings)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PageSettings.get_PaperSource</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PageSettings.get_PrinterResolution</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PageSettings.set_PaperSource(System.Drawing.Printing.PaperSource)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PageSettings.set_PrinterResolution(System.Drawing.Printing.PrinterResolution)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Printing.PrinterResolution.set_Kind(System.Drawing.Printing.PrinterResolutionKind)</Target>
-  </Suppression>
-  <Suppression>
     <DiagnosticId>CP0003</DiagnosticId>
     <Target>System.Drawing.Common, Version=10.0.0.0, Culture=neutral, PublicKeyToken=c29c9752855ee183</Target>
   </Suppression>

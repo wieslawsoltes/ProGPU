@@ -1,4 +1,5 @@
 using System.Collections;
+using System.ComponentModel;
 using System.Drawing.Printing;
 using Xunit;
 
@@ -116,6 +117,80 @@ public sealed class PrinterSettingsCollectionQualityTests
         for (int index = 0; index < 100_000; index++)
         {
             _ = collection[0];
+        }
+
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
+    [Fact]
+    public void PageSettingsRetainTypedPaperSourceAndResolutionState()
+    {
+        var printer = new PrinterSettings { PrinterName = "Portable" };
+        var source = new PaperSource { RawKind = 300, SourceName = "Managed tray" };
+        var resolution = new PrinterResolution
+        {
+            Kind = PrinterResolutionKind.High,
+            X = 1_200,
+            Y = 1_200
+        };
+        var settings = new PageSettings(printer)
+        {
+            PaperSource = source,
+            PrinterResolution = resolution,
+            Margins = new Margins(10, 20, 30, 40)
+        };
+
+        Assert.Same(printer, settings.PrinterSettings);
+        Assert.Same(source, settings.PaperSource);
+        Assert.Equal(PaperSourceKind.Custom, settings.PaperSource.Kind);
+        Assert.Equal(300, settings.PaperSource.RawKind);
+        Assert.Same(resolution, settings.PrinterResolution);
+        Assert.Contains("PaperSource=", settings.ToString());
+        Assert.Contains("PrinterResolution=", settings.ToString());
+
+        var clone = Assert.IsType<PageSettings>(settings.Clone());
+        Assert.NotSame(settings.Margins, clone.Margins);
+        Assert.Same(source, clone.PaperSource);
+        Assert.Same(resolution, clone.PrinterResolution);
+        Assert.Same(printer, clone.PrinterSettings);
+    }
+
+    [Fact]
+    public void PageSettingsAndResolutionValidateManagedState()
+    {
+        Assert.Throws<ArgumentNullException>(() => new PageSettings(null!));
+
+        var settings = new PageSettings();
+        Assert.Equal(PaperSourceKind.Custom, settings.PaperSource.Kind);
+        Assert.Equal(PrinterResolutionKind.Custom, settings.PrinterResolution.Kind);
+        Assert.Throws<ArgumentNullException>(() => settings.PaperSource = null!);
+        Assert.Throws<ArgumentNullException>(() => settings.PrinterResolution = null!);
+
+        PrinterSettings original = settings.PrinterSettings;
+        settings.PrinterSettings = null!;
+        Assert.NotNull(settings.PrinterSettings);
+        Assert.NotSame(original, settings.PrinterSettings);
+
+        Assert.Throws<InvalidEnumArgumentException>(() =>
+            settings.PrinterResolution.Kind = (PrinterResolutionKind)1);
+    }
+
+    [Fact]
+    public void WarmedPageDeviceSelectionReadsAllocateNothing()
+    {
+        var settings = new PageSettings
+        {
+            PaperSource = new PaperSource { RawKind = 300 },
+            PrinterResolution = new PrinterResolution { Kind = PrinterResolutionKind.High }
+        };
+        _ = settings.PaperSource;
+        _ = settings.PrinterResolution;
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 100_000; index++)
+        {
+            _ = settings.PaperSource.RawKind;
+            _ = settings.PrinterResolution.Kind;
         }
 
         Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);

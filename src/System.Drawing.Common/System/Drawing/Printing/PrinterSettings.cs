@@ -178,10 +178,14 @@ public class PrinterSettings : ICloneable
 public enum PaperSourceKind { Upper = 1, Lower = 2, Middle = 3, Manual = 4, Envelope = 5, ManualFeed = 6, AutomaticFeed = 7, TractorFeed = 8, SmallFormat = 9, LargeFormat = 10, LargeCapacity = 11, Cassette = 14, FormSource = 15, Custom = 257 }
 public class PaperSource
 {
+    private PaperSourceKind _kind = PaperSourceKind.Custom;
+
     public PaperSource() { }
-    internal PaperSource(PaperSourceKind kind, string name) { Kind = kind; RawKind = (int)kind; SourceName = name; }
-    public PaperSourceKind Kind { get; }
-    public int RawKind { get; set; }
+    internal PaperSource(PaperSourceKind kind, string name) { _kind = kind; SourceName = name; }
+    public PaperSourceKind Kind => (int)_kind >= 256
+        ? PaperSourceKind.Custom
+        : _kind;
+    public int RawKind { get => (int)_kind; set => _kind = (PaperSourceKind)value; }
     public string SourceName { get; set; } = string.Empty;
     public override string ToString() => $"[PaperSource {SourceName} Kind={Kind}]";
 }
@@ -189,10 +193,29 @@ public class PaperSource
 public enum PrinterResolutionKind { High = -4, Medium = -3, Low = -2, Draft = -1, Custom = 0 }
 public class PrinterResolution
 {
+    private PrinterResolutionKind _kind = PrinterResolutionKind.Custom;
+
     public PrinterResolution() { }
     internal PrinterResolution(PrinterResolutionKind kind, int x, int y) { Kind = kind; X = x; Y = y; }
-    public PrinterResolutionKind Kind { get; }
+    public PrinterResolutionKind Kind
+    {
+        get => _kind;
+        set
+        {
+            if (value is < PrinterResolutionKind.High or > PrinterResolutionKind.Custom)
+            {
+                throw new System.ComponentModel.InvalidEnumArgumentException(
+                    nameof(value),
+                    (int)value,
+                    typeof(PrinterResolutionKind));
+            }
+
+            _kind = value;
+        }
+    }
     public int X { get; set; }
     public int Y { get; set; }
-    public override string ToString() => $"[PrinterResolution X={X} Y={Y}]";
+    public override string ToString() => Kind != PrinterResolutionKind.Custom
+        ? $"[PrinterResolution {Kind}]"
+        : FormattableString.Invariant($"[PrinterResolution X={X} Y={Y}]");
 }
