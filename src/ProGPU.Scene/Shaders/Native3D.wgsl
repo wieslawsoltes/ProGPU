@@ -1,6 +1,6 @@
-// Algorithm: Transform retained 3D lines and indexed meshes on the GPU; expand lines in physical screen space and shade mesh fragments with bounded directional lighting and derivative wire coverage.
-// Time complexity: O(L + I) shader invocations for L expanded line vertices and I referenced mesh indices; every invocation performs fixed matrix, lighting, and at most one derivative wire evaluation.
-// Space complexity: O(C + E + M + V + I) read-only storage for cameras, edges, meshes, vertices, and indices; O(1) private storage and no auxiliary output storage per invocation.
+// Algorithm: Transform retained 3D lines and indexed meshes on the GPU; expand lines in physical screen space and shade mesh fragments with a bounded WPF/MIL light range and derivative wire coverage.
+// Time complexity: O(L + I * K) shader work for L expanded line vertices, I referenced mesh indices, and at most K=16 lights per mesh.
+// Space complexity: O(C + E + M + V + I + K) read-only storage for cameras, edges, meshes, vertices, indices, and lights; O(1) private storage and no auxiliary output storage per invocation.
 // Lines use six vertices per retained edge. Meshes fetch uint32 indices from
 // storage so one pointer-free scene ABI works in native WebGPU and wasm32.
 
@@ -57,8 +57,19 @@ struct Mesh3D {
     material_ambient: vec4<f32>,
     opacity: f32,
     shading_mode: u32,
-    reserved0: u32,
-    reserved1: u32,
+    light_offset: u32,
+    light_count: u32,
+};
+
+struct Light3D {
+    struct_size: u32,
+    kind: u32,
+    flags: u32,
+    reserved: u32,
+    color: vec4<f32>,
+    position_range: vec4<f32>,
+    direction_inner_cos: vec4<f32>,
+    attenuation_outer_cos: vec4<f32>,
 };
 
 struct MeshVertex3D {
@@ -73,6 +84,7 @@ struct MeshVertex3D {
 @group(0) @binding(2) var<storage, read> meshes: array<Mesh3D>;
 @group(0) @binding(3) var<storage, read> vertices: array<MeshVertex3D>;
 @group(0) @binding(4) var<storage, read> indices: array<u32>;
+@group(0) @binding(5) var<storage, read> lights: array<Light3D>;
 
 struct LineOutput {
     @builtin(position) position: vec4<f32>,
@@ -158,19 +170,69 @@ fn fs_mesh_3d(input: MeshOutput) -> @location(0) vec4<f32> {
     let mesh = meshes[input.material];
     let camera = cameras[mesh.camera_index];
     let n = normalize(input.normal);
-    let light = normalize(-mesh.light_direction.xyz);
     let view = normalize(camera.camera_position.xyz - input.world_position);
-    let light_intensity = max(mesh.light_direction.w, 0.0);
-    let ambient_intensity = max(mesh.ambient_color.w, 0.0);
     let shininess = max(mesh.specular_color.w, 0.001);
-    let diffuse = max(dot(n, light), 0.0) * light_intensity;
-    let reflected = reflect(-light, n);
-    let specular = pow(
-        max(dot(view, reflected), 0.0),
-        shininess) * light_intensity;
-    let ambient = mesh.ambient_color.rgb * ambient_intensity *
-        mesh.material_ambient.rgb;
-    var rgb = input.color.rgb * (ambient + vec3<f32>(diffuse)) + mesh.specular_color.rgb * specular;
+    var diffuse = vec3<f32>(0.0);
+    var ambient = vec3<f32>(0.0);
+    var specular = vec3<f32>(0.0);
+    if (mesh.light_count == 0u) {
+        let light = normalize(-mesh.light_direction.xyz);
+        let light_intensity = max(mesh.light_direction.w, 0.0);
+        let ambient_intensity = max(mesh.ambient_color.w, 0.0);
+        let amount = max(dot(n, light), 0.0) * light_intensity;
+        let reflected = reflect(-light, n);
+        diffuse = vec3<f32>(amount);
+        specular = vec3<f32>(pow(
+            max(dot(view, reflected), 0.0),
+            shininess) * light_intensity);
+        ambient = mesh.ambient_color.rgb * ambient_intensity;
+    } else {
+        for (var light_index = 0u; light_index < 16u; light_index++) {
+            if (light_index >= mesh.light_count) {
+                break;
+            }
+            let source = lights[mesh.light_offset + light_index];
+            if (source.kind == 0u) {
+                ambient += source.color.rgb;
+                continue;
+            }
+            var light = normalize(-source.direction_inner_cos.xyz);
+            var attenuation = 1.0;
+            if (source.kind >= 2u) {
+                let to_light = source.position_range.xyz - input.world_position;
+                let distance = length(to_light);
+                light = to_light / max(distance, 0.000001);
+                let terms = source.attenuation_outer_cos.xyz;
+                attenuation = 1.0 / max(
+                    terms.x + terms.y * distance +
+                        terms.z * distance * distance,
+                    1.0);
+                attenuation *= select(
+                    0.0, 1.0, distance <= source.position_range.w);
+                if (source.kind == 3u) {
+                    let rho = max(dot(
+                        normalize(-source.direction_inner_cos.xyz),
+                        light), 0.0);
+                    let outer_cos = source.attenuation_outer_cos.w;
+                    let cone_width = max(
+                        source.direction_inner_cos.w - outer_cos,
+                        0.000001);
+                    attenuation *= clamp(
+                        (rho - outer_cos) / cone_width,
+                        0.0,
+                        1.0);
+                }
+            }
+            let amount = max(dot(n, light), 0.0) * attenuation;
+            let half_vector = normalize(view + light);
+            diffuse += source.color.rgb * amount;
+            specular += source.color.rgb * pow(
+                max(dot(n, half_vector), 0.0), shininess) * attenuation;
+        }
+    }
+    ambient *= mesh.material_ambient.rgb;
+    var rgb = input.color.rgb * (ambient + diffuse) +
+        mesh.specular_color.rgb * specular;
     if (mesh.shading_mode == 0u) {
         rgb = input.color.rgb;
     }

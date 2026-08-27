@@ -1913,6 +1913,25 @@ bool semantic_scene_builder_records_retained_3d_families() {
             0U,
             0U}};
     constexpr std::array<std::uint32_t, 3U> indices{0U, 1U, 2U};
+    std::array<progpu_native_scene_light_3d, 4U> lights{};
+    lights[0].struct_size = sizeof(lights[0]);
+    lights[0].kind = PROGPU_NATIVE_LIGHT_3D_AMBIENT;
+    lights[0].color = {0.1F, 0.2F, 0.3F, 1.0F};
+    lights[1].struct_size = sizeof(lights[1]);
+    lights[1].kind = PROGPU_NATIVE_LIGHT_3D_DIRECTIONAL;
+    lights[1].color = {1.0F, 0.8F, 0.6F, 1.0F};
+    lights[1].direction_inner_cos = {0.0F, 0.0F, -1.0F, 0.0F};
+    lights[2].struct_size = sizeof(lights[2]);
+    lights[2].kind = PROGPU_NATIVE_LIGHT_3D_POINT;
+    lights[2].color = {0.4F, 0.6F, 1.0F, 1.0F};
+    lights[2].position_range = {1.0F, 2.0F, 3.0F, 100.0F};
+    lights[2].attenuation_outer_cos = {1.0F, 0.1F, 0.01F, 0.0F};
+    lights[3].struct_size = sizeof(lights[3]);
+    lights[3].kind = PROGPU_NATIVE_LIGHT_3D_SPOT;
+    lights[3].color = {1.0F, 0.4F, 0.2F, 1.0F};
+    lights[3].position_range = {-1.0F, 2.0F, 4.0F, 80.0F};
+    lights[3].direction_inner_cos = {0.0F, 0.0F, -1.0F, 0.9F};
+    lights[3].attenuation_outer_cos = {1.0F, 0.0F, 0.0F, 0.7F};
     progpu_native_scene_mesh_3d mesh{};
     mesh.struct_size = sizeof(mesh);
     mesh.flags = PROGPU_NATIVE_MESH_3D_FRONT_FACE;
@@ -1928,6 +1947,7 @@ bool semantic_scene_builder_records_retained_3d_families() {
     mesh.specular_color = {1.0F, 1.0F, 1.0F, 16.0F};
     mesh.material_ambient = {0.1F, 0.1F, 0.1F, 0.0F};
     mesh.opacity = 1.0F;
+    mesh.light_count = static_cast<std::uint32_t>(lights.size());
 
     const auto rejects_mesh = [&](const auto& candidate) {
         semantic_scene_builder invalid_builder(713U, 1U);
@@ -1936,6 +1956,7 @@ bool semantic_scene_builder_records_retained_3d_families() {
                 &candidate, 1U),
             vertices,
             indices,
+            lights,
             camera,
             {0.0F, 0.0F, 256.0F, 256.0F});
     };
@@ -1954,6 +1975,30 @@ bool semantic_scene_builder_records_retained_3d_families() {
         !rejects_mesh(invalid_shininess)) {
         return false;
     }
+    const auto rejects_lights = [&](const auto& candidates) {
+        semantic_scene_builder invalid_builder(714U, 1U);
+        return !invalid_builder.draw_meshes_3d(
+            std::span<const progpu_native_scene_mesh_3d>(&mesh, 1U),
+            vertices,
+            indices,
+            candidates,
+            camera,
+            {0.0F, 0.0F, 256.0F, 256.0F});
+    };
+    auto invalid_kind_lights = lights;
+    invalid_kind_lights[3].kind = 99U;
+    auto invalid_range_lights = lights;
+    invalid_range_lights[2].position_range.w = 0.0F;
+    auto invalid_attenuation_lights = lights;
+    invalid_attenuation_lights[2].attenuation_outer_cos = {};
+    auto invalid_cone_lights = lights;
+    invalid_cone_lights[3].direction_inner_cos.w = 0.6F;
+    if (!rejects_lights(invalid_kind_lights) ||
+        !rejects_lights(invalid_range_lights) ||
+        !rejects_lights(invalid_attenuation_lights) ||
+        !rejects_lights(invalid_cone_lights)) {
+        return false;
+    }
 
     semantic_scene_builder builder(712U, 3U);
     if (!builder.draw_lines_3d(
@@ -1964,6 +2009,7 @@ bool semantic_scene_builder_records_retained_3d_families() {
             std::span<const progpu_native_scene_mesh_3d>(&mesh, 1U),
             vertices,
             indices,
+            lights,
             camera,
             {0.0F, 0.0F, 256.0F, 256.0F})) {
         return false;
@@ -1999,8 +2045,9 @@ bool semantic_scene_builder_records_retained_3d_families() {
             PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH &&
         mesh_resource.payload_size == sizeof(mesh) &&
         retained_mesh.flags == PROGPU_NATIVE_MESH_3D_FRONT_FACE &&
+        retained_mesh.light_count == lights.size() &&
         mesh_resource.auxiliary_size == sizeof(vertices) +
-            sizeof(indices) &&
+            sizeof(indices) + sizeof(lights) &&
         line_command.kind ==
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH &&
         mesh_command.kind ==

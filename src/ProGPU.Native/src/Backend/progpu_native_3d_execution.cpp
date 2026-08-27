@@ -61,6 +61,7 @@ void release_page_buffers(semantic_3d_page& page) noexcept {
     release(page.mesh_buffer);
     release(page.vertex_buffer);
     release(page.index_buffer);
+    release(page.light_buffer);
     page.cache_valid = false;
 }
 
@@ -161,13 +162,14 @@ bool create_semantic_3d_pipelines(progpu_native_engine& engine) {
         }
     }
     if (engine.semantic_3d_layout == nullptr) {
-        std::array<WGPUBindGroupLayoutEntry, 5U> entries{};
-        const std::array<std::uint64_t, 5U> sizes{{
+        std::array<WGPUBindGroupLayoutEntry, 6U> entries{};
+        const std::array<std::uint64_t, 6U> sizes{{
             sizeof(progpu::native::three_d::camera_record),
             sizeof(progpu::native::three_d::line_record),
             sizeof(progpu::native::three_d::mesh_record),
             sizeof(progpu_native_scene_mesh_3d_vertex),
-            sizeof(std::uint32_t)}};
+            sizeof(std::uint32_t),
+            sizeof(progpu_native_scene_light_3d)}};
         for (std::uint32_t index = 0U; index < entries.size(); ++index) {
             entries[index].binding = index;
             entries[index].visibility =
@@ -257,6 +259,7 @@ progpu_native_status compile_semantic_3d_page(
     std::vector<progpu::native::three_d::mesh_record> meshes;
     std::vector<progpu_native_scene_mesh_3d_vertex> vertices;
     std::vector<std::uint32_t> indices;
+    std::vector<progpu_native_scene_light_3d> lights;
     std::vector<semantic_3d_draw> draws;
     std::vector<std::uint32_t> mesh_face_flags;
     std::vector<std::uint32_t> mesh_index_counts;
@@ -362,6 +365,8 @@ progpu_native_status compile_semantic_3d_page(
             const auto mesh_count = resource.payload_size /
                 sizeof(progpu_native_scene_mesh_3d);
             std::size_t source_vertex_count = 0U;
+            std::size_t source_index_count = 0U;
+            std::size_t source_light_count = 0U;
             for (std::uint32_t index = 0U; index < mesh_count; ++index) {
                 const auto mesh = read_record<progpu_native_scene_mesh_3d>(
                     bytes, resource.payload_offset +
@@ -369,6 +374,10 @@ progpu_native_status compile_semantic_3d_page(
                             sizeof(progpu_native_scene_mesh_3d));
                 source_vertex_count = std::max(source_vertex_count,
                     static_cast<std::size_t>(mesh.vertex_offset) + mesh.vertex_count);
+                source_index_count = std::max(source_index_count,
+                    static_cast<std::size_t>(mesh.index_offset) + mesh.index_count);
+                source_light_count = std::max(source_light_count,
+                    static_cast<std::size_t>(mesh.light_offset) + mesh.light_count);
             }
             const auto vertex_base = static_cast<std::uint32_t>(vertices.size());
             const auto* source_vertices = reinterpret_cast<
@@ -377,8 +386,17 @@ progpu_native_status compile_semantic_3d_page(
             const auto* source_indices = reinterpret_cast<const std::uint32_t*>(
                 bytes + resource.auxiliary_offset +
                     source_vertex_count * sizeof(progpu_native_scene_mesh_3d_vertex));
+            const auto* source_lights = reinterpret_cast<
+                const progpu_native_scene_light_3d*>(
+                    bytes + resource.auxiliary_offset +
+                    source_vertex_count *
+                        sizeof(progpu_native_scene_mesh_3d_vertex) +
+                    source_index_count * sizeof(std::uint32_t));
             vertices.insert(vertices.end(), source_vertices,
                 source_vertices + source_vertex_count);
+            const auto light_base = static_cast<std::uint32_t>(lights.size());
+            lights.insert(
+                lights.end(), source_lights, source_lights + source_light_count);
             const auto first = static_cast<std::uint32_t>(meshes.size());
             for (std::uint32_t index = 0U; index < mesh_count; ++index) {
                 const auto source = read_record<progpu_native_scene_mesh_3d>(
@@ -433,6 +451,8 @@ progpu_native_status compile_semantic_3d_page(
                 mesh.material_ambient = source.material_ambient;
                 mesh.opacity = source.opacity * state.opacity;
                 mesh.shading_mode = source.shading_mode;
+                mesh.light_offset = light_base + source.light_offset;
+                mesh.light_count = source.light_count;
                 meshes.push_back(mesh);
                 mesh_face_flags.push_back(source.flags);
                 mesh_index_counts.push_back(mesh.index_count);
@@ -460,22 +480,26 @@ progpu_native_status compile_semantic_3d_page(
         vertices.data(), vertices.size() * sizeof(vertices[0]), sizeof(vertices[0]));
     page.index_buffer = create_storage_buffer(engine, "ProGPU 3D indices",
         indices.data(), indices.size() * sizeof(indices[0]), sizeof(indices[0]));
+    page.light_buffer = create_storage_buffer(engine, "ProGPU 3D lights",
+        lights.data(), lights.size() * sizeof(lights[0]), sizeof(lights[0]));
     if (page.camera_buffer == nullptr || page.line_buffer == nullptr ||
         page.mesh_buffer == nullptr || page.vertex_buffer == nullptr ||
-        page.index_buffer == nullptr) {
+        page.index_buffer == nullptr || page.light_buffer == nullptr) {
         release_page_buffers(page);
         return engine.fail(PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
             "The native retained 3D GPU page could not be allocated.");
     }
-    std::array<WGPUBindGroupEntry, 5U> entries{};
-    const std::array<WGPUBuffer, 5U> buffers{{page.camera_buffer,
-        page.line_buffer, page.mesh_buffer, page.vertex_buffer, page.index_buffer}};
-    const std::array<std::uint64_t, 5U> sizes{{
+    std::array<WGPUBindGroupEntry, 6U> entries{};
+    const std::array<WGPUBuffer, 6U> buffers{{page.camera_buffer,
+        page.line_buffer, page.mesh_buffer, page.vertex_buffer,
+        page.index_buffer, page.light_buffer}};
+    const std::array<std::uint64_t, 6U> sizes{{
         std::max<std::uint64_t>(sizeof(cameras[0]), cameras.size() * sizeof(cameras[0])),
         std::max<std::uint64_t>(sizeof(lines[0]), lines.size() * sizeof(lines[0])),
         std::max<std::uint64_t>(sizeof(meshes[0]), meshes.size() * sizeof(meshes[0])),
         std::max<std::uint64_t>(sizeof(vertices[0]), vertices.size() * sizeof(vertices[0])),
-        std::max<std::uint64_t>(sizeof(indices[0]), indices.size() * sizeof(indices[0]))}};
+        std::max<std::uint64_t>(sizeof(indices[0]), indices.size() * sizeof(indices[0])),
+        std::max<std::uint64_t>(sizeof(lights[0]), lights.size() * sizeof(lights[0]))}};
     for (std::uint32_t index = 0U; index < entries.size(); ++index) {
         entries[index].binding = index;
         entries[index].buffer = buffers[index];
@@ -503,7 +527,8 @@ progpu_native_status compile_semantic_3d_page(
     page.cache_valid = true;
     upload_bytes = cameras.size() * sizeof(cameras[0]) +
         lines.size() * sizeof(lines[0]) + meshes.size() * sizeof(meshes[0]) +
-        vertices.size() * sizeof(vertices[0]) + indices.size() * sizeof(indices[0]);
+        vertices.size() * sizeof(vertices[0]) + indices.size() * sizeof(indices[0]) +
+        lights.size() * sizeof(lights[0]);
     return PROGPU_NATIVE_STATUS_SUCCESS;
 }
 

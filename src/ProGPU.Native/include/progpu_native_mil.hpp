@@ -152,6 +152,15 @@ public:
         std::span<const progpu_native_scene_mesh_3d_vertex> vertices,
         std::span<const std::uint32_t> indices) noexcept;
 
+    status set_viewport3d_scene(
+        std::uint32_t handle,
+        const progpu_native_scene_camera_3d& camera,
+        progpu_native_image_rect viewport,
+        std::span<const progpu_native_scene_mesh_3d> meshes,
+        std::span<const progpu_native_scene_mesh_3d_vertex> vertices,
+        std::span<const std::uint32_t> indices,
+        std::span<const progpu_native_scene_light_3d> lights) noexcept;
+
     // Binds copied SFNT/TTC bytes to a canonical TYPE_GLYPHRUN handle. The
     // canonical MilCmdGlyphRunCreate keeps indices, advances, offsets, origin,
     // and bounds on the wire but carries an in-process IDWriteFont pointer;

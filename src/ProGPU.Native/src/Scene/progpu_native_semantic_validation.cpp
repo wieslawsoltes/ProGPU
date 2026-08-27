@@ -525,12 +525,71 @@ bool is_valid_semantic_mesh_3d_vertex(
         vertex.reserved0 == 0U && vertex.reserved1 == 0U;
 }
 
+bool is_valid_semantic_light_3d(
+    const progpu_native_scene_light_3d& light) noexcept {
+    const auto is_zero = [](const progpu_native_float_4& value) noexcept {
+        return value.x == 0.0F && value.y == 0.0F &&
+            value.z == 0.0F && value.w == 0.0F;
+    };
+    const auto has_direction = [](const progpu_native_float_4& value) noexcept {
+        return value.x * value.x + value.y * value.y + value.z * value.z >
+            0.000001F;
+    };
+    if (light.struct_size != sizeof(light) || light.flags != 0U ||
+        light.reserved0 != 0U || !is_finite(light.color) ||
+        !finite_float_4(light.position_range) ||
+        !finite_float_4(light.direction_inner_cos) ||
+        !finite_float_4(light.attenuation_outer_cos)) {
+        return false;
+    }
+    switch (light.kind) {
+    case PROGPU_NATIVE_LIGHT_3D_AMBIENT:
+        return is_zero(light.position_range) &&
+            is_zero(light.direction_inner_cos) &&
+            is_zero(light.attenuation_outer_cos);
+    case PROGPU_NATIVE_LIGHT_3D_DIRECTIONAL:
+        return is_zero(light.position_range) &&
+            has_direction(light.direction_inner_cos) &&
+            light.direction_inner_cos.w == 0.0F &&
+            is_zero(light.attenuation_outer_cos);
+    case PROGPU_NATIVE_LIGHT_3D_POINT:
+        return light.position_range.w > 0.0F &&
+            is_zero(light.direction_inner_cos) &&
+            light.attenuation_outer_cos.w == 0.0F &&
+            light.attenuation_outer_cos.x >= 0.0F &&
+            light.attenuation_outer_cos.y >= 0.0F &&
+            light.attenuation_outer_cos.z >= 0.0F &&
+            (light.attenuation_outer_cos.x > 0.0F ||
+                light.attenuation_outer_cos.y > 0.0F ||
+                light.attenuation_outer_cos.z > 0.0F);
+    case PROGPU_NATIVE_LIGHT_3D_SPOT:
+        return light.position_range.w > 0.0F &&
+            has_direction(light.direction_inner_cos) &&
+            light.direction_inner_cos.w >= -1.0F &&
+            light.direction_inner_cos.w <= 1.0F &&
+            light.attenuation_outer_cos.w >= -1.0F &&
+            light.attenuation_outer_cos.w <= 1.0F &&
+            light.direction_inner_cos.w >=
+                light.attenuation_outer_cos.w &&
+            light.attenuation_outer_cos.x >= 0.0F &&
+            light.attenuation_outer_cos.y >= 0.0F &&
+            light.attenuation_outer_cos.z >= 0.0F &&
+            (light.attenuation_outer_cos.x > 0.0F ||
+                light.attenuation_outer_cos.y > 0.0F ||
+                light.attenuation_outer_cos.z > 0.0F);
+    default:
+        return false;
+    }
+}
+
 bool is_valid_semantic_mesh_3d(
     const progpu_native_scene_mesh_3d& mesh,
     std::size_t vertex_count,
-    std::size_t index_count) noexcept {
+    std::size_t index_count,
+    std::size_t light_count) noexcept {
     const std::size_t mesh_vertex_offset = mesh.vertex_offset;
     const std::size_t mesh_index_offset = mesh.index_offset;
+    const std::size_t mesh_light_offset = mesh.light_offset;
     constexpr std::uint32_t known_flags =
         PROGPU_NATIVE_MESH_3D_FRONT_FACE |
         PROGPU_NATIVE_MESH_3D_BACK_FACE;
@@ -544,6 +603,10 @@ bool is_valid_semantic_mesh_3d(
         mesh.vertex_count <= vertex_count - mesh_vertex_offset &&
         mesh_index_offset <= index_count &&
         mesh.index_count <= index_count - mesh_index_offset &&
+        mesh.light_count <= PROGPU_NATIVE_SCENE_MAX_3D_LIGHTS_PER_MESH &&
+        mesh_light_offset <= light_count &&
+        mesh.light_count <= light_count - mesh_light_offset &&
+        (mesh.light_count != 0U || mesh.light_offset == 0U) &&
         finite_matrix(mesh.model_transform) &&
         finite_matrix(mesh.normal_transform) && is_finite(mesh.color) &&
         finite_float_4(mesh.light_direction) &&
@@ -554,8 +617,7 @@ bool is_valid_semantic_mesh_3d(
         mesh.specular_color.w > 0.0F &&
         finite_float_4(mesh.material_ambient) &&
         std::isfinite(mesh.opacity) && mesh.opacity >= 0.0F &&
-        mesh.opacity <= 1.0F && mesh.shading_mode <= 6U &&
-        mesh.reserved0 == 0U && mesh.reserved1 == 0U;
+        mesh.opacity <= 1.0F && mesh.shading_mode <= 6U;
 }
 
 } // namespace progpu::native::semantic

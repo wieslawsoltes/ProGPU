@@ -95,9 +95,27 @@ bool semantic_scene_builder::draw_meshes_3d(
     const progpu_native_scene_camera_3d& camera,
     progpu_native_image_rect bounds,
     std::uint32_t state_resource_index) noexcept {
+    return draw_meshes_3d(
+        meshes,
+        vertices,
+        indices,
+        std::span<const progpu_native_scene_light_3d>{},
+        camera,
+        bounds,
+        state_resource_index);
+}
+
+bool semantic_scene_builder::draw_meshes_3d(
+    std::span<const progpu_native_scene_mesh_3d> meshes,
+    std::span<const progpu_native_scene_mesh_3d_vertex> vertices,
+    std::span<const std::uint32_t> indices,
+    std::span<const progpu_native_scene_light_3d> lights,
+    const progpu_native_scene_camera_3d& camera,
+    progpu_native_image_rect bounds,
+    std::uint32_t state_resource_index) noexcept {
     const std::uint64_t auxiliary_bytes =
         static_cast<std::uint64_t>(vertices.size_bytes()) +
-        indices.size_bytes();
+        indices.size_bytes() + lights.size_bytes();
     if (meshes.empty() || vertices.empty() || indices.empty() ||
         auxiliary_bytes > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES ||
         !finite_rect(bounds) ||
@@ -114,9 +132,14 @@ bool semantic_scene_builder::draw_meshes_3d(
             return implementation_->fail(scene_build_error::invalid_argument);
         }
     }
+    for (const auto& light : lights) {
+        if (!semantic::is_valid_semantic_light_3d(light)) {
+            return implementation_->fail(scene_build_error::invalid_argument);
+        }
+    }
     for (const auto& mesh : meshes) {
         if (!semantic::is_valid_semantic_mesh_3d(
-                mesh, vertices.size(), indices.size())) {
+                mesh, vertices.size(), indices.size(), lights.size())) {
             return implementation_->fail(scene_build_error::invalid_argument);
         }
         for (std::size_t index = mesh.index_offset;
@@ -142,6 +165,13 @@ bool semantic_scene_builder::draw_meshes_3d(
             auxiliary.data() + vertices.size_bytes(),
             indices.data(),
             indices.size_bytes());
+        if (!lights.empty()) {
+            std::memcpy(
+                auxiliary.data() + vertices.size_bytes() +
+                    indices.size_bytes(),
+                lights.data(),
+                lights.size_bytes());
+        }
         return append_3d_command(
             PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH,
             PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH,

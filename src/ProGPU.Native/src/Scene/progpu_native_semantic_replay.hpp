@@ -153,13 +153,14 @@ struct alignas(16) mesh_record {
     progpu_native_float_4 material_ambient{};
     float opacity = 0.0F;
     std::uint32_t shading_mode = 0U;
-    std::uint32_t reserved0 = 0U;
-    std::uint32_t reserved1 = 0U;
+    std::uint32_t light_offset = 0U;
+    std::uint32_t light_count = 0U;
 };
 
 static_assert(sizeof(camera_record) == 176U);
 static_assert(sizeof(line_record) == 128U);
 static_assert(sizeof(mesh_record) == 256U);
+static_assert(sizeof(progpu_native_scene_light_3d) == 80U);
 static_assert(sizeof(progpu_native_scene_mesh_3d_vertex) == 48U);
 
 } // namespace progpu::native::three_d
@@ -176,6 +177,7 @@ struct semantic_3d_page {
     WGPUBuffer mesh_buffer = nullptr;
     WGPUBuffer vertex_buffer = nullptr;
     WGPUBuffer index_buffer = nullptr;
+    WGPUBuffer light_buffer = nullptr;
     WGPUBindGroup bind_group = nullptr;
     std::uint64_t scene_hash = 0U;
     float dpi_scale = 0.0F;

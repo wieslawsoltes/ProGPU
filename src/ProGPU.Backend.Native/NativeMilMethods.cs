@@ -128,6 +128,22 @@ internal static unsafe partial class NativeMilMethods
         uint* indices,
         nuint indexCount);
 
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_viewport3d_scene_lights")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetViewport3DSceneLights(
+        nint channel,
+        uint handle,
+        NativeSceneCamera3D* camera,
+        NativeImageRect viewport,
+        NativeSceneMesh3D* meshes,
+        nuint meshCount,
+        NativeSceneMesh3DVertex* vertices,
+        nuint vertexCount,
+        uint* indices,
+        nuint indexCount,
+        NativeSceneLight3D* lights,
+        nuint lightCount);
+
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_glyph_run_font_sfnt")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetGlyphRunFontSfnt(
@@ -261,6 +277,22 @@ internal static unsafe partial class NativeMilDawnMethods
         nuint vertexCount,
         uint* indices,
         nuint indexCount);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_viewport3d_scene_lights")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetViewport3DSceneLights(
+        nint channel,
+        uint handle,
+        NativeSceneCamera3D* camera,
+        NativeImageRect viewport,
+        NativeSceneMesh3D* meshes,
+        nuint meshCount,
+        NativeSceneMesh3DVertex* vertices,
+        nuint vertexCount,
+        uint* indices,
+        nuint indexCount,
+        NativeSceneLight3D* lights,
+        nuint lightCount);
 
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_glyph_run_font_sfnt")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

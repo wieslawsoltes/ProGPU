@@ -3564,13 +3564,27 @@ instead of forcing every scene into the legacy single-directional fields.
 `PortableViewport3DLight` carries ambient/directional/point/spot identity,
 linear color, transformed position and direction, range, constant/linear/
 quadratic attenuation, and inner/outer cone angles. The legacy directional
-and ambient members remain for source compatibility while the retained native
-light-buffer ABI is staged. Consumers fail closed for point, spot, or multiple
-lights until that buffer is bound; they must not render those scenes with the
-default directional light. The native follow-up will use a bounded storage
-light array and per-mesh range, preserving the existing mesh record size by
-replacing its two canonical reserved words only when the new capability is
-active.
+and ambient members remain for source compatibility. Native retained scenes
+append validated 80-byte `progpu_native_scene_light_3d` records after vertex
+and index data, bind them as a read-only WGSL storage buffer, and address at
+most 16 lights through each mesh's `light_offset`/`light_count` range. Those
+two fields replace the mesh record's former reserved words, so the public mesh
+ABI remains exactly 256 bytes. The original MIL sideband entry point remains
+the zero-light compatibility path; the versioned
+`progpu_native_mil_channel_set_viewport3d_scene_lights` entry point copies the
+typed light suffix transactionally.
+
+The buffered shader accumulates ambient, directional, point, and spot terms.
+Point and spot lights apply WPF's range cutoff and diminishing-only
+`1 / max(constant + linear*d + quadratic*d*d, 1)` attenuation. Spot cones
+clamp the outer angle to `[0,180]` degrees and the inner angle to the clamped
+outer angle before storing their half-angle cosines, matching MIL's ordering;
+specular lighting uses WPF's normalized view-plus-light half vector. Validation
+rejects nonpositive range, negative or all-zero attenuation, invalid cone
+ordering, non-finite records, unknown kinds, and out-of-range mesh slices
+before retention or GPU allocation. A zero `light_count` deliberately executes
+the previous single-directional/ambient shader path byte-for-byte for existing
+callers.
 
 Live qualification must execute this route, not merely validate its retained
 bytes. The shared gate renders a typed MIL mesh into a non-origin sub-viewport
@@ -3615,6 +3629,11 @@ differ from the perspective readback while staying inside the identical
 transformed viewport and clip. The Metal reference contains 278 colored pixels
 at `[48,28]-[66,47]`; this keeps perspective and orthographic cameras on the
 same reusable GPU projection, depth, lighting, and rasterization implementation.
+Two further generations execute the new retained buffer with ambient-plus-point
+and ambient-plus-spot scenes. Metal readback observes center RGBA
+`91/85/0/255` and `103/78/0/255`, respectively; each differs from the legacy
+directional result and proves that position, attenuation, cone, and light-range
+storage reach the shared GPU shader rather than a CPU or default-light fallback.
 
 The native validation boundary requires directional and ambient intensities to
 be nonnegative and shininess to be strictly positive. Invalid values fail before

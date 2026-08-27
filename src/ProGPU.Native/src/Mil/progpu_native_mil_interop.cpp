@@ -173,6 +173,37 @@ progpu_native_mil_channel_set_viewport3d_scene(
 }
 
 progpu_native_mil_status
+progpu_native_mil_channel_set_viewport3d_scene_lights(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    const progpu_native_scene_camera_3d* camera,
+    progpu_native_image_rect viewport,
+    const progpu_native_scene_mesh_3d* meshes,
+    size_t mesh_count,
+    const progpu_native_scene_mesh_3d_vertex* vertices,
+    size_t vertex_count,
+    const uint32_t* indices,
+    size_t index_count,
+    const progpu_native_scene_light_3d* lights,
+    size_t light_count) {
+    if (channel == nullptr || camera == nullptr || meshes == nullptr ||
+        vertices == nullptr || indices == nullptr || lights == nullptr ||
+        mesh_count == 0U || vertex_count == 0U || index_count == 0U ||
+        light_count == 0U) {
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    }
+    return to_abi(channel->state.set_viewport3d_scene(
+        handle,
+        *camera,
+        viewport,
+        std::span<const progpu_native_scene_mesh_3d>{meshes, mesh_count},
+        std::span<const progpu_native_scene_mesh_3d_vertex>{
+            vertices, vertex_count},
+        std::span<const std::uint32_t>{indices, index_count},
+        std::span<const progpu_native_scene_light_3d>{lights, light_count}));
+}
+
+progpu_native_mil_status
 progpu_native_mil_channel_set_glyph_run_font_sfnt(
     progpu_native_mil_channel* channel,
     uint32_t handle,

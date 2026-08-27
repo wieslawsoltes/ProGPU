@@ -51,6 +51,7 @@ using ::progpu_native_hit_test_node;
 using ::progpu_native_scene_hit_test_index;
 using ::progpu_native_scene_camera_3d;
 using ::progpu_native_scene_line_3d;
+using ::progpu_native_scene_light_3d;
 using ::progpu_native_scene_mesh_3d_vertex;
 using ::progpu_native_scene_mesh_3d;
 

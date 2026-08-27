@@ -278,6 +278,7 @@ public sealed unsafe class NativeMilChannel : IDisposable
         ArgumentNullException.ThrowIfNull(scene.Meshes);
         ArgumentNullException.ThrowIfNull(scene.Vertices);
         ArgumentNullException.ThrowIfNull(scene.Indices);
+        ArgumentNullException.ThrowIfNull(scene.Lights);
         if (scene.Meshes.Length == 0 || scene.Vertices.Length == 0 ||
             scene.Indices.Length == 0)
         {
@@ -288,30 +289,34 @@ public sealed unsafe class NativeMilChannel : IDisposable
         fixed (NativeSceneMesh3D* meshes = scene.Meshes)
         fixed (NativeSceneMesh3DVertex* vertices = scene.Vertices)
         fixed (uint* indices = scene.Indices)
+        fixed (NativeSceneLight3D* lights = scene.Lights)
         {
+            bool hasLights = scene.Lights.Length != 0;
             NativeMilStatus status = _backend == NativeMilBackend.Dawn
-                ? NativeMilDawnMethods.SetViewport3DScene(
-                    channel,
-                    handle,
-                    &camera,
-                    scene.Viewport,
-                    meshes,
-                    (nuint)scene.Meshes.Length,
-                    vertices,
-                    (nuint)scene.Vertices.Length,
-                    indices,
-                    (nuint)scene.Indices.Length)
-                : NativeMilMethods.SetViewport3DScene(
-                    channel,
-                    handle,
-                    &camera,
-                    scene.Viewport,
-                    meshes,
-                    (nuint)scene.Meshes.Length,
-                    vertices,
-                    (nuint)scene.Vertices.Length,
-                    indices,
-                    (nuint)scene.Indices.Length);
+                ? hasLights
+                    ? NativeMilDawnMethods.SetViewport3DSceneLights(
+                        channel, handle, &camera, scene.Viewport,
+                        meshes, (nuint)scene.Meshes.Length,
+                        vertices, (nuint)scene.Vertices.Length,
+                        indices, (nuint)scene.Indices.Length,
+                        lights, (nuint)scene.Lights.Length)
+                    : NativeMilDawnMethods.SetViewport3DScene(
+                        channel, handle, &camera, scene.Viewport,
+                        meshes, (nuint)scene.Meshes.Length,
+                        vertices, (nuint)scene.Vertices.Length,
+                        indices, (nuint)scene.Indices.Length)
+                : hasLights
+                    ? NativeMilMethods.SetViewport3DSceneLights(
+                        channel, handle, &camera, scene.Viewport,
+                        meshes, (nuint)scene.Meshes.Length,
+                        vertices, (nuint)scene.Vertices.Length,
+                        indices, (nuint)scene.Indices.Length,
+                        lights, (nuint)scene.Lights.Length)
+                    : NativeMilMethods.SetViewport3DScene(
+                        channel, handle, &camera, scene.Viewport,
+                        meshes, (nuint)scene.Meshes.Length,
+                        vertices, (nuint)scene.Vertices.Length,
+                        indices, (nuint)scene.Indices.Length);
             if (status != NativeMilStatus.Success)
             {
                 throw new NativeMilException(

@@ -851,6 +851,25 @@ public ref struct NativeSceneStreamBuilder
         scoped ReadOnlySpan<NativeSceneMesh3DVertex> vertices,
         scoped ReadOnlySpan<uint> indices,
         out uint resourceIndex,
+        NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required) =>
+        TryAddMesh3DResource(
+            resourceId,
+            generation,
+            meshes,
+            vertices,
+            indices,
+            ReadOnlySpan<NativeSceneLight3D>.Empty,
+            out resourceIndex,
+            flags);
+
+    public bool TryAddMesh3DResource(
+        ulong resourceId,
+        ulong generation,
+        scoped ReadOnlySpan<NativeSceneMesh3D> meshes,
+        scoped ReadOnlySpan<NativeSceneMesh3DVertex> vertices,
+        scoped ReadOnlySpan<uint> indices,
+        scoped ReadOnlySpan<NativeSceneLight3D> lights,
+        out uint resourceIndex,
         NativeSceneRecordFlags flags = NativeSceneRecordFlags.Required)
     {
         resourceIndex = NativeMethods.SceneNoIndex;
@@ -861,10 +880,14 @@ public ref struct NativeSceneStreamBuilder
         int vertexBytes = checked(
             vertices.Length * Unsafe.SizeOf<NativeSceneMesh3DVertex>());
         int indexBytes = checked(indices.Length * sizeof(uint));
+        int lightBytes = checked(
+            lights.Length * Unsafe.SizeOf<NativeSceneLight3D>());
         byte[] auxiliary = GC.AllocateUninitializedArray<byte>(
-            checked(vertexBytes + indexBytes));
+            checked(vertexBytes + indexBytes + lightBytes));
         MemoryMarshal.AsBytes(vertices).CopyTo(auxiliary);
         MemoryMarshal.AsBytes(indices).CopyTo(auxiliary.AsSpan(vertexBytes));
+        MemoryMarshal.AsBytes(lights).CopyTo(
+            auxiliary.AsSpan(vertexBytes + indexBytes));
         return TryAddResource(
             NativeSceneResourceKind.Mesh3DBatch,
             resourceId,
