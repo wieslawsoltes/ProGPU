@@ -3263,6 +3263,16 @@ submission/frame p50 1.1608/4.9743 -> 1.0915/4.7015 ms and 2x
 7.9814 -> 8.1111 ms (+1.6%). The loop-index branch therefore failed the full
 no-regression gate and was rejected.
 
+An additional crossing-layout experiment split positive and negative winding
+positions into separate `float` arrays and compile-time-specialized the
+NEON/SSE2 updates. Although this halved the per-crossing element size, the two
+offset streams and two hot traversal loops regressed initial 120-frame
+submission/frame p50 from 1.0344/5.3215 to 1.5310/5.9844 ms at 1x and from
+1.6587/5.0745 to 2.5752/6.2036 ms at 2x. Both candidates retained exact hashes
+`5B6EF4F70536C862` and `706B261418EC5C3B` with zero channel difference. The
+result was decisive enough to stop before the longer alternating matrix; the
+qualified interleaved crossing layout remains unchanged.
+
 The accepted NEON follow-up instead folds exact integer lane reduction. It
 adds the low/high 0-or-1 coverage vectors before reducing their halves, saving
 one vector add per pixel without a new branch, metadata read, or floating-point

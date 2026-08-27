@@ -451,6 +451,18 @@ texture, and performs no CPU readback. The headless WebGPU contract executes
 Gaussian then Box through the same cached two-pipeline family and verifies that
 the Box result is nonempty and distinct at transparent image edges.
 
+A later intrinsic glyph experiment split each scanline's crossing positions
+into positive- and negative-winding arrays. This halved each stored crossing
+from `{float,int}` to `float` and specialized the NEON/SSE2 update direction at
+compile time, but required two crossing loops and two offset streams. The
+candidate remained byte-exact at `5B6EF4F70536C862` (1x) and
+`706B261418EC5C3B` (2x), with zero channel difference. Its initial 120-frame
+gate was decisively negative: submission/frame p50 regressed
+1.0344/5.3215 -> 1.5310/5.9844 ms at 1x and
+1.6587/5.0745 -> 2.5752/6.2036 ms at 2x, with p95 regressions as well. The
+candidate was rejected without extending the run matrix; the qualified
+interleaved `{x,direction}` traversal remains in source.
+
 ## Extending the policy
 
 Each additional compute-heavy workload must declare the semantics that make a
