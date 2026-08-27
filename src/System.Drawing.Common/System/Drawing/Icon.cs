@@ -1,11 +1,13 @@
 using System.Drawing.Imaging;
 using System.Reflection;
+using System.Runtime.Serialization;
 using System.Text;
 
 namespace System.Drawing;
 
 [System.ComponentModel.TypeConverter(typeof(IconConverter))]
-public sealed partial class Icon : IDisposable, ICloneable
+[Serializable]
+public sealed partial class Icon : MarshalByRefObject, IDisposable, ICloneable, ISerializable
 {
     private readonly Bitmap? _bitmap;
 
@@ -13,6 +15,19 @@ public sealed partial class Icon : IDisposable, ICloneable
     {
         _bitmap = bitmap;
     }
+
+#pragma warning disable SYSLIB0050
+    private Icon(SerializationInfo info, StreamingContext context)
+    {
+        ArgumentNullException.ThrowIfNull(info);
+        byte[] data = (byte[])info.GetValue("IconData", typeof(byte[]))!;
+        Size size = (Size)info.GetValue("IconSize", typeof(Size))!;
+        using var stream = new MemoryStream(data, writable: false);
+        _bitmap = size.Width > 0 && size.Height > 0
+            ? LoadScaledBitmap(stream, size.Width, size.Height)
+            : new Bitmap(stream);
+    }
+#pragma warning restore SYSLIB0050
 
     internal static Icon CreateOwned(Bitmap bitmap)
     {
@@ -97,6 +112,17 @@ public sealed partial class Icon : IDisposable, ICloneable
     }
 
     public object Clone() => new Icon(this, Width, Height);
+
+#pragma warning disable SYSLIB0050
+    void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
+    {
+        ArgumentNullException.ThrowIfNull(info);
+        using var stream = new MemoryStream();
+        Save(stream);
+        info.AddValue("IconData", stream.ToArray(), typeof(byte[]));
+        info.AddValue("IconSize", Size, typeof(Size));
+    }
+#pragma warning restore SYSLIB0050
 
     public void Save(Stream outputStream)
     {

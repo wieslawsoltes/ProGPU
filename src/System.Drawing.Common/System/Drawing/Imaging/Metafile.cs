@@ -1,3 +1,5 @@
+using System.Runtime.Serialization;
+
 namespace System.Drawing.Imaging;
 
 /// <summary>
@@ -24,6 +26,13 @@ public sealed class Metafile : Image
         _document = document;
         RawFormat = document.RawFormat;
     }
+
+#pragma warning disable SYSLIB0050
+    private Metafile(SerializationInfo info, StreamingContext context)
+        : this(ParseSerialized(info))
+    {
+    }
+#pragma warning restore SYSLIB0050
 
     public Metafile(IntPtr hmetafile, WmfPlaceableFileHeader wmfHeader, bool deleteWmf) =>
         throw CreateHandleImportException();
@@ -122,6 +131,11 @@ public sealed class Metafile : Image
     internal ReadOnlySpan<byte> Source => _document.Source;
     internal ReadOnlySpan<MetafileRecord> Records => _document.Records;
     internal void EnsureNotDisposed() => ThrowIfDisposed();
+    internal override byte[] GetSerializedData()
+    {
+        ThrowIfDisposed();
+        return _document.Source.ToArray();
+    }
 
     private void ThrowIfDisposed()
     {
@@ -133,6 +147,16 @@ public sealed class Metafile : Image
 
     private static PlatformNotSupportedException CreateRecordingException() => new(
         "HDC-backed metafile recording requires the explicit Windows GDI metafile adapter.");
+
+#pragma warning disable SYSLIB0050
+    private static MetafileDocument ParseSerialized(SerializationInfo info)
+    {
+        ArgumentNullException.ThrowIfNull(info);
+        byte[] data = (byte[])info.GetValue("Data", typeof(byte[]))!;
+        using var stream = new MemoryStream(data, writable: false);
+        return MetafileParser.ParseStream(stream);
+    }
+#pragma warning restore SYSLIB0050
 }
 
 public sealed class WmfPlaceableFileHeader

@@ -1,4 +1,5 @@
 using System.Drawing.Imaging;
+using System.Runtime.Serialization;
 
 namespace System.Drawing;
 
@@ -23,7 +24,8 @@ public enum RotateFlipType
 }
 
 [System.ComponentModel.TypeConverter(typeof(ImageConverter))]
-public abstract class Image : MarshalByRefObject, IDisposable, ICloneable
+[Serializable]
+public abstract class Image : MarshalByRefObject, IDisposable, ICloneable, ISerializable
 {
     public delegate bool GetThumbnailImageAbort();
 
@@ -273,6 +275,21 @@ public abstract class Image : MarshalByRefObject, IDisposable, ICloneable
         throw new NotSupportedException($"RotateFlip is not implemented for {GetType().FullName}.");
 
     public void Save(Stream stream) => Save(stream, RawFormat);
+
+#pragma warning disable SYSLIB0050
+    void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
+    {
+        ArgumentNullException.ThrowIfNull(info);
+        info.AddValue("Data", GetSerializedData(), typeof(byte[]));
+    }
+
+    internal virtual byte[] GetSerializedData()
+    {
+        using var stream = new MemoryStream();
+        Save(stream);
+        return stream.ToArray();
+    }
+#pragma warning restore SYSLIB0050
 
     public void Save(string filename) => Save(filename, RawFormat);
 

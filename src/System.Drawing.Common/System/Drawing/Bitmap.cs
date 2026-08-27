@@ -4,6 +4,7 @@ using System;
 using System.Drawing.Imaging;
 using System.Drawing.Imaging.Effects;
 using System.Runtime.InteropServices;
+using System.Runtime.Serialization;
 using Silk.NET.WebGPU;
 
 namespace System.Drawing;
@@ -23,6 +24,7 @@ internal class GraphicsVisual : Visual
     }
 }
 
+[Serializable]
 public class Bitmap : Image, IProGpuContextTextureLeaseSource
 {
     private TextureLifetime? _textureLifetime;
@@ -181,6 +183,16 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         : this(stream)
     {
     }
+
+#pragma warning disable SYSLIB0050
+    private Bitmap(SerializationInfo info, StreamingContext context)
+    {
+        ArgumentNullException.ThrowIfNull(info);
+        byte[] data = (byte[])info.GetValue("Data", typeof(byte[]))!;
+        using var stream = new MemoryStream(data, writable: false);
+        InitializeFromStream(stream);
+    }
+#pragma warning restore SYSLIB0050
 
     public Bitmap(Bitmap original)
     {

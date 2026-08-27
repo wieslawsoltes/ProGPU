@@ -17,6 +17,7 @@ using System.Text;
 namespace System.Drawing;
 
 public partial class Graphics :
+    MarshalByRefObject,
     IDisposable,
     IDeviceContext,
     IProGpuDrawingContextSource

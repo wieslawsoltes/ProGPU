@@ -50,14 +50,6 @@
     <Target>System.Drawing.Common, Version=10.0.0.0, Culture=neutral, PublicKeyToken=c29c9752855ee183</Target>
   </Suppression>
   <Suppression>
-    <DiagnosticId>CP0007</DiagnosticId>
-    <Target>T:System.Drawing.Graphics</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0007</DiagnosticId>
-    <Target>T:System.Drawing.Icon</Target>
-  </Suppression>
-  <Suppression>
     <DiagnosticId>CP0008</DiagnosticId>
     <Target>T:System.Drawing.Bitmap</Target>
   </Suppression>
