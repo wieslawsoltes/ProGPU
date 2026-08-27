@@ -172,6 +172,40 @@ public abstract class CadEditCommand
         }
     }
 
+    protected static LineType ResolveLineType(
+        CadDocument document,
+        string lineTypeName)
+    {
+        if (!document.LineTypes.TryGetValue(lineTypeName, out LineType? lineType))
+        {
+            throw new InvalidOperationException(
+                $"Document linetype '{lineTypeName}' does not exist.");
+        }
+        return lineType;
+    }
+
+    protected static void ValidateLineTypes(
+        CadDocument document,
+        ReadOnlySpan<LineType> lineTypes)
+    {
+        foreach (LineType lineType in lineTypes)
+        {
+            ValidateLineType(document, lineType);
+        }
+    }
+
+    protected static void ValidateLineType(
+        CadDocument document,
+        LineType lineType)
+    {
+        if (!document.LineTypes.TryGetValue(lineType.Name, out LineType? registered) ||
+            !ReferenceEquals(registered, lineType))
+        {
+            throw new InvalidOperationException(
+                $"Retained document linetype '{lineType.Name}' is no longer registered.");
+        }
+    }
+
     protected static TValue[] CaptureEntityValues<TValue>(
         Entity[] entities,
         Func<Entity, TValue> getter) => CaptureValues(entities, getter);
@@ -1192,6 +1226,89 @@ public sealed class CadSetLayerLineWeightCommand : CadEditCommand
     }
 }
 
+/// <summary>Assigns one existing explicit linetype to existing layers.</summary>
+public sealed class CadSetLayerLineTypeCommand : CadEditCommand
+{
+    private readonly string[] _layerNames;
+    private Layer[]? _layers;
+    private LineType[]? _previousValues;
+    private LineType? _targetLineType;
+
+    public ReadOnlyMemory<string> LayerNames => _layerNames;
+
+    public string LineTypeName { get; }
+
+    public CadSetLayerLineTypeCommand(
+        IEnumerable<string> layerNames,
+        string lineTypeName,
+        string description = "Set layer linetype")
+        : base(description)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(lineTypeName);
+        if (lineTypeName.Equals(LineType.ByLayerName, StringComparison.OrdinalIgnoreCase) ||
+            lineTypeName.Equals(LineType.ByBlockName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(lineTypeName),
+                "A layer linetype cannot be ByLayer or ByBlock.");
+        }
+        _layerNames = NormalizeLayerNames(layerNames, nameof(layerNames));
+        LineTypeName = lineTypeName;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Layer[] layers;
+        LineType target;
+        if (isRedo)
+        {
+            layers = GetRetainedLayers(document);
+            target = _targetLineType ??
+                throw new InvalidOperationException(
+                    "The layer-linetype command has not been applied.");
+            ValidateLineType(document, target);
+        }
+        else
+        {
+            layers = ResolveLayers(document, _layerNames);
+            target = ResolveLineType(document, LineTypeName);
+            _layers = layers;
+            _previousValues = CaptureValues(
+                layers,
+                static layer => layer.LineType);
+            _targetLineType = target;
+        }
+        SetValuesTransactional(
+            layers,
+            target,
+            static layer => layer.LineType,
+            static (layer, value) => layer.LineType = value);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Layer[] layers = GetRetainedLayers(document);
+        LineType[] previous = _previousValues ??
+            throw new InvalidOperationException(
+                "The layer-linetype command has not been applied.");
+        ValidateLineTypes(document, previous);
+        SetValuesTransactional(
+            layers,
+            previous,
+            static layer => layer.LineType,
+            static (layer, value) => layer.LineType = value);
+    }
+
+    private Layer[] GetRetainedLayers(CadDocument document)
+    {
+        Layer[] layers = _layers ??
+            throw new InvalidOperationException(
+                "The layer-linetype command has not been applied.");
+        ValidateLayers(document, layers);
+        return layers;
+    }
+}
+
 /// <summary>Assigns one existing linetype to a stable set of model-space entities.</summary>
 public sealed class CadSetEntityLineTypeCommand : CadEditCommand
 {
@@ -1236,12 +1353,7 @@ public sealed class CadSetEntityLineTypeCommand : CadEditCommand
         else
         {
             entities = ResolveModelSpaceEntities(document, _handles);
-            if (!document.LineTypes.TryGetValue(LineTypeName, out LineType? targetLineType))
-            {
-                throw new InvalidOperationException(
-                    $"Document linetype '{LineTypeName}' does not exist.");
-            }
-            target = targetLineType;
+            target = ResolveLineType(document, LineTypeName);
             _entities = entities;
             _previousLineTypes = CaptureEntityValues(
                 entities,
@@ -1261,10 +1373,7 @@ public sealed class CadSetEntityLineTypeCommand : CadEditCommand
         Entity[] entities = GetRetainedEntities(document);
         LineType[] previous = _previousLineTypes ??
             throw new InvalidOperationException("The linetype command has not been applied.");
-        foreach (LineType lineType in previous)
-        {
-            ValidateLineType(document, lineType);
-        }
+        ValidateLineTypes(document, previous);
         SetEntityValuesTransactional(
             entities,
             previous,
@@ -1280,15 +1389,6 @@ public sealed class CadSetEntityLineTypeCommand : CadEditCommand
         return entities;
     }
 
-    private static void ValidateLineType(CadDocument document, LineType lineType)
-    {
-        if (!document.LineTypes.TryGetValue(lineType.Name, out LineType? registered) ||
-            !ReferenceEquals(registered, lineType))
-        {
-            throw new InvalidOperationException(
-                $"Retained document linetype '{lineType.Name}' is no longer registered.");
-        }
-    }
 }
 
 /// <summary>Assigns a positive finite linetype scale to model-space entities.</summary>

@@ -569,6 +569,48 @@ public sealed class CadEditingTests
     }
 
     [Fact]
+    public void LayerLineTypeCommandUpdatesInheritedSnapshotNameAndRestoresValue()
+    {
+        var document = new CadDocument();
+        var target = new LineType("LAYER_DASH");
+        document.LineTypes.Add(target);
+        var layer = new Layer("DASH_LAYER")
+        {
+            LineType = document.LineTypes.Continuous,
+        };
+        document.Layers.Add(layer);
+        document.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX)
+        {
+            Layer = layer,
+            LineType = document.LineTypes.ByLayer,
+        });
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetLayerLineTypeCommand(
+            ["dash_layer"],
+            "layer_dash"));
+
+        Assert.Same(target, layer.LineType);
+        CadDocumentSnapshot applied = new CadSnapshotCompiler().Compile(session);
+        Assert.Equal("LAYER_DASH", Assert.Single(applied.Styles.ToArray()).LineTypeName);
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Same(document.LineTypes.Continuous, layer.LineType);
+        Assert.True(history.TryRedo(out _));
+        Assert.Same(target, layer.LineType);
+    }
+
+    [Fact]
+    public void LayerLineTypeCommandRejectsInheritanceSentinels()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadSetLayerLineTypeCommand(["0"], LineType.ByLayerName));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadSetLayerLineTypeCommand(["0"], LineType.ByBlockName));
+    }
+
+    [Fact]
     public void LineTypeCommandRestoresInheritanceAndRetainsSnapshotName()
     {
         var document = new CadDocument();

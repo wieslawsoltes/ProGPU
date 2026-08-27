@@ -322,6 +322,10 @@ an interactive browser picker/download smoke remains open.
   `Default`, while rejecting entity-only `ByLayer`/`ByBlock` and undefined wire
   values. Inherited entities resolve the new physical/cosmetic thickness in the
   immutable snapshot; undo restores each authored layer enum.
+- Layer linetype assignment resolves an existing explicit table entry before
+  mutation and rejects entity-only `ByLayer`/`ByBlock` targets. Inherited entity
+  styles retain the resolved name in the snapshot, while non-continuous pattern
+  rendering remains behind the documented A-alignment fidelity gate.
 - Linetype assignment uses the same table-identity and rollback contract for
   explicit, `ByLayer`, and `ByBlock` entries. The immutable snapshot retains the
   newly resolved linetype name. Entity linetype-scale assignment accepts only
