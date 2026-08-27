@@ -240,7 +240,18 @@ public readonly struct CadBounds3D : IEquatable<CadBounds3D>
             relative += twoPi;
         }
 
-        return relative <= sweep + 1e-12;
+        if (sweep >= 0.0)
+        {
+            return relative <= sweep + 1e-12;
+        }
+
+        double reverseRelative = (start - angle) % twoPi;
+        if (reverseRelative < 0.0)
+        {
+            reverseRelative += twoPi;
+        }
+
+        return reverseRelative <= -sweep + 1e-12;
     }
 
     private static double Component(CadPoint3D point, int axis) => axis switch

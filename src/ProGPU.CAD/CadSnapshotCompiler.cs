@@ -47,6 +47,8 @@ public sealed class CadSnapshotCompiler
         var circles = new List<CadCirclePrimitive>();
         var arcs = new List<CadArcPrimitive>();
         var splines = new List<CadSplinePrimitive>();
+        var polylines = new List<CadPolylinePrimitive>();
+        var polylineVertices = new List<CadPolylineVertex>();
         var splineControlPoints = new List<CadPoint3D>();
         var splineKnots = new List<double>();
         var splineWeights = new List<double>();
@@ -84,6 +86,12 @@ public sealed class CadSnapshotCompiler
                         splineControlPoints,
                         splineKnots,
                         splineWeights),
+                    LwPolyline polyline => CompilePolyline(
+                        polyline,
+                        layerIndex,
+                        styleIndex,
+                        polylines,
+                        polylineVertices),
                     _ => null,
                 };
 
@@ -103,6 +111,17 @@ public sealed class CadSnapshotCompiler
                             "CADSNAP001",
                             $"Entity {entity.Handle:X} ({entity.ObjectName}) is not yet represented in the analytic snapshot."));
                 }
+            }
+            catch (CadUnsupportedEntityException exception)
+            {
+                unsupportedCount++;
+                AddDiagnostic(
+                    diagnostics,
+                    options.DiagnosticLimit,
+                    new CadDiagnostic(
+                        CadDiagnosticSeverity.Information,
+                        "CADSNAP003",
+                        $"Entity {entity.Handle:X} ({entity.ObjectName}) is not yet supported: {exception.Message}"));
             }
             catch (Exception exception) when (
                 exception is ArgumentException or ArithmeticException or InvalidOperationException)
@@ -133,6 +152,8 @@ public sealed class CadSnapshotCompiler
             circles.ToArray(),
             arcs.ToArray(),
             splines.ToArray(),
+            polylines.ToArray(),
+            polylineVertices.ToArray(),
             splineControlPoints.ToArray(),
             splineKnots.ToArray(),
             splineWeights.ToArray(),
@@ -279,6 +300,131 @@ public sealed class CadSnapshotCompiler
             bounds);
     }
 
+    private static CadEntityHeader CompilePolyline(
+        LwPolyline polyline,
+        int layerIndex,
+        int styleIndex,
+        List<CadPolylinePrimitive> destination,
+        List<CadPolylineVertex> vertices)
+    {
+        if (polyline.Vertices.Count < 2)
+        {
+            throw new ArgumentException("A lightweight polyline must contain at least two vertices.");
+        }
+
+        if (polyline.ConstantWidth != 0.0 ||
+            polyline.Vertices.Any(vertex => vertex.StartWidth != 0.0 || vertex.EndWidth != 0.0))
+        {
+            throw new CadUnsupportedEntityException(
+                "Wide lightweight polylines require filled-outline lowering and cannot be treated as cosmetic strokes.");
+        }
+
+        if (!double.IsFinite(polyline.Elevation))
+        {
+            throw new ArgumentException("Polyline elevation must be finite.");
+        }
+
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(polyline.Normal));
+        LwPolyline.Vertex first = polyline.Vertices[0];
+        double localOriginX = first.Location.X;
+        double localOriginY = first.Location.Y;
+        CadPoint3D worldOrigin = basis.Transform(
+            new CadPoint3D(localOriginX, localOriginY, polyline.Elevation));
+        EnsureFinite(worldOrigin);
+
+        var normalizedVertices = new CadPolylineVertex[polyline.Vertices.Count];
+        for (int i = 0; i < polyline.Vertices.Count; i++)
+        {
+            LwPolyline.Vertex vertex = polyline.Vertices[i];
+            double x = vertex.Location.X - localOriginX;
+            double y = vertex.Location.Y - localOriginY;
+            if (!double.IsFinite(x) || !double.IsFinite(y) || !double.IsFinite(vertex.Bulge))
+            {
+                throw new ArgumentException("Polyline locations and bulges must be finite.");
+            }
+
+            normalizedVertices[i] = new CadPolylineVertex(x, y, vertex.Bulge);
+        }
+
+        ReadOnlySpan<CadPolylineVertex> added = normalizedVertices;
+        CadBounds3D bounds = CadBounds3D.Empty;
+        int segmentCount = polyline.IsClosed ? added.Length : added.Length - 1;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            CadPolylineVertex start = added[i];
+            CadPolylineVertex end = added[(i + 1) % added.Length];
+            CadPoint3D worldStart = TransformPolylinePoint(worldOrigin, basis, start);
+            CadPoint3D worldEnd = TransformPolylinePoint(worldOrigin, basis, end);
+            if (start.Bulge == 0.0)
+            {
+                bounds = bounds.Union(CadBounds3D.FromPoint(worldStart).Include(worldEnd));
+                continue;
+            }
+
+            GetBulgeArc(start, end, out double centerX, out double centerY, out double radius, out double startAngle, out double sweep);
+            CadPoint3D center = worldOrigin + (basis.XAxis * centerX) + (basis.YAxis * centerY);
+            bounds = bounds.Union(CadBounds3D.Arc(center, basis, radius, startAngle, sweep));
+        }
+
+        int vertexOffset = vertices.Count;
+        vertices.AddRange(normalizedVertices);
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadPolylinePrimitive(
+            worldOrigin,
+            basis,
+            vertexOffset,
+            polyline.Vertices.Count,
+            polyline.IsClosed));
+        return new CadEntityHeader(
+            polyline.Handle,
+            CadEntityKind.LightweightPolyline,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            bounds);
+    }
+
+    internal static void GetBulgeArc(
+        CadPolylineVertex start,
+        CadPolylineVertex end,
+        out double centerX,
+        out double centerY,
+        out double radius,
+        out double startAngle,
+        out double sweep)
+    {
+        double dx = end.X - start.X;
+        double dy = end.Y - start.Y;
+        double scale = Math.Max(Math.Abs(dx), Math.Abs(dy));
+        double chord = scale == 0.0
+            ? 0.0
+            : scale * Math.Sqrt(((dx / scale) * (dx / scale)) + ((dy / scale) * (dy / scale)));
+        double bulge = start.Bulge;
+        if (!double.IsFinite(chord) || chord <= 0.0 || bulge == 0.0)
+        {
+            throw new ArgumentException("A bulge arc requires distinct endpoints and a non-zero bulge.");
+        }
+
+        double centerFactor = ((1.0 / bulge) - bulge) * 0.25;
+        centerX = start.X + (dx * 0.5) - (dy * centerFactor);
+        centerY = start.Y + (dy * 0.5) + (dx * centerFactor);
+        double absoluteBulge = Math.Abs(bulge);
+        radius = (chord * 0.25) * (absoluteBulge + (1.0 / absoluteBulge));
+        startAngle = Math.Atan2(start.Y - centerY, start.X - centerX);
+        sweep = 4.0 * Math.Atan(bulge);
+        if (!double.IsFinite(centerX) || !double.IsFinite(centerY) ||
+            !double.IsFinite(radius) || !double.IsFinite(startAngle) || !double.IsFinite(sweep))
+        {
+            throw new ArithmeticException("Polyline bulge geometry exceeds the supported numeric range.");
+        }
+    }
+
+    private static CadPoint3D TransformPolylinePoint(
+        CadPoint3D worldOrigin,
+        CadCoordinateSystem basis,
+        CadPolylineVertex vertex) =>
+        worldOrigin + (basis.XAxis * vertex.X) + (basis.YAxis * vertex.Y);
+
     private static int InternLayer(
         Entity entity,
         List<CadLayerSnapshot> layers,
@@ -388,6 +534,14 @@ public sealed class CadSnapshotCompiler
         if (!double.IsFinite(point.X) || !double.IsFinite(point.Y) || !double.IsFinite(point.Z))
         {
             throw new ArgumentException("CAD coordinates must be finite.");
+        }
+    }
+
+    private sealed class CadUnsupportedEntityException : Exception
+    {
+        public CadUnsupportedEntityException(string message)
+            : base(message)
+        {
         }
     }
 }

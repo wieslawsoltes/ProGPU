@@ -80,6 +80,11 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   the existing affine analytic ellipse primitive, arcs use one `ArcSegment`,
   and NURBS use the retained spline extension. It performs no fixed-detail
   curve tessellation and carries no viewport or camera state.
+- Lightweight polylines retain their whole path as one command. Straight and
+  positive/negative bulge segments remain analytic in the entity OCS, with a
+  checked affine OCS-to-WCS projection. Wide polylines are deliberately reported
+  as unsupported until filled-outline lowering lands; they are not confused with
+  cosmetic lineweight.
 - Model-space lineweights are recorded as fixed device-space strokes; explicit
   zero-width lineweights use the ProGPU hairline sentinel. Non-continuous CAD
   linetypes currently produce a bounded warning and remain a tracked fidelity
@@ -227,6 +232,25 @@ device loss, browser AOT, and bounded-resource fuzzing.
 
 macOS performance claims additionally require matched Release Instruments
 Allocations/VM Tracker, Time Profiler, and Metal System Trace captures.
+
+### Reproducible phase-2 CPU baseline
+
+`ProGPU.CAD.Benchmarks` provides JSON p50/p95/p99 and allocation output for
+snapshot construction, retained plan-scene recording, and spatial queries. Run:
+
+```bash
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --warmup 3 --iterations 24 --queries 10000
+```
+
+The initial 2026-08-27 Apple Silicon/.NET 10 baseline for 10,000 mixed analytic
+entities records snapshot p50/p95/p99 of 17.699/27.464/40.229 ms, plan-scene
+recording of 10.555/38.890/43.964 ms, and spatial-query p50/p95/p99 of
+2.8/14.9/18.3 microseconds with zero managed allocation per warm query. Snapshot
+and scene construction allocate 9,223,164 and 9,280,779 bytes per generation,
+respectively. These are transparent starting measurements, not an improvement or
+release-acceptance claim. Full representative viewer workloads, GPU counters,
+matched managed/native results, and required macOS Instruments traces remain
+open gates before performance acceptance.
 
 ## Delivery phases
 

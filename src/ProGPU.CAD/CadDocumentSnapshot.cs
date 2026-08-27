@@ -6,6 +6,7 @@ public enum CadEntityKind : byte
     Circle = 2,
     Arc = 3,
     Spline = 4,
+    LightweightPolyline = 5,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -62,6 +63,18 @@ public readonly record struct CadSplinePrimitive(
     int Degree,
     bool IsClosed);
 
+public readonly record struct CadPolylineVertex(
+    double X,
+    double Y,
+    double Bulge);
+
+public readonly record struct CadPolylinePrimitive(
+    CadPoint3D WorldOrigin,
+    CadCoordinateSystem CoordinateSystem,
+    int VertexOffset,
+    int VertexCount,
+    bool IsClosed);
+
 public readonly record struct CadSnapshotStatistics(
     int SourceEntityCount,
     int VisibleEntityCount,
@@ -87,6 +100,8 @@ public sealed class CadDocumentSnapshot
     private readonly CadCirclePrimitive[] _circles;
     private readonly CadArcPrimitive[] _arcs;
     private readonly CadSplinePrimitive[] _splines;
+    private readonly CadPolylinePrimitive[] _polylines;
+    private readonly CadPolylineVertex[] _polylineVertices;
     private readonly CadPoint3D[] _splineControlPoints;
     private readonly double[] _splineKnots;
     private readonly double[] _splineWeights;
@@ -105,6 +120,8 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadCirclePrimitive> Circles => _circles;
     public ReadOnlyMemory<CadArcPrimitive> Arcs => _arcs;
     public ReadOnlyMemory<CadSplinePrimitive> Splines => _splines;
+    public ReadOnlyMemory<CadPolylinePrimitive> Polylines => _polylines;
+    public ReadOnlyMemory<CadPolylineVertex> PolylineVertices => _polylineVertices;
     public ReadOnlyMemory<CadPoint3D> SplineControlPoints => _splineControlPoints;
     public ReadOnlyMemory<double> SplineKnots => _splineKnots;
     public ReadOnlyMemory<double> SplineWeights => _splineWeights;
@@ -121,6 +138,8 @@ public sealed class CadDocumentSnapshot
         CadCirclePrimitive[] circles,
         CadArcPrimitive[] arcs,
         CadSplinePrimitive[] splines,
+        CadPolylinePrimitive[] polylines,
+        CadPolylineVertex[] polylineVertices,
         CadPoint3D[] splineControlPoints,
         double[] splineKnots,
         double[] splineWeights,
@@ -137,6 +156,8 @@ public sealed class CadDocumentSnapshot
         _circles = circles;
         _arcs = arcs;
         _splines = splines;
+        _polylines = polylines;
+        _polylineVertices = polylineVertices;
         _splineControlPoints = splineControlPoints;
         _splineKnots = splineKnots;
         _splineWeights = splineWeights;

@@ -104,6 +104,9 @@ public sealed class CadPlanSceneCompiler
                 case CadEntityKind.Spline:
                     RecordSpline(context, pen, snapshot, snapshot.Splines.Span[entity.PrimitiveIndex]);
                     break;
+                case CadEntityKind.LightweightPolyline:
+                    RecordPolyline(context, pen, snapshot, snapshot.Polylines.Span[entity.PrimitiveIndex]);
+                    break;
                 default:
                     throw new InvalidOperationException($"Unknown CAD entity kind {entity.Kind}.");
             }
@@ -241,6 +244,60 @@ public sealed class CadPlanSceneCompiler
         }
     }
 
+    private static void RecordPolyline(
+        DrawingContext context,
+        Pen pen,
+        CadDocumentSnapshot snapshot,
+        CadPolylinePrimitive polyline)
+    {
+        ReadOnlySpan<CadPolylineVertex> vertices = snapshot.PolylineVertices.Span.Slice(
+            polyline.VertexOffset,
+            polyline.VertexCount);
+        var path = new PathGeometry();
+        var figure = new PathFigure(ToVector(vertices[0]))
+        {
+            IsFilled = false,
+            IsClosed = polyline.IsClosed,
+        };
+        int segmentCount = polyline.IsClosed ? vertices.Length : vertices.Length - 1;
+        for (int i = 0; i < segmentCount; i++)
+        {
+            CadPolylineVertex start = vertices[i];
+            CadPolylineVertex end = vertices[(i + 1) % vertices.Length];
+            Vector2 endpoint = ToVector(end);
+            if (start.Bulge == 0.0)
+            {
+                figure.Segments.Add(new LineSegment(endpoint));
+                continue;
+            }
+
+            CadSnapshotCompiler.GetBulgeArc(
+                start,
+                end,
+                out _,
+                out _,
+                out double radius,
+                out _,
+                out double sweep);
+            float retainedRadius = ToFloat(radius);
+            figure.Segments.Add(new ArcSegment(
+                endpoint,
+                new Vector2(retainedRadius, retainedRadius),
+                rotationAngle: 0.0f,
+                isLargeArc: Math.Abs(sweep) > Math.PI,
+                sweepDirection: sweep >= 0.0
+                    ? SweepDirection.Counterclockwise
+                    : SweepDirection.Clockwise));
+        }
+
+        path.Figures.Add(figure);
+        Matrix4x4 transform = CreateProjectionTransform(
+            polyline.WorldOrigin,
+            polyline.CoordinateSystem,
+            snapshot.RebaseOrigin);
+        context.DrawPath(null, pen, path, transform);
+    }
+
     private static Matrix4x4 CreateProjectionTransform(
         CadPoint3D center,
         CadCoordinateSystem basis,
@@ -253,6 +310,9 @@ public sealed class CadPlanSceneCompiler
 
     private static Vector2 Project(CadPoint3D point, CadPoint3D origin) =>
         new(ToFloat(point.X - origin.X), ToFloat(point.Y - origin.Y));
+
+    private static Vector2 ToVector(CadPolylineVertex vertex) =>
+        new(ToFloat(vertex.X), ToFloat(vertex.Y));
 
     private static float ToFloat(double value)
     {

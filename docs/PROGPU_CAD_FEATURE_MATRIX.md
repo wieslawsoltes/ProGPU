@@ -9,11 +9,11 @@ Status values: `planned`, `foundation`, `in progress`, `verified`.
 | Save | caller-owned stream save with version/certification gates | foundation | atomic path replacement and advertised-version semantic round trips |
 | Model | ACadSharp `CadDocument` authority with locked callbacks, atomic generation capture, and content/saved generations | in progress | broader edit transaction and concurrency tests |
 | Editing | typed atomic commands, undo/redo, dirty generations | planned | command property/fuzz tests |
-| 2D | all standard entities, blocks, XRefs, hatches, dimensions, images | in progress | line/circle/arc/NURBS snapshot and analytic top projection implemented; remaining families plus multi-DPI/zoom image tests |
+| 2D | all standard entities, blocks, XRefs, hatches, dimensions, images | in progress | line/circle/arc/NURBS/lightweight-polyline snapshot and analytic top projection implemented; remaining families plus multi-DPI/zoom image tests |
 | 3D | meshes, surfaces, solids, ACIS SAT/SAB, orbit/depth | planned | matched managed/native 3D fixtures |
 | Text | complete ProGPU Unicode/OpenType text stack | planned | shaping/fallback/color/variable-font regressions |
 | SHX | regular, Unicode, Big Font, shapes, substitution | planned | Autodesk-spec conformance and corpus fuzzing |
-| Rendering | retained analytic GPU scene with incremental chunks | in progress | immutable typed streams, BVH, WCS rebase, and first retained analytic scene implemented; incremental chunks and full replay metrics remain |
+| Rendering | retained analytic GPU scene with incremental chunks | in progress | immutable typed streams, BVH, WCS rebase, first retained analytic scene, and JSON CPU baseline harness implemented; incremental chunks and full GPU replay metrics remain |
 | Camera | uniform-only pan/zoom/orbit after compilation | in progress | first recorded plan scene is camera-independent; GPU camera integration and entity-count-independent CPU counters remain |
 | Line quality | model cosmetic and paper/plot physical lineweight | in progress | fixed device-space/hairline recording implemented; linetype, paper/plot, and physical output fixtures remain |
 | Native parity | equivalent managed/native behavior and quality | planned | differential scene/pixel/performance suite |

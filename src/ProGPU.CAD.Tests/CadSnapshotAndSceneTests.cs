@@ -221,6 +221,59 @@ public sealed class CadSnapshotAndSceneTests
         Assert.Equal(3, command.WeightBufferCount);
     }
 
+    [Theory]
+    [InlineData(1.0, SweepDirection.Counterclockwise, -5.0, 0.0)]
+    [InlineData(-1.0, SweepDirection.Clockwise, 0.0, 5.0)]
+    public void LightweightPolylineBulgeRemainsOneAnalyticArc(
+        double bulge,
+        SweepDirection expectedDirection,
+        double expectedMinY,
+        double expectedMaxY)
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add bulged polyline", document =>
+        {
+            var polyline = new LwPolyline();
+            polyline.Vertices.Add(new LwPolyline.Vertex(0, 0) { Bulge = bulge });
+            polyline.Vertices.Add(new LwPolyline.Vertex(10, 0));
+            document.Entities.Add(polyline);
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        Assert.Equal(CadEntityKind.LightweightPolyline, Assert.Single(snapshot.Entities.ToArray()).Kind);
+        Assert.Equal(expectedMinY, snapshot.Bounds.Min.Y, 10);
+        Assert.Equal(expectedMaxY, snapshot.Bounds.Max.Y, 10);
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands.ToArray());
+        Assert.Equal(RenderCommandType.DrawPath, command.Type);
+        ArcSegment arc = Assert.IsType<ArcSegment>(
+            Assert.Single(Assert.Single(command.Path!.Figures).Segments));
+        Assert.Equal(expectedDirection, arc.SweepDirection);
+        Assert.False(arc.IsLargeArc);
+        Assert.Equal(new System.Numerics.Vector2(5, 5), arc.Size);
+    }
+
+    [Fact]
+    public void WidePolylineIsReportedInsteadOfMisclassifiedAsLineweight()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add wide polyline", document =>
+        {
+            var polyline = new LwPolyline { ConstantWidth = 2 };
+            polyline.Vertices.Add(new LwPolyline.Vertex(0, 0));
+            polyline.Vertices.Add(new LwPolyline.Vertex(10, 0));
+            document.Entities.Add(polyline);
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+
+        Assert.Empty(snapshot.Entities.ToArray());
+        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Equal(0, snapshot.Statistics.InvalidEntityCount);
+        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic => diagnostic.Code == "CADSNAP003");
+    }
+
     private static void AssertPoint(CadPoint3D expected, CadPoint3D actual)
     {
         Assert.InRange(Math.Abs(expected.X - actual.X), 0, Tolerance);
