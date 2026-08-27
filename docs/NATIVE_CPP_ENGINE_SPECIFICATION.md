@@ -3679,6 +3679,20 @@ without reflection. A Metal headless readback renders point-lit red and
 spot-lit blue meshes, so this is shader execution coverage rather than a
 record-layout-only assertion.
 
+The portable managed record also gives linear/radial material brushes an
+explicit `MaterialBrushTarget3D`. `Color = 0` is the source-compatible default;
+`Specular = 1` is stored in the previously unused
+`GpuMesh3DRecord.MaterialStopMetadata.z` lane. The latter preserves diffuse RGB
+and alpha separately, multiplies the sampled brush RGB into
+`SpecularColor`, and feeds the result to explicit WPF lights or the default
+presentation light rig. Specular-only passes exclude the latter rig's ambient
+and rim terms. The record remains exactly 560 bytes and uses the existing
+gradient-stop storage binding. Unknown targets and a specular target without a
+typed brush are rejected before upload. A Metal live gate requires at least
+500 pixels dominated by each gradient endpoint and currently observes
+3,300 red-dominant plus 3,300 blue-dominant pixels, with maximum red/blue
+channel deltas of 134. The default color-target gate runs beside it.
+
 Live qualification must execute this route, not merely validate its retained
 bytes. The shared gate renders a typed MIL mesh into a non-origin sub-viewport
 and proves by GPU readback that every colored pixel remains inside it. Mesh

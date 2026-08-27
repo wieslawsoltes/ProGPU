@@ -36,6 +36,12 @@ namespace ProGPU.Scene.Extensions
         Spot = 3
     }
 
+    public enum MaterialBrushTarget3D
+    {
+        Color = 0,
+        Specular = 1
+    }
+
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct GpuVertex3D
     {
@@ -90,7 +96,7 @@ namespace ProGPU.Scene.Extensions
         public Vector4 MaterialBrushTransform0;
         public Vector4 MaterialBrushTransform1;
         public Vector4 MaterialBrushMetadata;  // kind, opacity, spread, interpolation
-        public Vector4 MaterialStopMetadata;   // offset, count, unused, unused
+        public Vector4 MaterialStopMetadata;   // offset, count, MaterialBrushTarget3D, unused
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 16)]
@@ -210,11 +216,25 @@ namespace ProGPU.Scene.Extensions
         internal static void ApplyMaterialBrush(
             Brush? brush,
             ref GpuMesh3DRecord record,
-            List<GpuGradientStop> gradientStops)
+            List<GpuGradientStop> gradientStops,
+            MaterialBrushTarget3D target =
+                MaterialBrushTarget3D.Color)
         {
             ArgumentNullException.ThrowIfNull(gradientStops);
+            if ((uint)target >
+                (uint)MaterialBrushTarget3D.Specular)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(target));
+            }
             if (brush is null)
             {
+                if (target != MaterialBrushTarget3D.Color)
+                {
+                    throw new ArgumentException(
+                        "A non-color Mesh3D brush target requires a typed material brush.",
+                        nameof(target));
+                }
                 return;
             }
             if (!float.IsFinite(brush.Opacity))
@@ -328,7 +348,7 @@ namespace ProGPU.Scene.Extensions
             record.MaterialStopMetadata = new Vector4(
                 stopOffset,
                 stops.Length,
-                0.0f,
+                (uint)target,
                 0.0f);
         }
 
@@ -1665,7 +1685,8 @@ namespace ProGPU.Scene.Extensions
                 ApplyMaterialBrush(
                     mesh.MaterialBrush,
                     ref cpuRecords[i],
-                    gradientStops);
+                    gradientStops,
+                    mesh.MaterialBrushTarget);
             }
             int uploadGradientStopCount =
                 Math.Max(1, gradientStops.Count);
@@ -2205,6 +2226,8 @@ namespace ProGPU.Scene.Extensions
             Array.Empty<Vector2>();
         public IProGpuTextureLeaseSource? TextureSource { get; set; }
         public global::ProGPU.Vector.Brush? MaterialBrush { get; set; }
+        public MaterialBrushTarget3D MaterialBrushTarget { get; set; } =
+            MaterialBrushTarget3D.Color;
         public MeshTextureEffect TextureEffect { get; set; } =
             MeshTextureEffect.Identity;
         public TextureSamplingMode TextureSamplingMode { get; set; } =

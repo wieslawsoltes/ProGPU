@@ -3242,6 +3242,62 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void Mesh3DCompilesTypedSpecularGradientTarget()
+    {
+        var stops = new List<GpuGradientStop>();
+        var record = new GpuMesh3DRecord();
+        var brush = new global::ProGPU.Vector.LinearGradientBrush(
+            Vector2.Zero,
+            Vector2.UnitX,
+            [
+                new global::ProGPU.Vector.GradientStop(
+                    new Vector4(1f, 0f, 0f, 1f),
+                    0f),
+                new global::ProGPU.Vector.GradientStop(
+                    new Vector4(0f, 0f, 1f, 1f),
+                    1f)
+            ]);
+
+        Mesh3DExtensionPipeline.ApplyMaterialBrush(
+            brush,
+            ref record,
+            stops,
+            MaterialBrushTarget3D.Specular);
+
+        Assert.Equal(new Vector4(0f, 2f, 1f, 0f),
+            record.MaterialStopMetadata);
+    }
+
+    [Fact]
+    public void Mesh3DRejectsInvalidMaterialBrushTarget()
+    {
+        var stops = new List<GpuGradientStop>();
+        var record = new GpuMesh3DRecord();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Mesh3DExtensionPipeline.ApplyMaterialBrush(
+                new global::ProGPU.Vector.SolidColorBrush(
+                    Vector4.One),
+                ref record,
+                stops,
+                (MaterialBrushTarget3D)2));
+    }
+
+    [Fact]
+    public void Mesh3DRejectsSpecularTargetWithoutTypedBrush()
+    {
+        var stops = new List<GpuGradientStop>();
+        var record = new GpuMesh3DRecord();
+
+        Assert.Throws<ArgumentException>(() =>
+            Mesh3DExtensionPipeline.ApplyMaterialBrush(
+                null,
+                ref record,
+                stops,
+                MaterialBrushTarget3D.Specular));
+    }
+
+    [Fact]
     public void Mesh3DShadersSharePlanarStorageRecordAbi()
     {
         string solid = ShaderResource.Load(
@@ -3276,6 +3332,14 @@ public sealed class MediaPlaybackEngineTests
             StringComparison.Ordinal);
         Assert.Contains(
             "SampleMaterialGradient(",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "record.materialStopMetadata.z > 0.5",
+            solid,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "materialSpecular * specular",
             solid,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -3552,6 +3616,137 @@ public sealed class MediaPlaybackEngineTests
             Assert.True(blueDominant >= 1_000,
                 $"Expected a blue gradient region, found {blueDominant} pixels; " +
                 $"maximum blue delta was {maximumBlueDelta}.");
+        }
+        finally
+        {
+            WgpuContext.OnWebGpuError -= OnWebGpuError;
+            window.Content = null;
+        }
+    }
+
+    [Fact]
+    public void WinUiMesh3DExecutesSpecularGradientMaterialOnGpu()
+    {
+        using var window = new HeadlessWindow(160, 90);
+        var mesh = new MeshGeometry3D
+        {
+            Positions =
+            [
+                new Vector3(-1.5f, -0.8f, 0f),
+                new Vector3(1.5f, -0.8f, 0f),
+                new Vector3(1.5f, 0.8f, 0f),
+                new Vector3(-1.5f, 0.8f, 0f)
+            ],
+            Normals =
+            [
+                Vector3.UnitZ,
+                Vector3.UnitZ,
+                Vector3.UnitZ,
+                Vector3.UnitZ
+            ],
+            TextureCoordinates =
+            [
+                new Vector2(0f, 1f),
+                new Vector2(1f, 1f),
+                new Vector2(1f, 0f),
+                new Vector2(0f, 0f)
+            ],
+            TriangleIndices = [0, 1, 2, 0, 2, 3]
+        };
+        var brush = new global::ProGPU.Vector.LinearGradientBrush(
+            new Vector2(0f, 0.5f),
+            new Vector2(1f, 0.5f),
+            [
+                new global::ProGPU.Vector.GradientStop(
+                    new Vector4(1f, 0f, 0f, 1f),
+                    0f),
+                new global::ProGPU.Vector.GradientStop(
+                    new Vector4(0f, 0f, 1f, 1f),
+                    1f)
+            ]);
+        var material = new DiffuseMaterial(brush)
+        {
+            BrushTarget = MaterialBrushTarget3D.Specular,
+            Color = Vector4.UnitW,
+            SpecularColor = Vector3.One,
+            Shininess = 8f,
+            AmbientColor = Vector3.Zero
+        };
+        var viewport = new Viewport3D
+        {
+            Camera = new OrthographicCamera { Width = 4f }
+        };
+        viewport.Lights.Add(new Light3DCompilationEntry
+        {
+            Kind = LightKind3D.Point,
+            Color = Vector4.One,
+            Position = new Vector3(0f, 0f, -2f),
+            Range = 20f
+        });
+        viewport.Children.Add(new ModelVisual3D
+        {
+            Content = new GeometryModel3D
+            {
+                Geometry = mesh,
+                BackMaterial = material
+            }
+        });
+        window.Content = viewport;
+        var webGpuErrors = new List<string>();
+        void OnWebGpuError(ErrorType _, string message) =>
+            webGpuErrors.Add(message);
+        WgpuContext.OnWebGpuError += OnWebGpuError;
+        try
+        {
+            window.Render();
+            byte[] pixels = window.ReadPixels();
+            int redDominant = 0;
+            int blueDominant = 0;
+            int nonBlack = 0;
+            int maximumRedDelta = int.MinValue;
+            int maximumBlueDelta = int.MinValue;
+            for (int offset = 0;
+                 offset < pixels.Length;
+                 offset += 4)
+            {
+                if (pixels[offset] != 0 ||
+                    pixels[offset + 1] != 0 ||
+                    pixels[offset + 2] != 0)
+                {
+                    nonBlack++;
+                }
+                if (pixels[offset] > pixels[offset + 2] + 32)
+                {
+                    redDominant++;
+                }
+                if (pixels[offset + 2] > pixels[offset] + 32)
+                {
+                    blueDominant++;
+                }
+                maximumRedDelta = Math.Max(
+                    maximumRedDelta,
+                    pixels[offset] - pixels[offset + 2]);
+                maximumBlueDelta = Math.Max(
+                    maximumBlueDelta,
+                    pixels[offset + 2] - pixels[offset]);
+            }
+
+            Assert.True(redDominant >= 500,
+                $"Expected a red specular-gradient region, found " +
+                $"{redDominant} pixels; WebGPU errors: " +
+                $"{string.Join(" | ", webGpuErrors)}; nonBlack=" +
+                $"{nonBlack}, maxRedDelta={maximumRedDelta}, " +
+                $"maxBlueDelta={maximumBlueDelta}.");
+            Assert.True(blueDominant >= 500,
+                $"Expected a blue specular-gradient region, found " +
+                $"{blueDominant} pixels.");
+            Console.WriteLine(
+                "Qualified managed Mesh3D specular gradient on " +
+                $"{window.Context.AdapterName}, " +
+                $"backend={window.Context.AdapterBackendType}: " +
+                $"red={redDominant}, blue={blueDominant}, " +
+                $"maxRedDelta={maximumRedDelta}, " +
+                $"maxBlueDelta={maximumBlueDelta}.");
         }
         finally
         {
