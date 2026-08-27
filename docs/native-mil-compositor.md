@@ -3734,6 +3734,30 @@ This design leaves existing static-guideline packets and build callers binary
 compatible while providing enough state for exact Metal, Vulkan, and DirectX
 execution. No backend-specific dynamic-guideline approximation is permitted.
 
+Exact implementation checkpoint `b97b99e3` completed the full Windows 11
+ARM64 Parallels D3D12 smoke/package lane from an immutable source archive.
+MSVC 19.44 rebuilt both native providers in the 312-step `/W4 /WX` graph and
+all 11 available native/Dawn CTests passed. Automatic and forced raster plus
+forced NEON retained exact glyph pixels at `5B6EF4F70536C862`; the bounded
+one-glyph scalar oracle retained `6C59592F05595EFE`; and forced compute failed
+at the typed pre-resource incompatibility boundary without a WebGPU/device
+error. The ProGPU Microsoft D3D12HelloTriangle and D3D12HelloTexture oracles
+retained SHA-256 values
+`AE1BC0A9B0623BACAB15BE1706FFA3E7FC15E33676A66F05C969C1B86A66FEA3`
+and
+`591CC311F35E3C2612F529C3D4D7061FC93751A9B8614BF588A73599B0AA2790`.
+
+The same run completed the native mixed-picture stress (8.945 ms/frame in
+this correctness-oriented VM run), bounded managed/native differential,
+external and masked images, cache/guideline/Viewport3D/effect/clip fixtures,
+text shaping, Box blur, effect chains, Overlay, ColorDodge, and runtime package
+staging. The VM did not have PowerShell Core and Parallels Tools guest RPC was
+unavailable, so the existing script ran under Windows PowerShell 5.1 with an
+`IsWindows` variable defined only in that child process; execution policy and
+machine state were not changed. This is complete evidence for the checkpoint's
+declared Parallels lane, not physical-D3D12 performance evidence or a claim
+that the remaining MIL stages are complete.
+
 Two adapter-specific limitations remain explicit. Retained GPU hit-test
 readback is deferred on the Parallels display adapter because its blocking
 readback path stalls, although the retained D3D12 render/readback sample passes.

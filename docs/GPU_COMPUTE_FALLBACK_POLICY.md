@@ -509,6 +509,25 @@ regressed `5.8238 -> 6.0608` ms. The retained capacity therefore did not meet
 the cross-scale no-regression rule and was reverted. The qualified folded
 two-pixel NEON/SSE2 implementation continues to use bounded frame-local scratch.
 
+A follow-up replaced the reserved crossing vector with an exactly bounded,
+uninitialized crossing array. The eight scanlines can emit at most three roots
+per segment, so this removed the capacity check and size mutation from every
+crossing append without changing crossing order, the folded two-pixel
+NEON/SSE2 kernel, the scalar oracle, or coverage quantization. All 48 measured
+processes remained byte-exact at `5B6EF4F70536C862` (1x) or
+`706B261418EC5C3B` (2x), and the complete native/Dawn suite passed 12/12.
+
+The first eight alternating 120-frame pairs improved every 2x median and all
+but the 1x synchronized-frame p95, which regressed `6.2862 -> 6.3948` ms.
+Because that pass overlapped a Windows VM compile, eight additional
+uncontended 1x pairs were run. They regressed submission/frame p50
+`1.3022/3.5217 -> 1.3338/3.5640` ms and p95
+`2.1420/5.0488 -> 2.2595/5.2082` ms. Across all sixteen 1x pairs, frame p50
+was effectively flat (`3.6795 -> 3.6802` ms) while frame p95 regressed 3.0%
+(`5.2322 -> 5.3879` ms). The candidate therefore fails the cross-profile
+latency rule and was reverted; eliminating a predictable vector capacity
+branch did not justify the tail-latency cost on this workload.
+
 ## Extending the policy
 
 Each additional compute-heavy workload must declare the semantics that make a
