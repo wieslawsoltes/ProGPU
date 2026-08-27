@@ -3693,6 +3693,15 @@ typed brush are rejected before upload. A Metal live gate requires at least
 3,300 red-dominant plus 3,300 blue-dominant pixels, with maximum red/blue
 channel deltas of 134. The default color-target gate runs beside it.
 
+Exact managed implementation `ed98df5d` passes the corresponding Windows 11
+ARM64 Parallels gate from archive SHA-256
+`0EAA66E17840D35DE955854F31C0D9398115D4D7473D451218B363071B68AC50`.
+The hydrated file from pinned `microsoft-ui-xaml` commit `25d2cb1c` has SHA-256
+`4C4085838721C0AFCB1A9EE17591C0655CDDDADB26D330788E08BCD7F1AF8285`.
+.NET SDK 10.0.400 completes a zero-warning build plus 8/8 focused tests. Both
+live cases select the Parallels WDDM D3D12 adapter; the specular result contains
+3,304 red-dominant and 3,304 blue-dominant pixels with channel deltas of 134.
+
 Live qualification must execute this route, not merely validate its retained
 bytes. The shared gate renders a typed MIL mesh into a non-origin sub-viewport
 and proves by GPU readback that every colored pixel remains inside it. Mesh
