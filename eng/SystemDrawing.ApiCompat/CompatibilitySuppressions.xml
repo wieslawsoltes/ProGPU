@@ -3,14 +3,6 @@
 <Suppressions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <Suppression>
     <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Drawing2D.AdjustableArrowCap</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
-    <Target>T:System.Drawing.Drawing2D.CustomLineCap</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0001</DiagnosticId>
     <Target>T:System.Drawing.Drawing2D.PathGradientBrush</Target>
   </Suppression>
   <Suppression>
@@ -436,30 +428,6 @@
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>
     <Target>M:System.Drawing.Imaging.Metafile.PlayRecord(System.Drawing.Imaging.EmfPlusRecordType,System.Int32,System.Int32,System.Byte[])</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Pen.get_CompoundArray</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Pen.get_CustomEndCap</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Pen.get_CustomStartCap</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Pen.set_CompoundArray(System.Single[])</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Pen.set_CustomEndCap(System.Drawing.Drawing2D.CustomLineCap)</Target>
-  </Suppression>
-  <Suppression>
-    <DiagnosticId>CP0002</DiagnosticId>
-    <Target>M:System.Drawing.Pen.set_CustomStartCap(System.Drawing.Drawing2D.CustomLineCap)</Target>
   </Suppression>
   <Suppression>
     <DiagnosticId>CP0003</DiagnosticId>

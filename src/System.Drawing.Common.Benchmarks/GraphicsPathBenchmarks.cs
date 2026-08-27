@@ -11,6 +11,7 @@ public class GraphicsPathBenchmarks
     private GraphicsPath _strokePath = null!;
     private Pen _strokePen = null!;
     private Pen _transformedStrokePen = null!;
+    private Pen _compoundCapPen = null!;
     private PointF[] _warpDestination = null!;
     private StringFormat _textFormat = null!;
     private PointF[] _points = null!;
@@ -40,6 +41,15 @@ public class GraphicsPathBenchmarks
         _transformedStrokePen = new Pen(Color.Black, 3f) { LineJoin = LineJoin.Round };
         _transformedStrokePen.ScaleTransform(2.5f, 0.75f);
         _transformedStrokePen.RotateTransform(20f, MatrixOrder.Append);
+        using (var arrow = new AdjustableArrowCap(3f, 4f) { MiddleInset = 0.5f })
+        {
+            _compoundCapPen = new Pen(Color.Black, 6f)
+            {
+                CompoundArray = [0f, 0.2f, 0.8f, 1f],
+                CustomEndCap = arrow,
+                LineJoin = LineJoin.Round,
+            };
+        }
         _warpDestination =
         [
             new PointF(0f, 0f),
@@ -81,6 +91,14 @@ public class GraphicsPathBenchmarks
     }
 
     [Benchmark]
+    public int WidenCompoundArrowPenClone()
+    {
+        using var clone = (GraphicsPath)_strokePath.Clone();
+        clone.Widen(_compoundCapPen);
+        return clone.PointCount;
+    }
+
+    [Benchmark]
     public int WarpRetainedCurveClone()
     {
         using var clone = (GraphicsPath)_path.Clone();
@@ -104,6 +122,7 @@ public class GraphicsPathBenchmarks
         _strokePath.Dispose();
         _strokePen.Dispose();
         _transformedStrokePen.Dispose();
+        _compoundCapPen.Dispose();
         _textFormat.Dispose();
     }
 }

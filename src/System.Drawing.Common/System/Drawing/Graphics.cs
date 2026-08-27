@@ -1261,7 +1261,7 @@ public class Graphics :
     public void DrawLine(Pen pen, float x1, float y1, float x2, float y2)
     {
         ArgumentNullException.ThrowIfNull(pen);
-        if (pen.HasTransformedTip)
+        if (pen.RequiresWidenedGeometry)
         {
             var geometry = new PathGeometry();
             var figure = new PathFigure(new Vector2(x1, y1));
@@ -1556,7 +1556,7 @@ public class Graphics :
 
     public void DrawRectangle(Pen pen, float x, float y, float width, float height)
     {
-        if (RequiresTransformedStrokePath || pen.HasTransformedTip)
+        if (RequiresTransformedStrokePath || pen.RequiresWidenedGeometry)
         {
             using var path = new GraphicsPath();
             path.AddRectangle(new RectangleF(x, y, width, height));
@@ -1797,7 +1797,7 @@ public class Graphics :
 
     public void DrawEllipse(Pen pen, float x, float y, float width, float height)
     {
-        if (RequiresTransformedStrokePath || pen.HasTransformedTip)
+        if (RequiresTransformedStrokePath || pen.RequiresWidenedGeometry)
         {
             using var path = new GraphicsPath();
             path.AddEllipse(x, y, width, height);
@@ -2049,7 +2049,7 @@ public class Graphics :
 
     private void DrawTransformedPath(Pen pen, PathGeometry geometry)
     {
-        if (pen.HasTransformedTip)
+        if (pen.RequiresWidenedGeometry)
         {
             if (!GraphicsPath.TryCreateWidenedGeometry(
                     geometry,

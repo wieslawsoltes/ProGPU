@@ -14,7 +14,10 @@ public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
 
     private PenAlignment _alignment;
     private Brush _brush;
+    private float[]? _compoundArray;
     private float[]? _customDashPattern;
+    private CustomLineCap? _customEndCap;
+    private CustomLineCap? _customStartCap;
     private DashCap _dashCap;
     private float _dashOffset;
     private DashStyle _dashStyle;
@@ -165,6 +168,85 @@ public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
 
             _customDashPattern = (float[])value.Clone();
             _dashStyle = DashStyle.Custom;
+        }
+    }
+
+    public float[] CompoundArray
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _compoundArray is null ? [] : (float[])_compoundArray.Clone();
+        }
+        set
+        {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
+            ArgumentNullException.ThrowIfNull(value);
+            if (value.Length < 2 || (value.Length & 1) != 0 ||
+                Array.Exists(value, static element => element < 0f || element > 1f) ||
+                HasDescendingCompoundValue(value))
+            {
+                throw new ArgumentException("Parameter is not valid.", nameof(value));
+            }
+
+            _compoundArray = (float[])value.Clone();
+        }
+    }
+
+    public CustomLineCap CustomEndCap
+    {
+        get
+        {
+            ThrowIfDisposed();
+            if (_customEndCap is null)
+            {
+                throw new ArgumentException("Parameter is not valid.");
+            }
+
+            return (CustomLineCap)_customEndCap.Clone();
+        }
+        set
+        {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
+            if (value is null || value.IsDisposed)
+            {
+                throw new ArgumentException("Parameter is not valid.", nameof(value));
+            }
+
+            CustomLineCap replacement = (CustomLineCap)value.Clone();
+            _customEndCap?.Dispose();
+            _customEndCap = replacement;
+            _endCap = LineCap.Custom;
+        }
+    }
+
+    public CustomLineCap CustomStartCap
+    {
+        get
+        {
+            ThrowIfDisposed();
+            if (_customStartCap is null)
+            {
+                throw new ArgumentException("Parameter is not valid.");
+            }
+
+            return (CustomLineCap)_customStartCap.Clone();
+        }
+        set
+        {
+            ThrowIfDisposed();
+            ThrowIfImmutable();
+            if (value is null || value.IsDisposed)
+            {
+                throw new ArgumentException("Parameter is not valid.", nameof(value));
+            }
+
+            CustomLineCap replacement = (CustomLineCap)value.Clone();
+            _customStartCap?.Dispose();
+            _customStartCap = replacement;
+            _startCap = LineCap.Custom;
         }
     }
 
@@ -320,8 +402,8 @@ public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
             width,
             lineJoin: ToProGpuLineJoin(_lineJoin),
             miterLimit: float.IsFinite(_miterLimit) ? _miterLimit : 1f,
-            startLineCap: ToProGpuLineCap(_startCap),
-            endLineCap: ToProGpuLineCap(_endCap),
+            startLineCap: ToProGpuLineCap(GetEffectiveStartCap()),
+            endLineCap: ToProGpuLineCap(GetEffectiveEndCap()),
             dashCap: ToProGpuDashCap(_dashCap),
             dashArray: GetDashArray(),
             dashOffset: _dashOffset);
@@ -346,6 +428,27 @@ public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
                 _transform.M22 != 1f;
         }
     }
+
+    internal bool RequiresWidenedGeometry
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return HasTransformedTip ||
+                _compoundArray is { Length: > 0 } ||
+                (_startCap == LineCap.Custom && _customStartCap is not null) ||
+                (_endCap == LineCap.Custom && _customEndCap is not null);
+        }
+    }
+
+    internal ReadOnlySpan<float> CompoundArrayStorage
+        => _compoundArray;
+
+    internal CustomLineCap? StartCustomCap
+        => _startCap == LineCap.Custom ? _customStartCap : null;
+
+    internal CustomLineCap? EndCustomCap
+        => _endCap == LineCap.Custom ? _customEndCap : null;
 
     internal bool TryGetTipTransform(out Matrix3x2 transform, out Matrix3x2 inverse)
     {
@@ -454,6 +557,7 @@ public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
         return new Pen(_brush, _width, immutable: false, cloneBrush: true)
         {
             _alignment = _alignment,
+            _compoundArray = _compoundArray is null ? null : (float[])_compoundArray.Clone(),
             _dashCap = _dashCap,
             _dashOffset = _dashOffset,
             _dashStyle = _dashStyle,
@@ -462,8 +566,33 @@ public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
             _miterLimit = _miterLimit,
             _startCap = _startCap,
             _transform = _transform,
-            _customDashPattern = _customDashPattern is null ? null : (float[])_customDashPattern.Clone()
+            _customDashPattern = _customDashPattern is null ? null : (float[])_customDashPattern.Clone(),
+            _customStartCap = _customStartCap is null ? null : (CustomLineCap)_customStartCap.Clone(),
+            _customEndCap = _customEndCap is null ? null : (CustomLineCap)_customEndCap.Clone()
         };
+    }
+
+    private LineCap GetEffectiveStartCap()
+        => _startCap == LineCap.Custom && _customStartCap is not null
+            ? _customStartCap.BaseCap
+            : _startCap;
+
+    private LineCap GetEffectiveEndCap()
+        => _endCap == LineCap.Custom && _customEndCap is not null
+            ? _customEndCap.BaseCap
+            : _endCap;
+
+    private static bool HasDescendingCompoundValue(ReadOnlySpan<float> values)
+    {
+        for (int index = 1; index < values.Length; index++)
+        {
+            if (values[index] < values[index - 1])
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static ProGPU.Vector.PenLineCap ToProGpuLineCap(LineCap lineCap)
@@ -555,6 +684,8 @@ public sealed class Pen : MarshalByRefObject, IDisposable, ICloneable
         }
 
         _brush.Dispose();
+        _customStartCap?.Dispose();
+        _customEndCap?.Dispose();
         _disposed = true;
     }
 

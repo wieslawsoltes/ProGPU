@@ -770,7 +770,7 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
     public RectangleF GetBounds(Matrix? matrix, Pen? pen)
     {
         ThrowIfDisposed();
-        if (pen?.HasTransformedTip == true)
+        if (pen?.RequiresWidenedGeometry == true)
         {
             if (!TryCreateWidenedGeometry(
                     _geometry,
@@ -842,7 +842,7 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
             return false;
         }
 
-        if (pen.HasTransformedTip)
+        if (pen.RequiresWidenedGeometry)
         {
             return TryCreateWidenedGeometry(
                     _geometry,
@@ -1090,11 +1090,13 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
         }
 
         PathGeometry flattened = CreateFlattenedGeometry(source, flatness);
-        ProGPU.Vector.Pen nativePen = pen.ToProGpuPen(GetEffectiveStrokeWidth(pen));
-        if (!StrokePathGeometry.TryCreateWidenedPath(flattened, nativePen, out widened))
+        float effectiveWidth = GetEffectiveStrokeWidth(pen);
+        if (!TryCreateStrokeGeometry(flattened, pen, effectiveWidth, out widened))
         {
             return false;
         }
+
+        AppendCustomCaps(flattened, pen, effectiveWidth, widened);
 
         if (transformedTip)
         {
@@ -1104,6 +1106,271 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
         return true;
     }
 
+    private static bool TryCreateStrokeGeometry(
+        PathGeometry flattened,
+        Pen pen,
+        float effectiveWidth,
+        out PathGeometry widened)
+    {
+        ReadOnlySpan<float> compound = pen.CompoundArrayStorage;
+        if (compound.IsEmpty)
+        {
+            return StrokePathGeometry.TryCreateWidenedPath(
+                flattened,
+                pen.ToProGpuPen(effectiveWidth),
+                out widened);
+        }
+
+        widened = new PathGeometry { FillRule = FillRule.Nonzero };
+        for (int index = 0; index + 1 < compound.Length; index += 2)
+        {
+            float start = compound[index];
+            float end = compound[index + 1];
+            float bandWidth = (end - start) * effectiveWidth;
+            float offset = (((start + end) * 0.5f) - 0.5f) * effectiveWidth;
+            if (!float.IsFinite(bandWidth) ||
+                !float.IsFinite(offset) ||
+                bandWidth <= 0.0001f)
+            {
+                continue;
+            }
+
+            PathGeometry offsetCenterline = CreateOffsetGeometry(flattened, offset, pen.MiterLimit);
+            ProGPU.Vector.Pen bandPen = pen.ToProGpuPen(bandWidth);
+            RescaleDashForCompoundBand(bandPen, effectiveWidth, bandWidth);
+            if (!StrokePathGeometry.TryCreateWidenedPath(offsetCenterline, bandPen, out PathGeometry band))
+            {
+                return false;
+            }
+
+            AppendGeometry(widened, band);
+        }
+
+        return true;
+    }
+
+    private static void RescaleDashForCompoundBand(
+        ProGPU.Vector.Pen pen,
+        float fullWidth,
+        float bandWidth)
+    {
+        double[]? dashArray = pen.DashArray;
+        if (dashArray is null)
+        {
+            return;
+        }
+
+        double scale = fullWidth / bandWidth;
+        for (int index = 0; index < dashArray.Length; index++)
+        {
+            dashArray[index] *= scale;
+        }
+
+        pen.DashArray = dashArray;
+        pen.DashOffset *= scale;
+    }
+
+    private static PathGeometry CreateOffsetGeometry(
+        PathGeometry source,
+        float offset,
+        float miterLimit)
+    {
+        if (MathF.Abs(offset) <= 0.0001f)
+        {
+            return source;
+        }
+
+        var result = new PathGeometry { FillRule = source.FillRule };
+        foreach (PathFigure figure in source.Figures)
+        {
+            int segmentCount = figure.Segments.Count;
+            if (segmentCount == 0)
+            {
+                continue;
+            }
+
+            var points = new Vector2[segmentCount + 1];
+            points[0] = figure.StartPoint;
+            bool linesOnly = true;
+            for (int index = 0; index < segmentCount; index++)
+            {
+                if (figure.Segments[index] is not LineSegment line)
+                {
+                    linesOnly = false;
+                    break;
+                }
+
+                points[index + 1] = line.Point;
+            }
+
+            if (!linesOnly)
+            {
+                continue;
+            }
+
+            int pointCount = points.Length;
+            bool explicitClosure = figure.IsClosed &&
+                Vector2.DistanceSquared(points[0], points[^1]) <= 0.00000001f;
+            if (explicitClosure)
+            {
+                pointCount--;
+            }
+
+            if (pointCount < 2)
+            {
+                continue;
+            }
+
+            var shifted = new Vector2[pointCount];
+            if (figure.IsClosed)
+            {
+                for (int index = 0; index < pointCount; index++)
+                {
+                    Vector2 previous = points[(index + pointCount - 1) % pointCount];
+                    Vector2 current = points[index];
+                    Vector2 next = points[(index + 1) % pointCount];
+                    bool incomingStroked = index > 0
+                        ? ((LineSegment)figure.Segments[index - 1]).IsStroked
+                        : !explicitClosure || ((LineSegment)figure.Segments[pointCount - 1]).IsStroked;
+                    bool outgoingStroked = index < pointCount - 1
+                        ? ((LineSegment)figure.Segments[index]).IsStroked
+                        : !explicitClosure || ((LineSegment)figure.Segments[pointCount - 1]).IsStroked;
+                    shifted[index] = OffsetVertex(
+                        previous,
+                        current,
+                        next,
+                        incomingStroked,
+                        outgoingStroked,
+                        offset,
+                        miterLimit);
+                }
+            }
+            else
+            {
+                for (int index = 0; index < pointCount; index++)
+                {
+                    Vector2 previous = index > 0 ? points[index - 1] : points[index];
+                    Vector2 next = index < pointCount - 1 ? points[index + 1] : points[index];
+                    bool incomingStroked = index > 0 &&
+                        ((LineSegment)figure.Segments[index - 1]).IsStroked;
+                    bool outgoingStroked = index < pointCount - 1 &&
+                        ((LineSegment)figure.Segments[index]).IsStroked;
+                    shifted[index] = OffsetVertex(
+                        previous,
+                        points[index],
+                        next,
+                        incomingStroked,
+                        outgoingStroked,
+                        offset,
+                        miterLimit);
+                }
+            }
+
+            var output = new PathFigure(shifted[0], figure.IsClosed)
+            {
+                IsFilled = figure.IsFilled,
+                StrokeStartLineCap = figure.StrokeStartLineCap,
+                StrokeEndLineCap = figure.StrokeEndLineCap,
+            };
+            for (int index = 1; index < shifted.Length; index++)
+            {
+                var sourceSegment = (LineSegment)figure.Segments[index - 1];
+                output.Segments.Add(new LineSegment(
+                    shifted[index],
+                    sourceSegment.IsSmoothJoin,
+                    sourceSegment.IsStroked));
+            }
+
+            if (explicitClosure)
+            {
+                var closingSegment = (LineSegment)figure.Segments[pointCount - 1];
+                output.Segments.Add(new LineSegment(
+                    shifted[0],
+                    closingSegment.IsSmoothJoin,
+                    closingSegment.IsStroked));
+            }
+
+            result.Figures.Add(output);
+        }
+
+        return result;
+    }
+
+    private static Vector2 OffsetVertex(
+        Vector2 previous,
+        Vector2 current,
+        Vector2 next,
+        bool incomingStroked,
+        bool outgoingStroked,
+        float offset,
+        float miterLimit)
+    {
+        if (incomingStroked && outgoingStroked)
+        {
+            return OffsetJoin(previous, current, next, offset, miterLimit);
+        }
+
+        if (incomingStroked)
+        {
+            return current + (LeftNormal(current - previous) * offset);
+        }
+
+        return outgoingStroked
+            ? current + (LeftNormal(next - current) * offset)
+            : current;
+    }
+
+    private static Vector2 OffsetJoin(
+        Vector2 previous,
+        Vector2 current,
+        Vector2 next,
+        float offset,
+        float miterLimit)
+    {
+        Vector2 incoming = current - previous;
+        Vector2 outgoing = next - current;
+        float incomingLength = incoming.Length();
+        float outgoingLength = outgoing.Length();
+        if (!float.IsFinite(incomingLength) ||
+            !float.IsFinite(outgoingLength) ||
+            incomingLength <= 0.0001f ||
+            outgoingLength <= 0.0001f)
+        {
+            return current;
+        }
+
+        incoming /= incomingLength;
+        outgoing /= outgoingLength;
+        Vector2 firstPoint = current + (LeftNormal(incoming) * offset);
+        Vector2 secondPoint = current + (LeftNormal(outgoing) * offset);
+        float denominator = Cross(incoming, outgoing);
+        if (MathF.Abs(denominator) > 0.0001f)
+        {
+            float distance = Cross(secondPoint - firstPoint, outgoing) / denominator;
+            Vector2 intersection = firstPoint + (incoming * distance);
+            float maximumMiter = MathF.Abs(offset) * MathF.Max(2f, MathF.Abs(miterLimit));
+            if (IsFinite(intersection) &&
+                Vector2.DistanceSquared(intersection, current) <= maximumMiter * maximumMiter)
+            {
+                return intersection;
+            }
+        }
+
+        Vector2 average = firstPoint + secondPoint;
+        return average * 0.5f;
+    }
+
+    private static Vector2 LeftNormal(Vector2 direction)
+    {
+        float length = direction.Length();
+        return float.IsFinite(length) && length > 0.0001f
+            ? new Vector2(-direction.Y / length, direction.X / length)
+            : Vector2.Zero;
+    }
+
+    private static float Cross(Vector2 first, Vector2 second)
+        => (first.X * second.Y) - (first.Y * second.X);
+
     private PathGeometry CreateFlattenedGeometry(Matrix? matrix, float flatness)
     {
         PathGeometry source = matrix == null
@@ -1112,7 +1379,7 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
         return CreateFlattenedGeometry(source, flatness);
     }
 
-    private static PathGeometry CreateFlattenedGeometry(PathGeometry source, float flatness)
+    internal static PathGeometry CreateFlattenedGeometry(PathGeometry source, float flatness)
     {
         if (!float.IsFinite(flatness) || flatness <= 0f)
         {
@@ -1164,6 +1431,175 @@ public sealed class GraphicsPath : MarshalByRefObject, ICloneable, IDisposable
 
         return flattened;
     }
+
+    private static void AppendCustomCaps(
+        PathGeometry centerlines,
+        Pen pen,
+        float strokeWidth,
+        PathGeometry destination)
+    {
+        CustomLineCap? startCap = pen.StartCustomCap;
+        CustomLineCap? endCap = pen.EndCustomCap;
+        if ((startCap is null && endCap is null) ||
+            !float.IsFinite(strokeWidth) ||
+            MathF.Abs(strokeWidth) <= 0.0001f)
+        {
+            return;
+        }
+
+        foreach (PathFigure figure in centerlines.Figures)
+        {
+            if (figure.IsClosed || !TryGetOpenFigureEnds(
+                    figure,
+                    out Vector2 start,
+                    out Vector2 startNext,
+                    out Vector2 endPrevious,
+                    out Vector2 end))
+            {
+                continue;
+            }
+
+            if (startCap is not null)
+            {
+                AppendCustomCap(
+                    startCap,
+                    start,
+                    Vector2.Normalize(start - startNext),
+                    strokeWidth,
+                    destination);
+            }
+
+            if (endCap is not null)
+            {
+                AppendCustomCap(
+                    endCap,
+                    end,
+                    Vector2.Normalize(end - endPrevious),
+                    strokeWidth,
+                    destination);
+            }
+        }
+    }
+
+    private static bool TryGetOpenFigureEnds(
+        PathFigure figure,
+        out Vector2 start,
+        out Vector2 startNext,
+        out Vector2 endPrevious,
+        out Vector2 end)
+    {
+        start = figure.StartPoint;
+        startNext = default;
+        endPrevious = default;
+        end = start;
+        bool foundStart = false;
+        Vector2 current = start;
+        foreach (PathSegment segment in figure.Segments)
+        {
+            if (segment is not LineSegment line)
+            {
+                return false;
+            }
+
+            if (line.IsStroked && Vector2.DistanceSquared(current, line.Point) > 0.00000001f)
+            {
+                if (!foundStart)
+                {
+                    start = current;
+                    startNext = line.Point;
+                    foundStart = true;
+                }
+
+                endPrevious = current;
+                end = line.Point;
+            }
+
+            current = line.Point;
+        }
+
+        return foundStart;
+    }
+
+    private static void AppendCustomCap(
+        CustomLineCap cap,
+        Vector2 endpoint,
+        Vector2 outward,
+        float strokeWidth,
+        PathGeometry destination)
+    {
+        float widthScale = cap.WidthScale;
+        float baseInset = cap.BaseInset;
+        float absoluteWidth = MathF.Abs(strokeWidth);
+        float scale = absoluteWidth * widthScale;
+        if (!IsFinite(outward) ||
+            !float.IsFinite(scale) ||
+            !float.IsFinite(baseInset) ||
+            MathF.Abs(scale) <= 0.0001f)
+        {
+            return;
+        }
+
+        Vector2 normal = new(-outward.Y, outward.X);
+        Vector2 origin = endpoint - (outward * (baseInset * absoluteWidth));
+        var transform = new Matrix4x4(
+            normal.X * scale, normal.Y * scale, 0f, 0f,
+            outward.X * scale, outward.Y * scale, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            origin.X, origin.Y, 0f, 1f);
+
+        PathGeometry? fill = cap.FillGeometry;
+        if (fill is not null)
+        {
+            AppendGeometry(destination, fill.CreateTransformed(transform));
+        }
+
+        PathGeometry? stroke = cap.StrokeGeometry;
+        if (stroke is null)
+        {
+            return;
+        }
+
+        float localFlatness = 0.25f / MathF.Max(1f, MathF.Abs(scale));
+        PathGeometry flattened = CreateFlattenedGeometry(stroke, localFlatness);
+        var strokePen = new ProGPU.Vector.Pen(
+            new SolidColorBrush(Vector4.One),
+            thickness: 1f,
+            lineJoin: ToProGpuLineJoin(cap.StrokeJoin),
+            startLineCap: ToProGpuLineCap(cap.StrokeStartCap),
+            endLineCap: ToProGpuLineCap(cap.StrokeEndCap));
+        if (StrokePathGeometry.TryCreateWidenedPath(flattened, strokePen, out PathGeometry outline))
+        {
+            AppendGeometry(destination, outline.CreateTransformed(transform));
+        }
+    }
+
+    private static void AppendGeometry(PathGeometry destination, PathGeometry source)
+    {
+        foreach (PathFigure figure in source.Figures)
+        {
+            destination.Figures.Add(figure);
+        }
+    }
+
+    private static ProGPU.Vector.PenLineCap ToProGpuLineCap(LineCap cap)
+        => cap switch
+        {
+            LineCap.Square => ProGPU.Vector.PenLineCap.Square,
+            LineCap.Round => ProGPU.Vector.PenLineCap.Round,
+            LineCap.Triangle => ProGPU.Vector.PenLineCap.Triangle,
+            _ => ProGPU.Vector.PenLineCap.Flat,
+        };
+
+    private static ProGPU.Vector.PenLineJoin ToProGpuLineJoin(LineJoin join)
+        => join switch
+        {
+            LineJoin.Bevel => ProGPU.Vector.PenLineJoin.Bevel,
+            LineJoin.Round => ProGPU.Vector.PenLineJoin.Round,
+            _ => ProGPU.Vector.PenLineJoin.Miter,
+        };
+
+    private static bool IsFinite(Vector2 value)
+        => float.IsFinite(value.X) && float.IsFinite(value.Y);
 
     private static float GetEffectiveStrokeWidth(Pen pen)
     {
