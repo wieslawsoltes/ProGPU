@@ -1309,6 +1309,49 @@ public sealed class CadSetLayerLineTypeCommand : CadEditCommand
     }
 }
 
+/// <summary>Adds one detached layer with reversible table ownership.</summary>
+public sealed class CadAddLayerCommand : CadEditCommand
+{
+    public Layer Layer { get; }
+
+    public ulong CurrentHandle => Layer.Handle;
+
+    public CadAddLayerCommand(
+        Layer layer,
+        string description = "Add layer")
+        : base(description)
+    {
+        Layer = layer ?? throw new ArgumentNullException(nameof(layer));
+        if (layer.Owner is not null || layer.Handle != 0)
+        {
+            throw new ArgumentException(
+                "An added layer must be detached and have no assigned handle.",
+                nameof(layer));
+        }
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        if (Layer.Owner is not null || Layer.Handle != 0)
+        {
+            throw new InvalidOperationException(
+                "The layer is not detached and cannot be added to the document.");
+        }
+        document.Layers.Add(Layer);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        ValidateLayer(document, Layer);
+        Layer removed = document.Layers.Remove(Layer.Name);
+        if (!ReferenceEquals(removed, Layer))
+        {
+            throw new InvalidOperationException(
+                "The added layer could not be removed from the document.");
+        }
+    }
+}
+
 /// <summary>Assigns one existing linetype to a stable set of model-space entities.</summary>
 public sealed class CadSetEntityLineTypeCommand : CadEditCommand
 {

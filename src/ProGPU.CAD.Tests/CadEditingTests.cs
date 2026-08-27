@@ -611,6 +611,49 @@ public sealed class CadEditingTests
     }
 
     [Fact]
+    public void AddLayerCommandRoundTripsTableOwnershipAndHandle()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        var history = new CadDocumentHistory(session);
+        var layer = new Layer("NEW_LAYER")
+        {
+            Color = new ACadSharp.Color(12, 34, 56),
+            LineWeight = LineWeightType.W50,
+        };
+        var command = new CadAddLayerCommand(layer);
+
+        history.Execute(command);
+
+        Assert.NotEqual(0UL, command.CurrentHandle);
+        Assert.Same(
+            layer,
+            session.Read(document => document.Layers["new_layer"]));
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(0UL, command.CurrentHandle);
+        Assert.Null(layer.Owner);
+        Assert.False(session.Read(document => document.Layers.Contains("NEW_LAYER")));
+
+        Assert.True(history.TryRedo(out _));
+        Assert.NotEqual(0UL, command.CurrentHandle);
+        Assert.Same(
+            layer,
+            session.Read(document => document.Layers["NEW_LAYER"]));
+        Assert.Equal(new ACadSharp.Color(12, 34, 56), layer.Color);
+        Assert.Equal(LineWeightType.W50, layer.LineWeight);
+    }
+
+    [Fact]
+    public void AddLayerCommandRejectsAttachedLayer()
+    {
+        var document = new CadDocument();
+        var layer = new Layer("ATTACHED");
+        document.Layers.Add(layer);
+
+        Assert.Throws<ArgumentException>(() => new CadAddLayerCommand(layer));
+    }
+
+    [Fact]
     public void LineTypeCommandRestoresInheritanceAndRetainsSnapshotName()
     {
         var document = new CadDocument();

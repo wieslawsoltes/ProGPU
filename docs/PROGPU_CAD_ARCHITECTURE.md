@@ -326,6 +326,11 @@ an interactive browser picker/download smoke remains open.
   mutation and rejects entity-only `ByLayer`/`ByBlock` targets. Inherited entity
   styles retain the resolved name in the snapshot, while non-continuous pattern
   rendering remains behind the documented A-alignment fidelity gate.
+- Layer creation transfers one detached zero-handle `Layer` into the document
+  table and reverses that ownership on undo. LIFO history guarantees dependent
+  in-history edits are undone first; arbitrary populated-layer deletion remains
+  unsupported until entity/block reference reassignment has a complete semantic
+  transaction.
 - Linetype assignment uses the same table-identity and rollback contract for
   explicit, `ByLayer`, and `ByBlock` entries. The immutable snapshot retains the
   newly resolved linetype name. Entity linetype-scale assignment accepts only
