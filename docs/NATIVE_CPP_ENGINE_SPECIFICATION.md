@@ -3798,6 +3798,17 @@ adapt presentation and invalidation scheduling only; they must not create a
 second DirectX-specific scene representation, manufacture a CPU bitmap, or
 infer resource compatibility from a native pointer.
 
+Exact implementation checkpoint `5bae678a` passes the complete 3,875-test
+managed suite on Apple ARM64 and the focused 3/3 contract gate on Windows 11
+ARM64 with .NET SDK `10.0.400`/runtime `10.0.11`. The Windows current-user
+diagnostic identifies `Parallels Display Adapter (WDDM)` and backend `D3D12`;
+the retained DirectX-texture/native-external-image test passes in 480 ms. The
+isolated archive hydrates only the pinned `microsoft-ui-xaml` `generic.xaml`
+required by the aggregate test graph, whose SHA-256 is
+`4C4085838721C0AFCB1A9EE17591C0655CDDDADB26D330788E08BCD7F1AF8285`.
+This qualifies correctness and ownership on that adapter, not physical D3D12
+performance.
+
 The engine validates every untrusted count, offset, size, enum, finite float,
 resource generation, and nesting depth before allocation or GPU submission.
 Integer arithmetic is checked. User shaders remain a separately permissioned

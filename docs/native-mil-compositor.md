@@ -3967,6 +3967,17 @@ Focused tests cover supported acquisition, unsupported-shape rejection,
 invalidation, owner-before-borrower disposal, and pointer-free native MIL scene
 compilation.
 
+Exact checkpoint `5bae678a` passes all 3,875 managed tests on Apple ARM64 and
+the 3/3 focused lease/invalidation/native-lowering gate in the Windows 11 ARM64
+Parallels VM. The Windows run used SDK `10.0.400`, runtime `10.0.11`, and an
+immutable commit archive with the pinned `microsoft-ui-xaml` `generic.xaml`
+hydrated at SHA-256
+`4C4085838721C0AFCB1A9EE17591C0655CDDDADB26D330788E08BCD7F1AF8285`.
+Detailed current-user diagnostics for the native-MIL external-image test report
+`Parallels Display Adapter (WDDM)`, backend `D3D12`, and the test passes in
+480 ms. This is direct ARM64 D3D12 correctness evidence for the ownership and
+lowering seam, not physical-adapter performance evidence.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
