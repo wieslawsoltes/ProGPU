@@ -747,12 +747,51 @@ public struct RenderCommand
     public Vector2 TextureCubicCoefficients;
     public bool HasTextureCubicCoefficients;
     public bool SnapTextureToPixels;
-    public Vector2 TextureDestination0;
-    public Vector2 TextureDestination1;
-    public Vector2 TextureDestination2;
-    public Vector2 TextureDestination3;
-    public Vector4 TextureDestinationProjectiveWeights;
-    public bool HasTextureDestinationQuad;
+    // Destination-point image mapping is stored in scalar slots that are
+    // otherwise unused by DrawTexture. RenderCommand is the hot retained
+    // command union, so dedicated fields here would penalize every command
+    // (including ordinary rectangles and text) by 52 bytes.
+    public Vector2 TextureDestination0
+    {
+        readonly get => Type == RenderCommandType.DrawTexture ? Position : default;
+        set => Position = value;
+    }
+
+    public Vector2 TextureDestination1
+    {
+        readonly get => Type == RenderCommandType.DrawTexture ? Position2 : default;
+        set => Position2 = value;
+    }
+
+    public Vector2 TextureDestination2
+    {
+        readonly get => Type == RenderCommandType.DrawTexture ? Position3 : default;
+        set => Position3 = value;
+    }
+
+    public Vector2 TextureDestination3
+    {
+        readonly get => Type == RenderCommandType.DrawTexture ? Position4 : default;
+        set => Position4 = value;
+    }
+
+    public Vector4 TextureDestinationProjectiveWeights
+    {
+        readonly get => Type == RenderCommandType.DrawTexture
+            ? new(Scale.X, Scale.Y, Translate.X, Translate.Y)
+            : default;
+        set
+        {
+            Scale = new Vector2(value.X, value.Y);
+            Translate = new Vector2(value.Z, value.W);
+        }
+    }
+
+    public bool HasTextureDestinationQuad
+    {
+        readonly get => Type == RenderCommandType.DrawTexture && IsClosed;
+        set => IsClosed = value;
+    }
     public bool HasImageEffect;
     private ImageEffectCommandDataBox? _imageEffect;
     internal int ImageEffectBufferIndex;

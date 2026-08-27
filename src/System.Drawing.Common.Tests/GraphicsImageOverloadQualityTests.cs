@@ -140,6 +140,9 @@ public sealed class GraphicsImageOverloadQualityTests
     [Fact]
     public void FourDestinationPointsRecordPerspectiveWeightsAndSurviveRetention()
     {
+        Assert.True(
+            System.Runtime.CompilerServices.Unsafe.SizeOf<RenderCommand>() <= 576);
+
         using Bitmap source = CreateQuadrantSource();
         var context = new DrawingContext();
         using Graphics graphics = Graphics.FromProGpuDrawingContext(

@@ -195,14 +195,15 @@ bool create_image_chain_pipelines(progpu_native_engine& engine) {
         !create_chain_layouts(engine)) {
         return false;
     }
-    const std::array<WGPUVertexAttribute, 7U> attributes{{
+    const std::array<WGPUVertexAttribute, 8U> attributes{{
         progpu::native::webgpu::vertex_attribute(WGPUVertexFormat_Float32x2, 0U, 0U),
         progpu::native::webgpu::vertex_attribute(WGPUVertexFormat_Float32x4, 8U, 1U),
         progpu::native::webgpu::vertex_attribute(WGPUVertexFormat_Float32x2, 24U, 2U),
         progpu::native::webgpu::vertex_attribute(WGPUVertexFormat_Float32, 32U, 3U),
         progpu::native::webgpu::vertex_attribute(WGPUVertexFormat_Float32x2, 36U, 4U),
         progpu::native::webgpu::vertex_attribute(WGPUVertexFormat_Float32, 44U, 5U),
-        progpu::native::webgpu::vertex_attribute(WGPUVertexFormat_Float32, 48U, 6U)
+        progpu::native::webgpu::vertex_attribute(WGPUVertexFormat_Float32, 48U, 6U),
+        progpu::native::webgpu::vertex_attribute(WGPUVertexFormat_Float32, 52U, 7U)
     }};
     const std::array<WGPUBindGroupLayout, 3U> plain_layouts{{
         engine.image_uniform_layout,

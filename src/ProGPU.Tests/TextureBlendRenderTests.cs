@@ -176,7 +176,7 @@ public sealed class TextureBlendRenderTests
     public void TextureShaderEvaluatesMitchellNetravaliCoefficients()
     {
         Assert.Contains("fn cubic_weight(x: f32, b: f32, c: f32)", Shaders.TextureShader);
-        Assert.Contains("sample_bicubic(input.texCoord, input.cubicResampler)", Shaders.TextureShader);
+        Assert.Contains("sample_bicubic(textureCoord, input.cubicResampler)", Shaders.TextureShader);
         Assert.Contains("12.0 - 9.0 * b - 6.0 * c", Shaders.TextureShader);
         Assert.Contains("if (b == 0.0 && c == 0.5)", Shaders.TextureShader);
 
