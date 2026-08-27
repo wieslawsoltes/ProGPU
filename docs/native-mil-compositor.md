@@ -708,6 +708,20 @@ renders a second retained generation using only the specular term and observes
 64 red-dominant plus 85 blue-dominant pixels inside the same 291-pixel clip;
 it also requires this readback to differ from the unlit gradient generation.
 
+Exact pushed checkpoint `fd455edf` is qualified from isolated archive SHA-256
+`46B06076344DE8518622AD66F5C9BE129C5E6231FAB874066FE83BFFDB6E5201`
+in the Windows 11 ARM64 Parallels guest. ARM64 MSVC 19.44 rebuilt both native
+providers under `/W4 /WX`, both export allowlists matched, all 11 CTests
+passed, and the managed harness built with zero warnings or errors. The live
+adapter was `Parallels Display Adapter (WDDM)`, backend `D3D12`, device type
+`DiscreteGpu`; its readback exactly reproduced Metal's 291 clipped pixels,
+75/96 ordinary-gradient evidence, and 64/85 specular-gradient evidence with no
+WebGPU validation/device error. SHA-256 is
+`635A68C0D9EDDD54230CC6CB8B37B6EDC8E994D6739AEA75FE006DDA44364EF5`
+for `progpu_native.dll` and
+`3DC03BD509449F560765FE9B9F73AEAD3DB4440D1CAF409D851834CBB847D722`
+for `progpu_native_dawn.dll`.
+
 Exact pushed implementation `318c0b0a` is also qualified from a SHA-256-
 verified isolated source archive in the Windows 11 ARM64 Parallels guest.
 ARM64 MSVC 19.44 compiled both native providers under `/W4 /WX`; both export
