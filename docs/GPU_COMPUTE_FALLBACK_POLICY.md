@@ -77,15 +77,20 @@ profile whose compute pipeline is not qualified. Other currently qualified
 adapters retain native compute by default.
 
 The CPU fallback uses the same analytic crossing algorithm. Managed code uses
-hardware-backed `System.Numerics.Vector<T>` lanes. Native C++ uses ARM NEON or
-SSE2 lanes. Curve roots and crossing positions are solved once per subpixel
-scanline and reused across the complete glyph row; they are not recomputed for
-every destination pixel. All eight independent horizontal samples then
+explicit hardware-backed `Vector256<T>` or `Vector128<T>` intrinsics. Native
+C++ uses ARM NEON or SSE2 lanes. Curve roots and crossing positions are solved
+once per subpixel scanline and reused across the complete glyph row; they are
+not recomputed for every destination pixel. All eight independent horizontal samples then
 accumulate winding in vectors. The native lane count uses NEON/SSE2 masks
-without spilling the winding vectors to temporary arrays, while managed code
-reuses pooled crossing storage and precomputed vector lane indices. The scalar
-path remains available as the deliberately independent differential oracle and
-as the bounded fallback on architectures without a supported intrinsic target.
+without spilling the winding vectors to temporary arrays. Managed code reduces
+comparison masks through `ExtractMostSignificantBits` and population count,
+normalizes 16 coverage bytes per vector block, and retains a bounded scalar
+tail. The scalar path remains available as the deliberately independent
+differential oracle and as the bounded fallback on architectures without a
+supported intrinsic target. The implementation, primary-source review,
+managed/native applicability audit, exact differential coverage, and current
+Apple M3 Pro measurement are recorded in
+[`GLYPH_CPU_FALLBACK_SIMD_RESEARCH.md`](GLYPH_CPU_FALLBACK_SIMD_RESEARCH.md).
 
 ## Validation gate
 

@@ -149,6 +149,40 @@ public class ComputeExecutionPolicyTests
         Assert.Contains(simd, value => value is > 0 and < 255);
     }
 
+    [Theory]
+    [InlineData(1U)]
+    [InlineData(15U)]
+    [InlineData(16U)]
+    [InlineData(17U)]
+    [InlineData(31U)]
+    public void IntrinsicSimdGlyphCoverageHandlesVectorTails(uint width)
+    {
+        GpuSegment[] segments =
+        [
+            Line(new(-2, 0), new(13, 0)),
+            Quadratic(new(13, 0), new(18, 8), new(9, 15)),
+            Cubic(new(9, 15), new(2, 18), new(-7, 8), new(-2, 0))
+        ];
+        var record = new GpuGlyphRecord
+        {
+            StartSegment = 0,
+            SegmentCount = (uint)segments.Length,
+            MinX = -7,
+            MinY = 0,
+            MaxX = 18,
+            MaxY = 18
+        };
+
+        byte[] scalar = GlyphAtlas.RasterizeGlyphCoverageCpu(
+            segments, record, -8, -20, 0.875f, 0.3125f, width, 23,
+            useSimd: false);
+        byte[] simd = GlyphAtlas.RasterizeGlyphCoverageCpu(
+            segments, record, -8, -20, 0.875f, 0.3125f, width, 23,
+            useSimd: true);
+
+        Assert.Equal(scalar, simd);
+    }
+
     private static GpuSegment Line(Vector2 start, Vector2 end) => new()
     {
         P0 = start,
