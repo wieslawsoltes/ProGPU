@@ -57,6 +57,31 @@ internal static unsafe partial class NativeMilMethods
         internal uint LineCount;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SceneBuildRequest
+    {
+        internal uint StructSize;
+        internal uint Flags;
+        internal uint TargetHandle;
+        internal uint Reserved0;
+        internal ulong SceneId;
+        internal ulong Generation;
+        internal double DpiScaleX;
+        internal double DpiScaleY;
+        internal ulong MonotonicTimeNanoseconds;
+        internal ulong RequestSerial;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct SceneBuildResult
+    {
+        internal uint StructSize;
+        internal uint Flags;
+        internal ulong RequestSerial;
+        internal ulong NextDueTimeNanoseconds;
+        internal ulong StreamBytes;
+    }
+
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_create")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus Create(nint* channel);
@@ -223,6 +248,17 @@ internal static unsafe partial class NativeMilMethods
         nuint destinationSize,
         nuint* bytesWritten,
         SceneMetrics* metrics);
+
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_build_scene_with_request")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus BuildSceneWithRequest(
+        nint channel,
+        SceneBuildRequest* request,
+        void* destination,
+        nuint destinationSize,
+        nuint* bytesWritten,
+        SceneMetrics* metrics,
+        SceneBuildResult* buildResult);
 }
 
 internal static unsafe partial class NativeMilDawnMethods
@@ -393,4 +429,15 @@ internal static unsafe partial class NativeMilDawnMethods
         nuint destinationSize,
         nuint* bytesWritten,
         NativeMilMethods.SceneMetrics* metrics);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_build_scene_with_request")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus BuildSceneWithRequest(
+        nint channel,
+        NativeMilMethods.SceneBuildRequest* request,
+        void* destination,
+        nuint destinationSize,
+        nuint* bytesWritten,
+        NativeMilMethods.SceneMetrics* metrics,
+        NativeMilMethods.SceneBuildResult* buildResult);
 }

@@ -19,6 +19,41 @@ progpu_native_mil_status to_abi(
     return static_cast<progpu_native_mil_status>(value);
 }
 
+void write_scene_metrics(
+    progpu_native_mil_scene_metrics* destination,
+    std::size_t caller_size,
+    const progpu::native::mil::scene_metrics& source) noexcept {
+    if (destination == nullptr) {
+        return;
+    }
+    std::memset(
+        destination,
+        0,
+        std::min(caller_size, sizeof(*destination)));
+    destination->struct_size = sizeof(*destination);
+    destination->visual_count = source.visual_count;
+    destination->rectangle_count = source.rectangle_count;
+    destination->brush_count = source.brush_count;
+    destination->maximum_visual_depth = source.maximum_visual_depth;
+    destination->ellipse_count = source.ellipse_count;
+    destination->stream_bytes = source.stream_bytes;
+    if (caller_size >=
+        offsetof(
+            progpu_native_mil_scene_metrics,
+            rounded_rectangle_count) + sizeof(std::uint32_t)) {
+        destination->rounded_rectangle_count =
+            source.rounded_rectangle_count;
+    }
+    if (caller_size >=
+        offsetof(progpu_native_mil_scene_metrics, line_count) +
+            sizeof(std::uint32_t)) {
+        destination->line_count = source.line_count;
+    }
+}
+
+static_assert(sizeof(progpu_native_mil_scene_build_request) == 64U);
+static_assert(sizeof(progpu_native_mil_scene_build_result) == 32U);
+
 } // namespace
 
 extern "C" {
@@ -375,35 +410,84 @@ progpu_native_mil_status progpu_native_mil_channel_build_scene(
         generation,
         stream,
         metrics == nullptr ? nullptr : &native_metrics);
-    if (metrics != nullptr) {
-        std::memset(
-            metrics,
-            0,
-            std::min(caller_metrics_size, sizeof(*metrics)));
-        metrics->struct_size = sizeof(*metrics);
-        metrics->visual_count = native_metrics.visual_count;
-        metrics->rectangle_count = native_metrics.rectangle_count;
-        metrics->brush_count = native_metrics.brush_count;
-        metrics->maximum_visual_depth =
-            native_metrics.maximum_visual_depth;
-        metrics->ellipse_count = native_metrics.ellipse_count;
-        metrics->stream_bytes = native_metrics.stream_bytes;
-        if (caller_metrics_size >=
-            offsetof(
-                progpu_native_mil_scene_metrics,
-                rounded_rectangle_count) + sizeof(std::uint32_t)) {
-            metrics->rounded_rectangle_count =
-                native_metrics.rounded_rectangle_count;
-        }
-        if (caller_metrics_size >=
-            offsetof(progpu_native_mil_scene_metrics, line_count) +
-                sizeof(std::uint32_t)) {
-            metrics->line_count = native_metrics.line_count;
-        }
-    }
+    write_scene_metrics(metrics, caller_metrics_size, native_metrics);
     if (result != progpu::native::mil::status::success) {
         return to_abi(result);
     }
+    *bytes_written = stream.size();
+    if (destination == nullptr && destination_size == 0U) {
+        return PROGPU_NATIVE_MIL_STATUS_SUCCESS;
+    }
+    if (destination_size < stream.size()) {
+        return PROGPU_NATIVE_MIL_STATUS_CAPACITY_EXCEEDED;
+    }
+    if (!stream.empty()) {
+        std::memcpy(destination, stream.data(), stream.size());
+    }
+    return PROGPU_NATIVE_MIL_STATUS_SUCCESS;
+}
+
+progpu_native_mil_status
+progpu_native_mil_channel_build_scene_with_request(
+    progpu_native_mil_channel* channel,
+    const progpu_native_mil_scene_build_request* request,
+    void* destination,
+    size_t destination_size,
+    size_t* bytes_written,
+    progpu_native_mil_scene_metrics* metrics,
+    progpu_native_mil_scene_build_result* build_result) {
+    constexpr std::size_t metrics_v1_size =
+        offsetof(progpu_native_mil_scene_metrics, stream_bytes) +
+        sizeof(std::uint64_t);
+    const std::size_t caller_metrics_size =
+        metrics == nullptr ? 0U : metrics->struct_size;
+    const std::size_t caller_result_size =
+        build_result == nullptr ? 0U : build_result->struct_size;
+    if (channel == nullptr || request == nullptr ||
+        request->struct_size < sizeof(*request) ||
+        request->reserved0 != 0U || bytes_written == nullptr ||
+        build_result == nullptr ||
+        caller_result_size < sizeof(*build_result) ||
+        (destination == nullptr && destination_size != 0U) ||
+        (metrics != nullptr && caller_metrics_size < metrics_v1_size)) {
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    }
+
+    *bytes_written = 0U;
+    std::memset(
+        build_result,
+        0,
+        std::min(caller_result_size, sizeof(*build_result)));
+    build_result->struct_size = sizeof(*build_result);
+
+    const progpu::native::mil::scene_build_request native_request{
+        static_cast<progpu::native::mil::scene_build_request_flags>(
+            request->flags),
+        request->target_handle,
+        request->scene_id,
+        request->generation,
+        request->dpi_scale_x,
+        request->dpi_scale_y,
+        request->monotonic_time_nanoseconds,
+        request->request_serial};
+    progpu::native::mil::scene_metrics native_metrics{};
+    progpu::native::mil::scene_build_result native_result{};
+    std::span<const std::byte> stream;
+    const auto result = channel->state.build_scene(
+        native_request,
+        stream,
+        metrics == nullptr ? nullptr : &native_metrics,
+        &native_result);
+    write_scene_metrics(metrics, caller_metrics_size, native_metrics);
+    if (result != progpu::native::mil::status::success) {
+        return to_abi(result);
+    }
+
+    build_result->flags = static_cast<std::uint32_t>(native_result.flags);
+    build_result->request_serial = native_result.request_serial;
+    build_result->next_due_time_nanoseconds =
+        native_result.next_due_time_nanoseconds;
+    build_result->stream_bytes = native_result.stream_bytes;
     *bytes_written = stream.size();
     if (destination == nullptr && destination_size == 0U) {
         return PROGPU_NATIVE_MIL_STATUS_SUCCESS;

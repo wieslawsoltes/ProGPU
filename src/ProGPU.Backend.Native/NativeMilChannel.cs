@@ -500,6 +500,99 @@ public sealed unsafe class NativeMilChannel : IDisposable
                 nativeMetrics.StreamBytes));
     }
 
+    /// <summary>
+    /// Compiles a stateful frame request. The native channel treats the two
+    /// ABI calls made here as one request, which prevents future dynamic MIL
+    /// state from advancing once for sizing and again for copying.
+    /// </summary>
+    public NativeMilStatefulCompiledScene CompileScene(
+        NativeMilSceneBuildRequest request)
+    {
+        nint channel = GetChannel();
+        var nativeRequest = new NativeMilMethods.SceneBuildRequest
+        {
+            StructSize =
+                (uint)Unsafe.SizeOf<NativeMilMethods.SceneBuildRequest>(),
+            Flags = (uint)request.Flags,
+            TargetHandle = request.TargetHandle,
+            SceneId = request.SceneId,
+            Generation = request.Generation,
+            DpiScaleX = request.DpiScaleX,
+            DpiScaleY = request.DpiScaleY,
+            MonotonicTimeNanoseconds = request.MonotonicTimeNanoseconds,
+            RequestSerial = request.RequestSerial
+        };
+        var nativeMetrics = new NativeMilMethods.SceneMetrics
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeMilMethods.SceneMetrics>()
+        };
+        var nativeResult = new NativeMilMethods.SceneBuildResult
+        {
+            StructSize =
+                (uint)Unsafe.SizeOf<NativeMilMethods.SceneBuildResult>()
+        };
+        nuint requiredBytes = 0;
+        NativeMilStatus status = BuildSceneWithRequest(
+            channel,
+            &nativeRequest,
+            null,
+            0,
+            &requiredBytes,
+            &nativeMetrics,
+            &nativeResult);
+        ThrowSceneFailure(status, request.TargetHandle);
+        if (requiredBytes > int.MaxValue)
+        {
+            throw new NativeMilException(
+                NativeMilStatus.CapacityExceeded,
+                $"The semantic scene for MIL target {request.TargetHandle} exceeds the managed buffer limit.");
+        }
+
+        byte[] stream = GC.AllocateUninitializedArray<byte>((int)requiredBytes);
+        nativeMetrics.StructSize =
+            (uint)Unsafe.SizeOf<NativeMilMethods.SceneMetrics>();
+        nativeResult.StructSize =
+            (uint)Unsafe.SizeOf<NativeMilMethods.SceneBuildResult>();
+        nuint writtenBytes = 0;
+        fixed (byte* destination = stream)
+        {
+            status = BuildSceneWithRequest(
+                channel,
+                &nativeRequest,
+                destination,
+                (nuint)stream.Length,
+                &writtenBytes,
+                &nativeMetrics,
+                &nativeResult);
+        }
+        ThrowSceneFailure(status, request.TargetHandle);
+        if (writtenBytes != requiredBytes ||
+            nativeResult.RequestSerial != request.RequestSerial ||
+            nativeResult.StreamBytes != (ulong)writtenBytes)
+        {
+            throw new NativeMilException(
+                NativeMilStatus.InvalidGraph,
+                $"The retained MIL target {request.TargetHandle} returned an inconsistent stateful scene result.");
+        }
+
+        return new NativeMilStatefulCompiledScene(
+            stream,
+            new NativeMilSceneMetrics(
+                nativeMetrics.VisualCount,
+                nativeMetrics.RectangleCount,
+                nativeMetrics.EllipseCount,
+                nativeMetrics.RoundedRectangleCount,
+                nativeMetrics.LineCount,
+                nativeMetrics.BrushCount,
+                nativeMetrics.MaximumVisualDepth,
+                nativeMetrics.StreamBytes),
+            new NativeMilSceneBuildResult(
+                (NativeMilSceneBuildResultFlags)nativeResult.Flags,
+                nativeResult.RequestSerial,
+                nativeResult.NextDueTimeNanoseconds,
+                nativeResult.StreamBytes));
+    }
+
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposeState, 1) != 0)
@@ -558,6 +651,34 @@ public sealed unsafe class NativeMilChannel : IDisposable
                 destinationSize,
                 bytesWritten,
                 metrics);
+    }
+
+    private NativeMilStatus BuildSceneWithRequest(
+        nint channel,
+        NativeMilMethods.SceneBuildRequest* request,
+        void* destination,
+        nuint destinationSize,
+        nuint* bytesWritten,
+        NativeMilMethods.SceneMetrics* metrics,
+        NativeMilMethods.SceneBuildResult* buildResult)
+    {
+        return _backend == NativeMilBackend.Dawn
+            ? NativeMilDawnMethods.BuildSceneWithRequest(
+                channel,
+                request,
+                destination,
+                destinationSize,
+                bytesWritten,
+                metrics,
+                buildResult)
+            : NativeMilMethods.BuildSceneWithRequest(
+                channel,
+                request,
+                destination,
+                destinationSize,
+                bytesWritten,
+                metrics,
+                buildResult);
     }
 
     private static void ThrowSceneFailure(

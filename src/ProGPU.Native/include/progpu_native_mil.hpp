@@ -74,6 +74,34 @@ struct scene_metrics {
     std::uint64_t stream_bytes{};
 };
 
+enum class scene_build_request_flags : std::uint32_t {
+    none = 0U,
+    visual_brush = 1U << 0U
+};
+
+enum class scene_build_result_flags : std::uint32_t {
+    none = 0U,
+    needs_more_cycles = 1U << 0U
+};
+
+struct scene_build_request {
+    scene_build_request_flags flags{scene_build_request_flags::none};
+    std::uint32_t target_handle{};
+    std::uint64_t scene_id{};
+    std::uint64_t generation{};
+    double dpi_scale_x{1.0};
+    double dpi_scale_y{1.0};
+    std::uint64_t monotonic_time_nanoseconds{};
+    std::uint64_t request_serial{};
+};
+
+struct scene_build_result {
+    scene_build_result_flags flags{scene_build_result_flags::none};
+    std::uint64_t request_serial{};
+    std::uint64_t next_due_time_nanoseconds{};
+    std::uint64_t stream_bytes{};
+};
+
 class batch_reader final {
 public:
     explicit batch_reader(std::span<const std::byte> bytes) noexcept;
@@ -207,9 +235,20 @@ public:
         std::vector<std::byte>& stream,
         scene_metrics* metrics = nullptr) const noexcept;
 
+    // Compiles a versioned frame request exactly once per full request key.
+    // The returned view remains valid until a successful channel mutation or
+    // a different request is compiled.
+    status build_scene(
+        const scene_build_request& request,
+        std::span<const std::byte>& stream,
+        scene_metrics* metrics = nullptr,
+        scene_build_result* result = nullptr) noexcept;
+
 private:
     struct implementation;
+    struct build_cache;
     std::unique_ptr<implementation> implementation_;
+    std::unique_ptr<build_cache> build_cache_;
 };
 
 constexpr bool is_known(command value) noexcept {

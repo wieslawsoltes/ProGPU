@@ -67,6 +67,43 @@ typedef struct progpu_native_mil_scene_metrics {
     uint32_t line_count;
 } progpu_native_mil_scene_metrics;
 
+typedef enum progpu_native_mil_scene_build_request_flags {
+    PROGPU_NATIVE_MIL_SCENE_BUILD_REQUEST_NONE = 0,
+    PROGPU_NATIVE_MIL_SCENE_BUILD_REQUEST_VISUAL_BRUSH = 1U << 0U
+} progpu_native_mil_scene_build_request_flags;
+
+typedef enum progpu_native_mil_scene_build_result_flags {
+    PROGPU_NATIVE_MIL_SCENE_BUILD_RESULT_NONE = 0,
+    PROGPU_NATIVE_MIL_SCENE_BUILD_RESULT_NEEDS_MORE_CYCLES = 1U << 0U
+} progpu_native_mil_scene_build_result_flags;
+
+/*
+ * Versioned frame context for stateful scene compilation. request_serial is
+ * the idempotency key: a size query and its subsequent copy must use the same
+ * nonzero value. monotonic_time_nanoseconds belongs to the caller's monotonic
+ * clock domain and must never be wall-clock time.
+ */
+typedef struct progpu_native_mil_scene_build_request {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t target_handle;
+    uint32_t reserved0;
+    uint64_t scene_id;
+    uint64_t generation;
+    double dpi_scale_x;
+    double dpi_scale_y;
+    uint64_t monotonic_time_nanoseconds;
+    uint64_t request_serial;
+} progpu_native_mil_scene_build_request;
+
+typedef struct progpu_native_mil_scene_build_result {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint64_t request_serial;
+    uint64_t next_due_time_nanoseconds;
+    uint64_t stream_bytes;
+} progpu_native_mil_scene_build_result;
+
 typedef enum progpu_native_mil_glyph_style_simulations {
     PROGPU_NATIVE_MIL_GLYPH_STYLE_NONE = 0,
     PROGPU_NATIVE_MIL_GLYPH_STYLE_BOLD = 1U << 0U,
@@ -243,6 +280,21 @@ progpu_native_mil_channel_build_scene(
     size_t destination_size,
     size_t* bytes_written,
     progpu_native_mil_scene_metrics* metrics);
+
+/*
+ * Append-only stateful build entry point. Repeating an identical request
+ * returns the same retained stream without advancing state twice. The legacy
+ * build_scene entry point remains ABI-compatible and stateless.
+ */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_build_scene_with_request(
+    progpu_native_mil_channel* channel,
+    const progpu_native_mil_scene_build_request* request,
+    void* destination,
+    size_t destination_size,
+    size_t* bytes_written,
+    progpu_native_mil_scene_metrics* metrics,
+    progpu_native_mil_scene_build_result* build_result);
 
 #ifdef __cplusplus
 }
