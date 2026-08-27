@@ -1614,6 +1614,29 @@ public sealed class NativeMilRenderDataBuilder
         NativeMilBatchBuilder.WriteUInt32(packet, 8, glyphRunHandle);
     }
 
+    public void DrawImage(
+        NativeMilRect destination,
+        uint imageSourceHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(imageSourceHandle);
+        if (!double.IsFinite(destination.X) ||
+            !double.IsFinite(destination.Y) ||
+            !double.IsFinite(destination.Width) ||
+            !double.IsFinite(destination.Height) ||
+            destination.Width < 0.0 || destination.Height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(destination));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawImage, 44);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, destination.X);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, destination.Y);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, destination.Width);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, destination.Height);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, imageSourceHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 40, 0);
+    }
+
     public void DrawRectangle(
         double x,
         double y,
@@ -1739,6 +1762,7 @@ internal static class NativeMilCommand
     internal const uint DrawRoundedRectangle = 0x42;
     internal const uint DrawEllipse = 0x44;
     internal const uint DrawGeometry = 0x46;
+    internal const uint DrawImage = 0x47;
     internal const uint DrawGlyphRun = 0x49;
     internal const uint DrawDrawing = 0x4a;
     internal const uint PushClip = 0x4d;
