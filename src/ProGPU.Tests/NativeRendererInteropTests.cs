@@ -190,6 +190,78 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWriteCanonicalAnimationValuePackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetSizeResource(9, new NativeMilSize(12.5, 8.25));
+        batch.SetRectResource(10, new NativeMilRect(1, 2, 30, 40));
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(72, encoded.Length);
+        Assert.Equal(28U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x0fU, ReadUInt32(encoded, 4));
+        Assert.Equal(9U, ReadUInt32(encoded, 8));
+        Assert.Equal(12.5, ReadDouble(encoded, 12));
+        Assert.Equal(8.25, ReadDouble(encoded, 20));
+        Assert.Equal(44U, ReadUInt32(encoded, 28));
+        Assert.Equal(0x11U, ReadUInt32(encoded, 32));
+        Assert.Equal(10U, ReadUInt32(encoded, 36));
+        Assert.Equal(1.0, ReadDouble(encoded, 40));
+        Assert.Equal(2.0, ReadDouble(encoded, 48));
+        Assert.Equal(30.0, ReadDouble(encoded, 56));
+        Assert.Equal(40.0, ReadDouble(encoded, 64));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetSizeResource(9, new NativeMilSize(-1, 1)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetRectResource(10, new NativeMilRect(0, 0, -1, 1)));
+    }
+
+    [Fact]
+    public void NativeMilRenderDataBuilderWritesCanonicalAnimatedDrawPackets()
+    {
+        var renderData = new NativeMilRenderDataBuilder();
+        renderData.DrawLine(1, 2, 3, 4, 5, 6, 7);
+        renderData.DrawRectangle(8, 9, 10, 11, 12, 13, 14);
+        renderData.DrawRoundedRectangle(
+            15, 16, 17, 18, 2, 3, 19, 20, 21, 22, 23);
+        renderData.DrawEllipse(24, 25, 4, 5, 26, 27, 28, 29, 30);
+        renderData.DrawImage(new NativeMilRect(31, 32, 33, 34), 35, 36);
+        byte[] encoded = renderData.WrittenSpan.ToArray();
+
+        Assert.Equal(304, encoded.Length);
+        Assert.Equal(56U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x3fU, ReadUInt32(encoded, 4));
+        Assert.Equal(6U, ReadUInt32(encoded, 44));
+        Assert.Equal(7U, ReadUInt32(encoded, 48));
+        Assert.Equal(0U, ReadUInt32(encoded, 52));
+
+        Assert.Equal(56U, ReadUInt32(encoded, 56));
+        Assert.Equal(0x41U, ReadUInt32(encoded, 60));
+        Assert.Equal(14U, ReadUInt32(encoded, 104));
+        Assert.Equal(0U, ReadUInt32(encoded, 108));
+
+        Assert.Equal(80U, ReadUInt32(encoded, 112));
+        Assert.Equal(0x43U, ReadUInt32(encoded, 116));
+        Assert.Equal(21U, ReadUInt32(encoded, 176));
+        Assert.Equal(22U, ReadUInt32(encoded, 180));
+        Assert.Equal(23U, ReadUInt32(encoded, 184));
+        Assert.Equal(0U, ReadUInt32(encoded, 188));
+
+        Assert.Equal(64U, ReadUInt32(encoded, 192));
+        Assert.Equal(0x45U, ReadUInt32(encoded, 196));
+        Assert.Equal(28U, ReadUInt32(encoded, 240));
+        Assert.Equal(29U, ReadUInt32(encoded, 244));
+        Assert.Equal(30U, ReadUInt32(encoded, 248));
+        Assert.Equal(0U, ReadUInt32(encoded, 252));
+
+        Assert.Equal(48U, ReadUInt32(encoded, 256));
+        Assert.Equal(0x48U, ReadUInt32(encoded, 260));
+        Assert.Equal(35U, ReadUInt32(encoded, 296));
+        Assert.Equal(36U, ReadUInt32(encoded, 300));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalGeometryDrawingPackets()
     {
         var batch = new NativeMilBatchBuilder();

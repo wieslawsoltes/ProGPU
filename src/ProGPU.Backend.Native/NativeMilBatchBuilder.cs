@@ -413,6 +413,39 @@ public sealed class NativeMilBatchBuilder
         WriteDouble(packet, 16, point.Y);
     }
 
+    public void SetSizeResource(uint handle, NativeMilSize size)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(size.Width) || !double.IsFinite(size.Height) ||
+            size.Width < 0.0 || size.Height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(size));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.SizeResource, 24);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, size.Width);
+        WriteDouble(packet, 16, size.Height);
+    }
+
+    public void SetRectResource(uint handle, NativeMilRect rect)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(rect.X) || !double.IsFinite(rect.Y) ||
+            !double.IsFinite(rect.Width) || !double.IsFinite(rect.Height) ||
+            rect.Width < 0.0 || rect.Height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rect));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.RectResource, 40);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, rect.X);
+        WriteDouble(packet, 16, rect.Y);
+        WriteDouble(packet, 24, rect.Width);
+        WriteDouble(packet, 32, rect.Height);
+    }
+
     public void SetLinearGradientBrush(
         uint handle,
         NativeMilLinearGradientBrush brush,
@@ -1583,6 +1616,33 @@ public sealed class NativeMilRenderDataBuilder
         NativeMilBatchBuilder.WriteUInt32(packet, 36, penHandle);
     }
 
+    public void DrawLine(
+        double x0,
+        double y0,
+        double x1,
+        double y1,
+        uint penHandle,
+        uint point0AnimationHandle,
+        uint point1AnimationHandle)
+    {
+        if (!double.IsFinite(x0) || !double.IsFinite(y0) ||
+            !double.IsFinite(x1) || !double.IsFinite(y1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(x0));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawLineAnimate, 52);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, x0);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, y0);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, x1);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, y1);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, penHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 40, point0AnimationHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 44, point1AnimationHandle);
+    }
+
     public void DrawGeometry(
         uint brushHandle,
         uint penHandle,
@@ -1637,6 +1697,31 @@ public sealed class NativeMilRenderDataBuilder
         NativeMilBatchBuilder.WriteUInt32(packet, 40, 0);
     }
 
+    public void DrawImage(
+        NativeMilRect destination,
+        uint imageSourceHandle,
+        uint rectangleAnimationHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(imageSourceHandle);
+        if (!double.IsFinite(destination.X) ||
+            !double.IsFinite(destination.Y) ||
+            !double.IsFinite(destination.Width) ||
+            !double.IsFinite(destination.Height) ||
+            destination.Width < 0.0 || destination.Height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(destination));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawImageAnimate, 44);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, destination.X);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, destination.Y);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, destination.Width);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, destination.Height);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, imageSourceHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 40, rectangleAnimationHandle);
+    }
+
     public void DrawRectangle(
         double x,
         double y,
@@ -1661,6 +1746,33 @@ public sealed class NativeMilRenderDataBuilder
         NativeMilBatchBuilder.WriteUInt32(packet, 40, penHandle);
     }
 
+    public void DrawRectangle(
+        double x,
+        double y,
+        double width,
+        double height,
+        uint brushHandle,
+        uint penHandle,
+        uint rectangleAnimationHandle)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y) ||
+            !double.IsFinite(width) || !double.IsFinite(height) ||
+            width < 0.0 || height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawRectangleAnimate, 52);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, x);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, y);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, width);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, height);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, brushHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 40, penHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 44, rectangleAnimationHandle);
+    }
+
     public void DrawEllipse(
         double centerX,
         double centerY,
@@ -1683,6 +1795,39 @@ public sealed class NativeMilRenderDataBuilder
         NativeMilBatchBuilder.WriteDouble(packet, 28, radiusY);
         NativeMilBatchBuilder.WriteUInt32(packet, 36, brushHandle);
         NativeMilBatchBuilder.WriteUInt32(packet, 40, penHandle);
+    }
+
+    public void DrawEllipse(
+        double centerX,
+        double centerY,
+        double radiusX,
+        double radiusY,
+        uint brushHandle,
+        uint penHandle,
+        uint centerAnimationHandle,
+        uint radiusXAnimationHandle,
+        uint radiusYAnimationHandle)
+    {
+        if (!double.IsFinite(centerX) || !double.IsFinite(centerY) ||
+            !double.IsFinite(radiusX) || !double.IsFinite(radiusY) ||
+            radiusX < 0.0 || radiusY < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(radiusX));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawEllipseAnimate, 60);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, centerX);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, centerY);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, radiusX);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, radiusY);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, brushHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 40, penHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 44, centerAnimationHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 48, radiusXAnimationHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 52, radiusYAnimationHandle);
     }
 
     public void DrawRoundedRectangle(
@@ -1713,6 +1858,45 @@ public sealed class NativeMilRenderDataBuilder
         NativeMilBatchBuilder.WriteUInt32(packet, 52, brushHandle);
         NativeMilBatchBuilder.WriteUInt32(packet, 56, penHandle);
     }
+
+    public void DrawRoundedRectangle(
+        double x,
+        double y,
+        double width,
+        double height,
+        double radiusX,
+        double radiusY,
+        uint brushHandle,
+        uint penHandle,
+        uint rectangleAnimationHandle,
+        uint radiusXAnimationHandle,
+        uint radiusYAnimationHandle)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y) ||
+            !double.IsFinite(width) || !double.IsFinite(height) ||
+            !double.IsFinite(radiusX) || !double.IsFinite(radiusY) ||
+            width < 0.0 || height < 0.0 ||
+            radiusX < 0.0 || radiusY < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawRoundedRectangleAnimate, 76);
+        NativeMilBatchBuilder.WriteDouble(packet, 4, x);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, y);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, width);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, height);
+        NativeMilBatchBuilder.WriteDouble(packet, 36, radiusX);
+        NativeMilBatchBuilder.WriteDouble(packet, 44, radiusY);
+        NativeMilBatchBuilder.WriteUInt32(packet, 52, brushHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 56, penHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 60, rectangleAnimationHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 64, radiusXAnimationHandle);
+        NativeMilBatchBuilder.WriteUInt32(
+            packet, 68, radiusYAnimationHandle);
+    }
 }
 
 internal static class NativeMilBatchEncoding
@@ -1737,7 +1921,9 @@ internal static class NativeMilCommand
     internal const uint CreateResource = 0x07;
     internal const uint DeleteResource = 0x08;
     internal const uint DoubleResource = 0x0e;
+    internal const uint SizeResource = 0x0f;
     internal const uint PointResource = 0x10;
+    internal const uint RectResource = 0x11;
     internal const uint MatrixResource = 0x13;
     internal const uint RenderData = 0x18;
     internal const uint VisualCreate = 0x1a;
@@ -1758,11 +1944,16 @@ internal static class NativeMilCommand
     internal const uint TargetSetClearColor = 0x36;
     internal const uint GlyphRunCreate = 0x3a;
     internal const uint DrawLine = 0x3e;
+    internal const uint DrawLineAnimate = 0x3f;
     internal const uint DrawRectangle = 0x40;
+    internal const uint DrawRectangleAnimate = 0x41;
     internal const uint DrawRoundedRectangle = 0x42;
+    internal const uint DrawRoundedRectangleAnimate = 0x43;
     internal const uint DrawEllipse = 0x44;
+    internal const uint DrawEllipseAnimate = 0x45;
     internal const uint DrawGeometry = 0x46;
     internal const uint DrawImage = 0x47;
+    internal const uint DrawImageAnimate = 0x48;
     internal const uint DrawGlyphRun = 0x49;
     internal const uint DrawDrawing = 0x4a;
     internal const uint PushClip = 0x4d;

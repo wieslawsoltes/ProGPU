@@ -3230,6 +3230,15 @@ the clock invalidates. This is the typed basis for retaining canonical MIL
 animation handles in LibreWPF instead of reflecting over generated resource
 classes or silently replaying their stale base values.
 
+`NativeMilBatchBuilder` now writes canonical type-50 `SizeResource` and type-52
+`RectResource` packets in addition to the existing double/point resources.
+`NativeMilRenderDataBuilder` exposes the complete animated 2D draw packet
+family: line, rectangle, rounded rectangle, ellipse, and image. These writers
+preserve every optional animation handle and canonical zero-padding field, and
+validate finite nonnegative geometry before the batch crosses the native ABI.
+Focused managed native-interop coverage passes 87/87 with exact byte offsets
+for every new packet.
+
 The implementation sequence is intentionally architectural:
 
 1. Add a semantic cached-layer descriptor and persistent owner-keyed page pool

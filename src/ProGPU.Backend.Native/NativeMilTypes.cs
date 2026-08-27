@@ -18,7 +18,9 @@ public enum NativeMilResourceType : uint
     HwndRenderTarget = 46,
     GenericRenderTarget = 47,
     DoubleResource = 49,
+    SizeResource = 50,
     PointResource = 51,
+    RectResource = 52,
     MatrixResource = 54,
     DrawingImage = 59,
     TransformGroup = 61,
@@ -119,6 +121,8 @@ public enum NativeMilPathSegmentKind : uint
 }
 
 public readonly record struct NativeMilPoint(double X, double Y);
+
+public readonly record struct NativeMilSize(double Width, double Height);
 
 public readonly record struct NativeMilPathSegment(
     NativeMilPathSegmentKind Kind,
