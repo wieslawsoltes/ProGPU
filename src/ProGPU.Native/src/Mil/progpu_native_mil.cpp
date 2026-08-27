@@ -2,6 +2,7 @@
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_text.hpp"
 #include "../Geometry/progpu_native_arc.hpp"
+#include "../Scene/progpu_native_semantic_validation.hpp"
 
 #include <algorithm>
 #include <array>
@@ -926,6 +927,14 @@ struct channel::implementation {
         std::vector<std::byte> render_data;
     };
 
+    struct viewport3d_scene_state {
+        progpu_native_scene_camera_3d camera{};
+        progpu_native_image_rect viewport{};
+        std::vector<progpu_native_scene_mesh_3d> meshes;
+        std::vector<progpu_native_scene_mesh_3d_vertex> vertices;
+        std::vector<std::uint32_t> indices;
+    };
+
     std::unordered_map<std::uint32_t, resource_state> resources;
     std::unordered_map<std::uint32_t, double> double_resources;
     std::unordered_map<std::uint32_t, std::array<float, 4U>> color_resources;
@@ -938,6 +947,8 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, std::array<float, 4U>>
         quaternion_resources;
     std::unordered_map<std::uint32_t, visual_state> visuals;
+    std::unordered_map<std::uint32_t, viewport3d_scene_state>
+        viewport3d_scenes;
     std::unordered_map<std::uint32_t, target_state> targets;
     std::unordered_map<std::uint32_t, transform_state> transforms;
     std::unordered_map<std::uint32_t, fixed_geometry_state> fixed_geometries;
@@ -1777,6 +1788,7 @@ struct channel::implementation {
                 }
             }
             visuals.erase(handle);
+            viewport3d_scenes.erase(handle);
             targets.erase(handle);
             double_resources.erase(handle);
             color_resources.erase(handle);
@@ -11601,15 +11613,63 @@ struct channel::implementation {
         metrics.maximum_visual_depth =
             std::max(metrics.maximum_visual_depth, depth);
         status result = status::success;
+        const auto visual_resource = resources.find(handle);
+        const bool is_viewport3d = visual_resource != resources.end() &&
+            visual_resource->second.type == type_viewport3d_visual;
+        if (!skip_cached_content && is_viewport3d) {
+            const auto scene = viewport3d_scenes.find(handle);
+            if (scene == viewport3d_scenes.end()) {
+                result = status::unsupported_command;
+            } else if (!affine_preserves_axis_alignment(
+                           content_scope.transform)) {
+                result = status::unsupported_command;
+            } else {
+                progpu_native_image_rect viewport{};
+                if (!try_transform_bounds(
+                        scene->second.viewport.x,
+                        scene->second.viewport.y,
+                        scene->second.viewport.width,
+                        scene->second.viewport.height,
+                        content_scope.transform,
+                        viewport)) {
+                    result = status::invalid_graph;
+                } else {
+                    auto viewport_state =
+                        native::semantic_scene_builder::identity_state();
+                    viewport_state.opacity = static_cast<float>(
+                        content_scope.opacity);
+                    if (content_scope.has_clip) {
+                        viewport_state.flags |=
+                            PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+                        viewport_state.clip_rect = content_scope.clip_rect;
+                    }
+                    std::uint32_t viewport_state_index =
+                        PROGPU_NATIVE_SCENE_NO_INDEX;
+                    if (!builder.add_state(
+                            viewport_state, viewport_state_index) ||
+                        !builder.draw_meshes_3d(
+                            scene->second.meshes,
+                            scene->second.vertices,
+                            scene->second.indices,
+                            scene->second.camera,
+                            viewport,
+                            viewport_state_index)) {
+                        result = status::invalid_graph;
+                    }
+                }
+            }
+        }
         if (!skip_cached_content && visual->second.content_handle != 0U) {
-            result = append_render_data(
-                visual->second.content_handle,
-                content_scope,
-                builder,
-                brush_indices,
-                image_indices,
-                glyph_resources,
-                metrics);
+            if (result == status::success) {
+                result = append_render_data(
+                    visual->second.content_handle,
+                    content_scope,
+                    builder,
+                    brush_indices,
+                    image_indices,
+                    glyph_resources,
+                    metrics);
+            }
         }
         if (!skip_cached_content && result == status::success) {
             for (const auto child : visual->second.children) {
@@ -11822,6 +11882,68 @@ status channel::set_visual_cache_bounds(
     visual.has_cache_bounds = true;
     implementation_->increment_generation(handle);
     return status::success;
+}
+
+status channel::set_viewport3d_scene(
+    std::uint32_t handle,
+    const progpu_native_scene_camera_3d& camera,
+    progpu_native_image_rect viewport,
+    std::span<const progpu_native_scene_mesh_3d> meshes,
+    std::span<const progpu_native_scene_mesh_3d_vertex> vertices,
+    std::span<const std::uint32_t> indices) noexcept {
+    if (!implementation_->require_resource(handle, type_viewport3d_visual) ||
+        !implementation_->visuals.contains(handle)) {
+        return status::invalid_handle;
+    }
+    const std::uint64_t payload_bytes =
+        static_cast<std::uint64_t>(meshes.size_bytes()) +
+        vertices.size_bytes() + indices.size_bytes();
+    if (meshes.empty() || vertices.empty() || indices.empty() ||
+        meshes.size() > std::numeric_limits<std::uint32_t>::max() ||
+        vertices.size() > std::numeric_limits<std::uint32_t>::max() ||
+        indices.size() > std::numeric_limits<std::uint32_t>::max() ||
+        payload_bytes > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES ||
+        !std::isfinite(viewport.x) || !std::isfinite(viewport.y) ||
+        !std::isfinite(viewport.width) || viewport.width <= 0.0F ||
+        !std::isfinite(viewport.height) || viewport.height <= 0.0F ||
+        !semantic::is_valid_semantic_camera_3d(camera)) {
+        return status::invalid_argument;
+    }
+    for (const auto& vertex : vertices) {
+        if (!semantic::is_valid_semantic_mesh_3d_vertex(vertex)) {
+            return status::invalid_argument;
+        }
+    }
+    for (const auto& mesh : meshes) {
+        if (!semantic::is_valid_semantic_mesh_3d(
+                mesh, vertices.size(), indices.size())) {
+            return status::invalid_argument;
+        }
+        for (std::size_t index = mesh.index_offset;
+             index < static_cast<std::size_t>(mesh.index_offset) +
+                 mesh.index_count;
+             ++index) {
+            if (indices[index] >= mesh.vertex_count) {
+                return status::invalid_argument;
+            }
+        }
+    }
+    try {
+        implementation::viewport3d_scene_state scene{};
+        scene.camera = camera;
+        scene.viewport = viewport;
+        scene.meshes.assign(meshes.begin(), meshes.end());
+        scene.vertices.assign(vertices.begin(), vertices.end());
+        scene.indices.assign(indices.begin(), indices.end());
+        implementation_->viewport3d_scenes.insert_or_assign(
+            handle, std::move(scene));
+        implementation_->increment_generation(handle);
+        return status::success;
+    } catch (const std::bad_alloc&) {
+        return status::capacity_exceeded;
+    } catch (...) {
+        return status::invalid_argument;
+    }
 }
 
 status channel::set_glyph_run_font_sfnt(

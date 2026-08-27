@@ -3548,6 +3548,17 @@ render target. A full-target rectangle reduces algebraically to the original
 clip coordinates. This remains one GPU projection/depth path on Metal, D3D12,
 Vulkan, and browser WebGPU; no CPU projection or host-specific shader is used.
 
+Canonical MIL `TYPE_VIEWPORT3DVISUAL` retention uses a typed pointer-free
+sideband for the flattened scene because the legacy WPF resource graph owns
+process-local camera/model objects. The channel copies a validated semantic
+camera, viewport, mesh descriptors, vertices, and uint32 indices, increments
+the retained Visual generation, and compiles the payload through the same
+shared native 3D resource/command family. Missing sideband data, a wrong
+handle type, non-finite state, invalid ranges, or out-of-range indices fail
+closed. The source-built WPF host remains responsible only for typed scene
+flattening; projection, viewport placement, lighting, depth, and rasterization
+remain reusable ProGPU GPU work.
+
 The engine validates every untrusted count, offset, size, enum, finite float,
 resource generation, and nesting depth before allocation or GPU submission.
 Integer arithmetic is checked. User shaders remain a separately permissioned

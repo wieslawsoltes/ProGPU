@@ -135,6 +135,24 @@ progpu_native_mil_channel_set_visual_cache_bounds(
     double width,
     double height);
 /*
+ * Binds one pointer-free flattened 3D scene to a canonical
+ * TYPE_VIEWPORT3DVISUAL handle. Source-built WPF owns camera/model traversal;
+ * ProGPU retains and executes the resulting camera, mesh, vertex, and index
+ * payload without managed-object or process-local pointer dependencies.
+ */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_viewport3d_scene(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    const progpu_native_scene_camera_3d* camera,
+    progpu_native_image_rect viewport,
+    const progpu_native_scene_mesh_3d* meshes,
+    size_t mesh_count,
+    const progpu_native_scene_mesh_3d_vertex* vertices,
+    size_t vertex_count,
+    const uint32_t* indices,
+    size_t index_count);
+/*
  * Binds copied SFNT/TTC bytes to a canonical TYPE_GLYPHRUN handle. This is
  * the portable replacement for MilCmdGlyphRunCreate's process-local
  * IDWriteFont pointer. style_simulations is a bitwise combination of

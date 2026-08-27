@@ -7,6 +7,7 @@
 #include <span>
 #include <vector>
 
+#include "progpu_native.h"
 #include "progpu_native_mil_commands.generated.hpp"
 
 namespace progpu::native::mil {
@@ -139,6 +140,17 @@ public:
         double y,
         double width,
         double height) noexcept;
+
+    // Binds the pointer-free flattened scene published by a source-built WPF
+    // Viewport3DVisual to its canonical retained handle. Projection and depth
+    // remain native GPU work; the MIL channel owns copied immutable payloads.
+    status set_viewport3d_scene(
+        std::uint32_t handle,
+        const progpu_native_scene_camera_3d& camera,
+        progpu_native_image_rect viewport,
+        std::span<const progpu_native_scene_mesh_3d> meshes,
+        std::span<const progpu_native_scene_mesh_3d_vertex> vertices,
+        std::span<const std::uint32_t> indices) noexcept;
 
     // Binds copied SFNT/TTC bytes to a canonical TYPE_GLYPHRUN handle. The
     // canonical MilCmdGlyphRunCreate keeps indices, advances, offsets, origin,

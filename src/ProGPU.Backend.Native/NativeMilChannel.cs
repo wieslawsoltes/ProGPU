@@ -265,6 +265,62 @@ public sealed unsafe class NativeMilChannel : IDisposable
         }
     }
 
+    /// <summary>
+    /// Copies a flattened camera/mesh scene into the portable sideband for a
+    /// canonical WPF <see cref="NativeMilResourceType.Viewport3DVisual"/>
+    /// handle.
+    /// </summary>
+    public void SetViewport3DScene(
+        uint handle,
+        NativeMilViewport3DScene scene)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(scene.Meshes);
+        ArgumentNullException.ThrowIfNull(scene.Vertices);
+        ArgumentNullException.ThrowIfNull(scene.Indices);
+        if (scene.Meshes.Length == 0 || scene.Vertices.Length == 0 ||
+            scene.Indices.Length == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(scene));
+        }
+        nint channel = GetChannel();
+        NativeSceneCamera3D camera = scene.Camera;
+        fixed (NativeSceneMesh3D* meshes = scene.Meshes)
+        fixed (NativeSceneMesh3DVertex* vertices = scene.Vertices)
+        fixed (uint* indices = scene.Indices)
+        {
+            NativeMilStatus status = _backend == NativeMilBackend.Dawn
+                ? NativeMilDawnMethods.SetViewport3DScene(
+                    channel,
+                    handle,
+                    &camera,
+                    scene.Viewport,
+                    meshes,
+                    (nuint)scene.Meshes.Length,
+                    vertices,
+                    (nuint)scene.Vertices.Length,
+                    indices,
+                    (nuint)scene.Indices.Length)
+                : NativeMilMethods.SetViewport3DScene(
+                    channel,
+                    handle,
+                    &camera,
+                    scene.Viewport,
+                    meshes,
+                    (nuint)scene.Meshes.Length,
+                    vertices,
+                    (nuint)scene.Vertices.Length,
+                    indices,
+                    (nuint)scene.Indices.Length);
+            if (status != NativeMilStatus.Success)
+            {
+                throw new NativeMilException(
+                    status,
+                    $"The 3D scene binding for MIL viewport handle {handle} was rejected with {status}.");
+            }
+        }
+    }
+
     public bool HasResource(uint handle)
     {
         nint channel = GetChannel();
