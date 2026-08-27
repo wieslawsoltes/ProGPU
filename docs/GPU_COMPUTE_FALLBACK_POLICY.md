@@ -365,6 +365,27 @@ exact at the established 1x and 2x hashes. The qualified implementation keeps
 the cheaper direction branch instead of paying an extra vector mask operation
 for every accumulator and crossing.
 
+Two further exact layout/reduction candidates were measured after the native
+Mesh3D checkpoint and rejected under the same cross-profile rule. Narrowing the
+nine row-local crossing offsets from `size_t` to checked `uint32_t` reduced
+stack width and improved every 2x median, but eight alternating 120-frame runs
+per variant regressed 1x synchronized-frame p50 from 3.6948 to 3.7677 ms
+(+2.0%). The 1x submission p50 was effectively unchanged at 0.9726/0.9716 ms;
+2x submission/frame p50 improved 1.5659/4.3575 -> 1.5366/4.2992 ms. Hoisting
+only the vector's base `std::span` once per row produced a dylib byte-identical
+to the baseline (`FD529E1C0E195E79D5B7DDC722AF6F6D9335FF37DBD8027D2B1F3FE941B0B6D1`),
+showing that Clang already performs that transformation.
+
+A paired NEON accumulator then kept the two pixel coverage totals in one
+`uint32x2_t`, combined both horizontal reductions with one `vpadd_u32`, and
+extracted lanes only at the final byte write. All 32 process reports remained
+exact at `5B6EF4F70536C862`/`706B261418EC5C3B`. Eight alternating 120-frame
+runs per variant improved submission p50 by 3.0% at 1x and 5.3% at 2x, but
+regressed 1x synchronized-frame p50 3.4227 -> 3.5514 ms (+3.8%) and 2x frame
+p95 6.0724 -> 6.2046 ms (+2.2%). It was therefore rejected together with the
+32-bit offset layout; the qualified folded scalar-total reduction remains in
+source.
+
 Exact pushed checkpoint `deb50413` also rebuilt the changed intrinsic source
 with ARM64 MSVC/Ninja in the Windows 11 Parallels VM and passed all ten
 non-Dawn native CTests. This is cross-compiler and DirectX-host correctness
