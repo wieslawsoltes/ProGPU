@@ -1,6 +1,6 @@
 // Algorithm: Transform retained lines, indexed meshes and adjacency edges; shade with canonical CAD materials or an explicit bounded WPF light range.
-// Time complexity: O(L + I + E) vertex work and O(K) per mesh fragment for K<=16 explicit lights (three fixed CAD lights otherwise), plus one optional material sample.
-// Space complexity: O(C + L + M + V + I + E + K) read-only storage; O(1) private storage per invocation.
+// Time complexity: O(L + I + E) vertex work and O(K + S) per mesh fragment for K<=16 explicit lights (three fixed CAD lights otherwise), S gradient stops and one optional material image sample.
+// Space complexity: O(C + L + M + V + I + E + K + B + S) read-only storage; O(1) private storage per invocation.
 // Lines use six vertices per retained edge. Meshes fetch uint32 indices from
 // storage so one pointer-free scene ABI works in native WebGPU and wasm32.
 // Exact ProGPU-owned edge-algorithm provenance: Mesh3DEdges.wgsl. This native
@@ -95,6 +95,37 @@ struct MeshEdge3D {
     reserved: vec2<u32>,
 };
 
+struct MaterialBrush3D {
+    brush_type: u32,
+    opacity: f32,
+    gradient_start: vec2<f32>,
+    gradient_end: vec2<f32>,
+    gradient_center: vec2<f32>,
+    gradient_radius: f32,
+    stop_count: u32,
+    gradient_radius_y: f32,
+    spread_method: u32,
+    color_interpolation_mode: u32,
+    stop_offset: u32,
+    stop_colors0: vec4<f32>,
+    stop_colors1: vec4<f32>,
+    stop_colors2: vec4<f32>,
+    stop_colors3: vec4<f32>,
+    stop_colors4: vec4<f32>,
+    stop_colors5: vec4<f32>,
+    stop_colors6: vec4<f32>,
+    stop_colors7: vec4<f32>,
+    stop_offsets0: vec4<f32>,
+    stop_offsets1: vec4<f32>,
+    coordinate_transform0: vec4<f32>,
+    coordinate_transform1: vec4<f32>,
+};
+
+struct MaterialGradientStop3D {
+    color: vec4<f32>,
+    offset: f32,
+};
+
 @group(0) @binding(0) var<storage, read> cameras: array<Camera3D>;
 @group(0) @binding(1) var<storage, read> lines: array<Line3D>;
 @group(0) @binding(2) var<storage, read> meshes: array<Mesh3D>;
@@ -104,6 +135,8 @@ struct MeshEdge3D {
 @group(0) @binding(8) var<storage, read> edges: array<MeshEdge3D>;
 @group(1) @binding(0) var material_sampler: sampler;
 @group(1) @binding(1) var material_texture: texture_2d<f32>;
+@group(0) @binding(6) var<storage, read> materials: array<MaterialBrush3D>;
+@group(0) @binding(7) var<storage, read> material_gradient_stops: array<MaterialGradientStop3D>;
 
 struct LineOutput {
     @builtin(position) position: vec4<f32>,
@@ -366,6 +399,7 @@ fn vs_mesh_3d(
     output.texture_coordinate = vertex.texture_coordinate;
     let corner = vertex_index % 3u;
     output.barycentric = vec3<f32>(select(0.0, 1.0, corner == 0u), select(0.0, 1.0, corner == 1u), select(0.0, 1.0, corner == 2u));
+    output.texture_coordinate = vertex.texture_coordinate;
     return output;
 }
 
@@ -622,18 +656,156 @@ fn address_material_coordinate(
         1.0);
 }
 
+fn transform_material_coordinate(
+    brush: MaterialBrush3D,
+    coordinate: vec2<f32>
+) -> vec2<f32> {
+    let point = vec3<f32>(coordinate, 1.0);
+    return vec2<f32>(
+        dot(point, brush.coordinate_transform0.xyz),
+        dot(point, brush.coordinate_transform1.xyz));
+}
+
+fn apply_material_spread(value: f32, method: u32) -> f32 {
+    if (method == 1u) {
+        let period = fract(value * 0.5) * 2.0;
+        return select(period, 2.0 - period, period > 1.0);
+    }
+    if (method == 2u) {
+        return fract(value);
+    }
+    return value;
+}
+
+fn material_srgb_to_linear_component(value: f32) -> f32 {
+    if (value <= 0.04045) {
+        return value / 12.92;
+    }
+    return pow((value + 0.055) / 1.055, 2.4);
+}
+
+fn material_linear_to_srgb_component(value: f32) -> f32 {
+    let clamped = max(value, 0.0);
+    if (clamped <= 0.0031308) {
+        return clamped * 12.92;
+    }
+    return 1.055 * pow(clamped, 1.0 / 2.4) - 0.055;
+}
+
+fn interpolate_material_gradient(
+    brush: MaterialBrush3D,
+    first: vec4<f32>,
+    second: vec4<f32>,
+    factor: f32
+) -> vec4<f32> {
+    if (brush.color_interpolation_mode == 1u) {
+        let linear = mix(
+            vec3<f32>(
+                material_srgb_to_linear_component(first.r),
+                material_srgb_to_linear_component(first.g),
+                material_srgb_to_linear_component(first.b)),
+            vec3<f32>(
+                material_srgb_to_linear_component(second.r),
+                material_srgb_to_linear_component(second.g),
+                material_srgb_to_linear_component(second.b)),
+            factor);
+        return vec4<f32>(
+            material_linear_to_srgb_component(linear.r),
+            material_linear_to_srgb_component(linear.g),
+            material_linear_to_srgb_component(linear.b),
+            mix(first.a, second.a, factor));
+    }
+    return mix(first, second, factor);
+}
+
+fn sample_material_stops(
+    brush: MaterialBrush3D,
+    value: f32
+) -> vec4<f32> {
+    var previous = material_gradient_stops[brush.stop_offset];
+    if (value < previous.offset) {
+        return previous.color;
+    }
+    for (var index = 1u; index < brush.stop_count; index++) {
+        let current = material_gradient_stops[brush.stop_offset + index];
+        if (value < current.offset) {
+            let factor = clamp(
+                (value - previous.offset) /
+                    max(current.offset - previous.offset, 0.0001),
+                0.0,
+                1.0);
+            return interpolate_material_gradient(
+                brush, previous.color, current.color, factor);
+        }
+        previous = current;
+    }
+    return previous.color;
+}
+
+fn sample_mesh_material(
+    brush: MaterialBrush3D,
+    texture_coordinate: vec2<f32>
+) -> vec4<f32> {
+    if (brush.brush_type == 0u) {
+        return vec4<f32>(
+            brush.stop_colors0.rgb,
+            brush.stop_colors0.a * brush.opacity);
+    }
+    let coordinate = transform_material_coordinate(
+        brush, texture_coordinate);
+    var value = 0.0;
+    if (brush.brush_type == 1u) {
+        let direction = brush.gradient_end - brush.gradient_start;
+        let length_squared = dot(direction, direction);
+        if (length_squared > 0.0001) {
+            value = dot(
+                coordinate - brush.gradient_start,
+                direction) / length_squared;
+        }
+    } else {
+        let radii = max(
+            vec2<f32>(brush.gradient_radius, brush.gradient_radius_y),
+            vec2<f32>(0.0001));
+        let point = (coordinate - brush.gradient_center) / radii;
+        let origin =
+            (brush.gradient_start - brush.gradient_center) / radii;
+        let direction = point - origin;
+        let a = dot(direction, direction);
+        if (a > 0.0001) {
+            let b = 2.0 * dot(origin, direction);
+            let c = dot(origin, origin) - 1.0;
+            let discriminant = max(b * b - 4.0 * a * c, 0.0);
+            let boundary = (-b + sqrt(discriminant)) / (2.0 * a);
+            if (boundary > 0.0001) {
+                value = 1.0 / boundary;
+            }
+        }
+    }
+    if (brush.spread_method == 3u &&
+        (value < 0.0 || value > 1.0)) {
+        return vec4<f32>(0.0);
+    }
+    let color = sample_material_stops(
+        brush,
+        apply_material_spread(value, brush.spread_method));
+    return vec4<f32>(color.rgb, color.a * brush.opacity);
+}
+
 @fragment
 fn fs_mesh_3d(
     input: MeshOutput,
     @builtin(front_facing) is_front: bool
 ) -> @location(0) vec4<f32> {
     let mesh = meshes[input.material];
+    let material_sample = sample_mesh_material(
+        materials[input.material], input.texture_coordinate);
+    let material_color = input.color * material_sample;
     let camera = cameras[mesh.camera_index];
     var normal = input.normal;
     if (!is_front) {
         normal = -normal;
     }
-    var diffuse_color = mesh.color.rgb;
+    var diffuse_color = material_color.rgb;
     var texture_alpha = 1.0;
     if ((mesh.flags & 1u) != 0u) {
         let tiling = (mesh.flags >> 1u) & 3u;
@@ -721,7 +893,7 @@ fn fs_mesh_3d(
             normal,
             diffuse_color);
     }
-    solid.a *= texture_alpha;
+    solid.a *= texture_alpha * material_sample.a;
     let derivative_x = dpdx(input.barycentric);
     let derivative_y = dpdy(input.barycentric);
     let gradient = max(

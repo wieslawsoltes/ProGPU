@@ -649,8 +649,21 @@ diagnostic run of the live gradient test selected
 `Parallels Display Adapter (WDDM)`, backend `D3D12`, device type
 `DiscreteGpu`, and passed in 38.0304 seconds without a WebGPU validation or
 device error. This gate proves the same WGSL gradient ABI on Metal and D3D12;
-it does not claim native C++ gradient-material parity, which remains the next
-versioned resource slice.
+the native C++ route below now consumes the same canonical brush ABI.
+
+Native C++ Mesh3D material replay preserves the public 256-byte mesh record
+and reuses the existing 256-byte semantic brush plus 32-byte gradient-stop
+records. An optional command payload suffix follows the unchanged camera
+prefix with `progpu_native_scene_mesh_3d_materials` and one brush index per
+mesh. Legacy camera-only streams therefore retain their exact white material
+multiplier. The extended validator accepts only solid, linear, and radial
+materials, validates every stop range, and fails closed for all other kinds.
+The retained 3D hash normalizes the referenced brush-table ordinal to its
+stable identity, so unrelated resource insertion preserves the compiled page
+while a material generation change invalidates it. The MIL channel copies the
+same material and stop arrays through
+`progpu_native_mil_channel_set_viewport3d_scene_materials`; neither caller
+memory nor process-local objects survive the call.
 
 The corresponding MIL channel API now binds a copied, pointer-free flattened
 scene to a canonical `TYPE_VIEWPORT3DVISUAL` handle. It accepts the public
@@ -679,7 +692,10 @@ axis scale, `[8,6]` retained offset, 0.5 opacity, exact local rectangle clip,
 and world-space scroll clip together. The resulting transformed viewport is
 `[32,21]-[80,57]`, their effective clip is
 `[48,28.5]-[66.5,47.25]`, and all 291 colored pixels occupy
-`[48,28]-[66,47]` with the expected half-red center sample.
+`[48,28]-[66,47]` with the expected half-red center sample. Its material
+generation additionally renders one red-to-blue linear gradient through the
+native C++ MIL sideband and currently observes 75 red-dominant plus 96
+blue-dominant pixels on Apple M3 Pro Metal, with no WebGPU validation error.
 
 Mesh flags now distinguish the source-compatible two-sided mode from exact
 front-only and back-only material entries without changing the scene ABI.

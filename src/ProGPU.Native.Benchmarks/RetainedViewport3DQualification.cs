@@ -86,6 +86,14 @@ internal static class RetainedViewport3DQualification
             reverseWinding: false,
             generation: 6U,
             lights: CreateSpotLights());
+        FrameResult gradient = Render(
+            compositor,
+            context,
+            target,
+            NativeMesh3DFlags.FrontFace,
+            reverseWinding: false,
+            generation: 7U,
+            gradient: true);
 
         Require(
             front.Update.ValidationError == NativeSceneValidationError.None &&
@@ -94,32 +102,37 @@ internal static class RetainedViewport3DQualification
             orthographic.Update.ValidationError == NativeSceneValidationError.None &&
             pointLit.Update.ValidationError == NativeSceneValidationError.None &&
             spotLit.Update.ValidationError == NativeSceneValidationError.None &&
+            gradient.Update.ValidationError == NativeSceneValidationError.None &&
             front.Frame.SubmissionCount > 0U &&
             back.Frame.SubmissionCount > 0U &&
             glossy.Frame.SubmissionCount > 0U &&
             orthographic.Frame.SubmissionCount > 0U &&
             pointLit.Frame.SubmissionCount > 0U &&
             spotLit.Frame.SubmissionCount > 0U &&
+            gradient.Frame.SubmissionCount > 0U &&
             front.Frame.DrawCallCount == 1U &&
             back.Frame.DrawCallCount == 1U &&
             glossy.Frame.DrawCallCount == 1U &&
             orthographic.Frame.DrawCallCount == 1U &&
             pointLit.Frame.DrawCallCount == 1U &&
-            spotLit.Frame.DrawCallCount == 1U,
+            spotLit.Frame.DrawCallCount == 1U &&
+            gradient.Frame.DrawCallCount == 1U,
             "retained MIL Viewport3D execution failed: " +
             $"front={front.Update}/{front.Frame}, " +
             $"back={back.Update}/{back.Frame}, " +
             $"glossy={glossy.Update}/{glossy.Frame}, " +
             $"orthographic={orthographic.Update}/{orthographic.Frame}, " +
             $"point={pointLit.Update}/{pointLit.Frame}, " +
-            $"spot={spotLit.Update}/{spotLit.Frame}");
+            $"spot={spotLit.Update}/{spotLit.Frame}, " +
+            $"gradient={gradient.Update}/{gradient.Frame}");
         Require(
             IsInside(TransformedViewport, front.Extent) &&
             IsInside(TransformedViewport, back.Extent) &&
             IsInside(TransformedViewport, orthographic.Extent) &&
             IsInside(EffectiveClip, front.Extent) &&
             IsInside(EffectiveClip, back.Extent) &&
-            IsInside(EffectiveClip, orthographic.Extent),
+            IsInside(EffectiveClip, orthographic.Extent) &&
+            IsInside(EffectiveClip, gradient.Extent),
             "retained MIL Viewport3D escaped its typed viewport: " +
             $"viewport={FormatRect(TransformedViewport)}, " +
             $"clip={FormatRect(EffectiveClip)}, " +
@@ -141,6 +154,8 @@ internal static class RetainedViewport3DQualification
         RequireLitPixel(orthographic.Pixels, 56, 39);
         RequireColoredPixel(pointLit.Pixels, 56, 39, "point");
         RequireColoredPixel(spotLit.Pixels, 56, 39, "spot");
+        GradientEvidence gradientEvidence = RequireGradientPixels(
+            gradient.Pixels);
 
         Console.WriteLine(
             "Qualified live retained MIL Viewport3D placement and exact " +
@@ -153,7 +168,8 @@ internal static class RetainedViewport3DQualification
             $"extent={front.Extent}, front={front.Frame}, back={back.Frame}, " +
             $"orthographic={orthographic.Extent}/{orthographic.Frame}, " +
             $"point={FormatPixel(pointLit.Pixels, 56, 39)}, " +
-            $"spot={FormatPixel(spotLit.Pixels, 56, 39)}.");
+            $"spot={FormatPixel(spotLit.Pixels, 56, 39)}, " +
+            $"gradient={gradientEvidence}/{gradient.Frame}.");
     }
 
     private static FrameResult Render(
@@ -165,7 +181,8 @@ internal static class RetainedViewport3DQualification
         ulong generation,
         float shininess = 1f,
         bool orthographic = false,
-        NativeSceneLight3D[]? lights = null)
+        NativeSceneLight3D[]? lights = null,
+        bool gradient = false)
     {
         byte[] scene = BuildScene(
             faceMode,
@@ -173,7 +190,8 @@ internal static class RetainedViewport3DQualification
             generation,
             shininess,
             orthographic,
-            lights);
+            lights,
+            gradient);
         NativeSceneUpdateMetrics update = compositor.UpdateScene(scene);
         NativeSceneFrameMetrics frame = compositor.RenderScene(
             target,
@@ -196,7 +214,8 @@ internal static class RetainedViewport3DQualification
         ulong generation,
         float shininess,
         bool orthographic,
-        NativeSceneLight3D[]? lights)
+        NativeSceneLight3D[]? lights,
+        bool gradient)
     {
         var batch = new NativeMilBatchBuilder();
         batch.CreateResource(
@@ -239,7 +258,8 @@ internal static class RetainedViewport3DQualification
                 reverseWinding,
                 shininess,
                 orthographic,
-                lights));
+                lights,
+                gradient));
         NativeMilCompiledScene scene = channel.CompileScene(
             TargetHandle,
             SceneId,
@@ -255,12 +275,16 @@ internal static class RetainedViewport3DQualification
         bool reverseWinding,
         float shininess,
         bool orthographic,
-        NativeSceneLight3D[]? lights)
+        NativeSceneLight3D[]? lights,
+        bool gradient)
     {
         var vertices = new NativeSceneMesh3DVertex[3];
-        vertices[0] = CreateVertex(new Vector3(-0.8f, -0.8f, 0f));
-        vertices[1] = CreateVertex(new Vector3(0.8f, -0.8f, 0f));
-        vertices[2] = CreateVertex(new Vector3(0f, 0.8f, 0f));
+        vertices[0] = CreateVertex(
+            new Vector3(-0.8f, -0.8f, 0f), new Vector2(0f, 1f));
+        vertices[1] = CreateVertex(
+            new Vector3(0.8f, -0.8f, 0f), new Vector2(1f, 1f));
+        vertices[2] = CreateVertex(
+            new Vector3(0f, 0.8f, 0f), new Vector2(0.5f, 0f));
         NativeSceneLight3D[] retainedLights = lights ?? [];
         var mesh = new NativeSceneMesh3D
         {
@@ -274,17 +298,19 @@ internal static class RetainedViewport3DQualification
             IndexCount = 3U,
             ModelTransform = new NativeMatrix4x4(Matrix4x4.Identity),
             NormalTransform = new NativeMatrix4x4(Matrix4x4.Identity),
-            Color = new Vector4(1f, 0f, 0f, 1f),
+            Color = gradient
+                ? Vector4.One
+                : new Vector4(1f, 0f, 0f, 1f),
             LightDirection = Float4(0f, 0f, -1f, 0.4f),
             AmbientColor = Float4(1f, 1f, 1f, 0.2f),
             SpecularColor = Float4(0f, 1f, 0f, shininess),
             MaterialAmbient = Float4(1f, 1f, 1f, 1f),
             Opacity = 1f,
-            ShadingMode = 1U,
+            ShadingMode = gradient ? 0U : 1U,
             LightOffset = 0U,
             LightCount = (uint)retainedLights.Length
         };
-        return new NativeMilViewport3DScene(
+        var scene = new NativeMilViewport3DScene(
             new NativeSceneCamera3D(
                 orthographic
                     ? Matrix4x4.CreateOrthographic(
@@ -307,6 +333,27 @@ internal static class RetainedViewport3DQualification
             vertices,
             reverseWinding ? [0U, 2U, 1U] : [0U, 1U, 2U],
             retainedLights);
+        if (!gradient)
+        {
+            return scene;
+        }
+        NativeSceneGradientStop[] stops =
+        [
+            new(new Vector4(1f, 0f, 0f, 1f), 0f),
+            new(new Vector4(0f, 0f, 1f, 1f), 1f)
+        ];
+        return scene with
+        {
+            Materials =
+            [
+                NativeSceneBrush.LinearGradient(
+                    Vector2.Zero,
+                    Vector2.UnitX,
+                    0U,
+                    stops)
+            ],
+            GradientStops = stops
+        };
     }
 
     private static NativeSceneLight3D[] CreatePointLights() =>
@@ -346,12 +393,14 @@ internal static class RetainedViewport3DQualification
             Color = color
         };
 
-    private static NativeSceneMesh3DVertex CreateVertex(Vector3 position) =>
+    private static NativeSceneMesh3DVertex CreateVertex(
+        Vector3 position,
+        Vector2 textureCoordinate = default) =>
         new()
         {
             Position = new NativePoint3D(position),
             Normal = new NativePoint3D(new Vector3(0f, 0f, 1f)),
-            TextureCoordinate = Vector2.Zero,
+            TextureCoordinate = textureCoordinate,
             Reserved0 = 0U,
             Reserved1 = 0U
         };
@@ -416,6 +465,34 @@ internal static class RetainedViewport3DQualification
             $"retained MIL {family} light left the center pixel unlit");
     }
 
+    private static GradientEvidence RequireGradientPixels(byte[] pixels)
+    {
+        int redDominant = 0;
+        int blueDominant = 0;
+        for (int y = 0; y < Height; ++y)
+        {
+            for (int x = 0; x < Width; ++x)
+            {
+                int offset = checked((y * (int)Width + x) * 4);
+                int red = pixels[offset];
+                int blue = pixels[offset + 2];
+                if (red > blue + 24)
+                {
+                    ++redDominant;
+                }
+                else if (blue > red + 24)
+                {
+                    ++blueDominant;
+                }
+            }
+        }
+        Require(
+            redDominant >= 8 && blueDominant >= 8,
+            "retained MIL gradient material did not produce distinct " +
+            $"red/blue GPU regions: red={redDominant}, blue={blueDominant}");
+        return new GradientEvidence(redDominant, blueDominant);
+    }
+
     private static string FormatPixel(byte[] pixels, int x, int y)
     {
         int offset = checked((y * (int)Width + x) * 4);
@@ -462,4 +539,8 @@ internal static class RetainedViewport3DQualification
         NativeSceneFrameMetrics Frame,
         byte[] Pixels,
         PixelExtent Extent);
+
+    private readonly record struct GradientEvidence(
+        int RedDominantPixels,
+        int BlueDominantPixels);
 }

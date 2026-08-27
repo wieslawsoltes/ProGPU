@@ -1324,17 +1324,28 @@ progpu_native_status render_scene(
                 break;
             }
             case PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH: {
+                const std::uint64_t mesh_count = resource.payload_size /
+                    sizeof(progpu_native_scene_mesh_3d);
+                const std::uint64_t material_payload_size =
+                    sizeof(progpu_native_scene_camera_3d) +
+                    sizeof(progpu_native_scene_mesh_3d_materials) +
+                    mesh_count * sizeof(std::uint32_t);
                 valid = resource.kind ==
                         PROGPU_NATIVE_SCENE_RESOURCE_MESH_3D_BATCH &&
                     resource.payload_size != 0U &&
                     resource.auxiliary_size != 0U &&
                     span_is_multiple(resource.payload_size,
                         sizeof(progpu_native_scene_mesh_3d)) &&
-                    command.payload_size ==
-                        sizeof(progpu_native_scene_camera_3d);
+                    (command.payload_size ==
+                            sizeof(progpu_native_scene_camera_3d) ||
+                        command.payload_size == material_payload_size);
                 compiled_vertex_bytes = resource.payload_size +
                     resource.auxiliary_size +
-                    sizeof(progpu::native::three_d::camera_record);
+                    sizeof(progpu::native::three_d::camera_record) +
+                    (command.payload_size == material_payload_size
+                        ? command.payload_size -
+                            sizeof(progpu_native_scene_camera_3d)
+                        : 0U);
                 break;
             }
             default:

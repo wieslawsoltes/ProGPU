@@ -452,7 +452,20 @@ public sealed record NativeMilViewport3DScene(
     NativeSceneMesh3D[] Meshes,
     NativeSceneMesh3DVertex[] Vertices,
     uint[] Indices,
-    NativeSceneLight3D[] Lights);
+    NativeSceneLight3D[] Lights)
+{
+    /// <summary>
+    /// Optional canonical material table with exactly one solid, linear, or
+    /// radial brush per mesh. An empty table preserves the legacy white
+    /// material multiplier.
+    /// </summary>
+    public NativeSceneBrush[] Materials { get; init; } = [];
+
+    /// <summary>
+    /// Gradient stops addressed by <see cref="Materials"/> stop ranges.
+    /// </summary>
+    public NativeSceneGradientStop[] GradientStops { get; init; } = [];
+}
 
 public sealed class NativeMilException : Exception
 {

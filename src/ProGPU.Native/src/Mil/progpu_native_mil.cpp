@@ -2,6 +2,7 @@
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_text.hpp"
 #include "../Geometry/progpu_native_arc.hpp"
+#include "../Scene/progpu_native_semantic_brush.hpp"
 #include "../Scene/progpu_native_semantic_validation.hpp"
 
 #include <algorithm>
@@ -934,6 +935,8 @@ struct channel::implementation {
         std::vector<progpu_native_scene_mesh_3d_vertex> vertices;
         std::vector<std::uint32_t> indices;
         std::vector<progpu_native_scene_light_3d> lights;
+        std::vector<progpu_native_scene_brush> materials;
+        std::vector<progpu_native_scene_gradient_stop> gradient_stops;
     };
 
     std::unordered_map<std::uint32_t, resource_state> resources;
@@ -11658,6 +11661,8 @@ struct channel::implementation {
                             scene->second.vertices,
                             scene->second.indices,
                             scene->second.lights,
+                            scene->second.materials,
+                            scene->second.gradient_stops,
                             scene->second.camera,
                             viewport,
                             viewport_state_index)) {
@@ -11911,14 +11916,40 @@ status channel::set_viewport3d_scene(
     std::span<const progpu_native_scene_mesh_3d_vertex> vertices,
     std::span<const std::uint32_t> indices,
     std::span<const progpu_native_scene_light_3d> lights) noexcept {
+    return set_viewport3d_scene(
+        handle,
+        camera,
+        viewport,
+        meshes,
+        vertices,
+        indices,
+        lights,
+        std::span<const progpu_native_scene_brush>{},
+        std::span<const progpu_native_scene_gradient_stop>{});
+}
+
+status channel::set_viewport3d_scene(
+    std::uint32_t handle,
+    const progpu_native_scene_camera_3d& camera,
+    progpu_native_image_rect viewport,
+    std::span<const progpu_native_scene_mesh_3d> meshes,
+    std::span<const progpu_native_scene_mesh_3d_vertex> vertices,
+    std::span<const std::uint32_t> indices,
+    std::span<const progpu_native_scene_light_3d> lights,
+    std::span<const progpu_native_scene_brush> materials,
+    std::span<const progpu_native_scene_gradient_stop>
+        gradient_stops) noexcept {
     if (!implementation_->require_resource(handle, type_viewport3d_visual) ||
         !implementation_->visuals.contains(handle)) {
         return status::invalid_handle;
     }
     const std::uint64_t payload_bytes =
         static_cast<std::uint64_t>(meshes.size_bytes()) +
-        vertices.size_bytes() + indices.size_bytes() + lights.size_bytes();
+        vertices.size_bytes() + indices.size_bytes() + lights.size_bytes() +
+        materials.size_bytes() + gradient_stops.size_bytes();
     if (meshes.empty() || vertices.empty() || indices.empty() ||
+        (!materials.empty() && materials.size() != meshes.size()) ||
+        (materials.empty() && !gradient_stops.empty()) ||
         meshes.size() > std::numeric_limits<std::uint32_t>::max() ||
         vertices.size() > std::numeric_limits<std::uint32_t>::max() ||
         indices.size() > std::numeric_limits<std::uint32_t>::max() ||
@@ -11936,6 +11967,15 @@ status channel::set_viewport3d_scene(
     }
     for (const auto& light : lights) {
         if (!semantic::is_valid_semantic_light_3d(light)) {
+            return status::invalid_argument;
+        }
+    }
+    for (const auto& material : materials) {
+        if (!semantic::is_valid_semantic_brush(
+                material, gradient_stops) ||
+            (material.type != PROGPU_NATIVE_SCENE_BRUSH_SOLID &&
+                material.type != PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT &&
+                material.type != PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT)) {
             return status::invalid_argument;
         }
     }
@@ -11961,6 +12001,9 @@ status channel::set_viewport3d_scene(
         scene.vertices.assign(vertices.begin(), vertices.end());
         scene.indices.assign(indices.begin(), indices.end());
         scene.lights.assign(lights.begin(), lights.end());
+        scene.materials.assign(materials.begin(), materials.end());
+        scene.gradient_stops.assign(
+            gradient_stops.begin(), gradient_stops.end());
         implementation_->viewport3d_scenes.insert_or_assign(
             handle, std::move(scene));
         implementation_->increment_generation(handle);
