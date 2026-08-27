@@ -510,8 +510,22 @@ configuration changes; each document compile captures that generation once so
 concurrent host registration cannot mix font policy inside one snapshot. The
 shared sample exposes this catalog so desktop code can
 register discovered support files and browser code can register bundled byte
-assets through the same API. Ordered filesystem search and FMP text-file parsing
-remain host initialization work rather than synchronous snapshot behavior.
+assets through the same API. Ordered filesystem search remains host
+initialization work rather than synchronous snapshot behavior.
+
+`CadFontMappingTable.Parse` provides the bounded configuration seam for the
+documented FMP format. It accepts ordinary ASCII input containing exactly one
+requested/replacement pair per non-empty line, separated by one semicolon;
+requested names contain no path and may omit their extension, while replacement
+filenames require an extension. It trims only surrounding ASCII space/tab and
+rejects comments or other undocumented syntax, duplicate requested names,
+paths, control/non-ASCII bytes, ambiguous separators, missing extensions, and
+empty tables. Defaults cap the source at 1 MiB, 16,384 mappings, and 1,024 bytes
+per line. Parsing is `O(B)` time and `O(M + T)` retained storage for source bytes
+`B`, mappings `M`, and filename characters `T`. Applying an SHX-to-SHX table to
+`CadShxFontCatalog` validates the complete table before changing one resolver
+generation; cross-kind mappings remain retained configuration data for the later
+unified TrueType/SHX resolver and cannot silently enter the standard SHX path.
 
 The snapshot owns packed `CadShxGlyphInstance` placements but references the
 resolver-owned immutable `CadShxGlyph` metadata. Plan recording is `O(G)` and
@@ -788,15 +802,19 @@ Sources consulted on 2026-08-27:
   Big Font records as standard shapes.
 - [Autodesk support-file search-path contract](https://help.autodesk.com/cloudhelp/2027/ENG/AutoCAD-Core/files/GUID-F95EE827-7567-44EA-9D69-E9D0D37EE13F.htm),
   [FONTMAP contract](https://help.autodesk.com/cloudhelp/2027/ENU/AutoCAD-Core/files/GUID-FC45A5DC-31F5-4725-A482-C95769273C1C.htm),
+  [font-substitution and FMP editing contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-LT/files/GUID-928DF015-1E04-4CC2-AF1B-0037548DFBAE.htm),
   and [missing-SHX resolution guidance](https://help.autodesk.com/view/ACADWEB/ENU/?caas=caas%2Fsfdcarticles%2Fsfdcarticles%2FAutoCAD-cannot-find-SHX-font.html):
   adopted ordered exact-filename lookup, mapping-before-original resolution,
   fallback to the original when a mapped target is missing, same-drawing/support
-  path host discovery, and explicit replacement diagnostics. Adapted these into
-  a browser-neutral pre-registered immutable catalog; rejected synchronous file
-  IO during snapshot compilation, platform-global registry state, unreported
-  alternate-font use, and treating a missing mapped font as missing original
-  content. The current mapping seam is deliberately SHX-to-SHX; cross-kind
-  SHX-to-TrueType FMP policy requires a later unified resolver contract.
+  path host discovery, ordinary ASCII one-pair-per-line mapping files,
+  extensionless/pathless requested names, extension-bearing substitutes, and
+  explicit replacement diagnostics. Adapted these into a browser-neutral
+  pre-registered immutable catalog and strict bounded parser; rejected
+  synchronous file IO during snapshot compilation, undocumented comment syntax,
+  platform-global registry state, unreported alternate-font use, and treating a
+  missing mapped font as missing original content. The current catalog-application
+  seam is deliberately SHX-to-SHX; cross-kind SHX-to-TrueType FMP policy requires
+  a later unified resolver contract.
 - [Autodesk vertical text-style behavior](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-32786109-F454-47DD-AA4C-FB8C37F4430D.htm)
   and [Text Style dialog contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-1ED81E98-6463-4574-875F-183C8280C4AC.htm):
   adopted vertical SHX/Big Font mode as a distinct font capability and retained

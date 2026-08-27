@@ -133,11 +133,11 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver
     /// Maps one requested SHX filename to another registered SHX filename.
     /// A missing mapped target falls back to the original requested filename.
     /// </summary>
-    public void SetMapping(string requestedFontFilename, string replacementFontFilename)
+    public void SetMapping(string requestedFontName, string replacementFontFilename)
     {
-        string requested = NormalizeShxFilename(
-            requestedFontFilename,
-            nameof(requestedFontFilename));
+        string requested = NormalizeMappingSource(
+            requestedFontName,
+            nameof(requestedFontName));
         string replacement = NormalizeShxFilename(
             replacementFontFilename,
             nameof(replacementFontFilename));
@@ -148,11 +148,47 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver
         }
     }
 
-    public bool RemoveMapping(string requestedFontFilename)
+    /// <summary>
+    /// Applies the SHX-to-SHX subset of a parsed AutoCAD font mapping table.
+    /// The operation validates every entry before changing catalog state.
+    /// </summary>
+    public void ApplyShxMappings(CadFontMappingTable table)
     {
-        string requested = NormalizeShxFilename(
-            requestedFontFilename,
-            nameof(requestedFontFilename));
+        ArgumentNullException.ThrowIfNull(table);
+        ReadOnlySpan<CadFontMapping> source = table.Mappings.Span;
+        var mappings = new KeyValuePair<string, string>[source.Length];
+        var requestedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < source.Length; i++)
+        {
+            string requested = NormalizeMappingSource(
+                source[i].RequestedFontName,
+                nameof(table));
+            string replacement = NormalizeShxFilename(
+                source[i].ReplacementFontFilename,
+                nameof(table));
+            if (!requestedNames.Add(requested))
+            {
+                throw new InvalidDataException(
+                    $"Font mapping table contains duplicate SHX source '{requested}'.");
+            }
+            mappings[i] = new KeyValuePair<string, string>(requested, replacement);
+        }
+
+        lock (_gate)
+        {
+            foreach (KeyValuePair<string, string> mapping in mappings)
+            {
+                _mappings[mapping.Key] = mapping.Value;
+            }
+            _resolverSnapshot = null;
+        }
+    }
+
+    public bool RemoveMapping(string requestedFontName)
+    {
+        string requested = NormalizeMappingSource(
+            requestedFontName,
+            nameof(requestedFontName));
         lock (_gate)
         {
             bool removed = _mappings.Remove(requested);
@@ -197,9 +233,16 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver
 
         string primary = NormalizeOptionalLookupName(request.PrimaryFontFilename);
         string style = NormalizeOptionalLookupName(request.StyleName);
+        string mappingSource = NormalizeOptionalMappingSource(primary);
         lock (_gate)
         {
-            return ResolveCore(primary, style, _fonts, _mappings, _alternate);
+            return ResolveCore(
+                primary,
+                mappingSource,
+                style,
+                _fonts,
+                _mappings,
+                _alternate);
         }
     }
 
@@ -220,13 +263,14 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver
 
     private static CadShxFontResolution ResolveCore(
         string primary,
+        string mappingSource,
         string style,
         IReadOnlyDictionary<string, Entry> fonts,
         IReadOnlyDictionary<string, string> mappings,
         Entry? alternate)
     {
-        if (primary.Length != 0 &&
-            mappings.TryGetValue(primary, out string? mappedName) &&
+        if (mappingSource.Length != 0 &&
+            mappings.TryGetValue(mappingSource, out string? mappedName) &&
             fonts.TryGetValue(mappedName, out Entry? mapped))
         {
             return Resolution(mapped, isSubstitution: true);
@@ -257,6 +301,34 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver
                 parameterName);
         }
         return key;
+    }
+
+    private static string NormalizeMappingSource(string value, string parameterName)
+    {
+        string key = NormalizeLookupName(value, parameterName);
+        int extension = key.LastIndexOf('.');
+        if (extension < 0)
+        {
+            return key;
+        }
+        if (!key.EndsWith(".shx", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "An SHX mapping source must omit its extension or use .shx.",
+                parameterName);
+        }
+        return key[..^4];
+    }
+
+    private static string NormalizeOptionalMappingSource(string primary)
+    {
+        if (primary.Length == 0)
+        {
+            return string.Empty;
+        }
+        return primary.EndsWith(".shx", StringComparison.OrdinalIgnoreCase)
+            ? primary[..^4]
+            : primary;
     }
 
     private static string NormalizeLookupName(string value, string parameterName)
@@ -296,8 +368,10 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver
             {
                 return default;
             }
+            string primary = NormalizeOptionalLookupName(request.PrimaryFontFilename);
             return ResolveCore(
-                NormalizeOptionalLookupName(request.PrimaryFontFilename),
+                primary,
+                NormalizeOptionalMappingSource(primary),
                 NormalizeOptionalLookupName(request.StyleName),
                 fonts,
                 mappings,
