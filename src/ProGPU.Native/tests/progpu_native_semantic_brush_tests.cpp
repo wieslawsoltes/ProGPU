@@ -200,7 +200,7 @@ bool semantic_perlin_brush_table_is_exact_and_bounded() {
         }};
     auto path_resource = resource;
     path_resource.auxiliary_size =
-        path_records.size() * sizeof(path_records[0]);
+        static_cast<std::uint32_t>(sizeof(path_records));
     std::memcpy(bytes.data() + brush_offset, &path, sizeof(path));
     std::memcpy(
         bytes.data() + table_offset,
