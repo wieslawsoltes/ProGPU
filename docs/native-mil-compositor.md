@@ -368,6 +368,28 @@ regression coverage asserts the exact relative-gradient endpoints and draw
 bounds for both shapes; all eight locally configured CTests pass on Apple
 Silicon.
 
+Exact implementation `a124dcb905dc9ef3156856c8685672c3b1feee20` was
+qualified in the Windows 11 ARM64 Parallels guest from archive SHA-256
+`D38337F1AFB33F7E5C4DA9D6BC08D65AEBC544C4E9E5881CE2FD3BF56A672832`.
+Strict MSVC/Ninja rebuilt both native providers without warnings or errors and
+all 11 CTests passed, including the asymmetric Flat/Triangle line and round
+point-ellipse gradient regression. The native D3D12 sample selected
+`Parallels Display Adapter (WDDM)` and reproduced Metal's exact four Pad
+samples: `250/133/20`, `0/255/4`, `0/255/253`, and `184/51/245`. The full
+managed graph built with zero warnings/errors in 3:52; one builder, five 2D
+gradient, one ordinary Mesh3D-gradient, and one specular Mesh3D-gradient test
+then passed on D3D12. The specular readback retained 3,304 red-dominant and
+3,304 blue-dominant pixels with maximum channel deltas of 134. A first combined
+managed test host encountered a native `wgpuDevicePoll` access violation after
+the independent native sample. Fresh isolated hosts passed every group,
+including the exact ordinary test at the crash site, identifying the event as
+VM/provider process-lifetime interference rather than a reproducible MIL or
+shader failure. Qualified provider hashes are
+`8213074DAB22FBBAD630BEAF8BF87E09522B77730E7D92E5E33812BC9C68590D` for
+`progpu_native.dll` and
+`0E2C0667243F49475E81B23FF7E56999F7E4095D906B1A283637EB7CC148B47E` for
+`progpu_native_dawn.dll`.
+
 Canonical `MILCMD_GEOMETRYDRAWING` resource `87` and nested
 `MILCMD_DRAW_DRAWING` command `0x4a` are retained as typed native state. A
 geometry drawing keeps nullable brush, pen, and geometry handles and resolves
