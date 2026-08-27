@@ -47,6 +47,7 @@ public partial class Graphics :
     private Point _renderingOrigin;
     private int _textContrast = 4;
     private Region? _clip;
+    private Matrix3x2 _clipContextTransform = Matrix3x2.Identity;
     private bool _hasPushedClip;
     private bool _hasPushedCompositingMode;
     private int _disposed;
@@ -882,6 +883,7 @@ public partial class Graphics :
         _hasPushedClip = false;
         _clip?.Dispose();
         _clip = null;
+        _clipContextTransform = Matrix3x2.Identity;
 
         _transform.Dispose();
         _transform = new Matrix();
@@ -916,7 +918,8 @@ public partial class Graphics :
             CompositingQuality,
             RenderingOrigin,
             TextContrast,
-            _clip?.Clone()));
+            _clip?.Clone(),
+            _clipContextTransform));
     }
 
     private int FindSavedContext(object state, bool isContainer)
@@ -963,7 +966,7 @@ public partial class Graphics :
         _compositingQuality = saved.CompositingQuality;
         _renderingOrigin = saved.RenderingOrigin;
         _textContrast = saved.TextContrast;
-        ReplaceClip(saved.Clip?.Clone());
+        ReplaceClip(saved.Clip?.Clone(), saved.ClipContextTransform);
 
         for (int index = stateIndex; index < _savedStates.Count; index++)
         {
@@ -1002,7 +1005,8 @@ public partial class Graphics :
         CompositingQuality CompositingQuality,
         Point RenderingOrigin,
         int TextContrast,
-        Region? Clip);
+        Region? Clip,
+        Matrix3x2 ClipContextTransform);
 
     public void SetClip(Graphics g) => SetClip(g, CombineMode.Replace);
 
@@ -1077,7 +1081,7 @@ public partial class Graphics :
 
     public void ResetClip() => ReplaceClip(null);
 
-    private void ReplaceClip(Region? clip)
+    private void ReplaceClip(Region? clip, Matrix3x2? contextTransform = null)
     {
         if (_hasPushedClip)
         {
@@ -1087,6 +1091,9 @@ public partial class Graphics :
 
         _clip?.Dispose();
         _clip = clip;
+        _clipContextTransform = clip is null
+            ? Matrix3x2.Identity
+            : contextTransform ?? GetCumulativeContextTransform();
         PushCurrentClip();
     }
 

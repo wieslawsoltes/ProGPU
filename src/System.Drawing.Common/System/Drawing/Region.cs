@@ -187,6 +187,12 @@ public sealed class Region : MarshalByRefObject, IDisposable
         return _expression.Kind == RegionExpressionKind.Infinite;
     }
 
+    internal bool IsInfiniteForContext()
+    {
+        ThrowIfDisposed();
+        return _expression.Kind == RegionExpressionKind.Infinite;
+    }
+
     public bool IsVisible(int x, int y) => IsVisible((float)x, y);
     public bool IsVisible(float x, float y) => ContainsPoint(new Vector2(x, y));
     public bool IsVisible(Point point) => IsVisible(point.X, point.Y);
