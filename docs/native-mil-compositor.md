@@ -697,6 +697,20 @@ generation additionally renders one red-to-blue linear gradient through the
 native C++ MIL sideband and currently observes 75 red-dominant plus 96
 blue-dominant pixels on Apple M3 Pro Metal, with no WebGPU validation error.
 
+Exact pushed implementation `318c0b0a` is also qualified from a SHA-256-
+verified isolated source archive in the Windows 11 ARM64 Parallels guest.
+ARM64 MSVC 19.44 compiled both native providers under `/W4 /WX`; both export
+allowlists matched and all 11 native/Dawn CTests passed. The managed
+differential harness built with zero warnings and selected
+`Parallels Display Adapter (WDDM)`, backend `D3D12`, device type
+`DiscreteGpu`. Its live `--semantic-viewport3d` readback preserved the same
+291-pixel clipped extent and observed exactly 75 red-dominant plus 96
+blue-dominant pixels without a WebGPU validation or device error. SHA-256 is
+`9F15D58AE625541CCB327830B94CC8DCB678DCCFE528E95C477368E4E06C2589`
+for `progpu_native.dll` and
+`09504155E390F0AF8BDA46F7269FE36F0201097714B92060F4B74E470CE973AE`
+for `progpu_native_dawn.dll`.
+
 Mesh flags now distinguish the source-compatible two-sided mode from exact
 front-only and back-only material entries without changing the scene ABI.
 Front entries use the shared triangle-list pipeline with back-face culling;
