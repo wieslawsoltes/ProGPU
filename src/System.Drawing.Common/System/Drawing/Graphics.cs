@@ -1,5 +1,6 @@
 using ProGPU.Backend;
 using ProGPU.Scene;
+using ProGPU.SystemDrawing;
 using ProGPU.Vector;
 using System;
 using System.Collections.Generic;
@@ -291,6 +292,85 @@ public partial class Graphics :
             "HDC import requires the explicit Windows GDI drawing adapter.");
 
     public static Graphics FromHdc(IntPtr hdc, IntPtr hdevice) => FromHdc(hdc);
+
+    public void CopyFromScreen(
+        Point upperLeftSource,
+        Point upperLeftDestination,
+        Size blockRegionSize)
+        => CopyFromScreen(
+            upperLeftSource.X,
+            upperLeftSource.Y,
+            upperLeftDestination.X,
+            upperLeftDestination.Y,
+            blockRegionSize,
+            CopyPixelOperation.SourceCopy);
+
+    public void CopyFromScreen(
+        Point upperLeftSource,
+        Point upperLeftDestination,
+        Size blockRegionSize,
+        CopyPixelOperation copyPixelOperation)
+        => CopyFromScreen(
+            upperLeftSource.X,
+            upperLeftSource.Y,
+            upperLeftDestination.X,
+            upperLeftDestination.Y,
+            blockRegionSize,
+            copyPixelOperation);
+
+    public void CopyFromScreen(
+        int sourceX,
+        int sourceY,
+        int destinationX,
+        int destinationY,
+        Size blockRegionSize)
+        => CopyFromScreen(
+            sourceX,
+            sourceY,
+            destinationX,
+            destinationY,
+            blockRegionSize,
+            CopyPixelOperation.SourceCopy);
+
+    public void CopyFromScreen(
+        int sourceX,
+        int sourceY,
+        int destinationX,
+        int destinationY,
+        Size blockRegionSize,
+        CopyPixelOperation copyPixelOperation)
+    {
+        ThrowIfDisposed();
+        ValidateCopyPixelOperation(copyPixelOperation);
+        if (blockRegionSize.Width < 0 || blockRegionSize.Height < 0)
+        {
+            throw new ArgumentException("The capture size cannot be negative.", nameof(blockRegionSize));
+        }
+
+        if (blockRegionSize.IsEmpty)
+        {
+            return;
+        }
+
+        int operation = (int)copyPixelOperation;
+        int modifiers = (int)(CopyPixelOperation.CaptureBlt | CopyPixelOperation.NoMirrorBitmap);
+        int baseOperation = operation & ~modifiers;
+        if (baseOperation != (int)CopyPixelOperation.SourceCopy)
+        {
+            throw new NotSupportedException(
+                "Portable desktop capture currently supports SourceCopy with optional CaptureBlt and NoMirrorBitmap modifiers. Other raster operations require a typed destination and pattern-brush backend contract.");
+        }
+
+        var sourceRectangle = new Rectangle(sourceX, sourceY, blockRegionSize.Width, blockRegionSize.Height);
+        byte[] pixels = GC.AllocateUninitializedArray<byte>(
+            checked(blockRegionSize.Width * blockRegionSize.Height * 4));
+        DesktopCaptureServices.Current.Capture(sourceRectangle, pixels);
+        using Bitmap snapshot = Bitmap.CreateOwnedRgba(
+            blockRegionSize.Width,
+            blockRegionSize.Height,
+            pixels);
+        DrawImageUnscaled(snapshot, destinationX, destinationY);
+    }
 
     public static Graphics FromProGpuDrawingContext(
         DrawingContext drawingContext,
@@ -4262,6 +4342,37 @@ public partial class Graphics :
         if (Volatile.Read(ref _disposed) != 0)
         {
             throw new ArgumentException("Parameter is not valid.");
+        }
+    }
+
+    private static void ValidateCopyPixelOperation(CopyPixelOperation operation)
+    {
+        int value = (int)operation;
+        int modifiers = (int)(CopyPixelOperation.CaptureBlt | CopyPixelOperation.NoMirrorBitmap);
+        int baseOperation = value & ~modifiers;
+        bool validBase = baseOperation is
+            (int)CopyPixelOperation.Blackness or
+            (int)CopyPixelOperation.DestinationInvert or
+            (int)CopyPixelOperation.MergeCopy or
+            (int)CopyPixelOperation.MergePaint or
+            (int)CopyPixelOperation.NotSourceCopy or
+            (int)CopyPixelOperation.NotSourceErase or
+            (int)CopyPixelOperation.PatCopy or
+            (int)CopyPixelOperation.PatInvert or
+            (int)CopyPixelOperation.PatPaint or
+            (int)CopyPixelOperation.SourceAnd or
+            (int)CopyPixelOperation.SourceCopy or
+            (int)CopyPixelOperation.SourceErase or
+            (int)CopyPixelOperation.SourceInvert or
+            (int)CopyPixelOperation.SourcePaint or
+            (int)CopyPixelOperation.Whiteness;
+        bool modifierOnly = baseOperation == 0 && (value & modifiers) != 0;
+        if (!validBase && !modifierOnly)
+        {
+            throw new InvalidEnumArgumentException(
+                nameof(operation),
+                value,
+                typeof(CopyPixelOperation));
         }
     }
 

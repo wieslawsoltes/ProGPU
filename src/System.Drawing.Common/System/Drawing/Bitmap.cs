@@ -833,6 +833,27 @@ public class Bitmap : Image, IProGpuContextTextureLeaseSource
         return bitmap;
     }
 
+    internal static Bitmap CreateOwnedRgba(int width, int height, byte[] pixels)
+    {
+        ArgumentNullException.ThrowIfNull(pixels);
+        if (width <= 0 || height <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width), "Captured dimensions must be positive.");
+        }
+
+        if (pixels.Length != checked(width * height * 4))
+        {
+            throw new ArgumentException("The RGBA buffer length does not match its dimensions.", nameof(pixels));
+        }
+
+        return CreateFromPixels(
+            width,
+            height,
+            pixels,
+            GpuTextureAlphaMode.Straight,
+            PixelFormat.Format32bppArgb);
+    }
+
     private static void ValidateConcretePixelFormat(PixelFormat format)
     {
         if (!PixelFormatInfo.IsConcrete(format))
