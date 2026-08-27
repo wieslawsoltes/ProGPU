@@ -287,17 +287,24 @@ an interactive browser picker/download smoke remains open.
   It executes only repository-defined `CadEditCommand` implementations; the
   abstract mutation methods are internal so consumers cannot inject an
   unvalidated arbitrary command behind the history contract.
-- The first commands translate a deduplicated stable handle set and set entity
-  visibility. They resolve every model-space handle before mutation, preserve
-  the original visibility vector, apply exact inverse translation for undo,
-  and advance one document generation for execute, undo, or redo.
+- The first commands translate a deduplicated stable handle set, set entity
+  visibility, and add or remove one model-space entity. They resolve every
+  model-space handle before mutation, preserve the original visibility vector,
+  apply exact inverse translation for undo, and advance one document generation
+  for execute, undo, or redo. Add requires a detached zero-handle object; remove
+  retains the same object for undo and treats a collection cancellation as a
+  failed command with no published generation.
 - A direct session edit from another owner invalidates both history branches.
   The expected generation is checked again under the document lock so a race
   cannot apply an undo to the wrong document state. Failed resolution or command
   execution does not publish a generation or enter history.
-- Commands are typed and operate on handles. Each command records enough prior
-  semantic state for deterministic undo/redo without retaining a duplicate full
-  document.
+- Commands are typed and begin from handles or an explicitly transferred
+  detached entity. ACadSharp assigns a new handle when a removed object is added
+  back, so applied commands retain and revalidate object identity after their
+  first handle resolution. This lets an earlier translate/visibility command
+  undo correctly across delete/restore without guessing or mutating ACadSharp's
+  handle allocator. Each command records only enough prior semantic state for
+  deterministic undo/redo, never a duplicate full document.
 - Nested edits publish one atomic generation. Selection, hover, camera, and
   temporary tool overlays are view state and do not dirty the document.
 - Background compilation captures a generation and publishes only if it still
@@ -747,10 +754,15 @@ dotnet run --project src/ProGPU.CAD.Sample.Browser -c Debug
 Sources consulted on 2026-08-27:
 
 - [ACadSharp repository and format support](https://github.com/DomCR/ACadSharp)
-  and [reader API](https://github.com/DomCR/ACadSharp/blob/master/docs/articles/samples/reading.md):
+  [reader API](https://github.com/DomCR/ACadSharp/blob/master/docs/articles/samples/reading.md),
+  and the pinned fork's public
+  [`CadObjectCollection<T>` contract](https://github.com/wieslawsoltes/ACadSharp/blob/b469bd1ec7db6d7d364425f6165609e5ccf09b04/src/ACadSharp/CadObjectCollection.cs):
   adopted `CadDocument` plus format-specific reader/writer ownership; adapted
-  behind typed store/diagnostic/capability services; rejected extension-only
-  validation and unconditional DWG-save claims.
+  behind typed store/diagnostic/capability services. Add/remove command design
+  uses only the public collection ownership, cancellation, and observable handle
+  reassignment contracts; it retains ProGPU command state rather than copying
+  collection implementation text or structure. Rejected extension-only
+  validation, unconditional DWG-save claims, and private handle manipulation.
 - [Autodesk DXF object coordinate systems](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-D99F1509-E4E4-47A3-8691-92EA07DC88F5.htm):
   adopted OCS/elevation/extrusion normalization and arbitrary-axis conformance.
 - [Autodesk ELLIPSE entity contract](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-107CB04F-AD4D-4D2F-8EC9-AC90888063AB.htm),

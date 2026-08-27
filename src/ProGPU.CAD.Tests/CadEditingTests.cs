@@ -119,4 +119,94 @@ public sealed class CadEditingTests
         Assert.Equal(XYZ.Zero, line.StartPoint);
         Assert.True(line.IsInvisible);
     }
+
+    [Fact]
+    public void AddCommandRoundTripsEntityOwnershipAndSnapshotContent()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        var history = new CadDocumentHistory(session);
+        var line = new Line(new XYZ(2, 3, 0), new XYZ(7, 11, 0));
+        var command = new CadAddModelSpaceEntityCommand(line, "Add line");
+
+        history.Execute(command);
+
+        Assert.NotEqual(0UL, command.CurrentHandle);
+        Assert.Same(
+            session.Read(document => document.ModelSpace),
+            line.Owner);
+        Assert.Single(new CadSnapshotCompiler().Compile(session).Entities.ToArray());
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(0UL, command.CurrentHandle);
+        Assert.Null(line.Owner);
+        Assert.Empty(new CadSnapshotCompiler().Compile(session).Entities.ToArray());
+
+        Assert.True(history.TryRedo(out _));
+        Assert.NotEqual(0UL, command.CurrentHandle);
+        Assert.Single(new CadSnapshotCompiler().Compile(session).Entities.ToArray());
+    }
+
+    [Fact]
+    public void RemoveUndoRestoresPriorCommandsAcrossHandleReassignment()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(1, 2, 0), new XYZ(4, 6, 0));
+        document.Entities.Add(line);
+        ulong originalHandle = line.Handle;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        history.Execute(new CadTranslateEntitiesCommand(
+            [originalHandle],
+            new CadPoint3D(10, 0, 0)));
+        var remove = new CadRemoveModelSpaceEntityCommand(originalHandle, "Delete line");
+
+        history.Execute(remove);
+
+        Assert.Equal(0UL, line.Handle);
+        Assert.Empty(new CadSnapshotCompiler().Compile(session).Entities.ToArray());
+        Assert.True(history.TryUndo(out _));
+        Assert.NotEqual(0UL, remove.CurrentHandle);
+        Assert.Single(new CadSnapshotCompiler().Compile(session).Entities.ToArray());
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(new XYZ(1, 2, 0), line.StartPoint);
+        Assert.Equal(new XYZ(4, 6, 0), line.EndPoint);
+
+        Assert.True(history.TryRedo(out _));
+        Assert.Equal(new XYZ(11, 2, 0), line.StartPoint);
+        Assert.True(history.TryRedo(out _));
+        Assert.Equal(0UL, line.Handle);
+        Assert.Empty(new CadSnapshotCompiler().Compile(session).Entities.ToArray());
+    }
+
+    [Fact]
+    public void CancelledRemovalDoesNotAdvanceGenerationOrHistory()
+    {
+        var document = new CadDocument();
+        var line = new Line(XYZ.Zero, XYZ.AxisX);
+        document.Entities.Add(line);
+        document.Entities.OnBeforeRemove += (_, args) => args.Cancel = true;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadRemoveModelSpaceEntityCommand(line.Handle)));
+
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(0, history.UndoCount);
+        Assert.Same(document.ModelSpace, line.Owner);
+        Assert.NotEqual(0UL, line.Handle);
+    }
+
+    [Fact]
+    public void AddAndRemoveCommandsRejectInvalidInitialOwnership()
+    {
+        var document = new CadDocument();
+        var line = new Line(XYZ.Zero, XYZ.AxisX);
+        document.Entities.Add(line);
+
+        Assert.Throws<ArgumentException>(() =>
+            new CadAddModelSpaceEntityCommand(line));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadRemoveModelSpaceEntityCommand(0));
+    }
 }

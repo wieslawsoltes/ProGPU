@@ -79,17 +79,44 @@ public abstract class CadEditCommand
         var entities = new Entity[handles.Length];
         for (int i = 0; i < handles.Length; i++)
         {
-            Entity? entity = document.GetCadObject<Entity>(handles[i]);
-            if (entity is null || !ReferenceEquals(entity.Owner, document.ModelSpace))
-            {
-                throw new InvalidOperationException(
-                    $"Model-space entity handle {handles[i]:X} does not exist.");
-            }
-
-            entities[i] = entity;
+            entities[i] = ResolveModelSpaceEntity(document, handles[i]);
         }
 
         return entities;
+    }
+
+    protected static Entity ResolveModelSpaceEntity(
+        CadDocument document,
+        ulong handle)
+    {
+        Entity? entity = document.GetCadObject<Entity>(handle);
+        if (entity is null || !ReferenceEquals(entity.Owner, document.ModelSpace))
+        {
+            throw new InvalidOperationException(
+                $"Model-space entity handle {handle:X} does not exist.");
+        }
+        return entity;
+    }
+
+    protected static void ValidateModelSpaceEntities(
+        CadDocument document,
+        ReadOnlySpan<Entity> entities)
+    {
+        foreach (Entity entity in entities)
+        {
+            ValidateModelSpaceEntity(document, entity);
+        }
+    }
+
+    protected static void ValidateModelSpaceEntity(
+        CadDocument document,
+        Entity entity)
+    {
+        if (!ReferenceEquals(entity.Owner, document.ModelSpace))
+        {
+            throw new InvalidOperationException(
+                "A retained edit entity is no longer owned by this document's model space.");
+        }
     }
 
     private enum CadEditCommandState : byte
@@ -281,6 +308,7 @@ public sealed class CadTranslateEntitiesCommand : CadEditCommand
     private readonly ulong[] _handles;
     private readonly XYZ _translation;
     private readonly XYZ _inverseTranslation;
+    private Entity[]? _entities;
 
     public ReadOnlyMemory<ulong> Handles => _handles;
 
@@ -316,18 +344,42 @@ public sealed class CadTranslateEntitiesCommand : CadEditCommand
         _inverseTranslation = new XYZ(-translation.X, -translation.Y, -translation.Z);
     }
 
-    internal override void Apply(CadDocument document, bool isRedo) =>
-        TranslateTransactional(document, _translation, _inverseTranslation);
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Entity[] entities;
+        if (isRedo)
+        {
+            entities = _entities ??
+                throw new InvalidOperationException("The translation command has not been applied.");
+            ValidateModelSpaceEntities(document, entities);
+        }
+        else
+        {
+            entities = ResolveModelSpaceEntities(document, _handles);
+            _entities = entities;
+        }
+        TranslateTransactional(entities, _translation, _inverseTranslation);
+    }
 
     internal override void Revert(CadDocument document) =>
-        TranslateTransactional(document, _inverseTranslation, _translation);
+        TranslateTransactional(
+            GetRetainedEntities(document),
+            _inverseTranslation,
+            _translation);
+
+    private Entity[] GetRetainedEntities(CadDocument document)
+    {
+        Entity[] entities = _entities ??
+            throw new InvalidOperationException("The translation command has not been applied.");
+        ValidateModelSpaceEntities(document, entities);
+        return entities;
+    }
 
     private void TranslateTransactional(
-        CadDocument document,
+        Entity[] entities,
         XYZ translation,
         XYZ rollbackTranslation)
     {
-        Entity[] entities = ResolveModelSpaceEntities(document, _handles);
         int applied = 0;
         try
         {
@@ -353,6 +405,7 @@ public sealed class CadTranslateEntitiesCommand : CadEditCommand
 public sealed class CadSetEntityVisibilityCommand : CadEditCommand
 {
     private readonly ulong[] _handles;
+    private Entity[]? _entities;
     private bool[]? _previousValues;
 
     public bool IsInvisible { get; }
@@ -377,10 +430,16 @@ public sealed class CadSetEntityVisibilityCommand : CadEditCommand
 
     internal override void Apply(CadDocument document, bool isRedo)
     {
-        Entity[] entities = ResolveModelSpaceEntities(document, _handles);
+        Entity[] entities;
         if (!isRedo)
         {
+            entities = ResolveModelSpaceEntities(document, _handles);
+            _entities = entities;
             _previousValues = entities.Select(static entity => entity.IsInvisible).ToArray();
+        }
+        else
+        {
+            entities = GetRetainedEntities(document);
         }
 
         foreach (Entity entity in entities)
@@ -391,7 +450,7 @@ public sealed class CadSetEntityVisibilityCommand : CadEditCommand
 
     internal override void Revert(CadDocument document)
     {
-        Entity[] entities = ResolveModelSpaceEntities(document, _handles);
+        Entity[] entities = GetRetainedEntities(document);
         bool[] values = _previousValues ??
             throw new InvalidOperationException("The visibility command has not been applied.");
         for (int i = 0; i < entities.Length; i++)
@@ -400,4 +459,113 @@ public sealed class CadSetEntityVisibilityCommand : CadEditCommand
         }
     }
 
+    private Entity[] GetRetainedEntities(CadDocument document)
+    {
+        Entity[] entities = _entities ??
+            throw new InvalidOperationException("The visibility command has not been applied.");
+        ValidateModelSpaceEntities(document, entities);
+        return entities;
+    }
+
+}
+
+/// <summary>Adds one detached entity to model space with reversible ownership.</summary>
+public sealed class CadAddModelSpaceEntityCommand : CadEditCommand
+{
+    public Entity Entity { get; }
+
+    public ulong CurrentHandle => Entity.Handle;
+
+    public CadAddModelSpaceEntityCommand(
+        Entity entity,
+        string description = "Add entity")
+        : base(description)
+    {
+        Entity = entity ?? throw new ArgumentNullException(nameof(entity));
+        if (entity.Owner is not null || entity.Handle != 0)
+        {
+            throw new ArgumentException(
+                "An added entity must be detached and have no assigned handle.",
+                nameof(entity));
+        }
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        if (Entity.Owner is not null || Entity.Handle != 0)
+        {
+            throw new InvalidOperationException(
+                "The entity is not detached and cannot be added to model space.");
+        }
+        document.Entities.Add(Entity);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        ValidateModelSpaceEntity(document, Entity);
+        if (!document.Entities.Remove(Entity))
+        {
+            throw new InvalidOperationException(
+                "The added entity could not be removed from model space.");
+        }
+    }
+}
+
+/// <summary>Removes one model-space entity while retaining it for semantic undo.</summary>
+public sealed class CadRemoveModelSpaceEntityCommand : CadEditCommand
+{
+    private readonly ulong _initialHandle;
+    private Entity? _entity;
+
+    public ulong InitialHandle => _initialHandle;
+
+    public ulong CurrentHandle => _entity?.Handle ?? _initialHandle;
+
+    public CadRemoveModelSpaceEntityCommand(
+        ulong handle,
+        string description = "Remove entity")
+        : base(description)
+    {
+        if (handle == 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(handle),
+                "A non-zero model-space entity handle is required.");
+        }
+        _initialHandle = handle;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Entity entity;
+        if (isRedo)
+        {
+            entity = _entity ??
+                throw new InvalidOperationException("The remove command has not been applied.");
+            ValidateModelSpaceEntity(document, entity);
+        }
+        else
+        {
+            entity = ResolveModelSpaceEntity(document, _initialHandle);
+            _entity = entity;
+        }
+
+        if (!document.Entities.Remove(entity))
+        {
+            throw new InvalidOperationException(
+                "The entity could not be removed from model space.");
+        }
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Entity entity = _entity ??
+            throw new InvalidOperationException("The remove command has not been applied.");
+        if (entity.Owner is not null || entity.Handle != 0)
+        {
+            throw new InvalidOperationException(
+                "The removed entity is not detached and cannot be restored.");
+        }
+        document.Entities.Add(entity);
+    }
 }
