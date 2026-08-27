@@ -3603,6 +3603,12 @@ transformed viewport and clip. The Metal reference contains 278 colored pixels
 at `[48,28]-[66,47]`; this keeps perspective and orthographic cameras on the
 same reusable GPU projection, depth, lighting, and rasterization implementation.
 
+The native validation boundary requires directional and ambient intensities to
+be nonnegative and shininess to be strictly positive. Invalid values fail before
+scene retention or GPU resource allocation; the shader's minimum clamps are
+defense in depth only. The C++ scene-builder test exercises each invalid scalar
+independently in addition to simultaneous front/back face-flag rejection.
+
 The engine validates every untrusted count, offset, size, enum, finite float,
 resource generation, and nesting depth before allocation or GPU submission.
 Integer arithmetic is checked. User shaders remain a separately permissioned

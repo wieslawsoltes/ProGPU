@@ -1929,17 +1929,29 @@ bool semantic_scene_builder_records_retained_3d_families() {
     mesh.material_ambient = {0.1F, 0.1F, 0.1F, 0.0F};
     mesh.opacity = 1.0F;
 
-    auto invalid_face_mesh = mesh;
-    invalid_face_mesh.flags = PROGPU_NATIVE_MESH_3D_FRONT_FACE |
-        PROGPU_NATIVE_MESH_3D_BACK_FACE;
-    semantic_scene_builder invalid_face_builder(713U, 1U);
-    if (invalid_face_builder.draw_meshes_3d(
+    const auto rejects_mesh = [&](const auto& candidate) {
+        semantic_scene_builder invalid_builder(713U, 1U);
+        return !invalid_builder.draw_meshes_3d(
             std::span<const progpu_native_scene_mesh_3d>(
-                &invalid_face_mesh, 1U),
+                &candidate, 1U),
             vertices,
             indices,
             camera,
-            {0.0F, 0.0F, 256.0F, 256.0F})) {
+            {0.0F, 0.0F, 256.0F, 256.0F});
+    };
+    auto invalid_face_mesh = mesh;
+    invalid_face_mesh.flags = PROGPU_NATIVE_MESH_3D_FRONT_FACE |
+        PROGPU_NATIVE_MESH_3D_BACK_FACE;
+    auto invalid_directional_intensity = mesh;
+    invalid_directional_intensity.light_direction.w = -0.01F;
+    auto invalid_ambient_intensity = mesh;
+    invalid_ambient_intensity.ambient_color.w = -0.01F;
+    auto invalid_shininess = mesh;
+    invalid_shininess.specular_color.w = 0.0F;
+    if (!rejects_mesh(invalid_face_mesh) ||
+        !rejects_mesh(invalid_directional_intensity) ||
+        !rejects_mesh(invalid_ambient_intensity) ||
+        !rejects_mesh(invalid_shininess)) {
         return false;
     }
 

@@ -547,8 +547,11 @@ bool is_valid_semantic_mesh_3d(
         finite_matrix(mesh.model_transform) &&
         finite_matrix(mesh.normal_transform) && is_finite(mesh.color) &&
         finite_float_4(mesh.light_direction) &&
+        mesh.light_direction.w >= 0.0F &&
         finite_float_4(mesh.ambient_color) &&
+        mesh.ambient_color.w >= 0.0F &&
         finite_float_4(mesh.specular_color) &&
+        mesh.specular_color.w > 0.0F &&
         finite_float_4(mesh.material_ambient) &&
         std::isfinite(mesh.opacity) && mesh.opacity >= 0.0F &&
         mesh.opacity <= 1.0F && mesh.shading_mode <= 6U &&
