@@ -191,6 +191,31 @@ public sealed class CadSnapshotAndSceneTests
     }
 
     [Fact]
+    public void RecordedSceneCreatesOwnedPictureWithSplineSideBuffers()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add spline", document =>
+        {
+            var spline = new Spline { Degree = 2 };
+            spline.ControlPoints.AddRange([
+                new XYZ(0, 0, 0),
+                new XYZ(5, 8, 0),
+                new XYZ(10, 0, 0),
+            ]);
+            spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+            document.Entities.Add(spline);
+        });
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+            new CadSnapshotCompiler().Compile(session));
+
+        using GpuPicture picture = scene.CreatePicture();
+
+        Assert.Equal(scene.Statistics.RecordedCommandCount, picture.CommandCount);
+        Assert.Equal(3, picture.PointBuffer.Length);
+        Assert.Equal(6, picture.DoubleBuffer.Length);
+    }
+
+    [Fact]
     public void SplineSnapshotPreservesControlKnotsWeightsAndRecordsOneCommand()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();

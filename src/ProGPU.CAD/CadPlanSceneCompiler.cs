@@ -27,6 +27,18 @@ public sealed class CadRecordedPlanScene
     public CadPlanSceneStatistics Statistics { get; }
     public ReadOnlyMemory<CadDiagnostic> Diagnostics => _diagnostics;
 
+    /// <summary>
+    /// Freezes the recorded CAD commands and side buffers into an independently
+    /// owned picture suitable for repeated camera-only replay.
+    /// </summary>
+    public GpuPicture CreatePicture()
+    {
+        var recorder = new GpuPictureRecorder();
+        DrawingContext target = recorder.BeginRecording(new Rect(0, 0, 1, 1));
+        target.Append(DrawingContext);
+        return recorder.EndRecording();
+    }
+
     internal CadRecordedPlanScene(
         ulong contentGeneration,
         CadPoint3D rebaseOrigin,
