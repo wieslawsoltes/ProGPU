@@ -9885,11 +9885,12 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
                     stream,
                     group_boolean_offset + 2U * sizeof(first_group_leaf));
             PROGPU_REQUIRE(
-                first_group_leaf.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
-                first_group_leaf.segment_offset == 0U &&
-                first_group_leaf.segment_count == 4U &&
+                first_group_leaf.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF);
+            PROGPU_REQUIRE(first_group_leaf.segment_offset == 0U);
+            PROGPU_REQUIRE(first_group_leaf.segment_count == 4U);
+            PROGPU_REQUIRE(
                 first_group_leaf.fill_rule ==
-                    PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
+                PROGPU_NATIVE_FILL_RULE_EVEN_ODD);
             PROGPU_REQUIRE(
                 second_group_leaf.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
                 second_group_leaf.segment_offset == 4U &&
@@ -10909,6 +10910,194 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     PROGPU_REQUIRE(found_complete_clip_chain);
     PROGPU_REQUIRE(found_complete_clip_state);
     PROGPU_REQUIRE(found_restored_clip_chain);
+    return true;
+}
+
+bool retained_even_odd_group_accepts_combined_fill_and_clip_children() {
+    constexpr std::uint32_t visual = 30U;
+    constexpr std::uint32_t content = 31U;
+    constexpr std::uint32_t target = 32U;
+    constexpr std::uint32_t brush = 33U;
+    constexpr std::uint32_t rectangle_a = 34U;
+    constexpr std::uint32_t rectangle_b = 35U;
+    constexpr std::uint32_t rectangle_c = 36U;
+    constexpr std::uint32_t combined = 37U;
+    constexpr std::uint32_t group = 38U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, rectangle_a, 69U);
+    append_create(batch, rectangle_b, 69U);
+    append_create(batch, rectangle_c, 69U);
+    append_create(batch, combined, 72U);
+    append_create(batch, group, 71U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.25F, 0.75F, 1.0F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    const auto append_rectangle = [&batch](
+        std::uint32_t handle,
+        double x,
+        double y,
+        double width,
+        double height) {
+        append_command(
+            batch,
+            command::rectangle_geometry,
+            handle,
+            0.0,
+            0.0,
+            x,
+            y,
+            width,
+            height,
+            0U,
+            0U,
+            0U,
+            0U);
+    };
+    append_rectangle(rectangle_a, 10.0, 10.0, 20.0, 20.0);
+    append_rectangle(rectangle_b, 20.0, 10.0, 20.0, 20.0);
+    append_rectangle(rectangle_c, 0.0, 0.0, 8.0, 8.0);
+    append_command(
+        batch,
+        command::combined_geometry,
+        combined,
+        0U,
+        3U,
+        rectangle_a,
+        rectangle_b);
+    const std::array children{combined, rectangle_c};
+    append_geometry_group(batch, group, 0U, 0U, children);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_geometry,
+        brush,
+        0U,
+        group,
+        0U);
+    append_command(nested, command::push_clip, group, 0U);
+    append_command(
+        nested,
+        command::draw_rectangle,
+        0.0,
+        0.0,
+        48.0,
+        40.0,
+        brush,
+        0U);
+    append_command(nested, command::pop);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        48U,
+        40U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7004U, 1U, stream) == status::success);
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_fill = false;
+    bool found_clip = false;
+    const auto require_program = [&](std::size_t node_offset) {
+        const auto first = read_value<
+            progpu_native_scene_path_boolean_node>(stream, node_offset);
+        const auto second = read_value<
+            progpu_native_scene_path_boolean_node>(
+                stream,
+                node_offset + sizeof(first));
+        const auto difference = read_value<
+            progpu_native_scene_path_boolean_node>(
+                stream,
+                node_offset + 2U * sizeof(first));
+        const auto third = read_value<
+            progpu_native_scene_path_boolean_node>(
+                stream,
+                node_offset + 3U * sizeof(first));
+        const auto group_xor = read_value<
+            progpu_native_scene_path_boolean_node>(
+                stream,
+                node_offset + 4U * sizeof(first));
+        PROGPU_REQUIRE(first.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF);
+        PROGPU_REQUIRE(second.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF);
+        PROGPU_REQUIRE(
+            difference.kind == PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE);
+        PROGPU_REQUIRE(third.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF);
+        PROGPU_REQUIRE(group_xor.kind == PROGPU_NATIVE_PATH_BOOLEAN_XOR);
+        return true;
+    };
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            const auto path = read_value<progpu_native_scene_path_fill>(
+                stream,
+                resource.payload_offset);
+            if (path.segment_count != 12U ||
+                path.boolean_node_count != 5U) {
+                continue;
+            }
+            PROGPU_REQUIRE(path.min_x == 0.0F && path.min_y == 0.0F);
+            PROGPU_REQUIRE(path.max_x == 40.0F && path.max_y == 30.0F);
+            PROGPU_REQUIRE(require_program(
+                resource.auxiliary_offset +
+                12U * sizeof(progpu_native_path_segment)));
+            found_fill = true;
+        } else if (resource.kind ==
+            PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
+            const auto mask = read_value<
+                progpu_native_scene_layer_vector_mask>(
+                    stream,
+                    resource.payload_offset);
+            if (mask.kind !=
+                    PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
+                mask.path_count != 1U || mask.segment_count != 12U ||
+                mask.boolean_node_count != 5U) {
+                continue;
+            }
+            const auto path = read_value<progpu_native_scene_clip_path>(
+                stream,
+                resource.auxiliary_offset);
+            PROGPU_REQUIRE(path.segment_count == 12U);
+            PROGPU_REQUIRE(path.boolean_node_count == 5U);
+            PROGPU_REQUIRE(require_program(
+                resource.auxiliary_offset +
+                sizeof(progpu_native_scene_clip_path) +
+                12U * sizeof(progpu_native_path_segment)));
+            found_clip = true;
+        }
+    }
+    PROGPU_REQUIRE(found_fill);
+    PROGPU_REQUIRE(found_clip);
+
+    std::vector<std::byte> nonzero_update;
+    append_geometry_group(nonzero_update, group, 0U, 1U, children);
+    PROGPU_REQUIRE(state.apply(nonzero_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7004U, 2U, stream) ==
+        status::unsupported_command);
     return true;
 }
 
@@ -11961,6 +12150,8 @@ int main() {
     PROGPU_REQUIRE(
         retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband());
     PROGPU_REQUIRE(retained_geometry_group_compiles_to_one_semantic_path());
+    PROGPU_REQUIRE(
+        retained_even_odd_group_accepts_combined_fill_and_clip_children());
     PROGPU_REQUIRE(
         retained_gradient_brushes_compile_with_wpf_mapping_and_animation());
     PROGPU_REQUIRE(degenerate_gradient_pen_caps_use_wpf_stroke_bounds());
