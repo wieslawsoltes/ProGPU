@@ -5,9 +5,9 @@ Status values: `planned`, `foundation`, `in progress`, `verified`.
 | Area | Required result | Status | Verification gate |
 |---|---|---:|---|
 | Dependency | ACadSharp fork pinned as a submodule | foundation | clean recursive checkout and build |
-| IO | DXF/DWG stream/path open with progress, diagnostics, cancellation, and limits | planned | version/corrupt/fuzz fixtures |
-| Save | DXF/DWG capability-gated atomic save | planned | write/read semantic round trips in advertised versions |
-| Model | ACadSharp `CadDocument` is semantic authority | foundation | public API and edit tests |
+| IO | DXF/DWG stream open with progress, diagnostics, cancellation, and initial byte/entity limits | foundation | version/corrupt/fuzz fixtures and path host adapter |
+| Save | caller-owned stream save with version/certification gates | foundation | atomic path replacement and advertised-version semantic round trips |
+| Model | ACadSharp `CadDocument` authority with locked callbacks and content/saved generations | foundation | broader edit transaction and concurrency tests |
 | Editing | typed atomic commands, undo/redo, dirty generations | planned | command property/fuzz tests |
 | 2D | all standard entities, blocks, XRefs, hatches, dimensions, images | planned | multi-DPI/zoom image and semantic tests |
 | 3D | meshes, surfaces, solids, ACIS SAT/SAB, orbit/depth | planned | matched managed/native 3D fixtures |

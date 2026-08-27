@@ -59,6 +59,8 @@
   <Project Path="ProGPU.Samples.Avalonia/ProGPU.Samples.Avalonia.csproj" />
   <Project Path="ProGPU.Samples.Uno/ProGPU.Samples.Uno/ProGPU.Samples.Uno.csproj" />
   <Project Path="ProGPU.Dxf/ProGPU.Dxf.csproj" />
+  <Project Path="ProGPU.CAD/ProGPU.CAD.csproj" />
+  <Project Path="ProGPU.CAD.Tests/ProGPU.CAD.Tests.csproj" />
   <Project Path="ProGPU.Tests.Headless/ProGPU.Tests.Headless.csproj" />
   <Project Path="ProGPU.Tests/ProGPU.Tests.csproj" />
   <Project Path="../tests/ProGPU.Avalonia.ContractTests/ProGPU.Avalonia.ContractTests.csproj" />

@@ -1,6 +1,9 @@
 <Project>
   <PropertyGroup>
-    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <ManagePackageVersionsCentrally Condition="'$(MSBuildProjectName)' != 'ACadSharp'">true</ManagePackageVersionsCentrally>
+    <!-- External ACadSharp is an independently versioned submodule whose
+         multi-target project owns the compatibility package versions. -->
+    <ManagePackageVersionsCentrally Condition="'$(MSBuildProjectName)' == 'ACadSharp'">false</ManagePackageVersionsCentrally>
   </PropertyGroup>
 
   <ItemGroup>
