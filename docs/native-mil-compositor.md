@@ -3848,9 +3848,9 @@ implementation and explicit-offset semantic resource as retained
 `GuidelineSet`; no backend-specific path was added. Focused tests prove Y1
 initial snapping, movement into Animation and scheduler feedback, Y2 driven
 gap stabilization, render-data replacement reset, Y-only semantic shape, and
-legacy fail-closed behavior. Nonuniform X/Y DPI is now the remaining native
-dynamic-guideline limitation, and `NeedsMoreCycles` still has to be consumed by
-the typed LibreWPF render scheduler.
+legacy fail-closed behavior. At this checkpoint, nonuniform X/Y DPI was the
+remaining native dynamic-guideline limitation, and `NeedsMoreCycles` still had
+to be consumed by the typed LibreWPF render scheduler.
 
 The scheduler-timing checkpoint adds the portable managed half of that
 contract. `NativeMilSceneBuildTiming.TryGetContinuationDelay(...)` validates
@@ -3863,6 +3863,17 @@ each host remains responsible only for submitting the returned delay to its
 typed scheduler and waking its native event loop. Package-consumer coverage
 executes future, fractional-tick, complete, and overdue cases before compiling
 the same MIL stream through wgpu-native and Dawn.
+
+The per-axis DPI checkpoint closes the remaining native dynamic-guideline
+limitation. The shared phase resolver now performs X movement, three-pixel
+jump detection, landing, logical-coordinate conversion, and explicit physical
+offset calculation with `dpi_scale_x`; the Y resolver independently uses
+`dpi_scale_y`. It no longer rejects a valid nonuniform frame request. Exact
+tests cover a retained X pair at 1.25x/1.5y and compact Y1/Y2 phase state at
+1.25x/2.0y, including axis-specific initial offsets, Animation feedback, and
+the driven Y gap after render-data replacement. Both providers consume the
+same semantic output, and the full configured native/provider matrix remains
+12/12.
 
 Exact implementation checkpoint `b97b99e3` completed the full Windows 11
 ARM64 Parallels D3D12 smoke/package lane from an immutable source archive.

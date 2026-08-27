@@ -8833,14 +8833,16 @@ bool dynamic_guidelines_follow_wpf_phase_state() {
         std::uint64_t milliseconds,
         scene_build_request_flags flags,
         std::vector<std::byte>& copy,
-        scene_build_result& result) {
+        scene_build_result& result,
+        double dpi_scale_x = 1.0,
+        double dpi_scale_y = 1.0) {
         scene_build_request request{};
         request.flags = flags;
         request.target_handle = target;
         request.scene_id = 9'100U;
         request.generation = serial;
-        request.dpi_scale_x = 1.0;
-        request.dpi_scale_y = 1.0;
+        request.dpi_scale_x = dpi_scale_x;
+        request.dpi_scale_y = dpi_scale_y;
         request.monotonic_time_nanoseconds = milliseconds * 1'000'000U;
         request.request_serial = serial;
         std::span<const std::byte> stream;
@@ -9056,6 +9058,41 @@ bool dynamic_guidelines_follow_wpf_phase_state() {
         status::success);
     PROGPU_REQUIRE(std::abs(read_offset(big_jump) - 0.15) < 0.0001);
     PROGPU_REQUIRE(result.flags == scene_build_result_flags::none);
+
+    std::vector<std::byte> reset_guidelines;
+    append_command(
+        reset_guidelines,
+        command::guideline_set,
+        guidelines,
+        16U,
+        0U,
+        1U,
+        0.25,
+        0.5);
+    append_command(
+        reset_guidelines,
+        command::matrix_transform,
+        transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0U);
+    PROGPU_REQUIRE(state.apply(reset_guidelines) == status::success);
+    std::vector<std::byte> nonuniform_dpi;
+    PROGPU_REQUIRE(build(
+        11U,
+        700U,
+        scene_build_request_flags::none,
+        nonuniform_dpi,
+        result,
+        1.25,
+        1.5) == status::success);
+    PROGPU_REQUIRE(
+        std::abs(read_offset(nonuniform_dpi) - 0.0625) < 0.0001);
+    PROGPU_REQUIRE(result.flags == scene_build_result_flags::none);
     return true;
 }
 
@@ -9147,8 +9184,8 @@ bool compact_dynamic_guidelines_retain_and_reset_phase_state() {
             target,
             9'200U,
             serial,
-            1.0,
-            1.0,
+            1.25,
+            2.0,
             milliseconds * 1'000'000U,
             serial};
         std::span<const std::byte> stream;
@@ -9166,7 +9203,7 @@ bool compact_dynamic_guidelines_retain_and_reset_phase_state() {
     PROGPU_REQUIRE(guideline.count_x == 0U);
     PROGPU_REQUIRE(guideline.count_y == 1U);
     PROGPU_REQUIRE(std::abs(guideline.coordinate - 0.25) < 0.0001);
-    PROGPU_REQUIRE(std::abs(guideline.offset + 0.25) < 0.0001);
+    PROGPU_REQUIRE(std::abs(guideline.offset - 0.5) < 0.0001);
     PROGPU_REQUIRE(result.flags == scene_build_result_flags::none);
 
     std::vector<std::byte> moved_transform;
@@ -9197,7 +9234,7 @@ bool compact_dynamic_guidelines_retain_and_reset_phase_state() {
     PROGPU_REQUIRE(try_get_single_explicit_guideline(
         replacement, guideline));
     PROGPU_REQUIRE(std::abs(guideline.coordinate - 0.85) < 0.0001);
-    PROGPU_REQUIRE(std::abs(guideline.offset - 0.15) < 0.0001);
+    PROGPU_REQUIRE(std::abs(guideline.offset - 0.3) < 0.0001);
     PROGPU_REQUIRE(result.flags == scene_build_result_flags::none);
     return true;
 }
