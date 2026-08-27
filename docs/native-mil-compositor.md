@@ -627,6 +627,17 @@ primitive is the prerequisite for lowering source-built WPF
 `PortableViewport3DScene` data without a bridge-local render-to-texture or CPU
 projection workaround.
 
+The framework-neutral managed Mesh3D path now evaluates linear and radial
+material brushes in WGSL over mesh UVs. `MeshCompilationEntry.MaterialBrush`
+retains the typed ProGPU vector brush; the compiler writes finite gradient
+stops from reusable scratch directly into a bounded storage buffer and records
+coordinates, inverse affine transform, spread, interpolation, opacity, and
+stop range per mesh. A live Metal readback proves distinct red and blue regions
+from one linear-gradient quad, while the pre-existing point/spot-light test
+guards the expanded 560-byte record ABI. WinUI no longer approximates mesh
+gradients with the first stop. Texture-plus-gradient ambiguity and unsupported
+brush kinds fail closed; no CPU texture staging or readback is introduced.
+
 The corresponding MIL channel API now binds a copied, pointer-free flattened
 scene to a canonical `TYPE_VIEWPORT3DVISUAL` handle. It accepts the public
 semantic camera/mesh/vertex ABI plus uint32 indices, validates every finite
