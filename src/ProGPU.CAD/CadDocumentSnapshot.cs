@@ -1,3 +1,6 @@
+using System.Numerics;
+using ProGPU.Text;
+
 namespace ProGPU.CAD;
 
 public enum CadEntityKind : byte
@@ -12,6 +15,7 @@ public enum CadEntityKind : byte
     Face3D = 8,
     Polyline2D = 9,
     Polyline3D = 10,
+    Text = 11,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -107,6 +111,20 @@ public readonly record struct CadPolyline3DPrimitive(
     int PointCount,
     bool IsClosed);
 
+public readonly record struct CadTextPrimitive(
+    CadPoint3D Origin,
+    CadPoint3D XAxis,
+    CadPoint3D YAxis,
+    int GlyphOffset,
+    int GlyphCount,
+    int RunOffset,
+    int RunCount);
+
+public readonly record struct CadTextGlyphRun(
+    int GlyphOffset,
+    int GlyphCount,
+    int FontIndex);
+
 public readonly record struct CadSnapshotStatistics(
     int SourceEntityCount,
     int VisibleEntityCount,
@@ -137,6 +155,11 @@ public sealed class CadDocumentSnapshot
     private readonly CadSplinePrimitive[] _splines;
     private readonly CadPolylinePrimitive[] _polylines;
     private readonly CadPolyline3DPrimitive[] _polylines3D;
+    private readonly CadTextPrimitive[] _texts;
+    private readonly CadTextGlyphRun[] _textGlyphRuns;
+    private readonly ushort[] _textGlyphIndices;
+    private readonly Vector2[] _textGlyphPositions;
+    private readonly TtfFont[] _textFonts;
     private readonly CadPolylineVertex[] _polylineVertices;
     private readonly CadPoint3D[] _polyline3DPoints;
     private readonly CadPoint3D[] _splineControlPoints;
@@ -161,12 +184,20 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadSplinePrimitive> Splines => _splines;
     public ReadOnlyMemory<CadPolylinePrimitive> Polylines => _polylines;
     public ReadOnlyMemory<CadPolyline3DPrimitive> Polylines3D => _polylines3D;
+    public ReadOnlyMemory<CadTextPrimitive> Texts => _texts;
+    public ReadOnlyMemory<CadTextGlyphRun> TextGlyphRuns => _textGlyphRuns;
+    public ReadOnlyMemory<ushort> TextGlyphIndices => _textGlyphIndices;
+    public ReadOnlyMemory<Vector2> TextGlyphPositions => _textGlyphPositions;
+    public ReadOnlyMemory<TtfFont> TextFonts => _textFonts;
     public ReadOnlyMemory<CadPolylineVertex> PolylineVertices => _polylineVertices;
     public ReadOnlyMemory<CadPoint3D> Polyline3DPoints => _polyline3DPoints;
     public ReadOnlyMemory<CadPoint3D> SplineControlPoints => _splineControlPoints;
     public ReadOnlyMemory<double> SplineKnots => _splineKnots;
     public ReadOnlyMemory<double> SplineWeights => _splineWeights;
     public ReadOnlyMemory<CadDiagnostic> Diagnostics => _diagnostics;
+
+    internal ushort[] TextGlyphIndexArray => _textGlyphIndices;
+    internal Vector2[] TextGlyphPositionArray => _textGlyphPositions;
 
     internal CadDocumentSnapshot(
         ulong contentGeneration,
@@ -183,6 +214,11 @@ public sealed class CadDocumentSnapshot
         CadSplinePrimitive[] splines,
         CadPolylinePrimitive[] polylines,
         CadPolyline3DPrimitive[] polylines3D,
+        CadTextPrimitive[] texts,
+        CadTextGlyphRun[] textGlyphRuns,
+        ushort[] textGlyphIndices,
+        Vector2[] textGlyphPositions,
+        TtfFont[] textFonts,
         CadPolylineVertex[] polylineVertices,
         CadPoint3D[] polyline3DPoints,
         CadPoint3D[] splineControlPoints,
@@ -205,6 +241,11 @@ public sealed class CadDocumentSnapshot
         _splines = splines;
         _polylines = polylines;
         _polylines3D = polylines3D;
+        _texts = texts;
+        _textGlyphRuns = textGlyphRuns;
+        _textGlyphIndices = textGlyphIndices;
+        _textGlyphPositions = textGlyphPositions;
+        _textFonts = textFonts;
         _polylineVertices = polylineVertices;
         _polyline3DPoints = polyline3DPoints;
         _splineControlPoints = splineControlPoints;

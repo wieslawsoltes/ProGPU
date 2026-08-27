@@ -2,7 +2,10 @@ using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.Tables;
 using CSMath;
+using System.Numerics;
+using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
+using ProGPU.Text;
 using ProGPU.Vector;
 using Xunit;
 
@@ -462,6 +465,366 @@ public sealed class CadSnapshotAndSceneTests
     }
 
     [Fact]
+    public void TextShapesOnceIntoRetainedFontRunsAndConservativeAffineBounds()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add TrueType text", document =>
+        {
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("office")
+            {
+                Style = textStyle,
+                InsertPoint = new XYZ(10, 20, 0),
+                Height = 10,
+                WidthFactor = 1.2,
+            });
+        });
+
+        TtfFont font = InterFontFamily.Regular;
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(font),
+            });
+        CadTextPrimitive text = Assert.Single(snapshot.Texts.ToArray());
+        CadEntityHeader entity = Assert.Single(snapshot.Entities.ToArray());
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        Assert.Equal(CadEntityKind.Text, entity.Kind);
+        AssertPoint(new CadPoint3D(10, 20, 0), text.Origin);
+        AssertPoint(new CadPoint3D(12, 0, 0), text.XAxis);
+        AssertPoint(new CadPoint3D(0, -10, 0), text.YAxis);
+        Assert.InRange(text.GlyphCount, 1, 6);
+        Assert.Equal(text.GlyphCount, snapshot.TextGlyphIndices.Length);
+        Assert.Equal(text.GlyphCount, snapshot.TextGlyphPositions.Length);
+        Assert.Equal(1, text.RunCount);
+        Assert.Same(font, Assert.Single(snapshot.TextFonts.ToArray()));
+        Assert.False(entity.Bounds.IsEmpty);
+        Assert.True(entity.Bounds.Min.X < entity.Bounds.Max.X);
+        Assert.True(entity.Bounds.Min.Y < 20);
+        Assert.True(entity.Bounds.Max.Y > 20);
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands.ToArray());
+        Assert.Equal(RenderCommandType.DrawGlyphRun, command.Type);
+        Assert.Equal(text.GlyphCount, command.GlyphRangeCount);
+        Assert.True(command.UseVectorGlyphRendering);
+        Assert.Equal(12, command.Transform.M11, 5);
+        Assert.Equal(-10, command.Transform.M22, 5);
+        using GpuPicture picture = scene.CreatePicture();
+        RenderCommand retainedCommand = picture.GetCommand(0);
+        Assert.Same(command.GlyphIndices, retainedCommand.GlyphIndices);
+        Assert.Same(command.GlyphPositions, retainedCommand.GlyphPositions);
+        Assert.Equal(text.GlyphCount, retainedCommand.GlyphRangeCount);
+        Assert.True(retainedCommand.UseVectorGlyphRendering);
+    }
+
+    [Fact]
+    public void TextTopCenterAlignmentUsesTheSecondOcsPoint()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add aligned text", document =>
+        {
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("CAD")
+            {
+                Style = textStyle,
+                InsertPoint = new XYZ(100, 200, 0),
+                AlignmentPoint = new XYZ(5, 6, 0),
+                HorizontalAlignment = TextHorizontalAlignment.Center,
+                VerticalAlignment = TextVerticalAlignmentType.Top,
+                Height = 2,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
+            });
+        CadTextPrimitive text = Assert.Single(snapshot.Texts.ToArray());
+        Vector2 firstGlyph = snapshot.TextGlyphPositions.Span[text.GlyphOffset];
+
+        AssertPoint(new CadPoint3D(5, 6, 0), text.Origin);
+        Assert.True(firstGlyph.X < 0);
+        Assert.True(firstGlyph.Y > 0);
+        Assert.InRange(Math.Abs(snapshot.Bounds.Max.Y - 6), 0, Tolerance);
+    }
+
+    [Fact]
+    public void TextInsideBlockRetainsRootHandleAndComposesItsGlyphBasis()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        ulong rootHandle = 0;
+        session.Edit("Add block text", document =>
+        {
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            var block = new BlockRecord("LABEL");
+            block.Entities.Add(new TextEntity("A") { Style = textStyle });
+            var insert = new Insert(block)
+            {
+                InsertPoint = new XYZ(10, 20, 0),
+                XScale = 2,
+                YScale = 3,
+                Rotation = Math.PI / 2,
+            };
+            document.Entities.Add(insert);
+            rootHandle = insert.Handle;
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
+            });
+        CadTextPrimitive text = Assert.Single(snapshot.Texts.ToArray());
+
+        Assert.Equal(rootHandle, Assert.Single(snapshot.Entities.ToArray()).Handle);
+        AssertPoint(new CadPoint3D(10, 20, 0), text.Origin);
+        AssertPoint(new CadPoint3D(0, 2, 0), text.XAxis);
+        AssertPoint(new CadPoint3D(3, 0, 0), text.YAxis);
+    }
+
+    [Fact]
+    public void TextEntityTransformIsNotAppliedAgainFromItsCreationStyle()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add transformed text", document =>
+        {
+            var textStyle = new TextStyle("INTER")
+            {
+                Filename = "Inter.ttf",
+                Width = 0.5,
+                ObliqueAngle = 0.1,
+                MirrorFlag = TextMirrorFlag.Backward,
+            };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("CAD")
+            {
+                Style = textStyle,
+                Height = 4,
+                WidthFactor = 2,
+                ObliqueAngle = 0.2,
+                Mirror = TextMirrorFlag.UpsideDown,
+            });
+        });
+
+        CadTextPrimitive text = Assert.Single(new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
+            }).Texts.ToArray());
+
+        AssertPoint(new CadPoint3D(8, 0, 0), text.XAxis);
+        AssertPoint(new CadPoint3D(4 * Math.Tan(0.2), 4, 0), text.YAxis);
+    }
+
+    [Fact]
+    public void TrueTypeFontSubstitutionIsDiagnosed()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add substituted text", document =>
+        {
+            var textStyle = new TextStyle("MISSING") { Filename = "missing.ttf" };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("CAD") { Style = textStyle });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(
+                    InterFontFamily.Regular,
+                    isSubstitution: true),
+            });
+
+        Assert.Single(snapshot.Entities.ToArray());
+        Assert.Contains(
+            snapshot.Diagnostics.ToArray(),
+            diagnostic => diagnostic.Code == "CADSNAP005");
+    }
+
+    [Fact]
+    public void FontManagerResolverUsesExplicitFallbackForMissingFamily()
+    {
+        TtfFont fallback = InterFontFamily.Regular;
+        var resolver = new CadFontManagerTextResolver(fallback, new FontManager());
+
+        CadTextFontResolution resolution = resolver.Resolve(new CadTextFontRequest(
+            "MISSING_CAD_FACE",
+            "missing-cad-face.ttf",
+            string.Empty,
+            IsBold: false,
+            IsItalic: false));
+
+        Assert.Same(fallback, resolution.Font);
+        Assert.True(resolution.IsSubstitution);
+    }
+
+    [Fact]
+    public void TrueTypeTextWithoutHostResolverIsAnExplicitFidelityGate()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add unresolved text", document =>
+        {
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("CAD") { Style = textStyle });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+
+        Assert.Empty(snapshot.Entities.ToArray());
+        Assert.Contains(
+            snapshot.Diagnostics.ToArray(),
+            diagnostic => diagnostic.Code == "CADSNAP003" &&
+                diagnostic.Message.Contains("resolver", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ShxTextIsDiagnosedWithoutTrueTypeSubstitution()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add SHX text", document =>
+        {
+            var textStyle = new TextStyle("SIMPLEX") { Filename = "simplex.shx" };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("CAD") { Style = textStyle });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
+            });
+
+        Assert.Empty(snapshot.Entities.ToArray());
+        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Contains(
+            snapshot.Diagnostics.ToArray(),
+            diagnostic => diagnostic.Message.Contains("SHX", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void VerticalStyleAndMTextAreExplicitFidelityGates()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add unsupported text modes", document =>
+        {
+            var verticalStyle = new TextStyle("VERTICAL")
+            {
+                Filename = "Inter.ttf",
+                Flags = StyleFlags.VerticalText,
+            };
+            document.TextStyles.Add(verticalStyle);
+            document.Entities.Add(new TextEntity("CAD") { Style = verticalStyle });
+            document.Entities.Add(new MText { Value = "CAD" });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
+            });
+
+        Assert.Empty(snapshot.Entities.ToArray());
+        Assert.Equal(2, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.All(
+            snapshot.Diagnostics.ToArray(),
+            diagnostic => Assert.Equal("CADSNAP003", diagnostic.Code));
+        Assert.Contains(
+            snapshot.Diagnostics.ToArray(),
+            diagnostic => diagnostic.Message.Contains("Vertical", StringComparison.Ordinal));
+        Assert.Contains(
+            snapshot.Diagnostics.ToArray(),
+            diagnostic => diagnostic.Message.Contains("MTEXT", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TextInputBudgetsFailAtomicallyBeforeRetainedStreamsChange()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add oversized text", document =>
+        {
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("CAD") { Style = textStyle });
+        });
+
+        InvalidOperationException codeUnitException = Assert.ThrowsAny<InvalidOperationException>(() =>
+            new CadSnapshotCompiler().Compile(
+                session,
+                new CadSnapshotOptions
+                {
+                    TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
+                    MaxTextCodeUnitsPerEntity = 2,
+                }));
+        InvalidOperationException glyphException = Assert.ThrowsAny<InvalidOperationException>(() =>
+            new CadSnapshotCompiler().Compile(
+                session,
+                new CadSnapshotOptions
+                {
+                    TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
+                    MaxTextGlyphs = 2,
+                }));
+
+        Assert.Contains("UTF-16 code units", codeUnitException.Message, StringComparison.Ordinal);
+        Assert.Contains("glyph count", glyphException.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TextDecodesDocumentedSymbolsAndRejectsUnretainedDecorations()
+    {
+        TtfFont font = InterFontFamily.Regular;
+        CadDocumentSession supported = CadDocumentSession.CreateNew();
+        supported.Edit("Add encoded symbols", document =>
+        {
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity(@"45%%d \U+00B1 %%%") { Style = textStyle });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            supported,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(font),
+            });
+        var expected = new TextLayout("45° ± %", font, 1.0f, float.PositiveInfinity);
+
+        Assert.Equal(
+            expected.Glyphs.Select(glyph => glyph.GlyphIndex),
+            snapshot.TextGlyphIndices.ToArray());
+
+        CadDocumentSession decorated = CadDocumentSession.CreateNew();
+        decorated.Edit("Add decorated text", document =>
+        {
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("%%uCAD") { Style = textStyle });
+        });
+        CadDocumentSnapshot decoratedSnapshot = new CadSnapshotCompiler().Compile(
+            decorated,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(font),
+            });
+
+        Assert.Empty(decoratedSnapshot.Entities.ToArray());
+        Assert.Contains(
+            decoratedSnapshot.Diagnostics.ToArray(),
+            diagnostic => diagnostic.Message.Contains("decoration", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void InsertAppliesBasePointScaleRotationAndKeepsRootHandle()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
@@ -857,5 +1220,13 @@ public sealed class CadSnapshotAndSceneTests
         Assert.InRange(Math.Abs(expected.X - actual.X), 0, Tolerance);
         Assert.InRange(Math.Abs(expected.Y - actual.Y), 0, Tolerance);
         Assert.InRange(Math.Abs(expected.Z - actual.Z), 0, Tolerance);
+    }
+
+    private sealed class FixedTextFontResolver(
+        TtfFont font,
+        bool isSubstitution = false) : ICadTextFontResolver
+    {
+        public CadTextFontResolution Resolve(in CadTextFontRequest request) =>
+            new(font, isSubstitution);
     }
 }

@@ -1,20 +1,24 @@
 using System.Diagnostics;
 using System.Text.Json;
 using ACadSharp.Entities;
+using ACadSharp.Tables;
 using CSMath;
 using ProGPU.CAD;
+using ProGPU.Fonts.Inter;
+using ProGPU.Text;
 
 int entityCount = ReadNonNegativeInt("--entities", 10_000);
 int blockArrayColumnCount = ReadNonNegativeInt("--block-array-columns", 0);
+int textEntityCount = ReadNonNegativeInt("--text-entities", 0);
 int warmupCount = ReadNonNegativeInt("--warmup", 3);
 int iterationCount = ReadPositiveInt("--iterations", 24);
 int queryCount = ReadPositiveInt("--queries", 10_000);
 string? outputPath = ReadString("--output-json");
 
-if (entityCount == 0 && blockArrayColumnCount == 0)
+if (entityCount == 0 && blockArrayColumnCount == 0 && textEntityCount == 0)
 {
     throw new ArgumentException(
-        "At least one ordinary entity or block-array column is required.");
+        "At least one ordinary entity, block-array column, or text entity is required.");
 }
 
 if (blockArrayColumnCount > ushort.MaxValue)
@@ -24,21 +28,30 @@ if (blockArrayColumnCount > ushort.MaxValue)
         $"--block-array-columns cannot exceed {ushort.MaxValue}.");
 }
 
-CadDocumentSession session = CreateDocument(entityCount, blockArrayColumnCount);
+CadDocumentSession session = CreateDocument(
+    entityCount,
+    blockArrayColumnCount,
+    textEntityCount);
 var snapshotCompiler = new CadSnapshotCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
+CadSnapshotOptions snapshotOptions = textEntityCount == 0
+    ? new CadSnapshotOptions()
+    : new CadSnapshotOptions
+    {
+        TextFontResolver = new BenchmarkTextFontResolver(InterFontFamily.Regular),
+    };
 
 for (int i = 0; i < warmupCount; i++)
 {
-    CadDocumentSnapshot warmSnapshot = snapshotCompiler.Compile(session);
+    CadDocumentSnapshot warmSnapshot = snapshotCompiler.Compile(session, snapshotOptions);
     _ = sceneCompiler.Compile(warmSnapshot);
 }
 
 Measurement snapshotMeasurement = Measure(
     "snapshot",
     iterationCount,
-    () => snapshotCompiler.Compile(session));
-CadDocumentSnapshot snapshot = snapshotCompiler.Compile(session);
+    () => snapshotCompiler.Compile(session, snapshotOptions));
+CadDocumentSnapshot snapshot = snapshotCompiler.Compile(session, snapshotOptions);
 Measurement sceneMeasurement = Measure(
     "plan-scene",
     iterationCount,
@@ -52,6 +65,7 @@ var report = new CadBenchmarkReport(
     System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
     entityCount,
     blockArrayColumnCount,
+    textEntityCount,
     warmupCount,
     iterationCount,
     queryCount,
@@ -71,7 +85,10 @@ if (outputPath is not null)
     File.WriteAllText(outputPath, json);
 }
 
-CadDocumentSession CreateDocument(int count, int arrayColumns)
+CadDocumentSession CreateDocument(
+    int count,
+    int arrayColumns,
+    int textCount)
 {
     CadDocumentSession result = CadDocumentSession.CreateNew();
     result.Edit("Build benchmark document", document =>
@@ -124,6 +141,23 @@ CadDocumentSession CreateDocument(int count, int arrayColumns)
                 ColumnCount = checked((ushort)arrayColumns),
                 ColumnSpacing = 12,
             });
+        }
+
+        if (textCount > 0)
+        {
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            for (int i = 0; i < textCount; i++)
+            {
+                document.Entities.Add(new TextEntity("ProGPU CAD 0123456789")
+                {
+                    Style = textStyle,
+                    InsertPoint = new XYZ((i % 100) * 24.0, (i / 100) * 4.0, 0),
+                    Height = 2.5,
+                    WidthFactor = 0.9,
+                    ObliqueAngle = (i & 1) == 0 ? 0.0 : 0.08,
+                });
+            }
         }
     });
     return result;
@@ -234,6 +268,7 @@ internal sealed record CadBenchmarkReport(
     string Runtime,
     int EntityCount,
     int BlockArrayColumnCount,
+    int TextEntityCount,
     int WarmupCount,
     int IterationCount,
     int QueryCount,
@@ -244,3 +279,9 @@ internal sealed record CadBenchmarkReport(
     Measurement PlanSceneMilliseconds,
     Measurement SpatialQueryNanoseconds,
     long WorkingSetBytes);
+
+internal sealed class BenchmarkTextFontResolver(TtfFont font) : ICadTextFontResolver
+{
+    public CadTextFontResolution Resolve(in CadTextFontRequest request) =>
+        new(font, IsSubstitution: false);
+}

@@ -63,7 +63,9 @@ public sealed class CadRecordedPlanScene
 /// no viewport tessellation and owns no camera state. Recording is O(N + P), where N is
 /// the entity count and P is the total spline control/knot/weight data copied into the
 /// retained context. Large WCS coordinates are rebased before their checked float
-/// conversion. A later camera or viewport change can reuse the recorded scene.
+/// conversion. Text adds O(R) retained commands for R contiguous font runs; it
+/// does not copy or expand glyph streams. A later camera or viewport change can
+/// reuse the recorded scene.
 /// </remarks>
 public sealed class CadPlanSceneCompiler
 {
@@ -92,7 +94,9 @@ public sealed class CadPlanSceneCompiler
         {
             cancellationToken.ThrowIfCancellationRequested();
             CadStrokeStyle style = styles[entity.StyleIndex];
-            if (!IsContinuous(style.LineTypeName) && warnedLineTypes.Add(style.LineTypeName))
+            if (UsesStroke(entity.Kind) &&
+                !IsContinuous(style.LineTypeName) &&
+                warnedLineTypes.Add(style.LineTypeName))
             {
                 unsupportedLineTypes++;
                 diagnostics.Add(new CadDiagnostic(
@@ -133,6 +137,13 @@ public sealed class CadPlanSceneCompiler
                     break;
                 case CadEntityKind.Polyline3D:
                     RecordPolyline3D(context, pen, snapshot, snapshot.Polylines3D.Span[entity.PrimitiveIndex]);
+                    break;
+                case CadEntityKind.Text:
+                    RecordText(
+                        context,
+                        pen.Brush,
+                        snapshot,
+                        snapshot.Texts.Span[entity.PrimitiveIndex]);
                     break;
                 default:
                     throw new InvalidOperationException($"Unknown CAD entity kind {entity.Kind}.");
@@ -445,6 +456,37 @@ public sealed class CadPlanSceneCompiler
         context.DrawPath(null, pen, path);
     }
 
+    private static void RecordText(
+        DrawingContext context,
+        Brush brush,
+        CadDocumentSnapshot snapshot,
+        CadTextPrimitive text)
+    {
+        Matrix4x4 transform = CreateProjectionTransform(
+            text.Origin,
+            text.XAxis,
+            text.YAxis,
+            snapshot.RebaseOrigin);
+        ReadOnlySpan<CadTextGlyphRun> runs = snapshot.TextGlyphRuns.Span;
+        ReadOnlySpan<ProGPU.Text.TtfFont> fonts = snapshot.TextFonts.Span;
+        int runEnd = checked(text.RunOffset + text.RunCount);
+        for (int i = text.RunOffset; i < runEnd; i++)
+        {
+            CadTextGlyphRun run = runs[i];
+            context.DrawGlyphRunRange(
+                snapshot.TextGlyphIndexArray,
+                snapshot.TextGlyphPositionArray,
+                run.GlyphOffset,
+                run.GlyphCount,
+                fonts[run.FontIndex],
+                1.0f,
+                brush,
+                Vector2.Zero,
+                transform,
+                useVectorGlyphRendering: true);
+        }
+    }
+
     private static Matrix4x4 CreateProjectionTransform(
         CadPoint3D center,
         CadCoordinateSystem basis,
@@ -487,6 +529,9 @@ public sealed class CadPlanSceneCompiler
         name.Equals("Continuous", StringComparison.OrdinalIgnoreCase) ||
         name.Equals("ByLayer", StringComparison.OrdinalIgnoreCase) ||
         name.Equals("ByBlock", StringComparison.OrdinalIgnoreCase);
+
+    private static bool UsesStroke(CadEntityKind kind) =>
+        kind is not (CadEntityKind.Solid or CadEntityKind.Text);
 
     private static void ValidateOptions(CadPlanSceneOptions options)
     {

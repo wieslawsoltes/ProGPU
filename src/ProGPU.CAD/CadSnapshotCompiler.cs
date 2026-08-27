@@ -4,6 +4,8 @@ using ACadSharp.Entities;
 using ACadSharp.Extensions;
 using ACadSharp.Tables;
 using CSMath;
+using ProGPU.Text;
+using System.Numerics;
 
 namespace ProGPU.CAD;
 
@@ -13,13 +15,18 @@ public sealed class CadSnapshotOptions
     public const int DefaultMaxBlockNestingDepth = 32;
     public const int DefaultMaxBlockArrayInstances = 1_000_000;
     public const int DefaultMaxExpandedEntities = 5_000_000;
+    public const int DefaultMaxTextCodeUnitsPerEntity = 65_536;
+    public const int DefaultMaxTextGlyphs = 4_000_000;
 
     public double DefaultLineWeightMillimeters { get; init; } = 0.25;
     public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
     public int MaxBlockNestingDepth { get; init; } = DefaultMaxBlockNestingDepth;
     public int MaxBlockArrayInstances { get; init; } = DefaultMaxBlockArrayInstances;
     public int MaxExpandedEntities { get; init; } = DefaultMaxExpandedEntities;
+    public int MaxTextCodeUnitsPerEntity { get; init; } = DefaultMaxTextCodeUnitsPerEntity;
+    public int MaxTextGlyphs { get; init; } = DefaultMaxTextGlyphs;
     public bool IncludeNonPlottableLayers { get; init; } = true;
+    public ICadTextFontResolver? TextFontResolver { get; init; }
 }
 
 /// <summary>Compiles the mutable ACadSharp graph into immutable ProGPU CAD streams.</summary>
@@ -59,6 +66,12 @@ public sealed class CadSnapshotCompiler
         var splines = new List<CadSplinePrimitive>();
         var polylines = new List<CadPolylinePrimitive>();
         var polylines3D = new List<CadPolyline3DPrimitive>();
+        var texts = new List<CadTextPrimitive>();
+        var textGlyphRuns = new List<CadTextGlyphRun>();
+        var textGlyphIndices = new List<ushort>();
+        var textGlyphPositions = new List<Vector2>();
+        var textFonts = new List<TtfFont>();
+        var textFontIndices = new Dictionary<TtfFont, int>(ReferenceEqualityComparer.Instance);
         var polylineVertices = new List<CadPolylineVertex>();
         var polyline3DPoints = new List<CadPoint3D>();
         var splineControlPoints = new List<CadPoint3D>();
@@ -112,6 +125,11 @@ public sealed class CadSnapshotCompiler
             splines.ToArray(),
             polylines.ToArray(),
             polylines3D.ToArray(),
+            texts.ToArray(),
+            textGlyphRuns.ToArray(),
+            textGlyphIndices.ToArray(),
+            textGlyphPositions.ToArray(),
+            textFonts.ToArray(),
             polylineVertices.ToArray(),
             polyline3DPoints.ToArray(),
             splineControlPoints.ToArray(),
@@ -213,6 +231,23 @@ public sealed class CadSnapshotCompiler
                         styleIndex,
                         polylines3D,
                         polyline3DPoints),
+                    TextEntity text => CompileText(
+                        text,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        options,
+                        diagnostics,
+                        texts,
+                        textGlyphRuns,
+                        textGlyphIndices,
+                        textGlyphPositions,
+                        textFonts,
+                        textFontIndices),
+                    MText => throw new CadUnsupportedEntityException(
+                        "MTEXT requires inline-format, paragraph, column, background, and attachment lowering."),
                     _ => null,
                 };
 
@@ -959,6 +994,378 @@ public sealed class CadSnapshotCompiler
             bounds);
     }
 
+    private static CadEntityHeader CompileText(
+        TextEntity text,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        CadSnapshotOptions options,
+        List<CadDiagnostic> diagnostics,
+        List<CadTextPrimitive> destination,
+        List<CadTextGlyphRun> runs,
+        List<ushort> glyphIndices,
+        List<Vector2> glyphPositions,
+        List<TtfFont> fonts,
+        Dictionary<TtfFont, int> fontIndices)
+    {
+        if (text.Thickness != 0.0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Extruded TEXT requires 3D side-surface lowering.");
+        }
+
+        if (string.IsNullOrEmpty(text.Value) ||
+            text.Value.IndexOfAny(['\r', '\n']) >= 0)
+        {
+            throw new CadUnsupportedEntityException(
+                "TEXT must contain one non-empty logical line.");
+        }
+
+        if (text.Value.Length > options.MaxTextCodeUnitsPerEntity)
+        {
+            throw new CadSnapshotExpansionLimitException(
+                $"TEXT path {FormatEntityPath(handle, text.Handle)} exceeds the configured per-entity limit of {options.MaxTextCodeUnitsPerEntity} UTF-16 code units.");
+        }
+
+        if (text.HorizontalAlignment is TextHorizontalAlignment.Aligned or TextHorizontalAlignment.Fit)
+        {
+            throw new CadUnsupportedEntityException(
+                "Aligned and fit TEXT require two-point advance scaling.");
+        }
+
+        TextStyle cadStyle = text.Style;
+        if (cadStyle.IsShapeFile ||
+            cadStyle.Filename.EndsWith(".shx", StringComparison.OrdinalIgnoreCase) ||
+            !string.IsNullOrWhiteSpace(cadStyle.BigFontFilename))
+        {
+            throw new CadUnsupportedEntityException(
+                "SHX and Big Font TEXT require the bounded ProGPU SHX font source.");
+        }
+
+        if (cadStyle.Flags.HasFlag(StyleFlags.VerticalText))
+        {
+            throw new CadUnsupportedEntityException(
+                "Vertical TrueType STYLE requires vertical shaping and glyph-orientation lowering.");
+        }
+
+        string content = DecodeTextContent(text.Value);
+
+        ICadTextFontResolver resolver = options.TextFontResolver ??
+            throw new CadUnsupportedEntityException(
+                "TrueType TEXT requires a host text-font resolver.");
+        bool isBold = cadStyle.TrueType.HasFlag(FontFlags.Bold);
+        bool isItalic = cadStyle.TrueType.HasFlag(FontFlags.Italic);
+        CadTextFontResolution fontResolution = resolver.Resolve(new CadTextFontRequest(
+            cadStyle.Name,
+            cadStyle.Filename,
+            cadStyle.BigFontFilename,
+            isBold,
+            isItalic));
+        TtfFont font = fontResolution.Font ?? throw new CadUnsupportedEntityException(
+                $"Text style '{cadStyle.Name}' could not resolve a TrueType font.");
+        double height = text.Height;
+        double widthFactor = text.WidthFactor;
+        double oblique = text.ObliqueAngle;
+        if (!double.IsFinite(height) || height <= 0.0 ||
+            !double.IsFinite(widthFactor) || widthFactor <= 0.0 ||
+            !double.IsFinite(text.Rotation) ||
+            !double.IsFinite(oblique) || Math.Abs(oblique) >= Math.PI * 0.5)
+        {
+            throw new ArgumentException(
+                "TEXT height, width, rotation, and oblique angle must define a finite non-degenerate transform.");
+        }
+
+        var layout = new TextLayout(content, font, 1.0f, float.PositiveInfinity);
+        if (layout.Glyphs.Count == 0 || font.UnitsPerEm == 0)
+        {
+            throw new CadUnsupportedEntityException(
+                "TEXT shaping produced no drawable glyph run.");
+        }
+
+        if (layout.Glyphs.Count > options.MaxTextGlyphs - glyphIndices.Count)
+        {
+            throw new CadSnapshotExpansionLimitException(
+                $"Retained TEXT glyph count exceeds the configured document limit of {options.MaxTextGlyphs}.");
+        }
+
+        double ascent = (double)font.Ascender / font.UnitsPerEm;
+        double descent = (double)font.Descender / font.UnitsPerEm;
+        double width = layout.ContentSize.X;
+        double horizontalOffset = text.HorizontalAlignment switch
+        {
+            TextHorizontalAlignment.Center or TextHorizontalAlignment.Middle => -width * 0.5,
+            TextHorizontalAlignment.Right => -width,
+            _ => 0.0,
+        };
+        TextVerticalAlignmentType verticalAlignment = text.HorizontalAlignment == TextHorizontalAlignment.Middle
+            ? TextVerticalAlignmentType.Middle
+            : text.VerticalAlignment;
+        double verticalOffset = verticalAlignment switch
+        {
+            TextVerticalAlignmentType.Top => ascent,
+            TextVerticalAlignmentType.Middle => (ascent + descent) * 0.5,
+            TextVerticalAlignmentType.Bottom => descent,
+            _ => 0.0,
+        };
+
+        bool usesAlignmentPoint = text.HorizontalAlignment != TextHorizontalAlignment.Left ||
+            text.VerticalAlignment != TextVerticalAlignmentType.Baseline;
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(text.Normal));
+        CadPoint3D anchor = basis.Transform(ToPoint(
+            usesAlignmentPoint ? text.AlignmentPoint : text.InsertPoint));
+        double cosine = Math.Cos(text.Rotation);
+        double sine = Math.Sin(text.Rotation);
+        CadPoint3D horizontal = (basis.XAxis * cosine) + (basis.YAxis * sine);
+        CadPoint3D vertical = (basis.XAxis * -sine) + (basis.YAxis * cosine);
+        TextMirrorFlag mirror = text.Mirror;
+        double mirrorX = mirror.HasFlag(TextMirrorFlag.Backward) ? -1.0 : 1.0;
+        double mirrorY = mirror.HasFlag(TextMirrorFlag.UpsideDown) ? -1.0 : 1.0;
+        CadPoint3D xAxis = horizontal * (height * widthFactor * mirrorX);
+        CadPoint3D yAxis =
+            (horizontal * (-height * Math.Tan(oblique) * mirrorY)) +
+            (vertical * (-height * mirrorY));
+        if (hasTransform)
+        {
+            anchor = transform.TransformPoint(anchor);
+            xAxis = transform.TransformVector(xAxis);
+            yAxis = transform.TransformVector(yAxis);
+        }
+        EnsureFinite(anchor);
+        EnsureFinite(xAxis);
+        EnsureFinite(yAxis);
+
+        var compiledGlyphIndices = new ushort[layout.Glyphs.Count];
+        var compiledGlyphPositions = new Vector2[layout.Glyphs.Count];
+        var compiledRuns = new List<(int Offset, int Count, TtfFont Font)>();
+        TtfFont? runFont = null;
+        int currentRunOffset = 0;
+        double minimumX = horizontalOffset;
+        double maximumX = horizontalOffset + width;
+        double minimumY = verticalOffset - ascent;
+        double maximumY = verticalOffset - descent;
+        for (int i = 0; i < layout.Glyphs.Count; i++)
+        {
+            TextRunGlyph glyph = layout.Glyphs[i];
+            TtfFont glyphFont = glyph.Font ?? font;
+            if (runFont is not null && !ReferenceEquals(runFont, glyphFont))
+            {
+                compiledRuns.Add((
+                    currentRunOffset,
+                    i - currentRunOffset,
+                    runFont));
+                currentRunOffset = i;
+            }
+            runFont = glyphFont;
+
+            float x = checked((float)(glyph.Position.X + horizontalOffset));
+            float y = checked((float)(glyph.Position.Y - ascent + verticalOffset));
+            if (!float.IsFinite(x) || !float.IsFinite(y))
+            {
+                throw new ArithmeticException("TEXT glyph positions exceed the retained numeric range.");
+            }
+            compiledGlyphIndices[i] = glyph.GlyphIndex;
+            compiledGlyphPositions[i] = new Vector2(x, y);
+
+            if (glyphFont.UnitsPerEm != 0 && glyphFont.TryGetGlyphBounds(
+                glyph.GlyphIndex,
+                out short xMin,
+                out short yMin,
+                out short xMax,
+                out short yMax))
+            {
+                double scale = 1.0 / glyphFont.UnitsPerEm;
+                minimumX = Math.Min(minimumX, x + (xMin * scale));
+                maximumX = Math.Max(maximumX, x + (xMax * scale));
+                minimumY = Math.Min(minimumY, y - (yMax * scale));
+                maximumY = Math.Max(maximumY, y - (yMin * scale));
+            }
+        }
+
+        if (runFont is not null)
+        {
+            compiledRuns.Add((
+                currentRunOffset,
+                compiledGlyphIndices.Length - currentRunOffset,
+                runFont));
+        }
+
+        CadBounds3D bounds = CadBounds3D.FromPoint(
+            TransformTextPoint(anchor, xAxis, yAxis, minimumX, minimumY));
+        bounds = bounds
+            .Include(TransformTextPoint(anchor, xAxis, yAxis, maximumX, minimumY))
+            .Include(TransformTextPoint(anchor, xAxis, yAxis, minimumX, maximumY))
+            .Include(TransformTextPoint(anchor, xAxis, yAxis, maximumX, maximumY));
+        int glyphOffset = glyphIndices.Count;
+        int runOffset = runs.Count;
+        glyphIndices.AddRange(compiledGlyphIndices);
+        glyphPositions.AddRange(compiledGlyphPositions);
+        for (int i = 0; i < compiledRuns.Count; i++)
+        {
+            (int offset, int count, TtfFont runTypeFace) = compiledRuns[i];
+            runs.Add(new CadTextGlyphRun(
+                glyphOffset + offset,
+                count,
+                InternTextFont(runTypeFace, fonts, fontIndices)));
+        }
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadTextPrimitive(
+            anchor,
+            xAxis,
+            yAxis,
+            glyphOffset,
+            compiledGlyphIndices.Length,
+            runOffset,
+            runs.Count - runOffset));
+        if (fontResolution.IsSubstitution)
+        {
+            AddDiagnostic(
+                diagnostics,
+                options.DiagnosticLimit,
+                new CadDiagnostic(
+                    CadDiagnosticSeverity.Warning,
+                    "CADSNAP005",
+                    $"TEXT path {FormatEntityPath(handle, text.Handle)} substitutes '{cadStyle.Filename}' with '{font.FamilyName}'."));
+        }
+
+        return new CadEntityHeader(
+            handle,
+            CadEntityKind.Text,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            bounds);
+    }
+
+    private static int InternTextFont(
+        TtfFont font,
+        List<TtfFont> fonts,
+        Dictionary<TtfFont, int> indices)
+    {
+        if (indices.TryGetValue(font, out int index))
+        {
+            return index;
+        }
+
+        index = fonts.Count;
+        fonts.Add(font);
+        indices.Add(font, index);
+        return index;
+    }
+
+    private static CadPoint3D TransformTextPoint(
+        CadPoint3D origin,
+        CadPoint3D xAxis,
+        CadPoint3D yAxis,
+        double x,
+        double y) => origin + (xAxis * x) + (yAxis * y);
+
+    private static string DecodeTextContent(string source)
+    {
+        bool requiresDecoding = source.Contains("%%", StringComparison.Ordinal) ||
+            source.Contains("\\U+", StringComparison.OrdinalIgnoreCase);
+        if (!requiresDecoding)
+        {
+            EnsureValidUtf16(source);
+            return source;
+        }
+
+        var decoded = new char[source.Length];
+        int written = 0;
+        for (int i = 0; i < source.Length; i++)
+        {
+            char value = source[i];
+            if (value == '\\' && i + 2 < source.Length &&
+                (source[i + 1] is 'U' or 'u') && source[i + 2] == '+')
+            {
+                if (i + 6 >= source.Length)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "TEXT contains a truncated DXF Unicode escape.");
+                }
+
+                int scalar = 0;
+                for (int digit = 0; digit < 4; digit++)
+                {
+                    int hex = HexValue(source[i + 3 + digit]);
+                    if (hex < 0)
+                    {
+                        throw new CadUnsupportedEntityException(
+                            "TEXT contains an invalid DXF Unicode escape.");
+                    }
+
+                    scalar = (scalar << 4) | hex;
+                }
+
+                decoded[written++] = (char)scalar;
+                i += 6;
+                continue;
+            }
+
+            if (value == '%' && i + 1 < source.Length && source[i + 1] == '%')
+            {
+                if (i + 2 >= source.Length)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "TEXT contains a truncated AutoCAD control code.");
+                }
+
+                char code = char.ToLowerInvariant(source[i + 2]);
+                decoded[written++] = code switch
+                {
+                    'd' => '\u00B0',
+                    'p' => '\u00B1',
+                    'c' => '\u2205',
+                    '%' => '%',
+                    'o' or 'u' or 'k' => throw new CadUnsupportedEntityException(
+                        "TEXT overline, underline, and strike-through control codes require retained decoration runs."),
+                    >= '0' and <= '9' => throw new CadUnsupportedEntityException(
+                        "Numeric AutoCAD TEXT control codes require font-specific character mapping."),
+                    _ => throw new CadUnsupportedEntityException(
+                        $"TEXT contains unsupported AutoCAD control code '%%{source[i + 2]}'."),
+                };
+                i += 2;
+                continue;
+            }
+
+            decoded[written++] = value;
+        }
+
+        EnsureValidUtf16(decoded.AsSpan(0, written));
+        return new string(decoded, 0, written);
+    }
+
+    private static int HexValue(char value) => value switch
+    {
+        >= '0' and <= '9' => value - '0',
+        >= 'A' and <= 'F' => value - 'A' + 10,
+        >= 'a' and <= 'f' => value - 'a' + 10,
+        _ => -1,
+    };
+
+    private static void EnsureValidUtf16(ReadOnlySpan<char> value)
+    {
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (char.IsHighSurrogate(value[i]))
+            {
+                if (i + 1 >= value.Length || !char.IsLowSurrogate(value[i + 1]))
+                {
+                    throw new CadUnsupportedEntityException(
+                        "TEXT contains an unpaired UTF-16 surrogate.");
+                }
+
+                i++;
+            }
+            else if (char.IsLowSurrogate(value[i]))
+            {
+                throw new CadUnsupportedEntityException(
+                    "TEXT contains an unpaired UTF-16 surrogate.");
+            }
+        }
+    }
+
     internal static void GetBulgeArc(
         CadPolylineVertex start,
         CadPolylineVertex end,
@@ -1197,6 +1604,12 @@ public sealed class CadSnapshotCompiler
             1);
         ArgumentOutOfRangeException.ThrowIfLessThan(
             options.MaxExpandedEntities,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxTextCodeUnitsPerEntity,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxTextGlyphs,
             1);
     }
 

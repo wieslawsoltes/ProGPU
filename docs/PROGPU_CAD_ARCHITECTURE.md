@@ -100,6 +100,19 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   wireframe records only visible edges while preserving the same face record
   for the later shaded/depth compiler. Nonzero ellipse/SOLID thickness is
   reported until complete 3D side-surface lowering is available.
+- Single-line TrueType TEXT resolves through a typed host font service, shapes
+  during immutable snapshot construction with the existing ProGPU Unicode/
+  OpenType pipeline, and stores packed glyph indices, positions, font runs, and
+  conservative metric/outline-aware bounds. OCS normal/rotation, effective
+  entity width, oblique shear, generation mirrors, justification, and nested
+  block transforms compose into one affine glyph-run transform. Recording stays
+  one `DrawGlyphRun` command per
+  contiguous fallback-font run and requests retained vector coverage for CAD
+  zoom; it never expands ordinary text into per-glyph path commands. Font
+  substitution is an explicit diagnostic. SHX/Big Font, aligned/fit two-point
+  scaling, extrusion, decoration control codes, and MTEXT remain diagnosed
+  fidelity gates. Documented degree, plus/minus, diameter, percent, and DXF
+  Unicode escapes are decoded before shaping.
 - Model-space lineweights are recorded as fixed device-space strokes; explicit
   zero-width lineweights use the ProGPU hairline sentinel. Non-continuous CAD
   linetypes currently produce a bounded warning and remain a tracked fidelity
@@ -107,7 +120,8 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
 
 The exact approved ProGPU-owned implementation provenance for this slice is
 `src/ProGPU.Scene/RenderCommand.cs` (`DrawingContext.DrawLine`, `DrawEllipse`,
-`DrawPath`, and `DrawSpline`) and `src/ProGPU.Vector/PathGeometry.cs`
+`DrawPath`, `DrawSpline`, and `DrawGlyphRunRange`),
+`src/ProGPU.Text/TextLayout.cs`, and `src/ProGPU.Vector/PathGeometry.cs`
 (`PathGeometry`, `PathFigure`, and `ArcSegment`). The new adapter and indexing
 algorithms are original ProGPU code based on the public contracts and Autodesk
 coordinate specification; no third-party renderer source was used. No shader or
@@ -210,8 +224,9 @@ It freezes one generation-tagged scene into an owned `GpuPicture`; wheel zoom
 and pointer pan then update only the replay camera matrix. Camera motion never
 revisits ACadSharp or recompiles geometry. The representative scene exercises
 lines, OCS circles/arcs, analytic ellipses, bulge polylines, NURBS, filled
-SOLID, 3DFACE visible-edge semantics, and a rotated non-uniform MINSERT array
-while framework chrome uses dynamic theme resources.
+SOLID, 3DFACE visible-edge semantics, a rotated non-uniform MINSERT array, and
+retained shaped TrueType TEXT while framework chrome uses dynamic theme
+resources.
 
 The desktop host uses the existing ProGPU WinUI/GLFW presentation path. The
 browser host uses `BrowserGpuRuntime`, canonical ProGPU browser assets, SIMD,
@@ -318,6 +333,49 @@ are explicitly diagnosed rather than rendered approximately. Shared block-
 fragment/GPU instance reuse remains a later optimization after inherited-style
 variants and instance hit identity are fully specified.
 
+## Retained TrueType TEXT lowering
+
+The snapshot compiler accepts an `ICadTextFontResolver`; hosts may use the
+process `FontManager` plus an explicit embedded fallback, so browser builds do
+not depend on system font files. Font resolution is outside render and replay
+hot paths. A missing face rejects only the affected entity, while a deliberate
+fallback emits `CADSNAP005` rather than silently changing document typography.
+SHX and Big Font styles are never sent through a TrueType substitute.
+
+Supported single-line TEXT is shaped at a normalized one-unit em size. The
+immutable snapshot interns typefaces by identity and stores one packed glyph
+index/position stream plus contiguous fallback-font ranges. Entity height,
+effective entity width, oblique shear, generation mirrors, OCS rotation/normal,
+and ancestor block transforms stay in a double-precision affine basis; glyph data
+is not regenerated for camera changes. Left/center/right and top/middle/bottom/
+baseline anchors use the Autodesk second-point rule. Conservative bounds union
+the shaped advance/vertical metrics with available glyph outline bounds and transform all
+four affine extrema into WCS before BVH construction.
+
+The bounded content decoder maps Autodesk's `%%d`, `%%p`, `%%c`, `%%%`, and
+four-hex-digit `\U+XXXX` sequences before shaping. Invalid UTF-16, numeric or
+unknown font-specific controls, and overline/underline/strike-through toggles
+are explicit fidelity gates until decoration runs and font-specific mappings
+are retained; control syntax is never painted literally.
+
+Snapshot work is `O(U + G)` for `U` input Unicode scalars and `G` shaped glyphs,
+with bounded output storage `O(G + R + F)` for fallback runs `R` and interned
+faces `F`. Configurable per-entity UTF-16 and document-wide glyph limits reject
+oversized input atomically before it can enter retained streams. Plan recording
+is `O(R)` commands. Stable replay uses the existing ProGPU retained glyph cache,
+DPI/subpixel policy, fallback, color-font, variable-
+font, and vector-text coverage contracts. Aligned/Fit TEXT requires the
+specified two-point width/height solution; MTEXT requires bounded inline-format,
+paragraph, column, background, and attachment lowering. Both remain explicit
+instead of inheriting the older `ProGPU.Dxf` renderer's estimated bounds,
+per-character width loop, or formatting-stripping approximation.
+
+This is a managed ACadSharp snapshot/resource adapter. It changes no shader,
+stable C ABI, native renderer, or compositor algorithm. Both compositors already
+consume the same retained glyph-run contract, so no paired native implementation
+change applies; matched native picture/pixel coverage remains the integration
+gate when the CAD differential suite lands.
+
 The 2026-08-27 Release applicability/performance audit compared commit
 `778dc69f` with this lowering on the same Apple Silicon/.NET 10 machine and the
 same 10,000-entity workload. A 100-iteration alternating-order control measured
@@ -377,6 +435,7 @@ snapshot construction, retained plan-scene recording, and spatial queries. Run:
 ```bash
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --block-array-columns 10000 --warmup 5 --iterations 100 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --warmup 5 --iterations 50 --queries 10000
 ```
 
 The initial 2026-08-27 Apple Silicon/.NET 10 baseline for 10,000 mixed analytic
@@ -400,6 +459,17 @@ source INSERT, 10,001 expanded entities including the root, and 10,000 recorded
 commands. Alternating 10,000 ordinary-entity controls were intentionally kept
 alongside these runs; graph shape and spatial distribution differ, so the data
 is a feature baseline and makes no relative speed or regression claim.
+
+The TEXT mode creates 1,000 twenty-one-character TrueType entities backed by one
+embedded Inter face. Two consecutive 50-iteration Release runs measured
+snapshot p50/p95/p99 of 14.461/106.503/113.673 ms and
+11.437/103.269/112.144 ms, with 4,291,052 and 4,285,150 managed bytes per
+generation. Retained plan recording emitted 1,000 glyph-run commands and
+measured 0.304/1.837/11.523 ms and 0.322/1.751/10.411 ms, with 576,986 and
+576,936 managed bytes per generation. Warm spatial queries remained zero-
+allocation. These measurements establish the first feature baseline only; they
+make no speedup claim and do not replace the matched viewer, GPU, native, or
+Instruments acceptance gates.
 
 Run the standalone samples with:
 
@@ -467,6 +537,20 @@ Sources consulted on 2026-08-27:
   independent inputs and describing rotation, but not scale, as applying to the
   entire array. Rejected unbounded expansion and undocumented scale-dependent
   spacing.
+- [Autodesk TEXT contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-62E5383D-8A14-47B4-BFC4-35824CAE8363.htm),
+  [text symbol/control-code contract](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-518E1A9D-398C-4A8A-AC32-2D85590CDBE1.htm),
+  [DXF string storage contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-2553CF98-44F6-4828-82DD-FE3BC7448113.htm),
+  [AcDbText width-factor contract](https://help.autodesk.com/cloudhelp/2018/ENU/OARXMAC-RefGuide/files/OREFMAC-AcDbText__widthFactor.html),
+  [text-style inheritance behavior](https://help.autodesk.com/cloudhelp/2018/CHT/AutoCAD-ActiveX/files/GUID-B6880624-B89C-4C7E-8276-6E21070CFBF6.htm),
+  [MTEXT contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-5E5DB93B-F8D3-4433-ADF7-E92E250D2BAB.htm),
+  and [STYLE contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-EF68AF7C-13EF-45A1-8175-ED6CE66C8FC9.htm):
+  adopted OCS/WCS point distinctions, the second-point justification rule,
+  effective entity transform values and style creation defaults, generation
+  flags, font metadata, and MTEXT attachment/flow/column scope; adapted supported
+  TrueType TEXT into normalized retained font runs and conservative affine
+  bounds; rejected guessed text
+  rectangles, stripped MTEXT formatting, silent SHX substitution, and claiming
+  aligned/Fit or MTEXT support before their complete contracts land.
 - [Autodesk common entity property codes](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-3610039E-27D1-4E23-B6D3-7E60B22BB5BD.htm)
   and [ByBlock color behavior](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-14BC039D-238D-4D9E-921B-F4015F96CB54.htm):
   adopted layer `0`, ByLayer, and ByBlock inheritance without mutating block

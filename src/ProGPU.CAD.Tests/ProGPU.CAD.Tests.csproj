@@ -14,5 +14,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.CAD\ProGPU.CAD.csproj" />
+    <ProjectReference Include="..\ProGPU.Fonts.Inter\ProGPU.Fonts.Inter.csproj" />
   </ItemGroup>
 </Project>

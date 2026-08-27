@@ -5,6 +5,7 @@ using ACadSharp.Tables;
 using CSMath;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
+using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Vector;
 
@@ -13,6 +14,11 @@ namespace ProGPU.CAD.Sample;
 /// <summary>Shared interactive retained CAD surface used by desktop and browser hosts.</summary>
 public sealed class CadSampleCanvas : FrameworkElement
 {
+    private static readonly CadSnapshotOptions SnapshotOptions = new()
+    {
+        TextFontResolver = new CadFontManagerTextResolver(InterFontFamily.Regular),
+    };
+
     private readonly Brush _background = new ThemeResourceBrush("CardBackground");
     private readonly Pen _border = new(
         new ThemeResourceBrush("ControlBorder"),
@@ -46,7 +52,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     public void Load(CadDocumentSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
-        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session, SnapshotOptions);
         CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
         GpuPicture picture = scene.CreatePicture();
         GpuPicture? previous = _picture;
@@ -199,6 +205,17 @@ public sealed class CadSampleCanvas : FrameworkElement
             ]);
             spline.Knots.AddRange([0, 0, 0, 0, 1, 1, 1, 1]);
             document.Entities.Add(spline);
+
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            document.Entities.Add(new TextEntity("ProGPU CAD")
+            {
+                Style = textStyle,
+                InsertPoint = new XYZ(-34, -31, 0),
+                Height = 7,
+                WidthFactor = 0.9,
+                ObliqueAngle = 0.08,
+            });
 
             var block = new BlockRecord("ANALYTIC_SYMBOL");
             block.BlockEntity.BasePoint = new XYZ(5, 5, 0);
