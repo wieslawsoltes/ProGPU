@@ -54,6 +54,14 @@ internal static class RetainedViewport3DQualification
             NativeMesh3DFlags.BackFace,
             reverseWinding: true,
             generation: 2U);
+        FrameResult glossy = Render(
+            compositor,
+            context,
+            target,
+            NativeMesh3DFlags.FrontFace,
+            reverseWinding: false,
+            generation: 3U,
+            shininess: 256f);
 
         Require(
             front.Update.ValidationError == NativeSceneValidationError.None &&
@@ -78,7 +86,10 @@ internal static class RetainedViewport3DQualification
         Require(
             front.Pixels.AsSpan().SequenceEqual(back.Pixels),
             "front/back retained MIL face selection produced different pixels");
-        RequireRedPixel(front.Pixels, 56, 39, 127, 129);
+        Require(
+            !front.Pixels.AsSpan().SequenceEqual(glossy.Pixels),
+            "retained MIL material shininess did not affect GPU output");
+        RequireLitPixel(front.Pixels, 56, 39);
 
         Console.WriteLine(
             "Qualified live retained MIL Viewport3D placement and exact " +
@@ -97,9 +108,14 @@ internal static class RetainedViewport3DQualification
         GpuTexture target,
         NativeMesh3DFlags faceMode,
         bool reverseWinding,
-        ulong generation)
+        ulong generation,
+        float shininess = 1f)
     {
-        byte[] scene = BuildScene(faceMode, reverseWinding, generation);
+        byte[] scene = BuildScene(
+            faceMode,
+            reverseWinding,
+            generation,
+            shininess);
         NativeSceneUpdateMetrics update = compositor.UpdateScene(scene);
         NativeSceneFrameMetrics frame = compositor.RenderScene(
             target,
@@ -119,7 +135,8 @@ internal static class RetainedViewport3DQualification
     private static byte[] BuildScene(
         NativeMesh3DFlags faceMode,
         bool reverseWinding,
-        ulong generation)
+        ulong generation,
+        float shininess)
     {
         var batch = new NativeMilBatchBuilder();
         batch.CreateResource(
@@ -157,7 +174,7 @@ internal static class RetainedViewport3DQualification
         _ = channel.Apply(batch.WrittenSpan);
         channel.SetViewport3DScene(
             ViewportHandle,
-            CreateViewportScene(faceMode, reverseWinding));
+            CreateViewportScene(faceMode, reverseWinding, shininess));
         NativeMilCompiledScene scene = channel.CompileScene(
             TargetHandle,
             SceneId,
@@ -170,7 +187,8 @@ internal static class RetainedViewport3DQualification
 
     private static NativeMilViewport3DScene CreateViewportScene(
         NativeMesh3DFlags faceMode,
-        bool reverseWinding)
+        bool reverseWinding,
+        float shininess)
     {
         var vertices = new NativeSceneMesh3DVertex[3];
         vertices[0] = CreateVertex(new Vector3(-0.8f, -0.8f, 0f));
@@ -189,12 +207,12 @@ internal static class RetainedViewport3DQualification
             ModelTransform = new NativeMatrix4x4(Matrix4x4.Identity),
             NormalTransform = new NativeMatrix4x4(Matrix4x4.Identity),
             Color = new Vector4(1f, 0f, 0f, 1f),
-            LightDirection = Float4(0f, 0f, -1f, 1f),
-            AmbientColor = Float4(0f, 0f, 0f, 0f),
-            SpecularColor = Float4(0f, 0f, 0f, 1f),
-            MaterialAmbient = Float4(0f, 0f, 0f, 1f),
+            LightDirection = Float4(0f, 0f, -1f, 0.4f),
+            AmbientColor = Float4(1f, 1f, 1f, 0.2f),
+            SpecularColor = Float4(0f, 1f, 0f, shininess),
+            MaterialAmbient = Float4(1f, 1f, 1f, 1f),
             Opacity = 1f,
-            ShadingMode = 0U,
+            ShadingMode = 1U,
             Reserved0 = 0U,
             Reserved1 = 0U
         };
@@ -261,17 +279,12 @@ internal static class RetainedViewport3DQualification
             count);
     }
 
-    private static void RequireRedPixel(
-        byte[] pixels,
-        int x,
-        int y,
-        byte minimumRed,
-        byte maximumRed)
+    private static void RequireLitPixel(byte[] pixels, int x, int y)
     {
         int offset = checked((y * (int)Width + x) * 4);
         Require(
-            pixels[offset] >= minimumRed && pixels[offset] <= maximumRed &&
-            pixels[offset + 1] == 0 &&
+            pixels[offset] >= 74 && pixels[offset] <= 80 &&
+            pixels[offset + 1] >= 49 && pixels[offset + 1] <= 53 &&
             pixels[offset + 2] == 0 && pixels[offset + 3] == 255,
             $"unexpected retained MIL Viewport3D center pixel at ({x},{y}): " +
             $"{pixels[offset]}/{pixels[offset + 1]}/" +

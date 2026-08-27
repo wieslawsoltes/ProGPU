@@ -3587,6 +3587,17 @@ front- and back-material generations. Arbitrary geometry clips, masks,
 guidelines, effects, and caches remain fail-closed rather than being
 approximated or silently discarded.
 
+The shared shader must execute the bounded lighting values already present in
+the stable mesh record: directional intensity is `light_direction.w`, ambient
+intensity is `ambient_color.w`, and the specular exponent is
+`specular_color.w`. Diffuse and specular terms scale by directional intensity,
+the material ambient product scales by ambient intensity, and the exponent is
+clamped to a positive minimum before `pow`. The live transformed/clipped gate
+uses realistic shading and observes center RGBA `77/51/0/255` from 0.4
+directional intensity, 0.2 ambient intensity, and 0.5 visual opacity; changing
+shininess from 1 to 256 must also change the readback. A hardcoded exponent or
+ignored ABI intensity therefore fails live cross-backend qualification.
+
 The engine validates every untrusted count, offset, size, enum, finite float,
 resource generation, and nesting depth before allocation or GPU submission.
 Integer arithmetic is checked. User shaders remain a separately permissioned
