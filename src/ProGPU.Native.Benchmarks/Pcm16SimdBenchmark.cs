@@ -11,6 +11,17 @@ internal static class Pcm16SimdBenchmark
 
     internal static void Run(string[] args)
     {
+        if (Array.Exists(
+                args,
+                static value => string.Equals(
+                    value,
+                    "--wide",
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            RunWide(args);
+            return;
+        }
+
         int frames = ReadPositive(args, "--frames", 48_000);
         int warmupCount = ReadNonNegative(args, "--warmup", 20);
         int sampleCount = ReadPositive(args, "--samples", 30);
@@ -98,6 +109,170 @@ internal static class Pcm16SimdBenchmark
         Console.WriteLine(FormattableString.Invariant(summary));
     }
 
+    private static void RunWide(string[] args)
+    {
+        const int leftLevel = 20_480;
+        const int rightLevel = 57_344;
+        int frames = ReadPositive(args, "--frames", 1_024);
+        int warmupCount = ReadNonNegative(args, "--warmup", 60);
+        int sampleCount = ReadPositive(args, "--samples", 80);
+        int iterationsPerSample = ReadPositive(args, "--iterations", 200);
+        bool measureScalar = Array.Exists(
+            args,
+            static value => string.Equals(
+                value,
+                "--scalar",
+                StringComparison.OrdinalIgnoreCase));
+        short[] source = CreateSource(checked(frames * 2));
+        long[] initial = CreateAccumulator(source.Length);
+        long[] expectedAccumulator = initial.ToArray();
+        long[] actualAccumulator = initial.ToArray();
+        short[] expected = new short[source.Length];
+        short[] actual = new short[source.Length];
+        AddWideScalar(
+            source,
+            leftLevel,
+            rightLevel,
+            expectedAccumulator);
+        SaturateScalar(expectedAccumulator, expected);
+        MediaPcm16WideAccumulator.AddStereo(
+            source,
+            leftLevel,
+            rightLevel,
+            actualAccumulator);
+        MediaPcm16WideAccumulator.WriteSaturated(
+            actualAccumulator,
+            actual);
+        if (!expectedAccumulator.AsSpan().SequenceEqual(
+                actualAccumulator) ||
+            !expected.AsSpan().SequenceEqual(actual))
+        {
+            throw new InvalidOperationException(
+                "Intrinsic-SIMD wide PCM16 mixing differs from the scalar oracle.");
+        }
+
+        long[] accumulator = new long[source.Length];
+        short[] output = new short[source.Length];
+        for (int index = 0; index < warmupCount; index++)
+        {
+            initial.CopyTo(accumulator, 0);
+            ApplyWideMeasured(
+                source,
+                accumulator,
+                output,
+                leftLevel,
+                rightLevel,
+                measureScalar);
+        }
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        var samples = new double[sampleCount];
+        int checksum = 0;
+        long allocationStart = GC.GetAllocatedBytesForCurrentThread();
+        for (int sample = 0; sample < sampleCount; sample++)
+        {
+            double elapsedMicroseconds = 0D;
+            for (int iteration = 0;
+                 iteration < iterationsPerSample;
+                 iteration++)
+            {
+                initial.CopyTo(accumulator, 0);
+                long start = Stopwatch.GetTimestamp();
+                ApplyWideMeasured(
+                    source,
+                    accumulator,
+                    output,
+                    leftLevel,
+                    rightLevel,
+                    measureScalar);
+                elapsedMicroseconds +=
+                    Stopwatch.GetElapsedTime(start).TotalMicroseconds;
+                checksum ^= output[
+                    (sample + iteration) % output.Length];
+            }
+
+            samples[sample] =
+                elapsedMicroseconds / iterationsPerSample;
+        }
+
+        long allocatedBytes =
+            GC.GetAllocatedBytesForCurrentThread() - allocationStart;
+        Array.Sort(samples);
+        int measuredBlocks = checked(
+            sampleCount * iterationsPerSample);
+        string path = measureScalar
+            ? "Scalar oracle"
+            : "Intrinsic-SIMD";
+        FormattableString environment = $"Wide PCM16 CPU benchmark: runtime={RuntimeInformation.FrameworkDescription}, os={RuntimeInformation.OSDescription}, arch={RuntimeInformation.ProcessArchitecture}, vector128={Vector128.IsHardwareAccelerated}, vector256={Vector256.IsHardwareAccelerated}, vector512={Vector512.IsHardwareAccelerated}.";
+        FormattableString workload = $"Workload: {frames} stereo frames/block, Q15 levels=({leftLevel}, {rightLevel}), accumulate+saturate, {warmupCount} warmups, {sampleCount} samples x {iterationsPerSample} blocks.";
+        FormattableString summary = $"{path}: p50={Percentile(samples, 0.50):F3} us/block, p95={Percentile(samples, 0.95):F3} us/block, p99={Percentile(samples, 0.99):F3} us/block, allocated={(double)allocatedBytes / measuredBlocks:F1} B/block, checksum={checksum}.";
+        Console.WriteLine(FormattableString.Invariant(environment));
+        Console.WriteLine(FormattableString.Invariant(workload));
+        Console.WriteLine(FormattableString.Invariant(summary));
+    }
+
+    private static void ApplyWideMeasured(
+        ReadOnlySpan<short> source,
+        Span<long> accumulator,
+        Span<short> output,
+        int leftLevel,
+        int rightLevel,
+        bool scalar)
+    {
+        if (scalar)
+        {
+            AddWideScalar(
+                source,
+                leftLevel,
+                rightLevel,
+                accumulator);
+            SaturateScalar(accumulator, output);
+            return;
+        }
+
+        MediaPcm16WideAccumulator.AddStereo(
+            source,
+            leftLevel,
+            rightLevel,
+            accumulator);
+        MediaPcm16WideAccumulator.WriteSaturated(
+            accumulator,
+            output);
+    }
+
+    private static void AddWideScalar(
+        ReadOnlySpan<short> source,
+        int leftLevel,
+        int rightLevel,
+        Span<long> accumulator)
+    {
+        for (int index = 0; index < source.Length; index++)
+        {
+            int level = (index & 1) == 0
+                ? leftLevel
+                : rightLevel;
+            accumulator[index] +=
+                (long)source[index] * level / 32_768;
+        }
+    }
+
+    private static void SaturateScalar(
+        ReadOnlySpan<long> accumulator,
+        Span<short> output)
+    {
+        for (int index = 0; index < accumulator.Length; index++)
+        {
+            output[index] =
+                (short)Math.Clamp(
+                    accumulator[index],
+                    short.MinValue,
+                    short.MaxValue);
+        }
+    }
+
     private static void ApplyMeasured(
         Span<short> samples,
         bool scalar,
@@ -151,6 +326,19 @@ internal static class Pcm16SimdBenchmark
         source[0] = short.MinValue;
         source[^1] = short.MaxValue;
         return source;
+    }
+
+    private static long[] CreateAccumulator(int sampleCount)
+    {
+        var accumulator = new long[sampleCount];
+        var random = new Random(0x41_43_43);
+        for (int index = 0; index < accumulator.Length; index++)
+        {
+            accumulator[index] = random.NextInt64(
+                -65_536L,
+                65_537L);
+        }
+        return accumulator;
     }
 
     private static double Percentile(

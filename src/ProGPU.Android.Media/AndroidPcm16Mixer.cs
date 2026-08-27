@@ -113,34 +113,22 @@ internal static class AndroidPcm16Mixer
                 Math.Max(
                     levels.Left,
                     levels.Right);
-            for (int index = 0;
-                 index < source.Length;
-                 index++)
-            {
-                destination[
-                    destinationSampleOffset + index] +=
-                    (long)source[index] *
-                    level /
-                    32_768;
-            }
+            MediaPcm16WideAccumulator.AddMono(
+                source,
+                level,
+                destination.Slice(
+                    destinationSampleOffset,
+                    source.Length));
             return;
         }
 
-        for (int index = 0;
-             index < source.Length;
-             index += 2)
-        {
-            destination[
-                destinationSampleOffset + index] +=
-                (long)source[index] *
-                levels.Left /
-                32_768;
-            destination[
-                destinationSampleOffset + index + 1] +=
-                (long)source[index + 1] *
-                levels.Right /
-                32_768;
-        }
+        MediaPcm16WideAccumulator.AddStereo(
+            source,
+            levels.Left,
+            levels.Right,
+            destination.Slice(
+                destinationSampleOffset,
+                source.Length));
     }
 
     internal static void AddProcessed(
@@ -238,16 +226,9 @@ internal static class AndroidPcm16Mixer
                 nameof(destination));
         }
 
-        for (int index = 0;
-             index < source.Length;
-             index++)
-        {
-            destination[index] =
-                (short)Math.Clamp(
-                    source[index],
-                    short.MinValue,
-                    short.MaxValue);
-        }
+        MediaPcm16WideAccumulator.WriteSaturated(
+            source,
+            destination);
     }
 
     private static void AddProcessedSample(
