@@ -178,6 +178,8 @@ struct semantic_3d_page {
     WGPUBuffer vertex_buffer = nullptr;
     WGPUBuffer index_buffer = nullptr;
     WGPUBuffer light_buffer = nullptr;
+    WGPUBuffer material_buffer = nullptr;
+    WGPUBuffer material_gradient_stop_buffer = nullptr;
     WGPUBindGroup bind_group = nullptr;
     std::uint64_t scene_hash = 0U;
     float dpi_scale = 0.0F;

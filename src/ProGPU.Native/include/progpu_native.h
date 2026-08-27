@@ -83,6 +83,7 @@ enum {
 #define PROGPU_NATIVE_CAPABILITY_RETAINED_GPU_HIT_TESTING (UINT64_C(1) << 51U)
 #define PROGPU_NATIVE_CAPABILITY_WPF_MIL_CHANNEL (UINT64_C(1) << 52U)
 #define PROGPU_NATIVE_CAPABILITY_GROUP_BOX_BLUR (UINT64_C(1) << 53U)
+#define PROGPU_NATIVE_CAPABILITY_SEMANTIC_MESH_3D_MATERIALS (UINT64_C(1) << 54U)
 
 #if defined(__cplusplus)
 enum : uint32_t {
@@ -1810,6 +1811,18 @@ typedef struct progpu_native_scene_mesh_3d {
     uint32_t light_offset;
     uint32_t light_count;
 } progpu_native_scene_mesh_3d;
+
+/* Optional DRAW_MESH_3D_BATCH command payload suffix. The camera remains the
+ * payload prefix for stream-version compatibility. brush_resource_index names
+ * one canonical BRUSH_TABLE resource and exactly brush_count uint32 brush
+ * indices follow this header, one per mesh record in source order. */
+/* PROGPU_CSHARP_STRUCT: Public.NativeSceneMesh3DMaterials */
+typedef struct progpu_native_scene_mesh_3d_materials {
+    uint32_t struct_size;
+    uint32_t brush_resource_index;
+    uint32_t brush_count;
+    uint32_t reserved0;
+} progpu_native_scene_mesh_3d_materials;
 
 typedef enum progpu_native_scene_stroke_kind {
     PROGPU_NATIVE_SCENE_STROKE_POLYLINE = 0,

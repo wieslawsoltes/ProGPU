@@ -1087,8 +1087,14 @@ validation_result validate(
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_LINE_3D_BATCH ||
                 command.kind ==
                     PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) {
-                if (command.payload_size !=
-                    sizeof(progpu_native_scene_camera_3d)) {
+                const bool mesh_material_payload = command.kind ==
+                        PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH &&
+                    command.payload_size >
+                        sizeof(progpu_native_scene_camera_3d);
+                if (command.payload_size <
+                        sizeof(progpu_native_scene_camera_3d) ||
+                    (!mesh_material_payload && command.payload_size !=
+                        sizeof(progpu_native_scene_camera_3d))) {
                     return fail(
                         header,
                         PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
@@ -1102,6 +1108,97 @@ validation_result validate(
                         header,
                         PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
                         command.payload_offset);
+                }
+                if (mesh_material_payload) {
+                    const std::uint32_t materials_offset =
+                        command.payload_offset +
+                            sizeof(progpu_native_scene_camera_3d);
+                    if (command.payload_size <
+                        sizeof(progpu_native_scene_camera_3d) +
+                            sizeof(progpu_native_scene_mesh_3d_materials)) {
+                        return fail(
+                            header,
+                            PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                            offset);
+                    }
+                    const auto materials = read_record<
+                        progpu_native_scene_mesh_3d_materials>(
+                            bytes, materials_offset);
+                    const std::uint32_t mesh_count =
+                        resource.payload_size /
+                            sizeof(progpu_native_scene_mesh_3d);
+                    const std::uint64_t expected_payload_size =
+                        sizeof(progpu_native_scene_camera_3d) +
+                        sizeof(materials) +
+                        static_cast<std::uint64_t>(materials.brush_count) *
+                            sizeof(std::uint32_t);
+                    if (materials.struct_size != sizeof(materials) ||
+                        materials.reserved0 != 0U ||
+                        materials.brush_count != mesh_count ||
+                        expected_payload_size != command.payload_size ||
+                        materials.brush_resource_index >=
+                            header.resource_count) {
+                        return fail(
+                            header,
+                            PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                            materials_offset);
+                    }
+                    const auto brush_resource = read_record<
+                        progpu_native_scene_resource>(
+                            bytes,
+                            header.resource_offset +
+                                static_cast<std::size_t>(
+                                    materials.brush_resource_index) *
+                                    header.resource_stride);
+                    if (brush_resource.kind !=
+                            PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE ||
+                        brush_resource.payload_size == 0U ||
+                        brush_resource.payload_size %
+                            sizeof(progpu_native_scene_brush) != 0U) {
+                        return fail(
+                            header,
+                            PROGPU_NATIVE_SCENE_VALIDATION_RECORD,
+                            materials_offset);
+                    }
+                    const std::uint32_t brush_count =
+                        brush_resource.payload_size /
+                            sizeof(progpu_native_scene_brush);
+                    const std::uint32_t indices_offset = materials_offset +
+                        sizeof(materials);
+                    for (std::uint32_t material_index = 0U;
+                         material_index < materials.brush_count;
+                         ++material_index) {
+                        const auto brush_index = read_record<std::uint32_t>(
+                            bytes,
+                            indices_offset +
+                                static_cast<std::size_t>(material_index) *
+                                    sizeof(std::uint32_t));
+                        if (brush_index >= brush_count) {
+                            return fail(
+                                header,
+                                PROGPU_NATIVE_SCENE_VALIDATION_RANGE,
+                                indices_offset + material_index *
+                                    sizeof(std::uint32_t));
+                        }
+                        const auto brush = read_record<
+                            progpu_native_scene_brush>(
+                                bytes,
+                                brush_resource.payload_offset +
+                                    static_cast<std::size_t>(brush_index) *
+                                        sizeof(progpu_native_scene_brush));
+                        if (brush.type !=
+                                PROGPU_NATIVE_SCENE_BRUSH_SOLID &&
+                            brush.type !=
+                                PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT &&
+                            brush.type !=
+                                PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT) {
+                            return fail(
+                                header,
+                                PROGPU_NATIVE_SCENE_VALIDATION_VALUE,
+                                brush_resource.payload_offset + brush_index *
+                                    sizeof(progpu_native_scene_brush));
+                        }
+                    }
                 }
             }
             if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_DRAW_ANALYTIC ||

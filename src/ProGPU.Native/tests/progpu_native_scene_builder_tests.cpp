@@ -2038,7 +2038,128 @@ bool semantic_scene_builder_records_retained_3d_families() {
         validated.header.command_offset + validated.header.command_stride);
     const auto retained_mesh = read<progpu_native_scene_mesh_3d>(
         stream, mesh_resource.payload_offset);
-    return line_resource.kind ==
+    progpu_native_scene_brush material{};
+    material.type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+    material.opacity = 0.75F;
+    material.start_point = {0.0F, 0.0F};
+    material.end_point = {1.0F, 0.0F};
+    material.stop_count = 2U;
+    material.coordinate_transform0[0] = 1.0F;
+    material.coordinate_transform1[1] = 1.0F;
+    const std::array<progpu_native_scene_gradient_stop, 2U> stops{{
+        {{1.0F, 0.0F, 0.0F, 1.0F}, 0.0F, 0U, 0U, 0U},
+        {{0.0F, 0.0F, 1.0F, 1.0F}, 1.0F, 0U, 0U, 0U}}};
+    semantic_scene_builder material_builder(715U, 1U);
+    if (!material_builder.draw_meshes_3d(
+            std::span<const progpu_native_scene_mesh_3d>(&mesh, 1U),
+            vertices,
+            indices,
+            lights,
+            std::span<const progpu_native_scene_brush>(&material, 1U),
+            stops,
+            camera,
+            {0.0F, 0.0F, 256.0F, 256.0F}) ||
+        !material_builder.set_resource_identity(0U, 10U, 1U) ||
+        !material_builder.set_resource_identity(1U, 20U, 1U)) {
+        return false;
+    }
+    std::vector<std::byte> material_stream;
+    if (!material_builder.build(material_stream)) {
+        return false;
+    }
+    const auto material_validation = scene::validate(
+        material_stream.data(), material_stream.size());
+    if (material_validation.status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        material_validation.header.resource_count != 2U ||
+        material_validation.header.command_count != 1U) {
+        return false;
+    }
+    const auto material_command = read<progpu_native_scene_command>(
+        material_stream, material_validation.header.command_offset);
+    const auto material_map = read<
+        progpu_native_scene_mesh_3d_materials>(
+            material_stream,
+            material_command.payload_offset + sizeof(camera));
+    const auto retained_material_index = read<std::uint32_t>(
+        material_stream,
+        material_command.payload_offset + sizeof(camera) +
+            sizeof(material_map));
+    auto malformed_material_stream = material_stream;
+    const std::uint32_t invalid_material_index = 1U;
+    std::memcpy(
+        malformed_material_stream.data() + material_command.payload_offset +
+            sizeof(camera) + sizeof(material_map),
+        &invalid_material_index,
+        sizeof(invalid_material_index));
+    const bool material_contract =
+        material_command.payload_size == sizeof(camera) +
+            sizeof(material_map) + sizeof(std::uint32_t) &&
+        material_map.struct_size == sizeof(material_map) &&
+        material_map.brush_resource_index == 0U &&
+        material_map.brush_count == 1U && retained_material_index == 0U &&
+        scene::validate(
+            malformed_material_stream.data(),
+            malformed_material_stream.size()).status ==
+                PROGPU_NATIVE_STATUS_INVALID_ARGUMENT;
+
+    const auto build_material_variant = [&](bool insert_unrelated_state,
+                                            std::uint64_t brush_generation,
+                                            std::vector<std::byte>& output) {
+        semantic_scene_builder variant(716U, 1U);
+        const std::uint32_t resource_shift =
+            insert_unrelated_state ? 1U : 0U;
+        if (insert_unrelated_state) {
+            std::uint32_t state_resource = PROGPU_NATIVE_SCENE_NO_INDEX;
+            const auto state = semantic_scene_builder::identity_state();
+            if (!variant.add_state(state, state_resource) ||
+                state_resource != 0U ||
+                !variant.set_resource_identity(0U, 5U, 1U)) {
+                return false;
+            }
+        }
+        if (!variant.draw_meshes_3d(
+                std::span<const progpu_native_scene_mesh_3d>(&mesh, 1U),
+                vertices,
+                indices,
+                lights,
+                std::span<const progpu_native_scene_brush>(&material, 1U),
+                stops,
+                camera,
+                {0.0F, 0.0F, 256.0F, 256.0F}) ||
+            !variant.set_resource_identity(
+                resource_shift, 10U, brush_generation) ||
+            !variant.set_resource_identity(
+                resource_shift + 1U, 20U, 1U)) {
+            return false;
+        }
+        return variant.build(output);
+    };
+    std::vector<std::byte> shifted_material_stream;
+    std::vector<std::byte> changed_material_stream;
+    if (!build_material_variant(true, 1U, shifted_material_stream) ||
+        !build_material_variant(false, 2U, changed_material_stream)) {
+        return false;
+    }
+    const auto shifted_material_validation = scene::validate(
+        shifted_material_stream.data(), shifted_material_stream.size());
+    const auto changed_material_validation = scene::validate(
+        changed_material_stream.data(), changed_material_stream.size());
+    if (shifted_material_validation.status != PROGPU_NATIVE_STATUS_SUCCESS ||
+        changed_material_validation.status != PROGPU_NATIVE_STATUS_SUCCESS) {
+        return false;
+    }
+    const auto material_hashes = semantic::compute_content_hashes(
+        material_stream.data(), material_validation.header);
+    const auto shifted_material_hashes = semantic::compute_content_hashes(
+        shifted_material_stream.data(), shifted_material_validation.header);
+    const auto changed_material_hashes = semantic::compute_content_hashes(
+        changed_material_stream.data(), changed_material_validation.header);
+    const bool material_hash_contract =
+        material_hashes.three_d == shifted_material_hashes.three_d &&
+        material_hashes.three_d != changed_material_hashes.three_d;
+
+    return material_contract && material_hash_contract &&
+        line_resource.kind ==
             PROGPU_NATIVE_SCENE_RESOURCE_LINE_3D_BATCH &&
         line_resource.payload_size == sizeof(line) &&
         mesh_resource.kind ==

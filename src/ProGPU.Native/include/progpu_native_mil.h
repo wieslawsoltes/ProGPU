@@ -169,6 +169,27 @@ progpu_native_mil_channel_set_viewport3d_scene_lights(
     size_t index_count,
     const progpu_native_scene_light_3d* lights,
     size_t light_count);
+/* Extended retained 3D binding with exactly one canonical solid, linear, or
+ * radial material brush per mesh. Gradient stop ranges address the copied
+ * gradient_stops array. Both arrays remain pointer-free after this call. */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_viewport3d_scene_materials(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    const progpu_native_scene_camera_3d* camera,
+    progpu_native_image_rect viewport,
+    const progpu_native_scene_mesh_3d* meshes,
+    size_t mesh_count,
+    const progpu_native_scene_mesh_3d_vertex* vertices,
+    size_t vertex_count,
+    const uint32_t* indices,
+    size_t index_count,
+    const progpu_native_scene_light_3d* lights,
+    size_t light_count,
+    const progpu_native_scene_brush* materials,
+    size_t material_count,
+    const progpu_native_scene_gradient_stop* gradient_stops,
+    size_t gradient_stop_count);
 /*
  * Binds copied SFNT/TTC bytes to a canonical TYPE_GLYPHRUN handle. This is
  * the portable replacement for MilCmdGlyphRunCreate's process-local

@@ -2102,6 +2102,15 @@ public class NativeRendererInteropTests
             2251799813685248UL,
             (ulong)NativeRendererCapabilities.RetainedGpuHitTesting);
         Assert.Equal(
+            4503599627370496UL,
+            (ulong)NativeRendererCapabilities.WpfMilChannel);
+        Assert.Equal(
+            9007199254740992UL,
+            (ulong)NativeRendererCapabilities.GroupBoxBlur);
+        Assert.Equal(
+            18014398509481984UL,
+            (ulong)NativeRendererCapabilities.SemanticMesh3DMaterials);
+        Assert.Equal(
             0x0000_FFFFU,
             (uint)NativeGpuHitTestQueryFlags.ResultCapacityMask);
         Assert.Equal(
@@ -2133,6 +2142,7 @@ public class NativeRendererInteropTests
             9U,
             (uint)NativeImageSampling.MagNearestMinNearestMipLinear);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
+        Assert.Equal(16, Unsafe.SizeOf<NativeSceneMesh3DMaterials>());
         Assert.Equal(3U, (uint)NativeGeometryPrimitiveKind.QuadraticBezier);
         Assert.Equal(4U, (uint)NativeGeometryPrimitiveKind.CubicBezier);
         Assert.Equal(5U, (uint)NativeGeometryPrimitiveKind.DotGrid);
@@ -2240,6 +2250,69 @@ public class NativeRendererInteropTests
         Assert.DoesNotContain(
             (byte)0,
             stream.Slice((int)firstResource.PayloadOffset, 8).ToArray());
+    }
+
+    [Fact]
+    public void SemanticSceneBuilderWritesCanonicalMeshMaterialSideband()
+    {
+        Span<byte> destination = stackalloc byte[4096];
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            sceneId: 42U,
+            generation: 3U,
+            commandCapacity: 1,
+            resourceCapacity: 2);
+        NativeSceneBrush material = NativeSceneBrush.Solid(Vector4.One);
+        Assert.True(builder.TryAddBrushTableResource(
+            10U,
+            1U,
+            MemoryMarshal.CreateReadOnlySpan(ref material, 1),
+            ReadOnlySpan<NativeSceneGradientStop>.Empty,
+            out uint materialResource));
+        var mesh = new NativeSceneMesh3D
+        {
+            StructSize = (uint)Unsafe.SizeOf<NativeSceneMesh3D>()
+        };
+        var vertex = new NativeSceneMesh3DVertex();
+        uint index = 0U;
+        Assert.True(builder.TryAddMesh3DResource(
+            20U,
+            1U,
+            MemoryMarshal.CreateReadOnlySpan(ref mesh, 1),
+            MemoryMarshal.CreateReadOnlySpan(ref vertex, 1),
+            MemoryMarshal.CreateReadOnlySpan(ref index, 1),
+            out uint meshResource));
+        var camera = new NativeSceneCamera3D(
+            Matrix4x4.Identity,
+            Matrix4x4.Identity,
+            Vector3.UnitZ);
+        Assert.True(builder.TryDrawMesh3D(
+            30U,
+            meshResource,
+            new NativeImageRect(0f, 0f, 64f, 64f),
+            camera,
+            materialResource,
+            MemoryMarshal.CreateReadOnlySpan(ref index, 1)));
+        Assert.True(builder.TryBuild(out ReadOnlySpan<byte> stream));
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(stream);
+        var command = MemoryMarshal.Read<NativeMethods.SceneCommand>(
+            stream[(int)header.CommandOffset..]);
+        int cameraSize = Unsafe.SizeOf<NativeSceneCamera3D>();
+        var mapping = MemoryMarshal.Read<NativeSceneMesh3DMaterials>(
+            stream.Slice(
+                checked((int)command.PayloadOffset + cameraSize)));
+        Assert.Equal(
+            (uint)(cameraSize +
+                Unsafe.SizeOf<NativeSceneMesh3DMaterials>() + sizeof(uint)),
+            command.PayloadSize);
+        Assert.Equal(materialResource, mapping.BrushResourceIndex);
+        Assert.Equal(1U, mapping.BrushCount);
+        Assert.Equal(
+            0U,
+            MemoryMarshal.Read<uint>(stream.Slice(
+                checked((int)command.PayloadOffset + cameraSize +
+                    Unsafe.SizeOf<NativeSceneMesh3DMaterials>()))));
     }
 
     [Fact]

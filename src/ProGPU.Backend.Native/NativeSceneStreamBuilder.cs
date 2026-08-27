@@ -2041,6 +2041,27 @@ public ref struct NativeSceneStreamBuilder
                 ref Unsafe.AsRef(in camera), 1)),
             stateIndex);
 
+    /// <summary>
+    /// Draws one retained mesh batch with exactly one canonical solid, linear,
+    /// or radial material brush per mesh record.
+    /// </summary>
+    public bool TryDrawMesh3D(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        in NativeSceneCamera3D camera,
+        uint materialBrushResourceIndex,
+        scoped ReadOnlySpan<uint> materialBrushIndices,
+        uint stateIndex = uint.MaxValue) =>
+        TryDrawMesh3DWithMaterials(
+            commandId,
+            resourceIndex,
+            bounds,
+            camera,
+            materialBrushResourceIndex,
+            materialBrushIndices,
+            stateIndex);
+
     public bool TryDrawPath(
         ulong commandId,
         uint resourceIndex,
@@ -2573,6 +2594,93 @@ public ref struct NativeSceneStreamBuilder
 
         if (!TryWriteDrawCommand(
                 kind,
+                commandId,
+                resourceIndex,
+                bounds,
+                payloadOffset,
+                checked((uint)payloadSize),
+                stateIndex))
+        {
+            _arenaSize = originalArenaSize;
+            return false;
+        }
+        return true;
+    }
+
+    private bool TryDrawMesh3DWithMaterials(
+        ulong commandId,
+        uint resourceIndex,
+        NativeImageRect bounds,
+        in NativeSceneCamera3D camera,
+        uint brushResourceIndex,
+        scoped ReadOnlySpan<uint> brushIndices,
+        uint stateIndex)
+    {
+        if (_built || _commandCount == _commandCapacity ||
+            brushIndices.IsEmpty ||
+            (uint)brushIndices.Length >
+                NativeMethods.SceneMaximumDrawBrushIndices ||
+            brushResourceIndex >= (uint)_resourceCount ||
+            !ResourceHasKind(
+                brushResourceIndex,
+                NativeSceneResourceKind.BrushTable) ||
+            resourceIndex >= (uint)_resourceCount ||
+            !ResourceHasKind(
+                resourceIndex,
+                NativeSceneResourceKind.Mesh3DBatch) ||
+            brushIndices.Length != checked((int)
+                GetResourceRecordCount<NativeSceneMesh3D>(resourceIndex)))
+        {
+            return false;
+        }
+
+        var brushResource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            _destination.Slice(
+                _resourceOffset + checked((int)brushResourceIndex) *
+                    ResourceSize,
+                ResourceSize));
+        ReadOnlySpan<NativeSceneBrush> brushes = MemoryMarshal.Cast<
+            byte,
+            NativeSceneBrush>(_destination.Slice(
+                checked((int)brushResource.PayloadOffset),
+                checked((int)brushResource.PayloadSize)));
+        foreach (uint brushIndex in brushIndices)
+        {
+            if (brushIndex >= (uint)brushes.Length ||
+                brushes[(int)brushIndex].Kind is not (
+                    NativeSceneBrushKind.Solid or
+                    NativeSceneBrushKind.LinearGradient or
+                    NativeSceneBrushKind.RadialGradient))
+            {
+                return false;
+            }
+        }
+
+        int originalArenaSize = _arenaSize;
+        int relativeOffset = checked((int)Align8(_arenaSize));
+        int cameraSize = Unsafe.SizeOf<NativeSceneCamera3D>();
+        int headerSize = Unsafe.SizeOf<NativeSceneMesh3DMaterials>();
+        int payloadSize = checked(
+            cameraSize + headerSize + brushIndices.Length * sizeof(uint));
+        int end = checked(relativeOffset + payloadSize);
+        if (_arenaOffset + end > _destination.Length)
+        {
+            return false;
+        }
+        uint payloadOffset = (uint)(_arenaOffset + relativeOffset);
+        Write((int)payloadOffset, camera);
+        var header = new NativeSceneMesh3DMaterials(
+            brushResourceIndex,
+            checked((uint)brushIndices.Length));
+        Write(checked((int)payloadOffset + cameraSize), header);
+        MemoryMarshal.AsBytes(brushIndices).CopyTo(
+            _destination.Slice(
+                checked((int)payloadOffset + cameraSize + headerSize),
+                brushIndices.Length * sizeof(uint)));
+        _arenaSize = end;
+
+        if (!TryWriteDrawCommand(
+                NativeSceneCommandKind.DrawMesh3DBatch,
                 commandId,
                 resourceIndex,
                 bounds,

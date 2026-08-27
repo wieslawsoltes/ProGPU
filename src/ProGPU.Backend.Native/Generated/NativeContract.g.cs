@@ -452,6 +452,16 @@ public partial struct NativeSceneMesh3D
     public uint LightCount;
 }
 
+// Native source: progpu_native_scene_mesh_3d_materials.
+[StructLayout(LayoutKind.Sequential)]
+public partial struct NativeSceneMesh3DMaterials
+{
+    public uint StructSize;
+    public uint BrushResourceIndex;
+    public uint BrushCount;
+    public uint Reserved0;
+}
+
 // Native source: progpu_native_hit_test_primitive.
 [StructLayout(LayoutKind.Sequential)]
 public partial struct NativeGpuHitTestPrimitive

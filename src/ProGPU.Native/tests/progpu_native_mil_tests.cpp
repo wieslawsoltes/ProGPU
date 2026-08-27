@@ -11385,6 +11385,9 @@ bool retained_viewport3d_uses_pointer_free_mesh_sideband() {
     vertices[0].position = {-0.8F, -0.8F, 0.0F, 0.0F};
     vertices[1].position = {0.8F, -0.8F, 0.0F, 0.0F};
     vertices[2].position = {0.0F, 0.8F, 0.0F, 0.0F};
+    vertices[0].texture_coordinate = {0.0F, 1.0F};
+    vertices[1].texture_coordinate = {1.0F, 1.0F};
+    vertices[2].texture_coordinate = {0.5F, 0.0F};
     for (auto& vertex : vertices) {
         vertex.normal = {0.0F, 0.0F, 1.0F, 0.0F};
     }
@@ -11471,6 +11474,94 @@ bool retained_viewport3d_uses_pointer_free_mesh_sideband() {
     }
     PROGPU_REQUIRE(found_mesh);
     PROGPU_REQUIRE(found_draw);
+
+    progpu_native_scene_brush material{};
+    material.type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+    material.opacity = 1.0F;
+    material.start_point = {0.0F, 0.0F};
+    material.end_point = {1.0F, 0.0F};
+    material.stop_count = 2U;
+    material.coordinate_transform0[0] = 1.0F;
+    material.coordinate_transform1[1] = 1.0F;
+    const std::array<progpu_native_scene_gradient_stop, 2U> stops{{
+        {{1.0F, 0.0F, 0.0F, 1.0F}, 0.0F, 0U, 0U, 0U},
+        {{0.0F, 0.0F, 1.0F, 1.0F}, 1.0F, 0U, 0U, 0U}}};
+    auto invalid_material = material;
+    invalid_material.stop_count = 3U;
+    PROGPU_REQUIRE(
+        state.set_viewport3d_scene(
+            viewport_handle,
+            camera,
+            viewport,
+            std::span<const progpu_native_scene_mesh_3d>{&mesh, 1U},
+            vertices,
+            indices,
+            lights,
+            std::span<const progpu_native_scene_brush>{
+                &invalid_material, 1U},
+            stops) == status::invalid_argument);
+    PROGPU_REQUIRE(
+        state.set_viewport3d_scene(
+            viewport_handle,
+            camera,
+            viewport,
+            std::span<const progpu_native_scene_mesh_3d>{&mesh, 1U},
+            vertices,
+            indices,
+            lights,
+            std::span<const progpu_native_scene_brush>{&material, 1U},
+            stops) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8200U, 3U, stream) == status::success);
+    const auto material_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_material_table = false;
+    bool found_material_draw = false;
+    for (std::uint32_t index = 0U;
+         index < material_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            material_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE) {
+            PROGPU_REQUIRE(resource.payload_size == sizeof(material));
+            PROGPU_REQUIRE(resource.auxiliary_size == sizeof(stops));
+            const auto retained_material =
+                read_value<progpu_native_scene_brush>(
+                    stream, resource.payload_offset);
+            PROGPU_REQUIRE(retained_material.type ==
+                PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT);
+            found_material_table = true;
+        }
+    }
+    for (std::uint32_t index = 0U;
+         index < material_header.command_count;
+         ++index) {
+        const auto scene_command = read_value<progpu_native_scene_command>(
+            stream,
+            material_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (scene_command.kind !=
+            PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) {
+            continue;
+        }
+        PROGPU_REQUIRE(scene_command.payload_size == sizeof(camera) +
+            sizeof(progpu_native_scene_mesh_3d_materials) +
+            sizeof(std::uint32_t));
+        const auto mapping =
+            read_value<progpu_native_scene_mesh_3d_materials>(
+                stream, scene_command.payload_offset + sizeof(camera));
+        PROGPU_REQUIRE(mapping.struct_size == sizeof(mapping));
+        PROGPU_REQUIRE(mapping.brush_count == 1U);
+        const auto brush_index = read_value<std::uint32_t>(
+            stream,
+            scene_command.payload_offset + sizeof(camera) + sizeof(mapping));
+        PROGPU_REQUIRE(brush_index == 0U);
+        found_material_draw = true;
+    }
+    PROGPU_REQUIRE(found_material_table);
+    PROGPU_REQUIRE(found_material_draw);
     return true;
 }
 

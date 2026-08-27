@@ -3620,6 +3620,28 @@ the zero-light compatibility path; the versioned
 `progpu_native_mil_channel_set_viewport3d_scene_lights` entry point copies the
 typed light suffix transactionally.
 
+Mesh materials use an additive command-payload sideband rather than widening
+either public or internal mesh records. The camera remains the exact payload
+prefix. Extended mesh commands append the 16-byte
+`progpu_native_scene_mesh_3d_materials` header plus one uint32 brush index per
+mesh; its resource reference targets the canonical semantic brush table.
+Only solid, linear-gradient, and radial-gradient brushes are accepted. The
+shared gradient-stop auxiliary array, coordinate transform, spread mode,
+interpolation mode, opacity, and UV coordinates are evaluated in
+`Native3D.wgsl`. Camera-only commands select an implicit opaque-white material
+and remain valid without reinterpretation. The new MIL
+`progpu_native_mil_channel_set_viewport3d_scene_materials` entry point copies
+one material per mesh plus its gradient stops transactionally.
+
+The 3D retained-content hash hashes the normalized stable identity of that
+brush resource rather than the serialized table ordinal. A material-generation
+change therefore rebuilds the 3D GPU page; inserting an unrelated lower
+ordinal resource does not. Native builder and MIL tests cover both the exact
+payload layout and malformed range rejection. The live Metal MIL gate renders
+one linear-gradient triangle and requires distinct red- and blue-dominant
+regions after GPU readback, in addition to its camera, face, light, clip, and
+opacity generations.
+
 The buffered shader accumulates ambient, directional, point, and spot terms.
 Point and spot lights apply WPF's range cutoff and diminishing-only
 `1 / max(constant + linear*d + quadratic*d*d, 1)` attenuation. Spot cones

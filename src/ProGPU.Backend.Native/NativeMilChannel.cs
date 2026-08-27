@@ -279,8 +279,13 @@ public sealed unsafe class NativeMilChannel : IDisposable
         ArgumentNullException.ThrowIfNull(scene.Vertices);
         ArgumentNullException.ThrowIfNull(scene.Indices);
         ArgumentNullException.ThrowIfNull(scene.Lights);
+        ArgumentNullException.ThrowIfNull(scene.Materials);
+        ArgumentNullException.ThrowIfNull(scene.GradientStops);
         if (scene.Meshes.Length == 0 || scene.Vertices.Length == 0 ||
-            scene.Indices.Length == 0)
+            scene.Indices.Length == 0 ||
+            (scene.Materials.Length != 0 &&
+                scene.Materials.Length != scene.Meshes.Length) ||
+            (scene.Materials.Length == 0 && scene.GradientStops.Length != 0))
         {
             throw new ArgumentOutOfRangeException(nameof(scene));
         }
@@ -290,10 +295,22 @@ public sealed unsafe class NativeMilChannel : IDisposable
         fixed (NativeSceneMesh3DVertex* vertices = scene.Vertices)
         fixed (uint* indices = scene.Indices)
         fixed (NativeSceneLight3D* lights = scene.Lights)
+        fixed (NativeSceneBrush* materials = scene.Materials)
+        fixed (NativeSceneGradientStop* gradientStops = scene.GradientStops)
         {
             bool hasLights = scene.Lights.Length != 0;
+            bool hasMaterials = scene.Materials.Length != 0;
             NativeMilStatus status = _backend == NativeMilBackend.Dawn
-                ? hasLights
+                ? hasMaterials
+                    ? NativeMilDawnMethods.SetViewport3DSceneMaterials(
+                        channel, handle, &camera, scene.Viewport,
+                        meshes, (nuint)scene.Meshes.Length,
+                        vertices, (nuint)scene.Vertices.Length,
+                        indices, (nuint)scene.Indices.Length,
+                        lights, (nuint)scene.Lights.Length,
+                        materials, (nuint)scene.Materials.Length,
+                        gradientStops, (nuint)scene.GradientStops.Length)
+                    : hasLights
                     ? NativeMilDawnMethods.SetViewport3DSceneLights(
                         channel, handle, &camera, scene.Viewport,
                         meshes, (nuint)scene.Meshes.Length,
@@ -305,7 +322,16 @@ public sealed unsafe class NativeMilChannel : IDisposable
                         meshes, (nuint)scene.Meshes.Length,
                         vertices, (nuint)scene.Vertices.Length,
                         indices, (nuint)scene.Indices.Length)
-                : hasLights
+                : hasMaterials
+                    ? NativeMilMethods.SetViewport3DSceneMaterials(
+                        channel, handle, &camera, scene.Viewport,
+                        meshes, (nuint)scene.Meshes.Length,
+                        vertices, (nuint)scene.Vertices.Length,
+                        indices, (nuint)scene.Indices.Length,
+                        lights, (nuint)scene.Lights.Length,
+                        materials, (nuint)scene.Materials.Length,
+                        gradientStops, (nuint)scene.GradientStops.Length)
+                    : hasLights
                     ? NativeMilMethods.SetViewport3DSceneLights(
                         channel, handle, &camera, scene.Viewport,
                         meshes, (nuint)scene.Meshes.Length,

@@ -432,7 +432,8 @@ public enum NativeRendererCapabilities : ulong
     SemanticVectorClipMask = 1UL << 50,
     RetainedGpuHitTesting = 1UL << 51,
     WpfMilChannel = 1UL << 52,
-    GroupBoxBlur = 1UL << 53
+    GroupBoxBlur = 1UL << 53,
+    SemanticMesh3DMaterials = 1UL << 54
 }
 
 public enum NativeSceneResourceKind : uint

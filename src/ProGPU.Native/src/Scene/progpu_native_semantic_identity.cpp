@@ -109,6 +109,45 @@ std::uint64_t append_command(
     return hash;
 }
 
+std::uint64_t append_3d_command(
+    std::uint64_t hash,
+    const std::byte* bytes,
+    const progpu_native_scene_header& header,
+    const progpu_native_scene_command& command) noexcept {
+    hash = append_command_record(hash, bytes, header, command);
+    if (command.payload_size == 0U) {
+        return hash;
+    }
+    constexpr std::size_t camera_size =
+        sizeof(progpu_native_scene_camera_3d);
+    constexpr std::size_t material_header_size =
+        sizeof(progpu_native_scene_mesh_3d_materials);
+    if (command.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH ||
+        command.payload_size < camera_size + material_header_size) {
+        return append_fnv1a64(
+            hash,
+            bytes + command.payload_offset,
+            command.payload_size);
+    }
+
+    hash = append_fnv1a64(
+        hash,
+        bytes + command.payload_offset,
+        camera_size);
+    auto materials = read_record<progpu_native_scene_mesh_3d_materials>(
+        bytes, command.payload_offset + camera_size);
+    const std::uint32_t brush_resource_index =
+        materials.brush_resource_index;
+    materials.brush_resource_index = 0U;
+    hash = append_fnv1a64(hash, &materials, sizeof(materials));
+    hash = append_resource_reference(
+        hash, bytes, header, brush_resource_index);
+    return append_fnv1a64(
+        hash,
+        bytes + command.payload_offset + camera_size + material_header_size,
+        command.payload_size - camera_size - material_header_size);
+}
+
 std::uint64_t append_scope_command(
     std::uint64_t hash,
     const std::byte* bytes,
@@ -397,8 +436,8 @@ semantic_content_hashes compute_content_hashes(
         } else if (is_3d_command(command.kind)) {
             three_d_commands = append_active_layers(
                 three_d_commands, bytes, header, active_scopes, scope_depth);
-            three_d_commands = append_command(
-                three_d_commands, bytes, header, command, true);
+            three_d_commands = append_3d_command(
+                three_d_commands, bytes, header, command);
             three_d_commands = append_effective_state(
                 three_d_commands, bytes, header, effective_state_index);
         }

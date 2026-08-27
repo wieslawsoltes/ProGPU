@@ -1,5 +1,6 @@
 #include "progpu_native_scene_builder_internal.hpp"
 
+#include "progpu_native_semantic_brush.hpp"
 #include "progpu_native_semantic_validation.hpp"
 
 #include <cstring>
@@ -17,6 +18,7 @@ bool semantic_scene_builder::append_3d_command(
     std::vector<std::byte> payload,
     std::vector<std::byte> auxiliary,
     const progpu_native_scene_camera_3d& camera,
+    std::span<const std::uint32_t> material_brush_indices,
     progpu_native_image_rect bounds,
     std::uint32_t state_resource_index) {
     implementation::resource_entry resource{};
@@ -41,8 +43,29 @@ bool semantic_scene_builder::append_3d_command(
     command.record.bounds_y = bounds.y;
     command.record.bounds_width = bounds.width;
     command.record.bounds_height = bounds.height;
-    command.payload.resize(sizeof(camera));
+    const std::size_t material_payload_size =
+        material_brush_indices.empty()
+        ? 0U
+        : sizeof(progpu_native_scene_mesh_3d_materials) +
+            material_brush_indices.size_bytes();
+    command.payload.resize(sizeof(camera) + material_payload_size);
     std::memcpy(command.payload.data(), &camera, sizeof(camera));
+    if (!material_brush_indices.empty()) {
+        progpu_native_scene_mesh_3d_materials materials{};
+        materials.struct_size = sizeof(materials);
+        materials.brush_resource_index =
+            implementation_->brush_resource_index;
+        materials.brush_count = static_cast<std::uint32_t>(
+            material_brush_indices.size());
+        std::memcpy(
+            command.payload.data() + sizeof(camera),
+            &materials,
+            sizeof(materials));
+        std::memcpy(
+            command.payload.data() + sizeof(camera) + sizeof(materials),
+            material_brush_indices.data(),
+            material_brush_indices.size_bytes());
+    }
     implementation_->resources.push_back(std::move(resource));
     implementation_->commands.push_back(std::move(command));
     implementation_->error = scene_build_error::none;
@@ -79,6 +102,7 @@ bool semantic_scene_builder::draw_lines_3d(
             copy_bytes(lines),
             {},
             camera,
+            {},
             bounds,
             state_resource_index);
     } catch (const std::bad_alloc&) {
@@ -113,16 +137,46 @@ bool semantic_scene_builder::draw_meshes_3d(
     const progpu_native_scene_camera_3d& camera,
     progpu_native_image_rect bounds,
     std::uint32_t state_resource_index) noexcept {
+    return draw_meshes_3d(
+        meshes,
+        vertices,
+        indices,
+        lights,
+        std::span<const progpu_native_scene_brush>{},
+        std::span<const progpu_native_scene_gradient_stop>{},
+        camera,
+        bounds,
+        state_resource_index);
+}
+
+bool semantic_scene_builder::draw_meshes_3d(
+    std::span<const progpu_native_scene_mesh_3d> meshes,
+    std::span<const progpu_native_scene_mesh_3d_vertex> vertices,
+    std::span<const std::uint32_t> indices,
+    std::span<const progpu_native_scene_light_3d> lights,
+    std::span<const progpu_native_scene_brush> materials,
+    std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+    const progpu_native_scene_camera_3d& camera,
+    progpu_native_image_rect bounds,
+    std::uint32_t state_resource_index) noexcept {
     const std::uint64_t auxiliary_bytes =
         static_cast<std::uint64_t>(vertices.size_bytes()) +
         indices.size_bytes() + lights.size_bytes();
+    const std::size_t required_resource_count =
+        1U + (!materials.empty() &&
+                implementation_->brush_resource_index ==
+                    PROGPU_NATIVE_SCENE_NO_INDEX
+            ? 1U
+            : 0U);
     if (meshes.empty() || vertices.empty() || indices.empty() ||
+        (!materials.empty() && materials.size() != meshes.size()) ||
+        (materials.empty() && !gradient_stops.empty()) ||
         auxiliary_bytes > PROGPU_NATIVE_SCENE_MAX_STREAM_BYTES ||
         !finite_rect(bounds) ||
         !implementation_->valid_state_index(state_resource_index) ||
         !semantic::is_valid_semantic_camera_3d(camera) ||
-        implementation_->resources.size() >=
-            PROGPU_NATIVE_SCENE_MAX_RESOURCES ||
+        required_resource_count > PROGPU_NATIVE_SCENE_MAX_RESOURCES -
+            implementation_->resources.size() ||
         implementation_->commands.size() >=
             PROGPU_NATIVE_SCENE_MAX_COMMANDS) {
         return implementation_->fail(scene_build_error::invalid_argument);
@@ -152,7 +206,37 @@ bool semantic_scene_builder::draw_meshes_3d(
             }
         }
     }
+    if (!materials.empty()) {
+        for (const auto& material : materials) {
+            if (!semantic::is_valid_semantic_brush(
+                    material, gradient_stops) ||
+                (material.type != PROGPU_NATIVE_SCENE_BRUSH_SOLID &&
+                    material.type !=
+                        PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT &&
+                    material.type !=
+                        PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT)) {
+                return implementation_->fail(
+                    scene_build_error::invalid_argument);
+            }
+        }
+    }
     try {
+        std::vector<std::uint32_t> material_brush_indices;
+        material_brush_indices.reserve(materials.size());
+        for (const auto& material : materials) {
+            const std::uint32_t stored_stop_count =
+                semantic::semantic_brush_stored_stop_count(material);
+            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!add_brush(
+                    material,
+                    gradient_stops.subspan(
+                        material.stop_offset,
+                        stored_stop_count),
+                    brush_index)) {
+                return false;
+            }
+            material_brush_indices.push_back(brush_index);
+        }
         implementation_->resources.reserve(
             implementation_->resources.size() + 1U);
         implementation_->commands.reserve(
@@ -178,6 +262,7 @@ bool semantic_scene_builder::draw_meshes_3d(
             copy_bytes(meshes),
             std::move(auxiliary),
             camera,
+            material_brush_indices,
             bounds,
             state_resource_index);
     } catch (const std::bad_alloc&) {
