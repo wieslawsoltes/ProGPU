@@ -156,7 +156,9 @@ winding cannot be recovered from an inside predicate. This is backend-neutral
 scene compilation: all pixel coverage stays in the shared GPU path rasterizer,
 with no CPU readback or scalar raster fallback. The provider-resolved Apple M3
 Pro Metal gate executes and reads back the same five-node Difference/XOR
-program in its retained vector-mask fixture.
+program in its retained vector-mask fixture. The standard cross-platform
+hardware sample includes the same isolated boolean tile and asserts its three
+pixels alongside the existing gradient oracle for Metal, D3D12, and Vulkan.
 `progpu_native_semantic_identity.cpp` computes allocation-free typed content
 identities once per accepted update. Brush, text-style, analytic, path, glyph,
 and image pages are therefore retained independently across scene generations;
