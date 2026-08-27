@@ -333,6 +333,17 @@ submission/frame p50 improved 1.0547/4.6895 -> 1.0211/4.4603 ms at 1x and
 2.2952/7.7180 ms. The complete local native suite and strict x86_64 SSE2
 syntax gate pass.
 
+An exact follow-up replacing NEON compare/invert/shift coverage flags with
+integer absolute-value plus unsigned minimum was measured and rejected. Eight
+alternating 120-frame runs per variant retained hashes `5B6EF4F70536C862`
+(1x) and `706B261418EC5C3B` (2x) with zero channel difference. At 1x,
+submission/frame p50 changed 1.0507/5.3452 -> 1.0551/5.1695 ms, but p95
+regressed 1.4299/7.2335 -> 1.5391/7.3918 ms. At 2x, submission p50/p95
+improved 1.7174/2.7136 -> 1.7046/2.2757 ms and frame p95 improved
+8.1648 -> 7.8050 ms, but frame p50 regressed 5.6484 -> 5.8287 ms (+3.2%).
+The source therefore retains compare/invert/shift feeding the qualified folded
+lane reduction.
+
 Exact pushed checkpoint `deb50413` also rebuilt the changed intrinsic source
 with ARM64 MSVC/Ninja in the Windows 11 Parallels VM and passed all ten
 non-Dawn native CTests. This is cross-compiler and DirectX-host correctness

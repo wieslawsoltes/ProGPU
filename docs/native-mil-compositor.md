@@ -3201,6 +3201,15 @@ at both hashes. Submission/frame p50 improved 1.0547/4.6895 ->
 improved in all four comparisons. The ten-test local native suite and strict
 x86_64 SSE2 syntax compile pass.
 
+The next exact NEON candidate converted nonzero winding lanes to coverage bits
+with integer absolute-value and unsigned minimum instead of
+compare/invert/shift. Eight alternating 120-frame runs per variant preserved
+the 1x/2x hashes `5B6EF4F70536C862`/`706B261418EC5C3B` and zero channel
+difference. It was rejected because 1x submission/frame p95 regressed
+1.4299/7.2335 -> 1.5391/7.3918 ms and 2x synchronized-frame p50 regressed
+5.6484 -> 5.8287 ms, despite improvements in the other 2x measures. The
+qualified folded reduction remains unchanged.
+
 The exact pushed `deb50413` source also rebuilds with ARM64 MSVC/Ninja and
 passes all ten non-Dawn native CTests in the Windows 11 Parallels VM. That run
 qualifies the changed NEON source under the Windows compiler and runtime; the
