@@ -7149,6 +7149,172 @@ struct channel::implementation {
         return status::success;
     }
 
+    status append_group_winding_program(
+        std::uint32_t geometry_handle,
+        std::uint32_t root_fill_rule,
+        std::vector<progpu_native_path_segment>& segments,
+        std::vector<progpu_native_scene_path_boolean_node>& nodes,
+        shallow_fill_leaf& tree,
+        affine_2d_double parent_transform = {},
+        std::uint32_t depth = 1U,
+        bool per_point_guidelines = false,
+        bool apply_group_transform = true) const {
+        const std::size_t original_segment_size = segments.size();
+        const std::size_t original_node_size = nodes.size();
+        tree = {};
+        tree.segment_offset = original_segment_size;
+        tree.fill_rule = root_fill_rule;
+        if (depth == 0U || depth > maximum_visual_depth ||
+            root_fill_rule > PROGPU_NATIVE_FILL_RULE_EVEN_ODD) {
+            return status::invalid_graph;
+        }
+        const auto group = geometry_groups.find(geometry_handle);
+        if (group == geometry_groups.end() ||
+            group->second.children.size() > 32U) {
+            return status::unsupported_command;
+        }
+
+        affine_2d_double transform = parent_transform;
+        if (apply_group_transform &&
+            group->second.transform_handle != 0U) {
+            affine_2d_double local_transform{};
+            const status transform_status = resolve_transform(
+                group->second.transform_handle,
+                local_transform);
+            if (transform_status != status::success) {
+                return transform_status;
+            }
+            transform = compose_affine(local_transform, parent_transform);
+        }
+        if (affine_has_zero_area(transform)) {
+            progpu_native_scene_path_boolean_node empty{};
+            empty.kind = PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
+            nodes.push_back(empty);
+            return status::success;
+        }
+
+        std::size_t appended_child_count = 0U;
+        for (const std::uint32_t child_handle : group->second.children) {
+            const std::size_t child_segment_offset = segments.size();
+            const std::size_t child_node_offset = nodes.size();
+            shallow_fill_leaf child{};
+            status child_status = status::unsupported_command;
+            const auto child_group = geometry_groups.find(child_handle);
+            if (child_group != geometry_groups.end()) {
+                child_status = append_group_winding_program(
+                    child_handle,
+                    root_fill_rule,
+                    segments,
+                    nodes,
+                    child,
+                    transform,
+                    depth + 1U,
+                    per_point_guidelines,
+                    true);
+            } else {
+                const auto child_combined =
+                    combined_geometries.find(child_handle);
+                if (child_combined != combined_geometries.end()) {
+                    child_status = append_boolean_geometry(
+                        child_handle,
+                        segments,
+                        nodes,
+                        child,
+                        transform,
+                        depth + 1U,
+                        per_point_guidelines);
+                    const double determinant =
+                        transform.m11 * transform.m22 -
+                        transform.m12 * transform.m21;
+                    if (child_status == status::success &&
+                        child.has_bounds &&
+                        root_fill_rule ==
+                            PROGPU_NATIVE_FILL_RULE_NON_ZERO &&
+                        determinant < 0.0) {
+                        progpu_native_scene_path_boolean_node negate{};
+                        negate.kind =
+                            PROGPU_NATIVE_PATH_BOOLEAN_WINDING_NEGATE;
+                        nodes.push_back(negate);
+                    }
+                } else {
+                    child_status = append_shallow_fill_leaf(
+                        child_handle,
+                        segments,
+                        child,
+                        transform,
+                        per_point_guidelines);
+                    if (child_status == status::success &&
+                        child.has_bounds) {
+                        nodes.push_back({
+                            child.segment_offset,
+                            child.segment_count,
+                            static_cast<float>(child.left),
+                            static_cast<float>(child.top),
+                            static_cast<float>(child.right),
+                            static_cast<float>(child.bottom),
+                            root_fill_rule ==
+                                    PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                                ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                                : PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+                            root_fill_rule ==
+                                    PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                                ? PROGPU_NATIVE_PATH_BOOLEAN_LEAF
+                                : PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF,
+                            0U,
+                            0U});
+                    }
+                }
+            }
+            if (child_status != status::success) {
+                segments.resize(original_segment_size);
+                nodes.resize(original_node_size);
+                tree = {};
+                tree.segment_offset = original_segment_size;
+                return child_status;
+            }
+            if (!child.has_bounds) {
+                segments.resize(child_segment_offset);
+                nodes.resize(child_node_offset);
+                continue;
+            }
+            if (!tree.has_bounds) {
+                tree.left = child.left;
+                tree.top = child.top;
+                tree.right = child.right;
+                tree.bottom = child.bottom;
+                tree.has_bounds = true;
+            } else {
+                tree.left = std::min(tree.left, child.left);
+                tree.top = std::min(tree.top, child.top);
+                tree.right = std::max(tree.right, child.right);
+                tree.bottom = std::max(tree.bottom, child.bottom);
+            }
+            if (appended_child_count != 0U) {
+                progpu_native_scene_path_boolean_node operation{};
+                operation.kind = root_fill_rule ==
+                        PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                    ? PROGPU_NATIVE_PATH_BOOLEAN_XOR
+                    : PROGPU_NATIVE_PATH_BOOLEAN_WINDING_ADD;
+                nodes.push_back(operation);
+            }
+            ++appended_child_count;
+            if (nodes.size() - original_node_size > 63U) {
+                segments.resize(original_segment_size);
+                nodes.resize(original_node_size);
+                tree = {};
+                tree.segment_offset = original_segment_size;
+                return status::unsupported_command;
+            }
+        }
+        if (appended_child_count == 0U) {
+            progpu_native_scene_path_boolean_node empty{};
+            empty.kind = PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
+            nodes.push_back(empty);
+        }
+        tree.segment_count = segments.size() - original_segment_size;
+        return status::success;
+    }
+
     status append_boolean_geometry(
         std::uint32_t geometry_handle,
         std::vector<progpu_native_path_segment>& segments,
@@ -7207,105 +7373,18 @@ struct channel::implementation {
             }
         }
 
-        if (group != geometry_groups.end() &&
-            group->second.fill_rule == 0U &&
-            group->second.children.size() <= 32U) {
-            affine_2d_double transform = parent_transform;
-            if (group->second.transform_handle != 0U) {
-                affine_2d_double local_transform{};
-                const status transform_status = resolve_transform(
-                    group->second.transform_handle,
-                    local_transform);
-                if (transform_status != status::success) {
-                    return transform_status;
-                }
-                transform = compose_affine(
-                    local_transform,
-                    parent_transform);
-            }
-            if (affine_has_zero_area(transform) ||
-                group->second.children.empty()) {
-                progpu_native_scene_path_boolean_node empty{};
-                empty.kind = PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
-                nodes.push_back(empty);
-                return status::success;
-            }
-            std::size_t appended_child_count = 0U;
-            for (std::size_t child_index = 0U;
-                 child_index < group->second.children.size();
-                 ++child_index) {
-                const std::size_t child_segment_offset = segments.size();
-                const std::size_t child_node_offset = nodes.size();
-                shallow_fill_leaf child{};
-                status child_status = append_group_fill_leaf(
-                    group->second.children[child_index],
-                    segments,
-                    child,
-                    transform,
-                    depth + 1U,
-                    per_point_guidelines);
-                if (child_status == status::success && child.has_bounds) {
-                    nodes.push_back({
-                        child.segment_offset,
-                        child.segment_count,
-                        static_cast<float>(child.left),
-                        static_cast<float>(child.top),
-                        static_cast<float>(child.right),
-                        static_cast<float>(child.bottom),
-                        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
-                        PROGPU_NATIVE_PATH_BOOLEAN_LEAF,
-                        0U,
-                        0U});
-                } else if (child_status == status::unsupported_command) {
-                    segments.resize(child_segment_offset);
-                    nodes.resize(child_node_offset);
-                    child_status = append_boolean_geometry(
-                        group->second.children[child_index],
-                        segments,
-                        nodes,
-                        child,
-                        transform,
-                        depth + 1U,
-                        per_point_guidelines);
-                }
-                if (child_status != status::success) {
-                    segments.resize(original_segment_size);
-                    nodes.resize(original_node_size);
-                    tree = {};
-                    tree.segment_offset = original_segment_size;
-                    return child_status;
-                }
-                if (!child.has_bounds) {
-                    segments.resize(child_segment_offset);
-                    nodes.resize(child_node_offset);
-                    continue;
-                }
-                if (!tree.has_bounds) {
-                    tree.left = child.left;
-                    tree.top = child.top;
-                    tree.right = child.right;
-                    tree.bottom = child.bottom;
-                    tree.has_bounds = true;
-                } else {
-                    tree.left = std::min(tree.left, child.left);
-                    tree.top = std::min(tree.top, child.top);
-                    tree.right = std::max(tree.right, child.right);
-                    tree.bottom = std::max(tree.bottom, child.bottom);
-                }
-                if (appended_child_count != 0U) {
-                    progpu_native_scene_path_boolean_node operation{};
-                    operation.kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
-                    nodes.push_back(operation);
-                }
-                ++appended_child_count;
-            }
-            if (appended_child_count == 0U) {
-                progpu_native_scene_path_boolean_node empty{};
-                empty.kind = PROGPU_NATIVE_PATH_BOOLEAN_EMPTY;
-                nodes.push_back(empty);
-            }
-            tree.segment_count = segments.size() - original_segment_size;
-            return status::success;
+        if (group != geometry_groups.end()) {
+            return append_group_winding_program(
+                geometry_handle,
+                group->second.fill_rule == 0U
+                    ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                    : PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+                segments,
+                nodes,
+                tree,
+                parent_transform,
+                depth,
+                per_point_guidelines);
         }
 
         const auto combined = combined_geometries.find(geometry_handle);
@@ -7514,26 +7593,47 @@ struct channel::implementation {
                     clip_boolean_nodes,
                     tree,
                     target_transform);
-            } else if (group != geometry_groups.end() &&
-                group->second.fill_rule == 0U &&
-                group->second.children.size() <= 32U) {
-                append_status = append_boolean_geometry(
-                    geometry_handle,
-                    clip_segments,
-                    clip_boolean_nodes,
-                    tree,
-                    target_transform,
-                    1U,
-                    false,
-                    true);
-                if (append_status == status::success &&
-                    clip_boolean_nodes.size() ==
-                        boolean_node_offset + 1U &&
-                    clip_boolean_nodes.back().kind ==
-                        PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
-                    clip_boolean_nodes.resize(boolean_node_offset);
+            } else if (group != geometry_groups.end()) {
+                fill_rule = group->second.fill_rule == 0U
+                    ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                    : PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+                if (fill_rule == PROGPU_NATIVE_FILL_RULE_EVEN_ODD) {
+                    append_status = append_boolean_geometry(
+                        geometry_handle,
+                        clip_segments,
+                        clip_boolean_nodes,
+                        tree,
+                        target_transform,
+                        1U,
+                        false,
+                        true);
+                    if (append_status == status::success &&
+                        clip_boolean_nodes.size() ==
+                            boolean_node_offset + 1U &&
+                        clip_boolean_nodes.back().kind ==
+                            PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
+                        clip_boolean_nodes.resize(boolean_node_offset);
+                    }
+                } else {
+                    append_status = append_group_fill_leaf(
+                        geometry_handle,
+                        clip_segments,
+                        tree,
+                        target_transform);
+                    if (append_status == status::unsupported_command) {
+                        clip_segments.resize(segment_offset);
+                        clip_boolean_nodes.resize(boolean_node_offset);
+                        append_status = append_boolean_geometry(
+                            geometry_handle,
+                            clip_segments,
+                            clip_boolean_nodes,
+                            tree,
+                            target_transform,
+                            1U,
+                            false,
+                            true);
+                    }
                 }
-                fill_rule = PROGPU_NATIVE_FILL_RULE_EVEN_ODD;
             } else {
                 append_status = append_group_fill_leaf(
                     geometry_handle,
@@ -11594,129 +11694,106 @@ struct channel::implementation {
                     std::vector<progpu_native_path_segment> group_segments;
                     std::vector<progpu_native_scene_path_boolean_node>
                         group_boolean_nodes;
-                    const bool use_even_odd_leaf_program =
-                        geometry_group->second.fill_rule == 0U &&
-                        geometry_group->second.children.size() <= 32U;
-                    if (use_even_odd_leaf_program) {
-                        group_boolean_nodes.reserve(
-                            geometry_group->second.children.size() * 2U -
-                            1U);
-                    }
-                    bool has_group_bounds = false;
-                    double group_left = 0.0;
-                    double group_top = 0.0;
-                    double group_right = 0.0;
-                    double group_bottom = 0.0;
-                    const auto include_group_point = [
-                        &has_group_bounds,
-                        &group_left,
-                        &group_top,
-                        &group_right,
-                        &group_bottom](progpu_native_point point) noexcept {
-                        if (!has_group_bounds) {
-                            group_left = point.x;
-                            group_top = point.y;
-                            group_right = point.x;
-                            group_bottom = point.y;
-                            has_group_bounds = true;
-                            return;
-                        }
-                        group_left = std::min(group_left, double{point.x});
-                        group_top = std::min(group_top, double{point.y});
-                        group_right = std::max(group_right, double{point.x});
-                        group_bottom = std::max(group_bottom, double{point.y});
-                    };
-                    std::size_t appended_boolean_child_count = 0U;
-                    for (std::size_t child_index = 0U;
-                         child_index <
-                            geometry_group->second.children.size();
-                         ++child_index) {
-                        const std::uint32_t child_handle =
-                            geometry_group->second.children[child_index];
-                        const std::size_t child_segment_offset =
-                            group_segments.size();
-                        const std::size_t child_node_offset =
-                            group_boolean_nodes.size();
-                        shallow_fill_leaf child{};
-                        status child_status = append_group_fill_leaf(
-                            child_handle,
+                    const std::uint32_t group_fill_rule =
+                        geometry_group->second.fill_rule == 0U
+                        ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                        : PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+                    shallow_fill_leaf group_tree{};
+                    status group_fill_status = status::success;
+                    if (group_fill_rule ==
+                        PROGPU_NATIVE_FILL_RULE_EVEN_ODD) {
+                        group_fill_status = append_group_winding_program(
+                            geometry_handle,
+                            group_fill_rule,
                             group_segments,
-                            child,
+                            group_boolean_nodes,
+                            group_tree,
                             {},
                             1U,
-                            current.per_point_guidelines);
-                        if (use_even_odd_leaf_program &&
-                            child_status == status::success &&
-                            child.has_bounds) {
-                            group_boolean_nodes.push_back({
-                                child.segment_offset,
-                                child.segment_count,
-                                static_cast<float>(child.left),
-                                static_cast<float>(child.top),
-                                static_cast<float>(child.right),
-                                static_cast<float>(child.bottom),
-                                PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
-                                PROGPU_NATIVE_PATH_BOOLEAN_LEAF,
-                                0U,
-                                0U});
-                        } else if (use_even_odd_leaf_program &&
-                            child_status == status::unsupported_command) {
-                            group_segments.resize(child_segment_offset);
-                            group_boolean_nodes.resize(child_node_offset);
-                            child_status = append_boolean_geometry(
+                            current.per_point_guidelines,
+                            false);
+                    } else {
+                        group_tree.fill_rule = group_fill_rule;
+                        group_tree.segment_offset = 0U;
+                        for (const std::uint32_t child_handle :
+                             geometry_group->second.children) {
+                            shallow_fill_leaf child{};
+                            group_fill_status = append_group_fill_leaf(
                                 child_handle,
                                 group_segments,
-                                group_boolean_nodes,
                                 child,
                                 {},
                                 1U,
                                 current.per_point_guidelines);
+                            if (group_fill_status != status::success) {
+                                break;
+                            }
+                            if (!child.has_bounds) {
+                                continue;
+                            }
+                            if (!group_tree.has_bounds) {
+                                group_tree.left = child.left;
+                                group_tree.top = child.top;
+                                group_tree.right = child.right;
+                                group_tree.bottom = child.bottom;
+                                group_tree.has_bounds = true;
+                            } else {
+                                group_tree.left = std::min(
+                                    group_tree.left,
+                                    child.left);
+                                group_tree.top = std::min(
+                                    group_tree.top,
+                                    child.top);
+                                group_tree.right = std::max(
+                                    group_tree.right,
+                                    child.right);
+                                group_tree.bottom = std::max(
+                                    group_tree.bottom,
+                                    child.bottom);
+                            }
                         }
-                        if (child_status != status::success) {
-                            return child_status;
-                        }
-                        if (use_even_odd_leaf_program &&
-                            !child.has_bounds) {
-                            group_segments.resize(child_segment_offset);
-                            group_boolean_nodes.resize(child_node_offset);
-                            continue;
-                        }
-                        if (child.has_bounds) {
-                            include_group_point({
-                                static_cast<float>(child.left),
-                                static_cast<float>(child.top)});
-                            include_group_point({
-                                static_cast<float>(child.right),
-                                static_cast<float>(child.bottom)});
-                        }
-                        if (use_even_odd_leaf_program &&
-                            appended_boolean_child_count != 0U) {
-                            progpu_native_scene_path_boolean_node
-                                operation{};
-                            operation.kind =
-                                PROGPU_NATIVE_PATH_BOOLEAN_XOR;
-                            group_boolean_nodes.push_back(operation);
-                        }
-                        if (use_even_odd_leaf_program) {
-                            ++appended_boolean_child_count;
+                        group_tree.segment_count = group_segments.size();
+                        if (group_fill_status ==
+                            status::unsupported_command) {
+                            group_segments.clear();
+                            group_boolean_nodes.clear();
+                            group_fill_status =
+                                append_group_winding_program(
+                                    geometry_handle,
+                                    group_fill_rule,
+                                    group_segments,
+                                    group_boolean_nodes,
+                                    group_tree,
+                                    {},
+                                    1U,
+                                    current.per_point_guidelines,
+                                    false);
                         }
                     }
+                    if (group_fill_status != status::success) {
+                        return group_fill_status;
+                    }
+                    const bool has_group_bounds = group_tree.has_bounds;
+                    const double group_left = group_tree.left;
+                    const double group_top = group_tree.top;
+                    const double group_right = group_tree.right;
+                    const double group_bottom = group_tree.bottom;
                     const bool has_group_fill = brush_handle != 0U &&
                         !group_segments.empty() && has_group_bounds;
                     if (!has_group_fill &&
                         (!has_group_stroke || !has_group_stroke_bounds)) {
                         continue;
                     }
-                    if (use_even_odd_leaf_program &&
+                    if (group_fill_rule ==
+                            PROGPU_NATIVE_FILL_RULE_EVEN_ODD &&
                         group_boolean_nodes.size() == 1U &&
                         group_boolean_nodes.front().kind ==
                             PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
                         group_boolean_nodes.clear();
                     }
-                    if (use_even_odd_leaf_program && has_group_fill) {
-                        if (group_boolean_nodes.size() > 63U) {
-                            return status::unsupported_command;
-                        }
+                    if (has_group_fill &&
+                        group_boolean_nodes.size() > 63U) {
+                        return status::unsupported_command;
                     }
                     if (has_group_fill) {
                         const brush_use_state brush_use{

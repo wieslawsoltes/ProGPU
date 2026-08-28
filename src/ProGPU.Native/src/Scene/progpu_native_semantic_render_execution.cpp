@@ -2224,7 +2224,9 @@ progpu_native_status render_scene(
                      node_index < boolean_node_count;
                      ++node_index) {
                     auto node = source_boolean_nodes[node_index];
-                    if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
+                    if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
+                        node.kind ==
+                            PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF) {
                         node.segment_offset += segment_start;
                     }
                     compiled_boolean_nodes.push_back(node);

@@ -273,7 +273,7 @@ fn is_point_inside_A(p: vec2<f32>) -> bool {
             }
         }
     }
-    if (recordA.fillRule == 0u) {
+    if (recordA.fillRule == 1u) {
         return abs(winding) % 2 == 1;
     }
     return winding != 0;
@@ -429,7 +429,7 @@ fn is_point_inside_B(p: vec2<f32>) -> bool {
             }
         }
     }
-    if (recordB.fillRule == 0u) {
+    if (recordB.fillRule == 1u) {
         return abs(winding) % 2 == 1;
     }
     return winding != 0;

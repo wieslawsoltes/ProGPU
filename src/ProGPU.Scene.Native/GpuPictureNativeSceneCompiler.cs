@@ -815,7 +815,8 @@ public static partial class GpuPictureNativeSceneCompiler
                 {
                     NativeScenePathBooleanNode source = nodeBooleanNodes[index];
                     booleanNodes[booleanNodeIndex + index] =
-                        source.Kind == NativePathBooleanNodeKind.Leaf
+                        source.Kind is NativePathBooleanNodeKind.Leaf or
+                            NativePathBooleanNodeKind.WindingLeaf
                             ? new NativeScenePathBooleanNode(
                                 checked(source.SegmentOffset +
                                     (ulong)segmentIndex),
@@ -4303,7 +4304,9 @@ public static partial class GpuPictureNativeSceneCompiler
         for (int index = 0; index < booleanNodes.Length; index++)
         {
             NativeScenePathBooleanNode node = booleanNodes[index];
-            nativeBooleanNodes!.Add(node.Kind == NativePathBooleanNodeKind.Leaf
+            nativeBooleanNodes!.Add(node.Kind is
+                    NativePathBooleanNodeKind.Leaf or
+                    NativePathBooleanNodeKind.WindingLeaf
                 ? new NativeScenePathBooleanNode(
                     checked(resourceSegmentOffset + node.SegmentOffset),
                     node.SegmentCount,

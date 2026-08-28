@@ -1,9 +1,12 @@
 // Algorithm: Rasterize ordinary or bounded postfix path-expression coverage by supersampling each atlas texel and applying analytic winding tests. Driver-sensitive translated overlaps rasterize one full 64-sample mask per leaf in phase batches, then evaluate the original postfix program before the single R8 coverage average.
 // Time complexity: O(A*(S+N)) per expression texel for A anti-aliasing samples, total leaf segment visits S, and N postfix instructions; ordinary paths are O(A*S).
-// Space complexity: O(D) private mask storage for expression stack depth D<=16; split programs additionally retain two u32 sample words per leaf texel until the bounded combine pass, while ordinary paths write one packed u32 per four R8 texels.
+// Space complexity: O(D) private mask or signed-winding storage for expression stack depth D<=16; split programs additionally retain two u32 sample words per leaf texel until the bounded combine pass, while ordinary paths write one packed u32 per four R8 texels.
 const BOOLEAN_PROGRAM_FLAG: u32 = 0x80000000u;
+const SIGNED_WINDING_PROGRAM_FLAG: u32 = 0x40000000u;
 const BOOLEAN_EMPTY_TOKEN: u32 = 0x40000000u;
+const WINDING_LEAF_TOKEN_FLAG: u32 = 0x20000000u;
 const BOOLEAN_TOKEN_VALUE_MASK: u32 = 0x3fffffffu;
+const BOOLEAN_LEAF_INDEX_MASK: u32 = 0x1fffffffu;
 const MAX_BOOLEAN_STACK_DEPTH: u32 = 16u;
 
 struct PathUniforms {
@@ -197,7 +200,7 @@ fn winding_is_inside(winding: i32, fill_rule: u32) -> bool {
     return select(
         winding != 0,
         abs(winding) % 2 == 1,
-        fill_rule == 0u);
+        fill_rule == 1u);
 }
 
 fn add_arc_crossing(
@@ -279,12 +282,12 @@ fn path_sample_x(
     return (pixel_x + sample_offset_x) / scale_x;
 }
 
-fn row_coverage_mask(
+fn row_winding(
     pixelX: f32,
     sampleY: f32,
     sampleGrid: u32,
     scaleX: f32,
-    record: PathRecord) -> u32 {
+    record: PathRecord) -> WindingRow {
     let firstSampleX = path_sample_x(
         pixelX,
         0u,
@@ -297,7 +300,7 @@ fn row_coverage_mask(
         scaleX);
     if (sampleY < record.minY || sampleY > record.maxY ||
         lastSampleX < record.minX || firstSampleX > record.maxX) {
-        return 0u;
+        return WindingRow(vec4<i32>(0), vec4<i32>(0));
     }
     var winding = WindingRow(vec4<i32>(0), vec4<i32>(0));
     let samplePositionsX = SampleRow(
@@ -507,40 +510,59 @@ fn row_coverage_mask(
         }
     }
 
+    return winding;
+}
+
+fn winding_row_coverage_mask(
+    winding: WindingRow,
+    sampleGrid: u32,
+    fillRule: u32) -> u32 {
     var covered = 0u;
     covered = covered | select(
         0u, 1u << 0u,
         sampleGrid > 0u &&
-            winding_is_inside(winding.low.x, record.fillRule));
+            winding_is_inside(winding.low.x, fillRule));
     covered = covered | select(
         0u, 1u << 1u,
         sampleGrid > 1u &&
-            winding_is_inside(winding.low.y, record.fillRule));
+            winding_is_inside(winding.low.y, fillRule));
     covered = covered | select(
         0u, 1u << 2u,
         sampleGrid > 2u &&
-            winding_is_inside(winding.low.z, record.fillRule));
+            winding_is_inside(winding.low.z, fillRule));
     covered = covered | select(
         0u, 1u << 3u,
         sampleGrid > 3u &&
-            winding_is_inside(winding.low.w, record.fillRule));
+            winding_is_inside(winding.low.w, fillRule));
     covered = covered | select(
         0u, 1u << 4u,
         sampleGrid > 4u &&
-            winding_is_inside(winding.high.x, record.fillRule));
+            winding_is_inside(winding.high.x, fillRule));
     covered = covered | select(
         0u, 1u << 5u,
         sampleGrid > 5u &&
-            winding_is_inside(winding.high.y, record.fillRule));
+            winding_is_inside(winding.high.y, fillRule));
     covered = covered | select(
         0u, 1u << 6u,
         sampleGrid > 6u &&
-            winding_is_inside(winding.high.z, record.fillRule));
+            winding_is_inside(winding.high.z, fillRule));
     covered = covered | select(
         0u, 1u << 7u,
         sampleGrid > 7u &&
-            winding_is_inside(winding.high.w, record.fillRule));
+            winding_is_inside(winding.high.w, fillRule));
     return covered;
+}
+
+fn row_coverage_mask(
+    pixelX: f32,
+    sampleY: f32,
+    sampleGrid: u32,
+    scaleX: f32,
+    record: PathRecord) -> u32 {
+    return winding_row_coverage_mask(
+        row_winding(pixelX, sampleY, sampleGrid, scaleX, record),
+        sampleGrid,
+        record.fillRule);
 }
 
 fn combine_coverage_masks(maskA: u32, maskB: u32, pathOpKind: u32) -> u32 {
@@ -604,6 +626,133 @@ fn boolean_program_row_coverage_mask(
     return select(0u, stack[0], stackCount == 1u);
 }
 
+fn winding_fill_predicate(
+    winding: WindingRow,
+    fillRule: u32) -> WindingRow {
+    return WindingRow(
+        select(
+            vec4<i32>(0),
+            vec4<i32>(1),
+            select(
+                winding.low != vec4<i32>(0),
+                abs(winding.low) % vec4<i32>(2) == vec4<i32>(1),
+                fillRule == 1u)),
+        select(
+            vec4<i32>(0),
+            vec4<i32>(1),
+            select(
+                winding.high != vec4<i32>(0),
+                abs(winding.high) % vec4<i32>(2) == vec4<i32>(1),
+                fillRule == 1u)));
+}
+
+fn combine_winding_predicate_lanes(
+    windingA: vec4<i32>,
+    windingB: vec4<i32>,
+    pathOpKind: u32) -> vec4<i32> {
+    let insideA = windingA != vec4<i32>(0);
+    let insideB = windingB != vec4<i32>(0);
+    var inside = insideA;
+    switch pathOpKind {
+        case 1u: { inside = insideA && !insideB; }
+        case 2u: { inside = insideA && insideB; }
+        case 3u: { inside = insideA || insideB; }
+        case 4u: { inside = insideA != insideB; }
+        case 5u: { inside = insideB && !insideA; }
+        default: {}
+    }
+    return select(vec4<i32>(0), vec4<i32>(1), inside);
+}
+
+fn combine_winding_predicates(
+    windingA: WindingRow,
+    windingB: WindingRow,
+    pathOpKind: u32) -> WindingRow {
+    return WindingRow(
+        combine_winding_predicate_lanes(
+            windingA.low,
+            windingB.low,
+            pathOpKind),
+        combine_winding_predicate_lanes(
+            windingA.high,
+            windingB.high,
+            pathOpKind));
+}
+
+fn signed_winding_program_row_coverage_mask(
+    pixelX: f32,
+    sampleY: f32,
+    sampleGrid: u32,
+    scaleX: f32,
+    pathIndex: u32,
+    programIndex: u32,
+    encodedProgramCount: u32) -> u32 {
+    var stack: array<WindingRow, 16>;
+    var stackCount = 0u;
+    let programCount = encodedProgramCount & BOOLEAN_TOKEN_VALUE_MASK;
+    for (var instructionIndex = 0u;
+         instructionIndex < programCount;
+         instructionIndex = instructionIndex + 1u) {
+        let token = pathRecords[programIndex + instructionIndex].startSegment;
+        if ((token & BOOLEAN_PROGRAM_FLAG) != 0u) {
+            let operation = token & BOOLEAN_LEAF_INDEX_MASK;
+            if (operation == 8u) {
+                if (stackCount < 1u) {
+                    return 0u;
+                }
+                stack[stackCount - 1u].low =
+                    -stack[stackCount - 1u].low;
+                stack[stackCount - 1u].high =
+                    -stack[stackCount - 1u].high;
+            } else {
+                if (stackCount < 2u) {
+                    return 0u;
+                }
+                let windingB = stack[stackCount - 1u];
+                let windingA = stack[stackCount - 2u];
+                stackCount = stackCount - 1u;
+                if (operation == 7u) {
+                    stack[stackCount - 1u] = WindingRow(
+                        windingA.low + windingB.low,
+                        windingA.high + windingB.high);
+                } else {
+                    stack[stackCount - 1u] = combine_winding_predicates(
+                        windingA,
+                        windingB,
+                        operation);
+                }
+            }
+        } else {
+            if (stackCount >= MAX_BOOLEAN_STACK_DEPTH) {
+                return 0u;
+            }
+            var winding = WindingRow(vec4<i32>(0), vec4<i32>(0));
+            if (token != BOOLEAN_EMPTY_TOKEN) {
+                let record = pathRecords[
+                    pathIndex + (token & BOOLEAN_LEAF_INDEX_MASK)];
+                winding = row_winding(
+                    pixelX,
+                    sampleY,
+                    sampleGrid,
+                    scaleX,
+                    record);
+                if ((token & WINDING_LEAF_TOKEN_FLAG) == 0u) {
+                    winding = winding_fill_predicate(
+                        winding,
+                        record.fillRule);
+                }
+            }
+            stack[stackCount] = winding;
+            stackCount = stackCount + 1u;
+        }
+    }
+
+    if (stackCount != 1u) {
+        return 0u;
+    }
+    return winding_row_coverage_mask(stack[0], sampleGrid, 1u);
+}
+
 fn path_coverage_byte(x: u32, y: u32, uniforms: PathUniforms) -> u32 {
     let pathIndex = uniforms.pathIndex;
     let record = pathRecords[pathIndex];
@@ -619,14 +768,26 @@ fn path_coverage_byte(x: u32, y: u32, uniforms: PathUniforms) -> u32 {
         let samplePathY = samplePositionY / uniforms.scaleY;
         var combinedMask = 0u;
         if ((uniforms.pathOpKind & BOOLEAN_PROGRAM_FLAG) != 0u) {
-            combinedMask = boolean_program_row_coverage_mask(
-                px,
-                samplePathY,
-                sampleGrid,
-                uniforms.scaleX,
-                pathIndex,
-                uniforms.pathIndexB,
-                uniforms.pathOpKind);
+            if ((uniforms.pathOpKind &
+                    SIGNED_WINDING_PROGRAM_FLAG) != 0u) {
+                combinedMask = signed_winding_program_row_coverage_mask(
+                    px,
+                    samplePathY,
+                    sampleGrid,
+                    uniforms.scaleX,
+                    pathIndex,
+                    uniforms.pathIndexB,
+                    uniforms.pathOpKind);
+            } else {
+                combinedMask = boolean_program_row_coverage_mask(
+                    px,
+                    samplePathY,
+                    sampleGrid,
+                    uniforms.scaleX,
+                    pathIndex,
+                    uniforms.pathIndexB,
+                    uniforms.pathOpKind);
+            }
         } else {
             let maskA = row_coverage_mask(
                 px,

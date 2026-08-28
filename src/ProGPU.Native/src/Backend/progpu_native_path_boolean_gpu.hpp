@@ -13,7 +13,9 @@
 namespace progpu::native::path_boolean {
 
 inline constexpr std::uint32_t gpu_program_flag = 0x80000000U;
+inline constexpr std::uint32_t gpu_signed_winding_program_flag = 0x40000000U;
 inline constexpr std::uint32_t gpu_empty_token = 0x40000000U;
+inline constexpr std::uint32_t gpu_winding_leaf_token_flag = 0x20000000U;
 inline constexpr std::size_t maximum_equivalence_segment_comparisons =
     1U << 20U;
 
@@ -236,12 +238,18 @@ gpu_program_reference append_gpu_records(
 
     std::array<std::uint32_t, maximum_instruction_count> tokens{};
     std::uint32_t leaf_count = 0U;
+    bool signed_winding_program = false;
     for (std::size_t index = 0U;
          index < path.boolean_node_count;
          ++index) {
         const auto& node = nodes[path.boolean_node_offset + index];
-        if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
+        if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
+            node.kind == PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF) {
             tokens[index] = leaf_count++;
+            if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF) {
+                tokens[index] |= gpu_winding_leaf_token_flag;
+                signed_winding_program = true;
+            }
             records.push_back({
                 static_cast<std::uint32_t>(node.segment_offset),
                 static_cast<std::uint32_t>(node.segment_count),
@@ -255,15 +263,19 @@ gpu_program_reference append_gpu_records(
             tokens[index] = gpu_empty_token;
         } else {
             tokens[index] = gpu_program_flag | (node.kind - 1U);
+            signed_winding_program = signed_winding_program ||
+                node.kind == PROGPU_NATIVE_PATH_BOOLEAN_WINDING_ADD ||
+                node.kind == PROGPU_NATIVE_PATH_BOOLEAN_WINDING_NEGATE;
         }
     }
     const bool split_program =
-        pure_left_fold_xor_leaf_count(path, nodes) != 0U ||
-        has_overlapping_translated_equivalent_leaves(
-            segments,
-            nodes,
-            static_cast<std::size_t>(path.boolean_node_offset),
-            static_cast<std::size_t>(path.boolean_node_count));
+        !signed_winding_program &&
+        (pure_left_fold_xor_leaf_count(path, nodes) != 0U ||
+            has_overlapping_translated_equivalent_leaves(
+                segments,
+                nodes,
+                static_cast<std::size_t>(path.boolean_node_offset),
+                static_cast<std::size_t>(path.boolean_node_count)));
 
     const auto program_index = static_cast<std::uint32_t>(records.size());
     for (std::size_t index = 0U;
@@ -276,6 +288,9 @@ gpu_program_reference append_gpu_records(
         path_record_index,
         program_index,
         gpu_program_flag |
+            (signed_winding_program
+                ? gpu_signed_winding_program_flag
+                : 0U) |
             static_cast<std::uint32_t>(path.boolean_node_count),
         split_program ? leaf_count : 0U};
 }

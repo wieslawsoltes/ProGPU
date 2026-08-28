@@ -1959,6 +1959,61 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void PublicDrawStateValidatesSignedWindingVectorPrograms()
+    {
+        var segments = new[]
+        {
+            new NativePathSegment(
+                NativePathSegmentKind.Line,
+                Vector2.Zero,
+                new Vector2(10f, 10f)),
+            new NativePathSegment(
+                NativePathSegmentKind.Line,
+                new Vector2(10f, 0f),
+                new Vector2(0f, 10f))
+        };
+        var nodes = new[]
+        {
+            new NativePathBooleanNode(
+                0U, 1U, Vector2.Zero, new Vector2(10f),
+                NativeFillRule.NonZero,
+                NativePathBooleanNodeKind.WindingLeaf),
+            new NativePathBooleanNode(
+                1U, 1U, Vector2.Zero, new Vector2(10f),
+                NativeFillRule.NonZero,
+                NativePathBooleanNodeKind.WindingLeaf),
+            new NativePathBooleanNode(
+                0U, 0U, Vector2.Zero, Vector2.Zero,
+                NativeFillRule.NonZero,
+                NativePathBooleanNodeKind.WindingAdd)
+        };
+        var nonzeroPath = new NativeClipPath(
+            0U,
+            2U,
+            Vector2.Zero,
+            new Vector2(10f),
+            Matrix3x2.Identity,
+            fillRule: NativeFillRule.NonZero,
+            booleanNodeCount: 3U);
+
+        var chain = new NativeClipChain([nonzeroPath], segments, nodes);
+
+        Assert.Equal(3, chain.BooleanNodeCount);
+        Assert.Throws<ArgumentException>(() =>
+            new NativeClipChain(
+                [new NativeClipPath(
+                    0U,
+                    2U,
+                    Vector2.Zero,
+                    new Vector2(10f),
+                    Matrix3x2.Identity,
+                    fillRule: NativeFillRule.EvenOdd,
+                    booleanNodeCount: 3U)],
+                segments,
+                nodes));
+    }
+
+    [Fact]
     public void VectorClipChainRejectsMalformedOrUnownedBooleanPrograms()
     {
         var segments = new[]
@@ -2001,6 +2056,9 @@ public class NativeRendererInteropTests
     [Fact]
     public void CapabilityValuesMatchPublishedNativeHeader()
     {
+        Assert.Equal(7U, (uint)NativePathBooleanNodeKind.WindingLeaf);
+        Assert.Equal(8U, (uint)NativePathBooleanNodeKind.WindingAdd);
+        Assert.Equal(9U, (uint)NativePathBooleanNodeKind.WindingNegate);
         Assert.Equal(0U, (uint)NativeSceneExternalImageRole.Primary);
         Assert.Equal(1U, (uint)NativeSceneExternalImageRole.Chroma);
         Assert.Equal(2U, (uint)NativeSceneExternalImageRole.Mask);

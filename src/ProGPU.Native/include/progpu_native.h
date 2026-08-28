@@ -2128,8 +2128,10 @@ typedef struct progpu_native_scene_clip_path {
  * One postfix/RPN boolean-program instruction. Leaf records borrow a
  * contiguous segment range and carry exact local bounds/fill state. Empty and
  * operation records require every range, bound, fill, and reserved field to be
- * zero. Programs are bounded to 63 instructions and a 16-mask stack, matching
- * the canonical PathRasterizer.wgsl contract.
+ * zero. WINDING_LEAF retains the raw signed winding instead of reducing it to
+ * an inside predicate; WINDING_ADD and WINDING_NEGATE compose those values for
+ * exact Nonzero GeometryGroup semantics. Programs are bounded to 63
+ * instructions and a 16-value stack, matching PathRasterizer.wgsl.
  */
 typedef enum progpu_native_path_boolean_node_kind {
     PROGPU_NATIVE_PATH_BOOLEAN_LEAF = 0,
@@ -2138,7 +2140,10 @@ typedef enum progpu_native_path_boolean_node_kind {
     PROGPU_NATIVE_PATH_BOOLEAN_INTERSECT = 3,
     PROGPU_NATIVE_PATH_BOOLEAN_UNION = 4,
     PROGPU_NATIVE_PATH_BOOLEAN_XOR = 5,
-    PROGPU_NATIVE_PATH_BOOLEAN_REVERSE_DIFFERENCE = 6
+    PROGPU_NATIVE_PATH_BOOLEAN_REVERSE_DIFFERENCE = 6,
+    PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF = 7,
+    PROGPU_NATIVE_PATH_BOOLEAN_WINDING_ADD = 8,
+    PROGPU_NATIVE_PATH_BOOLEAN_WINDING_NEGATE = 9
 } progpu_native_path_boolean_node_kind;
 
 typedef struct progpu_native_path_boolean_node {

@@ -190,6 +190,59 @@ void translated_boolean_programs_split_into_independent_gpu_records() {
     require(maximum_program.split_leaf_count == 32U);
     require(records.size() == 95U);
     require(records[31U].start_segment == 124U);
+
+    path.segment_offset = 0U;
+    path.segment_count = 12U;
+    path.boolean_node_offset = 0U;
+    path.boolean_node_count = 6U;
+    path.fill_rule = PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+    std::array<progpu_native_scene_path_boolean_node, 6U> winding_nodes{};
+    winding_nodes[0U] = {
+        0U, 4U, 0.0F, 0.0F, 8.0F, 8.0F,
+        PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+        PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U};
+    winding_nodes[1U] = {
+        4U, 4U, 1.0F, 0.0F, 9.0F, 8.0F,
+        PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+        PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U};
+    winding_nodes[2U].kind = PROGPU_NATIVE_PATH_BOOLEAN_UNION;
+    winding_nodes[3U].kind = PROGPU_NATIVE_PATH_BOOLEAN_WINDING_NEGATE;
+    winding_nodes[4U] = {
+        8U, 4U, 0.0F, 0.0F, 8.0F, 8.0F,
+        PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+        PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF, 0U, 0U};
+    winding_nodes[5U].kind = PROGPU_NATIVE_PATH_BOOLEAN_WINDING_ADD;
+    require(progpu::native::path_boolean::validate(
+        path,
+        winding_nodes.data(),
+        winding_nodes.size()));
+    records.clear();
+    const auto winding_program =
+        progpu::native::path_boolean::append_gpu_records(
+            path,
+            winding_nodes.data(),
+            records,
+            translated_segments);
+    require(winding_program.split_leaf_count == 0U);
+    require((winding_program.operation_kind &
+        progpu::native::path_boolean::gpu_program_flag) != 0U);
+    require((winding_program.operation_kind &
+        progpu::native::path_boolean::gpu_signed_winding_program_flag) != 0U);
+    require(records.size() == 9U);
+    require(records[7U].start_segment ==
+        (progpu::native::path_boolean::gpu_winding_leaf_token_flag | 2U));
+
+    path.fill_rule = PROGPU_NATIVE_FILL_RULE_EVEN_ODD;
+    require(!progpu::native::path_boolean::validate(
+        path,
+        winding_nodes.data(),
+        winding_nodes.size()));
+    path.fill_rule = PROGPU_NATIVE_FILL_RULE_NON_ZERO;
+    winding_nodes[4U].fill_rule = PROGPU_NATIVE_FILL_RULE_EVEN_ODD;
+    require(!progpu::native::path_boolean::validate(
+        path,
+        winding_nodes.data(),
+        winding_nodes.size()));
 }
 
 void clipped_miter_join_uses_the_wpf_three_triangle_wedge() {
