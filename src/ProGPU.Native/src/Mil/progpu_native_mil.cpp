@@ -8578,9 +8578,73 @@ struct channel::implementation {
             }
             const auto drawing = geometry_drawings.find(drawing_handle);
             if (drawing == geometry_drawings.end() ||
-                drawing->second.brush_handle == 0U ||
-                drawing->second.pen_handle != 0U ||
                 drawing->second.geometry_handle == 0U) {
+                return status::unsupported_command;
+            }
+            if (drawing->second.pen_handle != 0U) {
+                const auto fixed = fixed_geometries.find(
+                    drawing->second.geometry_handle);
+                if (fixed == fixed_geometries.end()) {
+                    return status::unsupported_command;
+                }
+                fixed_geometry_state geometry{};
+                const status geometry_status = resolve_fixed_geometry(
+                    drawing->second.geometry_handle, geometry);
+                if (geometry_status != status::success) {
+                    return geometry_status;
+                }
+                pen_state pen{};
+                const status pen_status = resolve_pen(
+                    drawing->second.pen_handle, pen);
+                if (pen_status != status::success) {
+                    return pen_status;
+                }
+                if (geometry.kind != fixed_geometry_kind::line ||
+                    pen.brush_handle == 0U || pen.thickness <= 0.0 ||
+                    pen.dash_style_handle != 0U) {
+                    return status::unsupported_command;
+                }
+                affine_2d_double transform{};
+                if (geometry.transform_handle != 0U) {
+                    const status transform_status = resolve_transform(
+                        geometry.transform_handle, transform);
+                    if (transform_status != status::success) {
+                        return transform_status;
+                    }
+                    if (!affine_preserves_axis_alignment(transform) ||
+                        affine_has_zero_area(transform)) {
+                        return status::unsupported_command;
+                    }
+                }
+                double stroke_x = 0.0;
+                double stroke_y = 0.0;
+                double stroke_width = 0.0;
+                double stroke_height = 0.0;
+                if (!try_line_stroke_bounds(
+                        geometry.first,
+                        geometry.second,
+                        geometry.third,
+                        geometry.fourth,
+                        pen.thickness,
+                        pen.start_line_cap,
+                        pen.end_line_cap,
+                        stroke_x,
+                        stroke_y,
+                        stroke_width,
+                        stroke_height) ||
+                    !try_transform_bounds(
+                        stroke_x,
+                        stroke_y,
+                        stroke_width,
+                        stroke_height,
+                        transform,
+                        bounds) ||
+                    bounds.width <= 0.0F || bounds.height <= 0.0F) {
+                    return status::unsupported_command;
+                }
+                return status::success;
+            }
+            if (drawing->second.brush_handle == 0U) {
                 return status::unsupported_command;
             }
             const auto path = path_geometries.find(

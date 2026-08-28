@@ -11069,6 +11069,185 @@ bool retained_drawing_image_infers_line_path_bounds() {
     return true;
 }
 
+bool retained_drawing_image_infers_line_stroke_bounds() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t pen = 5U;
+    constexpr std::uint32_t thickness_animation = 6U;
+    constexpr std::uint32_t geometry = 7U;
+    constexpr std::uint32_t geometry_drawing = 8U;
+    constexpr std::uint32_t drawing_image = 9U;
+    constexpr std::uint32_t shear_transform = 10U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, pen, 85U);
+    append_create(batch, thickness_animation, 49U);
+    append_create(batch, geometry, 68U);
+    append_create(batch, geometry_drawing, 87U);
+    append_create(batch, drawing_image, 59U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.7F, 0.3F, 0.2F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::double_resource,
+        thickness_animation,
+        4.0);
+    append_command(
+        batch,
+        command::pen,
+        pen,
+        2.0,
+        10.0,
+        brush,
+        thickness_animation,
+        PROGPU_NATIVE_STROKE_CAP_SQUARE,
+        PROGPU_NATIVE_STROKE_CAP_SQUARE,
+        PROGPU_NATIVE_STROKE_CAP_FLAT,
+        PROGPU_NATIVE_STROKE_JOIN_MITER,
+        0U);
+    append_command(
+        batch,
+        command::line_geometry,
+        geometry,
+        10.0,
+        20.0,
+        30.0,
+        20.0,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::geometry_drawing,
+        geometry_drawing,
+        0U,
+        pen,
+        geometry);
+    append_command(
+        batch,
+        command::drawing_image,
+        drawing_image,
+        geometry_drawing);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_image,
+        2.0,
+        4.0,
+        40.0,
+        20.0,
+        drawing_image,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 1U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.line_count == 1U);
+    const auto contains_mapping = [&stream](
+        float m11,
+        float m22,
+        float m31,
+        float m32) {
+        const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+        for (std::uint32_t index = 0U;
+             index < header.resource_count;
+             ++index) {
+            const auto resource = read_value<progpu_native_scene_resource>(
+                stream,
+                header.resource_offset +
+                    index * sizeof(progpu_native_scene_resource));
+            if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+                continue;
+            }
+            const auto scene_state = read_value<progpu_native_scene_state>(
+                stream, resource.payload_offset);
+            if (std::abs(scene_state.transform.m11 - m11) < 0.0001F &&
+                std::abs(scene_state.transform.m22 - m22) < 0.0001F &&
+                std::abs(scene_state.transform.m31 - m31) < 0.0001F &&
+                std::abs(scene_state.transform.m32 - m32) < 0.0001F) {
+                return true;
+            }
+        }
+        return false;
+    };
+    PROGPU_REQUIRE(contains_mapping(
+        5.0F / 3.0F, 5.0F, -34.0F / 3.0F, -86.0F));
+
+    std::vector<std::byte> thickness_update;
+    append_command(
+        thickness_update,
+        command::double_resource,
+        thickness_animation,
+        8.0);
+    PROGPU_REQUIRE(state.apply(thickness_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 2U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(contains_mapping(
+        10.0F / 7.0F, 2.5F, -46.0F / 7.0F, -36.0F));
+
+    std::vector<std::byte> unsupported_update;
+    append_create(unsupported_update, shear_transform, 66U);
+    append_command(
+        unsupported_update,
+        command::matrix_transform,
+        shear_transform,
+        1.0,
+        0.25,
+        0.5,
+        1.0,
+        0.0,
+        0.0,
+        0U);
+    append_command(
+        unsupported_update,
+        command::line_geometry,
+        geometry,
+        10.0,
+        20.0,
+        30.0,
+        20.0,
+        shear_transform,
+        0U,
+        0U);
+    PROGPU_REQUIRE(state.apply(unsupported_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 3U, stream, nullptr) ==
+        status::unsupported_command);
+    return true;
+}
+
 bool retained_drawing_image_infers_drawing_group_bounds() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -14349,6 +14528,7 @@ int main() {
     PROGPU_REQUIRE(
         retained_drawing_image_maps_vector_content_into_destination());
     PROGPU_REQUIRE(retained_drawing_image_infers_line_path_bounds());
+    PROGPU_REQUIRE(retained_drawing_image_infers_line_stroke_bounds());
     PROGPU_REQUIRE(retained_drawing_image_infers_drawing_group_bounds());
     PROGPU_REQUIRE(
         retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband());
