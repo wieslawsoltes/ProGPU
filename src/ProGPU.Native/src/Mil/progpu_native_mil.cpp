@@ -8292,6 +8292,81 @@ struct channel::implementation {
                 ? status::success
                 : status::invalid_graph;
         };
+        const auto resolve_drawing_image_bounds = [this](
+            std::uint32_t drawing_handle,
+            progpu_native_image_rect& bounds) noexcept {
+            const auto drawing = geometry_drawings.find(drawing_handle);
+            if (drawing == geometry_drawings.end() ||
+                drawing->second.brush_handle == 0U ||
+                drawing->second.pen_handle != 0U ||
+                drawing->second.geometry_handle == 0U ||
+                !fixed_geometries.contains(
+                    drawing->second.geometry_handle)) {
+                return status::unsupported_command;
+            }
+            fixed_geometry_state geometry{};
+            const status geometry_status = resolve_fixed_geometry(
+                drawing->second.geometry_handle, geometry);
+            if (geometry_status != status::success) {
+                return geometry_status;
+            }
+            if (geometry.kind == fixed_geometry_kind::line) {
+                return status::unsupported_command;
+            }
+            affine_2d_double transform{};
+            if (geometry.transform_handle != 0U) {
+                const status transform_status = resolve_transform(
+                    geometry.transform_handle, transform);
+                if (transform_status != status::success) {
+                    return transform_status;
+                }
+            }
+            if (affine_has_zero_area(transform)) {
+                return status::unsupported_command;
+            }
+            if (geometry.kind == fixed_geometry_kind::ellipse) {
+                if (geometry.third <= 0.0 || geometry.fourth <= 0.0) {
+                    return status::unsupported_command;
+                }
+                const double center_x = geometry.first * transform.m11 +
+                    geometry.second * transform.m21 + transform.m31;
+                const double center_y = geometry.first * transform.m12 +
+                    geometry.second * transform.m22 + transform.m32;
+                const double extent_x = std::hypot(
+                    geometry.third * transform.m11,
+                    geometry.fourth * transform.m21);
+                const double extent_y = std::hypot(
+                    geometry.third * transform.m12,
+                    geometry.fourth * transform.m22);
+                if (!finite_double_as_float(center_x - extent_x) ||
+                    !finite_double_as_float(center_y - extent_y) ||
+                    !finite_double_as_float(extent_x * 2.0) ||
+                    !finite_double_as_float(extent_y * 2.0) ||
+                    extent_x <= 0.0 || extent_y <= 0.0) {
+                    return status::unsupported_command;
+                }
+                bounds = {
+                    static_cast<float>(center_x - extent_x),
+                    static_cast<float>(center_y - extent_y),
+                    static_cast<float>(extent_x * 2.0),
+                    static_cast<float>(extent_y * 2.0)};
+                return status::success;
+            }
+            if (geometry.third <= 0.0 || geometry.fourth <= 0.0 ||
+                ((geometry.radius_x != 0.0 || geometry.radius_y != 0.0) &&
+                 !affine_preserves_axis_alignment(transform)) ||
+                !try_transform_bounds(
+                    geometry.first,
+                    geometry.second,
+                    geometry.third,
+                    geometry.fourth,
+                    transform,
+                    bounds) ||
+                bounds.width <= 0.0F || bounds.height <= 0.0F) {
+                return status::unsupported_command;
+            }
+            return status::success;
+        };
         const auto append_drawing_image = [
             this,
             drawing_depth,
@@ -8305,6 +8380,7 @@ struct channel::implementation {
             &clip_boolean_nodes,
             &apply_rectangle_clip,
             &save_state,
+            &resolve_drawing_image_bounds,
             compile_context,
             &metrics](
             std::uint32_t image_source_handle,
@@ -8322,8 +8398,21 @@ struct channel::implementation {
             if (source.drawing_handle == 0U) {
                 return status::success;
             }
+            double source_x = source.bounds_x;
+            double source_y = source.bounds_y;
+            double source_width = source.bounds_width;
+            double source_height = source.bounds_height;
             if (!source.has_bounds) {
-                return status::unsupported_command;
+                progpu_native_image_rect inferred_bounds{};
+                const status bounds_status = resolve_drawing_image_bounds(
+                    source.drawing_handle, inferred_bounds);
+                if (bounds_status != status::success) {
+                    return bounds_status;
+                }
+                source_x = inferred_bounds.x;
+                source_y = inferred_bounds.y;
+                source_width = inferred_bounds.width;
+                source_height = inferred_bounds.height;
             }
             if (!active_drawings.insert(image_source_handle).second) {
                 return status::invalid_graph;
@@ -8341,12 +8430,12 @@ struct channel::implementation {
                 return clip_status;
             }
             const affine_2d_double mapping{
-                width / source.bounds_width,
+                width / source_width,
                 0.0,
                 0.0,
-                height / source.bounds_height,
-                x - source.bounds_x * width / source.bounds_width,
-                y - source.bounds_y * height / source.bounds_height};
+                height / source_height,
+                x - source_x * width / source_width,
+                y - source_y * height / source_height};
             next.transform = compose_affine(mapping, state.transform);
             if (!save_state(next)) {
                 active_drawings.erase(image_source_handle);

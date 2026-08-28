@@ -2036,14 +2036,19 @@ is unaffected and continues through the native effect resource path above.
 
 Direct DrawingImage replay now uses the same typed retained vector path as an
 ImageDrawing that references a DrawingImage. Static and animated DrawImage
-resolve the source's canonical Drawing handle, require the existing exact
-drawing-content-bounds sideband, clip to the destination rectangle, and compose
-the source-to-destination affine mapping before recursively compiling the
-Drawing. No bitmap intermediate, pointer transport, reflection, or host raster
-fallback is introduced. Missing bounds remain `unsupported_command`, recursive
-image/drawing ownership is rejected as `invalid_graph`, and an empty
-DrawingImage remains a no-op. Native coverage locks down distinct retained,
-direct-static, and direct-animated destination mappings in one scene.
+resolve the source's canonical Drawing handle, clip to the destination
+rectangle, and compose the source-to-destination affine mapping before
+recursively compiling the Drawing. A fill-only `GeometryDrawing` backed by a
+positive-area fixed rectangle, rounded rectangle, or ellipse now derives its
+current exact bounds directly from typed native geometry and transform state;
+animated fixed values and transforms are therefore resolved at scene-build
+time instead of being cached in the `DrawingImage`. Other drawing shapes still
+require the exact drawing-content-bounds sideband and fail closed when it is
+absent. No bitmap intermediate, pointer transport, reflection, or host raster
+fallback is introduced. Recursive image/drawing ownership is rejected as
+`invalid_graph`, and an empty DrawingImage remains a no-op. Native coverage
+locks down distinct retained, direct-static, and direct-animated destination
+mappings in one scene.
 
 `NativeMilRenderDataBuilder.DrawImage(...)` now exposes the same canonical
 static packet to typed hosts. It validates finite nonnegative destination
@@ -2134,12 +2139,13 @@ font-resource registration remain explicit parity work.
 DrawingImage implementation `6071925d` then added canonical resource type
 `59` and command `0x71` with its exact 12-byte command view (16 bytes framed).
 The canonical update retains only the referenced Drawing handle. Portable
-hosts bind that drawing's exact local content bounds through
+hosts bind drawing shapes that cannot yet be derived natively through
 `progpu_native_mil_channel_set_drawing_image_bounds`; unlike WPF's original
-in-process resource graph, those bounds are not present in the packet and are
-required to map vector content into an ImageDrawing destination rectangle.
-Missing or nonfinite bounds fail closed, while a null Drawing remains a
-canonical no-op.
+in-process resource graph, those bounds are not present in the packet. The
+native compiler derives the exact live bounds of positive-area, fill-only
+fixed-geometry `GeometryDrawing` leaves without that sideband. Missing or
+nonfinite bounds for every other shape fail closed, while a null Drawing
+remains a canonical no-op.
 
 Scene compilation recursively reuses retained GeometryDrawing,
 GlyphRunDrawing, ImageDrawing, and DrawingGroup lowering. It scales and
