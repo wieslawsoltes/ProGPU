@@ -699,18 +699,29 @@ arcs and sweep reversal. Singular transformed operands become exact empty
 leaves. Stroked operands remain fail closed. Combined children inside an
 EvenOdd `GeometryGroup` preserve the child predicate and combine it with
 ordinary child predicates through XOR; they are never flattened into raw
-contours. The compiler retains the existing 32-child and 63-boolean-node limits
-and rolls segment/node appends back together on failure. Nonzero groups with a
-boolean child still fail closed because a postfix inside predicate cannot
-recover the signed contour winding required by WPF's outer Nonzero rule.
+contours. Nonzero groups compile ordinary descendants as raw signed-winding
+leaves and well-oriented CombinedGeometry results as `+1` predicates, then add
+the contributions before the final Nonzero test. A reflected GeometryGroup
+outside a boolean child inserts an exact winding negation; a reflection owned
+by CombinedGeometry remains inside WPF's boolean solve and is normalized back
+to `+1`. Nested GeometryGroup fill rules remain intentionally ignored while an
+operand GeometryGroup reached through CombinedGeometry applies its own root
+rule. The compiler retains the existing 32-child, 63-instruction, and 16-stack
+limits and rolls segment/node appends back together on failure.
 
-This extension changes no public ABI, backend selection, or CPU raster
-fallback. The native compiler performs one bounded, order-dependent `O(S + N)`
-walk over segments `S` and postfix nodes `N`; the dependency chain is not an
-independent-lane SIMD candidate. Pixel coverage remains on the shared GPU path
-rasterizer on Metal, D3D12, Vulkan, and browser WebGPU. The split form adds one
-packed-u32 XOR compute entry point and bounded phase submissions, with no CPU
-readback, repacking, or per-child/per-item submission.
+This extension preserves the existing numeric values and 48-byte node layout,
+appending only typed winding-leaf/add/negate enum values. Backend selection and
+CPU raster fallback are unchanged. The native compiler performs one bounded,
+order-dependent `O(S + N)` walk over segments `S` and postfix nodes `N`; the
+dependency chain is not an independent-lane SIMD candidate. Pixel coverage
+remains on the shared GPU path rasterizer on Metal, D3D12, Vulkan, and browser
+WebGPU. Signed programs retain one private eight-lane winding value per bounded
+stack entry and do not enter the phased mask-only route. The split form for
+ordinary boolean programs still adds one packed-u32 compute entry point and
+bounded phase submissions, with no CPU readback, repacking, or per-child/per-
+item submission. See
+[`NATIVE_MIL_NONZERO_BOOLEAN_WINDING.md`](NATIVE_MIL_NONZERO_BOOLEAN_WINDING.md)
+for the WPF oracle, transform proof, ABI encoding, and gates.
 
 The provider-resolved Metal hardware gate now uses the same five-node
 `leaf leaf difference leaf xor` program in its retained vector-mask fixture.
@@ -1032,8 +1043,7 @@ minimum clamps remain defense in depth for already-validated streams, not an
 API policy that silently converts invalid lighting state. Native C++ coverage
 checks all three rejection boundaries alongside the existing face-flag guard.
 
-- Implement the remaining 2D/3D resource execution and mixed translated-
-  equivalent EvenOdd postfix programs, remaining pen/image/media
+- Implement the remaining 2D/3D resource execution and remaining pen/image/media
   paths, dynamic guidelines, caches, effects, and render-data commands.
 - Lower every supported update to stable semantic resource identities and
   generation numbers; unchanged resources must not be rebuilt.

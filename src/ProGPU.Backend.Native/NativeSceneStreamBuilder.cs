@@ -3555,6 +3555,7 @@ public ref struct NativeSceneStreamBuilder
             path.SegmentCount,
             path.BooleanNodeOffset,
             path.BooleanNodeCount,
+            path.FillRule,
             nodes,
             segmentCount);
 
@@ -3567,6 +3568,7 @@ public ref struct NativeSceneStreamBuilder
             path.SegmentCount,
             path.BooleanNodeOffset,
             path.BooleanNodeCount,
+            path.FillRule,
             nodes,
             segmentCount);
 
@@ -3575,6 +3577,7 @@ public ref struct NativeSceneStreamBuilder
         ulong segmentLength,
         ulong booleanNodeOffset,
         ulong booleanNodeLength,
+        NativeFillRule fillRule,
         ReadOnlySpan<NativeScenePathBooleanNode> nodes,
         ulong segmentCount)
     {
@@ -3590,6 +3593,7 @@ public ref struct NativeSceneStreamBuilder
             return false;
         }
         int stackDepth = 0;
+        bool hasSignedWinding = false;
         ulong pathSegmentEnd = segmentOffset + segmentLength;
         int start = checked((int)booleanNodeOffset);
         int end = checked(start + (int)booleanNodeLength);
@@ -3597,11 +3601,12 @@ public ref struct NativeSceneStreamBuilder
         {
             ref readonly NativeScenePathBooleanNode node = ref nodes[index];
             if (!node.HasCanonicalReservedFields ||
-                node.Kind > NativePathBooleanNodeKind.ReverseDifference)
+                node.Kind > NativePathBooleanNodeKind.WindingNegate)
             {
                 return false;
             }
-            if (node.Kind == NativePathBooleanNodeKind.Leaf)
+            if (node.Kind is NativePathBooleanNodeKind.Leaf or
+                NativePathBooleanNodeKind.WindingLeaf)
             {
                 if (stackDepth == 16 || node.SegmentCount == 0U ||
                     node.SegmentOffset < segmentOffset ||
@@ -3610,10 +3615,14 @@ public ref struct NativeSceneStreamBuilder
                     !IsFinite(node.Minimum) || !IsFinite(node.Maximum) ||
                     node.Maximum.X <= node.Minimum.X ||
                     node.Maximum.Y <= node.Minimum.Y ||
-                    node.FillRule > NativeFillRule.EvenOdd)
+                    node.FillRule > NativeFillRule.EvenOdd ||
+                    (node.Kind == NativePathBooleanNodeKind.WindingLeaf &&
+                        node.FillRule != NativeFillRule.NonZero))
                 {
                     return false;
                 }
+                hasSignedWinding |=
+                    node.Kind == NativePathBooleanNodeKind.WindingLeaf;
                 stackDepth++;
             }
             else if (node.Kind == NativePathBooleanNodeKind.Empty)
@@ -3627,6 +3636,17 @@ public ref struct NativeSceneStreamBuilder
                 }
                 stackDepth++;
             }
+            else if (node.Kind == NativePathBooleanNodeKind.WindingNegate)
+            {
+                if (stackDepth < 1 || node.SegmentOffset != 0U ||
+                    node.SegmentCount != 0U || node.Minimum != Vector2.Zero ||
+                    node.Maximum != Vector2.Zero ||
+                    node.FillRule != NativeFillRule.NonZero)
+                {
+                    return false;
+                }
+                hasSignedWinding = true;
+            }
             else
             {
                 if (stackDepth < 2 || node.SegmentOffset != 0U ||
@@ -3636,10 +3656,13 @@ public ref struct NativeSceneStreamBuilder
                 {
                     return false;
                 }
+                hasSignedWinding |=
+                    node.Kind == NativePathBooleanNodeKind.WindingAdd;
                 stackDepth--;
             }
         }
-        return stackDepth == 1;
+        return stackDepth == 1 &&
+            (!hasSignedWinding || fillRule == NativeFillRule.NonZero);
     }
 
     private static bool IsValidPathSegment(in NativePathSegment segment)

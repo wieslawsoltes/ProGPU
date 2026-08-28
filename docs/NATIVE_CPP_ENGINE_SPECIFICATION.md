@@ -1190,7 +1190,7 @@ nonzero/even-odd fill rule, a 4x4 or 8x8 coverage grid, and intersection or
 difference. The containing mask revision is the retained identity. The safe
 .NET owner copies the arenas once into pinned-object-heap arrays, validates all
 ranges, canonical program ownership, finite state, the 63-instruction limit,
-and the 16-mask stack bound, then publishes stable typed pointers only for
+and the 16-value stack bound, then publishes stable typed pointers only for
 the duration of the native render call. C++ never retains caller memory.
 
 Changed chains reuse the production `PathRasterizer.wgsl` compute kernel. Each
@@ -1215,7 +1215,13 @@ combined path is a direct port of the managed `PathAtlas` postfix contract:
 leaf contours reference the shared segment arena and empty/difference/
 intersection/union/xor/reverse-difference instructions execute inside the
 canonical `PathRasterizer.wgsl` pass. No CPU boolean flattening or shader fork
-is introduced. When translated-equivalent leaves overlap, the renderer keeps
+is introduced. Exact Nonzero GeometryGroup programs append raw signed-winding
+leaf, winding-add, and winding-negate instructions without changing the
+existing enum values or 48-byte node layout. Boolean results are normalized to
+`+1`; only a negative-determinant containing group negates that contribution,
+matching the native WPF contour oracle. Signed programs use the same analytic
+segment walker and a bounded eight-lane winding stack in one GPU dispatch.
+When translated-equivalent mask-only leaves overlap, the renderer keeps
 all 64 leaf supersamples in two packed words per pixel and evaluates the same
 postfix program in a phased GPU combine pass before one final R8 average. Safe
 non-overlapping mixed programs retain the ordinary single dispatch. Pure
@@ -1814,6 +1820,8 @@ already covered prefix, preserving repeated transformed instances without
 duplicating immutable segments; the union must remain gap-free and consume the
 complete arena. Combined fills additionally reference a contiguous
 resource-local arena of canonical 48-byte postfix nodes.
+Those nodes may retain raw signed winding for exact Nonzero group aggregation;
+the same representation is consumed by direct fills and vector clips.
 Nonzero/even-odd fill rules, 4x4/8x8
 coverage selection, affine transforms, and the shared solid/gradient brush
 table remain explicit. Every segment and transformed bound is finite-checked;

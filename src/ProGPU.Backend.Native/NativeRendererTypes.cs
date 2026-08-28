@@ -328,7 +328,10 @@ public enum NativePathBooleanNodeKind : uint
     Intersect = 3,
     Union = 4,
     Xor = 5,
-    ReverseDifference = 6
+    ReverseDifference = 6,
+    WindingLeaf = 7,
+    WindingAdd = 8,
+    WindingNegate = 9
 }
 
 public enum NativeGroupEffectKind : uint
@@ -3716,15 +3719,17 @@ public sealed unsafe class NativeClipChain
             path.BooleanNodeCount > nodeCount - path.BooleanNodeOffset)
             return false;
         int stackDepth = 0;
+        bool hasSignedWinding = false;
         nuint pathSegmentEnd = path.SegmentOffset + path.SegmentCount;
         int start = checked((int)path.BooleanNodeOffset);
         int end = checked(start + (int)path.BooleanNodeCount);
         for (int index = start; index < end; index++)
         {
             NativePathBooleanNode node = nodes[index];
-            if (node.Kind > NativePathBooleanNodeKind.ReverseDifference)
+            if (node.Kind > NativePathBooleanNodeKind.WindingNegate)
                 return false;
-            if (node.Kind == NativePathBooleanNodeKind.Leaf)
+            if (node.Kind is NativePathBooleanNodeKind.Leaf or
+                NativePathBooleanNodeKind.WindingLeaf)
             {
                 if (stackDepth == 16 || node.SegmentCount == 0U ||
                     node.SegmentOffset < path.SegmentOffset ||
@@ -3733,8 +3738,12 @@ public sealed unsafe class NativeClipChain
                     !IsFinite(node.Minimum) || !IsFinite(node.Maximum) ||
                     node.Maximum.X <= node.Minimum.X ||
                     node.Maximum.Y <= node.Minimum.Y ||
-                    node.FillRule > NativeFillRule.EvenOdd)
+                    node.FillRule > NativeFillRule.EvenOdd ||
+                    (node.Kind == NativePathBooleanNodeKind.WindingLeaf &&
+                        node.FillRule != NativeFillRule.NonZero))
                     return false;
+                hasSignedWinding |=
+                    node.Kind == NativePathBooleanNodeKind.WindingLeaf;
                 stackDepth++;
             }
             else if (node.Kind == NativePathBooleanNodeKind.Empty)
@@ -3746,6 +3755,15 @@ public sealed unsafe class NativeClipChain
                     return false;
                 stackDepth++;
             }
+            else if (node.Kind == NativePathBooleanNodeKind.WindingNegate)
+            {
+                if (stackDepth < 1 || node.SegmentOffset != 0U ||
+                    node.SegmentCount != 0U || node.Minimum != Vector2.Zero ||
+                    node.Maximum != Vector2.Zero ||
+                    node.FillRule != NativeFillRule.NonZero)
+                    return false;
+                hasSignedWinding = true;
+            }
             else
             {
                 if (stackDepth < 2 || node.SegmentOffset != 0U ||
@@ -3753,10 +3771,13 @@ public sealed unsafe class NativeClipChain
                     node.Maximum != Vector2.Zero ||
                     node.FillRule != NativeFillRule.NonZero)
                     return false;
+                hasSignedWinding |=
+                    node.Kind == NativePathBooleanNodeKind.WindingAdd;
                 stackDepth--;
             }
         }
-        return stackDepth == 1;
+        return stackDepth == 1 &&
+            (!hasSignedWinding || path.FillRule == NativeFillRule.NonZero);
     }
 }
 
