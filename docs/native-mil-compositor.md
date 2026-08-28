@@ -2068,6 +2068,12 @@ DrawingImage remains a no-op. Native coverage locks down distinct retained,
 direct-static, and direct-animated destination mappings plus sideband-free
 fixed, polygonal, curved, arc, independently transformed path,
 single-child geometry-group, and nested multi-child drawing-group replay.
+The exact `18e72815` sources also rebuilt the changed library and test target
+under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
+passed in 1.67 seconds. The first Windows pass caught and removed one recursive
+lambda depth-name shadow that Apple Clang does not diagnose, so the strict
+cross-compiler lane remains part of this bounds checkpoint rather than a later
+cleanup.
 
 `NativeMilRenderDataBuilder.DrawImage(...)` now exposes the same canonical
 static packet to typed hosts. It validates finite nonnegative destination
