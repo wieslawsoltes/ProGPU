@@ -440,13 +440,16 @@ Solid ellipse pens lower to ProGPU's exact analytic full-ellipse arc primitive,
 including non-uniform radii and affine semantic-state execution. Fill-only,
 stroke-only, and fill-plus-stroke records share the native brush table; stroke
 culling expands the local ellipse bounds by half the pen width before the
-four-corner affine bounds transform. A nonempty dash pattern on an ellipse
-fails closed until the native curve path can preserve phase continuously around
-the full circumference or along a one-axis collapse. Degenerate ellipse fills
+four-corner affine bounds transform. A nonempty dash pattern on a positive-area
+ellipse now lowers the full circumference to one closed analytic arc contour
+and reuses the native curve-dash compiler, preserving phase, DashCap, affine
+state, and exact retained arc spans across the seam. Degenerate ellipse fills
 produce no coverage. A solid one-axis ellipse lowers to the exact round-ended
 capsule implied by WPF's four SmoothJoin cubic segments; a fully collapsed
 ellipse uses the same Round/Round point-disk path as the native widener. Both
 retain their geometry-local affine transform without curve flattening.
+Nonempty dashes on one-axis or fully collapsed ellipses remain fail closed
+pending exact collapsed-contour dash traversal.
 
 Uniform-radius `MILCMD_DRAW_ROUNDED_RECTANGLE` records now accept independent
 fill and pen handles. Positive-radius solid outlines lower to ProGPU's exact
@@ -461,8 +464,9 @@ Degenerate uniform-radius solid outlines use the same WPF outer widened path
 with separately clamped X/Y corner radii, retaining
 analytic quarter arcs under affine transforms. Positive independent X/Y radii
 reuse the shared vector path and connected-curve stroke lanes. Nonempty dash
-patterns on curved corners fail closed until their exact curve semantics are
-available. Degenerate asymmetric records with either radius zero remain fail
+patterns on positive-area uniform and independent-X/Y rounded rectangles now
+reuse that same closed analytic line/quarter-arc contour and native curve-dash
+compiler. Degenerate asymmetric records with either radius zero remain fail
 closed until their general-widener collapse semantics are proved.
 
 The retained fixed-geometry slice implements the exact fixed-size
@@ -964,8 +968,8 @@ minimum clamps remain defense in depth for already-validated streams, not an
 API policy that silently converts invalid lighting state. Native C++ coverage
 checks all three rejection boundaries alongside the existing face-flag guard.
 
-- Implement the remaining 2D/3D resource execution, fixed-geometry ellipse and
-  rounded-rectangle dashes, exact
+- Implement the remaining 2D/3D resource execution, exact collapsed ellipse
+  and degenerate rounded-rectangle dashes, exact
   translated-equivalent EvenOdd overlap execution, remaining pen/image/media
   paths, dynamic guidelines, caches, effects, and render-data commands.
 - Lower every supported update to stable semantic resource identities and
