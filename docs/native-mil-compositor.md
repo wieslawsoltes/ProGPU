@@ -476,8 +476,12 @@ analytic quarter arcs under affine transforms. Positive independent X/Y radii
 reuse the shared vector path and connected-curve stroke lanes. Nonempty dash
 patterns on positive-area uniform and independent-X/Y rounded rectangles now
 reuse that same closed analytic line/quarter-arc contour and native curve-dash
-compiler. Degenerate asymmetric records with either radius zero remain fail
-closed until their general-widener collapse semantics are proved.
+compiler. Degenerate records with both radii positive now preserve WpfGfx's
+canonical 17-point alternating cubic/line contour after independent radius
+clamping and reuse the same native curve-dash compiler. Point records reduce
+to the visible-initial-dash Round/Round disk or initial-gap no-op. Degenerate
+asymmetric records with either radius zero remain fail closed pending their
+sharp-rectangle normalization.
 
 The retained fixed-geometry slice implements the exact fixed-size
 `MILCMD_LINEGEOMETRY`, `MILCMD_RECTANGLEGEOMETRY`, and
@@ -1019,7 +1023,7 @@ API policy that silently converts invalid lighting state. Native C++ coverage
 checks all three rejection boundaries alongside the existing face-flag guard.
 
 - Implement the remaining 2D/3D resource execution, exact degenerate
-  rounded-rectangle dashes, exact
+  zero-axis asymmetric rounded-rectangle normalization, exact
   translated-equivalent EvenOdd overlap execution, remaining pen/image/media
   paths, dynamic guidelines, caches, effects, and render-data commands.
 - Lower every supported update to stable semantic resource identities and
@@ -2396,6 +2400,28 @@ and `D756F7E0138D44FAF012D34FF704A4A0EFCD6EAA03EF9AADDF8924C0BFC5C5AA`.
 Guest MIL/internal executable SHA-256 values were
 `7E907A8ADD470AEFA5904EB51FCCD697C648992BAE37E94283666E7A27FC07D4`
 and `72633B0DB0A4B5A1908F6EB92AA8C0D469A3DB197A5EE09923B4712C60E7C1F3`.
+
+Checkpoint `35edc9c6` closes dashed degenerate rounded rectangles when both
+radii are positive. The MIL compiler independently clamps the radii, builds
+WpfGfx's exact 17 float-point alternating cubic/line contour with
+`ARC_AS_BEZIER`, and sends it through the existing typed curve-dash compiler.
+Vertical, horizontal, asymmetric-radius, and fully collapsed records therefore
+share the same dash phase, DashCap, smooth joins, retained cubic spans, affine
+state, and backend execution as other curved MIL strokes. The point case
+naturally reduces to the qualified Round/Round disk or no-op. A live Windows
+PresentationCore oracle covered six uniform/asymmetric vertical, horizontal,
+and point profiles across every DashCap and seven offsets; coverage locks the
+phase-dependent bounds, alpha totals, and pixel hashes. Apple passes all 10
+native CTests. The immutable source archive SHA-256 is
+`C9C4FD6BB74BF15EAB6CBD03408C36F23DF945C205B3A6FE038CE4520F62720D`.
+Its exact sources rebuilt all 257 steps under Windows ARM64 MSVC
+`19.44.35228.0`; all 10 CTests passed in 24.07 seconds and both focused
+executables returned zero. Host/guest source hashes matched at
+`667394D8B2BF70C10C14B9695144F4066EC6680A41F6B2B64E1C334EBD2AC2C0`
+and `DAC859981EF978FCCDC1C7CEEF6E382F611DA2B23A0E01BF37E535B35AB89549`.
+Guest MIL/internal executable SHA-256 values were
+`DE5C145CA0529B82B292B43E558509476AE62C95C63819805115D0F77D0D37DD`
+and `61ADE59E104E6D29FC4FDA04550FE2CFAE34C871455E3510E04ED07F606823C7`.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive
