@@ -43,6 +43,21 @@ public enum CadLineTypePatternKind : byte
     UnsupportedAlignment = 3,
 }
 
+public enum CadLineTypeElementKind : byte
+{
+    Stroke = 0,
+    TrueTypeText = 1,
+    ShxText = 2,
+    ShxShape = 3,
+    UnresolvedComplex = 4,
+}
+
+public enum CadLineTypeRotationMode : byte
+{
+    Relative = 0,
+    Absolute = 1,
+}
+
 /// <summary>
 /// An immutable linetype definition whose element lengths address the shared
 /// <see cref="CadDocumentSnapshot.LineTypeElements"/> stream.
@@ -56,13 +71,43 @@ public readonly record struct CadLineTypePattern(
     CadLineTypePatternKind Kind);
 
 /// <summary>
-/// One signed CAD linetype descriptor. Positive values draw, negative values
-/// advance without drawing, and zero values draw a point. Complex elements
-/// retain their public DXF type flags for an explicit later fidelity gate.
+/// One signed CAD linetype descriptor. Positive stroke values draw, negative
+/// stroke values advance without drawing, and zero stroke values draw a point.
+/// Complex descriptors retain their persisted flags and immutable resource index.
 /// </summary>
 public readonly record struct CadLineTypeElement(
     double Length,
-    byte ComplexTypeFlags);
+    byte ComplexTypeFlags,
+    CadLineTypeElementKind Kind = CadLineTypeElementKind.Stroke,
+    CadLineTypeRotationMode RotationMode = CadLineTypeRotationMode.Relative,
+    double Rotation = 0.0,
+    double OffsetX = 0.0,
+    double OffsetY = 0.0,
+    int ResourceIndex = -1);
+
+/// <summary>
+/// One immutable, definition-shared complex-linetype text payload. TrueType
+/// payloads address the snapshot glyph/run streams; SHX payloads address the
+/// SHX glyph-instance stream. Axis scales are expressed in unscaled linetype
+/// units and are multiplied by the effective entity linetype scale at replay.
+/// </summary>
+public readonly record struct CadLineTypeTextResource(
+    CadLineTypeElementKind Kind,
+    int GlyphOffset,
+    int GlyphCount,
+    int RunOffset,
+    int RunCount,
+    double XScale,
+    double YScale,
+    double ObliqueAngle,
+    bool IsBackward,
+    bool IsUpsideDown,
+    bool IsSubstitution = false);
+
+public readonly record struct CadLineTypeShapeResource(
+    CadShxGlyph Glyph,
+    double Scale,
+    bool IsSubstitution = false);
 
 public readonly record struct CadEntityHeader(
     ulong Handle,
@@ -216,6 +261,8 @@ public sealed class CadDocumentSnapshot
     private readonly CadStrokeStyle[] _styles;
     private readonly CadLineTypePattern[] _lineTypePatterns;
     private readonly CadLineTypeElement[] _lineTypeElements;
+    private readonly CadLineTypeTextResource[] _lineTypeTextResources;
+    private readonly CadLineTypeShapeResource[] _lineTypeShapeResources;
     private readonly CadEntityHeader[] _entities;
     private readonly CadLinePrimitive[] _lines;
     private readonly CadCirclePrimitive[] _circles;
@@ -252,6 +299,8 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadStrokeStyle> Styles => _styles;
     public ReadOnlyMemory<CadLineTypePattern> LineTypePatterns => _lineTypePatterns;
     public ReadOnlyMemory<CadLineTypeElement> LineTypeElements => _lineTypeElements;
+    public ReadOnlyMemory<CadLineTypeTextResource> LineTypeTextResources => _lineTypeTextResources;
+    public ReadOnlyMemory<CadLineTypeShapeResource> LineTypeShapeResources => _lineTypeShapeResources;
     public ReadOnlyMemory<CadEntityHeader> Entities => _entities;
     public ReadOnlyMemory<CadLinePrimitive> Lines => _lines;
     public ReadOnlyMemory<CadCirclePrimitive> Circles => _circles;
@@ -289,6 +338,8 @@ public sealed class CadDocumentSnapshot
         CadStrokeStyle[] styles,
         CadLineTypePattern[] lineTypePatterns,
         CadLineTypeElement[] lineTypeElements,
+        CadLineTypeTextResource[] lineTypeTextResources,
+        CadLineTypeShapeResource[] lineTypeShapeResources,
         CadEntityHeader[] entities,
         CadLinePrimitive[] lines,
         CadCirclePrimitive[] circles,
@@ -323,6 +374,8 @@ public sealed class CadDocumentSnapshot
         _styles = styles;
         _lineTypePatterns = lineTypePatterns;
         _lineTypeElements = lineTypeElements;
+        _lineTypeTextResources = lineTypeTextResources;
+        _lineTypeShapeResources = lineTypeShapeResources;
         _entities = entities;
         _lines = lines;
         _circles = circles;

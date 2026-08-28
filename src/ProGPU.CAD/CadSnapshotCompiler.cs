@@ -81,6 +81,8 @@ public sealed class CadSnapshotCompiler
         var lineTypePatterns = new List<CadLineTypePattern>();
         var lineTypePatternIndices = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var lineTypeElements = new List<CadLineTypeElement>();
+        var lineTypeTextResources = new List<CadLineTypeTextResource>();
+        var lineTypeShapeResources = new List<CadLineTypeShapeResource>();
         var entities = new List<CadEntityHeader>(document.Entities.Count);
         var lines = new List<CadLinePrimitive>();
         var circles = new List<CadCirclePrimitive>();
@@ -154,6 +156,8 @@ public sealed class CadSnapshotCompiler
             styles.ToArray(),
             lineTypePatterns.ToArray(),
             lineTypeElements.ToArray(),
+            lineTypeTextResources.ToArray(),
+            lineTypeShapeResources.ToArray(),
             entities.ToArray(),
             lines.ToArray(),
             circles.ToArray(),
@@ -234,6 +238,15 @@ public sealed class CadSnapshotCompiler
                     lineTypePatterns,
                     lineTypePatternIndices,
                     lineTypeElements,
+                    lineTypeTextResources,
+                    lineTypeShapeResources,
+                    textGlyphRuns,
+                    textGlyphIndices,
+                    textGlyphPositions,
+                    textFonts,
+                    textFontIndices,
+                    shxGlyphInstances,
+                    shxFontResolver,
                     options);
                 CadEntityHeader? header = entity switch
                 {
@@ -2318,6 +2331,15 @@ public sealed class CadSnapshotCompiler
         List<CadLineTypePattern> lineTypePatterns,
         Dictionary<string, int> lineTypePatternIndices,
         List<CadLineTypeElement> lineTypeElements,
+        List<CadLineTypeTextResource> lineTypeTextResources,
+        List<CadLineTypeShapeResource> lineTypeShapeResources,
+        List<CadTextGlyphRun> textGlyphRuns,
+        List<ushort> textGlyphIndices,
+        List<Vector2> textGlyphPositions,
+        List<TtfFont> textFonts,
+        Dictionary<TtfFont, int> textFontIndices,
+        List<CadShxGlyphInstance> shxGlyphInstances,
+        ICadShxFontResolver? shxFontResolver,
         CadSnapshotOptions options)
     {
         ACadSharp.Color color = resolved.Color;
@@ -2334,6 +2356,15 @@ public sealed class CadSnapshotCompiler
             lineTypePatterns,
             lineTypePatternIndices,
             lineTypeElements,
+            lineTypeTextResources,
+            lineTypeShapeResources,
+            textGlyphRuns,
+            textGlyphIndices,
+            textGlyphPositions,
+            textFonts,
+            textFontIndices,
+            shxGlyphInstances,
+            shxFontResolver,
             options);
         CadStrokeStyle style = new(
             color.R,
@@ -2362,6 +2393,15 @@ public sealed class CadSnapshotCompiler
         List<CadLineTypePattern> patterns,
         Dictionary<string, int> indices,
         List<CadLineTypeElement> elements,
+        List<CadLineTypeTextResource> textResources,
+        List<CadLineTypeShapeResource> shapeResources,
+        List<CadTextGlyphRun> textGlyphRuns,
+        List<ushort> textGlyphIndices,
+        List<Vector2> textGlyphPositions,
+        List<TtfFont> textFonts,
+        Dictionary<TtfFont, int> textFontIndices,
+        List<CadShxGlyphInstance> shxGlyphInstances,
+        ICadShxFontResolver? shxFontResolver,
         CadSnapshotOptions options)
     {
         string name = lineType.Name;
@@ -2377,6 +2417,12 @@ public sealed class CadSnapshotCompiler
         }
 
         int elementOffset = elements.Count;
+        int textResourceOffset = textResources.Count;
+        int shapeResourceOffset = shapeResources.Count;
+        int textRunOffset = textGlyphRuns.Count;
+        int textGlyphOffset = textGlyphIndices.Count;
+        int textFontOffset = textFonts.Count;
+        int shxGlyphOffset = shxGlyphInstances.Count;
         int elementCount = 0;
         bool hasComplexElement = false;
         double patternLength = 0.0;
@@ -2412,7 +2458,19 @@ public sealed class CadSnapshotCompiler
 
                 byte complexTypeFlags = checked((byte)segment.Flags);
                 hasComplexElement |= complexTypeFlags != 0;
-                elements.Add(new CadLineTypeElement(length, complexTypeFlags));
+                elements.Add(CompileLineTypeElement(
+                    segment,
+                    complexTypeFlags,
+                    textResources,
+                    shapeResources,
+                    textGlyphRuns,
+                    textGlyphIndices,
+                    textGlyphPositions,
+                    textFonts,
+                    textFontIndices,
+                    shxGlyphInstances,
+                    shxFontResolver,
+                    options));
                 elementCount++;
             }
 
@@ -2426,19 +2484,17 @@ public sealed class CadSnapshotCompiler
             {
                 kind = CadLineTypePatternKind.UnsupportedAlignment;
             }
-            else if (hasComplexElement)
-            {
-                kind = CadLineTypePatternKind.Complex;
-            }
             else
             {
                 if (elementCount < 2 || firstLength < 0.0 || patternLength <= 0.0)
                 {
                     throw new ArgumentException(
-                        $"Simple A-aligned linetype '{name}' requires at least two elements, a non-negative first element, and a positive pattern length.");
+                        $"A-aligned linetype '{name}' requires at least two elements, a non-negative first element, and a positive pattern length.");
                 }
 
-                kind = CadLineTypePatternKind.Simple;
+                kind = hasComplexElement
+                    ? CadLineTypePatternKind.Complex
+                    : CadLineTypePatternKind.Simple;
             }
 
             int index = patterns.Count;
@@ -2458,8 +2514,364 @@ public sealed class CadSnapshotCompiler
             {
                 elements.RemoveRange(elementOffset, elements.Count - elementOffset);
             }
+            if (textResources.Count > textResourceOffset)
+            {
+                textResources.RemoveRange(
+                    textResourceOffset,
+                    textResources.Count - textResourceOffset);
+            }
+            if (shapeResources.Count > shapeResourceOffset)
+            {
+                shapeResources.RemoveRange(
+                    shapeResourceOffset,
+                    shapeResources.Count - shapeResourceOffset);
+            }
+            if (textGlyphRuns.Count > textRunOffset)
+            {
+                textGlyphRuns.RemoveRange(textRunOffset, textGlyphRuns.Count - textRunOffset);
+            }
+            if (textGlyphIndices.Count > textGlyphOffset)
+            {
+                textGlyphIndices.RemoveRange(textGlyphOffset, textGlyphIndices.Count - textGlyphOffset);
+                textGlyphPositions.RemoveRange(textGlyphOffset, textGlyphPositions.Count - textGlyphOffset);
+            }
+            if (textFonts.Count > textFontOffset)
+            {
+                for (int i = textFonts.Count - 1; i >= textFontOffset; i--)
+                {
+                    textFontIndices.Remove(textFonts[i]);
+                }
+                textFonts.RemoveRange(textFontOffset, textFonts.Count - textFontOffset);
+            }
+            if (shxGlyphInstances.Count > shxGlyphOffset)
+            {
+                shxGlyphInstances.RemoveRange(shxGlyphOffset, shxGlyphInstances.Count - shxGlyphOffset);
+            }
 
             throw;
+        }
+    }
+
+    private static CadLineTypeElement CompileLineTypeElement(
+        LineType.Segment segment,
+        byte complexTypeFlags,
+        List<CadLineTypeTextResource> textResources,
+        List<CadLineTypeShapeResource> shapeResources,
+        List<CadTextGlyphRun> textGlyphRuns,
+        List<ushort> textGlyphIndices,
+        List<Vector2> textGlyphPositions,
+        List<TtfFont> textFonts,
+        Dictionary<TtfFont, int> textFontIndices,
+        List<CadShxGlyphInstance> shxGlyphInstances,
+        ICadShxFontResolver? shxFontResolver,
+        CadSnapshotOptions options)
+    {
+        int textResourceOffset = textResources.Count;
+        int shapeResourceOffset = shapeResources.Count;
+        int runOffsetBefore = textGlyphRuns.Count;
+        int trueTypeGlyphOffsetBefore = textGlyphIndices.Count;
+        int textFontOffset = textFonts.Count;
+        int shxGlyphOffsetBefore = shxGlyphInstances.Count;
+        if (complexTypeFlags == 0)
+        {
+            return new CadLineTypeElement(segment.Length, complexTypeFlags);
+        }
+
+        if (!double.IsFinite(segment.Scale) || segment.Scale == 0.0 ||
+            !double.IsFinite(segment.Rotation) ||
+            !double.IsFinite(segment.Offset.X) ||
+            !double.IsFinite(segment.Offset.Y))
+        {
+            throw new ArgumentException(
+                "Complex linetype scale, rotation, and offsets must be finite and scale must be non-zero.");
+        }
+
+        CadLineTypeRotationMode rotationMode =
+            segment.Flags.HasFlag(LineTypeShapeFlags.RotationIsAbsolute)
+                ? CadLineTypeRotationMode.Absolute
+                : CadLineTypeRotationMode.Relative;
+        CadLineTypeElement Unresolved() => new(
+            segment.Length,
+            complexTypeFlags,
+            CadLineTypeElementKind.UnresolvedComplex,
+            rotationMode,
+            segment.Rotation,
+            segment.Offset.X,
+            segment.Offset.Y,
+            -1);
+
+        if (segment.Length != 0.0 || segment.IsText == segment.IsShape || segment.Style is null)
+        {
+            return Unresolved();
+        }
+
+        try
+        {
+            if (segment.IsShape)
+            {
+                if (shxFontResolver is null || segment.ShapeNumber <= 0)
+                {
+                    return Unresolved();
+                }
+
+                TextStyle style = segment.Style;
+                CadShxFontResolution resolution = shxFontResolver.Resolve(new CadShxFontRequest(
+                    style.Name,
+                    style.Filename,
+                    style.BigFontFilename));
+                CadShxGlyphCache? cache = resolution.GlyphCache;
+                if (cache is null)
+                {
+                    return Unresolved();
+                }
+
+                CadShxGlyph glyph = cache.GetGlyph(checked((ushort)segment.ShapeNumber));
+                int resourceIndex = shapeResources.Count;
+                shapeResources.Add(new CadLineTypeShapeResource(
+                    glyph,
+                    segment.Scale,
+                    resolution.IsSubstitution));
+                return new CadLineTypeElement(
+                    segment.Length,
+                    complexTypeFlags,
+                    CadLineTypeElementKind.ShxShape,
+                    rotationMode,
+                    segment.Rotation,
+                    segment.Offset.X,
+                    segment.Offset.Y,
+                    resourceIndex);
+            }
+
+            string source = segment.Text;
+            if (source.Length == 0 || source.IndexOfAny(['\r', '\n']) >= 0 ||
+                source.Length > options.MaxTextCodeUnitsPerEntity)
+            {
+                return Unresolved();
+            }
+
+            TextStyle textStyle = segment.Style;
+            if (!string.IsNullOrWhiteSpace(textStyle.BigFontFilename))
+            {
+                return Unresolved();
+            }
+            if (!double.IsFinite(textStyle.Height) || textStyle.Height < 0.0 ||
+                !double.IsFinite(textStyle.Width) || textStyle.Width <= 0.0 ||
+                !double.IsFinite(textStyle.ObliqueAngle) ||
+                Math.Abs(textStyle.ObliqueAngle) >= Math.PI * 0.5)
+            {
+                return Unresolved();
+            }
+
+            double height = textStyle.Height == 0.0
+                ? segment.Scale
+                : textStyle.Height * segment.Scale;
+            if (!double.IsFinite(height) || height == 0.0)
+            {
+                return Unresolved();
+            }
+
+            bool usesShx = textStyle.IsShapeFile ||
+                textStyle.Filename.EndsWith(".shx", StringComparison.OrdinalIgnoreCase);
+            int resource = textResources.Count;
+            if (usesShx)
+            {
+                if (shxFontResolver is null)
+                {
+                    return Unresolved();
+                }
+                CadShxFontResolution resolution = shxFontResolver.Resolve(new CadShxFontRequest(
+                    textStyle.Name,
+                    textStyle.Filename,
+                    textStyle.BigFontFilename));
+                CadShxGlyphCache? cache = resolution.GlyphCache;
+                if (cache is null || !cache.Font.IsTextFont || cache.Font.Above == 0)
+                {
+                    return Unresolved();
+                }
+                var layout = new CadShxTextLayout(
+                    source,
+                    cache,
+                    CadShxOrientation.Horizontal,
+                    new CadShxTextLayoutOptions
+                    {
+                        MaxCodeUnits = options.MaxTextCodeUnitsPerEntity,
+                        MaxGlyphs = options.MaxTextGlyphs,
+                    });
+                ReadOnlySpan<CadShxGlyphPlacement> placements = layout.Glyphs.Span;
+                if (placements.Length > options.MaxTextGlyphs -
+                    textGlyphIndices.Count - shxGlyphInstances.Count)
+                {
+                    throw new CadSnapshotExpansionLimitException(
+                        $"Retained linetype text glyph count exceeds the configured document limit of {options.MaxTextGlyphs}.");
+                }
+                int glyphOffset = shxGlyphInstances.Count;
+                for (int i = 0; i < placements.Length; i++)
+                {
+                    CadShxGlyphPlacement placement = placements[i];
+                    if (placement.Decorations != CadShxTextDecoration.None)
+                    {
+                        return Unresolved();
+                    }
+                }
+                for (int i = 0; i < placements.Length; i++)
+                {
+                    CadShxGlyphPlacement placement = placements[i];
+                    shxGlyphInstances.Add(new CadShxGlyphInstance(
+                        placement.Glyph,
+                        placement.Origin.X,
+                        placement.Origin.Y));
+                }
+                double yScale = height / cache.Font.Above;
+                textResources.Add(new CadLineTypeTextResource(
+                    CadLineTypeElementKind.ShxText,
+                    glyphOffset,
+                    placements.Length,
+                    0,
+                    0,
+                    yScale * textStyle.Width,
+                    yScale,
+                    textStyle.ObliqueAngle,
+                    textStyle.MirrorFlag.HasFlag(TextMirrorFlag.Backward),
+                    textStyle.MirrorFlag.HasFlag(TextMirrorFlag.UpsideDown),
+                    resolution.IsSubstitution));
+                return new CadLineTypeElement(
+                    segment.Length,
+                    complexTypeFlags,
+                    CadLineTypeElementKind.ShxText,
+                    rotationMode,
+                    segment.Rotation,
+                    segment.Offset.X,
+                    segment.Offset.Y,
+                    resource);
+            }
+
+            ICadTextFontResolver? textResolver = options.TextFontResolver;
+            if (textResolver is null ||
+                textStyle.Flags.HasFlag(StyleFlags.VerticalText))
+            {
+                return Unresolved();
+            }
+            CadTextFontResolution fontResolution = textResolver.Resolve(new CadTextFontRequest(
+                textStyle.Name,
+                textStyle.Filename,
+                textStyle.BigFontFilename,
+                textStyle.TrueType.HasFlag(FontFlags.Bold),
+                textStyle.TrueType.HasFlag(FontFlags.Italic)));
+            TtfFont? font = fontResolution.Font;
+            if (font is null || font.UnitsPerEm == 0)
+            {
+                return Unresolved();
+            }
+            DecodedTextContent decoded = DecodeTextContent(source);
+            if (decoded.Decorations is not null)
+            {
+                return Unresolved();
+            }
+            var textLayout = new TextLayout(decoded.Text, font, 1.0f, float.PositiveInfinity);
+            if (textLayout.Glyphs.Count == 0)
+            {
+                return Unresolved();
+            }
+            if (textLayout.Glyphs.Count > options.MaxTextGlyphs -
+                textGlyphIndices.Count - shxGlyphInstances.Count)
+            {
+                throw new CadSnapshotExpansionLimitException(
+                    $"Retained linetype text glyph count exceeds the configured document limit of {options.MaxTextGlyphs}.");
+            }
+
+            int trueTypeGlyphOffset = textGlyphIndices.Count;
+            int runOffset = textGlyphRuns.Count;
+            TtfFont? runFont = null;
+            int currentRunOffset = 0;
+            double ascent = (double)font.Ascender / font.UnitsPerEm;
+            for (int i = 0; i < textLayout.Glyphs.Count; i++)
+            {
+                TextRunGlyph glyph = textLayout.Glyphs[i];
+                TtfFont glyphFont = glyph.Font ?? font;
+                if (runFont is not null && !ReferenceEquals(runFont, glyphFont))
+                {
+                    textGlyphRuns.Add(new CadTextGlyphRun(
+                        trueTypeGlyphOffset + currentRunOffset,
+                        i - currentRunOffset,
+                        InternTextFont(runFont, textFonts, textFontIndices)));
+                    currentRunOffset = i;
+                }
+                runFont = glyphFont;
+                textGlyphIndices.Add(glyph.GlyphIndex);
+                textGlyphPositions.Add(new Vector2(
+                    glyph.Position.X,
+                    checked((float)(glyph.Position.Y - ascent))));
+            }
+            if (runFont is not null)
+            {
+                textGlyphRuns.Add(new CadTextGlyphRun(
+                    trueTypeGlyphOffset + currentRunOffset,
+                    textLayout.Glyphs.Count - currentRunOffset,
+                    InternTextFont(runFont, textFonts, textFontIndices)));
+            }
+            textResources.Add(new CadLineTypeTextResource(
+                CadLineTypeElementKind.TrueTypeText,
+                trueTypeGlyphOffset,
+                textLayout.Glyphs.Count,
+                runOffset,
+                textGlyphRuns.Count - runOffset,
+                height * textStyle.Width,
+                height,
+                textStyle.ObliqueAngle,
+                textStyle.MirrorFlag.HasFlag(TextMirrorFlag.Backward),
+                textStyle.MirrorFlag.HasFlag(TextMirrorFlag.UpsideDown),
+                fontResolution.IsSubstitution));
+            return new CadLineTypeElement(
+                segment.Length,
+                complexTypeFlags,
+                CadLineTypeElementKind.TrueTypeText,
+                rotationMode,
+                segment.Rotation,
+                segment.Offset.X,
+                segment.Offset.Y,
+                resource);
+        }
+        catch (Exception exception) when (
+            exception is InvalidDataException or NotSupportedException or
+                KeyNotFoundException or ArgumentOutOfRangeException or
+                ArithmeticException)
+        {
+            if (textResources.Count > textResourceOffset)
+            {
+                textResources.RemoveRange(textResourceOffset, textResources.Count - textResourceOffset);
+            }
+            if (shapeResources.Count > shapeResourceOffset)
+            {
+                shapeResources.RemoveRange(shapeResourceOffset, shapeResources.Count - shapeResourceOffset);
+            }
+            if (textGlyphRuns.Count > runOffsetBefore)
+            {
+                textGlyphRuns.RemoveRange(runOffsetBefore, textGlyphRuns.Count - runOffsetBefore);
+            }
+            if (textGlyphIndices.Count > trueTypeGlyphOffsetBefore)
+            {
+                textGlyphIndices.RemoveRange(
+                    trueTypeGlyphOffsetBefore,
+                    textGlyphIndices.Count - trueTypeGlyphOffsetBefore);
+                textGlyphPositions.RemoveRange(
+                    trueTypeGlyphOffsetBefore,
+                    textGlyphPositions.Count - trueTypeGlyphOffsetBefore);
+            }
+            if (textFonts.Count > textFontOffset)
+            {
+                for (int i = textFonts.Count - 1; i >= textFontOffset; i--)
+                {
+                    textFontIndices.Remove(textFonts[i]);
+                }
+                textFonts.RemoveRange(textFontOffset, textFonts.Count - textFontOffset);
+            }
+            if (shxGlyphInstances.Count > shxGlyphOffsetBefore)
+            {
+                shxGlyphInstances.RemoveRange(
+                    shxGlyphOffsetBefore,
+                    shxGlyphInstances.Count - shxGlyphOffsetBefore);
+            }
+            return Unresolved();
         }
     }
 

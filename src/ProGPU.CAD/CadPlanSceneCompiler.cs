@@ -11,6 +11,7 @@ public sealed class CadPlanSceneOptions
     public const int DefaultMaxLineTypePatternSteps = 4_000_000;
     public const int DefaultMaxLineTypeSourceSegments = 1_000_000;
     public const int DefaultMaxLineTypeArcMapsPerEntity = 16_384;
+    public const int DefaultMaxLineTypePlacements = 1_000_000;
 
     public float PhysicalDpi { get; init; } = 96.0f;
     public float LineWeightScale { get; init; } = 1.0f;
@@ -19,6 +20,7 @@ public sealed class CadPlanSceneOptions
     public int MaxLineTypePatternSteps { get; init; } = DefaultMaxLineTypePatternSteps;
     public int MaxLineTypeSourceSegments { get; init; } = DefaultMaxLineTypeSourceSegments;
     public int MaxLineTypeArcMapsPerEntity { get; init; } = DefaultMaxLineTypeArcMapsPerEntity;
+    public int MaxLineTypePlacements { get; init; } = DefaultMaxLineTypePlacements;
 }
 
 public readonly record struct CadPlanSceneStatistics(
@@ -27,6 +29,7 @@ public readonly record struct CadPlanSceneStatistics(
     int UnsupportedLineTypeCount,
     int LoweredLineTypeEntityCount,
     int LoweredLineTypeFigureCount,
+    int LoweredLineTypePlacementCount,
     int LineTypePatternStepCount,
     int LineTypeSourceSegmentCount);
 
@@ -79,8 +82,11 @@ public sealed class CadRecordedPlanScene
 /// retained context. Large WCS coordinates are rebased before their checked float
 /// conversion. Text adds O(R + D) retained commands for R contiguous font runs
 /// and D TrueType decoration rectangles or SHX decoration segments; it does not
-/// copy or expand glyph streams. Simple CAD linetypes add O(F) retained analytic
-/// figures for F visible dash/dot figures, bounded before allocation by options.
+/// copy or expand glyph streams. CAD linetypes add O(F + P) retained analytic
+/// figures and placement commands for F visible dash/dot figures and P embedded
+/// text/shape placements, bounded before allocation by options. Complex payloads
+/// are shaped or interpreted once per referenced definition and shared by all P
+/// occurrences.
 /// A later
 /// camera or viewport change can reuse the recorded scene.
 /// </remarks>
@@ -111,13 +117,16 @@ public sealed class CadPlanSceneCompiler
         Pen[] pens = CreatePens(styles, options);
         var diagnostics = new List<CadDiagnostic>();
         var warnedLineTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var warnedLineTypeSubstitutions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int recorded = 0;
         int unsupportedLineTypes = 0;
         int loweredLineTypeEntities = 0;
         int loweredLineTypeFigures = 0;
+        int loweredLineTypePlacements = 0;
         int lineTypeFigureBudgetUsed = 0;
         int lineTypePatternSteps = 0;
         int lineTypeSourceSegments = 0;
+        int lineTypePlacementBudgetUsed = 0;
 
         foreach (CadEntityHeader entity in entities)
         {
@@ -134,13 +143,15 @@ public sealed class CadPlanSceneCompiler
             if (UsesStroke(entity.Kind))
             {
                 CadLineTypePattern pattern = lineTypePatterns[style.LineTypePatternIndex];
-                if (pattern.Kind == CadLineTypePatternKind.Simple)
+                if (pattern.Kind is CadLineTypePatternKind.Simple or CadLineTypePatternKind.Complex)
                 {
                     int remainingFigures = options.MaxLineTypeFigures - lineTypeFigureBudgetUsed;
                     int remainingPatternSteps =
                         options.MaxLineTypePatternSteps - lineTypePatternSteps;
                     int remainingSourceSegments =
                         options.MaxLineTypeSourceSegments - lineTypeSourceSegments;
+                    int remainingPlacements =
+                        options.MaxLineTypePlacements - lineTypePlacementBudgetUsed;
                     CadLineTypeLoweringResult result = CadLineTypeLowerer.Lower(
                         snapshot,
                         entity,
@@ -149,7 +160,8 @@ public sealed class CadPlanSceneCompiler
                         Math.Max(0, remainingFigures),
                         Math.Max(0, remainingPatternSteps),
                         Math.Max(0, remainingSourceSegments),
-                        options.MaxLineTypeArcMapsPerEntity);
+                        options.MaxLineTypeArcMapsPerEntity,
+                        Math.Max(0, remainingPlacements));
                     lineTypeFigureBudgetUsed = checked(
                         lineTypeFigureBudgetUsed +
                         Math.Min(Math.Max(0, remainingFigures), result.FigureCount));
@@ -159,12 +171,35 @@ public sealed class CadPlanSceneCompiler
                     lineTypeSourceSegments = checked(
                         lineTypeSourceSegments +
                         Math.Min(Math.Max(0, remainingSourceSegments), result.SourceSegmentCount));
+                    lineTypePlacementBudgetUsed = checked(
+                        lineTypePlacementBudgetUsed +
+                        Math.Min(Math.Max(0, remainingPlacements), result.PlacementCount));
                     if (result.Status == CadLineTypeLoweringStatus.Lowered)
                     {
-                        context.DrawPath(null, pen, result.Path!, result.Transform);
+                        if (HasLineTypeSubstitution(snapshot, pattern) &&
+                            warnedLineTypeSubstitutions.Add(pattern.Name))
+                        {
+                            diagnostics.Add(new CadDiagnostic(
+                                CadDiagnosticSeverity.Warning,
+                                "CADSCENE003",
+                                $"Linetype '{pattern.Name}' uses a host-resolved text or SHX substitution."));
+                        }
+                        if (result.FigureCount != 0)
+                        {
+                            context.DrawPath(null, pen, result.Path!, result.Transform);
+                        }
+                        RecordLineTypePlacements(
+                            context,
+                            pen,
+                            snapshot,
+                            style,
+                            pattern,
+                            result);
                         loweredLineTypeEntities++;
                         loweredLineTypeFigures = checked(
                             loweredLineTypeFigures + result.FigureCount);
+                        loweredLineTypePlacements = checked(
+                            loweredLineTypePlacements + result.PlacementCount);
                         recordedLineType = true;
                     }
                     else if (result.Status is
@@ -172,7 +207,9 @@ public sealed class CadPlanSceneCompiler
                         CadLineTypeLoweringStatus.FigureLimitExceeded or
                         CadLineTypeLoweringStatus.PatternStepLimitExceeded or
                         CadLineTypeLoweringStatus.SourceSegmentLimitExceeded or
-                        CadLineTypeLoweringStatus.ArcMapLimitExceeded)
+                        CadLineTypeLoweringStatus.ArcMapLimitExceeded or
+                        CadLineTypeLoweringStatus.PlacementLimitExceeded or
+                        CadLineTypeLoweringStatus.UnresolvedComplexElement)
                     {
                         string reason = result.Status switch
                         {
@@ -184,6 +221,10 @@ public sealed class CadPlanSceneCompiler
                                 $"the configured {options.MaxLineTypePatternSteps}-step pattern traversal limit was reached",
                             CadLineTypeLoweringStatus.SourceSegmentLimitExceeded =>
                                 $"the configured {options.MaxLineTypeSourceSegments}-segment document traversal limit was reached",
+                            CadLineTypeLoweringStatus.PlacementLimitExceeded =>
+                                $"the configured {options.MaxLineTypePlacements}-placement document limit was reached",
+                            CadLineTypeLoweringStatus.UnresolvedComplexElement =>
+                                "an embedded text/shape resource or persisted rotation contract is unresolved",
                             _ =>
                                 $"the configured {options.MaxLineTypeArcMapsPerEntity}-arc per-entity map limit was reached",
                         };
@@ -275,6 +316,7 @@ public sealed class CadPlanSceneCompiler
                 unsupportedLineTypes,
                 loweredLineTypeEntities,
                 loweredLineTypeFigures,
+                loweredLineTypePlacements,
                 lineTypePatternSteps,
                 lineTypeSourceSegments),
             diagnostics.ToArray());
@@ -325,6 +367,179 @@ public sealed class CadPlanSceneCompiler
 
         return pens;
     }
+
+    private static void RecordLineTypePlacements(
+        DrawingContext context,
+        Pen pen,
+        CadDocumentSnapshot snapshot,
+        in CadStrokeStyle style,
+        in CadLineTypePattern pattern,
+        in CadLineTypeLoweringResult result)
+    {
+        if (result.PlacementCount == 0)
+        {
+            return;
+        }
+
+        ReadOnlySpan<CadLineTypePlacement> placements =
+            result.Placements.AsSpan(0, result.PlacementCount);
+        ReadOnlySpan<CadLineTypeElement> elements = snapshot.LineTypeElements.Span.Slice(
+            pattern.ElementOffset,
+            pattern.ElementCount);
+        ReadOnlySpan<CadLineTypeTextResource> textResources =
+            snapshot.LineTypeTextResources.Span;
+        ReadOnlySpan<CadLineTypeShapeResource> shapeResources =
+            snapshot.LineTypeShapeResources.Span;
+        ReadOnlySpan<CadTextGlyphRun> runs = snapshot.TextGlyphRuns.Span;
+        ReadOnlySpan<ProGPU.Text.TtfFont> fonts = snapshot.TextFonts.Span;
+        ReadOnlySpan<CadShxGlyphInstance> shxGlyphs = snapshot.ShxGlyphInstances.Span;
+        float effectiveScale = ToFloat(style.LineTypeScale);
+        for (int i = 0; i < placements.Length; i++)
+        {
+            CadLineTypePlacement placement = placements[i];
+            CadLineTypeElement element = elements[placement.ElementIndex];
+            Vector2 origin = Vector2.Transform(placement.Origin, result.Transform);
+            Vector2 tangent = Vector2.TransformNormal(placement.Tangent, result.Transform);
+            float tangentLength = tangent.Length();
+            if (!(tangentLength > 0.0f) || !float.IsFinite(tangentLength))
+            {
+                continue;
+            }
+            tangent /= tangentLength;
+            Vector2 lineNormal = new(-tangent.Y, tangent.X);
+            origin += (tangent * ToFloat(element.OffsetX * style.LineTypeScale)) +
+                (lineNormal * ToFloat(element.OffsetY * style.LineTypeScale));
+
+            Vector2 contentX;
+            if (element.RotationMode == CadLineTypeRotationMode.Absolute)
+            {
+                contentX = new Vector2(
+                    MathF.Cos(ToFloat(element.Rotation)),
+                    MathF.Sin(ToFloat(element.Rotation)));
+            }
+            else
+            {
+                float cosine = MathF.Cos(ToFloat(element.Rotation));
+                float sine = MathF.Sin(ToFloat(element.Rotation));
+                contentX = new Vector2(
+                    (tangent.X * cosine) - (tangent.Y * sine),
+                    (tangent.X * sine) + (tangent.Y * cosine));
+            }
+            Vector2 contentUp = new(-contentX.Y, contentX.X);
+
+            if (element.Kind == CadLineTypeElementKind.ShxShape)
+            {
+                CadLineTypeShapeResource shape = shapeResources[element.ResourceIndex];
+                if (!shape.Glyph.HasGeometry)
+                {
+                    continue;
+                }
+                float shapeScale = ToFloat(shape.Scale) * effectiveScale;
+                context.DrawPath(
+                    null,
+                    pen,
+                    shape.Glyph.Path,
+                    CreateAffineTransform(
+                        origin,
+                        contentX * shapeScale,
+                        contentUp * shapeScale));
+                continue;
+            }
+
+            CadLineTypeTextResource text = textResources[element.ResourceIndex];
+            float mirrorX = text.IsBackward ? -1.0f : 1.0f;
+            float mirrorY = text.IsUpsideDown ? -1.0f : 1.0f;
+            float xScale = ToFloat(text.XScale) * effectiveScale;
+            float yScale = ToFloat(text.YScale) * effectiveScale;
+            float shear = MathF.Tan(ToFloat(text.ObliqueAngle));
+            Vector2 xAxis = contentX * (xScale * mirrorX);
+            Vector2 yAxis = text.Kind == CadLineTypeElementKind.TrueTypeText
+                ? (contentX * (-yScale * shear * mirrorY)) +
+                    (contentUp * (-yScale * mirrorY))
+                : (contentX * (yScale * shear * mirrorY)) +
+                    (contentUp * (yScale * mirrorY));
+            Matrix4x4 transform = CreateAffineTransform(origin, xAxis, yAxis);
+            if (text.Kind == CadLineTypeElementKind.TrueTypeText)
+            {
+                int runEnd = checked(text.RunOffset + text.RunCount);
+                for (int runIndex = text.RunOffset; runIndex < runEnd; runIndex++)
+                {
+                    CadTextGlyphRun run = runs[runIndex];
+                    context.DrawGlyphRunRange(
+                        snapshot.TextGlyphIndexArray,
+                        snapshot.TextGlyphPositionArray,
+                        run.GlyphOffset,
+                        run.GlyphCount,
+                        fonts[run.FontIndex],
+                        1.0f,
+                        pen.Brush,
+                        Vector2.Zero,
+                        transform,
+                        useVectorGlyphRendering: true);
+                }
+            }
+            else
+            {
+                ReadOnlySpan<CadShxGlyphInstance> glyphs = shxGlyphs.Slice(
+                    text.GlyphOffset,
+                    text.GlyphCount);
+                for (int glyphIndex = 0; glyphIndex < glyphs.Length; glyphIndex++)
+                {
+                    CadShxGlyphInstance glyph = glyphs[glyphIndex];
+                    if (!glyph.Glyph.HasGeometry)
+                    {
+                        continue;
+                    }
+                    Vector2 glyphOrigin = origin +
+                        (xAxis * glyph.X) +
+                        (yAxis * glyph.Y);
+                    context.DrawPath(
+                        null,
+                        pen,
+                        glyph.Glyph.Path,
+                        CreateAffineTransform(glyphOrigin, xAxis, yAxis));
+                }
+            }
+        }
+    }
+
+    private static bool HasLineTypeSubstitution(
+        CadDocumentSnapshot snapshot,
+        in CadLineTypePattern pattern)
+    {
+        ReadOnlySpan<CadLineTypeElement> elements = snapshot.LineTypeElements.Span.Slice(
+            pattern.ElementOffset,
+            pattern.ElementCount);
+        ReadOnlySpan<CadLineTypeTextResource> textResources =
+            snapshot.LineTypeTextResources.Span;
+        ReadOnlySpan<CadLineTypeShapeResource> shapeResources =
+            snapshot.LineTypeShapeResources.Span;
+        for (int i = 0; i < elements.Length; i++)
+        {
+            CadLineTypeElement element = elements[i];
+            if (element.Kind == CadLineTypeElementKind.ShxShape &&
+                shapeResources[element.ResourceIndex].IsSubstitution)
+            {
+                return true;
+            }
+            if (element.Kind is CadLineTypeElementKind.TrueTypeText or CadLineTypeElementKind.ShxText &&
+                textResources[element.ResourceIndex].IsSubstitution)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Matrix4x4 CreateAffineTransform(
+        Vector2 origin,
+        Vector2 xAxis,
+        Vector2 yAxis) =>
+        new(
+            xAxis.X, xAxis.Y, 0.0f, 0.0f,
+            yAxis.X, yAxis.Y, 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f,
+            origin.X, origin.Y, 0.0f, 1.0f);
 
     private static void RecordLine(
         DrawingContext context,
@@ -752,6 +967,9 @@ public sealed class CadPlanSceneCompiler
             1);
         ArgumentOutOfRangeException.ThrowIfLessThan(
             options.MaxLineTypeArcMapsPerEntity,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxLineTypePlacements,
             1);
     }
 }

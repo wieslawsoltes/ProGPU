@@ -15,6 +15,7 @@ int shxTextEntityCount = ReadNonNegativeInt("--shx-text-entities", 0);
 bool decorateText = HasFlag("--text-decorations");
 bool decorateShxText = HasFlag("--shx-decorations");
 bool lowerLineTypes = HasFlag("--linetypes");
+bool lowerComplexLineTypes = HasFlag("--complex-linetypes");
 int shxInterpretationCount = ReadNonNegativeInt("--shx-interpretations", 0);
 int shxLayoutCount = ReadNonNegativeInt("--shx-layouts", 0);
 int warmupCount = ReadNonNegativeInt("--warmup", 3);
@@ -43,7 +44,8 @@ CadDocumentSession session = CreateDocument(
     shxTextEntityCount,
     decorateText,
     decorateShxText,
-    lowerLineTypes);
+    lowerLineTypes || lowerComplexLineTypes,
+    lowerComplexLineTypes);
 var snapshotCompiler = new CadSnapshotCompiler();
 var pageSetupCompiler = new CadPageSetupCatalogCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
@@ -67,7 +69,7 @@ if (shxTextEntityCount != 0)
 }
 CadSnapshotOptions snapshotOptions = new()
 {
-    TextFontResolver = textEntityCount == 0
+    TextFontResolver = textEntityCount == 0 && !lowerComplexLineTypes
         ? null
         : new BenchmarkTextFontResolver(InterFontFamily.Regular),
     ShxFontResolver = shxTextEntityCount == 0
@@ -146,7 +148,8 @@ var report = new CadBenchmarkReport(
     shxTextEntityCount,
     decorateText,
     decorateShxText,
-    lowerLineTypes,
+    lowerLineTypes || lowerComplexLineTypes,
+    lowerComplexLineTypes,
     shxInterpretationCount,
     shxLayoutCount,
     warmupCount,
@@ -213,7 +216,8 @@ CadDocumentSession CreateDocument(
     int shxTextCount,
     bool decorateTextRuns,
     bool decorateShxTextRuns,
-    bool useLineTypes)
+    bool useLineTypes,
+    bool useComplexLineTypes)
 {
     CadDocumentSession result = CadDocumentSession.CreateNew();
     result.Edit("Build benchmark document", document =>
@@ -221,10 +225,28 @@ CadDocumentSession CreateDocument(
         LineType? benchmarkLineType = null;
         if (useLineTypes)
         {
-            benchmarkLineType = new LineType("BENCHMARK_DASHDOT");
+            TextStyle? lineTypeTextStyle = null;
+            if (useComplexLineTypes)
+            {
+                lineTypeTextStyle = new TextStyle("BENCHMARK_LTYPE_TEXT")
+                {
+                    Filename = "Inter.ttf",
+                };
+                document.TextStyles.Add(lineTypeTextStyle);
+            }
+            benchmarkLineType = new LineType(
+                useComplexLineTypes ? "BENCHMARK_COMPLEX" : "BENCHMARK_DASHDOT");
             benchmarkLineType.AddSegment(new LineType.Segment { Length = 3.0 });
             benchmarkLineType.AddSegment(new LineType.Segment { Length = -1.5 });
-            benchmarkLineType.AddSegment(new LineType.Segment { Length = 0.0 });
+            benchmarkLineType.AddSegment(useComplexLineTypes
+                ? new LineType.Segment
+                {
+                    Text = "GAS",
+                    Style = lineTypeTextStyle,
+                    Scale = 0.5,
+                    Flags = LineTypeShapeFlags.Text,
+                }
+                : new LineType.Segment { Length = 0.0 });
             benchmarkLineType.AddSegment(new LineType.Segment { Length = -1.5 });
             document.LineTypes.Add(benchmarkLineType);
         }
@@ -502,6 +524,7 @@ internal sealed record CadBenchmarkReport(
     bool DecoratedText,
     bool DecoratedShxText,
     bool LoweredLineTypes,
+    bool LoweredComplexLineTypes,
     int ShxInterpretationCount,
     int ShxLayoutCount,
     int WarmupCount,

@@ -13,7 +13,14 @@ internal enum CadLineTypeLoweringStatus : byte
     PatternStepLimitExceeded = 4,
     SourceSegmentLimitExceeded = 5,
     ArcMapLimitExceeded = 6,
+    PlacementLimitExceeded = 7,
+    UnresolvedComplexElement = 8,
 }
+
+internal readonly record struct CadLineTypePlacement(
+    int ElementIndex,
+    Vector2 Origin,
+    Vector2 Tangent);
 
 internal readonly record struct CadLineTypeLoweringResult(
     CadLineTypeLoweringStatus Status,
@@ -21,17 +28,20 @@ internal readonly record struct CadLineTypeLoweringResult(
     Matrix4x4 Transform,
     int FigureCount,
     int PatternStepCount,
-    int SourceSegmentCount);
+    int SourceSegmentCount,
+    CadLineTypePlacement[]? Placements = null,
+    int PlacementCount = 0);
 
 /// <summary>
-/// Lowers simple AutoCAD A-aligned model-space patterns into retained analytic
-/// path figures. This is an original ProGPU implementation based on Autodesk's
-/// public linetype contract; it does not call or reproduce another renderer's
-/// linetype expansion implementation.
+/// Lowers AutoCAD A-aligned model-space patterns into retained analytic path
+/// figures and tangent-aware complex-element placements. This is an original
+/// ProGPU implementation based on Autodesk's public linetype contract; it does
+/// not call or reproduce another renderer's linetype expansion implementation.
 /// </summary>
 /// <remarks>
-/// For S source segments, Q visited pattern descriptors, and F emitted figures,
-/// work is O(S + Q + F log S) and retained storage is O(F). Circular and elliptic source
+/// For S source segments, Q visited pattern descriptors, F emitted figures, and
+/// P complex placements, work is O(S + Q + (F + P) log S) and retained storage
+/// is O(F + P). Circular and elliptic source
 /// arcs remain analytic <see cref="ArcSegment"/> values. Arc-length inversion
 /// uses a fixed 128-bin Gauss-Legendre map per source arc, giving bounded O(1)
 /// work per emitted endpoint without viewport tessellation. Figure counting is
@@ -46,6 +56,7 @@ internal static class CadLineTypeLowerer
         Success,
         FigureLimitExceeded,
         PatternStepLimitExceeded,
+        PlacementLimitExceeded,
     }
 
     private const double TwoPi = Math.PI * 2.0;
@@ -60,12 +71,24 @@ internal static class CadLineTypeLowerer
         int maxFigures,
         int maxPatternSteps,
         int maxSourceSegments,
-        int maxArcMapsPerEntity)
+        int maxArcMapsPerEntity,
+        int maxPlacements)
     {
         ReadOnlySpan<CadLineTypeElement> elements = snapshot.LineTypeElements.Span.Slice(
             pattern.ElementOffset,
             pattern.ElementCount);
-        if (!HasGap(elements))
+        if (HasUnresolvedComplexElement(elements))
+        {
+            return new CadLineTypeLoweringResult(
+                CadLineTypeLoweringStatus.UnresolvedComplexElement,
+                null,
+                Matrix4x4.Identity,
+                0,
+                0,
+                0);
+        }
+
+        if (!NeedsLowering(elements))
         {
             return new CadLineTypeLoweringResult(
                 CadLineTypeLoweringStatus.Continuous,
@@ -91,6 +114,17 @@ internal static class CadLineTypeLowerer
         {
             return new CadLineTypeLoweringResult(
                 CadLineTypeLoweringStatus.PatternStepLimitExceeded,
+                null,
+                Matrix4x4.Identity,
+                0,
+                0,
+                0);
+        }
+
+        if (HasComplexElement(elements) && maxPlacements <= 0)
+        {
+            return new CadLineTypeLoweringResult(
+                CadLineTypeLoweringStatus.PlacementLimitExceeded,
                 null,
                 Matrix4x4.Identity,
                 0,
@@ -131,7 +165,8 @@ internal static class CadLineTypeLowerer
                 pattern.PatternLength,
                 style.LineTypeScale,
                 maxFigures,
-                maxPatternSteps),
+                maxPatternSteps,
+                maxPlacements),
             CadEntityKind.Circle => LowerCircle(
                 snapshot.Circles.Span[entity.PrimitiveIndex],
                 snapshot.RebaseOrigin,
@@ -139,7 +174,8 @@ internal static class CadLineTypeLowerer
                 pattern.PatternLength,
                 style.LineTypeScale,
                 maxFigures,
-                maxPatternSteps),
+                maxPatternSteps,
+                maxPlacements),
             CadEntityKind.Arc => LowerArc(
                 snapshot.Arcs.Span[entity.PrimitiveIndex],
                 snapshot.RebaseOrigin,
@@ -147,7 +183,8 @@ internal static class CadLineTypeLowerer
                 pattern.PatternLength,
                 style.LineTypeScale,
                 maxFigures,
-                maxPatternSteps),
+                maxPatternSteps,
+                maxPlacements),
             CadEntityKind.Ellipse => LowerEllipse(
                 snapshot.Ellipses.Span[entity.PrimitiveIndex],
                 snapshot.RebaseOrigin,
@@ -155,7 +192,8 @@ internal static class CadLineTypeLowerer
                 pattern.PatternLength,
                 style.LineTypeScale,
                 maxFigures,
-                maxPatternSteps),
+                maxPatternSteps,
+                maxPlacements),
             CadEntityKind.LightweightPolyline or CadEntityKind.Polyline2D => LowerPolyline(
                 snapshot,
                 snapshot.Polylines.Span[entity.PrimitiveIndex],
@@ -163,7 +201,8 @@ internal static class CadLineTypeLowerer
                 pattern.PatternLength,
                 style.LineTypeScale,
                 maxFigures,
-                maxPatternSteps),
+                maxPatternSteps,
+                maxPlacements),
             CadEntityKind.Polyline3D => LowerPolyline3D(
                 snapshot,
                 snapshot.Polylines3D.Span[entity.PrimitiveIndex],
@@ -171,7 +210,8 @@ internal static class CadLineTypeLowerer
                 pattern.PatternLength,
                 style.LineTypeScale,
                 maxFigures,
-                maxPatternSteps),
+                maxPatternSteps,
+                maxPlacements),
             CadEntityKind.Face3D => LowerFace(
                 snapshot.Faces.Span[entity.PrimitiveIndex],
                 snapshot.RebaseOrigin,
@@ -179,7 +219,8 @@ internal static class CadLineTypeLowerer
                 pattern.PatternLength,
                 style.LineTypeScale,
                 maxFigures,
-                maxPatternSteps),
+                maxPatternSteps,
+                maxPlacements),
             _ => new CadLineTypeLoweringResult(
                 CadLineTypeLoweringStatus.UnsupportedEntity,
                 null,
@@ -263,7 +304,8 @@ internal static class CadLineTypeLowerer
         double patternLength,
         double scale,
         int maxFigures,
-        int maxPatternSteps)
+        int maxPatternSteps,
+        int maxPlacements)
     {
         Span<MeasuredSegment> segments = stackalloc MeasuredSegment[1];
         segments[0] = MeasuredSegment.Line(
@@ -280,6 +322,7 @@ internal static class CadLineTypeLowerer
             scale,
             maxFigures,
             maxPatternSteps,
+            maxPlacements,
             Matrix4x4.Identity);
     }
 
@@ -290,7 +333,8 @@ internal static class CadLineTypeLowerer
         double patternLength,
         double scale,
         int maxFigures,
-        int maxPatternSteps)
+        int maxPatternSteps,
+        int maxPlacements)
     {
         Span<MeasuredSegment> segments = stackalloc MeasuredSegment[1];
         Span<double> arcMap = stackalloc double[ArcLengthMapSize];
@@ -315,6 +359,7 @@ internal static class CadLineTypeLowerer
             scale,
             maxFigures,
             maxPatternSteps,
+            maxPlacements,
             CreateProjectionTransform(
                 circle.Center,
                 circle.CoordinateSystem.XAxis,
@@ -329,7 +374,8 @@ internal static class CadLineTypeLowerer
         double patternLength,
         double scale,
         int maxFigures,
-        int maxPatternSteps)
+        int maxPatternSteps,
+        int maxPlacements)
     {
         Span<MeasuredSegment> segments = stackalloc MeasuredSegment[1];
         Span<double> arcMap = stackalloc double[ArcLengthMapSize];
@@ -358,6 +404,7 @@ internal static class CadLineTypeLowerer
             scale,
             maxFigures,
             maxPatternSteps,
+            maxPlacements,
             CreateProjectionTransform(
                 arc.Center,
                 arc.CoordinateSystem.XAxis,
@@ -372,7 +419,8 @@ internal static class CadLineTypeLowerer
         double patternLength,
         double scale,
         int maxFigures,
-        int maxPatternSteps)
+        int maxPatternSteps,
+        int maxPlacements)
     {
         Span<MeasuredSegment> segments = stackalloc MeasuredSegment[1];
         Span<double> arcMap = stackalloc double[ArcLengthMapSize];
@@ -399,6 +447,7 @@ internal static class CadLineTypeLowerer
             scale,
             maxFigures,
             maxPatternSteps,
+            maxPlacements,
             CreateProjectionTransform(
                 ellipse.Center,
                 ellipse.MajorAxis,
@@ -413,7 +462,8 @@ internal static class CadLineTypeLowerer
         double patternLength,
         double scale,
         int maxFigures,
-        int maxPatternSteps)
+        int maxPatternSteps,
+        int maxPlacements)
     {
         ReadOnlySpan<CadPolylineVertex> vertices = snapshot.PolylineVertices.Span.Slice(
             polyline.VertexOffset,
@@ -502,6 +552,7 @@ internal static class CadLineTypeLowerer
                 scale,
                 maxFigures,
                 maxPatternSteps,
+                maxPlacements,
                 CreateProjectionTransform(
                     polyline.WorldOrigin,
                     polyline.CoordinateSystem.XAxis,
@@ -529,7 +580,8 @@ internal static class CadLineTypeLowerer
         double patternLength,
         double scale,
         int maxFigures,
-        int maxPatternSteps)
+        int maxPatternSteps,
+        int maxPlacements)
     {
         ReadOnlySpan<CadPoint3D> points = snapshot.Polyline3DPoints.Span.Slice(
             polyline.PointOffset,
@@ -568,6 +620,7 @@ internal static class CadLineTypeLowerer
                 scale,
                 maxFigures,
                 maxPatternSteps,
+                maxPlacements,
                 Matrix4x4.Identity);
         }
         finally
@@ -586,7 +639,8 @@ internal static class CadLineTypeLowerer
         double patternLength,
         double scale,
         int maxFigures,
-        int maxPatternSteps)
+        int maxPatternSteps,
+        int maxPlacements)
     {
         Span<CadPoint3D> points = stackalloc CadPoint3D[5]
         {
@@ -621,6 +675,7 @@ internal static class CadLineTypeLowerer
             scale,
             maxFigures,
             maxPatternSteps,
+            maxPlacements,
             Matrix4x4.Identity);
     }
 
@@ -634,6 +689,7 @@ internal static class CadLineTypeLowerer
         double scale,
         int maxFigures,
         int maxPatternSteps,
+        int maxPlacements,
         Matrix4x4 transform)
     {
         if (segments.IsEmpty)
@@ -648,6 +704,7 @@ internal static class CadLineTypeLowerer
         }
 
         int figureCount = 0;
+        int placementCount = 0;
         int patternStepCount = 0;
         if (resetAtEverySegment)
         {
@@ -661,22 +718,29 @@ internal static class CadLineTypeLowerer
                         scale,
                         maxFigures - figureCount,
                         maxPatternSteps - patternStepCount,
+                        maxPlacements - placementCount,
                         out int count,
+                        out int placements,
                         out int steps);
                 if (countStatus != CountStatus.Success)
                 {
                     return new CadLineTypeLoweringResult(
                         countStatus == CountStatus.FigureLimitExceeded
                             ? CadLineTypeLoweringStatus.FigureLimitExceeded
-                            : CadLineTypeLoweringStatus.PatternStepLimitExceeded,
+                            : countStatus == CountStatus.PlacementLimitExceeded
+                                ? CadLineTypeLoweringStatus.PlacementLimitExceeded
+                                : CadLineTypeLoweringStatus.PatternStepLimitExceeded,
                         null,
                         transform,
                         checked(figureCount + count),
                         checked(patternStepCount + steps),
-                        0);
+                        0,
+                        null,
+                        checked(placementCount + placements));
                 }
 
                 figureCount = checked(figureCount + count);
+                placementCount = checked(placementCount + placements);
                 patternStepCount = checked(patternStepCount + steps);
             }
         }
@@ -696,23 +760,29 @@ internal static class CadLineTypeLowerer
                     scale,
                     maxFigures,
                     maxPatternSteps,
+                    maxPlacements,
                     out figureCount,
+                    out placementCount,
                     out patternStepCount);
             if (countStatus != CountStatus.Success)
             {
                 return new CadLineTypeLoweringResult(
                     countStatus == CountStatus.FigureLimitExceeded
                         ? CadLineTypeLoweringStatus.FigureLimitExceeded
-                        : CadLineTypeLoweringStatus.PatternStepLimitExceeded,
+                        : countStatus == CountStatus.PlacementLimitExceeded
+                            ? CadLineTypeLoweringStatus.PlacementLimitExceeded
+                            : CadLineTypeLoweringStatus.PatternStepLimitExceeded,
                     null,
                     transform,
                     figureCount,
                     patternStepCount,
-                    0);
+                    0,
+                    null,
+                    placementCount);
             }
         }
 
-        if (figureCount == 0)
+        if (figureCount == 0 && placementCount == 0)
         {
             return new CadLineTypeLoweringResult(
                 CadLineTypeLoweringStatus.Continuous,
@@ -724,6 +794,10 @@ internal static class CadLineTypeLowerer
         }
 
         var path = new PathGeometry();
+        CadLineTypePlacement[] placementsBuffer = placementCount == 0
+            ? []
+            : new CadLineTypePlacement[placementCount];
+        int placementIndex = 0;
         if (resetAtEverySegment)
         {
             for (int i = 0; i < segments.Length; i++)
@@ -734,7 +808,9 @@ internal static class CadLineTypeLowerer
                     arcMaps,
                     elements,
                     patternLength,
-                    scale);
+                    scale,
+                    placementsBuffer,
+                    ref placementIndex);
             }
         }
         else
@@ -746,7 +822,9 @@ internal static class CadLineTypeLowerer
                 isClosed,
                 elements,
                 patternLength,
-                scale);
+                scale,
+                placementsBuffer,
+                ref placementIndex);
         }
 
         return new CadLineTypeLoweringResult(
@@ -755,7 +833,9 @@ internal static class CadLineTypeLowerer
             transform,
             figureCount,
             patternStepCount,
-            0);
+            0,
+            placementsBuffer,
+            placementCount);
     }
 
     private static CountStatus TryCountFigures(
@@ -766,10 +846,13 @@ internal static class CadLineTypeLowerer
         double scale,
         int figureLimit,
         int patternStepLimit,
+        int placementLimit,
         out int count,
+        out int placementCount,
         out int patternStepCount)
     {
         count = 0;
+        placementCount = 0;
         var spans = new PatternSpanEnumerator(
             pathLength,
             isClosed,
@@ -779,11 +862,23 @@ internal static class CadLineTypeLowerer
             patternStepLimit);
         while (spans.MoveNext())
         {
-            count++;
-            if (count > figureLimit)
+            if (spans.Current.IsContent)
             {
-                patternStepCount = spans.PatternStepCount;
-                return CountStatus.FigureLimitExceeded;
+                placementCount++;
+                if (placementCount > placementLimit)
+                {
+                    patternStepCount = spans.PatternStepCount;
+                    return CountStatus.PlacementLimitExceeded;
+                }
+            }
+            else
+            {
+                count++;
+                if (count > figureLimit)
+                {
+                    patternStepCount = spans.PatternStepCount;
+                    return CountStatus.FigureLimitExceeded;
+                }
             }
         }
 
@@ -799,7 +894,9 @@ internal static class CadLineTypeLowerer
         ReadOnlySpan<double> arcMaps,
         ReadOnlySpan<CadLineTypeElement> elements,
         double patternLength,
-        double scale)
+        double scale,
+        Span<CadLineTypePlacement> placements,
+        ref int placementIndex)
     {
         MeasuredSegment localSegment = segment with { PathOffset = 0.0 };
         var spans = new PatternSpanEnumerator(
@@ -811,13 +908,26 @@ internal static class CadLineTypeLowerer
             int.MaxValue);
         while (spans.MoveNext())
         {
-            AppendMeasuredSpan(
-                path,
-                new ReadOnlySpan<MeasuredSegment>(in localSegment),
-                arcMaps,
-                spans.Current.Start,
-                spans.Current.End,
-                spans.Current.IsPoint);
+            ReadOnlySpan<MeasuredSegment> localSegments =
+                new ReadOnlySpan<MeasuredSegment>(in localSegment);
+            if (spans.Current.IsContent)
+            {
+                placements[placementIndex++] = CreatePlacement(
+                    localSegments,
+                    arcMaps,
+                    spans.Current.Start,
+                    spans.Current.ElementIndex);
+            }
+            else
+            {
+                AppendMeasuredSpan(
+                    path,
+                    localSegments,
+                    arcMaps,
+                    spans.Current.Start,
+                    spans.Current.End,
+                    spans.Current.IsPoint);
+            }
         }
     }
 
@@ -828,7 +938,9 @@ internal static class CadLineTypeLowerer
         bool isClosed,
         ReadOnlySpan<CadLineTypeElement> elements,
         double patternLength,
-        double scale)
+        double scale,
+        Span<CadLineTypePlacement> placements,
+        ref int placementIndex)
     {
         double totalLength = 0.0;
         for (int i = 0; i < segments.Length; i++)
@@ -845,14 +957,40 @@ internal static class CadLineTypeLowerer
             int.MaxValue);
         while (spans.MoveNext())
         {
-            AppendMeasuredSpan(
-                path,
-                segments,
-                arcMaps,
-                spans.Current.Start,
-                spans.Current.End,
-                spans.Current.IsPoint);
+            if (spans.Current.IsContent)
+            {
+                placements[placementIndex++] = CreatePlacement(
+                    segments,
+                    arcMaps,
+                    spans.Current.Start,
+                    spans.Current.ElementIndex);
+            }
+            else
+            {
+                AppendMeasuredSpan(
+                    path,
+                    segments,
+                    arcMaps,
+                    spans.Current.Start,
+                    spans.Current.End,
+                    spans.Current.IsPoint);
+            }
         }
+    }
+
+    private static CadLineTypePlacement CreatePlacement(
+        ReadOnlySpan<MeasuredSegment> segments,
+        ReadOnlySpan<double> arcMaps,
+        double distance,
+        int elementIndex)
+    {
+        int segmentIndex = FindSegment(segments, distance, out double segmentBase);
+        MeasuredSegment segment = segments[segmentIndex];
+        double localDistance = Math.Clamp(distance - segmentBase, 0.0, segment.Length);
+        return new CadLineTypePlacement(
+            elementIndex,
+            Evaluate(segment, localDistance, arcMaps),
+            EvaluateTangent(segment, localDistance, arcMaps));
     }
 
     private static void AppendMeasuredSpan(
@@ -863,29 +1001,7 @@ internal static class CadLineTypeLowerer
         double endDistance,
         bool isPoint)
     {
-        int low = 0;
-        int high = segments.Length;
-        while (low + 1 < high)
-        {
-            int middle = (low + high) >> 1;
-            if (segments[middle].PathOffset <= startDistance)
-            {
-                low = middle;
-            }
-            else
-            {
-                high = middle;
-            }
-        }
-
-        int segmentIndex = low;
-        double segmentBase = segments[segmentIndex].PathOffset;
-        while (segmentIndex < segments.Length - 1 &&
-            startDistance >= segmentBase + segments[segmentIndex].Length)
-        {
-            segmentIndex++;
-            segmentBase = segments[segmentIndex].PathOffset;
-        }
+        int segmentIndex = FindSegment(segments, startDistance, out double segmentBase);
 
         MeasuredSegment first = segments[segmentIndex];
         double localStart = Math.Clamp(startDistance - segmentBase, 0.0, first.Length);
@@ -971,6 +1087,63 @@ internal static class CadLineTypeLowerer
         return segment.Center + new Vector2(
             segment.Radius * MathF.Cos(ToFloat(angle)),
             segment.Radius * MathF.Sin(ToFloat(angle)));
+    }
+
+    private static Vector2 EvaluateTangent(
+        in MeasuredSegment segment,
+        double distance,
+        ReadOnlySpan<double> arcMaps)
+    {
+        Vector2 tangent;
+        if (!segment.IsArc)
+        {
+            tangent = segment.End - segment.Start;
+        }
+        else
+        {
+            double unit = InvertArcDistance(segment, distance, arcMaps);
+            double angle = segment.StartAngle + (segment.Sweep * unit);
+            float direction = segment.Sweep >= 0.0 ? 1.0f : -1.0f;
+            tangent = new Vector2(
+                -MathF.Sin(ToFloat(angle)) * direction,
+                MathF.Cos(ToFloat(angle)) * direction);
+        }
+
+        float length = tangent.Length();
+        return length > 0.0f && float.IsFinite(length)
+            ? tangent / length
+            : Vector2.Zero;
+    }
+
+    private static int FindSegment(
+        ReadOnlySpan<MeasuredSegment> segments,
+        double distance,
+        out double segmentBase)
+    {
+        int low = 0;
+        int high = segments.Length;
+        while (low + 1 < high)
+        {
+            int middle = (low + high) >> 1;
+            if (segments[middle].PathOffset <= distance)
+            {
+                low = middle;
+            }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        int segmentIndex = low;
+        segmentBase = segments[segmentIndex].PathOffset;
+        while (segmentIndex < segments.Length - 1 &&
+            distance >= segmentBase + segments[segmentIndex].Length)
+        {
+            segmentIndex++;
+            segmentBase = segments[segmentIndex].PathOffset;
+        }
+        return segmentIndex;
     }
 
     private static double InvertArcDistance(
@@ -1091,16 +1264,41 @@ internal static class CadLineTypeLowerer
         return Math.Abs(sweep) * derivative.Length;
     }
 
-    private static bool HasGap(ReadOnlySpan<CadLineTypeElement> elements)
+    private static bool NeedsLowering(ReadOnlySpan<CadLineTypeElement> elements)
     {
         for (int i = 0; i < elements.Length; i++)
         {
-            if (elements[i].Length < 0.0)
+            if (elements[i].Length < 0.0 ||
+                elements[i].Kind != CadLineTypeElementKind.Stroke)
             {
                 return true;
             }
         }
 
+        return false;
+    }
+
+    private static bool HasComplexElement(ReadOnlySpan<CadLineTypeElement> elements)
+    {
+        for (int i = 0; i < elements.Length; i++)
+        {
+            if (elements[i].Kind is not CadLineTypeElementKind.Stroke)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool HasUnresolvedComplexElement(ReadOnlySpan<CadLineTypeElement> elements)
+    {
+        for (int i = 0; i < elements.Length; i++)
+        {
+            if (elements[i].Kind == CadLineTypeElementKind.UnresolvedComplex)
+            {
+                return true;
+            }
+        }
         return false;
     }
 
@@ -1177,7 +1375,12 @@ internal static class CadLineTypeLowerer
         }
     }
 
-    private readonly record struct PatternSpan(double Start, double End, bool IsPoint);
+    private readonly record struct PatternSpan(
+        double Start,
+        double End,
+        bool IsPoint,
+        bool IsContent = false,
+        int ElementIndex = -1);
 
     private ref struct PatternSpanEnumerator
     {
@@ -1245,7 +1448,8 @@ internal static class CadLineTypeLowerer
                 double repeats = Math.Max(1.0, Math.Round(pathLength / scaledPatternLength));
                 _elementScale = scale * (pathLength / (repeats * scaledPatternLength));
                 _mode = LayoutMode.Periodic;
-                _includeTerminalPoint = !isClosed && firstLength == 0.0;
+                _includeTerminalPoint = !isClosed && firstLength == 0.0 &&
+                    elements[0].Kind == CadLineTypeElementKind.Stroke;
                 return;
             }
 
@@ -1303,9 +1507,20 @@ internal static class CadLineTypeLowerer
                     return false;
                 }
 
-                CadLineTypeElement element = _elements[_elementIndex];
+                int elementIndex = _elementIndex;
+                CadLineTypeElement element = _elements[elementIndex];
                 _elementIndex = (_elementIndex + 1) % _elements.Length;
                 double start = _position;
+                if (element.Kind != CadLineTypeElementKind.Stroke)
+                {
+                    Current = new PatternSpan(
+                        start,
+                        start,
+                        false,
+                        true,
+                        elementIndex);
+                    return true;
+                }
                 double length = Math.Abs(element.Length) * _elementScale;
                 if (length == 0.0)
                 {
@@ -1356,9 +1571,20 @@ internal static class CadLineTypeLowerer
                     return false;
                 }
 
-                CadLineTypeElement element = _elements[_elementIndex];
+                int elementIndex = _elementIndex;
+                CadLineTypeElement element = _elements[elementIndex];
                 _elementIndex = (_elementIndex + 1) % _elements.Length;
                 double start = _position;
+                if (element.Kind != CadLineTypeElementKind.Stroke)
+                {
+                    Current = new PatternSpan(
+                        start,
+                        start,
+                        false,
+                        true,
+                        elementIndex);
+                    return true;
+                }
                 double length = Math.Abs(element.Length) * _elementScale;
                 if (length == 0.0)
                 {

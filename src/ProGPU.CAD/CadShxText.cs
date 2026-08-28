@@ -41,7 +41,8 @@ public sealed class CadShxGlyph
 }
 
 /// <summary>
-/// Owns device-independent interpreted glyphs for one immutable standard SHX font.
+/// Owns device-independent interpreted glyphs for one immutable standard SHX
+/// font or shape file.
 /// </summary>
 public sealed class CadShxGlyphCache
 {
@@ -67,12 +68,6 @@ public sealed class CadShxGlyphCache
         CadShxInterpretOptions? interpretOptions = null)
     {
         ArgumentNullException.ThrowIfNull(font);
-        if (!font.IsTextFont)
-        {
-            throw new ArgumentException(
-                "SHX text glyph caching requires a standard font header shape.",
-                nameof(font));
-        }
         Font = font;
         _interpretOptions = interpretOptions ?? new CadShxInterpretOptions();
     }
@@ -143,6 +138,12 @@ public sealed class CadShxTextLayout
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(cache);
+        if (!cache.Font.IsTextFont)
+        {
+            throw new ArgumentException(
+                "SHX text layout requires a standard font header shape.",
+                nameof(cache));
+        }
         options ??= new CadShxTextLayoutOptions();
         ValidateOptions(options);
         if (source.Length == 0 || source.IndexOfAny(['\r', '\n']) >= 0)

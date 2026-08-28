@@ -2,8 +2,11 @@ using ACadSharp.Entities;
 using ACadSharp.Tables;
 using CSMath;
 using System.Numerics;
+using System.Text;
+using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Scene.Native;
+using ProGPU.Text;
 using ProGPU.Vector;
 using Xunit;
 
@@ -441,8 +444,288 @@ public sealed class CadLineTypeTests
         Assert.Equal(CadLineTypePatternKind.Complex, Assert.Single(snapshot.LineTypePatterns.ToArray()).Kind);
         Assert.Equal(RenderCommandType.DrawLine, Assert.Single(scene.DrawingContext.Commands).Type);
         CadDiagnostic diagnostic = Assert.Single(scene.Diagnostics.ToArray());
-        Assert.Equal("CADSCENE001", diagnostic.Code);
-        Assert.Contains("embedded text/shape", diagnostic.Message, StringComparison.Ordinal);
+        Assert.Equal("CADSCENE002", diagnostic.Code);
+        Assert.Contains("unresolved", diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ComplexTrueTypePatternShapesOnceAndRetainsAbsolutePlacements()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add complex text linetype", document =>
+        {
+            var textStyle = new TextStyle("INTER")
+            {
+                Filename = "Inter.ttf",
+                Width = 1.25,
+            };
+            document.TextStyles.Add(textStyle);
+            var complex = new LineType("GAS_LINE");
+            complex.AddSegment(new LineType.Segment { Length = 4.0 });
+            complex.AddSegment(new LineType.Segment { Length = -2.0 });
+            complex.AddSegment(new LineType.Segment
+            {
+                Text = "GAS",
+                Style = textStyle,
+                Scale = 3.0,
+                Rotation = Math.PI * 0.5,
+                Flags = LineTypeShapeFlags.Text | LineTypeShapeFlags.RotationIsAbsolute,
+                Offset = new XY(0.5, 1.0),
+            });
+            complex.AddSegment(new LineType.Segment { Length = -2.0 });
+            document.LineTypes.Add(complex);
+            document.Entities.Add(new Line(XYZ.Zero, new XYZ(48, 0, 0))
+            {
+                LineType = complex,
+                LineTypeScale = 2.0,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
+            });
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        CadLineTypeElement textElement = snapshot.LineTypeElements.Span[2];
+        Assert.Equal(CadLineTypeElementKind.TrueTypeText, textElement.Kind);
+        Assert.Equal(CadLineTypeRotationMode.Absolute, textElement.RotationMode);
+        Assert.Single(snapshot.LineTypeTextResources.ToArray());
+        Assert.Equal(3, scene.Statistics.LoweredLineTypePlacementCount);
+        Assert.Equal(0, scene.Statistics.UnsupportedLineTypeCount);
+        RenderCommand[] commands = scene.DrawingContext.Commands.ToArray();
+        Assert.Equal(4, commands.Length);
+        Assert.Equal(RenderCommandType.DrawPath, commands[0].Type);
+        Assert.All(commands[1..], command =>
+        {
+            Assert.Equal(RenderCommandType.DrawGlyphRun, command.Type);
+            Assert.True(command.UseVectorGlyphRendering);
+            Assert.Equal(0.0f, command.Transform.M11, 5);
+            Assert.Equal(7.5f, command.Transform.M12, 5);
+            Assert.Equal(2.0f, command.Transform.M42, 5);
+        });
+        Assert.Equal(-15.0f, commands[1].Transform.M41, 5);
+        Assert.Equal(1.0f, commands[2].Transform.M41, 5);
+        Assert.Equal(17.0f, commands[3].Transform.M41, 5);
+        using GpuPicture picture = scene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            92U,
+            scene.ContentGeneration,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.True(compiled.GeometryPrimitiveCount >= 3);
+    }
+
+    [Fact]
+    public void ComplexShapePatternUsesNonFontShxAndRelativeTangent()
+    {
+        CadShxGlyphCache cache = CreateShapeCache();
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add complex shape linetype", document =>
+        {
+            var shapeStyle = new TextStyle("BOX_SHAPES")
+            {
+                Filename = "boxes.shx",
+                Flags = StyleFlags.IsShape,
+            };
+            document.TextStyles.Add(shapeStyle);
+            var complex = new LineType("BOX_LINE");
+            complex.AddSegment(new LineType.Segment { Length = 4.0 });
+            complex.AddSegment(new LineType.Segment { Length = -2.0 });
+            complex.AddSegment(new LineType.Segment
+            {
+                ShapeNumber = 230,
+                Style = shapeStyle,
+                Scale = 0.5,
+                Rotation = Math.PI * 0.5,
+                Flags = LineTypeShapeFlags.Shape,
+            });
+            complex.AddSegment(new LineType.Segment { Length = -2.0 });
+            document.LineTypes.Add(complex);
+            document.Entities.Add(new Line(XYZ.Zero, new XYZ(0, 24, 0))
+            {
+                LineType = complex,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions { ShxFontResolver = new FixedShxFontResolver(cache) });
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        Assert.False(cache.Font.IsTextFont);
+        Assert.Equal(CadLineTypeElementKind.ShxShape, snapshot.LineTypeElements.Span[2].Kind);
+        Assert.Single(snapshot.LineTypeShapeResources.ToArray());
+        Assert.Equal(3, scene.Statistics.LoweredLineTypePlacementCount);
+        Assert.Equal(4, scene.DrawingContext.Commands.Count);
+        RenderCommand shape = scene.DrawingContext.Commands.ToArray()[1];
+        Assert.Equal(RenderCommandType.DrawPath, shape.Type);
+        Assert.Equal(-0.5f, shape.Transform.M11, 5);
+        Assert.Equal(0.0f, shape.Transform.M12, 5);
+        Assert.Equal(0.0f, shape.Transform.M21, 5);
+        Assert.Equal(-0.5f, shape.Transform.M22, 5);
+    }
+
+    [Fact]
+    public void ComplexShxTextPatternReusesCachedGlyphPaths()
+    {
+        CadShxGlyphCache cache = CreateTextCache();
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add complex SHX text linetype", document =>
+        {
+            var textStyle = new TextStyle("TESTSHX") { Filename = "test.shx" };
+            document.TextStyles.Add(textStyle);
+            var complex = new LineType("SHX_TEXT_LINE");
+            complex.AddSegment(new LineType.Segment { Length = 4.0 });
+            complex.AddSegment(new LineType.Segment { Length = -2.0 });
+            complex.AddSegment(new LineType.Segment
+            {
+                Text = "A",
+                Style = textStyle,
+                Scale = 2.0,
+                Flags = LineTypeShapeFlags.Text,
+            });
+            complex.AddSegment(new LineType.Segment { Length = -2.0 });
+            document.LineTypes.Add(complex);
+            document.Entities.Add(new Line(XYZ.Zero, new XYZ(24, 0, 0))
+            {
+                LineType = complex,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions { ShxFontResolver = new FixedShxFontResolver(cache) });
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        Assert.Equal(CadLineTypeElementKind.ShxText, snapshot.LineTypeElements.Span[2].Kind);
+        Assert.Single(snapshot.LineTypeTextResources.ToArray());
+        Assert.Single(snapshot.ShxGlyphInstances.ToArray());
+        Assert.Equal(3, scene.Statistics.LoweredLineTypePlacementCount);
+        Assert.Equal(4, scene.DrawingContext.Commands.Count);
+        Assert.Equal(1, cache.Count);
+        RenderCommand[] commands = scene.DrawingContext.Commands.ToArray();
+        Assert.Same(commands[1].Path, commands[2].Path);
+        Assert.Same(commands[1].Path, commands[3].Path);
+    }
+
+    [Fact]
+    public void ComplexPlacementLimitFallsBackTransactionally()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add dense complex linetype", document =>
+        {
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            var complex = new LineType("DENSE_TEXT");
+            complex.AddSegment(new LineType.Segment { Length = 1.0 });
+            complex.AddSegment(new LineType.Segment { Length = -1.0 });
+            complex.AddSegment(new LineType.Segment
+            {
+                Text = "X",
+                Style = textStyle,
+                Flags = LineTypeShapeFlags.Text,
+            });
+            document.LineTypes.Add(complex);
+            document.Entities.Add(new Line(XYZ.Zero, new XYZ(20, 0, 0))
+            {
+                LineType = complex,
+            });
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
+            });
+
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+            snapshot,
+            new CadPlanSceneOptions { MaxLineTypePlacements = 2 });
+
+        Assert.Equal(0, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(RenderCommandType.DrawLine, Assert.Single(scene.DrawingContext.Commands).Type);
+        Assert.Contains("placement", Assert.Single(scene.Diagnostics.ToArray()).Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ComplexFontSubstitutionIsRetainedAndReportedOncePerPattern()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add substituted complex linetype", document =>
+        {
+            var textStyle = new TextStyle("MISSING") { Filename = "missing.ttf" };
+            document.TextStyles.Add(textStyle);
+            var complex = new LineType("SUBSTITUTED");
+            complex.AddSegment(new LineType.Segment { Length = 2.0 });
+            complex.AddSegment(new LineType.Segment { Length = -1.0 });
+            complex.AddSegment(new LineType.Segment
+            {
+                Text = "X",
+                Style = textStyle,
+                Flags = LineTypeShapeFlags.Text,
+            });
+            document.LineTypes.Add(complex);
+            document.Entities.Add(new Line(XYZ.Zero, new XYZ(8, 0, 0)) { LineType = complex });
+            document.Entities.Add(new Line(XYZ.AxisY, new XYZ(8, 1, 0)) { LineType = complex });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(
+                    InterFontFamily.Regular,
+                    isSubstitution: true),
+            });
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        Assert.True(Assert.Single(snapshot.LineTypeTextResources.ToArray()).IsSubstitution);
+        Assert.Equal(0, scene.Statistics.UnsupportedLineTypeCount);
+        CadDiagnostic diagnostic = Assert.Single(scene.Diagnostics.ToArray());
+        Assert.Equal("CADSCENE003", diagnostic.Code);
+        Assert.Contains("substitution", diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InvalidComplexPatternRollsBackAllDefinitionOwnedResources()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add invalid complex linetype", document =>
+        {
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            var invalid = new LineType("INVALID_COMPLEX");
+            invalid.AddSegment(new LineType.Segment
+            {
+                Text = "X",
+                Style = textStyle,
+                Flags = LineTypeShapeFlags.Text,
+            });
+            document.LineTypes.Add(invalid);
+            document.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX) { LineType = invalid });
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
+            });
+
+        Assert.Empty(snapshot.Entities.ToArray());
+        Assert.Empty(snapshot.LineTypePatterns.ToArray());
+        Assert.Empty(snapshot.LineTypeElements.ToArray());
+        Assert.Empty(snapshot.LineTypeTextResources.ToArray());
+        Assert.Empty(snapshot.TextGlyphIndices.ToArray());
+        Assert.Empty(snapshot.TextGlyphRuns.ToArray());
+        Assert.Empty(snapshot.TextFonts.ToArray());
+        Assert.Equal(1, snapshot.Statistics.InvalidEntityCount);
     }
 
     [Theory]
@@ -509,6 +792,69 @@ public sealed class CadLineTypeTests
 
         document.LineTypes.Add(lineType);
         return lineType;
+    }
+
+    private sealed class FixedTextFontResolver(
+        TtfFont font,
+        bool isSubstitution = false) : ICadTextFontResolver
+    {
+        public CadTextFontResolution Resolve(in CadTextFontRequest request) =>
+            new(font, isSubstitution);
+    }
+
+    private sealed class FixedShxFontResolver(CadShxGlyphCache cache) : ICadShxFontResolver
+    {
+        public CadShxFontResolution Resolve(in CadShxFontRequest request) =>
+            new(cache, "boxes.shx", false);
+    }
+
+    private static CadShxGlyphCache CreateShapeCache()
+    {
+        const ushort shapeNumber = 230;
+        byte[] program = [0x10, 0x14, 0x18, 0x1C, 0];
+        byte[] name = Encoding.ASCII.GetBytes("BOX");
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);
+        writer.Write("AutoCAD-86 shapes 1.0\r\n\x1A"u8);
+        writer.Write(shapeNumber);
+        writer.Write(shapeNumber);
+        writer.Write((ushort)1);
+        writer.Write(shapeNumber);
+        writer.Write(checked((ushort)(name.Length + 1 + program.Length)));
+        writer.Write(name);
+        writer.Write((byte)0);
+        writer.Write(program);
+        writer.Write("EOF"u8);
+        return new CadShxGlyphCache(CadShxFont.Parse(stream.ToArray()));
+    }
+
+    private static CadShxGlyphCache CreateTextCache()
+    {
+        (ushort Number, string Name, byte[] Program)[] shapes =
+        {
+            (0, "TESTSHX", new byte[] { 10, 2, 0, 0 }),
+            (65, "UCA", new byte[] { 0xA4, 0xA0, 2, 8, 20, 0xF6, 0 }),
+        };
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);
+        writer.Write("AutoCAD-86 shapes 1.0\r\n\x1A"u8);
+        writer.Write(shapes.Min(static shape => shape.Number));
+        writer.Write(shapes.Max(static shape => shape.Number));
+        writer.Write(checked((ushort)shapes.Length));
+        foreach ((ushort number, string name, byte[] program) in shapes)
+        {
+            byte[] nameBytes = Encoding.ASCII.GetBytes(name);
+            writer.Write(number);
+            writer.Write(checked((ushort)(nameBytes.Length + 1 + program.Length)));
+        }
+        foreach ((ushort _, string name, byte[] program) in shapes)
+        {
+            writer.Write(Encoding.ASCII.GetBytes(name));
+            writer.Write((byte)0);
+            writer.Write(program);
+        }
+        writer.Write("EOF"u8);
+        return new CadShxGlyphCache(CadShxFont.Parse(stream.ToArray()));
     }
 
     private static void AssertLineFigure(PathFigure figure, float startX, float endX)

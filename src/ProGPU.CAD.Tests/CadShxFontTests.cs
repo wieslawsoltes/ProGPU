@@ -41,6 +41,8 @@ public sealed class CadShxFontTests
         Assert.Equal(string.Empty, shapes.Name);
         Assert.Equal(0, shapes.Above);
         Assert.True(shapes.TryGetShape(230, out _));
+        CadShxGlyph glyph = new CadShxGlyphCache(shapes).GetGlyph(230);
+        Assert.True(glyph.HasGeometry);
     }
 
     [Fact]

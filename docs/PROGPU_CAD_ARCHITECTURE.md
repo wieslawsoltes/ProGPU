@@ -143,9 +143,11 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   one `DrawPath` command per entity. Circular, bulge, and elliptical pieces
   remain analytic arcs, and the resulting path still uses fixed-device CAD
   lineweight. Entity PLINEGEN state selects uninterrupted 2D-polyline traversal
-  or endpoint alignment at every segment. Complex text/shape patterns, spline
-  splitting, and non-A alignment remain explicit diagnostics rather than
-  unbounded or silently approximate expansion.
+  or endpoint alignment at every segment. Persisted relative/absolute complex
+  text and SHX-shape descriptors share definition-owned payloads and retain
+  tangent-aware placements. LIN-only upright rotation, nonzero complex advances,
+  decorated linetype text, spline splitting, and non-A alignment remain explicit
+  diagnostics rather than unbounded or silently approximate expansion.
 - `CadShxFont` provides the first bounded SHX source layer. It parses the
   standard compiled `AutoCAD-86 shapes 1.0` container into one immutable owned
   byte store, retains each shape program as a packed slice, validates the
@@ -212,6 +214,56 @@ figures, compilation is `O(S + Q + F log S)` time and `O(F)` retained storage,
 with `Q` explicitly bounded by the descriptor-step option in each pass.
 Camera replay, lineweight, and upload contracts do not depend on entity count or
 zoom after that retained picture is published.
+
+### Retained complex-linetype contract
+
+Complex A-aligned descriptors extend the same scalar endpoint planner instead
+of creating a second path walker. The snapshot retains DXF codes 74/46/50/44/45
+as typed element kind, relative-or-absolute rotation, scale, and linetype-axis
+offsets. Referenced TrueType strings are shaped once into the existing packed
+glyph/run/font streams; standard SHX text is laid out once into the existing
+glyph-instance stream; SHX shape numbers resolve once to cached analytic paths.
+Every occurrence retains only an element index, rebased path point, and tangent.
+The scene recorder applies X/Y offsets in effective linetype-scaled axes, then
+applies relative tangent rotation or absolute WCS-XY rotation. Text-style fixed
+height, width, oblique, and generation flags are retained in the shared text
+resource; `S=` supplies the height when style height is zero and otherwise
+multiplies the fixed height. Shape `S=` multiplies the interpreted shape path.
+Neither X nor Y offset is multiplied by `S=`. Embedded content is emitted only
+at complete pattern positions and is never clipped to an endpoint.
+
+Complex descriptors consume the same definition, source-segment, arc-map, and
+descriptor-step limits as simple patterns plus a separate default 1,000,000
+placement limit. Preflight counts figures and placements before allocating or
+publishing either; failed attempts consume the shared document budgets and fall
+back transactionally to the ordinary continuous entity command with a typed
+diagnostic. For S source segments, Q descriptor visits, F stroke figures, and P
+placements, compilation is `O(S + Q + (F + P) log S)` time and `O(F + P)`
+retained storage. Definition text shaping is `O(C + G)` once for C code units
+and G glyphs, not once per P occurrence. The existing per-payload code-unit
+limit and document-wide glyph limit include complex-linetype payloads.
+
+The persisted DXF LTYPE record distinguishes only relative and absolute rotation
+in group 74. Autodesk's newer `U=` upright mode is a LIN authoring contract but
+has no distinct state in the documented DXF bitfield or the pinned dependency's
+public model, so ProGPU does not guess it after serialization. Nonzero complex
+descriptor advances and decorated complex text also remain named conformance
+gates pending an authoritative persisted-format contract. Missing fonts/shapes,
+Unicode or Big Font SHX containers, invalid shape numbers, and unsupported style
+contracts remain unresolved resources. A host resolver may explicitly substitute
+a font or shape file; the retained resource records that decision and scene
+diagnostics report it once per referenced linetype.
+
+This implementation is clean-room. It consumes only ACadSharp's public LTYPE and
+STYLE properties as the dependency boundary and does not call, reproduce, or use
+its convenience geometry helper as a design source. Exact ProGPU-owned source
+provenance is `CadLineTypeLowerer`, `CadSnapshotCompiler`'s existing TEXT/SHX
+normalization, `CadShxInterpreter`, `CadShxGlyphCache`, `TextLayout`,
+`DrawingContext.DrawPath`, and `DrawingContext.DrawGlyphRunRange`. Managed and
+native applicability is shared at the retained-picture boundary: the paired
+regression compiles the complex path plus vector glyph runs through
+`GpuPictureNativeSceneCompiler`; no shader, C ABI, atlas, or backend-specific
+renderer change is required.
 
 This slice changes no shader, native C ABI, or backend descriptor. Managed and
 native picture compilers consume the identical existing `DrawPath`, analytic
@@ -1023,6 +1075,7 @@ recording, retained physical print-plan construction in both zero- and
 ```bash
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --linetypes --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --complex-linetypes --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --block-array-columns 10000 --warmup 5 --iterations 100 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --warmup 5 --iterations 50 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --text-decorations --warmup 3 --iterations 50 --queries 10000
@@ -1053,6 +1106,17 @@ the bounded retained-geometry construction cost; sequential-process, JIT, GC,
 and system noise preclude a comparative regression or improvement claim. The
 result does not replace full viewer, GPU, image-quality, managed/native differential,
 or matched Instruments gates.
+
+The first 2026-08-28 complex-linetype feature-cost run used one Release binary,
+1,000 mixed analytic entities, two warmups, and eight iterations. One shared
+`"GAS"` TrueType definition produced 3,500 stroke figures and 2,750 placements
+from 1,250 source segments through 10,250 bounded descriptor visits, recording
+3,750 commands with no unsupported entities or linetypes. Snapshot p50/p95/p99
+was 6.281/16.293/16.293 ms with 807,640 managed bytes; plan-scene recording was
+15.650/30.777/30.777 ms with 3,747,295 managed bytes. This short run validates
+the benchmark lane and exposes feature cost only. It is not a comparative
+performance claim and does not replace matched viewer/GPU, image-quality,
+managed/native, or Instruments evidence.
 
 The first two fresh 24-iteration Release runs of the 10,000-entity physical
 print-plan path measured p50/p95/p99 at 16.320/49.488/58.868 ms and
@@ -1252,8 +1316,17 @@ Sources consulted on 2026-08-27:
   transactional limits, scalar endpoint planning, and analytic path splitting.
   Autodesk does not publish the exact residual distribution for dot-first or
   closed patterns, so their deterministic integral-period fit is documented as
-  provisional and covered separately; complex elements and splines remain
-  explicit gates.
+  provisional and covered separately; splines remain an explicit gate.
+- [Autodesk text in custom linetypes](https://help.autodesk.com/view/ACD/2026/ENU/?caas=caas%2Fdocumentation%2FACDLT%2F2014%2FENU%2Ffiles%2FGUID-FEDCE7EB-4919-43AE-A54E-F3A293DD60CA-htm.html),
+  [shapes in custom linetypes](https://help.autodesk.com/view/ACDLT/2026/ENU/?caas=caas%2Fdocumentation%2FACD%2F2014%2FENU%2Ffiles%2FGUID-AF0613E6-5C8B-47F0-800C-8B2524BF2015-htm.html),
+  and the [DXF LTYPE record](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-DXF/files/GUID-F57A316C-94A2-416C-8280-191E34B182AC.htm):
+  adopted definition-relative text/shape payloads, complete rather than trimmed
+  embedded content, `S=` height/shape scaling, linetype-scaled but S-independent
+  X/Y offsets, and persisted relative/absolute rotation. Adapted those rules
+  into definition-shared shaped glyphs/cached SHX paths plus per-occurrence
+  point/tangent records. Rejected per-occurrence shaping, viewport flattening,
+  guessing LIN-only upright state after DXF serialization, and interpreting an
+  undocumented nonzero complex advance.
 - [Skia dash effects](https://api.skia.org/classSkDashPathEffect.html),
   [Direct2D retained stroke styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1strokestyle),
   [Win2D custom dash styles](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasStrokeStyle.htm),
@@ -1269,12 +1342,17 @@ Sources consulted on 2026-08-27:
   the shared ProGPU dash-width semantics for a CAD-only rule.
 - [SkParagraph's shaped-text stages](https://docs.skia.org/docs/dev/design/text_shaper/),
   [DirectWrite/Direct2D integration](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite),
+  [Win2D retained text layouts](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm),
   [HarfBuzz positioned buffers](https://harfbuzz.github.io/harfbuzz-hb-buffer.html),
-  and [Parley's itemized layout model](https://github.com/linebender/parley/blob/main/doc/concept.md)
-  were rechecked for this rendering change. They keep reusable shaping/layout
-  results separate from vector stroking and provide no CAD linetype contract;
-  therefore no text/font/cache invalidation behavior applies and no second text
-  path was introduced.
+  [Parley's itemized layout model](https://github.com/linebender/parley/blob/main/doc/concept.md),
+  [WebRender's retained display-list overview](https://searchfox.org/mozilla-central/source/gfx/docs/RenderingOverview.rst),
+  and [Vello's packed path encoding](https://github.com/linebender/vello/blob/main/vello_encoding/src/path.rs)
+  were rechecked for this rendering change. Adopted their separation of reusable
+  CPU shaping/layout results from compact retained vector commands and renderer-
+  owned resources. Adapted it by shaping one linetype resource once and replaying
+  existing glyph/path commands at bounded transforms. Rejected per-placement
+  shaping, a second text renderer, backend-specific CAD expansion, and moving
+  Unicode/OpenType shaping onto the GPU.
 - [Skia canvas/picture API](https://skia.org/docs/user/api/),
   [Direct2D command lists](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/nn-d2d1_1-id2d1commandlist),
   [Win2D `CanvasCommandList`](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm),
