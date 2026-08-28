@@ -12634,11 +12634,6 @@ struct channel::implementation {
             }
             const bool has_rounded_corners = is_rounded &&
                 radius_x > 0.0 && radius_y > 0.0;
-            if (is_rounded && radius_x != radius_y &&
-                (radius_x == 0.0 || radius_y == 0.0) &&
-                (width == 0.0 || height == 0.0)) {
-                return status::unsupported_command;
-            }
             if (brush_handle == 0U && pen_handle == 0U) {
                 continue;
             }
