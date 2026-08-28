@@ -197,6 +197,9 @@ public class DiagnosticsLoggingSourceTests
         Assert.Contains("  pack-mobile:\n    name: Pack mobile packages", workflow, StringComparison.Ordinal);
         Assert.Contains("PROGPU_PACKAGE_GROUP=portable", workflow, StringComparison.Ordinal);
         Assert.Contains("PROGPU_PACKAGE_GROUP=mobile", workflow, StringComparison.Ordinal);
+        Assert.Contains("version=\"0.1.0-preview.${GITHUB_RUN_NUMBER}.ci\"", workflow, StringComparison.Ordinal);
+        Assert.Contains("PROGPU_PACKAGE_VERSION=0.1.0-preview.${{ github.run_number }}.ci", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("0.1.0-ci.", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet workload restore src/ProGPU.Android/ProGPU.Android.csproj", workflow, StringComparison.Ordinal);
         Assert.Contains("dotnet workload restore src/ProGPU.iOS/ProGPU.iOS.csproj", workflow, StringComparison.Ordinal);
         Assert.Contains("uses: actions/upload-artifact@v7", workflow, StringComparison.Ordinal);
