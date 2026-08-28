@@ -282,6 +282,7 @@ class PathGeometry
     public PathGeometry? PathB { get; set; }
     public int Op { get; set; }
 
+#if !PROGPU_VECTOR_INTERNAL
     /// <summary>
     /// Creates an immutable retained boolean expression without materializing it on the CPU or GPU.
     /// </summary>
@@ -290,6 +291,7 @@ class PathGeometry
         PathGeometry pathB,
         PathBooleanOperation operation) =>
         PathOpGeometrySolver.CreateDeferred(pathA, pathB, operation);
+#endif
 
     internal bool IsSharedSnapshot => (_combinedState & SharedSnapshotBit) != 0;
     internal CombinedPathQueryKind CombinedQueryKind =>
