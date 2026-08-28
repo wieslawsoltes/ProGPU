@@ -2244,6 +2244,27 @@ and direct execution returned zero. Host and guest hashes matched for the
 archive (`1CAB3180...F60569`), MIL source (`D6730AFD...91BDB`), and MIL test
 (`8581A4D5...FCD3F`). Guest MIL and internal executable SHA-256 values were
 `865BB142...99714` and `287ECC0A...48117`.
+Checkpoint `aadd184f` adds the corresponding exact affine ellipse-stroke
+bounds profile. It reconstructs the WPF ellipse as four float-quantized
+`ARC_AS_BEZIER` cubics, applies `Geometry.Transform`, and reproduces
+`CBezierFlattener` hybrid-forward-differencing with the 0.25 tolerance before
+offsetting each emitted tangent by the pen radius. The implementation uses
+fixed-size arrays and applies the current `DrawingGroup` transform only after
+widening. For center `(20,30)`, radii `(10,5)`, thickness 8, and matrix
+`[1,.25,.5,1,0,0]`, live WPF returned
+`20.719608306884766,25.423517227172852,28.560783386230469,19.152963638305664`
+for `Geometry.Transform` and
+`20.239826202392578,25.299463272094727,29.520347595214844,19.40107536315918`
+for `DrawingGroup.Transform`; native mappings lock down both. When WPF's
+thick-stroke refinement threshold would add extra `RoundTo` cubics, this first
+profile fails closed and a regression test preserves that boundary. Apple
+native tests pass 8/8. The exact archive rebuilt 153 MIL/internal steps under
+Windows ARM64 MSVC `19.44.35228.0`; 161 Ninja flag lines carry `/W4 /WX`, both
+focused tests passed in 1.57 seconds, and direct executions returned zero.
+Host/guest hashes matched (`471096C4...D6234D` archive,
+`F55BB225...ACFAF8` MIL source, `1BE90C6C...5D51BE` MIL test). Guest MIL and
+internal executable hashes were `BB97651B...85AAE6` and
+`2B2E729A...8F8FE7`.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive
