@@ -16,6 +16,7 @@ struct gpu_program_reference final {
     std::uint32_t path_record_index;
     std::uint32_t program_index;
     std::uint32_t operation_kind;
+    bool split_binary_xor;
 };
 
 template<typename Path, typename Node>
@@ -35,7 +36,35 @@ gpu_program_reference append_gpu_records(
             path.max_y,
             path.fill_rule,
             0U});
-        return {path_record_index, 0U, 0U};
+        return {path_record_index, 0U, 0U, false};
+    }
+
+    if (path.boolean_node_count == 3U) {
+        const auto& first = nodes[path.boolean_node_offset];
+        const auto& second = nodes[path.boolean_node_offset + 1U];
+        const auto& operation = nodes[path.boolean_node_offset + 2U];
+        if (first.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
+            second.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
+            operation.kind == PROGPU_NATIVE_PATH_BOOLEAN_XOR) {
+            const auto append_leaf = [&records](const Node& leaf) {
+                records.push_back({
+                    static_cast<std::uint32_t>(leaf.segment_offset),
+                    static_cast<std::uint32_t>(leaf.segment_count),
+                    leaf.min_x,
+                    leaf.min_y,
+                    leaf.max_x,
+                    leaf.max_y,
+                    leaf.fill_rule,
+                    0U});
+            };
+            append_leaf(first);
+            append_leaf(second);
+            return {
+                path_record_index,
+                path_record_index + 1U,
+                0U,
+                true};
+        }
     }
 
     std::array<std::uint32_t, maximum_instruction_count> tokens{};
@@ -73,7 +102,8 @@ gpu_program_reference append_gpu_records(
         path_record_index,
         program_index,
         gpu_program_flag |
-            static_cast<std::uint32_t>(path.boolean_node_count)};
+            static_cast<std::uint32_t>(path.boolean_node_count),
+        false};
 }
 
 } // namespace progpu::native::path_boolean
