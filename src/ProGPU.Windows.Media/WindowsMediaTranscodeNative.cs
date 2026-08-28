@@ -832,18 +832,14 @@ internal static unsafe partial class WindowsMediaNative
                     new ReadOnlySpan<short>(
                         bytes,
                         bufferSamples);
-                for (int sampleIndex = 0;
-                     sampleIndex < take;
-                     sampleIndex++)
-                {
-                    destination[
-                        copiedSamples +
-                        sampleIndex] =
-                        sourceValues[
-                            localStart +
-                            sampleIndex] /
-                        32_768f;
-                }
+                MediaPcm16FloatConverter
+                    .ConvertToNormalizedFloat(
+                        sourceValues.Slice(
+                            localStart,
+                            take),
+                        destination.Slice(
+                            copiedSamples,
+                            take));
                 copiedSamples += take;
                 globalSampleOffset =
                     checked(

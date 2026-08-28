@@ -15,6 +15,17 @@ internal static class Pcm16SimdBenchmark
                 args,
                 static value => string.Equals(
                     value,
+                    "--convert",
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            RunConversion(args);
+            return;
+        }
+
+        if (Array.Exists(
+                args,
+                static value => string.Equals(
+                    value,
                     "--processed",
                     StringComparison.OrdinalIgnoreCase)))
         {
@@ -118,6 +129,116 @@ internal static class Pcm16SimdBenchmark
         Console.WriteLine(FormattableString.Invariant(environment));
         Console.WriteLine(FormattableString.Invariant(workload));
         Console.WriteLine(FormattableString.Invariant(summary));
+    }
+
+    private static void RunConversion(string[] args)
+    {
+        int frames = ReadPositive(args, "--frames", 1_024);
+        int warmupCount = ReadNonNegative(args, "--warmup", 60);
+        int sampleCount = ReadPositive(args, "--samples", 80);
+        int iterationsPerSample = ReadPositive(args, "--iterations", 200);
+        bool measureScalar = Array.Exists(
+            args,
+            static value => string.Equals(
+                value,
+                "--scalar",
+                StringComparison.OrdinalIgnoreCase));
+        short[] source = CreateSource(checked(frames * 2));
+        float[] expected = new float[source.Length];
+        float[] actual = new float[source.Length];
+        ConvertScalar(source, expected);
+        MediaPcm16FloatConverter.ConvertToNormalizedFloat(
+            source,
+            actual);
+        for (int index = 0; index < expected.Length; index++)
+        {
+            if (BitConverter.SingleToInt32Bits(expected[index]) !=
+                BitConverter.SingleToInt32Bits(actual[index]))
+            {
+                throw new InvalidOperationException(
+                    "Intrinsic-SIMD PCM16 float conversion differs from the scalar oracle.");
+            }
+        }
+
+        float[] destination = new float[source.Length];
+        for (int index = 0; index < warmupCount; index++)
+        {
+            ApplyConversionMeasured(
+                source,
+                destination,
+                measureScalar);
+        }
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        var samples = new double[sampleCount];
+        int checksum = 0;
+        long allocationStart = GC.GetAllocatedBytesForCurrentThread();
+        for (int sample = 0; sample < sampleCount; sample++)
+        {
+            double elapsedMicroseconds = 0D;
+            for (int iteration = 0;
+                 iteration < iterationsPerSample;
+                 iteration++)
+            {
+                long start = Stopwatch.GetTimestamp();
+                ApplyConversionMeasured(
+                    source,
+                    destination,
+                    measureScalar);
+                elapsedMicroseconds +=
+                    Stopwatch.GetElapsedTime(start).TotalMicroseconds;
+                checksum ^= BitConverter.SingleToInt32Bits(
+                    destination[
+                        (sample + iteration) % destination.Length]);
+            }
+
+            samples[sample] =
+                elapsedMicroseconds / iterationsPerSample;
+        }
+
+        long allocatedBytes =
+            GC.GetAllocatedBytesForCurrentThread() - allocationStart;
+        Array.Sort(samples);
+        int measuredBlocks = checked(
+            sampleCount * iterationsPerSample);
+        string path = measureScalar
+            ? "Scalar oracle"
+            : "Intrinsic-SIMD";
+        FormattableString environment = $"PCM16 float-conversion benchmark: runtime={RuntimeInformation.FrameworkDescription}, os={RuntimeInformation.OSDescription}, arch={RuntimeInformation.ProcessArchitecture}, vector128={Vector128.IsHardwareAccelerated}, vector256={Vector256.IsHardwareAccelerated}, vector512={Vector512.IsHardwareAccelerated}.";
+        FormattableString workload = $"Workload: {frames} stereo PCM16 frames/block, normalized float output, {warmupCount} warmups, {sampleCount} samples x {iterationsPerSample} blocks.";
+        FormattableString summary = $"{path}: p50={Percentile(samples, 0.50):F3} us/block, p95={Percentile(samples, 0.95):F3} us/block, p99={Percentile(samples, 0.99):F3} us/block, allocated={(double)allocatedBytes / measuredBlocks:F1} B/block, checksum={checksum}.";
+        Console.WriteLine(FormattableString.Invariant(environment));
+        Console.WriteLine(FormattableString.Invariant(workload));
+        Console.WriteLine(FormattableString.Invariant(summary));
+    }
+
+    private static void ApplyConversionMeasured(
+        ReadOnlySpan<short> source,
+        Span<float> destination,
+        bool scalar)
+    {
+        if (scalar)
+        {
+            ConvertScalar(source, destination);
+            return;
+        }
+
+        MediaPcm16FloatConverter.ConvertToNormalizedFloat(
+            source,
+            destination);
+    }
+
+    private static void ConvertScalar(
+        ReadOnlySpan<short> source,
+        Span<float> destination)
+    {
+        for (int index = 0; index < source.Length; index++)
+        {
+            destination[index] = source[index] / 32_768F;
+        }
     }
 
     private static void RunProcessed(string[] args)

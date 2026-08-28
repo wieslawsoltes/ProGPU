@@ -926,14 +926,10 @@ internal static class LinuxPcm16TimelineMixer
             effectBuffer.AsSpan(
                 0,
                 source.Length);
-        for (int index = 0;
-             index < source.Length;
-             index++)
-        {
-            samples[index] =
-                source[index] /
-                32_768f;
-        }
+        MediaPcm16FloatConverter
+            .ConvertToNormalizedFloat(
+                source,
+                samples);
 
         var context =
             new MediaAudioProcessContext(

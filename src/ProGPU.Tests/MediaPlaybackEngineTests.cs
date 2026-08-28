@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -2914,6 +2915,78 @@ public sealed class MediaPlaybackEngineTests
             destination[index] = unchecked(
                 destination[index] + contribution);
         }
+    }
+
+    [Fact]
+    public void SharedPcm16FloatConverterMatchesScalarOracleAcrossVectorTails()
+    {
+        int[] lengths = [0, 1, 3, 4, 7, 8, 9, 15, 16, 17, 31, 32, 33, 257];
+        var random = new Random(0x50_43_46);
+
+        foreach (int length in lengths)
+        {
+            var source = new short[length];
+            random.NextBytes(
+                MemoryMarshal.AsBytes(
+                    source.AsSpan()));
+            if (length > 0)
+            {
+                source[0] = short.MinValue;
+                source[^1] = short.MaxValue;
+            }
+            if (length > 6)
+            {
+                source[1] = -1;
+                source[2] = 0;
+                source[3] = 1;
+                source[4] = -16_384;
+                source[5] = 16_384;
+            }
+
+            var expected = new float[length];
+            for (int index = 0; index < source.Length; index++)
+            {
+                expected[index] = source[index] / 32_768F;
+            }
+            var actual = new float[length + 1];
+            actual[^1] = float.NaN;
+
+            MediaPcm16FloatConverter.ConvertToNormalizedFloat(
+                source,
+                actual);
+
+            for (int index = 0; index < expected.Length; index++)
+            {
+                Assert.Equal(
+                    BitConverter.SingleToInt32Bits(expected[index]),
+                    BitConverter.SingleToInt32Bits(actual[index]));
+            }
+            Assert.True(float.IsNaN(actual[^1]));
+        }
+
+        Assert.Throws<ArgumentException>(() =>
+            MediaPcm16FloatConverter.ConvertToNormalizedFloat(
+                new short[17],
+                new float[16]));
+
+        short[] allocationSource = new short[2_048];
+        random.NextBytes(
+            MemoryMarshal.AsBytes(
+                allocationSource.AsSpan()));
+        float[] allocationDestination = new float[allocationSource.Length];
+        MediaPcm16FloatConverter.ConvertToNormalizedFloat(
+            allocationSource,
+            allocationDestination);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 1_000; iteration++)
+        {
+            MediaPcm16FloatConverter.ConvertToNormalizedFloat(
+                allocationSource,
+                allocationDestination);
+        }
+        Assert.Equal(
+            before,
+            GC.GetAllocatedBytesForCurrentThread());
     }
 
     [Fact]
