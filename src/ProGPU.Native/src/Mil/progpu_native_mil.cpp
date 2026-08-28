@@ -1,4 +1,5 @@
 #include "progpu_native_mil.hpp"
+#include "progpu_native_mil_curve_dash.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "progpu_native_text.hpp"
 #include "../Geometry/progpu_native_arc.hpp"
@@ -7315,6 +7316,8 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
                 if (has_curves || has_smooth_joins) {
+                    std::vector<curve_dash::run> dashed_runs;
+                    bool has_dashed_runs = false;
                     if (pen.dash_style_handle != 0U) {
                         const auto dash = dash_styles.find(
                             pen.dash_style_handle);
@@ -7322,7 +7325,30 @@ struct channel::implementation {
                             return status::invalid_handle;
                         }
                         if (!dash->second.intervals.empty()) {
-                            return status::unsupported_command;
+                            double dash_offset = 0.0;
+                            const status dash_status = resolve_dash_offset(
+                                pen.dash_style_handle,
+                                dash_offset);
+                            if (dash_status != status::success) {
+                                return dash_status;
+                            }
+                            const auto dash_result =
+                                curve_dash::try_create_runs(
+                                    contour.segments,
+                                    contour.smooth_joins,
+                                    contour.closed,
+                                    dash->second.intervals,
+                                    dash_offset,
+                                    static_cast<float>(pen.thickness),
+                                    dashed_runs);
+                            if (dash_result ==
+                                curve_dash::result::capacity_exceeded) {
+                                return status::capacity_exceeded;
+                            }
+                            if (dash_result != curve_dash::result::success) {
+                                return status::unsupported_command;
+                            }
+                            has_dashed_runs = true;
                         }
                     }
                     const std::uint32_t start_cap =
@@ -7576,42 +7602,87 @@ struct channel::implementation {
                         brushes.push_back(brush_index);
                         return true;
                     };
-                    if (!contour.closed && !append_cap(
-                            contour.segments.front(),
+                    const auto append_run = [
+                        &append_cap,
+                        &append_join,
+                        &make_primitive,
+                        &primitives,
+                        &brushes,
+                        brush_index](
+                        std::span<const progpu_native_path_segment> segments,
+                        std::span<const std::uint8_t> smooth_joins,
+                        bool closed,
+                        bool closing_smooth_join,
+                        std::uint32_t run_start_cap,
+                        std::uint32_t run_end_cap) {
+                        if (segments.empty() ||
+                            smooth_joins.size() + 1U != segments.size()) {
+                            return false;
+                        }
+                        if (!closed && !append_cap(
+                                segments.front(), run_start_cap, true)) {
+                            return false;
+                        }
+                        for (std::size_t segment_index = 0U;
+                             segment_index < segments.size();
+                             ++segment_index) {
+                            if (segment_index != 0U &&
+                                !append_join(
+                                    segments[segment_index - 1U],
+                                    segments[segment_index],
+                                    smooth_joins[segment_index - 1U] != 0U)) {
+                                return false;
+                            }
+                            progpu_native_geometry_primitive primitive{};
+                            if (!make_primitive(
+                                    segments[segment_index], primitive)) {
+                                return false;
+                            }
+                            primitives.push_back(primitive);
+                            brushes.push_back(brush_index);
+                        }
+                        if (closed && !append_join(
+                                segments.back(),
+                                segments.front(),
+                                closing_smooth_join)) {
+                            return false;
+                        }
+                        return closed || append_cap(
+                            segments.back(), run_end_cap, false);
+                    };
+                    if (has_dashed_runs) {
+                        for (const auto& run : dashed_runs) {
+                            const std::uint32_t run_start_cap =
+                                run.starts_at_source_start
+                                    ? start_cap
+                                    : pen.dash_cap;
+                            const std::uint32_t run_end_cap =
+                                run.ends_at_source_end
+                                    ? end_cap
+                                    : pen.dash_cap;
+                            if (!append_run(
+                                    run.segments,
+                                    run.smooth_joins,
+                                    run.closed,
+                                    run.closing_smooth_join,
+                                    run_start_cap,
+                                    run_end_cap)) {
+                                return status::unsupported_command;
+                            }
+                        }
+                    } else if (!append_run(
+                            contour.segments,
+                            std::span<const std::uint8_t>(
+                                contour.smooth_joins.data(),
+                                contour.smooth_joins.size() - 1U),
+                            contour.closed,
+                            contour.smooth_joins.back() != 0U,
                             start_cap,
-                            true)) {
+                            end_cap)) {
                         return status::unsupported_command;
                     }
-                    for (std::size_t segment_index = 0U;
-                         segment_index < contour.segments.size();
-                         ++segment_index) {
-                        if (segment_index != 0U &&
-                            !append_join(
-                                contour.segments[segment_index - 1U],
-                                contour.segments[segment_index],
-                                contour.smooth_joins[segment_index - 1U] != 0U)) {
-                            return status::unsupported_command;
-                        }
-                        progpu_native_geometry_primitive primitive{};
-                        if (!make_primitive(
-                                contour.segments[segment_index],
-                                primitive)) {
-                            return status::invalid_graph;
-                        }
-                        primitives.push_back(primitive);
-                        brushes.push_back(brush_index);
-                    }
-                    if (contour.closed && !append_join(
-                            contour.segments.back(),
-                            contour.segments.front(),
-                            contour.smooth_joins.back() != 0U)) {
-                        return status::unsupported_command;
-                    }
-                    if (!contour.closed && !append_cap(
-                            contour.segments.back(),
-                            end_cap,
-                            false)) {
-                        return status::unsupported_command;
+                    if (primitives.empty()) {
+                        continue;
                     }
                     if (!builder.draw_geometry(
                             primitives,

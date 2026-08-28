@@ -534,11 +534,32 @@ point disk independent of the pen's line caps. `SegSmoothJoin` is retained per
 incoming segment and forces only that endpoint's join to Round, matching WPF
 `CWidener::DoSegment`/`CSimplePen::DoCorner`; the closing join uses the last
 segment's flag. Finite nonzero dash patterns on wholly degenerate contours use
-the same exact initial dash/gap selection as immediate lines. Dashed curves,
-dashed smooth joins, and zero-total-length dash cycles remain unsupported until
-their exact composition is available. Unstroked curves remain valid topology
-gaps and do not prevent neighboring line runs from using the native path-pen
-lane.
+the same exact initial dash/gap selection as immediate lines. Finite nonzero
+dash patterns on nondegenerate retained contours now pass through the native
+curve-dash compiler. It scales intervals and offset by the resolved pen
+thickness, repeats odd lists logically, normalizes zero entries with the shared
+ProGPU epsilon rule, and carries phase across connected line, quadratic, cubic,
+and analytic-arc segments. A 32-chord cumulative-length table for each Bézier
+and a bounded 64-entry analytic-arc table match the managed ProGPU reference;
+only the distance-to-parameter lookup is sampled. Visible quadratic/cubic spans
+are retained with De Casteljau subdivision and visible arcs retain exact
+center/radii/rotation/sub-sweep data, so final rendering does not flatten a
+curve into a polyline. Each visible run reuses the existing native curve body,
+cap, and join primitives. True open endpoints keep StartLineCap/EndLineCap,
+interior run endpoints use DashCap, SmoothJoin remains Round when a visible run
+crosses that source join, and first/final visible runs merge across a closed
+seam without coincident caps. Invalid patterns and allocation failure still
+fail closed. Unstroked curves remain valid topology gaps and do not prevent
+neighboring line runs from using the native path-pen lane.
+
+This implementation is a C++ port of the ProGPU-owned managed algorithms in
+`BezierSegmentGeometry`, `ArcSegmentGeometry`, `DashPattern`, and
+`Compositor.TryCreateDashedStrokePath`; it does not copy third-party source.
+The semantic decisions were cross-checked against the
+[WPF `DashStyle.Dashes` contract](https://learn.microsoft.com/en-us/dotnet/api/system.windows.media.dashstyle.dashes),
+[Direct2D custom stroke styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1strokestyle),
+[Skia dash path effects](https://api.skia.org/classSkDashPathEffect.html), and
+[SVG stroke dashing](https://www.w3.org/TR/svg-strokes/#StrokeDashing).
 
 The first retained `MILCMD_GEOMETRYGROUP` slice validates the canonical
 variable child-handle payload, group fill rule, optional matrix transform,
@@ -943,7 +964,8 @@ minimum clamps remain defense in depth for already-validated streams, not an
 API policy that silently converts invalid lighting state. Native C++ coverage
 checks all three rejection boundaries alongside the existing face-flag guard.
 
-- Implement the remaining 2D/3D resource execution, curve dashes, exact
+- Implement the remaining 2D/3D resource execution, fixed-geometry ellipse and
+  rounded-rectangle dashes, exact
   translated-equivalent EvenOdd overlap execution, remaining pen/image/media
   paths, dynamic guidelines, caches, effects, and render-data commands.
 - Lower every supported update to stable semantic resource identities and
@@ -1952,7 +1974,7 @@ stream. A single resolved Pen value is passed through immediate and retained
 line, path, rectangle, rounded-rectangle, ellipse, degenerate-cap, group, and
 combined-geometry stroke decisions; dashed polyline and degenerate-dash logic
 read the same live offset. This keeps stroke bounds, brush mapping, analytic and
-vector primitives, dash phase, and unsupported curved-dash decisions on one
+vector primitives and curve-dash phase/cap/join decisions on one
 current-value view. Pen and DashStyle cache revisions include their scalar
 animation dependencies, deletion is protected, wrong resource types are
 transactionally rejected, and a negative live thickness fails closed during
