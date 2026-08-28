@@ -7938,6 +7938,187 @@ struct channel::implementation {
             geometry.stroke_contours.push_back(std::move(contour));
             return geometry;
         };
+        const auto append_positive_fixed_shape_stroke = [
+            this,
+            &builder,
+            &resolve_brush_index,
+            &append_polyline_stroke,
+            &append_path_strokes,
+            &make_rounded_rectangle_geometry,
+            &make_ellipse_path_geometry,
+            &current](
+            const fixed_geometry_state& geometry,
+            const pen_state& pen,
+            const affine_2d_double& local_transform,
+            const affine_2d_double& effective_transform,
+            std::uint32_t supplied_brush_index) noexcept {
+            const bool is_ellipse =
+                geometry.kind == fixed_geometry_kind::ellipse;
+            if (geometry.kind == fixed_geometry_kind::line) {
+                return status::unsupported_command;
+            }
+            const double x = is_ellipse
+                ? geometry.first - geometry.third
+                : geometry.first;
+            const double y = is_ellipse
+                ? geometry.second - geometry.fourth
+                : geometry.second;
+            const double width = is_ellipse
+                ? geometry.third * 2.0
+                : geometry.third;
+            const double height = is_ellipse
+                ? geometry.fourth * 2.0
+                : geometry.fourth;
+            if (width <= 0.0 || height <= 0.0 ||
+                pen.brush_handle == 0U || pen.thickness == 0.0) {
+                return status::unsupported_command;
+            }
+            const double half_thickness = pen.thickness * 0.5;
+            const brush_use_state brush_use{
+                x - half_thickness,
+                y - half_thickness,
+                width + pen.thickness,
+                height + pen.thickness,
+                effective_transform};
+            std::uint32_t brush_index = supplied_brush_index;
+            if (brush_index == PROGPU_NATIVE_SCENE_NO_INDEX) {
+                const status brush_status = resolve_brush_index(
+                    pen.brush_handle,
+                    brush_index,
+                    &brush_use);
+                if (brush_status != status::success) {
+                    return brush_status;
+                }
+            }
+            progpu_native_image_rect stroke_bounds{};
+            if (!try_transform_bounds(
+                    brush_use.x,
+                    brush_use.y,
+                    brush_use.width,
+                    brush_use.height,
+                    effective_transform,
+                    stroke_bounds)) {
+                return status::invalid_graph;
+            }
+            progpu_native_affine_2d native_local_transform{};
+            if (!try_to_native_affine(
+                    local_transform,
+                    native_local_transform)) {
+                return status::invalid_graph;
+            }
+            bool has_nonempty_dash = false;
+            if (pen.dash_style_handle != 0U) {
+                const auto dash = dash_styles.find(pen.dash_style_handle);
+                if (dash == dash_styles.end()) {
+                    return status::invalid_handle;
+                }
+                has_nonempty_dash = !dash->second.intervals.empty();
+            }
+            if (is_ellipse) {
+                if (has_nonempty_dash) {
+                    const auto ellipse_geometry =
+                        make_ellipse_path_geometry(
+                            geometry.first,
+                            geometry.second,
+                            geometry.third,
+                            geometry.fourth);
+                    return append_path_strokes(
+                        ellipse_geometry,
+                        pen,
+                        local_transform,
+                        effective_transform,
+                        brush_index);
+                }
+                const std::array primitive{
+                    progpu_native_geometry_primitive{
+                        PROGPU_NATIVE_GEOMETRY_ARC,
+                        current.edge_aliased
+                            ? static_cast<std::uint32_t>(
+                                PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
+                            : 0U,
+                        {static_cast<float>(geometry.first),
+                            static_cast<float>(geometry.second)},
+                        {static_cast<float>(geometry.third), 0.0F},
+                        {0.0F, static_cast<float>(geometry.fourth)},
+                        {0.0F, std::numbers::pi_v<float> * 2.0F},
+                        static_cast<float>(pen.thickness),
+                        0.0F,
+                        {1.0F, 1.0F, 1.0F, 1.0F},
+                        native_local_transform}};
+                const std::array brushes{brush_index};
+                return builder.draw_geometry(
+                        primitive,
+                        brushes,
+                        stroke_bounds)
+                    ? status::success
+                    : status::invalid_graph;
+            }
+            const bool has_rounded_corners =
+                geometry.radius_x > 0.0 && geometry.radius_y > 0.0;
+            if (has_rounded_corners) {
+                if (has_nonempty_dash ||
+                    geometry.radius_x != geometry.radius_y) {
+                    const auto rounded_geometry =
+                        make_rounded_rectangle_geometry(
+                            x,
+                            y,
+                            width,
+                            height,
+                            geometry.radius_x,
+                            geometry.radius_y);
+                    return append_path_strokes(
+                        rounded_geometry,
+                        pen,
+                        local_transform,
+                        effective_transform,
+                        brush_index);
+                }
+                const std::array primitive{
+                    progpu_native_analytic_primitive{
+                        PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE,
+                        current.edge_aliased
+                            ? static_cast<std::uint32_t>(
+                                PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
+                            : 0U,
+                        static_cast<float>(x),
+                        static_cast<float>(y),
+                        static_cast<float>(width),
+                        static_cast<float>(height),
+                        static_cast<float>(geometry.radius_x),
+                        static_cast<float>(pen.thickness),
+                        {1.0F, 1.0F, 1.0F, 1.0F},
+                        native_local_transform}};
+                const std::array brushes{brush_index};
+                return builder.draw_analytic(
+                        primitive,
+                        brushes,
+                        stroke_bounds)
+                    ? status::success
+                    : status::invalid_graph;
+            }
+            const std::array points{
+                progpu_native_point{
+                    static_cast<float>(x),
+                    static_cast<float>(y)},
+                progpu_native_point{
+                    static_cast<float>(x + width),
+                    static_cast<float>(y)},
+                progpu_native_point{
+                    static_cast<float>(x + width),
+                    static_cast<float>(y + height)},
+                progpu_native_point{
+                    static_cast<float>(x),
+                    static_cast<float>(y + height)}};
+            return append_polyline_stroke(
+                pen,
+                points,
+                true,
+                brush_index,
+                stroke_bounds,
+                native_local_transform,
+                pen.start_line_cap,
+                pen.end_line_cap);
+        };
         const auto append_degenerate_rectangle_stroke = [
             this,
             &builder,
@@ -9319,22 +9500,47 @@ struct channel::implementation {
                                     if (fixed_status != status::success) {
                                         return fixed_status;
                                     }
-                                    if (resolved_fixed.kind !=
+                                    if (resolved_fixed.kind ==
                                         fixed_geometry_kind::line) {
+                                        child_left = std::min(
+                                            resolved_fixed.first,
+                                            resolved_fixed.third);
+                                        child_top = std::min(
+                                            resolved_fixed.second,
+                                            resolved_fixed.fourth);
+                                        child_right = std::max(
+                                            resolved_fixed.first,
+                                            resolved_fixed.third);
+                                        child_bottom = std::max(
+                                            resolved_fixed.second,
+                                            resolved_fixed.fourth);
+                                    } else if (
+                                        resolved_fixed.kind ==
+                                            fixed_geometry_kind::ellipse &&
+                                        resolved_fixed.third > 0.0 &&
+                                        resolved_fixed.fourth > 0.0) {
+                                        child_left = resolved_fixed.first -
+                                            resolved_fixed.third;
+                                        child_top = resolved_fixed.second -
+                                            resolved_fixed.fourth;
+                                        child_right = resolved_fixed.first +
+                                            resolved_fixed.third;
+                                        child_bottom = resolved_fixed.second +
+                                            resolved_fixed.fourth;
+                                    } else if (
+                                        resolved_fixed.kind ==
+                                            fixed_geometry_kind::rectangle &&
+                                        resolved_fixed.third > 0.0 &&
+                                        resolved_fixed.fourth > 0.0) {
+                                        child_left = resolved_fixed.first;
+                                        child_top = resolved_fixed.second;
+                                        child_right = resolved_fixed.first +
+                                            resolved_fixed.third;
+                                        child_bottom = resolved_fixed.second +
+                                            resolved_fixed.fourth;
+                                    } else {
                                         return status::unsupported_command;
                                     }
-                                    child_left = std::min(
-                                        resolved_fixed.first,
-                                        resolved_fixed.third);
-                                    child_top = std::min(
-                                        resolved_fixed.second,
-                                        resolved_fixed.fourth);
-                                    child_right = std::max(
-                                        resolved_fixed.first,
-                                        resolved_fixed.third);
-                                    child_bottom = std::max(
-                                        resolved_fixed.second,
-                                        resolved_fixed.fourth);
                                     child_transform_handle =
                                         resolved_fixed.transform_handle;
                                 }
@@ -9649,7 +9855,13 @@ struct channel::implementation {
                                     return line_status;
                                 }
                                 if (resolved_line.kind !=
-                                    fixed_geometry_kind::line) {
+                                        fixed_geometry_kind::line &&
+                                    !((resolved_line.kind ==
+                                               fixed_geometry_kind::ellipse ||
+                                          resolved_line.kind ==
+                                               fixed_geometry_kind::rectangle) &&
+                                        resolved_line.third > 0.0 &&
+                                        resolved_line.fourth > 0.0)) {
                                     return status::unsupported_command;
                                 }
                                 child_transform_handle =
@@ -9678,23 +9890,34 @@ struct channel::implementation {
                                     child_effective_transform)) {
                                 continue;
                             }
-                            const status stroke_status =
-                                child != path_geometries.end()
-                                ? append_path_strokes(
-                                      child->second,
-                                      group_pen,
-                                      child_local_transform,
-                                      child_effective_transform,
-                                      stroke_brush_index)
-                                : append_resolved_line_stroke(
-                                      resolved_line.first,
-                                      resolved_line.second,
-                                      resolved_line.third,
-                                      resolved_line.fourth,
-                                      group_pen,
-                                      child_local_transform,
-                                      child_effective_transform,
-                                      stroke_brush_index);
+                            status stroke_status = status::success;
+                            if (child != path_geometries.end()) {
+                                stroke_status = append_path_strokes(
+                                    child->second,
+                                    group_pen,
+                                    child_local_transform,
+                                    child_effective_transform,
+                                    stroke_brush_index);
+                            } else if (resolved_line.kind ==
+                                fixed_geometry_kind::line) {
+                                stroke_status = append_resolved_line_stroke(
+                                    resolved_line.first,
+                                    resolved_line.second,
+                                    resolved_line.third,
+                                    resolved_line.fourth,
+                                    group_pen,
+                                    child_local_transform,
+                                    child_effective_transform,
+                                    stroke_brush_index);
+                            } else {
+                                stroke_status =
+                                    append_positive_fixed_shape_stroke(
+                                        resolved_line,
+                                        group_pen,
+                                        child_local_transform,
+                                        child_effective_transform,
+                                        stroke_brush_index);
+                            }
                             if (stroke_status != status::success) {
                                 return stroke_status;
                             }
@@ -10338,160 +10561,25 @@ struct channel::implementation {
                             return stroke_status;
                         }
                     } else {
-                        const double half_thickness =
-                            pen.thickness * 0.5;
-                        const brush_use_state brush_use{
-                            x - half_thickness,
-                            y - half_thickness,
-                            width + pen.thickness,
-                            height + pen.thickness,
-                            effective_transform};
-                        std::uint32_t pen_brush_index =
-                            PROGPU_NATIVE_SCENE_NO_INDEX;
-                        const status brush_status = resolve_brush_index(
-                            pen.brush_handle,
-                            pen_brush_index,
-                            &brush_use);
-                        if (brush_status != status::success) {
-                            return brush_status;
-                        }
-                        progpu_native_image_rect stroke_bounds{};
-                        if (!try_transform_bounds(
-                                x - half_thickness,
-                                y - half_thickness,
-                                width + pen.thickness,
-                                height + pen.thickness,
+                        fixed_geometry_state positive_geometry{};
+                        positive_geometry.kind = is_ellipse
+                            ? fixed_geometry_kind::ellipse
+                            : fixed_geometry_kind::rectangle;
+                        positive_geometry.first = first;
+                        positive_geometry.second = second;
+                        positive_geometry.third = third;
+                        positive_geometry.fourth = fourth;
+                        positive_geometry.radius_x = radius_x;
+                        positive_geometry.radius_y = radius_y;
+                        const status stroke_status =
+                            append_positive_fixed_shape_stroke(
+                                positive_geometry,
+                                pen,
+                                local_transform,
                                 effective_transform,
-                                stroke_bounds)) {
-                            return status::invalid_graph;
-                        }
-                        bool has_nonempty_dash = false;
-                        if (pen.dash_style_handle != 0U) {
-                            const auto dash = dash_styles.find(
-                                pen.dash_style_handle);
-                            if (dash == dash_styles.end()) {
-                                return status::invalid_handle;
-                            }
-                            has_nonempty_dash =
-                                !dash->second.intervals.empty();
-                        }
-                        if (is_ellipse) {
-                            if (has_nonempty_dash) {
-                                const auto ellipse_geometry =
-                                    make_ellipse_path_geometry(
-                                        first,
-                                        second,
-                                        third,
-                                        fourth);
-                                const status stroke_status =
-                                    append_path_strokes(
-                                        ellipse_geometry,
-                                        pen,
-                                        local_transform,
-                                        effective_transform,
-                                        pen_brush_index);
-                                if (stroke_status != status::success) {
-                                    return stroke_status;
-                                }
-                            } else {
-                                const std::array primitive{
-                                    progpu_native_geometry_primitive{
-                                        PROGPU_NATIVE_GEOMETRY_ARC,
-                                        current.edge_aliased
-                                            ? static_cast<std::uint32_t>(
-                                                PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
-                                            : 0U,
-                                        {static_cast<float>(first),
-                                            static_cast<float>(second)},
-                                        {static_cast<float>(third), 0.0F},
-                                        {0.0F, static_cast<float>(fourth)},
-                                        {0.0F,
-                                            std::numbers::pi_v<float> * 2.0F},
-                                        static_cast<float>(
-                                            pen.thickness),
-                                        0.0F,
-                                        {1.0F, 1.0F, 1.0F, 1.0F},
-                                        native_local_transform}};
-                                const std::array brushes{pen_brush_index};
-                                if (!builder.draw_geometry(
-                                        primitive,
-                                        brushes,
-                                        stroke_bounds)) {
-                                    return status::invalid_graph;
-                                }
-                            }
-                        } else if (has_rounded_corners) {
-                            if (has_nonempty_dash || radius_x != radius_y) {
-                                const auto rounded_geometry =
-                                    make_rounded_rectangle_geometry(
-                                        x,
-                                        y,
-                                        width,
-                                        height,
-                                        radius_x,
-                                        radius_y);
-                                const status stroke_status =
-                                    append_path_strokes(
-                                        rounded_geometry,
-                                        pen,
-                                        local_transform,
-                                        effective_transform,
-                                        pen_brush_index);
-                                if (stroke_status != status::success) {
-                                    return stroke_status;
-                                }
-                            } else {
-                                const std::array primitive{
-                                    progpu_native_analytic_primitive{
-                                        PROGPU_NATIVE_PRIMITIVE_ROUNDED_RECTANGLE,
-                                        current.edge_aliased
-                                            ? static_cast<std::uint32_t>(
-                                                PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
-                                            : 0U,
-                                        static_cast<float>(x),
-                                        static_cast<float>(y),
-                                        static_cast<float>(width),
-                                        static_cast<float>(height),
-                                        static_cast<float>(radius_x),
-                                        static_cast<float>(
-                                            pen.thickness),
-                                        {1.0F, 1.0F, 1.0F, 1.0F},
-                                        native_local_transform}};
-                                const std::array brushes{pen_brush_index};
-                                if (!builder.draw_analytic(
-                                        primitive,
-                                        brushes,
-                                        stroke_bounds)) {
-                                    return status::invalid_graph;
-                                }
-                            }
-                        } else {
-                            const std::array points{
-                                progpu_native_point{
-                                    static_cast<float>(x),
-                                    static_cast<float>(y)},
-                                progpu_native_point{
-                                    static_cast<float>(x + width),
-                                    static_cast<float>(y)},
-                                progpu_native_point{
-                                    static_cast<float>(x + width),
-                                    static_cast<float>(y + height)},
-                                progpu_native_point{
-                                    static_cast<float>(x),
-                                    static_cast<float>(y + height)}};
-                            const status stroke_status =
-                                append_polyline_stroke(
-                                    pen,
-                                    points,
-                                    true,
-                                    pen_brush_index,
-                                    stroke_bounds,
-                                    native_local_transform,
-                                    pen.start_line_cap,
-                                    pen.end_line_cap);
-                            if (stroke_status != status::success) {
-                                return stroke_status;
-                            }
+                                PROGPU_NATIVE_SCENE_NO_INDEX);
+                        if (stroke_status != status::success) {
+                            return stroke_status;
                         }
                     }
                 }

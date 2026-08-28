@@ -7480,6 +7480,11 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     constexpr std::uint32_t child_transform = 11U;
     constexpr std::uint32_t grouped_line = 12U;
     constexpr std::uint32_t line_transform = 13U;
+    constexpr std::uint32_t grouped_rectangle = 14U;
+    constexpr std::uint32_t grouped_ellipse = 15U;
+    constexpr std::uint32_t grouped_rounded_rectangle = 16U;
+    constexpr std::uint32_t ellipse_transform = 17U;
+    constexpr std::uint32_t rounded_transform = 18U;
     constexpr std::uint32_t line_size = 32U;
     constexpr std::uint32_t figure_size = 40U + 3U * line_size;
     constexpr std::uint32_t figures_size = 48U + 2U * figure_size;
@@ -7550,6 +7555,11 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     append_create(batch, child_transform, 66U);
     append_create(batch, grouped_line, 68U);
     append_create(batch, line_transform, 66U);
+    append_create(batch, grouped_rectangle, 69U);
+    append_create(batch, grouped_ellipse, 70U);
+    append_create(batch, grouped_rounded_rectangle, 69U);
+    append_create(batch, ellipse_transform, 66U);
+    append_create(batch, rounded_transform, 66U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -7619,6 +7629,68 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         10.0,
         25.0,
         line_transform,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::matrix_transform,
+        ellipse_transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        90.0,
+        5.0,
+        0U);
+    append_command(
+        batch,
+        command::matrix_transform,
+        rounded_transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        120.0,
+        5.0,
+        0U);
+    append_command(
+        batch,
+        command::rectangle_geometry,
+        grouped_rectangle,
+        0.0,
+        0.0,
+        0.0,
+        30.0,
+        12.0,
+        8.0,
+        line_transform,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::ellipse_geometry,
+        grouped_ellipse,
+        6.0,
+        4.0,
+        20.0,
+        20.0,
+        ellipse_transform,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::rectangle_geometry,
+        grouped_rounded_rectangle,
+        3.0,
+        2.0,
+        0.0,
+        0.0,
+        16.0,
+        10.0,
+        rounded_transform,
+        0U,
         0U,
         0U);
     append_path_geometry(batch, geometry, transform, 0U, figures);
@@ -8455,7 +8527,10 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     const std::array group_children{
         geometry,
         grouped_geometry,
-        grouped_line};
+        grouped_line,
+        grouped_rectangle,
+        grouped_ellipse,
+        grouped_rounded_rectangle};
     append_geometry_group(
         group_stroke_update,
         group,
@@ -8485,6 +8560,9 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     std::uint32_t first_child_body_count = 0U;
     std::uint32_t second_child_body_count = 0U;
     std::uint32_t line_child_body_count = 0U;
+    std::uint32_t rectangle_child_count = 0U;
+    std::uint32_t ellipse_child_count = 0U;
+    std::uint32_t rounded_child_body_count = 0U;
     for (std::uint32_t resource_index = 0U;
          resource_index < group_stroke_header.resource_count;
          ++resource_index) {
@@ -8496,10 +8574,25 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
             const auto path = read_value<progpu_native_scene_path_fill>(
                 stream,
                 record.payload_offset);
-            if (path.segment_count == 4U) {
+            if (path.segment_count == 20U) {
                 PROGPU_REQUIRE(path.transform.m11 == 1.0F);
                 PROGPU_REQUIRE(path.transform.m22 == 1.0F);
                 ++group_fill_count;
+            }
+            continue;
+        }
+        if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
+            const auto stroke = read_value<progpu_native_scene_stroke>(
+                stream,
+                record.payload_offset);
+            if (stroke.transform.m31 == 60.0F &&
+                stroke.transform.m32 == 10.0F &&
+                stroke.point_count == 4U) {
+                PROGPU_REQUIRE(
+                    (stroke.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) !=
+                    0U);
+                PROGPU_REQUIRE(stroke.dash_interval_count == 0U);
+                ++rectangle_child_count;
             }
             continue;
         }
@@ -8539,6 +8632,20 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
                     primitive.p0.x == 0.0F && primitive.p0.y == 20.0F &&
                     primitive.p1.x == 10.0F && primitive.p1.y == 25.0F);
                 ++line_child_body_count;
+            } else if (
+                primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC &&
+                primitive.transform.m31 == 90.0F &&
+                primitive.transform.m32 == 5.0F) {
+                PROGPU_REQUIRE(primitive.p1.x == 6.0F);
+                PROGPU_REQUIRE(primitive.p2.y == 4.0F);
+                ++ellipse_child_count;
+            } else if (
+                primitive.transform.m31 == 120.0F &&
+                primitive.transform.m32 == 5.0F) {
+                PROGPU_REQUIRE(
+                    primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE ||
+                    primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC);
+                ++rounded_child_body_count;
             }
         }
         PROGPU_REQUIRE(primitive_offset == record.payload_size);
@@ -8547,6 +8654,9 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     PROGPU_REQUIRE(first_child_body_count == 4U);
     PROGPU_REQUIRE(second_child_body_count == 4U);
     PROGPU_REQUIRE(line_child_body_count == 1U);
+    PROGPU_REQUIRE(rectangle_child_count == 1U);
+    PROGPU_REQUIRE(ellipse_child_count == 1U);
+    PROGPU_REQUIRE(rounded_child_body_count == 8U);
 
     std::vector<std::byte> dashed_group_update;
     append_dash_style(
@@ -8578,6 +8688,9 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     bool found_first_dashed_child = false;
     bool found_second_dashed_child = false;
     bool found_dashed_line_child = false;
+    bool found_dashed_rectangle_child = false;
+    bool found_dashed_ellipse_child = false;
+    bool found_dashed_rounded_child = false;
     for (std::uint32_t resource_index = 0U;
          resource_index < dashed_group_header.resource_count;
          ++resource_index) {
@@ -8591,12 +8704,18 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
                 record.payload_offset);
             if (stroke.transform.m31 == 60.0F &&
                 stroke.transform.m32 == 10.0F) {
-                PROGPU_REQUIRE(stroke.point_count == 2U);
                 PROGPU_REQUIRE(stroke.dash_interval_count == 2U);
                 PROGPU_REQUIRE(stroke.dash_offset == 0.0);
-                PROGPU_REQUIRE(stroke.start_cap == 1U);
-                PROGPU_REQUIRE(stroke.end_cap == 2U);
-                found_dashed_line_child = true;
+                if (stroke.point_count == 2U) {
+                    PROGPU_REQUIRE(stroke.start_cap == 1U);
+                    PROGPU_REQUIRE(stroke.end_cap == 2U);
+                    found_dashed_line_child = true;
+                } else if (stroke.point_count == 4U) {
+                    PROGPU_REQUIRE(
+                        (stroke.flags &
+                            PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U);
+                    found_dashed_rectangle_child = true;
+                }
             }
             continue;
         }
@@ -8629,6 +8748,12 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
                  primitive.transform.m22 == 1.0F &&
                  primitive.transform.m31 == 30.0F &&
                  primitive.transform.m32 == 0.0F);
+            found_dashed_ellipse_child = found_dashed_ellipse_child ||
+                (primitive.transform.m31 == 90.0F &&
+                 primitive.transform.m32 == 5.0F);
+            found_dashed_rounded_child = found_dashed_rounded_child ||
+                (primitive.transform.m31 == 120.0F &&
+                 primitive.transform.m32 == 5.0F);
         }
         PROGPU_REQUIRE(primitive_offset == record.payload_size);
     }
@@ -8636,6 +8761,9 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     PROGPU_REQUIRE(found_first_dashed_child);
     PROGPU_REQUIRE(found_second_dashed_child);
     PROGPU_REQUIRE(found_dashed_line_child);
+    PROGPU_REQUIRE(found_dashed_rectangle_child);
+    PROGPU_REQUIRE(found_dashed_ellipse_child);
+    PROGPU_REQUIRE(found_dashed_rounded_child);
     return true;
 }
 
