@@ -382,16 +382,17 @@ bool try_fixed_shape_stroke_bounds(
         bounds);
 }
 
-bool try_transformed_ellipse_stroke_bounds(
-    double center_x,
-    double center_y,
-    double radius_x,
-    double radius_y,
+bool try_transformed_cubic_contour_stroke_bounds(
+    std::span<const std::array<std::array<double, 2U>, 4U>> source_cubics,
+    std::span<const bool> line_segments,
     double thickness,
     const affine_2d_double& geometry_transform,
     const affine_2d_double& world_transform,
     progpu_native_image_rect& bounds) noexcept {
-    if (radius_x <= 0.0 || radius_y <= 0.0 || thickness <= 0.0) {
+    if (source_cubics.empty() ||
+        (!line_segments.empty() &&
+            line_segments.size() != source_cubics.size()) ||
+        thickness <= 0.0) {
         return false;
     }
     using point = std::array<double, 2U>;
@@ -407,53 +408,36 @@ bool try_transformed_ellipse_stroke_bounds(
         return std::isfinite(destination[0U]) &&
             std::isfinite(destination[1U]);
     };
-    const float resolved_center_x = static_cast<float>(center_x);
-    const float resolved_center_y = static_cast<float>(center_y);
-    const float resolved_radius_x = std::abs(static_cast<float>(radius_x));
-    const float resolved_radius_y = std::abs(static_cast<float>(radius_y));
-    if (!std::isfinite(resolved_center_x) ||
-        !std::isfinite(resolved_center_y) ||
-        !std::isfinite(resolved_radius_x) ||
-        !std::isfinite(resolved_radius_y) ||
-        resolved_radius_x <= 0.0F || resolved_radius_y <= 0.0F) {
-        return false;
-    }
-    constexpr double arc_as_bezier = 0.5522847498307933984;
-    const float middle_x = static_cast<float>(
-        static_cast<double>(resolved_radius_x) * arc_as_bezier);
-    const float middle_y = static_cast<float>(
-        static_cast<double>(resolved_radius_y) * arc_as_bezier);
-    const float left = resolved_center_x - resolved_radius_x;
-    const float right = resolved_center_x + resolved_radius_x;
-    const float top = resolved_center_y - resolved_radius_y;
-    const float bottom = resolved_center_y + resolved_radius_y;
-    const std::array<std::array<point, 4U>, 4U> source_cubics{{
-        {{{right, resolved_center_y},
-          {right, resolved_center_y + middle_y},
-          {resolved_center_x + middle_x, bottom},
-          {resolved_center_x, bottom}}},
-        {{{resolved_center_x, bottom},
-          {resolved_center_x - middle_x, bottom},
-          {left, resolved_center_y + middle_y},
-          {left, resolved_center_y}}},
-        {{{left, resolved_center_y},
-          {left, resolved_center_y - middle_y},
-          {resolved_center_x - middle_x, top},
-          {resolved_center_x, top}}},
-        {{{resolved_center_x, top},
-          {resolved_center_x + middle_x, top},
-          {right, resolved_center_y - middle_y},
-          {right, resolved_center_y}}}}};
     double minimum_x = std::numeric_limits<double>::infinity();
     double minimum_y = std::numeric_limits<double>::infinity();
     double maximum_x = -std::numeric_limits<double>::infinity();
     double maximum_y = -std::numeric_limits<double>::infinity();
     const double pen_radius = thickness * 0.5;
     constexpr double default_tolerance = 0.25;
-    const double refinement_threshold = pen_radius < default_tolerance
+    const double metric_xx = world_transform.m11 * world_transform.m11 +
+        world_transform.m12 * world_transform.m12;
+    const double metric_xy = world_transform.m11 * world_transform.m21 +
+        world_transform.m12 * world_transform.m22;
+    const double metric_yy = world_transform.m21 * world_transform.m21 +
+        world_transform.m22 * world_transform.m22;
+    const double half_metric_difference = (metric_xx - metric_yy) * 0.5;
+    const double maximum_eigenvalue =
+        (metric_xx + metric_yy) * 0.5 +
+        std::hypot(half_metric_difference, metric_xy);
+    if (!std::isfinite(maximum_eigenvalue) || maximum_eigenvalue <= 0.0) {
+        return false;
+    }
+    const double maximum_radius_bound =
+        pen_radius * std::sqrt(maximum_eigenvalue);
+    if (!std::isfinite(maximum_radius_bound) ||
+        maximum_radius_bound <= 0.0) {
+        return false;
+    }
+    const double refinement_threshold =
+        maximum_radius_bound < default_tolerance
         ? -2.0
-        : 2.0 * (1.0 - default_tolerance / pen_radius) *
-                (1.0 - default_tolerance / pen_radius) -
+        : 2.0 * (1.0 - default_tolerance / maximum_radius_bound) *
+                (1.0 - default_tolerance / maximum_radius_bound) -
             1.0;
     const auto include_mapped = [
         &minimum_x,
@@ -712,13 +696,54 @@ bool try_transformed_ellipse_stroke_bounds(
     constexpr double flattened_tolerance = default_tolerance * 6.0;
     constexpr double quarter_tolerance = flattened_tolerance * 0.25;
     constexpr double twice_minimum_step = 0.001;
-    for (const auto& source_cubic : source_cubics) {
+    for (std::size_t source_index = 0U;
+         source_index < source_cubics.size();
+         ++source_index) {
+        const auto& source_cubic = source_cubics[source_index];
         std::array<point, 4U> cubic{};
         for (std::size_t index = 0U; index < cubic.size(); ++index) {
             if (!map_point(
                     source_cubic[index],
                     geometry_transform,
                     cubic[index])) {
+                return false;
+            }
+        }
+        if (!line_segments.empty() && line_segments[source_index]) {
+            const point tangent{
+                cubic[3U][0U] - cubic[0U][0U],
+                cubic[3U][1U] - cubic[0U][1U]};
+            const double tangent_length = std::hypot(
+                tangent[0U], tangent[1U]);
+            if (!std::isfinite(tangent_length) ||
+                tangent_length <= 0.000001) {
+                return false;
+            }
+            if (!has_previous_point) {
+                previous_position = cubic[0U];
+                previous_direction = {
+                    tangent[0U] / tangent_length,
+                    tangent[1U] / tangent_length};
+                has_previous_point = true;
+                if (!include_offset_pair(
+                        previous_position, previous_direction)) {
+                    return false;
+                }
+            }
+            if (!include_offset_pair(cubic[3U], previous_direction)) {
+                return false;
+            }
+            previous_position = cubic[3U];
+            continue;
+        }
+        std::array<point, 4U> flatness_cubic{};
+        for (std::size_t index = 0U;
+             index < flatness_cubic.size();
+             ++index) {
+            if (!map_point(
+                    cubic[index],
+                    world_transform,
+                    flatness_cubic[index])) {
                 return false;
             }
         }
@@ -736,6 +761,23 @@ bool try_transformed_ellipse_stroke_bounds(
                 cubic[2U][0U]),
             6.0 * (cubic[0U][1U] - 2.0 * cubic[1U][1U] +
                 cubic[2U][1U])};
+        point flat_e1{
+            flatness_cubic[3U][0U] - flatness_cubic[0U][0U],
+            flatness_cubic[3U][1U] - flatness_cubic[0U][1U]};
+        point flat_e2{
+            6.0 * (flatness_cubic[1U][0U] -
+                2.0 * flatness_cubic[2U][0U] +
+                flatness_cubic[3U][0U]),
+            6.0 * (flatness_cubic[1U][1U] -
+                2.0 * flatness_cubic[2U][1U] +
+                flatness_cubic[3U][1U])};
+        point flat_e3{
+            6.0 * (flatness_cubic[0U][0U] -
+                2.0 * flatness_cubic[1U][0U] +
+                flatness_cubic[2U][0U]),
+            6.0 * (flatness_cubic[0U][1U] -
+                2.0 * flatness_cubic[1U][1U] +
+                flatness_cubic[2U][1U])};
         const auto approximate_norm = [](const point& value) noexcept {
             return std::max(std::abs(value[0U]), std::abs(value[1U]));
         };
@@ -745,6 +787,9 @@ bool try_transformed_ellipse_stroke_bounds(
             &e1,
             &e2,
             &e3,
+            &flat_e1,
+            &flat_e2,
+            &flat_e3,
             &step_count,
             &step_size]() noexcept {
             e2 = {(e2[0U] + e3[0U]) * 0.125,
@@ -752,11 +797,17 @@ bool try_transformed_ellipse_stroke_bounds(
             e1 = {(e1[0U] - e2[0U]) * 0.5,
                 (e1[1U] - e2[1U]) * 0.5};
             e3 = {e3[0U] * 0.25, e3[1U] * 0.25};
+            flat_e2 = {(flat_e2[0U] + flat_e3[0U]) * 0.125,
+                (flat_e2[1U] + flat_e3[1U]) * 0.125};
+            flat_e1 = {(flat_e1[0U] - flat_e2[0U]) * 0.5,
+                (flat_e1[1U] - flat_e2[1U]) * 0.5};
+            flat_e3 = {
+                flat_e3[0U] * 0.25, flat_e3[1U] * 0.25};
             step_count *= 2U;
             step_size *= 0.5;
         };
-        while ((approximate_norm(e2) > flattened_tolerance ||
-                approximate_norm(e3) > flattened_tolerance) &&
+        while ((approximate_norm(flat_e2) > flattened_tolerance ||
+                approximate_norm(flat_e3) > flattened_tolerance) &&
             step_size > twice_minimum_step) {
             halve_step();
         }
@@ -774,6 +825,12 @@ bool try_transformed_ellipse_stroke_bounds(
             e2 = {2.0 * e2[0U] - e3[0U],
                 2.0 * e2[1U] - e3[1U]};
             e3 = previous_e2;
+            const point previous_flat_e2 = flat_e2;
+            flat_e1 = {flat_e1[0U] + previous_flat_e2[0U],
+                flat_e1[1U] + previous_flat_e2[1U]};
+            flat_e2 = {2.0 * flat_e2[0U] - flat_e3[0U],
+                2.0 * flat_e2[1U] - flat_e3[1U]};
+            flat_e3 = previous_flat_e2;
             const point tangent{
                 6.0 * e1[0U] - e2[0U] - 2.0 * e3[0U],
                 6.0 * e1[1U] - e2[1U] - 2.0 * e3[1U]};
@@ -781,7 +838,7 @@ bool try_transformed_ellipse_stroke_bounds(
                 return false;
             }
             --step_count;
-            if (approximate_norm(e2) > flattened_tolerance &&
+            if (approximate_norm(flat_e2) > flattened_tolerance &&
                 step_size > twice_minimum_step) {
                 halve_step();
                 continue;
@@ -790,14 +847,24 @@ bool try_transformed_ellipse_stroke_bounds(
                 const point candidate{
                     2.0 * e2[0U] - e3[0U],
                     2.0 * e2[1U] - e3[1U]};
-                if (approximate_norm(e3) > quarter_tolerance ||
-                    approximate_norm(candidate) > quarter_tolerance) {
+                const point flat_candidate{
+                    2.0 * flat_e2[0U] - flat_e3[0U],
+                    2.0 * flat_e2[1U] - flat_e3[1U]};
+                if (approximate_norm(flat_e3) > quarter_tolerance ||
+                    approximate_norm(flat_candidate) > quarter_tolerance) {
                     break;
                 }
                 e1 = {2.0 * e1[0U] + e2[0U],
                     2.0 * e1[1U] + e2[1U]};
                 e3 = {4.0 * e3[0U], 4.0 * e3[1U]};
                 e2 = {4.0 * candidate[0U], 4.0 * candidate[1U]};
+                flat_e1 = {
+                    2.0 * flat_e1[0U] + flat_e2[0U],
+                    2.0 * flat_e1[1U] + flat_e2[1U]};
+                flat_e3 = {
+                    4.0 * flat_e3[0U], 4.0 * flat_e3[1U]};
+                flat_e2 = {4.0 * flat_candidate[0U],
+                    4.0 * flat_candidate[1U]};
                 step_count /= 2U;
                 step_size *= 2.0;
             }
@@ -824,6 +891,149 @@ bool try_transformed_ellipse_stroke_bounds(
         static_cast<float>(bounds_width),
         static_cast<float>(bounds_height)};
     return true;
+}
+
+bool try_transformed_ellipse_stroke_bounds(
+    double center_x,
+    double center_y,
+    double radius_x,
+    double radius_y,
+    double thickness,
+    const affine_2d_double& geometry_transform,
+    const affine_2d_double& world_transform,
+    progpu_native_image_rect& bounds) noexcept {
+    using point = std::array<double, 2U>;
+    if (radius_x <= 0.0 || radius_y <= 0.0 || thickness <= 0.0) {
+        return false;
+    }
+    const float resolved_center_x = static_cast<float>(center_x);
+    const float resolved_center_y = static_cast<float>(center_y);
+    const float resolved_radius_x = std::abs(static_cast<float>(radius_x));
+    const float resolved_radius_y = std::abs(static_cast<float>(radius_y));
+    if (!std::isfinite(resolved_center_x) ||
+        !std::isfinite(resolved_center_y) ||
+        !std::isfinite(resolved_radius_x) ||
+        !std::isfinite(resolved_radius_y) ||
+        resolved_radius_x <= 0.0F || resolved_radius_y <= 0.0F) {
+        return false;
+    }
+    constexpr double arc_as_bezier = 0.5522847498307933984;
+    const float middle_x = static_cast<float>(
+        static_cast<double>(resolved_radius_x) * arc_as_bezier);
+    const float middle_y = static_cast<float>(
+        static_cast<double>(resolved_radius_y) * arc_as_bezier);
+    const float left = resolved_center_x - resolved_radius_x;
+    const float right = resolved_center_x + resolved_radius_x;
+    const float top = resolved_center_y - resolved_radius_y;
+    const float bottom = resolved_center_y + resolved_radius_y;
+    const std::array<std::array<point, 4U>, 4U> source_cubics{{
+        {{{right, resolved_center_y},
+          {right, resolved_center_y + middle_y},
+          {resolved_center_x + middle_x, bottom},
+          {resolved_center_x, bottom}}},
+        {{{resolved_center_x, bottom},
+          {resolved_center_x - middle_x, bottom},
+          {left, resolved_center_y + middle_y},
+          {left, resolved_center_y}}},
+        {{{left, resolved_center_y},
+          {left, resolved_center_y - middle_y},
+          {resolved_center_x - middle_x, top},
+          {resolved_center_x, top}}},
+        {{{resolved_center_x, top},
+          {resolved_center_x + middle_x, top},
+          {right, resolved_center_y - middle_y},
+          {right, resolved_center_y}}}}};
+    return try_transformed_cubic_contour_stroke_bounds(
+        source_cubics,
+        {},
+        thickness,
+        geometry_transform,
+        world_transform,
+        bounds);
+}
+
+bool try_transformed_rounded_rectangle_stroke_bounds(
+    double x,
+    double y,
+    double width,
+    double height,
+    double radius_x,
+    double radius_y,
+    double thickness,
+    const affine_2d_double& geometry_transform,
+    const affine_2d_double& world_transform,
+    progpu_native_image_rect& bounds) noexcept {
+    using point = std::array<double, 2U>;
+    if (width <= 0.0 || height <= 0.0 || radius_x <= 0.0 ||
+        radius_y <= 0.0 || thickness <= 0.0) {
+        return false;
+    }
+    const double left = x;
+    const double top = y;
+    const double right = x + width;
+    const double bottom = y + height;
+    const double resolved_radius_x = std::min(
+        std::abs(radius_x), (right - left) * 0.5);
+    const double resolved_radius_y = std::min(
+        std::abs(radius_y), (bottom - top) * 0.5);
+    if (!std::isfinite(left) || !std::isfinite(top) ||
+        !std::isfinite(right) || !std::isfinite(bottom) ||
+        !std::isfinite(resolved_radius_x) ||
+        !std::isfinite(resolved_radius_y) ||
+        right <= left || bottom <= top ||
+        resolved_radius_x <= 0.0 || resolved_radius_y <= 0.0) {
+        return false;
+    }
+    constexpr double arc_as_bezier = 0.5522847498307933984;
+    const double bezier_x = (1.0 - arc_as_bezier) * resolved_radius_x;
+    const double bezier_y = (1.0 - arc_as_bezier) * resolved_radius_y;
+    const auto line_cubic = [](point start, point end) noexcept {
+        return std::array<point, 4U>{
+            start,
+            point{start[0U] + (end[0U] - start[0U]) / 3.0,
+                start[1U] + (end[1U] - start[1U]) / 3.0},
+            point{start[0U] + (end[0U] - start[0U]) * (2.0 / 3.0),
+                start[1U] + (end[1U] - start[1U]) * (2.0 / 3.0)},
+            end};
+    };
+    const point left_start{left, top + resolved_radius_y};
+    const point top_left{left + resolved_radius_x, top};
+    const point top_right{right - resolved_radius_x, top};
+    const point right_start{right, top + resolved_radius_y};
+    const point right_end{right, bottom - resolved_radius_y};
+    const point bottom_right{right - resolved_radius_x, bottom};
+    const point bottom_left{left + resolved_radius_x, bottom};
+    const point left_end{left, bottom - resolved_radius_y};
+    const std::array<std::array<point, 4U>, 8U> source_cubics{{
+        {{left_start,
+          {left, top + bezier_y},
+          {left + bezier_x, top},
+          top_left}},
+        line_cubic(top_left, top_right),
+        {{top_right,
+          {right - bezier_x, top},
+          {right, top + bezier_y},
+          right_start}},
+        line_cubic(right_start, right_end),
+        {{right_end,
+          {right, bottom - bezier_y},
+          {right - bezier_x, bottom},
+          bottom_right}},
+        line_cubic(bottom_right, bottom_left),
+        {{bottom_left,
+          {left + bezier_x, bottom},
+          {left, bottom - bezier_y},
+          left_end}},
+        line_cubic(left_end, left_start)}};
+    constexpr std::array<bool, 8U> line_segments{
+        false, true, false, true, false, true, false, true};
+    return try_transformed_cubic_contour_stroke_bounds(
+        source_cubics,
+        line_segments,
+        thickness,
+        geometry_transform,
+        world_transform,
+        bounds);
 }
 
 bool try_transformed_rectangle_stroke_bounds(
@@ -9753,6 +9963,24 @@ struct channel::implementation {
                                 geometry.second,
                                 geometry.third,
                                 geometry.fourth,
+                                pen.thickness,
+                                geometry_transform,
+                                current_transform,
+                                bounds) ||
+                            bounds.width <= 0.0F || bounds.height <= 0.0F) {
+                            return status::unsupported_command;
+                        }
+                        return finish_bounds();
+                    }
+                    if (has_rounded_corners && shape_width > 0.0 &&
+                        shape_height > 0.0) {
+                        if (!try_transformed_rounded_rectangle_stroke_bounds(
+                                shape_x,
+                                shape_y,
+                                shape_width,
+                                shape_height,
+                                geometry.radius_x,
+                                geometry.radius_y,
                                 pen.thickness,
                                 geometry_transform,
                                 current_transform,
