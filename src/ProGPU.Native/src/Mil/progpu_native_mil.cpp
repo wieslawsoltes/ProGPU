@@ -361,7 +361,7 @@ bool try_transform_bounds(
     return true;
 }
 
-bool try_positive_fixed_shape_stroke_bounds(
+bool try_fixed_shape_stroke_bounds(
     double x,
     double y,
     double width,
@@ -369,7 +369,7 @@ bool try_positive_fixed_shape_stroke_bounds(
     double thickness,
     const affine_2d_double& transform,
     progpu_native_image_rect& bounds) noexcept {
-    if (width <= 0.0 || height <= 0.0 || thickness <= 0.0) {
+    if (width < 0.0 || height < 0.0 || thickness <= 0.0) {
         return false;
     }
     const double half_thickness = thickness * 0.5;
@@ -7354,11 +7354,12 @@ struct channel::implementation {
                 return brush_status;
             }
             progpu_native_image_rect stroke_bounds{};
-            if (!try_transform_bounds(
-                    center_x - radius_x - half_thickness,
-                    center_y - radius_y - half_thickness,
-                    radius_x * 2.0 + pen.thickness,
-                    radius_y * 2.0 + pen.thickness,
+            if (!try_fixed_shape_stroke_bounds(
+                    center_x - radius_x,
+                    center_y - radius_y,
+                    radius_x * 2.0,
+                    radius_y * 2.0,
+                    pen.thickness,
                     effective_transform,
                     stroke_bounds)) {
                 return status::invalid_graph;
@@ -8186,7 +8187,7 @@ struct channel::implementation {
                 }
             }
             progpu_native_image_rect stroke_bounds{};
-            if (!try_positive_fixed_shape_stroke_bounds(
+            if (!try_fixed_shape_stroke_bounds(
                     x,
                     y,
                     width,
@@ -8361,11 +8362,12 @@ struct channel::implementation {
                 return brush_status;
             }
             progpu_native_image_rect stroke_bounds{};
-            if (!try_transform_bounds(
-                    left,
-                    top,
-                    right - left,
-                    bottom - top,
+            if (!try_fixed_shape_stroke_bounds(
+                    x,
+                    y,
+                    width,
+                    height,
+                    pen.thickness,
                     effective_transform,
                     stroke_bounds)) {
                 return status::invalid_graph;
@@ -8652,7 +8654,7 @@ struct channel::implementation {
                     const double shape_height = is_ellipse
                         ? geometry.fourth * 2.0
                         : geometry.fourth;
-                    if (!try_positive_fixed_shape_stroke_bounds(
+                    if (!try_fixed_shape_stroke_bounds(
                             shape_x,
                             shape_y,
                             shape_width,
