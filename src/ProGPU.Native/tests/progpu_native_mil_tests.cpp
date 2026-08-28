@@ -11892,6 +11892,9 @@ bool retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband() {
     constexpr std::uint32_t brush = 4U;
     constexpr std::uint32_t glyph_run = 5U;
     constexpr std::uint32_t drawing = 6U;
+    constexpr std::uint32_t drawing_image = 8U;
+    constexpr std::uint32_t bounds_group = 9U;
+    constexpr std::uint32_t bounds_transform = 10U;
 
     const std::vector<std::byte> font_bytes = load_inter_test_font();
     progpu::native::text::sfnt_font_view font{};
@@ -11909,6 +11912,9 @@ bool retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband() {
     append_create(batch, target, 47U);
     append_create(batch, brush, 75U);
     append_create(batch, drawing, 88U);
+    append_create(batch, drawing_image, 59U);
+    append_create(batch, bounds_group, 91U);
+    append_create(batch, bounds_transform, 66U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -11943,9 +11949,49 @@ bool retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband() {
         drawing,
         glyph_run,
         brush);
+    append_command(
+        batch,
+        command::matrix_transform,
+        bounds_transform,
+        1.0,
+        0.25,
+        0.5,
+        1.0,
+        3.0,
+        2.0,
+        0U);
+    append_command(
+        batch,
+        command::drawing_group,
+        bounds_group,
+        1.0,
+        4U,
+        0U,
+        0U,
+        0U,
+        bounds_transform,
+        0U,
+        0U,
+        0U,
+        0U,
+        drawing);
+    append_command(
+        batch,
+        command::drawing_image,
+        drawing_image,
+        bounds_group);
     std::vector<std::byte> nested;
     append_command(nested, command::draw_drawing, drawing, 0U);
     append_command(nested, command::draw_glyph_run, brush, glyph_run);
+    append_command(
+        nested,
+        command::draw_image,
+        2.0,
+        4.0,
+        108.0,
+        90.0,
+        drawing_image,
+        0U);
     append_render_data(batch, content, nested);
     append_command(
         batch,
@@ -11962,7 +12008,7 @@ bool retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband() {
     batch_metrics applied{};
     PROGPU_REQUIRE(state.apply(batch, &applied) == status::success);
     PROGPU_REQUIRE(state.resource_type(glyph_run) == 42U);
-    PROGPU_REQUIRE(applied.created_resource_count == 6U);
+    PROGPU_REQUIRE(applied.created_resource_count == 9U);
     std::vector<std::byte> stream;
     progpu::native::mil::scene_metrics metrics{};
     PROGPU_REQUIRE(
@@ -11978,6 +12024,8 @@ bool retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband() {
 
     const auto header = read_value<progpu_native_scene_header>(stream, 0U);
     std::uint32_t glyph_draw_count = 0U;
+    bool found_drawing_image_mapping = false;
+    bool found_transformed_glyph_bounds = false;
     for (std::uint32_t index = 0U; index < header.command_count; ++index) {
         const auto record = read_value<progpu_native_scene_command>(
             stream,
@@ -12003,13 +12051,45 @@ bool retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband() {
         PROGPU_REQUIRE(positioned.position.x == 12.0F);
         PROGPU_REQUIRE(positioned.position.y == 37.0F);
         PROGPU_REQUIRE(positioned.italic_skew == 0.22F);
-        PROGPU_REQUIRE(record.bounds_x == 10.0F);
-        PROGPU_REQUIRE(record.bounds_y == 10.0F);
-        PROGPU_REQUIRE(record.bounds_width == 36.0F);
-        PROGPU_REQUIRE(record.bounds_height == 36.0F);
+        if (record.bounds_x == 2.0F && record.bounds_y == 4.0F &&
+            record.bounds_width == 108.0F &&
+            record.bounds_height == 90.0F) {
+            found_transformed_glyph_bounds = true;
+        } else {
+            PROGPU_REQUIRE(record.bounds_x == 10.0F);
+            PROGPU_REQUIRE(record.bounds_y == 10.0F);
+            PROGPU_REQUIRE(record.bounds_width == 36.0F);
+            PROGPU_REQUIRE(record.bounds_height == 36.0F);
+        }
         ++glyph_draw_count;
     }
-    PROGPU_REQUIRE(glyph_draw_count == 2U);
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            continue;
+        }
+        const auto scene_state = read_value<progpu_native_scene_state>(
+            stream, resource.payload_offset);
+        if (scene_state.transform.m11 == 2.0F &&
+            scene_state.transform.m12 == 0.5F &&
+            scene_state.transform.m21 == 1.0F &&
+            scene_state.transform.m22 == 2.0F &&
+            scene_state.transform.m31 == -28.0F &&
+            scene_state.transform.m32 == -21.0F &&
+            (scene_state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
+            scene_state.clip_rect.x == 2.0F &&
+            scene_state.clip_rect.y == 4.0F &&
+            scene_state.clip_rect.width == 108.0F &&
+            scene_state.clip_rect.height == 90.0F) {
+            found_drawing_image_mapping = true;
+        }
+    }
+    PROGPU_REQUIRE(glyph_draw_count == 3U);
+    PROGPU_REQUIRE(found_drawing_image_mapping);
+    PROGPU_REQUIRE(found_transformed_glyph_bounds);
     PROGPU_REQUIRE(scene_contains_text_style_mode(
         stream, PROGPU_NATIVE_SCENE_TEXT_GRAYSCALE));
 
