@@ -40,8 +40,8 @@ gpu_program_reference append_gpu_records(
     }
 
     const auto split_xor_leaf_count = [&]() {
-        if (path.boolean_node_count != 3U &&
-            path.boolean_node_count != 5U) {
+        if (path.boolean_node_count < 3U ||
+            (path.boolean_node_count & 1U) == 0U) {
             return 0U;
         }
         if (nodes[path.boolean_node_offset].kind !=
@@ -52,15 +52,19 @@ gpu_program_reference append_gpu_records(
                 PROGPU_NATIVE_PATH_BOOLEAN_XOR) {
             return 0U;
         }
-        if (path.boolean_node_count == 3U) {
-            return 2U;
+        std::uint32_t leaf_count = 2U;
+        for (std::size_t index = 3U;
+             index < path.boolean_node_count;
+             index += 2U) {
+            if (nodes[path.boolean_node_offset + index].kind !=
+                    PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
+                nodes[path.boolean_node_offset + index + 1U].kind !=
+                    PROGPU_NATIVE_PATH_BOOLEAN_XOR) {
+                return 0U;
+            }
+            ++leaf_count;
         }
-        return nodes[path.boolean_node_offset + 3U].kind ==
-                    PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
-                nodes[path.boolean_node_offset + 4U].kind ==
-                    PROGPU_NATIVE_PATH_BOOLEAN_XOR
-            ? 3U
-            : 0U;
+        return leaf_count;
     }();
     if (split_xor_leaf_count != 0U) {
         const auto append_leaf = [&records](const Node& leaf) {
@@ -76,8 +80,11 @@ gpu_program_reference append_gpu_records(
         };
         append_leaf(nodes[path.boolean_node_offset]);
         append_leaf(nodes[path.boolean_node_offset + 1U]);
-        if (split_xor_leaf_count == 3U) {
-            append_leaf(nodes[path.boolean_node_offset + 3U]);
+        for (std::uint32_t leaf_index = 2U;
+             leaf_index < split_xor_leaf_count;
+             ++leaf_index) {
+            append_leaf(nodes[
+                path.boolean_node_offset + leaf_index * 2U - 1U]);
         }
         return {
             path_record_index,
