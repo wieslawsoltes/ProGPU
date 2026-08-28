@@ -89,6 +89,7 @@ public sealed partial class CadSnapshotCompiler
         ICadShxFontResolver? shxFontResolver = options.ShxFontResolver is CadShxFontCatalog catalog
             ? catalog.CreateResolverSnapshot()
             : options.ShxFontResolver;
+        ICadShxShapeResolver? shxShapeResolver = shxFontResolver as ICadShxShapeResolver;
         var layers = new List<CadLayerSnapshot>();
         var layerIndices = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var styles = new List<CadStrokeStyle>();
@@ -129,6 +130,7 @@ public sealed partial class CadSnapshotCompiler
         var shxMTexts = new List<CadShxMTextPrimitive>();
         var shxMTextGlyphRuns = new List<CadShxMTextGlyphRun>();
         var shxGlyphInstances = new List<CadShxGlyphInstance>();
+        var shxShapes = new List<CadShxShapePrimitive>();
         var shxDecorationSegments = new List<CadShxDecorationSegment>();
         var polylineVertices = new List<CadPolylineVertex>();
         var polyline3DPoints = new List<CadPoint3D>();
@@ -221,6 +223,7 @@ public sealed partial class CadSnapshotCompiler
             shxMTexts.ToArray(),
             shxMTextGlyphRuns.ToArray(),
             shxGlyphInstances.ToArray(),
+            shxShapes.ToArray(),
             shxDecorationSegments.ToArray(),
             polylineVertices.ToArray(),
             polyline3DPoints.ToArray(),
@@ -370,6 +373,17 @@ public sealed partial class CadSnapshotCompiler
                         hatchSegments,
                         hatchTopologyBudget,
                         hatchSplineSourceBudget),
+                    Shape shape => CompileShxShape(
+                        shape,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        options,
+                        diagnostics,
+                        shxShapes,
+                        shxShapeResolver),
                     TextEntity text => CompileText(
                         text,
                         rootHandle,
@@ -1263,6 +1277,113 @@ public sealed partial class CadSnapshotCompiler
         return new CadEntityHeader(
             handle,
             CadEntityKind.Polyline3D,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            bounds);
+    }
+
+    private static CadEntityHeader CompileShxShape(
+        Shape shape,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        CadSnapshotOptions options,
+        List<CadDiagnostic> diagnostics,
+        List<CadShxShapePrimitive> destination,
+        ICadShxShapeResolver? shxShapeResolver)
+    {
+        if (shape.Thickness != 0.0)
+        {
+            throw new CadUnsupportedEntityException(
+                "SHAPE thickness requires the 3D extrusion and hidden-surface contract.");
+        }
+        if (!double.IsFinite(shape.Size) || shape.Size <= 0.0 ||
+            !double.IsFinite(shape.RelativeXScale) || shape.RelativeXScale <= 0.0 ||
+            !double.IsFinite(shape.Rotation) ||
+            !double.IsFinite(shape.ObliqueAngle) ||
+            Math.Abs(shape.ObliqueAngle) >= Math.PI * 0.5)
+        {
+            throw new ArgumentException(
+                "SHAPE size, relative X scale, rotation, and oblique angle must define a finite non-degenerate transform.");
+        }
+
+        ICadShxShapeResolver resolver = shxShapeResolver ??
+            throw new CadUnsupportedEntityException(
+                "SHAPE requires a host resolver that supports standalone SHX shape identities.");
+        CadShxShapeResolution resolution = resolver.ResolveShape(new CadShxShapeRequest(
+            shape.ShapeName,
+            shape.ShapeNumber,
+            shape.ShapeStyle?.Filename ?? string.Empty));
+        CadShxGlyphCache cache = resolution.GlyphCache ??
+            throw new CadUnsupportedEntityException(
+                $"SHX shape '{shape.ShapeName}' number {shape.ShapeNumber} could not be resolved.");
+
+        CadShxGlyph glyph;
+        try
+        {
+            glyph = cache.GetGlyph(resolution.ShapeNumber);
+        }
+        catch (Exception exception) when (
+            exception is InvalidDataException or NotSupportedException or
+                KeyNotFoundException or ArgumentOutOfRangeException)
+        {
+            throw new CadUnsupportedEntityException(exception.Message);
+        }
+        if (!glyph.HasGeometry)
+        {
+            throw new CadUnsupportedEntityException(
+                $"SHX shape {resolution.ShapeNumber} has no drawable geometry.");
+        }
+
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(shape.Normal));
+        double cosine = Math.Cos(shape.Rotation);
+        double sine = Math.Sin(shape.Rotation);
+        CadPoint3D horizontal = (basis.XAxis * cosine) + (basis.YAxis * sine);
+        CadPoint3D vertical = (basis.XAxis * -sine) + (basis.YAxis * cosine);
+        CadPoint3D origin = ToPoint(shape.InsertionPoint);
+        CadPoint3D xAxis = horizontal * (shape.Size * shape.RelativeXScale);
+        CadPoint3D yAxis =
+            (horizontal * (shape.Size * Math.Tan(shape.ObliqueAngle))) +
+            (vertical * shape.Size);
+        if (hasTransform)
+        {
+            origin = transform.TransformPoint(origin);
+            xAxis = transform.TransformVector(xAxis);
+            yAxis = transform.TransformVector(yAxis);
+        }
+        EnsureFinite(origin);
+        EnsureFinite(xAxis);
+        EnsureFinite(yAxis);
+
+        double minimumX = glyph.BoundsMin.X;
+        double minimumY = glyph.BoundsMin.Y;
+        double maximumX = glyph.BoundsMax.X;
+        double maximumY = glyph.BoundsMax.Y;
+        CadBounds3D bounds = CadBounds3D.FromPoint(
+            TransformTextPoint(origin, xAxis, yAxis, minimumX, minimumY));
+        bounds = bounds
+            .Include(TransformTextPoint(origin, xAxis, yAxis, maximumX, minimumY))
+            .Include(TransformTextPoint(origin, xAxis, yAxis, minimumX, maximumY))
+            .Include(TransformTextPoint(origin, xAxis, yAxis, maximumX, maximumY));
+
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadShxShapePrimitive(origin, xAxis, yAxis, glyph));
+        if (resolution.IsSubstitution)
+        {
+            AddDiagnostic(
+                diagnostics,
+                options.DiagnosticLimit,
+                new CadDiagnostic(
+                    CadDiagnosticSeverity.Warning,
+                    "CADSNAP007",
+                    $"SHAPE path {FormatEntityPath(handle, shape.Handle)} substitutes its SHX file with '{resolution.ResolvedFontName}'."));
+        }
+        return new CadEntityHeader(
+            handle,
+            CadEntityKind.ShxShape,
             layerIndex,
             styleIndex,
             primitiveIndex,

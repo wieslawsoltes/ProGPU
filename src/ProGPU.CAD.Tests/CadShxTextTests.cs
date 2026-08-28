@@ -226,6 +226,32 @@ public sealed class CadShxTextTests
         Assert.Equal(new Vector2(3, 0), parsed.GetGlyph(65).Advance);
     }
 
+    [Fact]
+    public void CatalogResolvesStandaloneShapesByExactDwgIdentityOrDxfLoadOrder()
+    {
+        CadShxGlyphCache first = CreateShapeCache((230, "VALVE"));
+        CadShxGlyphCache second = CreateShapeCache((42, "VALVE"), (43, "PUMP"));
+        var catalog = new CadShxFontCatalog();
+        catalog.Register("first.shx", first);
+        catalog.Register("second.shx", second);
+        ICadShxShapeResolver snapshot = Assert.IsAssignableFrom<ICadShxShapeResolver>(
+            catalog.CreateResolverSnapshot());
+
+        CadShxShapeResolution dxf = snapshot.ResolveShape(
+            new CadShxShapeRequest("valve", 0, string.Empty));
+        CadShxShapeResolution dwg = snapshot.ResolveShape(
+            new CadShxShapeRequest(string.Empty, 43, "second.shx"));
+        CadShxShapeResolution unresolved = snapshot.ResolveShape(
+            new CadShxShapeRequest(string.Empty, 43, "first.shx"));
+
+        Assert.Same(first, dxf.GlyphCache);
+        Assert.Equal((ushort)230, dxf.ShapeNumber);
+        Assert.Equal("first.shx", dxf.ResolvedFontName);
+        Assert.Same(second, dwg.GlyphCache);
+        Assert.Equal((ushort)43, dwg.ShapeNumber);
+        Assert.Null(unresolved.GlyphCache);
+    }
+
     private static CadShxGlyphCache CreateCache()
     {
         CadShxFont font = CadShxFont.Parse(BuildStandardShx(
@@ -245,6 +271,11 @@ public sealed class CadShxTextTests
             (258, "DIAMETER", new byte[] { 2, 8, 1, 0, 0 })));
         return new CadShxGlyphCache(font);
     }
+
+    private static CadShxGlyphCache CreateShapeCache(
+        params (ushort Number, string Name)[] shapes) =>
+        new(CadShxFont.Parse(BuildStandardShx(shapes.Select(shape =>
+            (shape.Number, shape.Name, new byte[] { 0x10, 0 })).ToArray())));
 
     private static byte[] BuildStandardShx(
         params (ushort Number, string Name, byte[] Program)[] shapes)

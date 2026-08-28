@@ -33,6 +33,27 @@ public interface ICadShxFontResolver
     CadShxFontResolution Resolve(in CadShxFontRequest request);
 }
 
+public readonly record struct CadShxShapeRequest(
+    string ShapeName,
+    ushort ShapeNumber,
+    string PrimaryFontFilename);
+
+public readonly record struct CadShxShapeResolution(
+    CadShxGlyphCache? GlyphCache,
+    ushort ShapeNumber,
+    string ResolvedFontName,
+    bool IsSubstitution);
+
+/// <summary>
+/// Resolves one standalone SHAPE identity without file IO. A DWG request uses
+/// its explicit font filename and number; a DXF request uses the shape name
+/// and the document's registered SHX load order.
+/// </summary>
+public interface ICadShxShapeResolver
+{
+    CadShxShapeResolution ResolveShape(in CadShxShapeRequest request);
+}
+
 /// <summary>
 /// Resolves CAD TrueType styles through the process font catalog with an optional
 /// caller-owned fallback suitable for browser and sandboxed hosts.

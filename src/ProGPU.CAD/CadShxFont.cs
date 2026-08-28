@@ -44,6 +44,7 @@ public sealed class CadShxFont
         "AutoCAD-86 shapes 1.0\r\n\x1A"u8.ToArray();
     private static readonly byte[] EndMarker = "EOF"u8.ToArray();
     private readonly ReadOnlyDictionary<ushort, CadShxShape> _shapes;
+    private readonly ReadOnlyDictionary<string, CadShxShape> _shapesByName;
 
     public string Name { get; }
     public int Above { get; }
@@ -68,10 +69,29 @@ public sealed class CadShxFont
         Modes = modes;
         IsTextFont = isTextFont;
         _shapes = new ReadOnlyDictionary<ushort, CadShxShape>(shapes);
+        var shapesByName = new Dictionary<string, CadShxShape>(StringComparer.OrdinalIgnoreCase);
+        foreach (CadShxShape shape in shapes.Values)
+        {
+            if (IsRecognizedShapeName(shape.Name))
+            {
+                shapesByName.TryAdd(shape.Name, shape);
+            }
+        }
+        _shapesByName = new ReadOnlyDictionary<string, CadShxShape>(shapesByName);
     }
 
     public bool TryGetShape(ushort number, out CadShxShape? shape) =>
         _shapes.TryGetValue(number, out shape);
+
+    public bool TryGetShape(string name, out CadShxShape? shape)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            shape = null;
+            return false;
+        }
+        return _shapesByName.TryGetValue(name.Trim(), out shape);
+    }
 
     public static CadShxFont Parse(
         ReadOnlySpan<byte> source,
@@ -218,6 +238,22 @@ public sealed class CadShxFont
         ushort value = BinaryPrimitives.ReadUInt16LittleEndian(source[offset..]);
         offset += 2;
         return value;
+    }
+
+    private static bool IsRecognizedShapeName(string name)
+    {
+        if (name.Length == 0)
+        {
+            return false;
+        }
+        for (int i = 0; i < name.Length; i++)
+        {
+            if (name[i] is >= 'a' and <= 'z')
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static void ValidateOptions(CadShxParseOptions options)

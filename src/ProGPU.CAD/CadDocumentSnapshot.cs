@@ -20,6 +20,7 @@ public enum CadEntityKind : byte
     MText = 13,
     ShxMText = 14,
     Hatch = 15,
+    ShxShape = 16,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -417,6 +418,17 @@ public readonly record struct CadShxGlyphInstance(
     float Y);
 
 /// <summary>
+/// One standalone SHAPE retaining a single interpreted SHX path and its full
+/// WCS affine placement. Size, relative X scale, oblique, OCS rotation, and
+/// enclosing block transforms are baked into the two axes exactly once.
+/// </summary>
+public readonly record struct CadShxShapePrimitive(
+    CadPoint3D Origin,
+    CadPoint3D XAxis,
+    CadPoint3D YAxis,
+    CadShxGlyph Glyph);
+
+/// <summary>
 /// A stroked SHX decoration segment in the owning text primitive's local
 /// affine coordinate system.
 /// </summary>
@@ -481,6 +493,7 @@ public sealed class CadDocumentSnapshot
     private readonly CadShxMTextPrimitive[] _shxMTexts;
     private readonly CadShxMTextGlyphRun[] _shxMTextGlyphRuns;
     private readonly CadShxGlyphInstance[] _shxGlyphInstances;
+    private readonly CadShxShapePrimitive[] _shxShapes;
     private readonly CadShxDecorationSegment[] _shxDecorationSegments;
     private readonly CadPolylineVertex[] _polylineVertices;
     private readonly CadPoint3D[] _polyline3DPoints;
@@ -532,6 +545,7 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadShxMTextPrimitive> ShxMTexts => _shxMTexts;
     public ReadOnlyMemory<CadShxMTextGlyphRun> ShxMTextGlyphRuns => _shxMTextGlyphRuns;
     public ReadOnlyMemory<CadShxGlyphInstance> ShxGlyphInstances => _shxGlyphInstances;
+    public ReadOnlyMemory<CadShxShapePrimitive> ShxShapes => _shxShapes;
     public ReadOnlyMemory<CadShxDecorationSegment> ShxDecorationSegments => _shxDecorationSegments;
     public ReadOnlyMemory<CadPolylineVertex> PolylineVertices => _polylineVertices;
     public ReadOnlyMemory<CadPoint3D> Polyline3DPoints => _polyline3DPoints;
@@ -584,6 +598,7 @@ public sealed class CadDocumentSnapshot
         CadShxMTextPrimitive[] shxMTexts,
         CadShxMTextGlyphRun[] shxMTextGlyphRuns,
         CadShxGlyphInstance[] shxGlyphInstances,
+        CadShxShapePrimitive[] shxShapes,
         CadShxDecorationSegment[] shxDecorationSegments,
         CadPolylineVertex[] polylineVertices,
         CadPoint3D[] polyline3DPoints,
@@ -633,6 +648,7 @@ public sealed class CadDocumentSnapshot
         _shxMTexts = shxMTexts;
         _shxMTextGlyphRuns = shxMTextGlyphRuns;
         _shxGlyphInstances = shxGlyphInstances;
+        _shxShapes = shxShapes;
         _shxDecorationSegments = shxDecorationSegments;
         _polylineVertices = polylineVertices;
         _polyline3DPoints = polyline3DPoints;

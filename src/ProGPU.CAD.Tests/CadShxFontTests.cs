@@ -41,8 +41,19 @@ public sealed class CadShxFontTests
         Assert.Equal(string.Empty, shapes.Name);
         Assert.Equal(0, shapes.Above);
         Assert.True(shapes.TryGetShape(230, out _));
+        Assert.True(shapes.TryGetShape("dbox", out CadShxShape? named));
+        Assert.Equal((ushort)230, named!.Number);
         CadShxGlyph glyph = new CadShxGlyphCache(shapes).GetGlyph(230);
         Assert.True(glyph.HasGeometry);
+    }
+
+    [Fact]
+    public void LowercaseShapeLabelsAreNotStandaloneShapeNames()
+    {
+        CadShxFont shapes = CadShxFont.Parse(BuildStandardShx(
+            (1, "annotation", new byte[] { 0 })));
+
+        Assert.False(shapes.TryGetShape("annotation", out _));
     }
 
     [Fact]

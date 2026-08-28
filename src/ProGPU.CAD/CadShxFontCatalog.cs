@@ -9,13 +9,14 @@ namespace ProGPU.CAD;
 /// constructed glyph cache. Existing document snapshots remain independent of
 /// later catalog additions because they retain immutable glyph identities.
 /// </remarks>
-public sealed class CadShxFontCatalog : ICadShxFontResolver
+public sealed class CadShxFontCatalog : ICadShxFontResolver, ICadShxShapeResolver
 {
     private readonly object _gate = new();
     private readonly Dictionary<string, Entry> _fonts =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<CadShxGlyphCache, Entry> _entriesByCache =
         new(ReferenceEqualityComparer.Instance);
+    private readonly List<Entry> _registrationOrder = [];
     private readonly Dictionary<string, string> _mappings =
         new(StringComparer.OrdinalIgnoreCase);
     private Entry? _alternate;
@@ -148,6 +149,7 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver
             {
                 entry = new Entry(registeredName, cache);
                 _entriesByCache.Add(cache, entry);
+                _registrationOrder.Add(entry);
             }
             foreach (string key in keys)
             {
@@ -274,6 +276,24 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver
         }
     }
 
+    public CadShxShapeResolution ResolveShape(in CadShxShapeRequest request)
+    {
+        string primary = NormalizeOptionalLookupName(request.PrimaryFontFilename);
+        string mappingSource = NormalizeOptionalMappingSource(primary);
+        string shapeName = request.ShapeName?.Trim() ?? string.Empty;
+        lock (_gate)
+        {
+            return ResolveShapeCore(
+                shapeName,
+                request.ShapeNumber,
+                primary,
+                mappingSource,
+                _fonts,
+                _mappings,
+                _registrationOrder);
+        }
+    }
+
     /// <summary>
     /// Captures one immutable resolver generation. Repeated calls reuse the
     /// same snapshot until registration, mapping, or alternate state changes.
@@ -285,7 +305,8 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver
             return _resolverSnapshot ??= new ResolverSnapshot(
                 new Dictionary<string, Entry>(_fonts, StringComparer.OrdinalIgnoreCase),
                 new Dictionary<string, string>(_mappings, StringComparer.OrdinalIgnoreCase),
-                _alternate);
+                _alternate,
+                _registrationOrder.ToArray());
         }
     }
 
@@ -318,6 +339,83 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver
 
     private static CadShxFontResolution Resolution(Entry entry, bool isSubstitution) =>
         new(entry.Cache, entry.RegisteredName, isSubstitution);
+
+    private static CadShxShapeResolution ResolveShapeCore(
+        string shapeName,
+        ushort shapeNumber,
+        string primary,
+        string mappingSource,
+        IReadOnlyDictionary<string, Entry> fonts,
+        IReadOnlyDictionary<string, string> mappings,
+        IReadOnlyList<Entry> registrationOrder)
+    {
+        if (primary.Length != 0)
+        {
+            Entry? entry = null;
+            bool substitution = false;
+            if (mappingSource.Length != 0 &&
+                mappings.TryGetValue(mappingSource, out string? mappedName) &&
+                fonts.TryGetValue(mappedName, out Entry? mapped))
+            {
+                entry = mapped;
+                substitution = true;
+            }
+            else
+            {
+                fonts.TryGetValue(primary, out entry);
+            }
+
+            if (entry is null ||
+                !TryResolveShapeNumber(entry.Cache.Font, shapeName, shapeNumber, out ushort resolved))
+            {
+                return default;
+            }
+            return new CadShxShapeResolution(
+                entry.Cache,
+                resolved,
+                entry.RegisteredName,
+                substitution);
+        }
+
+        if (shapeName.Length == 0)
+        {
+            return default;
+        }
+        for (int i = 0; i < registrationOrder.Count; i++)
+        {
+            Entry entry = registrationOrder[i];
+            if (!entry.Cache.Font.IsTextFont &&
+                entry.Cache.Font.TryGetShape(shapeName, out CadShxShape? shape))
+            {
+                return new CadShxShapeResolution(
+                    entry.Cache,
+                    shape!.Number,
+                    entry.RegisteredName,
+                    false);
+            }
+        }
+        return default;
+    }
+
+    private static bool TryResolveShapeNumber(
+        CadShxFont font,
+        string shapeName,
+        ushort shapeNumber,
+        out ushort resolved)
+    {
+        if (shapeNumber != 0 && font.TryGetShape(shapeNumber, out _))
+        {
+            resolved = shapeNumber;
+            return true;
+        }
+        if (shapeName.Length != 0 && font.TryGetShape(shapeName, out CadShxShape? shape))
+        {
+            resolved = shape!.Number;
+            return true;
+        }
+        resolved = 0;
+        return false;
+    }
 
     private static string NormalizeShxFilename(string value, string parameterName)
     {
@@ -388,7 +486,8 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver
     private sealed class ResolverSnapshot(
         IReadOnlyDictionary<string, Entry> fonts,
         IReadOnlyDictionary<string, string> mappings,
-        Entry? alternate) : ICadShxFontResolver
+        Entry? alternate,
+        IReadOnlyList<Entry> registrationOrder) : ICadShxFontResolver, ICadShxShapeResolver
     {
         public CadShxFontResolution Resolve(in CadShxFontRequest request)
         {
@@ -404,6 +503,19 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver
                 fonts,
                 mappings,
                 alternate);
+        }
+
+        public CadShxShapeResolution ResolveShape(in CadShxShapeRequest request)
+        {
+            string primary = NormalizeOptionalLookupName(request.PrimaryFontFilename);
+            return ResolveShapeCore(
+                request.ShapeName?.Trim() ?? string.Empty,
+                request.ShapeNumber,
+                primary,
+                NormalizeOptionalMappingSource(primary),
+                fonts,
+                mappings,
+                registrationOrder);
         }
     }
 }

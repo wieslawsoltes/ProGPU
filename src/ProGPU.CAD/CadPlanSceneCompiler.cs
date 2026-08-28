@@ -337,6 +337,13 @@ public sealed class CadPlanSceneCompiler
                         snapshot.ShxMTexts.Span[entity.PrimitiveIndex],
                         mtextBrushes);
                     break;
+                case CadEntityKind.ShxShape:
+                    RecordShxShape(
+                        context,
+                        pen,
+                        snapshot,
+                        snapshot.ShxShapes.Span[entity.PrimitiveIndex]);
+                    break;
                 default:
                     throw new InvalidOperationException($"Unknown CAD entity kind {entity.Kind}.");
             }
@@ -1315,6 +1322,20 @@ public sealed class CadPlanSceneCompiler
         }
     }
 
+    private static void RecordShxShape(
+        DrawingContext context,
+        Pen pen,
+        CadDocumentSnapshot snapshot,
+        in CadShxShapePrimitive shape)
+    {
+        Matrix4x4 transform = CreateProjectionTransform(
+            shape.Origin,
+            shape.XAxis,
+            shape.YAxis,
+            snapshot.RebaseOrigin);
+        context.DrawPath(null, pen, shape.Glyph.Path, transform);
+    }
+
     private static void RecordMText(
         DrawingContext context,
         CadDocumentSnapshot snapshot,
@@ -1573,7 +1594,7 @@ public sealed class CadPlanSceneCompiler
     }
 
     private static bool UsesStroke(CadEntityKind kind) =>
-        kind is not (CadEntityKind.Solid or CadEntityKind.Hatch or CadEntityKind.Text or CadEntityKind.ShxText or CadEntityKind.MText or CadEntityKind.ShxMText);
+        kind is not (CadEntityKind.Solid or CadEntityKind.Hatch or CadEntityKind.Text or CadEntityKind.ShxText or CadEntityKind.MText or CadEntityKind.ShxMText or CadEntityKind.ShxShape);
 
     private static void ValidateOptions(CadPlanSceneOptions options)
     {

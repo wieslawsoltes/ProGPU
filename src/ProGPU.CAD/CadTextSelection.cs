@@ -183,6 +183,36 @@ internal static class CadTextSelection
         return FromPoint(minimum, tolerance, hasGeometry);
     }
 
+    public static CadPointHitResult HitTestShxShapePoint(
+        in CadShxShapePrimitive shape,
+        CadPoint3D point,
+        double tolerance)
+    {
+        if (!shape.Glyph.HasGeometry)
+        {
+            return FromPoint(double.PositiveInfinity, tolerance, hasGeometry: false);
+        }
+        double minimum = double.PositiveInfinity;
+        bool hasGeometry = false;
+        var placement = new PathPlacement(
+            shape.Origin,
+            shape.XAxis,
+            shape.YAxis,
+            0.0,
+            0.0,
+            1.0,
+            1.0);
+        return TryPointPath(
+            shape.Glyph.Path,
+            placement,
+            point,
+            filled: false,
+            ref minimum,
+            ref hasGeometry)
+            ? FromPoint(minimum, tolerance, hasGeometry)
+            : UnsupportedPoint();
+    }
+
     public static CadBoundsHitResult HitTestTextBounds(
         CadDocumentSnapshot snapshot,
         in CadTextPrimitive text,
@@ -703,6 +733,37 @@ internal static class CadTextSelection
         return mode == CadBoundsSelectionMode.Window && hasGeometry
             ? BoundsHit()
             : BoundsMiss();
+    }
+
+    public static CadBoundsHitResult HitTestShxShapeBounds(
+        in CadShxShapePrimitive shape,
+        CadBounds3D bounds,
+        CadBoundsSelectionMode mode)
+    {
+        if (bounds.IsEmpty || !shape.Glyph.HasGeometry)
+        {
+            return BoundsMiss();
+        }
+        var placement = new PathPlacement(
+            shape.Origin,
+            shape.XAxis,
+            shape.YAxis,
+            0.0,
+            0.0,
+            1.0,
+            1.0);
+        return !TryBoundsPath(
+                shape.Glyph.Path,
+                placement,
+                bounds,
+                mode,
+                filled: false,
+                out bool hit,
+                out bool hasGeometry)
+            ? BoundsUnsupported()
+            : hit && hasGeometry
+                ? BoundsHit()
+                : BoundsMiss();
     }
 
     private static CadBoundsHitResult HitTextBoundsCore(

@@ -282,7 +282,8 @@ public sealed class CadDocumentStore : ICadDocumentStore
             case CadDocumentFormat.Dxf:
                 var dxfConfiguration = new DxfWriterConfiguration
                 {
-                    CloseStream = false
+                    CloseStream = false,
+                    WriteShapes = true,
                 };
                 DxfWriter.Write(
                     lease,
@@ -294,7 +295,8 @@ public sealed class CadDocumentStore : ICadDocumentStore
             case CadDocumentFormat.Dwg:
                 var dwgConfiguration = new DwgWriterConfiguration
                 {
-                    CloseStream = false
+                    CloseStream = false,
+                    WriteShapes = true,
                 };
                 DwgWriter.Write(
                     lease,

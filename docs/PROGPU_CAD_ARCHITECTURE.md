@@ -1299,6 +1299,51 @@ Parsing takes `O(B + S)` time and `O(B + S)` owned storage for `B` input bytes
 and `S` shape-directory entries. Shape lookup is expected `O(1)` and program
 storage remains packed.
 
+### Standalone SHAPE identity and retained-path contract
+
+A standalone DXF `SHAPE` carries its shape name in group 2; that value is not a
+text-style name. DWG instead retains the numeric shape identifier and the
+shape-file STYLE handle. The pinned ACadSharp model therefore preserves both
+representations: DXF reads and writes `ShapeName` without inventing a STYLE,
+while DWG reads and writes `ShapeNumber` plus the shape-file STYLE reference.
+Its transform implementation derives the entity's complete local affine frame,
+transforms the origin and axes, and decomposes the result back into size,
+relative X scale, rotation, and oblique values. Collapsed or reflected frames
+fail instead of publishing a corrupt entity.
+
+`ICadShxShapeResolver` is a distinct typed capability on the reusable catalog
+and its immutable resolver snapshots. A DWG identity resolves only within its
+referenced primary or explicitly mapped shape file, by number first and then by
+name. A DXF name with no file identity searches registered non-text shape files
+in stable registration order, matching AutoCAD's loaded-shape namespace. Shape
+names are indexed case-insensitively in expected `O(1)` time, but only valid
+uppercase definition labels participate; lowercase font-description labels are
+not promoted into drawable identities. Exact primary lookup is expected `O(1)`;
+DXF name-only lookup is `O(F)` across `F` registered shape files, with expected
+`O(1)` work per file. Resolver freezing copies that bounded order once per
+catalog generation, so one document compile cannot observe a mixed registration
+state.
+
+Snapshot lowering interprets the resolved immutable glyph at most once through
+`CadShxGlyphCache`, then retains one `CadShxShapePrimitive` containing the shared
+analytic path and a WCS origin/X/Y basis. The basis composes size, X-only width
+factor, vertical oblique shear, OCS rotation and normal, and every enclosing
+block transform exactly once. The documented insertion point remains WCS even
+when the OCS controls orientation. Nonzero thickness is an explicit unsupported
+3D extrusion contract. Missing identities, empty programs, non-finite or
+degenerate transforms, and unavailable shape-capable resolvers also fail with a
+typed diagnostic rather than substituting arbitrary geometry.
+
+Compilation is `O(C + S)` on the first use of a definition and expected `O(1)`
+on later cache hits for `C` executed SHX commands and `S` retained segments.
+Bounds are the exact affine image of the cached analytic bounds. Recording emits
+one existing stroked `DrawPath`; exact point and Window/Crossing selection walk
+the same analytic path. Viewport culling, retained scene replay, print-plan
+recording, lineweight policy, and device loss therefore continue through the
+existing shared path pipeline with no new shader, upload, texture, or managed/
+native ABI. The native renderer needs no CAD parser fork and consumes the same
+retained command as the managed renderer.
+
 `CadShxInterpreter` implements the standard command stream directly from the
 Autodesk contract: 16 encoded vector directions; draw/move modes; cumulative
 divide/multiply scale; balanced push/pop with the specified four-location
@@ -2441,6 +2486,37 @@ Sources consulted on 2026-08-27 and 2026-08-28:
   adapted only the standard compiled container into an immutable source layer;
   rejected signature guessing, eager opcode expansion, and treating Unicode or
   Big Font records as standard shapes.
+- For standalone SHAPE entities, Autodesk's
+  [DXF group-code contract](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-DXF/files/GUID-0988D755-9AAB-4D6C-8E26-EC636F507F2C.htm),
+  [AcDbShape API contract](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-RefGuide/files/OREF-__MEMBERTYPE_Methods_AcDbShape.html),
+  [shape-file STYLE contract](https://help.autodesk.com/cloudhelp/2017/ENU/AutoCAD-DXF/files/GUID-EF68AF7C-13EF-45A1-8175-ED6CE66C8FC9.htm),
+  [OCS contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-D99F1509-E4E4-47A3-8691-92EA07DC88F5.htm),
+  [shape-name/file/scale behavior](https://help.autodesk.com/cloudhelp/2019/ENU/AutoCAD-MAC-Customization/files/GUID-AF0613E6-5C8B-47F0-800C-8B2524BF2015.htm),
+  and [first-loaded duplicate-name behavior](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-829B0626-36AB-443A-B53C-D7227297C6CE.htm)
+  establish name versus style identity, numeric DWG identity, WCS insertion,
+  OCS-relative rotation, height, X-only width, vertical oblique shear, loaded
+  shape-file lookup, and internal definition scale. Adopted separate name and
+  number fields, exact file-scoped DWG resolution, ordered DXF name resolution,
+  and one retained affine path; rejected interpreting DXF group 2 as a STYLE,
+  using a Unicode character map, arbitrary cross-file numeric fallback, or
+  silently flattening nonzero thickness.
+  [Skia's retained path contract](https://skia.org/docs/user/api/skpath_overview/),
+  [Direct2D immutable and transformed geometries](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-geometries-overview),
+  [Win2D `CanvasPathBuilder`](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasPathBuilder.htm),
+  [WebRender's retained rendering pipeline](https://searchfox.org/mozilla-central/source/gfx/docs/RenderingOverview.rst),
+  and [Vello's retained-scene/path-transform model](https://github.com/linebender/vello/blob/main/doc/vision.md)
+  were rechecked for the required rendering gate. They support definition-owned
+  reusable analytic geometry with occurrence transforms and renderer-owned
+  device state; ProGPU adapts that architecture to its existing cached
+  `PathGeometry` and shared `DrawPath` command. HarfBuzz's
+  [Unicode shaping scope](https://harfbuzz.github.io/what-is-harfbuzz.html) and
+  [Parley's layout architecture](https://github.com/linebender/parley/blob/main/doc/concept.md)
+  were explicitly rejected for identity and layout here: a standalone SHAPE is
+  one named/numbered special-SHX program, not a Unicode string, cluster,
+  fallback-font run, or paragraph. No startup font enumeration, shaping,
+  line-layout, DPI/subpixel text snapping, glyph atlas, variable-font state, or
+  text-device-loss rule applies; catalog registration remains bounded host
+  initialization and the ordinary vector-path cache owns raster residency.
 - [Autodesk support-file search-path contract](https://help.autodesk.com/cloudhelp/2027/ENG/AutoCAD-Core/files/GUID-F95EE827-7567-44EA-9D69-E9D0D37EE13F.htm),
   [FONTMAP contract](https://help.autodesk.com/cloudhelp/2027/ENU/AutoCAD-Core/files/GUID-FC45A5DC-31F5-4725-A482-C95769273C1C.htm),
   [font-substitution and FMP editing contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-LT/files/GUID-928DF015-1E04-4CC2-AF1B-0037548DFBAE.htm),
