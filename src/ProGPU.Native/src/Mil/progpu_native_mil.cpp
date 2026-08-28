@@ -8299,8 +8299,46 @@ struct channel::implementation {
             if (drawing == geometry_drawings.end() ||
                 drawing->second.brush_handle == 0U ||
                 drawing->second.pen_handle != 0U ||
-                drawing->second.geometry_handle == 0U ||
-                !fixed_geometries.contains(
+                drawing->second.geometry_handle == 0U) {
+                return status::unsupported_command;
+            }
+            const auto path = path_geometries.find(
+                drawing->second.geometry_handle);
+            if (path != path_geometries.end()) {
+                if (path->second.transform_handle != 0U ||
+                    path->second.segments.empty()) {
+                    return status::unsupported_command;
+                }
+                float left = std::numeric_limits<float>::infinity();
+                float top = std::numeric_limits<float>::infinity();
+                float right = -std::numeric_limits<float>::infinity();
+                float bottom = -std::numeric_limits<float>::infinity();
+                const auto include_point = [
+                    &left,
+                    &top,
+                    &right,
+                    &bottom](progpu_native_point point) noexcept {
+                    left = std::min(left, point.x);
+                    top = std::min(top, point.y);
+                    right = std::max(right, point.x);
+                    bottom = std::max(bottom, point.y);
+                };
+                for (const auto& segment : path->second.segments) {
+                    if (segment.kind != PROGPU_NATIVE_PATH_SEGMENT_LINE) {
+                        return status::unsupported_command;
+                    }
+                    include_point(segment.p0);
+                    include_point(segment.p1);
+                }
+                if (!std::isfinite(left) || !std::isfinite(top) ||
+                    !std::isfinite(right) || !std::isfinite(bottom) ||
+                    right <= left || bottom <= top) {
+                    return status::unsupported_command;
+                }
+                bounds = {left, top, right - left, bottom - top};
+                return status::success;
+            }
+            if (!fixed_geometries.contains(
                     drawing->second.geometry_handle)) {
                 return status::unsupported_command;
             }

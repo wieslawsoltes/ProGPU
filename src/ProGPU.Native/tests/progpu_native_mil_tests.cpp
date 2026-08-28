@@ -10714,6 +10714,120 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
     return true;
 }
 
+bool retained_drawing_image_infers_line_path_bounds() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+    constexpr std::uint32_t geometry = 5U;
+    constexpr std::uint32_t geometry_drawing = 6U;
+    constexpr std::uint32_t drawing_image = 7U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, brush, 75U);
+    append_create(batch, geometry, 73U);
+    append_create(batch, geometry_drawing, 87U);
+    append_create(batch, drawing_image, 59U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.2F, 0.6F, 0.4F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    append_path_geometry(
+        batch,
+        geometry,
+        0U,
+        1U,
+        make_rectangle_path_figures(10.0, 20.0, 30.0, 30.0));
+    append_command(
+        batch,
+        command::geometry_drawing,
+        geometry_drawing,
+        brush,
+        0U,
+        geometry);
+    append_command(
+        batch,
+        command::drawing_image,
+        drawing_image,
+        geometry_drawing);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_image,
+        2.0,
+        4.0,
+        40.0,
+        20.0,
+        drawing_image,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7007U, 1U, stream, nullptr) ==
+        status::success);
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_mapping = false;
+    for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            continue;
+        }
+        const auto scene_state = read_value<progpu_native_scene_state>(
+            stream, resource.payload_offset);
+        if (scene_state.transform.m11 == 2.0F &&
+            scene_state.transform.m22 == 2.0F &&
+            scene_state.transform.m31 == -18.0F &&
+            scene_state.transform.m32 == -36.0F &&
+            (scene_state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U) {
+            found_mapping = true;
+        }
+    }
+    PROGPU_REQUIRE(found_mapping);
+
+    const std::array quadratic_points{
+        std::array{5.0, 9.0},
+        std::array{11.0, 3.0}};
+    std::vector<std::byte> curved_update;
+    append_path_geometry(
+        curved_update,
+        geometry,
+        0U,
+        1U,
+        make_single_bezier_path_figures(3U, quadratic_points));
+    PROGPU_REQUIRE(state.apply(curved_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7007U, 2U, stream, nullptr) ==
+        status::unsupported_command);
+    return true;
+}
+
 bool retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -13742,6 +13856,7 @@ int main() {
         retained_image_drawing_uses_pointer_free_bitmap_sideband());
     PROGPU_REQUIRE(
         retained_drawing_image_maps_vector_content_into_destination());
+    PROGPU_REQUIRE(retained_drawing_image_infers_line_path_bounds());
     PROGPU_REQUIRE(
         retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband());
     PROGPU_REQUIRE(retained_geometry_group_compiles_to_one_semantic_path());

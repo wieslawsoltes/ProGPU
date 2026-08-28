@@ -2042,13 +2042,16 @@ recursively compiling the Drawing. A fill-only `GeometryDrawing` backed by a
 positive-area fixed rectangle, rounded rectangle, or ellipse now derives its
 current exact bounds directly from typed native geometry and transform state;
 animated fixed values and transforms are therefore resolved at scene-build
-time instead of being cached in the `DrawingImage`. Other drawing shapes still
-require the exact drawing-content-bounds sideband and fail closed when it is
-absent. No bitmap intermediate, pointer transport, reflection, or host raster
-fallback is introduced. Recursive image/drawing ownership is rejected as
+time instead of being cached in the `DrawingImage`. An identity-transformed,
+fill-only line-segment `PathGeometry` derives bounds from its emitted fill
+segments, so unfilled figures and packet bounds cannot broaden the mapped
+content. Curved or transformed paths and other drawing shapes still require
+the exact drawing-content-bounds sideband and fail closed when it is absent.
+No bitmap intermediate, pointer transport, reflection, or host raster fallback
+is introduced. Recursive image/drawing ownership is rejected as
 `invalid_graph`, and an empty DrawingImage remains a no-op. Native coverage
 locks down distinct retained, direct-static, and direct-animated destination
-mappings in one scene.
+mappings plus sideband-free fixed and polygonal path replay.
 
 `NativeMilRenderDataBuilder.DrawImage(...)` now exposes the same canonical
 static packet to typed hosts. It validates finite nonnegative destination
@@ -2143,9 +2146,10 @@ hosts bind drawing shapes that cannot yet be derived natively through
 `progpu_native_mil_channel_set_drawing_image_bounds`; unlike WPF's original
 in-process resource graph, those bounds are not present in the packet. The
 native compiler derives the exact live bounds of positive-area, fill-only
-fixed-geometry `GeometryDrawing` leaves without that sideband. Missing or
-nonfinite bounds for every other shape fail closed, while a null Drawing
-remains a canonical no-op.
+fixed-geometry `GeometryDrawing` leaves and identity-transformed, line-only
+fillable `PathGeometry` leaves without that sideband. Missing or nonfinite
+bounds for every other shape fail closed, while a null Drawing remains a
+canonical no-op.
 
 Scene compilation recursively reuses retained GeometryDrawing,
 GlyphRunDrawing, ImageDrawing, and DrawingGroup lowering. It scales and
