@@ -2121,6 +2121,14 @@ for `progpu_native_mil.cpp` and
 `686408284DC0146C6F3EE60BAA431DDA379A0700460FC2092E5ABD78AF72A803`
 for the test source.
 
+Positive rectangle/rounded-rectangle/ellipse stroke checkpoint `81b5e0c4`
+rebuilt cleanly in the same Windows MSVC `/W4 /WX` lane and passed the focused
+native MIL test in 2.53 seconds. Exact guest hashes again matched the host:
+`4CD38BAC4ACB4DE61EC2E2459265AC1056373E6DA34AA6ED6C3DE14C83604595`
+for `progpu_native_mil.cpp` and
+`B094837862908657F648F67C5819171D2EACC1BF7FF19B8BF0BB64C1255E32C7`
+for the test source.
+
 `NativeMilRenderDataBuilder.DrawImage(...)` now exposes the same canonical
 static packet to typed hosts. It validates finite nonnegative destination
 bounds and a nonzero image handle, writes the required zero padding, and is
