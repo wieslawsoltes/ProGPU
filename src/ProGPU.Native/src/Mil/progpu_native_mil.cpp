@@ -6003,28 +6003,9 @@ struct channel::implementation {
             return status::invalid_graph;
         }
         progpu_native_image_rect transformed_bounds{};
-        const double bounds_x = resolved_fixed.kind ==
-                fixed_geometry_kind::ellipse
-            ? resolved_fixed.first - resolved_fixed.third
-            : resolved_fixed.first;
-        const double bounds_y = resolved_fixed.kind ==
-                fixed_geometry_kind::ellipse
-            ? resolved_fixed.second - resolved_fixed.fourth
-            : resolved_fixed.second;
-        const double bounds_width = resolved_fixed.kind ==
-                fixed_geometry_kind::ellipse
-            ? resolved_fixed.third * 2.0
-            : resolved_fixed.third;
-        const double bounds_height = resolved_fixed.kind ==
-                fixed_geometry_kind::ellipse
-            ? resolved_fixed.fourth * 2.0
-            : resolved_fixed.fourth;
-        if (!try_transform_bounds(
-                bounds_x,
-                bounds_y,
-                bounds_width,
-                bounds_height,
-                transform,
+        if (!try_get_path_segment_bounds(
+                std::span<const progpu_native_path_segment>{segments}
+                    .subspan(original_size),
                 transformed_bounds)) {
             segments.resize(original_size);
             leaf = {};
@@ -8496,6 +8477,8 @@ struct channel::implementation {
             auto&& resolve_bounds,
             std::uint32_t drawing_handle,
             std::uint32_t depth,
+            const affine_2d_double& current_transform,
+            const progpu_native_image_rect* active_clip,
             progpu_native_image_rect& bounds) noexcept {
             if (depth >= maximum_visual_depth) {
                 return status::invalid_graph;
@@ -8504,44 +8487,105 @@ struct channel::implementation {
             if (drawing_group != drawing_groups.end()) {
                 const auto& group = drawing_group->second;
                 if (group.children.empty()) {
-                    return status::unsupported_command;
+                    bounds = {};
+                    return status::success;
+                }
+                affine_2d_double next_transform = current_transform;
+                if (group.transform_handle != 0U) {
+                    affine_2d_double group_transform{};
+                    const status transform_status = resolve_transform(
+                        group.transform_handle,
+                        group_transform);
+                    if (transform_status != status::success) {
+                        return transform_status;
+                    }
+                    next_transform = compose_affine(
+                        group_transform,
+                        current_transform);
+                }
+                if (affine_has_zero_area(next_transform)) {
+                    bounds = {};
+                    return status::success;
+                }
+                progpu_native_image_rect combined_clip{};
+                const progpu_native_image_rect* child_clip = active_clip;
+                if (group.clip_geometry_handle != 0U) {
+                    drawing_image_bounds_segments.clear();
+                    shallow_fill_leaf clip{};
+                    const status clip_status = geometry_groups.contains(
+                            group.clip_geometry_handle)
+                        ? append_group_fill_leaf(
+                            group.clip_geometry_handle,
+                            drawing_image_bounds_segments,
+                            clip,
+                            next_transform)
+                        : append_shallow_fill_leaf(
+                            group.clip_geometry_handle,
+                            drawing_image_bounds_segments,
+                            clip,
+                            next_transform);
+                    if (clip_status != status::success) {
+                        return clip_status;
+                    }
+                    if (!clip.has_bounds || clip.right <= clip.left ||
+                        clip.bottom <= clip.top) {
+                        bounds = {};
+                        return status::success;
+                    }
+                    double clip_left = clip.left;
+                    double clip_top = clip.top;
+                    double clip_right = clip.right;
+                    double clip_bottom = clip.bottom;
+                    if (active_clip != nullptr) {
+                        clip_left = std::max(
+                            clip_left,
+                            double{active_clip->x});
+                        clip_top = std::max(
+                            clip_top,
+                            double{active_clip->y});
+                        clip_right = std::min(
+                            clip_right,
+                            double{active_clip->x + active_clip->width});
+                        clip_bottom = std::min(
+                            clip_bottom,
+                            double{active_clip->y + active_clip->height});
+                    }
+                    if (clip_right <= clip_left ||
+                        clip_bottom <= clip_top ||
+                        !finite_double_as_float(clip_left) ||
+                        !finite_double_as_float(clip_top) ||
+                        !finite_double_as_float(clip_right - clip_left) ||
+                        !finite_double_as_float(clip_bottom - clip_top)) {
+                        bounds = {};
+                        return status::success;
+                    }
+                    combined_clip = {
+                        static_cast<float>(clip_left),
+                        static_cast<float>(clip_top),
+                        static_cast<float>(clip_right - clip_left),
+                        static_cast<float>(clip_bottom - clip_top)};
+                    child_clip = &combined_clip;
                 }
                 double left = 0.0;
                 double top = 0.0;
                 double right = 0.0;
                 double bottom = 0.0;
                 bool has_bounds = false;
-                shallow_fill_leaf clip{};
-                const bool has_clip = group.clip_geometry_handle != 0U;
-                if (has_clip) {
-                    drawing_image_bounds_segments.clear();
-                    const status clip_status = geometry_groups.contains(
-                            group.clip_geometry_handle)
-                        ? append_group_fill_leaf(
-                            group.clip_geometry_handle,
-                            drawing_image_bounds_segments,
-                            clip)
-                        : append_shallow_fill_leaf(
-                            group.clip_geometry_handle,
-                            drawing_image_bounds_segments,
-                            clip);
-                    if (clip_status != status::success) {
-                        return clip_status;
-                    }
-                    if (!clip.has_bounds || clip.right <= clip.left ||
-                        clip.bottom <= clip.top) {
-                        return status::unsupported_command;
-                    }
-                }
                 for (const std::uint32_t child : group.children) {
                     progpu_native_image_rect child_bounds{};
                     const status child_status = resolve_bounds(
                         resolve_bounds,
                         child,
                         depth + 1U,
+                        next_transform,
+                        child_clip,
                         child_bounds);
                     if (child_status != status::success) {
                         return child_status;
+                    }
+                    if (child_bounds.width <= 0.0F ||
+                        child_bounds.height <= 0.0F) {
+                        continue;
                     }
                     double child_left = child_bounds.x;
                     double child_top = child_bounds.y;
@@ -8549,16 +8593,6 @@ struct channel::implementation {
                         child_bounds.width;
                     double child_bottom = child_top +
                         child_bounds.height;
-                    if (has_clip) {
-                        child_left = std::max(child_left, clip.left);
-                        child_top = std::max(child_top, clip.top);
-                        child_right = std::min(child_right, clip.right);
-                        child_bottom = std::min(child_bottom, clip.bottom);
-                        if (child_right <= child_left ||
-                            child_bottom <= child_top) {
-                            continue;
-                        }
-                    }
                     if (!has_bounds) {
                         left = child_left;
                         top = child_top;
@@ -8573,31 +8607,14 @@ struct channel::implementation {
                     }
                 }
                 if (!has_bounds || right <= left || bottom <= top) {
-                    return status::unsupported_command;
+                    bounds = {};
+                    return status::success;
                 }
-                affine_2d_double transform{};
-                if (group.transform_handle != 0U) {
-                    const status transform_status = resolve_transform(
-                        group.transform_handle,
-                        transform);
-                    if (transform_status != status::success) {
-                        return transform_status;
-                    }
-                    if (!affine_preserves_axis_alignment(transform) ||
-                        affine_has_zero_area(transform)) {
-                        return status::unsupported_command;
-                    }
-                }
-                if (!try_transform_bounds(
-                        left,
-                        top,
-                        right - left,
-                        bottom - top,
-                        transform,
-                        bounds) ||
-                    bounds.width <= 0.0F || bounds.height <= 0.0F) {
-                    return status::unsupported_command;
-                }
+                bounds = {
+                    static_cast<float>(left),
+                    static_cast<float>(top),
+                    static_cast<float>(right - left),
+                    static_cast<float>(bottom - top)};
                 return status::success;
             }
             const auto drawing = geometry_drawings.find(drawing_handle);
@@ -8605,6 +8622,29 @@ struct channel::implementation {
                 drawing->second.geometry_handle == 0U) {
                 return status::unsupported_command;
             }
+            const auto finish_bounds = [&bounds, active_clip]() noexcept {
+                if (bounds.width <= 0.0F || bounds.height <= 0.0F) {
+                    bounds = {};
+                    return status::success;
+                }
+                if (active_clip == nullptr) {
+                    return status::success;
+                }
+                const float left = std::max(bounds.x, active_clip->x);
+                const float top = std::max(bounds.y, active_clip->y);
+                const float right = std::min(
+                    bounds.x + bounds.width,
+                    active_clip->x + active_clip->width);
+                const float bottom = std::min(
+                    bounds.y + bounds.height,
+                    active_clip->y + active_clip->height);
+                if (right <= left || bottom <= top) {
+                    bounds = {};
+                    return status::success;
+                }
+                bounds = {left, top, right - left, bottom - top};
+                return status::success;
+            };
             if (drawing->second.pen_handle != 0U) {
                 const auto fixed = fixed_geometries.find(
                     drawing->second.geometry_handle);
@@ -8636,17 +8676,21 @@ struct channel::implementation {
                         return status::unsupported_command;
                     }
                 }
-                affine_2d_double transform{};
+                affine_2d_double transform = current_transform;
                 if (geometry.transform_handle != 0U) {
+                    affine_2d_double geometry_transform{};
                     const status transform_status = resolve_transform(
-                        geometry.transform_handle, transform);
+                        geometry.transform_handle, geometry_transform);
                     if (transform_status != status::success) {
                         return transform_status;
                     }
-                    if (!affine_preserves_axis_alignment(transform) ||
-                        affine_has_zero_area(transform)) {
-                        return status::unsupported_command;
-                    }
+                    transform = compose_affine(
+                        geometry_transform,
+                        current_transform);
+                }
+                if (!affine_preserves_axis_alignment(transform) ||
+                    affine_has_zero_area(transform)) {
+                    return status::unsupported_command;
                 }
                 if (geometry.kind != fixed_geometry_kind::line) {
                     const bool is_ellipse =
@@ -8674,7 +8718,7 @@ struct channel::implementation {
                         bounds.width <= 0.0F || bounds.height <= 0.0F) {
                         return status::unsupported_command;
                     }
-                    return status::success;
+                    return finish_bounds();
                 }
                 double stroke_x = 0.0;
                 double stroke_y = 0.0;
@@ -8702,46 +8746,10 @@ struct channel::implementation {
                     bounds.width <= 0.0F || bounds.height <= 0.0F) {
                     return status::unsupported_command;
                 }
-                return status::success;
+                return finish_bounds();
             }
             if (drawing->second.brush_handle == 0U) {
                 return status::unsupported_command;
-            }
-            const auto path = path_geometries.find(
-                drawing->second.geometry_handle);
-            if (path != path_geometries.end()) {
-                if (path->second.segments.empty()) {
-                    return status::unsupported_command;
-                }
-                if (path->second.transform_handle == 0U) {
-                    return try_get_path_segment_bounds(
-                            path->second.segments, bounds)
-                        ? status::success
-                        : status::unsupported_command;
-                }
-                drawing_image_bounds_segments.clear();
-                shallow_fill_leaf leaf{};
-                const status path_status = append_shallow_fill_leaf(
-                    drawing->second.geometry_handle,
-                    drawing_image_bounds_segments,
-                    leaf);
-                if (path_status != status::success) {
-                    return path_status;
-                }
-                if (!leaf.has_bounds || leaf.right <= leaf.left ||
-                    leaf.bottom <= leaf.top ||
-                    !finite_double_as_float(leaf.left) ||
-                    !finite_double_as_float(leaf.top) ||
-                    !finite_double_as_float(leaf.right - leaf.left) ||
-                    !finite_double_as_float(leaf.bottom - leaf.top)) {
-                    return status::unsupported_command;
-                }
-                bounds = {
-                    static_cast<float>(leaf.left),
-                    static_cast<float>(leaf.top),
-                    static_cast<float>(leaf.right - leaf.left),
-                    static_cast<float>(leaf.bottom - leaf.top)};
-                return status::success;
             }
             const auto group = geometry_groups.find(
                 drawing->second.geometry_handle);
@@ -8764,96 +8772,40 @@ struct channel::implementation {
                 if (geometry_groups.contains(child_handle)) {
                     return status::invalid_graph;
                 }
-                drawing_image_bounds_segments.clear();
-                shallow_fill_leaf leaf{};
-                const status group_status = append_group_fill_leaf(
+            }
+            drawing_image_bounds_segments.clear();
+            shallow_fill_leaf leaf{};
+            const status geometry_status = group != geometry_groups.end()
+                ? append_group_fill_leaf(
                     drawing->second.geometry_handle,
                     drawing_image_bounds_segments,
-                    leaf);
-                if (group_status != status::success) {
-                    return group_status;
-                }
-                if (!leaf.has_bounds || leaf.right <= leaf.left ||
-                    leaf.bottom <= leaf.top ||
-                    !finite_double_as_float(leaf.left) ||
-                    !finite_double_as_float(leaf.top) ||
-                    !finite_double_as_float(leaf.right - leaf.left) ||
-                    !finite_double_as_float(leaf.bottom - leaf.top)) {
-                    return status::unsupported_command;
-                }
-                bounds = {
-                    static_cast<float>(leaf.left),
-                    static_cast<float>(leaf.top),
-                    static_cast<float>(leaf.right - leaf.left),
-                    static_cast<float>(leaf.bottom - leaf.top)};
-                return status::success;
-            }
-            if (!fixed_geometries.contains(
-                    drawing->second.geometry_handle)) {
-                return status::unsupported_command;
-            }
-            fixed_geometry_state geometry{};
-            const status geometry_status = resolve_fixed_geometry(
-                drawing->second.geometry_handle, geometry);
+                    leaf,
+                    current_transform)
+                : append_shallow_fill_leaf(
+                    drawing->second.geometry_handle,
+                    drawing_image_bounds_segments,
+                    leaf,
+                    current_transform);
             if (geometry_status != status::success) {
                 return geometry_status;
             }
-            if (geometry.kind == fixed_geometry_kind::line) {
-                return status::unsupported_command;
-            }
-            affine_2d_double transform{};
-            if (geometry.transform_handle != 0U) {
-                const status transform_status = resolve_transform(
-                    geometry.transform_handle, transform);
-                if (transform_status != status::success) {
-                    return transform_status;
-                }
-            }
-            if (affine_has_zero_area(transform)) {
-                return status::unsupported_command;
-            }
-            if (geometry.kind == fixed_geometry_kind::ellipse) {
-                if (geometry.third <= 0.0 || geometry.fourth <= 0.0) {
-                    return status::unsupported_command;
-                }
-                const double center_x = geometry.first * transform.m11 +
-                    geometry.second * transform.m21 + transform.m31;
-                const double center_y = geometry.first * transform.m12 +
-                    geometry.second * transform.m22 + transform.m32;
-                const double extent_x = std::hypot(
-                    geometry.third * transform.m11,
-                    geometry.fourth * transform.m21);
-                const double extent_y = std::hypot(
-                    geometry.third * transform.m12,
-                    geometry.fourth * transform.m22);
-                if (!finite_double_as_float(center_x - extent_x) ||
-                    !finite_double_as_float(center_y - extent_y) ||
-                    !finite_double_as_float(extent_x * 2.0) ||
-                    !finite_double_as_float(extent_y * 2.0) ||
-                    extent_x <= 0.0 || extent_y <= 0.0) {
-                    return status::unsupported_command;
-                }
-                bounds = {
-                    static_cast<float>(center_x - extent_x),
-                    static_cast<float>(center_y - extent_y),
-                    static_cast<float>(extent_x * 2.0),
-                    static_cast<float>(extent_y * 2.0)};
+            if (!leaf.has_bounds || leaf.right <= leaf.left ||
+                leaf.bottom <= leaf.top) {
+                bounds = {};
                 return status::success;
             }
-            if (geometry.third <= 0.0 || geometry.fourth <= 0.0 ||
-                ((geometry.radius_x != 0.0 || geometry.radius_y != 0.0) &&
-                 !affine_preserves_axis_alignment(transform)) ||
-                !try_transform_bounds(
-                    geometry.first,
-                    geometry.second,
-                    geometry.third,
-                    geometry.fourth,
-                    transform,
-                    bounds) ||
-                bounds.width <= 0.0F || bounds.height <= 0.0F) {
+            if (!finite_double_as_float(leaf.left) ||
+                !finite_double_as_float(leaf.top) ||
+                !finite_double_as_float(leaf.right - leaf.left) ||
+                !finite_double_as_float(leaf.bottom - leaf.top)) {
                 return status::unsupported_command;
             }
-            return status::success;
+            bounds = {
+                static_cast<float>(leaf.left),
+                static_cast<float>(leaf.top),
+                static_cast<float>(leaf.right - leaf.left),
+                static_cast<float>(leaf.bottom - leaf.top)};
+            return finish_bounds();
         };
         const auto append_drawing_image = [
             this,
@@ -8892,13 +8844,20 @@ struct channel::implementation {
             double source_height = source.bounds_height;
             if (!source.has_bounds) {
                 progpu_native_image_rect inferred_bounds{};
+                const affine_2d_double identity{};
                 const status bounds_status = resolve_drawing_image_bounds(
                     resolve_drawing_image_bounds,
                     source.drawing_handle,
                     0U,
+                    identity,
+                    nullptr,
                     inferred_bounds);
                 if (bounds_status != status::success) {
                     return bounds_status;
+                }
+                if (inferred_bounds.width <= 0.0F ||
+                    inferred_bounds.height <= 0.0F) {
+                    return status::success;
                 }
                 source_x = inferred_bounds.x;
                 source_y = inferred_bounds.y;
