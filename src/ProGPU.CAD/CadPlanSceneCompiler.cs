@@ -7,15 +7,28 @@ namespace ProGPU.CAD;
 
 public sealed class CadPlanSceneOptions
 {
+    public const int DefaultMaxLineTypeFigures = 1_000_000;
+    public const int DefaultMaxLineTypePatternSteps = 4_000_000;
+    public const int DefaultMaxLineTypeSourceSegments = 1_000_000;
+    public const int DefaultMaxLineTypeArcMapsPerEntity = 16_384;
+
     public float PhysicalDpi { get; init; } = 96.0f;
     public float LineWeightScale { get; init; } = 1.0f;
     public bool IncludeNonPlottableLayers { get; init; } = true;
+    public int MaxLineTypeFigures { get; init; } = DefaultMaxLineTypeFigures;
+    public int MaxLineTypePatternSteps { get; init; } = DefaultMaxLineTypePatternSteps;
+    public int MaxLineTypeSourceSegments { get; init; } = DefaultMaxLineTypeSourceSegments;
+    public int MaxLineTypeArcMapsPerEntity { get; init; } = DefaultMaxLineTypeArcMapsPerEntity;
 }
 
 public readonly record struct CadPlanSceneStatistics(
     int RecordedEntityCount,
     int RecordedCommandCount,
-    int UnsupportedLineTypeCount);
+    int UnsupportedLineTypeCount,
+    int LoweredLineTypeEntityCount,
+    int LoweredLineTypeFigureCount,
+    int LineTypePatternStepCount,
+    int LineTypeSourceSegmentCount);
 
 /// <summary>A retained top/WCS-XY projection ready for ordinary ProGPU compilation.</summary>
 public sealed class CadRecordedPlanScene
@@ -66,7 +79,9 @@ public sealed class CadRecordedPlanScene
 /// retained context. Large WCS coordinates are rebased before their checked float
 /// conversion. Text adds O(R + D) retained commands for R contiguous font runs
 /// and D TrueType decoration rectangles or SHX decoration segments; it does not
-/// copy or expand glyph streams. A later
+/// copy or expand glyph streams. Simple CAD linetypes add O(F) retained analytic
+/// figures for F visible dash/dot figures, bounded before allocation by options.
+/// A later
 /// camera or viewport change can reuse the recorded scene.
 /// </remarks>
 public sealed class CadPlanSceneCompiler
@@ -85,6 +100,7 @@ public sealed class CadPlanSceneCompiler
         ReadOnlySpan<CadEntityHeader> entities = snapshot.Entities.Span;
         ReadOnlySpan<CadLayerSnapshot> layers = snapshot.Layers.Span;
         ReadOnlySpan<CadStrokeStyle> styles = snapshot.Styles.Span;
+        ReadOnlySpan<CadLineTypePattern> lineTypePatterns = snapshot.LineTypePatterns.Span;
         var context = new DrawingContext();
         context.EnsureCommandCapacity(checked(
             entities.Length +
@@ -97,6 +113,11 @@ public sealed class CadPlanSceneCompiler
         var warnedLineTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int recorded = 0;
         int unsupportedLineTypes = 0;
+        int loweredLineTypeEntities = 0;
+        int loweredLineTypeFigures = 0;
+        int lineTypeFigureBudgetUsed = 0;
+        int lineTypePatternSteps = 0;
+        int lineTypeSourceSegments = 0;
 
         foreach (CadEntityHeader entity in entities)
         {
@@ -108,18 +129,88 @@ public sealed class CadPlanSceneCompiler
             }
 
             CadStrokeStyle style = styles[entity.StyleIndex];
-            if (UsesStroke(entity.Kind) &&
-                !IsContinuous(style.LineTypeName) &&
-                warnedLineTypes.Add(style.LineTypeName))
+            Pen pen = pens[entity.StyleIndex];
+            bool recordedLineType = false;
+            if (UsesStroke(entity.Kind))
             {
-                unsupportedLineTypes++;
-                diagnostics.Add(new CadDiagnostic(
-                    CadDiagnosticSeverity.Warning,
-                    "CADSCENE001",
-                    $"Linetype '{style.LineTypeName}' is recorded as a continuous stroke until CAD dash-pattern lowering is enabled."));
+                CadLineTypePattern pattern = lineTypePatterns[style.LineTypePatternIndex];
+                if (pattern.Kind == CadLineTypePatternKind.Simple)
+                {
+                    int remainingFigures = options.MaxLineTypeFigures - lineTypeFigureBudgetUsed;
+                    int remainingPatternSteps =
+                        options.MaxLineTypePatternSteps - lineTypePatternSteps;
+                    int remainingSourceSegments =
+                        options.MaxLineTypeSourceSegments - lineTypeSourceSegments;
+                    CadLineTypeLoweringResult result = CadLineTypeLowerer.Lower(
+                        snapshot,
+                        entity,
+                        style,
+                        pattern,
+                        Math.Max(0, remainingFigures),
+                        Math.Max(0, remainingPatternSteps),
+                        Math.Max(0, remainingSourceSegments),
+                        options.MaxLineTypeArcMapsPerEntity);
+                    lineTypeFigureBudgetUsed = checked(
+                        lineTypeFigureBudgetUsed +
+                        Math.Min(Math.Max(0, remainingFigures), result.FigureCount));
+                    lineTypePatternSteps = checked(
+                        lineTypePatternSteps +
+                        Math.Min(Math.Max(0, remainingPatternSteps), result.PatternStepCount));
+                    lineTypeSourceSegments = checked(
+                        lineTypeSourceSegments +
+                        Math.Min(Math.Max(0, remainingSourceSegments), result.SourceSegmentCount));
+                    if (result.Status == CadLineTypeLoweringStatus.Lowered)
+                    {
+                        context.DrawPath(null, pen, result.Path!, result.Transform);
+                        loweredLineTypeEntities++;
+                        loweredLineTypeFigures = checked(
+                            loweredLineTypeFigures + result.FigureCount);
+                        recordedLineType = true;
+                    }
+                    else if (result.Status is
+                        CadLineTypeLoweringStatus.UnsupportedEntity or
+                        CadLineTypeLoweringStatus.FigureLimitExceeded or
+                        CadLineTypeLoweringStatus.PatternStepLimitExceeded or
+                        CadLineTypeLoweringStatus.SourceSegmentLimitExceeded or
+                        CadLineTypeLoweringStatus.ArcMapLimitExceeded)
+                    {
+                        string reason = result.Status switch
+                        {
+                            CadLineTypeLoweringStatus.UnsupportedEntity =>
+                                $"entity kind {entity.Kind} has no exact analytic linetype splitter",
+                            CadLineTypeLoweringStatus.FigureLimitExceeded =>
+                                $"the configured {options.MaxLineTypeFigures}-figure document limit was reached",
+                            CadLineTypeLoweringStatus.PatternStepLimitExceeded =>
+                                $"the configured {options.MaxLineTypePatternSteps}-step pattern traversal limit was reached",
+                            CadLineTypeLoweringStatus.SourceSegmentLimitExceeded =>
+                                $"the configured {options.MaxLineTypeSourceSegments}-segment document traversal limit was reached",
+                            _ =>
+                                $"the configured {options.MaxLineTypeArcMapsPerEntity}-arc per-entity map limit was reached",
+                        };
+                        AddUnsupportedLineTypeDiagnostic(
+                            pattern.Name,
+                            reason,
+                            "CADSCENE002");
+                    }
+                }
+                else if (pattern.Kind != CadLineTypePatternKind.Continuous)
+                {
+                    string reason = pattern.Kind == CadLineTypePatternKind.Complex
+                        ? "embedded text/shape elements require complex-linetype lowering"
+                        : $"alignment '{pattern.Alignment}' is not the documented AutoCAD A alignment";
+                    AddUnsupportedLineTypeDiagnostic(
+                        pattern.Name,
+                        reason,
+                        "CADSCENE001");
+                }
             }
 
-            Pen pen = pens[entity.StyleIndex];
+            if (recordedLineType)
+            {
+                recorded++;
+                continue;
+            }
+
             switch (entity.Kind)
             {
                 case CadEntityKind.Line:
@@ -178,8 +269,33 @@ public sealed class CadPlanSceneCompiler
             snapshot.ContentGeneration,
             snapshot.RebaseOrigin,
             context,
-            new CadPlanSceneStatistics(recorded, context.Commands.Count, unsupportedLineTypes),
+            new CadPlanSceneStatistics(
+                recorded,
+                context.Commands.Count,
+                unsupportedLineTypes,
+                loweredLineTypeEntities,
+                loweredLineTypeFigures,
+                lineTypePatternSteps,
+                lineTypeSourceSegments),
             diagnostics.ToArray());
+
+        void AddUnsupportedLineTypeDiagnostic(
+            string lineTypeName,
+            string reason,
+            string code)
+        {
+            string key = $"{lineTypeName}\0{reason}";
+            if (!warnedLineTypes.Add(key))
+            {
+                return;
+            }
+
+            unsupportedLineTypes++;
+            diagnostics.Add(new CadDiagnostic(
+                CadDiagnosticSeverity.Warning,
+                code,
+                $"Linetype '{lineTypeName}' is recorded as a continuous stroke because {reason}."));
+        }
     }
 
     private static Pen[] CreatePens(
@@ -610,11 +726,6 @@ public sealed class CadPlanSceneCompiler
         return converted;
     }
 
-    private static bool IsContinuous(string name) =>
-        name.Equals("Continuous", StringComparison.OrdinalIgnoreCase) ||
-        name.Equals("ByLayer", StringComparison.OrdinalIgnoreCase) ||
-        name.Equals("ByBlock", StringComparison.OrdinalIgnoreCase);
-
     private static bool UsesStroke(CadEntityKind kind) =>
         kind is not (CadEntityKind.Solid or CadEntityKind.Text or CadEntityKind.ShxText);
 
@@ -629,5 +740,18 @@ public sealed class CadPlanSceneCompiler
         {
             throw new ArgumentOutOfRangeException(nameof(options), "Lineweight scale must be finite and positive.");
         }
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxLineTypeFigures,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxLineTypePatternSteps,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxLineTypeSourceSegments,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxLineTypeArcMapsPerEntity,
+            1);
     }
 }

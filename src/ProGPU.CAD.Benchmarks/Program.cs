@@ -14,6 +14,7 @@ int textEntityCount = ReadNonNegativeInt("--text-entities", 0);
 int shxTextEntityCount = ReadNonNegativeInt("--shx-text-entities", 0);
 bool decorateText = HasFlag("--text-decorations");
 bool decorateShxText = HasFlag("--shx-decorations");
+bool lowerLineTypes = HasFlag("--linetypes");
 int shxInterpretationCount = ReadNonNegativeInt("--shx-interpretations", 0);
 int shxLayoutCount = ReadNonNegativeInt("--shx-layouts", 0);
 int warmupCount = ReadNonNegativeInt("--warmup", 3);
@@ -41,7 +42,8 @@ CadDocumentSession session = CreateDocument(
     textEntityCount,
     shxTextEntityCount,
     decorateText,
-    decorateShxText);
+    decorateShxText,
+    lowerLineTypes);
 var snapshotCompiler = new CadSnapshotCompiler();
 var pageSetupCompiler = new CadPageSetupCatalogCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
@@ -144,6 +146,7 @@ var report = new CadBenchmarkReport(
     shxTextEntityCount,
     decorateText,
     decorateShxText,
+    lowerLineTypes,
     shxInterpretationCount,
     shxLayoutCount,
     warmupCount,
@@ -152,6 +155,7 @@ var report = new CadBenchmarkReport(
     snapshot.Statistics,
     snapshot.SpatialIndex.NodeCount,
     recordedScene.Statistics.RecordedCommandCount,
+    recordedScene.Statistics,
     snapshotMeasurement,
     pageSetupMeasurement,
     sceneMeasurement,
@@ -208,11 +212,23 @@ CadDocumentSession CreateDocument(
     int textCount,
     int shxTextCount,
     bool decorateTextRuns,
-    bool decorateShxTextRuns)
+    bool decorateShxTextRuns,
+    bool useLineTypes)
 {
     CadDocumentSession result = CadDocumentSession.CreateNew();
     result.Edit("Build benchmark document", document =>
     {
+        LineType? benchmarkLineType = null;
+        if (useLineTypes)
+        {
+            benchmarkLineType = new LineType("BENCHMARK_DASHDOT");
+            benchmarkLineType.AddSegment(new LineType.Segment { Length = 3.0 });
+            benchmarkLineType.AddSegment(new LineType.Segment { Length = -1.5 });
+            benchmarkLineType.AddSegment(new LineType.Segment { Length = 0.0 });
+            benchmarkLineType.AddSegment(new LineType.Segment { Length = -1.5 });
+            document.LineTypes.Add(benchmarkLineType);
+        }
+
         for (int i = 0; i < count; i++)
         {
             double x = (i % 1_000) * 12.0;
@@ -222,7 +238,10 @@ CadDocumentSession CreateDocument(
                 case 0:
                     document.Entities.Add(new Line(
                         new XYZ(x, y, i % 17),
-                        new XYZ(x + 9, y + 7, (i % 17) + 2)));
+                        new XYZ(x + 9, y + 7, (i % 17) + 2))
+                    {
+                        LineType = benchmarkLineType ?? document.LineTypes.Continuous,
+                    });
                     break;
                 case 1:
                     document.Entities.Add(new Circle
@@ -230,6 +249,7 @@ CadDocumentSession CreateDocument(
                         Center = new XYZ(x, y, 0),
                         Radius = 4,
                         Normal = i % 13 == 0 ? new XYZ(0, 1, 1) : XYZ.AxisZ,
+                        LineType = benchmarkLineType ?? document.LineTypes.Continuous,
                     });
                     break;
                 case 2:
@@ -240,10 +260,15 @@ CadDocumentSession CreateDocument(
                         StartAngle = 0.17,
                         EndAngle = 4.71,
                         Normal = XYZ.AxisZ,
+                        LineType = benchmarkLineType ?? document.LineTypes.Continuous,
                     });
                     break;
                 default:
-                    var polyline = new LwPolyline();
+                    var polyline = new LwPolyline
+                    {
+                        LineType = benchmarkLineType ?? document.LineTypes.Continuous,
+                        Flags = LwPolylineFlags.Plinegen,
+                    };
                     polyline.Vertices.Add(new LwPolyline.Vertex(x, y) { Bulge = 0.35 });
                     polyline.Vertices.Add(new LwPolyline.Vertex(x + 5, y + 8));
                     polyline.Vertices.Add(new LwPolyline.Vertex(x + 10, y));
@@ -476,6 +501,7 @@ internal sealed record CadBenchmarkReport(
     int ShxTextEntityCount,
     bool DecoratedText,
     bool DecoratedShxText,
+    bool LoweredLineTypes,
     int ShxInterpretationCount,
     int ShxLayoutCount,
     int WarmupCount,
@@ -484,6 +510,7 @@ internal sealed record CadBenchmarkReport(
     CadSnapshotStatistics Statistics,
     int SpatialNodeCount,
     int RecordedCommandCount,
+    CadPlanSceneStatistics SceneStatistics,
     Measurement SnapshotMilliseconds,
     Measurement PageSetupCatalogMilliseconds,
     Measurement PlanSceneMilliseconds,

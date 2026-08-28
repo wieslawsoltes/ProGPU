@@ -17,6 +17,8 @@ public sealed class CadSnapshotOptions
     public const int DefaultMaxExpandedEntities = 5_000_000;
     public const int DefaultMaxTextCodeUnitsPerEntity = 65_536;
     public const int DefaultMaxTextGlyphs = 4_000_000;
+    public const int DefaultMaxLineTypePatterns = 65_536;
+    public const int DefaultMaxLineTypeElements = 1_000_000;
 
     public double DefaultLineWeightMillimeters { get; init; } = 0.25;
     public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
@@ -25,6 +27,8 @@ public sealed class CadSnapshotOptions
     public int MaxExpandedEntities { get; init; } = DefaultMaxExpandedEntities;
     public int MaxTextCodeUnitsPerEntity { get; init; } = DefaultMaxTextCodeUnitsPerEntity;
     public int MaxTextGlyphs { get; init; } = DefaultMaxTextGlyphs;
+    public int MaxLineTypePatterns { get; init; } = DefaultMaxLineTypePatterns;
+    public int MaxLineTypeElements { get; init; } = DefaultMaxLineTypeElements;
     public bool IncludeNonPlottableLayers { get; init; } = true;
     public ICadTextFontResolver? TextFontResolver { get; init; }
     public ICadShxFontResolver? ShxFontResolver { get; init; }
@@ -74,6 +78,9 @@ public sealed class CadSnapshotCompiler
         var layerIndices = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var styles = new List<CadStrokeStyle>();
         var styleIndices = new Dictionary<CadStrokeStyle, int>();
+        var lineTypePatterns = new List<CadLineTypePattern>();
+        var lineTypePatternIndices = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var lineTypeElements = new List<CadLineTypeElement>();
         var entities = new List<CadEntityHeader>(document.Entities.Count);
         var lines = new List<CadLinePrimitive>();
         var circles = new List<CadCirclePrimitive>();
@@ -105,6 +112,13 @@ public sealed class CadSnapshotCompiler
         int unsupportedCount = 0;
         int invalidCount = 0;
         var activeBlocks = new HashSet<BlockRecord>(ReferenceEqualityComparer.Instance);
+        double globalLineTypeScale = document.Header.LineTypeScale;
+        if (!double.IsFinite(globalLineTypeScale) || globalLineTypeScale <= 0.0)
+        {
+            throw new ArgumentException(
+                "Drawing LTSCALE must be finite and positive.",
+                nameof(document));
+        }
 
         foreach (Entity entity in document.Entities)
         {
@@ -128,6 +142,7 @@ public sealed class CadSnapshotCompiler
 
         return new CadDocumentSnapshot(
             generation,
+            globalLineTypeScale,
             documentBounds,
             new CadSnapshotStatistics(
                 document.Entities.Count,
@@ -137,6 +152,8 @@ public sealed class CadSnapshotCompiler
                 invalidCount),
             layers.ToArray(),
             styles.ToArray(),
+            lineTypePatterns.ToArray(),
+            lineTypeElements.ToArray(),
             entities.ToArray(),
             lines.ToArray(),
             circles.ToArray(),
@@ -195,7 +212,8 @@ public sealed class CadSnapshotCompiler
                     entity,
                     effectiveLayer,
                     byBlockStyle,
-                    options);
+                    options,
+                    globalLineTypeScale);
                 if (entity is Insert insert)
                 {
                     CompileInsert(
@@ -209,7 +227,14 @@ public sealed class CadSnapshotCompiler
                 }
 
                 int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
-                int styleIndex = InternStyle(resolvedStyle, styles, styleIndices);
+                int styleIndex = InternStyle(
+                    resolvedStyle,
+                    styles,
+                    styleIndices,
+                    lineTypePatterns,
+                    lineTypePatternIndices,
+                    lineTypeElements,
+                    options);
                 CadEntityHeader? header = entity switch
                 {
                     Line line => CompileLine(line, rootHandle, transform, hasTransform, layerIndex, styleIndex, lines),
@@ -829,6 +854,7 @@ public sealed class CadSnapshotCompiler
             worldOrigin,
             basis,
             polyline.IsClosed,
+            polyline.Flags.HasFlag(LwPolylineFlags.Plinegen),
             normalizedVertices,
             destination,
             vertices);
@@ -911,6 +937,7 @@ public sealed class CadSnapshotCompiler
             worldOrigin,
             basis,
             polyline.IsClosed,
+            polyline.Flags.HasFlag(PolylineFlags.ContinuousLinetypePattern),
             normalizedVertices,
             destination,
             vertices);
@@ -924,6 +951,7 @@ public sealed class CadSnapshotCompiler
         CadPoint3D worldOrigin,
         CadCoordinateSystem basis,
         bool isClosed,
+        bool isLineTypeContinuous,
         CadPolylineVertex[] normalizedVertices,
         List<CadPolylinePrimitive> destination,
         List<CadPolylineVertex> vertices)
@@ -956,7 +984,8 @@ public sealed class CadSnapshotCompiler
             basis,
             vertexOffset,
             normalizedVertices.Length,
-            isClosed));
+            isClosed,
+            isLineTypeContinuous));
         return new CadEntityHeader(
             handle,
             kind,
@@ -2285,7 +2314,11 @@ public sealed class CadSnapshotCompiler
     private static int InternStyle(
         CadResolvedStyle resolved,
         List<CadStrokeStyle> styles,
-        Dictionary<CadStrokeStyle, int> indices)
+        Dictionary<CadStrokeStyle, int> indices,
+        List<CadLineTypePattern> lineTypePatterns,
+        Dictionary<string, int> lineTypePatternIndices,
+        List<CadLineTypeElement> lineTypeElements,
+        CadSnapshotOptions options)
     {
         ACadSharp.Color color = resolved.Color;
         LineWeightType lineWeight = resolved.LineWeight;
@@ -2296,6 +2329,12 @@ public sealed class CadSnapshotCompiler
         byte alpha = transparency is < 0 or > 90
             ? byte.MaxValue
             : (byte)Math.Round(255.0 * (100.0 - transparency) / 100.0);
+        int lineTypePatternIndex = InternLineTypePattern(
+            resolved.LineType,
+            lineTypePatterns,
+            lineTypePatternIndices,
+            lineTypeElements,
+            options);
         CadStrokeStyle style = new(
             color.R,
             color.G,
@@ -2303,8 +2342,9 @@ public sealed class CadSnapshotCompiler
             alpha,
             millimeters,
             lineWeight == LineWeightType.W0,
-            resolved.LineTypeName,
-            resolved.LineTypeScale);
+            resolved.LineType.Name,
+            resolved.LineTypeScale,
+            lineTypePatternIndex);
 
         if (indices.TryGetValue(style, out int index))
         {
@@ -2317,11 +2357,118 @@ public sealed class CadSnapshotCompiler
         return index;
     }
 
+    private static int InternLineTypePattern(
+        LineType lineType,
+        List<CadLineTypePattern> patterns,
+        Dictionary<string, int> indices,
+        List<CadLineTypeElement> elements,
+        CadSnapshotOptions options)
+    {
+        string name = lineType.Name;
+        if (indices.TryGetValue(name, out int existing))
+        {
+            return existing;
+        }
+
+        if (patterns.Count >= options.MaxLineTypePatterns)
+        {
+            throw new CadSnapshotExpansionLimitException(
+                $"Referenced linetype count exceeds the configured limit of {options.MaxLineTypePatterns}.");
+        }
+
+        int elementOffset = elements.Count;
+        int elementCount = 0;
+        bool hasComplexElement = false;
+        double patternLength = 0.0;
+        double firstLength = 0.0;
+        try
+        {
+            foreach (LineType.Segment segment in lineType.Segments)
+            {
+                if (elements.Count >= options.MaxLineTypeElements)
+                {
+                    throw new CadSnapshotExpansionLimitException(
+                        $"Referenced linetype element count exceeds the configured limit of {options.MaxLineTypeElements}.");
+                }
+
+                double length = segment.Length;
+                if (!double.IsFinite(length))
+                {
+                    throw new ArgumentException(
+                        $"Linetype '{name}' contains a non-finite element length.");
+                }
+
+                if (elementCount == 0)
+                {
+                    firstLength = length;
+                }
+
+                patternLength += Math.Abs(length);
+                if (!double.IsFinite(patternLength))
+                {
+                    throw new ArgumentException(
+                        $"Linetype '{name}' pattern length exceeds the finite CAD range.");
+                }
+
+                byte complexTypeFlags = checked((byte)segment.Flags);
+                hasComplexElement |= complexTypeFlags != 0;
+                elements.Add(new CadLineTypeElement(length, complexTypeFlags));
+                elementCount++;
+            }
+
+            bool namedContinuous = IsContinuousLineTypeName(name);
+            CadLineTypePatternKind kind;
+            if (namedContinuous || elementCount == 0)
+            {
+                kind = CadLineTypePatternKind.Continuous;
+            }
+            else if (lineType.Alignment != 'A')
+            {
+                kind = CadLineTypePatternKind.UnsupportedAlignment;
+            }
+            else if (hasComplexElement)
+            {
+                kind = CadLineTypePatternKind.Complex;
+            }
+            else
+            {
+                if (elementCount < 2 || firstLength < 0.0 || patternLength <= 0.0)
+                {
+                    throw new ArgumentException(
+                        $"Simple A-aligned linetype '{name}' requires at least two elements, a non-negative first element, and a positive pattern length.");
+                }
+
+                kind = CadLineTypePatternKind.Simple;
+            }
+
+            int index = patterns.Count;
+            patterns.Add(new CadLineTypePattern(
+                name,
+                lineType.Alignment,
+                elementOffset,
+                elementCount,
+                patternLength,
+                kind));
+            indices.Add(name, index);
+            return index;
+        }
+        catch
+        {
+            if (elements.Count > elementOffset)
+            {
+                elements.RemoveRange(elementOffset, elements.Count - elementOffset);
+            }
+
+            throw;
+        }
+    }
+
     private static CadResolvedStyle ResolveStyle(
         Entity entity,
         Layer effectiveLayer,
         CadResolvedStyle? byBlock,
-        CadSnapshotOptions options)
+        CadSnapshotOptions options,
+        double globalLineTypeScale)
     {
         ACadSharp.Color color = entity.Color.IsByLayer
             ? effectiveLayer.Color
@@ -2334,15 +2481,15 @@ public sealed class CadSnapshotCompiler
             LineWeightType.ByBlock => byBlock?.LineWeight ?? LineWeightType.Default,
             _ => entity.LineWeight,
         };
-        string lineTypeName = entity.LineType.Name.Equals(
+        LineType lineType = entity.LineType.Name.Equals(
             LineType.ByLayerName,
             StringComparison.OrdinalIgnoreCase)
-            ? effectiveLayer.LineType.Name
+            ? effectiveLayer.LineType
             : entity.LineType.Name.Equals(
                 LineType.ByBlockName,
                 StringComparison.OrdinalIgnoreCase)
-                ? byBlock?.LineTypeName ?? LineType.Continuous.Name
-                : entity.LineType.Name;
+                ? byBlock?.LineType ?? LineType.Continuous
+                : entity.LineType;
         short transparency = entity.Transparency.IsByLayer
             ? (short)0
             : entity.Transparency.IsByBlock
@@ -2353,14 +2500,26 @@ public sealed class CadSnapshotCompiler
             throw new ArgumentException("Entity linetype scale must be finite and positive.");
         }
 
+        double effectiveLineTypeScale = entity.LineTypeScale * globalLineTypeScale;
+        if (!double.IsFinite(effectiveLineTypeScale) || effectiveLineTypeScale <= 0.0)
+        {
+            throw new ArgumentException(
+                "The product of drawing and entity linetype scales must be finite and positive.");
+        }
+
         return new CadResolvedStyle(
             color,
             lineWeight,
-            lineTypeName,
+            lineType,
             transparency,
-            entity.LineTypeScale,
+            effectiveLineTypeScale,
             options.DefaultLineWeightMillimeters);
     }
+
+    private static bool IsContinuousLineTypeName(string name) =>
+        name.Equals(LineType.ContinuousName, StringComparison.OrdinalIgnoreCase) ||
+        name.Equals(LineType.ByLayerName, StringComparison.OrdinalIgnoreCase) ||
+        name.Equals(LineType.ByBlockName, StringComparison.OrdinalIgnoreCase);
 
     private static CadAffineTransform3D CreateInsertTransform(Insert insert)
     {
@@ -2469,6 +2628,12 @@ public sealed class CadSnapshotCompiler
         ArgumentOutOfRangeException.ThrowIfLessThan(
             options.MaxTextGlyphs,
             1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxLineTypePatterns,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxLineTypeElements,
+            1);
     }
 
     private static void AddDiagnostic(
@@ -2503,7 +2668,7 @@ public sealed class CadSnapshotCompiler
     private readonly record struct CadResolvedStyle(
         ACadSharp.Color Color,
         LineWeightType LineWeight,
-        string LineTypeName,
+        LineType LineType,
         short Transparency,
         double LineTypeScale,
         double DefaultLineWeightMillimeters);

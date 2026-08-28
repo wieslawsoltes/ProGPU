@@ -32,7 +32,37 @@ public readonly record struct CadStrokeStyle(
     double LineWeightMillimeters,
     bool IsHairline,
     string LineTypeName,
-    double LineTypeScale);
+    double LineTypeScale,
+    int LineTypePatternIndex);
+
+public enum CadLineTypePatternKind : byte
+{
+    Continuous = 0,
+    Simple = 1,
+    Complex = 2,
+    UnsupportedAlignment = 3,
+}
+
+/// <summary>
+/// An immutable linetype definition whose element lengths address the shared
+/// <see cref="CadDocumentSnapshot.LineTypeElements"/> stream.
+/// </summary>
+public readonly record struct CadLineTypePattern(
+    string Name,
+    char Alignment,
+    int ElementOffset,
+    int ElementCount,
+    double PatternLength,
+    CadLineTypePatternKind Kind);
+
+/// <summary>
+/// One signed CAD linetype descriptor. Positive values draw, negative values
+/// advance without drawing, and zero values draw a point. Complex elements
+/// retain their public DXF type flags for an explicit later fidelity gate.
+/// </summary>
+public readonly record struct CadLineTypeElement(
+    double Length,
+    byte ComplexTypeFlags);
 
 public readonly record struct CadEntityHeader(
     ulong Handle,
@@ -105,7 +135,8 @@ public readonly record struct CadPolylinePrimitive(
     CadCoordinateSystem CoordinateSystem,
     int VertexOffset,
     int VertexCount,
-    bool IsClosed);
+    bool IsClosed,
+    bool IsLineTypeContinuous);
 
 public readonly record struct CadPolyline3DPrimitive(
     int PointOffset,
@@ -183,6 +214,8 @@ public sealed class CadDocumentSnapshot
 {
     private readonly CadLayerSnapshot[] _layers;
     private readonly CadStrokeStyle[] _styles;
+    private readonly CadLineTypePattern[] _lineTypePatterns;
+    private readonly CadLineTypeElement[] _lineTypeElements;
     private readonly CadEntityHeader[] _entities;
     private readonly CadLinePrimitive[] _lines;
     private readonly CadCirclePrimitive[] _circles;
@@ -209,6 +242,7 @@ public sealed class CadDocumentSnapshot
     private readonly CadDiagnostic[] _diagnostics;
 
     public ulong ContentGeneration { get; }
+    public double GlobalLineTypeScale { get; }
     public CadBounds3D Bounds { get; }
     public CadPoint3D RebaseOrigin { get; }
     public CadSnapshotStatistics Statistics { get; }
@@ -216,6 +250,8 @@ public sealed class CadDocumentSnapshot
 
     public ReadOnlyMemory<CadLayerSnapshot> Layers => _layers;
     public ReadOnlyMemory<CadStrokeStyle> Styles => _styles;
+    public ReadOnlyMemory<CadLineTypePattern> LineTypePatterns => _lineTypePatterns;
+    public ReadOnlyMemory<CadLineTypeElement> LineTypeElements => _lineTypeElements;
     public ReadOnlyMemory<CadEntityHeader> Entities => _entities;
     public ReadOnlyMemory<CadLinePrimitive> Lines => _lines;
     public ReadOnlyMemory<CadCirclePrimitive> Circles => _circles;
@@ -246,10 +282,13 @@ public sealed class CadDocumentSnapshot
 
     internal CadDocumentSnapshot(
         ulong contentGeneration,
+        double globalLineTypeScale,
         CadBounds3D bounds,
         CadSnapshotStatistics statistics,
         CadLayerSnapshot[] layers,
         CadStrokeStyle[] styles,
+        CadLineTypePattern[] lineTypePatterns,
+        CadLineTypeElement[] lineTypeElements,
         CadEntityHeader[] entities,
         CadLinePrimitive[] lines,
         CadCirclePrimitive[] circles,
@@ -276,11 +315,14 @@ public sealed class CadDocumentSnapshot
         CadDiagnostic[] diagnostics)
     {
         ContentGeneration = contentGeneration;
+        GlobalLineTypeScale = globalLineTypeScale;
         Bounds = bounds;
         RebaseOrigin = bounds.Center;
         Statistics = statistics;
         _layers = layers;
         _styles = styles;
+        _lineTypePatterns = lineTypePatterns;
+        _lineTypeElements = lineTypeElements;
         _entities = entities;
         _lines = lines;
         _circles = circles;

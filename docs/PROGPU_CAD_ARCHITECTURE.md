@@ -1,6 +1,6 @@
 # ProGPU.CAD Architecture and Delivery Specification
 
-Status: foundation, 2026-08-27
+Status: foundation, 2026-08-28
 
 ## Scope
 
@@ -134,9 +134,18 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   decimal-character, degree, plus/minus, diameter, percent, and DXF Unicode
   escapes are decoded before shaping.
 - Model-space lineweights are recorded as fixed device-space strokes; explicit
-  zero-width lineweights use the ProGPU hairline sentinel. Non-continuous CAD
-  linetypes currently produce a bounded warning and remain a tracked fidelity
-  gap rather than being silently claimed as complete.
+  zero-width lineweights use the ProGPU hairline sentinel. Referenced LTYPE
+  definitions are captured once into bounded packed pattern/element tables;
+  resolved styles point to those tables and carry the checked product of
+  drawing `LTSCALE` and entity scale. Simple A-aligned dash/gap/dot patterns are
+  lowered in model space for lines, circles/arcs, ellipses, lightweight and
+  legacy 2D polylines, 3D polylines, and visible 3DFACE edges while retaining
+  one `DrawPath` command per entity. Circular, bulge, and elliptical pieces
+  remain analytic arcs, and the resulting path still uses fixed-device CAD
+  lineweight. Entity PLINEGEN state selects uninterrupted 2D-polyline traversal
+  or endpoint alignment at every segment. Complex text/shape patterns, spline
+  splitting, and non-A alignment remain explicit diagnostics rather than
+  unbounded or silently approximate expansion.
 - `CadShxFont` provides the first bounded SHX source layer. It parses the
   standard compiled `AutoCAD-86 shapes 1.0` container into one immutable owned
   byte store, retains each shape program as a packed slice, validates the
@@ -154,6 +163,63 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   non-default/decorated vertical placement remain explicit gates. Ordered,
   bounded desktop discovery is host initialization work rather than a render-
   path filesystem dependency.
+
+### Retained simple-linetype contract
+
+The immutable snapshot owns `CadLineTypePattern` records and one packed
+`CadLineTypeElement` stream. Only referenced definitions are captured, names are
+interned case-insensitively, and publication is transactional: an invalid or
+over-limit definition cannot leave an orphan partial pattern. Defaults bound a
+generation to 65,536 referenced definitions and 1,000,000 descriptors. Each
+stroke style contains a fixed pattern index and an effective model scale equal
+to `LTSCALE * entity.LineTypeScale`; zero, negative, non-finite, overflowed, or
+structurally invalid simple patterns are rejected before scene publication.
+
+`CadLineTypeLowerer` is the CAD semantic stage. For an open A-aligned primitive
+whose first descriptor is a positive dash, it places half that first dash at
+each endpoint, fits as many complete pattern periods as possible, and divides
+the remainder equally between the endpoint dashes. A primitive shorter than one
+period is drawn continuously, matching Autodesk's documented short-entity rule.
+Zero first descriptors retain start/end dots; because Autodesk specifies those
+endpoints but does not publish residual-distribution math for dot-first patterns,
+the current deterministic rule chooses the nearest integral repetition count
+and scales that period uniformly. Closed entities use the same integral-period
+fit because Autodesk documents only a “reasonable display” for objects without
+endpoints. Both choices remain named differential-conformance seams rather than
+claims about unpublished implementation details.
+
+Polyline traversal uses the stored entity flag, not the current document
+`PLINEGEN` default: disabled lightweight/2D polylines restart A alignment at
+each vertex, while enabled ones carry one scalar pattern through line and bulge
+segments. Three-dimensional polyline edges and 3DFACE edges restart at each
+vertex because Autodesk exposes uninterrupted generation only for lightweight/
+2D polylines. The lowerer first counts output and aborts transactionally when the
+document-wide default limit of 1,000,000 figures, 4,000,000 visited pattern
+descriptors, or 1,000,000 source segments would be exceeded. Successful and
+failed attempts consume those shared budgets. The separate descriptor-step
+budget prevents a gap-heavy definition from hiding unbounded work behind a
+small visible-figure count, while the source budget prevents short-pattern
+special cases from repeatedly scanning large polylines. A per-entity limit of
+16,384 bulge-arc maps additionally bounds the 128-bin scratch amplification.
+The successful preflight is repeated deterministically during emission, so
+descriptor traversal is at most twice the configured preflight budget. It then
+emits one retained path with one figure per visible dash/dot; source arcs are
+split into analytic `ArcSegment` values. A fixed 128-bin, eight-point
+Gauss-Legendre arc-length map supplies deterministic bounded distance inversion
+for affine ellipses and non-uniform block images without flattening their
+geometry. For S source segments, Q visited pattern descriptors, and F output
+figures, compilation is `O(S + Q + F log S)` time and `O(F)` retained storage,
+with `Q` explicitly bounded by the descriptor-step option in each pass.
+Camera replay, lineweight, and upload contracts do not depend on entity count or
+zoom after that retained picture is published.
+
+This slice changes no shader, native C ABI, or backend descriptor. Managed and
+native picture compilers consume the identical existing `DrawPath`, analytic
+arc, affine-transform, and fixed-stroke contracts. The paired regression creates
+an owned CAD picture containing dashed circular and elliptical arcs and compiles
+it through `GpuPictureNativeSceneCompiler`; the remaining native applicability
+finding is therefore no native implementation change, not an unexplained
+one-sided renderer feature.
 
 The exact approved ProGPU-owned implementation provenance for this slice is
 `src/ProGPU.Scene/RenderCommand.cs` (`DrawingContext.DrawLine`, `DrawEllipse`,
@@ -956,6 +1022,7 @@ recording, retained physical print-plan construction in both zero- and
 
 ```bash
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --linetypes --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --block-array-columns 10000 --warmup 5 --iterations 100 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --warmup 5 --iterations 50 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --text-decorations --warmup 3 --iterations 50 --queries 10000
@@ -972,6 +1039,20 @@ respectively. These are transparent starting measurements, not an improvement or
 release-acceptance claim. Full representative viewer workloads, GPU counters,
 matched managed/native results, and required macOS Instruments traces remain
 open gates before performance acceptance.
+
+The 2026-08-28 simple-linetype feature-cost baseline used one final Release
+binary in two sequential processes, 1,000 mixed analytic entities, five
+warmups, and 30 measured iterations. Continuous input recorded 1,000 commands;
+the `[3, -1.5, 0, -1.5]` patterned input retained the same 1,000 commands and
+lowered 6,250 dash/dot figures from 1,250 source segments through 10,250 bounded
+descriptor steps. Snapshot p50/p95/p99 was 4.453/13.939/19.988 ms with 805,411
+managed bytes for continuous input and 4.519/9.071/9.734 ms with 805,594 bytes
+for patterned input. Plan-scene recording was 0.656/4.819/6.507 ms and 928,552
+bytes versus 10.354/19.437/23.926 ms and 2,054,747 bytes. These numbers expose
+the bounded retained-geometry construction cost; sequential-process, JIT, GC,
+and system noise preclude a comparative regression or improvement claim. The
+result does not replace full viewer, GPU, image-quality, managed/native differential,
+or matched Instruments gates.
 
 The first two fresh 24-iteration Release runs of the 10,000-entity physical
 print-plan path measured p50/p95/p99 at 16.320/49.488/58.868 ms and
@@ -1159,22 +1240,41 @@ Sources consulted on 2026-08-27:
 - [Autodesk lineweights](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-4B33ACD3-F6DD-4CB5-8C55-D6D0D7130905.htm):
   adopted distinct cosmetic model-space and physical paper/plot policies.
 - [Autodesk LTYPE records](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-DXF/files/GUID-F57A316C-94A2-416C-8280-191E34B182AC.htm),
-  [simple-linetype semantics](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Customization/files/GUID-EF1DF0A9-2088-487C-8085-16FEE6425405.htm),
-  and [linetype scaling](https://help.autodesk.com/view/ACD/2026/ENU/?guid=GUID-20B4D4B3-1220-426A-847B-5BBE36EC6FDF):
+  [simple-linetype semantics](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-LT-Customization/files/GUID-EF1DF0A9-2088-487C-8085-16FEE6425405.htm),
+  [linetype scaling](https://help.autodesk.com/view/ACD/2026/ENU/?guid=GUID-20B4D4B3-1220-426A-847B-5BBE36EC6FDF),
+  [global/object scale multiplication](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-45EABA0C-6558-4CEF-940F-023170207587.htm),
+  and [polyline generation](https://help.autodesk.com/cloudhelp/2024/DEU/AutoCAD-LT-ActiveX-Reference/files/GUID-40F4B7B9-CB82-4D62-AD82-1BCFDBBC9F81.htm):
   adopted positive dash, negative gap, zero dot, entity/global scaling, and
-  A-aligned endpoint requirements. A fixed repeating phase was rejected because
+  A-aligned endpoint requirements plus per-entity 2D-polyline generation. A
+  fixed repeating phase was rejected because
   AutoCAD adjusts endpoint dashes per line/arc and draws a too-short primitive
-  continuously. The current snapshot therefore retains name/scale and the plan
-  emits an unsupported diagnostic rather than approximating the pattern.
+  continuously. Adapted those public rules into packed referenced definitions,
+  transactional limits, scalar endpoint planning, and analytic path splitting.
+  Autodesk does not publish the exact residual distribution for dot-first or
+  closed patterns, so their deterministic integral-period fit is documented as
+  provisional and covered separately; complex elements and splines remain
+  explicit gates.
 - [Skia dash effects](https://api.skia.org/classSkDashPathEffect.html),
   [Direct2D retained stroke styles](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1strokestyle),
-  [Win2D custom dash styles](https://learn.microsoft.com/en-us/dotnet/communitytoolkit/archive/windows/win2d-path-mini-language),
+  [Win2D custom dash styles](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasStrokeStyle.htm),
   [Vello stroke encoding](https://github.com/linebender/vello/blob/main/vello_encoding/src/path.rs),
-  and [WebRender's retained display-list architecture](https://github.com/servo/servo/wiki/Webrender-Overview):
+  [Vello's encoding-time dash decision](https://github.com/linebender/vello/issues/303),
+  and [WebRender's retained CSS-border dash handling](https://searchfox.org/mozilla-central/source/layout/painting/nsCSSRendering.cpp):
   adopted reusable interval/phase/cap concepts and retained device-independent
   style ownership, but none is treated as an oracle for CAD A-alignment. The
-  existing ProGPU dash path remains the eventual backend after a CAD-specific
-  endpoint planner produces conformance-tested intervals.
+  generic APIs couple dash units to stroke width or CSS border policy, while CAD
+  requires model-unit intervals and fixed-device lineweight. Adapted Vello's
+  pay-once encoding separation into a CAD-owned endpoint planner and analytic
+  centerline splitter; rejected per-frame/backend dashing and rejected changing
+  the shared ProGPU dash-width semantics for a CAD-only rule.
+- [SkParagraph's shaped-text stages](https://docs.skia.org/docs/dev/design/text_shaper/),
+  [DirectWrite/Direct2D integration](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite),
+  [HarfBuzz positioned buffers](https://harfbuzz.github.io/harfbuzz-hb-buffer.html),
+  and [Parley's itemized layout model](https://github.com/linebender/parley/blob/main/doc/concept.md)
+  were rechecked for this rendering change. They keep reusable shaping/layout
+  results separate from vector stroking and provide no CAD linetype contract;
+  therefore no text/font/cache invalidation behavior applies and no second text
+  path was introduced.
 - [Skia canvas/picture API](https://skia.org/docs/user/api/),
   [Direct2D command lists](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/nn-d2d1_1-id2d1commandlist),
   [Win2D `CanvasCommandList`](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm),

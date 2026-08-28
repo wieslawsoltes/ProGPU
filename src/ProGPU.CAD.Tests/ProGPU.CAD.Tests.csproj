@@ -19,6 +19,7 @@
     <ProjectReference Include="..\ProGPU.Fonts.Inter\ProGPU.Fonts.Inter.csproj" />
     <ProjectReference Include="..\ProGPU.Layout\ProGPU.Layout.csproj" />
     <ProjectReference Include="..\ProGPU.Scene\ProGPU.Scene.csproj" />
+    <ProjectReference Include="..\ProGPU.Scene.Native\ProGPU.Scene.Native.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
   </ItemGroup>
 </Project>
