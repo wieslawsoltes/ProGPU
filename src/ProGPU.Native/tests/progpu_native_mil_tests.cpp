@@ -6329,7 +6329,39 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     PROGPU_REQUIRE(state.apply(dashed_ellipse_batch) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7002U, 7U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
+    const auto dashed_ellipse_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t dashed_ellipse_arc_count = 0U;
+    std::uint32_t dashed_ellipse_cap_count = 0U;
+    for (std::uint32_t index = 0U;
+         index < dashed_ellipse_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            dashed_ellipse_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        const std::size_t primitive_count = record.payload_size /
+            sizeof(progpu_native_geometry_primitive);
+        for (std::size_t primitive_index = 0U;
+             primitive_index < primitive_count;
+             ++primitive_index) {
+            const auto primitive =
+                read_value<progpu_native_geometry_primitive>(
+                    stream,
+                    record.payload_offset + primitive_index *
+                        sizeof(progpu_native_geometry_primitive));
+            dashed_ellipse_arc_count +=
+                primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC ? 1U : 0U;
+            dashed_ellipse_cap_count +=
+                primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP ? 1U : 0U;
+        }
+    }
+    PROGPU_REQUIRE(dashed_ellipse_arc_count >= 2U);
+    PROGPU_REQUIRE(dashed_ellipse_cap_count >= 2U);
 
     std::vector<std::byte> dashed_rounded_batch;
     std::vector<std::byte> dashed_rounded;
@@ -6348,7 +6380,46 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     PROGPU_REQUIRE(state.apply(dashed_rounded_batch) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7002U, 8U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
+    const auto dashed_rounded_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t dashed_rounded_body_count = 0U;
+    std::uint32_t dashed_rounded_arc_count = 0U;
+    std::uint32_t dashed_rounded_cap_count = 0U;
+    for (std::uint32_t index = 0U;
+         index < dashed_rounded_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            dashed_rounded_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        const std::size_t primitive_count = record.payload_size /
+            sizeof(progpu_native_geometry_primitive);
+        for (std::size_t primitive_index = 0U;
+             primitive_index < primitive_count;
+             ++primitive_index) {
+            const auto primitive =
+                read_value<progpu_native_geometry_primitive>(
+                    stream,
+                    record.payload_offset + primitive_index *
+                        sizeof(progpu_native_geometry_primitive));
+            dashed_rounded_body_count +=
+                primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE ||
+                    primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC
+                ? 1U
+                : 0U;
+            dashed_rounded_arc_count +=
+                primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC ? 1U : 0U;
+            dashed_rounded_cap_count +=
+                primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP ? 1U : 0U;
+        }
+    }
+    PROGPU_REQUIRE(dashed_rounded_body_count >= 4U);
+    PROGPU_REQUIRE(dashed_rounded_arc_count >= 1U);
+    PROGPU_REQUIRE(dashed_rounded_cap_count >= 2U);
 
     constexpr std::uint32_t line_geometry = 9U;
     std::vector<std::byte> geometry_batch;

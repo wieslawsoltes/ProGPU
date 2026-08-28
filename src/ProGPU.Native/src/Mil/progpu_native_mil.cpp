@@ -7278,6 +7278,36 @@ struct channel::implementation {
                     has_length = true;
                 }
                 if (!has_length) {
+                    has_length = std::ranges::any_of(
+                        contour.segments,
+                        [](const progpu_native_path_segment& segment) {
+                            const auto differs = [start = segment.p0](
+                                progpu_native_point point) noexcept {
+                                return point.x != start.x ||
+                                    point.y != start.y;
+                            };
+                            if (segment.kind ==
+                                PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC) {
+                                return differs(segment.p1) ||
+                                    differs(segment.p2);
+                            }
+                            if (segment.kind ==
+                                PROGPU_NATIVE_PATH_SEGMENT_CUBIC) {
+                                return differs(segment.p1) ||
+                                    differs(segment.p2) ||
+                                    differs(segment.p3);
+                            }
+                            if (segment.kind ==
+                                PROGPU_NATIVE_PATH_SEGMENT_ARC) {
+                                return segment.p3.x > 0.0F &&
+                                    segment.p3.y > 0.0F &&
+                                    std::bit_cast<float>(segment.pad1) !=
+                                        0.0F;
+                            }
+                            return false;
+                        });
+                }
+                if (!has_length) {
                     const std::uint32_t start_cap = contour.closed
                         ? static_cast<std::uint32_t>(
                             PROGPU_NATIVE_STROKE_CAP_ROUND)
@@ -7840,6 +7870,42 @@ struct channel::implementation {
             for (const auto& segment : geometry.segments) {
                 contour.points.push_back(segment.p0);
             }
+            geometry.stroke_contours.push_back(std::move(contour));
+            return geometry;
+        };
+        const auto make_ellipse_path_geometry = [](
+            double center_x,
+            double center_y,
+            double radius_x,
+            double radius_y) {
+            path_geometry_state geometry{};
+            geometry.left = center_x - radius_x;
+            geometry.top = center_y - radius_y;
+            geometry.right = center_x + radius_x;
+            geometry.bottom = center_y + radius_y;
+            geometry.fill_rule = 0U;
+            progpu_native_path_segment arc{};
+            arc.kind = PROGPU_NATIVE_PATH_SEGMENT_ARC;
+            arc.p0 = {
+                static_cast<float>(center_x + radius_x),
+                static_cast<float>(center_y)};
+            arc.p1 = arc.p0;
+            arc.p2 = {
+                static_cast<float>(center_x),
+                static_cast<float>(center_y)};
+            arc.p3 = {
+                static_cast<float>(radius_x),
+                static_cast<float>(radius_y)};
+            arc.pad0 = std::bit_cast<std::uint32_t>(0.0F);
+            arc.pad1 = std::bit_cast<std::uint32_t>(
+                std::numbers::pi_v<float> * 2.0F);
+            arc.pad2 = std::bit_cast<std::uint32_t>(0.0F);
+            geometry.segments.push_back(arc);
+            path_stroke_contour_state contour{};
+            contour.closed = true;
+            contour.points.push_back(arc.p0);
+            contour.segments.push_back(arc);
+            contour.smooth_joins.push_back(1U);
             geometry.stroke_contours.push_back(std::move(contour));
             return geometry;
         };
@@ -10059,54 +10125,62 @@ struct channel::implementation {
                                 stroke_bounds)) {
                             return status::invalid_graph;
                         }
-                        if (is_ellipse) {
-                            if (pen.dash_style_handle != 0U) {
-                                const auto dash = dash_styles.find(
-                                    pen.dash_style_handle);
-                                if (dash == dash_styles.end()) {
-                                    return status::invalid_handle;
-                                }
-                                if (!dash->second.intervals.empty()) {
-                                    return status::unsupported_command;
-                                }
+                        bool has_nonempty_dash = false;
+                        if (pen.dash_style_handle != 0U) {
+                            const auto dash = dash_styles.find(
+                                pen.dash_style_handle);
+                            if (dash == dash_styles.end()) {
+                                return status::invalid_handle;
                             }
-                            const std::array primitive{
-                                progpu_native_geometry_primitive{
-                                    PROGPU_NATIVE_GEOMETRY_ARC,
-                                    current.edge_aliased
-                                        ? static_cast<std::uint32_t>(
-                                            PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
-                                        : 0U,
-                                    {static_cast<float>(first),
-                                        static_cast<float>(second)},
-                                    {static_cast<float>(third), 0.0F},
-                                    {0.0F, static_cast<float>(fourth)},
-                                    {0.0F,
-                                        std::numbers::pi_v<float> * 2.0F},
-                                    static_cast<float>(
-                                        pen.thickness),
-                                    0.0F,
-                                    {1.0F, 1.0F, 1.0F, 1.0F},
-                                    native_local_transform}};
-                            const std::array brushes{pen_brush_index};
-                            if (!builder.draw_geometry(
-                                    primitive,
-                                    brushes,
-                                    stroke_bounds)) {
-                                return status::invalid_graph;
+                            has_nonempty_dash =
+                                !dash->second.intervals.empty();
+                        }
+                        if (is_ellipse) {
+                            if (has_nonempty_dash) {
+                                const auto ellipse_geometry =
+                                    make_ellipse_path_geometry(
+                                        first,
+                                        second,
+                                        third,
+                                        fourth);
+                                const status stroke_status =
+                                    append_path_strokes(
+                                        ellipse_geometry,
+                                        pen,
+                                        local_transform,
+                                        effective_transform);
+                                if (stroke_status != status::success) {
+                                    return stroke_status;
+                                }
+                            } else {
+                                const std::array primitive{
+                                    progpu_native_geometry_primitive{
+                                        PROGPU_NATIVE_GEOMETRY_ARC,
+                                        current.edge_aliased
+                                            ? static_cast<std::uint32_t>(
+                                                PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED)
+                                            : 0U,
+                                        {static_cast<float>(first),
+                                            static_cast<float>(second)},
+                                        {static_cast<float>(third), 0.0F},
+                                        {0.0F, static_cast<float>(fourth)},
+                                        {0.0F,
+                                            std::numbers::pi_v<float> * 2.0F},
+                                        static_cast<float>(
+                                            pen.thickness),
+                                        0.0F,
+                                        {1.0F, 1.0F, 1.0F, 1.0F},
+                                        native_local_transform}};
+                                const std::array brushes{pen_brush_index};
+                                if (!builder.draw_geometry(
+                                        primitive,
+                                        brushes,
+                                        stroke_bounds)) {
+                                    return status::invalid_graph;
+                                }
                             }
                         } else if (has_rounded_corners) {
-                            if (pen.dash_style_handle != 0U) {
-                                const auto dash = dash_styles.find(
-                                    pen.dash_style_handle);
-                                if (dash == dash_styles.end()) {
-                                    return status::invalid_handle;
-                                }
-                                if (!dash->second.intervals.empty()) {
-                                    return status::unsupported_command;
-                                }
-                            }
-                            if (radius_x != radius_y) {
+                            if (has_nonempty_dash || radius_x != radius_y) {
                                 const auto rounded_geometry =
                                     make_rounded_rectangle_geometry(
                                         x,
