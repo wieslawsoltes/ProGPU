@@ -2206,6 +2206,25 @@ CTest passed in 0.96 seconds, and direct execution returned zero. Host/guest
 hashes matched (`D70BEB9B...267072` native, `83DB8A55...58449F` test,
 `C7CD2AD9...A3A5F` archive); the guest executable SHA-256 was
 `D7F63F0EAEE4574872B88D20DD2E6E75C2DE71706D7094D342CC607434211CC8`.
+Checkpoint `d1025caf`, with strict-MSVC cleanup and internal coverage through
+`026ce1a7`, closes that clipped-miter gap in rendering and bounds together.
+The shared native stroke tessellator now implements WpfGfx
+`CSimplePen::DoLimitedMiter`: it derives the two clip points from the incoming
+and outgoing unit directions, pen radius, and nominal miter limit, then emits a
+three-triangle fan. Rectangle bounds use the identical formula before the
+world transform. The live `MiterLimit=1` oracle above now maps exact WPF bounds
+`20.276056289672852,10.497797012329102,46.94788932800293,31.50440788269043`
+instead of failing closed. Apple native tests pass 10/10. A clean exact archive
+built 153 MIL/internal target steps with Windows ARM64 MSVC `19.44.35228.0`;
+161 Ninja flag lines carry `/W4 /WX`, and both focused tests passed in 2.71
+seconds. Direct executions returned zero. Host and guest hashes matched
+(`924F4560...2F6FF6` stroke header, `7E305BF5...B641C2` MIL,
+`0E2EC09A...FAB1E5` MIL test, `10CD93E7...3D16D0` internal test, and
+`0995611D...222AD` archive). Guest executable SHA-256 values were
+`707D8EEAE6830997761661664FA7A3D3955822D29500382E828FC093996962D4`
+for MIL and
+`4A36E7E6E3AE5B00D34252F5556793FC31A46A96AC61B7D8A4DFE277210D1958`
+for the internal topology gate.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive
