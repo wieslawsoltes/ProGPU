@@ -1581,10 +1581,63 @@ inline std::size_t create_join_triangles(
         return 0U;
     }
     const float turn = cross_product(incoming, outgoing);
-    if (!std::isfinite(turn) || std::abs(turn) <= 0.0001F) {
+    if (!std::isfinite(turn)) {
         return 0U;
     }
     const float radius = thickness * 0.5F;
+    if (std::abs(turn) <= 0.0001F) {
+        const float dot = incoming.x * outgoing.x +
+            incoming.y * outgoing.y;
+        if (!std::isfinite(dot) || dot >= -1.0F + 0.0001F) {
+            return 0U;
+        }
+        const progpu_native_point normal{-incoming.y, incoming.x};
+        if (join == PROGPU_NATIVE_STROKE_JOIN_ROUND) {
+            constexpr std::size_t segment_count = 8U;
+            for (std::size_t index = 0U; index < segment_count; ++index) {
+                const float angle0 = std::numbers::pi_v<float> *
+                    static_cast<float>(index) /
+                    static_cast<float>(segment_count);
+                const float angle1 = std::numbers::pi_v<float> *
+                    static_cast<float>(index + 1U) /
+                    static_cast<float>(segment_count);
+                const auto point_at = [
+                    join_point,
+                    normal,
+                    incoming,
+                    radius](float angle) noexcept {
+                    return progpu_native_point{
+                        join_point.x +
+                            (normal.x * std::cos(angle) +
+                             incoming.x * std::sin(angle)) * radius,
+                        join_point.y +
+                            (normal.y * std::cos(angle) +
+                             incoming.y * std::sin(angle)) * radius};
+                };
+                triangles[index] = {
+                    join_point,
+                    point_at(angle0),
+                    point_at(angle1)};
+            }
+            return segment_count;
+        }
+        const progpu_native_point first{
+            join_point.x + normal.x * radius,
+            join_point.y + normal.y * radius};
+        const progpu_native_point second{
+            join_point.x - normal.x * radius,
+            join_point.y - normal.y * radius};
+        const progpu_native_point first_outer{
+            first.x + incoming.x * radius,
+            first.y + incoming.y * radius};
+        const progpu_native_point second_outer{
+            second.x + incoming.x * radius,
+            second.y + incoming.y * radius};
+        triangles[0] = {join_point, first, first_outer};
+        triangles[1] = {join_point, first_outer, second_outer};
+        triangles[2] = {join_point, second_outer, second};
+        return 3U;
+    }
     const float outer_sign = turn > 0.0F ? -1.0F : 1.0F;
     const progpu_native_point previous_outer{
         join_point.x - incoming.y * outer_sign * radius,

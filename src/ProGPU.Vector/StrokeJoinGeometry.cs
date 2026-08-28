@@ -65,7 +65,15 @@ public static class StrokeJoinGeometry
         var turn = Cross(incomingDirection, outgoingDirection);
         if (MathF.Abs(turn) <= Epsilon)
         {
-            return 0;
+            return Vector2.Dot(incomingDirection, outgoingDirection) < -1f + Epsilon
+                ? WriteReversalJoin(
+                    destination,
+                    lineJoin,
+                    thickness,
+                    joinPoint,
+                    incomingDirection,
+                    Math.Clamp(maxRoundSegments, 1, MaxTrianglesPerJoin))
+                : 0;
         }
 
         var radius = thickness * 0.5f;
@@ -194,7 +202,21 @@ public static class StrokeJoinGeometry
         var turn = Cross(incomingDirection, outgoingDirection);
         if (MathF.Abs(turn) <= Epsilon)
         {
-            return Array.Empty<StrokeJoinTriangle>();
+            if (Vector2.Dot(incomingDirection, outgoingDirection) >= -1f + Epsilon)
+            {
+                return Array.Empty<StrokeJoinTriangle>();
+            }
+
+            Span<StrokeJoinTriangle> reversal =
+                stackalloc StrokeJoinTriangle[MaxTrianglesPerJoin];
+            var reversalCount = WriteReversalJoin(
+                reversal,
+                lineJoin,
+                thickness,
+                joinPoint,
+                incomingDirection,
+                Math.Clamp(maxRoundSegments, 1, MaxTrianglesPerJoin));
+            return reversal[..reversalCount].ToArray();
         }
 
         var radius = thickness * 0.5f;
@@ -230,6 +252,45 @@ public static class StrokeJoinGeometry
         Vector2 nextOuterPoint)
     {
         return new[] { new StrokeJoinTriangle(previousOuterPoint, joinPoint, nextOuterPoint) };
+    }
+
+    private static int WriteReversalJoin(
+        Span<StrokeJoinTriangle> destination,
+        PenLineJoin lineJoin,
+        float thickness,
+        Vector2 joinPoint,
+        Vector2 incomingDirection,
+        int maxRoundSegments)
+    {
+        var radius = thickness * 0.5f;
+        var normal = GetLeftNormal(incomingDirection);
+        if (lineJoin == PenLineJoin.Round)
+        {
+            var segmentCount = Math.Clamp(maxRoundSegments, 1, MaxTrianglesPerJoin);
+            EnsureDestination(destination, segmentCount);
+            for (var index = 0; index < segmentCount; index++)
+            {
+                var angle0 = MathF.PI * index / segmentCount;
+                var angle1 = MathF.PI * (index + 1) / segmentCount;
+                var point0 = joinPoint +
+                    (normal * MathF.Cos(angle0) + incomingDirection * MathF.Sin(angle0)) * radius;
+                var point1 = joinPoint +
+                    (normal * MathF.Cos(angle1) + incomingDirection * MathF.Sin(angle1)) * radius;
+                destination[index] = new StrokeJoinTriangle(joinPoint, point0, point1);
+            }
+
+            return segmentCount;
+        }
+
+        EnsureDestination(destination, 3);
+        var first = joinPoint + normal * radius;
+        var second = joinPoint - normal * radius;
+        var firstOuter = first + incomingDirection * radius;
+        var secondOuter = second + incomingDirection * radius;
+        destination[0] = new StrokeJoinTriangle(joinPoint, first, firstOuter);
+        destination[1] = new StrokeJoinTriangle(joinPoint, firstOuter, secondOuter);
+        destination[2] = new StrokeJoinTriangle(joinPoint, secondOuter, second);
+        return 3;
     }
 
     private static StrokeJoinTriangle[] CreateMiterJoin(
