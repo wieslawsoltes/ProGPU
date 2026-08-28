@@ -693,6 +693,18 @@ worsening the upper tail; forcing the larger saturated-conversion helper to
 inline was also rejected after increasing register pressure and measured
 latency. The product path keeps only the smaller exponent-mask change.
 
+The exact checkpoint was also published self-contained for `win-x64` and run
+in the Windows 11 ARM64 Parallels guest on .NET 10.0.11. The process reported
+`Vector128=True`, `Vector256=True`, and `Vector512=False`. Four alternating
+SIMD/scalar runs produced median-of-run p50 `13.059` versus `23.917 us/block`
+(1.83x throughput, -45.4% latency) and median p99 `45.716` versus `56.468
+us/block`; all runs retained checksum `-68911` and zero allocation. Median p95
+was `39.436` versus `34.749 us/block`, with individual samples showing the
+guest scheduler's cold-tail variation, so no p95 speedup is claimed. This is
+an emulated-x64 correctness and product-p50 qualification, not physical-x64
+performance evidence. The executable SHA-256 was
+`5B1A6C71EC9C23CA70AAADC4DC0F8D5C39D60E9B61BF8111BD8568B6F38ADADA`.
+
 The typed-effect input side also uses one shared
 `MediaPcm16FloatConverter` instead of three whole-buffer scalar normalization
 loops. Windows Media Foundation, Linux, and Android pass their borrowed PCM16
