@@ -8623,9 +8623,18 @@ struct channel::implementation {
                 if (pen_status != status::success) {
                     return pen_status;
                 }
-                if (pen.brush_handle == 0U || pen.thickness <= 0.0 ||
-                    pen.dash_style_handle != 0U) {
+                if (pen.brush_handle == 0U || pen.thickness <= 0.0) {
                     return status::unsupported_command;
+                }
+                if (pen.dash_style_handle != 0U) {
+                    const auto dash = dash_styles.find(
+                        pen.dash_style_handle);
+                    if (dash == dash_styles.end()) {
+                        return status::invalid_handle;
+                    }
+                    if (!dash->second.intervals.empty()) {
+                        return status::unsupported_command;
+                    }
                 }
                 affine_2d_double transform{};
                 if (geometry.transform_handle != 0U) {
