@@ -2095,6 +2095,14 @@ for `progpu_native_mil.cpp` and
 `2BA928A65CE70E9907A3DAB7BAC41805E6EA5AFB038E97B1263C7102D1F8C14C`
 for the test source.
 
+Per-child clip-distribution hardening at exact `b83c1b5f` was then rebuilt in
+the same Windows MSVC `/W4 /WX` lane and passed the focused test in 1.12
+seconds. Guest hashes again matched the host:
+`3737C2B5604E0C707AED7459CE874A5943E200DE7D4BBEDC49D7FAE210DA03DD`
+for `progpu_native_mil.cpp` and
+`6F60A9C752F945EA5F45162776EA1CC77657CDE8174B75FDB7C61DCFB046BCCA`
+for the test source.
+
 `NativeMilRenderDataBuilder.DrawImage(...)` now exposes the same canonical
 static packet to typed hosts. It validates finite nonnegative destination
 bounds and a nonzero image handle, writes the required zero padding, and is
