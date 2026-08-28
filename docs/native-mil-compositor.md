@@ -435,8 +435,11 @@ miter-limit clamp; Round joins preserve the rounded outer path. Nonempty dash
 patterns on one-axis sharp rectangles now retain the original four-point
 closed contour and use the shared connected-stroke engine. Its exact reversal
 join emits WPF's half-width square for Miter/Bevel and incoming semicircle for
-Round. Fully collapsed sharp rectangles and rounded degenerate rectangles
-remain fail closed pending their distinct collapsed-contour traversal.
+Round. A fully collapsed sharp rectangle now shares WPF's wholly-degenerate
+closed-figure rule: a visible initial dash emits a Round/Round point disk and
+an initial gap emits no draw, independent of LineJoin and DashCap. Rounded
+degenerate rectangle dashes remain fail closed pending their distinct
+collapsed-contour traversal.
 
 `MILCMD_DRAW_ELLIPSE` records likewise accept independent fill and pen handles.
 Solid ellipse pens lower to ProGPU's exact analytic full-ellipse arc primitive,
@@ -1015,8 +1018,8 @@ minimum clamps remain defense in depth for already-validated streams, not an
 API policy that silently converts invalid lighting state. Native C++ coverage
 checks all three rejection boundaries alongside the existing face-flag guard.
 
-- Implement the remaining 2D/3D resource execution, exact collapsed ellipse
-  and degenerate rounded-rectangle dashes, exact
+- Implement the remaining 2D/3D resource execution, exact degenerate
+  rounded-rectangle dashes, exact
   translated-equivalent EvenOdd overlap execution, remaining pen/image/media
   paths, dynamic guidelines, caches, effects, and render-data commands.
 - Lower every supported update to stable semantic resource identities and
@@ -2372,6 +2375,27 @@ executables returned zero directly. Host/guest hashes matched for all six
 changed source and test files. Guest MIL/internal executable SHA-256 values
 were `3082D4214B1B6147A8BD40B2D6B9A56D39A2B3FE929AADF071043A4E42DD56CC`
 and `0328FBF9528582E54D7E90F4051290ACD1C7F419709DAE16BA3A0D87EE4CE872`.
+
+Checkpoint `0f72b5f1` closes the fully collapsed sharp-rectangle dash case.
+The MIL compiler reuses the typed degenerate-cap stroke lane, including its
+finite dash normalization and initial visible/gap selection, and forces the
+Round/Round caps required by WPF for a wholly degenerate closed figure. It
+therefore emits one backend-independent point disk or an exact no-op without
+CPU readback, a special renderer, or host inspection; rounded degenerate
+rectangle dashes remain fail closed. A live Windows 11 PresentationCore raster
+oracle with thickness 8 and dash array `[1,1]` returned the same 8-by-8 disk
+(60 covered pixels, alpha sum 12,452) for every LineJoin and DashCap at offset
+`1.0`, and no covered pixels at `1.01`. Apple passes all 10 native CTests. The
+immutable source archive SHA-256 is
+`5BE5A14AA65021CA1D1273623169F766DBA834E968C9BEFF9A37BF0D96FBFFE3`.
+Its exact sources rebuilt all 257 steps under Windows ARM64 MSVC
+`19.44.35228.0`; all 10 CTests passed in 24.33 seconds and the focused
+MIL/internal executables returned zero directly. Host/guest source hashes
+matched at `D89307B4A78DB4BE457647F25C5C9DD1BC1305D3BE9535E444F1A0C693C3F90D`
+and `D756F7E0138D44FAF012D34FF704A4A0EFCD6EAA03EF9AADDF8924C0BFC5C5AA`.
+Guest MIL/internal executable SHA-256 values were
+`7E907A8ADD470AEFA5904EB51FCCD697C648992BAE37E94283666E7A27FC07D4`
+and `72633B0DB0A4B5A1908F6EB92AA8C0D469A3DB197A5EE09923B4712C60E7C1F3`.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive
