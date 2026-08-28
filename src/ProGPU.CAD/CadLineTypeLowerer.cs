@@ -22,6 +22,15 @@ internal readonly record struct CadLineTypePlacement(
     Vector2 Origin,
     Vector2 Tangent);
 
+internal readonly record struct CadLineTypeSplineFragment(
+    int ControlPointOffset,
+    int ControlPointCount,
+    int KnotOffset,
+    int KnotCount,
+    int WeightOffset,
+    int WeightCount,
+    int Degree);
+
 internal readonly record struct CadLineTypeLoweringResult(
     CadLineTypeLoweringStatus Status,
     PathGeometry? Path,
@@ -30,7 +39,11 @@ internal readonly record struct CadLineTypeLoweringResult(
     int PatternStepCount,
     int SourceSegmentCount,
     CadLineTypePlacement[]? Placements = null,
-    int PlacementCount = 0);
+    int PlacementCount = 0,
+    CadLineTypeSplineFragment[]? SplineFragments = null,
+    Vector2[]? SplineControlPoints = null,
+    double[]? SplineKnots = null,
+    double[]? SplineWeights = null);
 
 /// <summary>
 /// Lowers AutoCAD A-aligned model-space patterns into retained analytic path
@@ -48,6 +61,9 @@ internal readonly record struct CadLineTypeLoweringResult(
 /// performed before allocation and stops at the caller's configured figure or
 /// pattern-descriptor traversal limit; source-segment and arc-map limits are
 /// checked before proportional scratch storage is rented.
+/// Higher-degree open rational splines delegate to
+/// <see cref="CadNurbsLineTypeLowerer"/>, whose separate complexity contract
+/// accounts for exact rational subcurve storage.
 /// </remarks>
 internal static class CadLineTypeLowerer
 {
@@ -156,6 +172,18 @@ internal static class CadLineTypeLowerer
                 sourceSegmentCount);
         }
 
+        if (entity.Kind == CadEntityKind.Spline &&
+            sourceSegmentCount > maxArcMapsPerEntity)
+        {
+            return new CadLineTypeLoweringResult(
+                CadLineTypeLoweringStatus.ArcMapLimitExceeded,
+                null,
+                Matrix4x4.Identity,
+                0,
+                0,
+                sourceSegmentCount);
+        }
+
         CadLineTypeLoweringResult result = entity.Kind switch
         {
             CadEntityKind.Line => LowerLine(
@@ -203,7 +231,7 @@ internal static class CadLineTypeLowerer
                 maxFigures,
                 maxPatternSteps,
                 maxPlacements),
-            CadEntityKind.Spline => LowerLinearSpline(
+            CadEntityKind.Spline => LowerSpline(
                 snapshot,
                 snapshot.Splines.Span[entity.PrimitiveIndex],
                 elements,
@@ -211,6 +239,7 @@ internal static class CadLineTypeLowerer
                 style.LineTypeScale,
                 maxFigures,
                 maxPatternSteps,
+                maxArcMapsPerEntity,
                 maxPlacements),
             CadEntityKind.Polyline3D => LowerPolyline3D(
                 snapshot,
@@ -250,7 +279,7 @@ internal static class CadLineTypeLowerer
                 CadEntityKind.Ellipse => 1,
             CadEntityKind.LightweightPolyline or CadEntityKind.Polyline2D =>
                 GetPolylineSegmentCount(snapshot.Polylines.Span[entity.PrimitiveIndex]),
-            CadEntityKind.Spline => GetLinearSplineSegmentCount(
+            CadEntityKind.Spline => GetSplineSegmentCount(
                 snapshot,
                 snapshot.Splines.Span[entity.PrimitiveIndex]),
             CadEntityKind.Polyline3D =>
@@ -266,11 +295,11 @@ internal static class CadLineTypeLowerer
     private static int GetPolylineSegmentCount(in CadPolyline3DPrimitive polyline) =>
         polyline.IsClosed ? polyline.PointCount : Math.Max(0, polyline.PointCount - 1);
 
-    private static int GetLinearSplineSegmentCount(
+    private static int GetSplineSegmentCount(
         CadDocumentSnapshot snapshot,
         in CadSplinePrimitive spline) =>
-        IsSupportedLinearSpline(snapshot, spline)
-            ? spline.ControlPointCount - 1
+        CadNurbsLineTypeLowerer.TryValidate(snapshot, spline, out int spanCount)
+            ? spanCount
             : 0;
 
     private static int CountPolylineArcMaps(
@@ -718,11 +747,48 @@ internal static class CadLineTypeLowerer
         }
     }
 
+    private static CadLineTypeLoweringResult LowerSpline(
+        CadDocumentSnapshot snapshot,
+        in CadSplinePrimitive spline,
+        ReadOnlySpan<CadLineTypeElement> elements,
+        double patternLength,
+        double scale,
+        int maxFigures,
+        int maxPatternSteps,
+        int maxArcMapsPerEntity,
+        int maxPlacements)
+    {
+        if (spline.Degree == 1)
+        {
+            return LowerLinearSpline(
+                snapshot,
+                spline,
+                elements,
+                patternLength,
+                scale,
+                maxFigures,
+                maxPatternSteps,
+                maxPlacements);
+        }
+
+        return CadNurbsLineTypeLowerer.Lower(
+            snapshot,
+            spline,
+            elements,
+            patternLength,
+            scale,
+            maxFigures,
+            maxPatternSteps,
+            maxArcMapsPerEntity,
+            maxPlacements);
+    }
+
     private static bool IsSupportedLinearSpline(
         CadDocumentSnapshot snapshot,
         in CadSplinePrimitive spline)
     {
-        if (spline.Degree != 1 || spline.IsClosed || spline.ControlPointCount < 2 ||
+        if (spline.Degree != 1 || spline.IsClosed || spline.IsPeriodic ||
+            spline.ControlPointCount < 2 ||
             spline.KnotCount != spline.ControlPointCount + 2)
         {
             return false;
@@ -1496,14 +1562,14 @@ internal static class CadLineTypeLowerer
         }
     }
 
-    private readonly record struct PatternSpan(
+    internal readonly record struct PatternSpan(
         double Start,
         double End,
         bool IsPoint,
         bool IsContent = false,
         int ElementIndex = -1);
 
-    private ref struct PatternSpanEnumerator
+    internal ref struct PatternSpanEnumerator
     {
         private enum LayoutMode : byte
         {

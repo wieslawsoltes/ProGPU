@@ -794,7 +794,8 @@ public sealed class CadSnapshotCompiler
             weightOffset,
             spline.Weights.Count,
             spline.Degree,
-            spline.IsClosed));
+            spline.IsClosed,
+            spline.IsPeriodic));
         return new CadEntityHeader(
             handle,
             CadEntityKind.Spline,

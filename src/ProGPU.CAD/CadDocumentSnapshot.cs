@@ -168,7 +168,8 @@ public readonly record struct CadSplinePrimitive(
     int WeightOffset,
     int WeightCount,
     int Degree,
-    bool IsClosed);
+    bool IsClosed,
+    bool IsPeriodic);
 
 public readonly record struct CadPolylineVertex(
     double X,

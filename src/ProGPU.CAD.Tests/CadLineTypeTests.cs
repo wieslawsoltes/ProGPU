@@ -2,6 +2,7 @@ using ACadSharp.Entities;
 using ACadSharp.Tables;
 using CSMath;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Text;
 using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
@@ -624,35 +625,323 @@ public sealed class CadLineTypeTests
     }
 
     [Fact]
-    public void HigherDegreeSplinePatternDoesNotUsePolylineApproximation()
+    public void OpenQuadraticSplinePatternRetainsExactRationalSubcurve()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
         session.Edit("Add curved patterned spline", document =>
         {
             LineType dashed = AddSimpleLineType(
                 document,
-                "CURVED_SPLINE_GATE",
-                3.0,
-                -1.0,
-                0.0,
+                "CURVED_SPLINE_EXACT",
+                100.0,
                 -1.0);
             var spline = new Spline { Degree = 2, LineType = dashed };
             spline.ControlPoints.AddRange([
-                XYZ.Zero,
-                new XYZ(5, 10, 0),
-                new XYZ(10, 0, 0),
+                new XYZ(1, 0, 0),
+                new XYZ(1, 1, 0),
+                new XYZ(0, 1, 0),
             ]);
             spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+            spline.Weights.AddRange([1.0, Math.Sqrt(0.5), 1.0]);
             document.Entities.Add(spline);
         });
         CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
             new CadSnapshotCompiler().Compile(session));
 
+        Assert.Equal(1, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(1, scene.Statistics.LoweredLineTypeFigureCount);
+        Assert.Equal(1, scene.Statistics.LineTypeSourceSegmentCount);
+        Assert.Empty(scene.Diagnostics.ToArray());
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands);
+        Assert.Equal(RenderCommandType.DrawExtension, command.Type);
+        Assert.Equal(CompositorBuiltInExtensions.Spline, command.ExtensionId);
+        Assert.Equal(2, command.SplineDegree);
+        Assert.Equal(3, command.PointBufferCount);
+        Assert.Equal(6, command.DoubleBufferCount);
+        Assert.Equal(3, command.WeightBufferCount);
+        Vector2[] points = scene.DrawingContext.PointBuffer
+            .Skip(command.PointBufferOffset)
+            .Take(command.PointBufferCount)
+            .ToArray();
+        Assert.Equal(new Vector2(0.5f, -0.5f), points[0]);
+        Assert.Equal(new Vector2(0.5f, 0.5f), points[1]);
+        Assert.Equal(new Vector2(-0.5f, 0.5f), points[2]);
+
+        using GpuPicture picture = scene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            94U,
+            scene.ContentGeneration,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.StrokeCount);
+    }
+
+    [Fact]
+    public void MultiSpanQuadraticDashIsOneContinuousExactSplineCommand()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add multi-span quadratic spline", document =>
+        {
+            LineType dashed = AddSimpleLineType(document, "MULTI_SPLINE", 100.0, -1.0);
+            var spline = new Spline { Degree = 2, LineType = dashed };
+            spline.ControlPoints.AddRange([
+                new XYZ(0, 0, 0),
+                new XYZ(2, 4, 1),
+                new XYZ(4, 0, 2),
+                new XYZ(6, -4, 1),
+                new XYZ(8, 0, 0),
+            ]);
+            spline.Knots.AddRange([0, 0, 0, 1, 2, 3, 3, 3]);
+            spline.Weights.AddRange([1, 2, 1, 3, 1]);
+            document.Entities.Add(spline);
+        });
+
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+            new CadSnapshotCompiler().Compile(session));
+
+        Assert.Equal(1, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(1, scene.Statistics.LoweredLineTypeFigureCount);
+        Assert.Equal(3, scene.Statistics.LineTypeSourceSegmentCount);
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands);
+        Assert.Equal(CompositorBuiltInExtensions.Spline, command.ExtensionId);
+        Assert.Equal(7, command.PointBufferCount);
+        Assert.Equal(10, command.DoubleBufferCount);
+        Assert.Equal(7, command.WeightBufferCount);
+        double[] knots = scene.DrawingContext.DoubleBuffer
+            .Skip(command.DoubleBufferOffset)
+            .Take(command.DoubleBufferCount)
+            .ToArray();
+        Assert.Equal(new double[] { 0, 0, 0, 1, 1, 2, 2, 3, 3, 3 }, knots);
+
+        using GpuPicture picture = scene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            95U,
+            scene.ContentGeneration,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.StrokeCount);
+        Assert.Equal(7, compiled.StrokePointCount);
+        Assert.Equal(17, compiled.StrokeDoubleCount);
+    }
+
+    [Fact]
+    public void WeightedQuadraticDashEndpointsStayOnExactCircle()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add dashed rational quarter circle", document =>
+        {
+            LineType dashed = AddSimpleLineType(document, "RATIONAL_DASH", 0.4, -0.2);
+            var spline = new Spline { Degree = 2, LineType = dashed };
+            spline.ControlPoints.AddRange([
+                new XYZ(1, 0, 0),
+                new XYZ(1, 1, 0),
+                new XYZ(0, 1, 0),
+            ]);
+            spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+            spline.Weights.AddRange([1.0, Math.Sqrt(0.5), 1.0]);
+            document.Entities.Add(spline);
+        });
+
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+            new CadSnapshotCompiler().Compile(session));
+
+        Assert.Equal(3, scene.Statistics.LoweredLineTypeFigureCount);
+        Assert.Equal(3, scene.DrawingContext.Commands.Count);
+        Vector2 center = new(-0.5f, -0.5f);
+        foreach (RenderCommand command in scene.DrawingContext.Commands)
+        {
+            Assert.Equal(CompositorBuiltInExtensions.Spline, command.ExtensionId);
+            Assert.Equal(3, command.PointBufferCount);
+            ReadOnlySpan<Vector2> points = CollectionsMarshal.AsSpan(
+                scene.DrawingContext.PointBuffer).Slice(
+                    command.PointBufferOffset,
+                    command.PointBufferCount);
+            Assert.Equal(1.0f, Vector2.Distance(center, points[0]), 4);
+            Assert.Equal(1.0f, Vector2.Distance(center, points[^1]), 4);
+            ReadOnlySpan<double> weights = CollectionsMarshal.AsSpan(
+                scene.DrawingContext.DoubleBuffer).Slice(
+                    command.WeightBufferOffset,
+                    command.WeightBufferCount);
+            Assert.All(weights.ToArray(), weight => Assert.True(weight > 0.0));
+        }
+    }
+
+    [Fact]
+    public void HigherDegreeSplineArcMapLimitFallsBackTransactionally()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add map-limited quadratic spline", document =>
+        {
+            LineType dashed = AddSimpleLineType(document, "SPLINE_MAP_LIMIT", 1.0, -1.0);
+            var spline = new Spline { Degree = 2, LineType = dashed };
+            spline.ControlPoints.AddRange([
+                XYZ.Zero,
+                new XYZ(2, 4, 0),
+                new XYZ(4, 0, 0),
+                new XYZ(6, -4, 0),
+                new XYZ(8, 0, 0),
+            ]);
+            spline.Knots.AddRange([0, 0, 0, 1, 2, 3, 3, 3]);
+            document.Entities.Add(spline);
+        });
+
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+            new CadSnapshotCompiler().Compile(session),
+            new CadPlanSceneOptions { MaxLineTypeArcMapsPerEntity = 2 });
+
         Assert.Equal(0, scene.Statistics.LoweredLineTypeEntityCount);
         Assert.Equal(RenderCommandType.DrawExtension, Assert.Single(scene.DrawingContext.Commands).Type);
         CadDiagnostic diagnostic = Assert.Single(scene.Diagnostics.ToArray());
         Assert.Equal("CADSCENE002", diagnostic.Code);
+        Assert.Contains("arc per-entity map limit", diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CurvedRationalSplinePlacesComplexTextOnMeasuredTangent()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add complex rational spline", document =>
+        {
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            var complex = new LineType("RATIONAL_GAS");
+            complex.AddSegment(new LineType.Segment { Length = 0.4 });
+            complex.AddSegment(new LineType.Segment { Length = -0.2 });
+            complex.AddSegment(new LineType.Segment
+            {
+                Text = "X",
+                Style = textStyle,
+                Flags = LineTypeShapeFlags.Text,
+            });
+            complex.AddSegment(new LineType.Segment { Length = -0.2 });
+            document.LineTypes.Add(complex);
+            var spline = new Spline { Degree = 2, LineType = complex };
+            spline.ControlPoints.AddRange([
+                new XYZ(1, 0, 0),
+                new XYZ(1, 1, 0),
+                new XYZ(0, 1, 0),
+            ]);
+            spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+            spline.Weights.AddRange([1.0, Math.Sqrt(0.5), 1.0]);
+            document.Entities.Add(spline);
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
+            });
+
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        Assert.Equal(1, scene.Statistics.LoweredLineTypePlacementCount);
+        RenderCommand glyph = Assert.Single(
+            scene.DrawingContext.Commands,
+            command => command.Type == RenderCommandType.DrawGlyphRun);
+        Vector2 center = new(-0.5f, -0.5f);
+        Vector2 radial = new(glyph.Transform.M41, glyph.Transform.M42);
+        radial -= center;
+        Assert.Equal(1.0f, radial.Length(), 4);
+        Vector2 tangent = Vector2.Normalize(new Vector2(
+            glyph.Transform.M11,
+            glyph.Transform.M12));
+        Assert.Equal(0.0f, Vector2.Dot(radial, tangent), 4);
+    }
+
+    [Fact]
+    public void PeriodicSplinePatternRemainsAnExplicitSeamGate()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add periodic spline", document =>
+        {
+            LineType dashed = AddSimpleLineType(document, "PERIODIC_GATE", 1.0, -1.0);
+            var spline = new Spline
+            {
+                Degree = 2,
+                IsPeriodic = true,
+                LineType = dashed,
+            };
+            spline.ControlPoints.AddRange([
+                new XYZ(0, 0, 0),
+                new XYZ(2, 3, 0),
+                new XYZ(4, 0, 0),
+                new XYZ(2, -3, 0),
+                new XYZ(0, 0, 0),
+            ]);
+            spline.Knots.AddRange([0, 0, 0, 1, 2, 3, 3, 3]);
+            document.Entities.Add(spline);
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        Assert.True(Assert.Single(snapshot.Splines.ToArray()).IsPeriodic);
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        Assert.Equal(0, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(RenderCommandType.DrawExtension, Assert.Single(scene.DrawingContext.Commands).Type);
+        CadDiagnostic diagnostic = Assert.Single(scene.Diagnostics.ToArray());
         Assert.Contains("no exact analytic linetype splitter", diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ConstantSplineSpanConsumesNoPatternDistanceOrOutputPiece()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add spline with a constant span", document =>
+        {
+            LineType dashed = AddSimpleLineType(document, "CONSTANT_SPAN", 100.0, -1.0);
+            var spline = new Spline { Degree = 2, LineType = dashed };
+            spline.ControlPoints.AddRange([
+                XYZ.Zero,
+                XYZ.Zero,
+                XYZ.Zero,
+                new XYZ(2, 2, 0),
+                new XYZ(4, 0, 0),
+            ]);
+            spline.Knots.AddRange([0, 0, 0, 1, 1, 2, 2, 2]);
+            document.Entities.Add(spline);
+        });
+
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+            new CadSnapshotCompiler().Compile(session));
+
+        Assert.Equal(2, scene.Statistics.LineTypeSourceSegmentCount);
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands);
+        Assert.Equal(3, command.PointBufferCount);
+        Assert.Equal(6, command.DoubleBufferCount);
+    }
+
+    [Fact]
+    public void DiscontinuousSplinePatternFallsBackWithoutConnectingStroke()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add discontinuous spline", document =>
+        {
+            LineType dashed = AddSimpleLineType(document, "DISCONTINUITY_GATE", 1.0, -1.0);
+            var spline = new Spline { Degree = 2, LineType = dashed };
+            spline.ControlPoints.AddRange([
+                XYZ.Zero,
+                new XYZ(1, 2, 0),
+                new XYZ(2, 0, 0),
+                new XYZ(5, 0, 0),
+                new XYZ(6, 2, 0),
+                new XYZ(7, 0, 0),
+            ]);
+            spline.Knots.AddRange([0, 0, 0, 1, 1, 1, 2, 2, 2]);
+            document.Entities.Add(spline);
+        });
+
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+            new CadSnapshotCompiler().Compile(session));
+
+        Assert.Equal(0, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(RenderCommandType.DrawExtension, Assert.Single(scene.DrawingContext.Commands).Type);
+        Assert.Single(scene.Diagnostics.ToArray());
     }
 
     [Fact]

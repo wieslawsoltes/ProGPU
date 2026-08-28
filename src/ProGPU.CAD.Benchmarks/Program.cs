@@ -17,6 +17,7 @@ bool decorateShxText = HasFlag("--shx-decorations");
 bool lowerLineTypes = HasFlag("--linetypes");
 bool lowerComplexLineTypes = HasFlag("--complex-linetypes");
 bool lowerLinearSplineLineTypes = HasFlag("--linear-spline-linetypes");
+bool lowerNurbsSplineLineTypes = HasFlag("--nurbs-spline-linetypes");
 int shxInterpretationCount = ReadNonNegativeInt("--shx-interpretations", 0);
 int shxLayoutCount = ReadNonNegativeInt("--shx-layouts", 0);
 int warmupCount = ReadNonNegativeInt("--warmup", 3);
@@ -45,9 +46,11 @@ CadDocumentSession session = CreateDocument(
     shxTextEntityCount,
     decorateText,
     decorateShxText,
-    lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes,
+    lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
+        lowerNurbsSplineLineTypes,
     lowerComplexLineTypes,
-    lowerLinearSplineLineTypes);
+    lowerLinearSplineLineTypes,
+    lowerNurbsSplineLineTypes);
 var snapshotCompiler = new CadSnapshotCompiler();
 var pageSetupCompiler = new CadPageSetupCatalogCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
@@ -150,9 +153,11 @@ var report = new CadBenchmarkReport(
     shxTextEntityCount,
     decorateText,
     decorateShxText,
-    lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes,
+    lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
+        lowerNurbsSplineLineTypes,
     lowerComplexLineTypes,
     lowerLinearSplineLineTypes,
+    lowerNurbsSplineLineTypes,
     shxInterpretationCount,
     shxLayoutCount,
     warmupCount,
@@ -221,7 +226,8 @@ CadDocumentSession CreateDocument(
     bool decorateShxTextRuns,
     bool useLineTypes,
     bool useComplexLineTypes,
-    bool useLinearSplineLineTypes)
+    bool useLinearSplineLineTypes,
+    bool useNurbsSplineLineTypes)
 {
     CadDocumentSession result = CadDocumentSession.CreateNew();
     result.Edit("Build benchmark document", document =>
@@ -259,6 +265,25 @@ CadDocumentSession CreateDocument(
         {
             double x = (i % 1_000) * 12.0;
             double y = (i / 1_000) * 12.0;
+            if (useNurbsSplineLineTypes)
+            {
+                var spline = new Spline
+                {
+                    Degree = 2,
+                    LineType = benchmarkLineType ?? document.LineTypes.Continuous,
+                };
+                spline.ControlPoints.AddRange([
+                    new XYZ(x, y, i % 17),
+                    new XYZ(x + 2, y + 4, (i % 17) + 1),
+                    new XYZ(x + 4, y, (i % 17) + 2),
+                    new XYZ(x + 6, y - 4, (i % 17) + 1),
+                    new XYZ(x + 8, y, i % 17),
+                ]);
+                spline.Knots.AddRange([0, 0, 0, 1, 2, 3, 3, 3]);
+                spline.Weights.AddRange([1, 2, 1, 3, 1]);
+                document.Entities.Add(spline);
+                continue;
+            }
             if (useLinearSplineLineTypes)
             {
                 var spline = new Spline
@@ -548,6 +573,7 @@ internal sealed record CadBenchmarkReport(
     bool LoweredLineTypes,
     bool LoweredComplexLineTypes,
     bool LoweredLinearSplineLineTypes,
+    bool LoweredNurbsSplineLineTypes,
     int ShxInterpretationCount,
     int ShxLayoutCount,
     int WarmupCount,

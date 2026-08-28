@@ -82,9 +82,10 @@ public sealed class CadRecordedPlanScene
 /// retained context. Large WCS coordinates are rebased before their checked float
 /// conversion. Text adds O(R + D) retained commands for R contiguous font runs
 /// and D TrueType decoration rectangles or SHX decoration segments; it does not
-/// copy or expand glyph streams. CAD linetypes add O(F + P) retained analytic
-/// figures and placement commands for F visible dash/dot figures and P embedded
-/// text/shape placements, bounded before allocation by options. Complex payloads
+/// copy or expand glyph streams. CAD linetypes add O(F + P + C) retained analytic
+/// figures, placement commands, and exact rational fragment values for F visible
+/// dash/dot figures, P embedded text/shape placements, and C emitted spline
+/// control/knot/weight values, bounded before allocation by options. Complex payloads
 /// are shaped or interpreted once per referenced definition and shared by all P
 /// occurrences.
 /// A later
@@ -184,10 +185,11 @@ public sealed class CadPlanSceneCompiler
                                 "CADSCENE003",
                                 $"Linetype '{pattern.Name}' uses a host-resolved text or SHX substitution."));
                         }
-                        if (result.FigureCount != 0)
+                        if (result.Path is not null)
                         {
-                            context.DrawPath(null, pen, result.Path!, result.Transform);
+                            context.DrawPath(null, pen, result.Path, result.Transform);
                         }
+                        RecordLineTypeSplineFragments(context, pen, result);
                         RecordLineTypePlacements(
                             context,
                             pen,
@@ -500,6 +502,31 @@ public sealed class CadPlanSceneCompiler
                         CreateAffineTransform(glyphOrigin, xAxis, yAxis));
                 }
             }
+        }
+    }
+
+    private static void RecordLineTypeSplineFragments(
+        DrawingContext context,
+        Pen pen,
+        in CadLineTypeLoweringResult result)
+    {
+        if (result.SplineFragments is null)
+        {
+            return;
+        }
+
+        ReadOnlySpan<Vector2> points = result.SplineControlPoints;
+        ReadOnlySpan<double> knots = result.SplineKnots;
+        ReadOnlySpan<double> weights = result.SplineWeights;
+        foreach (CadLineTypeSplineFragment fragment in result.SplineFragments)
+        {
+            context.DrawSpline(
+                pen,
+                points.Slice(fragment.ControlPointOffset, fragment.ControlPointCount),
+                knots.Slice(fragment.KnotOffset, fragment.KnotCount),
+                weights.Slice(fragment.WeightOffset, fragment.WeightCount),
+                fragment.Degree,
+                isClosed: false);
         }
     }
 
