@@ -618,24 +618,29 @@ child: ordinary descendants retain the compact outer-fill contour leaf, while
 the boolean child retains its existing postfix subtree and each subsequent
 nonempty child adds one group-level XOR node. DrawGeometry fills and vector
 PushClip use this same bounded compiler, including per-point guideline segments
-for fills. A `GeometryGroup` containing `PathGeometry` and `LineGeometry`
-children may now carry a meaningful pen. The compiler preserves each path
-child's original open/closed stroke contours, treats each line as its own open
-figure, composes child then group then drawing transforms, resets dash state at
-each figure, resolves one pen brush against the aggregate group bounds expanded
-by the existing native miter envelope, and submits fill before stroke. This
-mirrors
+for fills. A `GeometryGroup` containing `PathGeometry`, `LineGeometry`, and
+positive-area rectangle/ellipse children may now carry a meaningful pen. The
+compiler preserves each path child's original open/closed stroke contours,
+treats each line as its own open figure, and routes plain rectangles, analytic
+ellipses, and uniform/nonuniform rounded rectangles through the same typed
+fixed-shape stroke helper used by direct draw commands. Child then group then
+drawing transforms compose in WPF order, dash state resets at each figure, one
+pen brush resolves against the aggregate group bounds expanded by the existing
+native miter envelope, and fill submits before stroke. This mirrors
 `CMilGeometryGroupDuce::GetShapeDataCore`, which appends every child figure to
 one `CShape`, and `CDrawingContext::DrawGeometry`, which computes aggregate
 stroke bounds and strokes that shape after its fill. Native scene fixtures
 cover filled and explicitly unfilled closed figures in the same group,
 different child transforms, shared brush resolution, exact solid curve bodies,
 an independently transformed solid/dashed line, and dashed curve bodies/caps
-on both path children. A group pen whose children include rectangle, ellipse,
-nested, or boolean geometry remains fail closed until those stroke contours can
-be composed without approximation. Exact singular affine transforms now lower
-fill and stroke coverage to empty, matching WPF's zero-determinant area
-semantics without attempting to invert or factor an arc basis.
+on both path children. The fixed-shape coverage additionally requires a
+20-segment group fill plus solid and dashed plain rectangle, ellipse, and
+nonuniform rounded-rectangle strokes under independent transforms. Collapsed
+rectangle/ellipse shapes and nested or boolean geometry remain fail closed
+until those stroke contours can be composed without approximation. Exact
+singular affine transforms now lower fill and stroke coverage to empty,
+matching WPF's zero-determinant area semantics without attempting to invert or
+factor an arc basis.
 
 Canonical fixed-size `MILCMD_COMBINEDGEOMETRY` state now retains the optional
 matrix transform, two geometry dependencies, and WPF Union/Intersect/Xor/
