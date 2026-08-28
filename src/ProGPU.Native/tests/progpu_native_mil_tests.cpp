@@ -11569,16 +11569,109 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         -20.854248F,
         -24.455942F));
 
+    std::vector<std::byte> affine_rectangle_update;
+    append_command(
+        affine_rectangle_update,
+        command::rectangle_geometry,
+        rectangle_geometry,
+        0.0,
+        0.0,
+        20.0,
+        10.0,
+        30.0,
+        15.0,
+        shear_transform,
+        0U,
+        0U,
+        0U);
+    append_command(
+        affine_rectangle_update,
+        command::geometry_drawing,
+        geometry_drawing,
+        0U,
+        pen,
+        rectangle_geometry);
+    PROGPU_REQUIRE(
+        state.apply(affine_rectangle_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 11U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(contains_mapping(
+        0.7628617F,
+        0.5800507F,
+        -11.375198F,
+        -1.2263298F));
+
+    std::vector<std::byte> bevel_rectangle_update;
+    append_command(
+        bevel_rectangle_update,
+        command::pen,
+        pen,
+        2.0,
+        10.0,
+        brush,
+        thickness_animation,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        PROGPU_NATIVE_STROKE_CAP_FLAT,
+        PROGPU_NATIVE_STROKE_JOIN_BEVEL,
+        0U);
+    PROGPU_REQUIRE(
+        state.apply(bevel_rectangle_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 12U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(contains_mapping(
+        0.8957480F,
+        0.6609136F,
+        -17.188974F,
+        -3.3489826F));
+
+    std::vector<std::byte> clipped_miter_update;
+    append_command(
+        clipped_miter_update,
+        command::pen,
+        pen,
+        2.0,
+        1.0,
+        brush,
+        thickness_animation,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        PROGPU_NATIVE_STROKE_CAP_FLAT,
+        PROGPU_NATIVE_STROKE_JOIN_MITER,
+        0U);
+    PROGPU_REQUIRE(state.apply(clipped_miter_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 13U, stream, nullptr) ==
+        status::unsupported_command);
+
     std::vector<std::byte> group_transform_update;
     append_create(group_transform_update, transformed_group, 91U);
     append_command(
         group_transform_update,
-        command::line_geometry,
-        geometry,
+        command::pen,
+        pen,
+        2.0,
         10.0,
+        brush,
+        thickness_animation,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        PROGPU_NATIVE_STROKE_CAP_FLAT,
+        PROGPU_NATIVE_STROKE_JOIN_MITER,
+        0U);
+    append_command(
+        group_transform_update,
+        command::rectangle_geometry,
+        rectangle_geometry,
+        0.0,
+        0.0,
         20.0,
+        10.0,
         30.0,
-        20.0,
+        15.0,
+        0U,
         0U,
         0U,
         0U);
@@ -11604,7 +11697,36 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         transformed_group);
     PROGPU_REQUIRE(state.apply(group_transform_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7008U, 11U, stream, &metrics) ==
+        state.build_scene(target, 7008U, 14U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(contains_mapping(
+        0.8080808F,
+        0.6153846F,
+        -13.353535F,
+        -2.1538463F));
+
+    std::vector<std::byte> group_line_update;
+    append_command(
+        group_line_update,
+        command::line_geometry,
+        geometry,
+        10.0,
+        20.0,
+        30.0,
+        20.0,
+        0U,
+        0U,
+        0U);
+    append_command(
+        group_line_update,
+        command::geometry_drawing,
+        geometry_drawing,
+        0U,
+        pen,
+        geometry);
+    PROGPU_REQUIRE(state.apply(group_line_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 15U, stream, &metrics) ==
         status::success);
     PROGPU_REQUIRE(contains_mapping(
         1.3818725F,
@@ -11647,7 +11769,7 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         dash_style);
     PROGPU_REQUIRE(state.apply(dashed_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7008U, 12U, stream, nullptr) ==
+        state.build_scene(target, 7008U, 16U, stream, nullptr) ==
         status::unsupported_command);
 
     std::vector<std::byte> solid_dash_style_update;
@@ -11660,7 +11782,7 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
     PROGPU_REQUIRE(
         state.apply(solid_dash_style_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7008U, 13U, stream, &metrics) ==
+        state.build_scene(target, 7008U, 17U, stream, &metrics) ==
         status::success);
     PROGPU_REQUIRE(contains_mapping(
         10.0F / 7.0F, 2.5F, -46.0F / 7.0F, -36.0F));
