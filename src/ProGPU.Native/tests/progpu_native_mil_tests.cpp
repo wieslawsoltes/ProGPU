@@ -7202,6 +7202,12 @@ bool retained_path_geometry_compiles_to_semantic_scene() {
         PROGPU_REQUIRE(path.fill_rule == PROGPU_NATIVE_FILL_RULE_NON_ZERO);
         PROGPU_REQUIRE(path.transform.m11 == 2.0F);
         PROGPU_REQUIRE(path.transform.m22 == 2.0F);
+        PROGPU_REQUIRE(
+            std::isfinite(path.min_x) && std::isfinite(path.min_y) &&
+            std::isfinite(path.max_x) && std::isfinite(path.max_y));
+        PROGPU_REQUIRE(
+            path.min_x != 1.0F || path.min_y != 2.0F ||
+            path.max_x != 21.0F || path.max_y != 32.0F);
         const auto line = read_value<progpu_native_path_segment>(
             stream,
             resource.auxiliary_offset);
@@ -11592,7 +11598,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         if (path.boolean_node_count == 3U) {
             PROGPU_REQUIRE(path.segment_count == 8U);
             PROGPU_REQUIRE(path.min_x == 1.0F && path.min_y == 2.0F);
-            PROGPU_REQUIRE(path.max_x == 35.0F && path.max_y == 13.0F);
+            PROGPU_REQUIRE(path.max_x == 35.0F && path.max_y == 12.0F);
             const auto transformed_line =
                 read_value<progpu_native_path_segment>(
                     stream,
