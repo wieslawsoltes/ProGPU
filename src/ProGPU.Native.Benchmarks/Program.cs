@@ -1644,8 +1644,17 @@ if (forceAtlasGrowth && useGlyphScene && nativeAtlasGrowthCount == 0U)
     throw new InvalidOperationException(
         "The native glyph atlas did not publish its growth count.");
 }
+GpuComputeExecutionPreference computePreference =
+    GpuComputeExecutionPolicy.ReadEnvironmentPreference();
+bool allowsGpuGlyphCoverageTies = useGlyphScene &&
+    computePreference is GpuComputeExecutionPreference.Fastest or
+        GpuComputeExecutionPreference.NativeCompute;
+// Native compute and the managed GPU implementation independently evaluate
+// floating-point glyph coverage. Bound their antialiasing ties below while
+// keeping the explicitly forced raster and intrinsic-SIMD paths byte exact.
 bool requiresExactPixels = !useSemanticScene &&
-    ((useImageScene && !useMaskedImageScene) || useGlyphScene ||
+    ((useImageScene && !useMaskedImageScene) ||
+    (useGlyphScene && !allowsGpuGlyphCoverageTies) ||
     (!useImageScene && !useGlyphScene && !useAnalyticScene &&
      !useGeometryScene && !usePathScene && dpiScale == 1f));
 bool usesGeometryDifferential = useSemanticScene || useGeometryScene || usePathScene;
