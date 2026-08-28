@@ -2069,12 +2069,13 @@ single-child/nested-single-child `GeometryGroup` chains and composes every group
 and leaf transform; multi-child groups remain sideband-only until WPF fill-rule
 cancellation bounds have a qualified oracle. Fixed lines plus rectangles,
 rounded rectangles, and ellipses—including zero-width, zero-height, and point
-degenerates—with a non-dashed Pen now reuse
+degenerates—with a solid Pen now reuse
 the renderer's canonical live Pen resolver, cap-aware line bounds, and shared
 positive-shape stroke-bounds helper. Animated thickness changes the inferred
 DrawingImage mapping without retransmitting the Pen or Drawing; only
 axis-preserving geometry transforms are accepted so transforming the local
-stroke AABB remains exact. Dashed, path/group, and
+stroke AABB remains exact. A missing DashStyle and a DashStyle with an empty
+interval collection both take that solid lane; nonempty dashed, path/group, and
 non-axis-preserving stroked cases remain sideband-only. No bitmap intermediate,
 pointer
 transport, reflection, or host raster fallback is introduced. Recursive
@@ -2090,7 +2091,9 @@ verifies the per-child clip-derived destination mapping while retaining a shear
 rejection oracle. Separate native coverage verifies exact square-cap mappings
 at two animated thickness values, rounded-rectangle and ellipse mappings,
 zero-width rectangle, collapsed-axis ellipse, and point-ellipse mappings, plus
-explicit sheared-transform and dashed-Pen rejections.
+explicit sheared-transform and nonempty-dashed-Pen rejections. The same Pen
+then succeeds after its DashStyle resource updates to empty intervals without
+retransmitting the Pen or Drawing.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive

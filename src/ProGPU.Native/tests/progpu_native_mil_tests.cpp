@@ -11429,6 +11429,21 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
     PROGPU_REQUIRE(
         state.build_scene(target, 7008U, 9U, stream, nullptr) ==
         status::unsupported_command);
+
+    std::vector<std::byte> solid_dash_style_update;
+    append_dash_style(
+        solid_dash_style_update,
+        dash_style,
+        0.0,
+        0U,
+        std::span<const double>{});
+    PROGPU_REQUIRE(
+        state.apply(solid_dash_style_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 10U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(contains_mapping(
+        10.0F / 7.0F, 2.5F, -46.0F / 7.0F, -36.0F));
     return true;
 }
 
