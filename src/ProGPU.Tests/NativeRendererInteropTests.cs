@@ -5455,6 +5455,10 @@ public class NativeRendererInteropTests
             cmake,
             StringComparison.Ordinal);
         Assert.Contains(
+            "/clang:--rtlib=compiler-rt",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "string(APPEND CMAKE_CXX_STANDARD_LIBRARIES",
             cmake,
             StringComparison.Ordinal);
