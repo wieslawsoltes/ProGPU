@@ -2265,6 +2265,25 @@ Host/guest hashes matched (`471096C4...D6234D` archive,
 `F55BB225...ACFAF8` MIL source, `1BE90C6C...5D51BE` MIL test). Guest MIL and
 internal executable hashes were `BB97651B...85AAE6` and
 `2B2E729A...8F8FE7`.
+Checkpoint `7521787d` supersedes the earlier thick-stroke fail-closed boundary.
+The fixed-array ellipse walker now mirrors WpfGfx `CPen::AcceptCurvePoint`:
+when the flattened tangent turns far enough at a large pen radius, it emits
+the previous-tangent-to-chord `RoundTo`, the chord offset pair, and the
+chord-to-current-tangent `RoundTo`. The round-corner helper preserves WpfGfx's
+very-flat bevel endpoint and otherwise contributes the same one/two cubic
+arcs and analytic world-space extrema, without allocations. At thickness 64,
+the same ellipse and matrix produced live PresentationCore bounds
+`-7.13843107223511,-2.55054593086243,84.2768588066101,75.101090669632`
+for `Geometry.Transform` and
+`-10.9766893386841,-3.54298257827759,91.9533739089966,77.0859665870667`
+for `DrawingGroup.Transform`; tests retain both thick mappings as well as the
+thickness-8 profile. The complete Apple native suite passes 8/8. The immutable
+archive SHA-256 is `FA85410E...E3E01`; its exact sources rebuilt under Windows
+ARM64 MSVC `19.44.35228.0` with 161 `/W4 /WX` Ninja flag lines. Both focused
+CTest binaries passed in 1.39 seconds and direct executions returned zero.
+Host/guest source hashes matched (`8B71B473...77D4D` MIL and
+`691DAD8A...CE95` MIL test); guest MIL/internal executable hashes were
+`037D26AF...7BFBD` and `B5635F7D...6EE5`.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive
