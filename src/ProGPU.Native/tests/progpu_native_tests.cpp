@@ -518,7 +518,8 @@ void fixed_stroke_topology_masks_match_reference_classification() {
             1.0F,
             center,
             {1.0F, 0.25F},
-            {0.5F, 1.0F});
+            {0.5F, 1.0F},
+            true);
     PROGPU_REQUIRE(clipped_count == 3U);
     for (std::size_t index = 0U; index < clipped_count; ++index) {
         std::uint32_t expected_exterior = 0U;

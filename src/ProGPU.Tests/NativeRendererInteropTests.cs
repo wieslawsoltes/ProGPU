@@ -2629,6 +2629,32 @@ public class NativeRendererInteropTests
         Assert.False(builder.TryAddStrokeResource(
             100U, 1U, strokes, points, doubles, out _));
         doubles[1] = 1.0;
+        strokes[0] = new(
+            NativeSceneStrokeKind.Polyline,
+            0U,
+            3U,
+            Matrix3x2.Identity,
+            2f,
+            4f,
+            NativePolylineFlags.FixedDeviceStroke |
+                NativePolylineFlags.WpfJoinSemantics,
+            dashIntervalCount: 2U);
+        Assert.False(builder.TryAddStrokeResource(
+            100U, 1U, strokes, points, doubles, out _));
+        strokes[0] = new(
+            NativeSceneStrokeKind.Polyline,
+            0U,
+            3U,
+            Matrix3x2.Identity,
+            2f,
+            4f,
+            NativePolylineFlags.FixedDeviceStroke,
+            dashIntervalCount: 2U,
+            startCap: NativeStrokeCap.Round,
+            endCap: NativeStrokeCap.Triangle,
+            lineJoin: NativeStrokeJoin.Round,
+            dashCap: NativeStrokeCap.Square,
+            color: Vector4.One);
         Span<NativeSceneStroke> overflowingStrokes =
             stackalloc NativeSceneStroke[2]
             {

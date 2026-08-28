@@ -13,7 +13,7 @@ public sealed class StrokeJoinGeometryTests
         Span<StrokeJoinTriangle> triangles =
             stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
 
-        var count = StrokeJoinGeometry.WriteLineJoin(
+        var count = StrokeJoinGeometry.WriteWpfLineJoin(
             triangles,
             PenLineJoin.Miter,
             thickness: 2f,
@@ -30,7 +30,7 @@ public sealed class StrokeJoinGeometryTests
         AssertPoint(triangles[1].P2, 2f, -0.41421357f);
         AssertPoint(triangles[2].P2, 2f, 0f);
 
-        var allocated = StrokeJoinGeometry.CreateLineJoin(
+        var allocated = StrokeJoinGeometry.CreateWpfLineJoin(
             PenLineJoin.Miter,
             thickness: 2f,
             miterLimit: 1f,
@@ -66,6 +66,24 @@ public sealed class StrokeJoinGeometryTests
         AssertPoint(triangles[1].P1, 2f, -1f);
     }
 
+    [Fact]
+    public void OverLimitMiterUsesBevelForNonWpfConsumers()
+    {
+        Span<StrokeJoinTriangle> triangles =
+            stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
+
+        var count = StrokeJoinGeometry.WriteLineJoin(
+            triangles,
+            PenLineJoin.Miter,
+            thickness: 2f,
+            miterLimit: 1f,
+            previousPoint: Vector2.Zero,
+            joinPoint: Vector2.UnitX,
+            nextPoint: Vector2.One);
+
+        Assert.Equal(1, count);
+    }
+
     [Theory]
     [InlineData(PenLineJoin.Miter)]
     [InlineData(PenLineJoin.Bevel)]
@@ -74,7 +92,7 @@ public sealed class StrokeJoinGeometryTests
         Span<StrokeJoinTriangle> triangles =
             stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
 
-        var count = StrokeJoinGeometry.WriteLineJoin(
+        var count = StrokeJoinGeometry.WriteWpfLineJoin(
             triangles,
             lineJoin,
             thickness: 2f,
@@ -96,7 +114,7 @@ public sealed class StrokeJoinGeometryTests
         Span<StrokeJoinTriangle> triangles =
             stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
 
-        var count = StrokeJoinGeometry.WriteLineJoin(
+        var count = StrokeJoinGeometry.WriteWpfLineJoin(
             triangles,
             PenLineJoin.Round,
             thickness: 2f,
@@ -109,6 +127,24 @@ public sealed class StrokeJoinGeometryTests
         AssertPoint(triangles[0].P1, 1f, 0f);
         AssertPoint(triangles[3].P2, 0f, -1f);
         AssertPoint(triangles[^1].P2, -1f, 0f);
+    }
+
+    [Fact]
+    public void ReversalJoinIsOptInForNonWpfConsumers()
+    {
+        Span<StrokeJoinTriangle> triangles =
+            stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
+
+        var count = StrokeJoinGeometry.WriteLineJoin(
+            triangles,
+            PenLineJoin.Round,
+            thickness: 2f,
+            miterLimit: 1f,
+            previousPoint: new Vector2(0f, 1f),
+            joinPoint: Vector2.Zero,
+            nextPoint: new Vector2(0f, 1f));
+
+        Assert.Equal(0, count);
     }
 
     private static void AssertPoint(Vector2 actual, float x, float y)

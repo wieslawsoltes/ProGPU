@@ -372,7 +372,8 @@ public enum NativePolylineFlags : uint
     StartCapMask = 3U << 3,
     EndCapMask = 3U << 5,
     JoinMask = 3U << 7,
-    Closed = 1U << 9
+    Closed = 1U << 9,
+    WpfJoinSemantics = 1U << 10
 }
 
 [Flags]

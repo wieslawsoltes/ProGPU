@@ -835,7 +835,8 @@ inline bool append_cpu_join(
     float brush_index,
     bool aliased,
     std::vector<vector_vertex>& vertices,
-    std::vector<std::uint32_t>& indices);
+    std::vector<std::uint32_t>& indices,
+    bool use_wpf_join_semantics = false);
 
 inline void append_device_join(
     std::uint32_t join,
@@ -1574,7 +1575,8 @@ inline std::size_t create_join_triangles(
     float miter_limit,
     const progpu_native_point& join_point,
     progpu_native_point incoming,
-    progpu_native_point outgoing) noexcept {
+    progpu_native_point outgoing,
+    bool use_wpf_join_semantics = false) noexcept {
     if (!try_normalize(incoming, {}, incoming) ||
         !try_normalize(outgoing, {}, outgoing) ||
         !std::isfinite(thickness) || thickness <= 0.0001F) {
@@ -1588,7 +1590,8 @@ inline std::size_t create_join_triangles(
     if (std::abs(turn) <= 0.0001F) {
         const float dot = incoming.x * outgoing.x +
             incoming.y * outgoing.y;
-        if (!std::isfinite(dot) || dot >= -1.0F + 0.0001F) {
+        if (!use_wpf_join_semantics || !std::isfinite(dot) ||
+            dot >= -1.0F + 0.0001F) {
             return 0U;
         }
         const progpu_native_point normal{-incoming.y, incoming.x};
@@ -1669,6 +1672,9 @@ inline std::size_t create_join_triangles(
                 radius * resolved_limit + 0.0001F;
         triangles[0] = {previous_outer, join_point, next_outer};
         if (!has_miter) {
+            if (!use_wpf_join_semantics) {
+                return 1U;
+            }
             // WPF's public Miter join clips the outer corner at the nominal
             // miter-limit distance instead of falling back to a bevel.
             const float dot = incoming.x * outgoing.x +
@@ -1750,7 +1756,8 @@ inline bool append_cpu_join(
     float brush_index,
     bool aliased,
     std::vector<vector_vertex>& vertices,
-    std::vector<std::uint32_t>& indices) {
+    std::vector<std::uint32_t>& indices,
+    bool use_wpf_join_semantics) {
     std::array<stroke_triangle, 8U> triangles{};
     const std::size_t count = create_join_triangles(
         triangles,
@@ -1759,7 +1766,8 @@ inline bool append_cpu_join(
         miter_limit,
         join_point,
         incoming,
-        outgoing);
+        outgoing,
+        use_wpf_join_semantics);
     for (std::size_t index = 0U; index < count; ++index) {
         std::uint32_t exterior_mask = 0U;
         std::uint32_t owned_internal_mask = 0U;

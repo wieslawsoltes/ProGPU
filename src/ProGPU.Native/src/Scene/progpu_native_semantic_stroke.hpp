@@ -14,7 +14,8 @@ inline constexpr std::uint32_t semantic_stroke_base_flags =
     PROGPU_NATIVE_POLYLINE_FLAG_EDGE_ALIASED |
     PROGPU_NATIVE_POLYLINE_FLAG_HAIRLINE |
     PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE |
-    PROGPU_NATIVE_POLYLINE_FLAG_CLOSED;
+    PROGPU_NATIVE_POLYLINE_FLAG_CLOSED |
+    PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS;
 
 inline bool semantic_stroke_resource_layout(
     const progpu_native_scene_stroke* strokes,
@@ -52,6 +53,11 @@ inline bool semantic_stroke_resource_layout(
             !std::isfinite(stroke.stroke_thickness) ||
             !std::isfinite(stroke.miter_limit) ||
             stroke.miter_limit < 1.0F ||
+            ((stroke.flags &
+                    PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS) != 0U &&
+                (stroke.flags & (
+                    PROGPU_NATIVE_POLYLINE_FLAG_HAIRLINE |
+                    PROGPU_NATIVE_POLYLINE_FLAG_FIXED_DEVICE_STROKE)) != 0U) ||
             !std::isfinite(stroke.dash_offset) ||
             stroke.reserved[0] != 0U || stroke.reserved[1] != 0U ||
             !try_add(expected_points, stroke.point_count)) {

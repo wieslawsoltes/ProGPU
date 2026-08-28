@@ -5745,6 +5745,9 @@ bool solid_pen_line_compiles_to_geometry_scene() {
             record.payload_offset);
         PROGPU_REQUIRE(
             (stroke.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U);
+        PROGPU_REQUIRE(
+            (stroke.flags &
+                PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS) != 0U);
         PROGPU_REQUIRE(stroke.point_count == 4U);
         PROGPU_REQUIRE(stroke.dash_interval_count == 2U);
         found_closed_rectangle = true;
@@ -6172,6 +6175,9 @@ bool solid_pen_line_compiles_to_geometry_scene() {
         PROGPU_REQUIRE(stroke.dash_interval_count == 2U);
         PROGPU_REQUIRE(
             (stroke.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U);
+        PROGPU_REQUIRE(
+            (stroke.flags &
+                PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS) != 0U);
         const std::array expected_points{
             progpu_native_point{3.0F, 4.0F},
             progpu_native_point{3.0F, 4.0F},
@@ -6234,6 +6240,9 @@ bool solid_pen_line_compiles_to_geometry_scene() {
             stroke.line_join == PROGPU_NATIVE_STROKE_JOIN_ROUND);
         PROGPU_REQUIRE(
             (stroke.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U);
+        PROGPU_REQUIRE(
+            (stroke.flags &
+                PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS) != 0U);
         const std::array expected_points{
             progpu_native_point{8.0F, 4.0F},
             progpu_native_point{8.0F, 6.0F},
