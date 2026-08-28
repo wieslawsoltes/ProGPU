@@ -916,7 +916,11 @@ public sealed class DrawingApiQualityTests
             points[index] = new PointF(index, -index);
         }
 
-        matrix.TransformPoints((ReadOnlySpan<PointF>)points);
+        for (int iteration = 0; iteration < 128; iteration++)
+        {
+            matrix.TransformPoints((ReadOnlySpan<PointF>)points);
+        }
+
         long before = GC.GetAllocatedBytesForCurrentThread();
         for (int iteration = 0; iteration < 64; iteration++)
         {
