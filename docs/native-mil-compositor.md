@@ -2042,7 +2042,12 @@ Direct DrawingImage replay now uses the same typed retained vector path as an
 ImageDrawing that references a DrawingImage. Static and animated DrawImage
 resolve the source's canonical Drawing handle, clip to the destination
 rectangle, and compose the source-to-destination affine mapping before
-recursively compiling the Drawing. A fill-only `GeometryDrawing` backed by a
+recursively compiling the Drawing. A nested `ImageDrawing` now contributes its
+live static or animated destination rectangle when its image source is non-null,
+then applies the complete current group transform and active clip. This follows
+WPF `BoundsDrawingContextWalker.DrawImage` directly: bounds depend on the image
+rectangle, not a pixel readback or recursive inspection of image content. A
+fill-only `GeometryDrawing` backed by a
 positive-area fixed rectangle, rounded rectangle, or ellipse now derives its
 current exact bounds directly from typed native geometry and transform state;
 animated fixed values and transforms are therefore resolved at scene-build
@@ -2111,6 +2116,20 @@ for `progpu_native_mil.cpp` and
 `61622AB8BA666678074B5298B53062BA55C70C90E97FB047763FC461F2B23767`
 for its test. The guest executable SHA-256 was
 `DBDA27CD933D4D4A17B4FE70D55204A6481A16B9AA29DC8BF886974C3C82C6A4`.
+Checkpoint `6a7652a9` then makes `ImageDrawing` a first-class leaf in that
+sideband-free bounds walk. The differential fixture wraps a vector-backed
+ImageDrawing in a sheared DrawingGroup and another DrawingImage, verifies the
+derived general-affine source mapping and destination clip, updates the
+ImageDrawing through a live `RectResource`, and verifies the new mapping
+without retransmitting either DrawingImage. The complete Apple native suite
+passes 8/8. A clean archive rebuilt all 136 focused target steps under Windows
+ARM64 MSVC `19.44.35228.0` with `/W4 /WX`; focused CTest passed in 4.22
+seconds and direct execution returned zero. Host and guest hashes matched at
+`6ACDD31B6F3E964AC1F2420FCD1193EF58907276766AD996FFBD50917276DEEB`
+for `progpu_native_mil.cpp` and
+`0B239F7E78D98642A27BC09D5B0C60636034E0B967FA6B76A2ADEC824B7D11C8`
+for its test. The guest executable SHA-256 was
+`08C83E4E428AD441321281AC701D05B28CF62B4D65B815B7F5ADA999E932BAAB`.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive
