@@ -623,10 +623,13 @@ positive-area rectangle/ellipse children may now carry a meaningful pen. The
 compiler preserves each path child's original open/closed stroke contours,
 treats each line as its own open figure, and routes plain rectangles, analytic
 ellipses, and uniform/nonuniform rounded rectangles through the same typed
-fixed-shape stroke helper used by direct draw commands. Child then group then
-drawing transforms compose in WPF order, dash state resets at each figure, one
-pen brush resolves against the aggregate group bounds expanded by the existing
-native miter envelope, and fill submits before stroke. This mirrors
+fixed-shape stroke helper used by direct draw commands. Nested groups recurse
+through the same leaf dispatcher up to the existing 256-level visual bound.
+Leaf, inner-group, root-group, and drawing transforms compose in WPF order;
+singular nested branches contribute no coverage. Dash state resets at each
+figure, one root pen brush resolves against the recursively aggregated group
+bounds expanded by the existing native miter envelope, and fill submits before
+stroke. This mirrors
 `CMilGeometryGroupDuce::GetShapeDataCore`, which appends every child figure to
 one `CShape`, and `CDrawingContext::DrawGeometry`, which computes aggregate
 stroke bounds and strokes that shape after its fill. Native scene fixtures
@@ -635,12 +638,14 @@ different child transforms, shared brush resolution, exact solid curve bodies,
 an independently transformed solid/dashed line, and dashed curve bodies/caps
 on both path children. The fixed-shape coverage additionally requires a
 20-segment group fill plus solid and dashed plain rectangle, ellipse, and
-nonuniform rounded-rectangle strokes under independent transforms. Collapsed
-rectangle/ellipse shapes and nested or boolean geometry remain fail closed
-until those stroke contours can be composed without approximation. Exact
-singular affine transforms now lower fill and stroke coverage to empty,
-matching WPF's zero-determinant area semantics without attempting to invert or
-factor an arc basis.
+nonuniform rounded-rectangle strokes under independent transforms. A nested
+group fixture reuses the line leaf under an additional translation and requires
+the exact composed transform in both solid and dashed output. Collapsed
+rectangle/ellipse shapes and boolean geometry remain fail closed until those
+stroke contours can be composed without approximation. Exact singular affine
+transforms now lower fill and stroke coverage to empty, matching WPF's
+zero-determinant area semantics without attempting to invert or factor an arc
+basis.
 
 Canonical fixed-size `MILCMD_COMBINEDGEOMETRY` state now retains the optional
 matrix transform, two geometry dependencies, and WPF Union/Intersect/Xor/

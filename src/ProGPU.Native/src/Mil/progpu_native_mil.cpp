@@ -9470,8 +9470,59 @@ struct channel::implementation {
                             group_pen.brush_handle != 0U &&
                             group_pen.thickness > 0.0;
                         if (has_group_stroke) {
-                            for (const std::uint32_t child_handle :
-                                 geometry_group->second.children) {
+                            const auto include_stroke_bounds = [
+                                this,
+                                &effective_transform,
+                                &has_group_stroke_bounds,
+                                &group_stroke_left,
+                                &group_stroke_top,
+                                &group_stroke_right,
+                                &group_stroke_bottom](
+                                auto&& self,
+                                std::uint32_t child_handle,
+                                affine_2d_double parent_transform,
+                                std::uint32_t depth) -> status {
+                                if (depth == 0U ||
+                                    depth > maximum_visual_depth) {
+                                    return status::invalid_graph;
+                                }
+                                const auto nested_group =
+                                    geometry_groups.find(child_handle);
+                                if (nested_group != geometry_groups.end()) {
+                                    if (nested_group->second
+                                            .transform_handle != 0U) {
+                                        affine_2d_double nested_transform{};
+                                        const status transform_status =
+                                            resolve_transform(
+                                                nested_group->second
+                                                    .transform_handle,
+                                                nested_transform);
+                                        if (transform_status !=
+                                            status::success) {
+                                            return transform_status;
+                                        }
+                                        parent_transform = compose_affine(
+                                            nested_transform,
+                                            parent_transform);
+                                    }
+                                    if (affine_has_zero_area(compose_affine(
+                                            parent_transform,
+                                            effective_transform))) {
+                                        return status::success;
+                                    }
+                                    for (const std::uint32_t nested_child :
+                                         nested_group->second.children) {
+                                        const status child_status = self(
+                                            self,
+                                            nested_child,
+                                            parent_transform,
+                                            depth + 1U);
+                                        if (child_status != status::success) {
+                                            return child_status;
+                                        }
+                                    }
+                                    return status::success;
+                                }
                                 const auto child =
                                     path_geometries.find(child_handle);
                                 double child_left = 0.0;
@@ -9544,20 +9595,25 @@ struct channel::implementation {
                                     child_transform_handle =
                                         resolved_fixed.transform_handle;
                                 }
-                                affine_2d_double child_transform{};
+                                affine_2d_double child_transform =
+                                    parent_transform;
                                 if (child_transform_handle != 0U) {
+                                    affine_2d_double local_transform{};
                                     const status transform_status =
                                         resolve_transform(
                                             child_transform_handle,
-                                            child_transform);
+                                            local_transform);
                                     if (transform_status != status::success) {
                                         return transform_status;
                                     }
+                                    child_transform = compose_affine(
+                                        local_transform,
+                                        parent_transform);
                                 }
                                 if (affine_has_zero_area(compose_affine(
                                         child_transform,
                                         effective_transform))) {
-                                    continue;
+                                    return status::success;
                                 }
                                 progpu_native_image_rect child_bounds{};
                                 if (!try_transform_bounds(
@@ -9594,6 +9650,19 @@ struct channel::implementation {
                                     group_stroke_bottom = std::max(
                                         group_stroke_bottom,
                                         transformed_child_bottom);
+                                }
+                                return status::success;
+                            };
+                            for (const std::uint32_t child_handle :
+                                 geometry_group->second.children) {
+                                const status child_status =
+                                    include_stroke_bounds(
+                                        include_stroke_bounds,
+                                        child_handle,
+                                        {},
+                                        1U);
+                                if (child_status != status::success) {
+                                    return child_status;
                                 }
                             }
                         }
@@ -9832,8 +9901,58 @@ struct channel::implementation {
                         if (brush_status != status::success) {
                             return brush_status;
                         }
-                        for (const std::uint32_t child_handle :
-                             geometry_group->second.children) {
+                        const auto append_group_stroke = [
+                            this,
+                            &append_path_strokes,
+                            &append_resolved_line_stroke,
+                            &append_positive_fixed_shape_stroke,
+                            &group_pen,
+                            stroke_brush_index,
+                            &current](
+                            auto&& self,
+                            std::uint32_t child_handle,
+                            affine_2d_double parent_local_transform,
+                            std::uint32_t depth) -> status {
+                            if (depth == 0U ||
+                                depth > maximum_visual_depth) {
+                                return status::invalid_graph;
+                            }
+                            const auto nested_group =
+                                geometry_groups.find(child_handle);
+                            if (nested_group != geometry_groups.end()) {
+                                if (nested_group->second.transform_handle !=
+                                    0U) {
+                                    affine_2d_double nested_transform{};
+                                    const status transform_status =
+                                        resolve_transform(
+                                            nested_group->second
+                                                .transform_handle,
+                                            nested_transform);
+                                    if (transform_status != status::success) {
+                                        return transform_status;
+                                    }
+                                    parent_local_transform = compose_affine(
+                                        nested_transform,
+                                        parent_local_transform);
+                                }
+                                if (affine_has_zero_area(compose_affine(
+                                        parent_local_transform,
+                                        current.transform))) {
+                                    return status::success;
+                                }
+                                for (const std::uint32_t nested_child :
+                                     nested_group->second.children) {
+                                    const status child_status = self(
+                                        self,
+                                        nested_child,
+                                        parent_local_transform,
+                                        depth + 1U);
+                                    if (child_status != status::success) {
+                                        return child_status;
+                                    }
+                                }
+                                return status::success;
+                            }
                             const auto child =
                                 path_geometries.find(child_handle);
                             fixed_geometry_state resolved_line{};
@@ -9868,7 +9987,7 @@ struct channel::implementation {
                                     resolved_line.transform_handle;
                             }
                             affine_2d_double child_local_transform =
-                                local_transform;
+                                parent_local_transform;
                             if (child_transform_handle != 0U) {
                                 affine_2d_double child_transform{};
                                 const status transform_status =
@@ -9880,7 +9999,7 @@ struct channel::implementation {
                                 }
                                 child_local_transform = compose_affine(
                                     child_transform,
-                                    local_transform);
+                                    parent_local_transform);
                             }
                             const affine_2d_double child_effective_transform =
                                 compose_affine(
@@ -9888,7 +10007,7 @@ struct channel::implementation {
                                     current.transform);
                             if (affine_has_zero_area(
                                     child_effective_transform)) {
-                                continue;
+                                return status::success;
                             }
                             status stroke_status = status::success;
                             if (child != path_geometries.end()) {
@@ -9918,6 +10037,18 @@ struct channel::implementation {
                                         child_effective_transform,
                                         stroke_brush_index);
                             }
+                            if (stroke_status != status::success) {
+                                return stroke_status;
+                            }
+                            return status::success;
+                        };
+                        for (const std::uint32_t child_handle :
+                             geometry_group->second.children) {
+                            const status stroke_status = append_group_stroke(
+                                append_group_stroke,
+                                child_handle,
+                                local_transform,
+                                1U);
                             if (stroke_status != status::success) {
                                 return stroke_status;
                             }
