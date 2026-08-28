@@ -5451,6 +5451,14 @@ public class NativeRendererInteropTests
         string cmake = File.ReadAllText(FindRepoFile(
             "src", "ProGPU.Native", "CMakeLists.txt"));
         Assert.Contains(
+            "/clang:--print-libgcc-file-name",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "string(APPEND CMAKE_CXX_STANDARD_LIBRARIES",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "../ProGPU.Backend/Shaders/Vector.wgsl",
             cmake,
             StringComparison.Ordinal);

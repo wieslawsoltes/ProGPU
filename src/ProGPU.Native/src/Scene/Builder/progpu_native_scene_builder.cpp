@@ -271,12 +271,15 @@ bool semantic_scene_builder::add_guideline_set_with_offsets(
     try {
         progpu_native_scene_guideline_set header{};
         header.struct_size = sizeof(header);
-        header.flags = PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS |
-            (composite_only
-                ? PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY
-                : per_point
-                    ? PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT
-                    : 0U);
+        header.flags = static_cast<std::uint32_t>(
+            PROGPU_NATIVE_SCENE_GUIDELINE_EXPLICIT_OFFSETS);
+        if (composite_only) {
+            header.flags |= static_cast<std::uint32_t>(
+                PROGPU_NATIVE_SCENE_GUIDELINE_COMPOSITE_ONLY);
+        } else if (per_point) {
+            header.flags |= static_cast<std::uint32_t>(
+                PROGPU_NATIVE_SCENE_GUIDELINE_PER_POINT);
+        }
         header.guideline_x_count =
             static_cast<std::uint32_t>(guidelines_x.size());
         header.guideline_y_count =

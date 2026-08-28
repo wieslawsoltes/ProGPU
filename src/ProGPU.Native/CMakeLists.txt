@@ -8,6 +8,33 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# CMake's ClangCL/Ninja generator invokes lld-link directly. Keep the compiler
+# runtime selected by the clang-cl driver on that link line as an absolute
+# library path so compiler-emitted helpers such as 128-bit integer division are
+# resolved for every executable and shared-library target on both Windows RIDs.
+if(MSVC AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set(_progpu_native_clang_runtime_arguments
+        "/clang:--print-libgcc-file-name")
+    if(CMAKE_CXX_COMPILER_TARGET)
+        list(APPEND _progpu_native_clang_runtime_arguments
+            "/clang:--target=${CMAKE_CXX_COMPILER_TARGET}")
+    endif()
+    execute_process(
+        COMMAND "${CMAKE_CXX_COMPILER}"
+            ${_progpu_native_clang_runtime_arguments}
+        RESULT_VARIABLE _progpu_native_clang_runtime_result
+        OUTPUT_VARIABLE _progpu_native_clang_runtime
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(NOT _progpu_native_clang_runtime_result EQUAL 0 OR
+       NOT EXISTS "${_progpu_native_clang_runtime}")
+        message(FATAL_ERROR
+            "clang-cl did not resolve its compiler runtime library: "
+            "${_progpu_native_clang_runtime}")
+    endif()
+    string(APPEND CMAKE_CXX_STANDARD_LIBRARIES
+        " \"${_progpu_native_clang_runtime}\"")
+endif()
+
 set(_progpu_native_modules_default OFF)
 if(NOT EMSCRIPTEN
     AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
