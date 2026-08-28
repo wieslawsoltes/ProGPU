@@ -787,7 +787,7 @@ bool try_line_stroke_bounds(
         width >= 0.0 && height >= 0.0;
 }
 
-bool try_transformed_polygonal_line_stroke_bounds(
+bool try_transformed_line_stroke_bounds(
     double x0,
     double y0,
     double x1,
@@ -797,10 +797,6 @@ bool try_transformed_polygonal_line_stroke_bounds(
     std::uint32_t end_cap,
     const affine_2d_double& transform,
     progpu_native_image_rect& bounds) noexcept {
-    if (start_cap == PROGPU_NATIVE_STROKE_CAP_ROUND ||
-        end_cap == PROGPU_NATIVE_STROKE_CAP_ROUND) {
-        return false;
-    }
     const double delta_x = x1 - x0;
     const double delta_y = y1 - y0;
     const double length = std::hypot(delta_x, delta_y);
@@ -816,25 +812,44 @@ bool try_transformed_polygonal_line_stroke_bounds(
     double minimum_y = std::numeric_limits<double>::infinity();
     double maximum_x = -std::numeric_limits<double>::infinity();
     double maximum_y = -std::numeric_limits<double>::infinity();
-    const auto include = [
-        &transform,
+    const auto include_world = [
         &minimum_x,
         &minimum_y,
         &maximum_x,
         &maximum_y](double point_x, double point_y) noexcept {
+        if (!std::isfinite(point_x) || !std::isfinite(point_y)) {
+            return false;
+        }
+        minimum_x = std::min(minimum_x, point_x);
+        minimum_y = std::min(minimum_y, point_y);
+        maximum_x = std::max(maximum_x, point_x);
+        maximum_y = std::max(maximum_y, point_y);
+        return true;
+    };
+    const auto transform_point = [
+        &transform](
+        double point_x,
+        double point_y,
+        progpu_native_point& result) noexcept {
         const double transformed_x = point_x * transform.m11 +
             point_y * transform.m21 + transform.m31;
         const double transformed_y = point_x * transform.m12 +
             point_y * transform.m22 + transform.m32;
-        if (!std::isfinite(transformed_x) ||
-            !std::isfinite(transformed_y)) {
+        if (!finite_double_as_float(transformed_x) ||
+            !finite_double_as_float(transformed_y)) {
             return false;
         }
-        minimum_x = std::min(minimum_x, transformed_x);
-        minimum_y = std::min(minimum_y, transformed_y);
-        maximum_x = std::max(maximum_x, transformed_x);
-        maximum_y = std::max(maximum_y, transformed_y);
+        result = {
+            static_cast<float>(transformed_x),
+            static_cast<float>(transformed_y)};
         return true;
+    };
+    const auto include = [
+        &transform_point,
+        &include_world](double point_x, double point_y) noexcept {
+        progpu_native_point transformed{};
+        return transform_point(point_x, point_y, transformed) &&
+            include_world(transformed.x, transformed.y);
     };
     if (!include(x0 - normal_x, y0 - normal_y) ||
         !include(x0 + normal_x, y0 + normal_y) ||
@@ -844,6 +859,8 @@ bool try_transformed_polygonal_line_stroke_bounds(
     }
     const auto include_cap = [
         &include,
+        &include_world,
+        &transform_point,
         half_thickness,
         normal_x,
         normal_y,
@@ -863,6 +880,58 @@ bool try_transformed_polygonal_line_stroke_bounds(
         }
         if (cap == PROGPU_NATIVE_STROKE_CAP_TRIANGLE) {
             return include(outer_x, outer_y);
+        }
+        if (cap == PROGPU_NATIVE_STROKE_CAP_ROUND) {
+            // Matches WPF WpfGfx's ARC_AS_BEZIER round-cap widening.
+            constexpr double arc_as_bezier =
+                0.5522847498307933984;
+            const double start_x = center_x - normal_x;
+            const double start_y = center_y - normal_y;
+            const double end_x = center_x + normal_x;
+            const double end_y = center_y + normal_y;
+            const double across_x = normal_x * arc_as_bezier;
+            const double across_y = normal_y * arc_as_bezier;
+            const double along_x =
+                outward_sign * unit_x * half_thickness;
+            const double along_y =
+                outward_sign * unit_y * half_thickness;
+            const double mid_x = center_x + along_x;
+            const double mid_y = center_y + along_y;
+            const double control_along_x = along_x * arc_as_bezier;
+            const double control_along_y = along_y * arc_as_bezier;
+            std::array<progpu_native_path_segment, 2U> cap_segments{};
+            auto& first = cap_segments[0U];
+            auto& second = cap_segments[1U];
+            first.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+            second.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+            if (!transform_point(start_x, start_y, first.p0) ||
+                !transform_point(
+                    start_x + control_along_x,
+                    start_y + control_along_y,
+                    first.p1) ||
+                !transform_point(
+                    mid_x - across_x,
+                    mid_y - across_y,
+                    first.p2) ||
+                !transform_point(mid_x, mid_y, first.p3) ||
+                !transform_point(mid_x, mid_y, second.p0) ||
+                !transform_point(
+                    mid_x + across_x,
+                    mid_y + across_y,
+                    second.p1) ||
+                !transform_point(
+                    end_x + control_along_x,
+                    end_y + control_along_y,
+                    second.p2) ||
+                !transform_point(end_x, end_y, second.p3)) {
+                return false;
+            }
+            progpu_native_image_rect cap_bounds{};
+            return try_get_path_segment_bounds(cap_segments, cap_bounds) &&
+                include_world(cap_bounds.x, cap_bounds.y) &&
+                include_world(
+                    cap_bounds.x + cap_bounds.width,
+                    cap_bounds.y + cap_bounds.height);
         }
         return cap == PROGPU_NATIVE_STROKE_CAP_FLAT;
     };
@@ -8836,22 +8905,21 @@ struct channel::implementation {
                         return status::unsupported_command;
                     }
                 }
-                affine_2d_double transform = current_transform;
+                affine_2d_double geometry_transform{};
                 if (geometry.transform_handle != 0U) {
-                    affine_2d_double geometry_transform{};
                     const status transform_status = resolve_transform(
                         geometry.transform_handle, geometry_transform);
                     if (transform_status != status::success) {
                         return transform_status;
                     }
-                    transform = compose_affine(
-                        geometry_transform,
-                        current_transform);
-                }
-                if (affine_has_zero_area(transform)) {
-                    return status::unsupported_command;
                 }
                 if (geometry.kind != fixed_geometry_kind::line) {
+                    const affine_2d_double transform = compose_affine(
+                        geometry_transform,
+                        current_transform);
+                    if (affine_has_zero_area(transform)) {
+                        return status::unsupported_command;
+                    }
                     if (!affine_preserves_axis_alignment(transform)) {
                         return status::unsupported_command;
                     }
@@ -8882,15 +8950,30 @@ struct channel::implementation {
                     }
                     return finish_bounds();
                 }
-                if (!try_transformed_polygonal_line_stroke_bounds(
-                        geometry.first,
-                        geometry.second,
-                        geometry.third,
-                        geometry.fourth,
+                // WPF transforms the spine by Geometry.Transform before pen
+                // widening, then applies the DrawingGroup/world transform to
+                // the widened stroke. Keep those matrices separate.
+                const double x0 = geometry.first * geometry_transform.m11 +
+                    geometry.second * geometry_transform.m21 +
+                    geometry_transform.m31;
+                const double y0 = geometry.first * geometry_transform.m12 +
+                    geometry.second * geometry_transform.m22 +
+                    geometry_transform.m32;
+                const double x1 = geometry.third * geometry_transform.m11 +
+                    geometry.fourth * geometry_transform.m21 +
+                    geometry_transform.m31;
+                const double y1 = geometry.third * geometry_transform.m12 +
+                    geometry.fourth * geometry_transform.m22 +
+                    geometry_transform.m32;
+                if (!try_transformed_line_stroke_bounds(
+                        x0,
+                        y0,
+                        x1,
+                        y1,
                         pen.thickness,
                         pen.start_line_cap,
                         pen.end_line_cap,
-                        transform,
+                        current_transform,
                         bounds) ||
                     bounds.width <= 0.0F || bounds.height <= 0.0F) {
                     return status::unsupported_command;

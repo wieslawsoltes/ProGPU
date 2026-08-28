@@ -11198,6 +11198,7 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
     constexpr std::uint32_t rectangle_geometry = 11U;
     constexpr std::uint32_t ellipse_geometry = 12U;
     constexpr std::uint32_t dash_style = 13U;
+    constexpr std::uint32_t transformed_group = 14U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -11515,10 +11516,10 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         state.build_scene(target, 7008U, 8U, stream, &metrics) ==
         status::success);
     PROGPU_REQUIRE(contains_mapping(
-        1.25F,
-        4.0F / 3.0F,
-        -15.5F,
-        -58.0F / 3.0F));
+        1.3467368F,
+        1.3604125F,
+        -18.402102F,
+        -20.010311F));
 
     std::vector<std::byte> triangle_cap_update;
     append_command(
@@ -11539,10 +11540,85 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         state.build_scene(target, 7008U, 9U, stream, &metrics) ==
         status::success);
     PROGPU_REQUIRE(contains_mapping(
-        10.0F / 7.0F,
-        20.0F / 13.0F,
-        -146.0F / 7.0F,
-        -318.0F / 13.0F));
+        1.4408631F,
+        1.5672582F,
+        -21.225891F,
+        -25.181456F));
+
+    std::vector<std::byte> round_cap_update;
+    append_command(
+        round_cap_update,
+        command::pen,
+        pen,
+        2.0,
+        10.0,
+        brush,
+        thickness_animation,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        PROGPU_NATIVE_STROKE_CAP_FLAT,
+        PROGPU_NATIVE_STROKE_JOIN_MITER,
+        0U);
+    PROGPU_REQUIRE(state.apply(round_cap_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 10U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(contains_mapping(
+        1.4284749F,
+        1.5382377F,
+        -20.854248F,
+        -24.455942F));
+
+    std::vector<std::byte> group_transform_update;
+    append_create(group_transform_update, transformed_group, 91U);
+    append_command(
+        group_transform_update,
+        command::line_geometry,
+        geometry,
+        10.0,
+        20.0,
+        30.0,
+        20.0,
+        0U,
+        0U,
+        0U);
+    append_command(
+        group_transform_update,
+        command::drawing_group,
+        transformed_group,
+        1.0,
+        4U,
+        0U,
+        0U,
+        0U,
+        shear_transform,
+        0U,
+        0U,
+        0U,
+        0U,
+        geometry_drawing);
+    append_command(
+        group_transform_update,
+        command::drawing_image,
+        drawing_image,
+        transformed_group);
+    PROGPU_REQUIRE(state.apply(group_transform_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 11U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(contains_mapping(
+        1.3818725F,
+        1.5096434F,
+        -19.456175F,
+        -23.741085F));
+
+    std::vector<std::byte> restore_drawing;
+    append_command(
+        restore_drawing,
+        command::drawing_image,
+        drawing_image,
+        geometry_drawing);
+    PROGPU_REQUIRE(state.apply(restore_drawing) == status::success);
 
     std::vector<std::byte> dashed_update;
     append_command(
@@ -11571,7 +11647,7 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         dash_style);
     PROGPU_REQUIRE(state.apply(dashed_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7008U, 10U, stream, nullptr) ==
+        state.build_scene(target, 7008U, 12U, stream, nullptr) ==
         status::unsupported_command);
 
     std::vector<std::byte> solid_dash_style_update;
@@ -11584,7 +11660,7 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
     PROGPU_REQUIRE(
         state.apply(solid_dash_style_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7008U, 11U, stream, &metrics) ==
+        state.build_scene(target, 7008U, 13U, stream, &metrics) ==
         status::success);
     PROGPU_REQUIRE(contains_mapping(
         10.0F / 7.0F, 2.5F, -46.0F / 7.0F, -36.0F));
