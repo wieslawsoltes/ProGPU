@@ -10461,6 +10461,7 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
     constexpr std::uint32_t drawing_image = 7U;
     constexpr std::uint32_t image_drawing = 8U;
     constexpr std::uint32_t rectangle_animation = 10U;
+    constexpr std::uint32_t geometry_transform = 11U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -10472,6 +10473,7 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
     append_create(batch, drawing_image, 59U);
     append_create(batch, image_drawing, 89U);
     append_create(batch, rectangle_animation, 52U);
+    append_create(batch, geometry_transform, 66U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -10486,6 +10488,17 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
         0U);
     append_command(
         batch,
+        command::matrix_transform,
+        geometry_transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        5.0,
+        7.0,
+        0U);
+    append_command(
+        batch,
         command::rectangle_geometry,
         geometry,
         0.0,
@@ -10494,7 +10507,7 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
         20.0,
         20.0,
         10.0,
-        0U,
+        geometry_transform,
         0U,
         0U,
         0U);
@@ -10566,14 +10579,6 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
     progpu::native::mil::scene_metrics metrics{};
     PROGPU_REQUIRE(
         state.build_scene(target, 7006U, 1U, stream, &metrics) ==
-        status::unsupported_command);
-    PROGPU_REQUIRE(
-        state.set_drawing_image_bounds(
-            drawing_image, 10.0, 20.0, 20.0, 10.0) ==
-        status::success);
-    PROGPU_REQUIRE(state.resource_generation(drawing_image) == 3U);
-    PROGPU_REQUIRE(
-        state.build_scene(target, 7006U, 2U, stream, &metrics) ==
         status::success);
     PROGPU_REQUIRE(metrics.rectangle_count == 3U);
     PROGPU_REQUIRE(metrics.brush_count == 1U);
@@ -10594,8 +10599,8 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
             stream, resource.payload_offset);
         if (scene_state.transform.m11 == 2.0F &&
             scene_state.transform.m22 == 2.0F &&
-            scene_state.transform.m31 == -18.0F &&
-            scene_state.transform.m32 == -36.0F &&
+            scene_state.transform.m31 == -28.0F &&
+            scene_state.transform.m32 == -50.0F &&
             (scene_state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
             scene_state.clip_rect.x == 2.0F &&
             scene_state.clip_rect.y == 4.0F &&
@@ -10604,8 +10609,8 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
             found_mapping = true;
         } else if (scene_state.transform.m11 == 0.5F &&
             scene_state.transform.m22 == 1.5F &&
-            scene_state.transform.m31 == 25.0F &&
-            scene_state.transform.m32 == -24.0F &&
+            scene_state.transform.m31 == 22.5F &&
+            scene_state.transform.m32 == -34.5F &&
             (scene_state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
             scene_state.clip_rect.x == 30.0F &&
             scene_state.clip_rect.y == 6.0F &&
@@ -10614,8 +10619,8 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
             found_direct_mapping = true;
         } else if (scene_state.transform.m11 == 0.4F &&
             scene_state.transform.m22 == 1.2F &&
-            scene_state.transform.m31 == 40.0F &&
-            scene_state.transform.m32 == -16.0F &&
+            scene_state.transform.m31 == 38.0F &&
+            scene_state.transform.m32 == -24.4F &&
             (scene_state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
             scene_state.clip_rect.x == 44.0F &&
             scene_state.clip_rect.y == 8.0F &&
@@ -10627,6 +10632,16 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
     PROGPU_REQUIRE(found_mapping);
     PROGPU_REQUIRE(found_direct_mapping);
     PROGPU_REQUIRE(found_animated_mapping);
+    PROGPU_REQUIRE(
+        state.set_drawing_image_bounds(
+            drawing_image, 15.0, 27.0, 20.0, 10.0) ==
+        status::success);
+    PROGPU_REQUIRE(state.resource_generation(drawing_image) == 3U);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7006U, 2U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 3U);
+    PROGPU_REQUIRE(metrics.brush_count == 1U);
 
     constexpr std::uint32_t transform = 9U;
     std::vector<std::byte> affine_update;
