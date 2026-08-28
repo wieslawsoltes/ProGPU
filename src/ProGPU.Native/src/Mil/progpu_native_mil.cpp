@@ -8149,7 +8149,8 @@ struct channel::implementation {
                     sizeof(progpu_native_scene_layer),
                     opacity == 1.0
                         ? 0U
-                        : PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION,
+                        : static_cast<std::uint32_t>(
+                            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION),
                     {},
                     static_cast<float>(opacity),
                     PROGPU_NATIVE_BLEND_SRC_OVER,
@@ -8204,7 +8205,8 @@ struct channel::implementation {
                     sizeof(progpu_native_scene_layer),
                     resolved_opacity == 1.0
                         ? 0U
-                        : PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION,
+                        : static_cast<std::uint32_t>(
+                            PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION),
                     {},
                     static_cast<float>(resolved_opacity),
                     PROGPU_NATIVE_BLEND_SRC_OVER,

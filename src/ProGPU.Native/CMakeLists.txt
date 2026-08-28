@@ -14,7 +14,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # resolved for every executable and shared-library target on both Windows RIDs.
 if(MSVC AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     set(_progpu_native_clang_runtime_arguments
-        "/clang:--print-libgcc-file-name")
+        "/clang:--print-libgcc-file-name"
+        "/clang:--rtlib=compiler-rt")
     if(CMAKE_CXX_COMPILER_TARGET)
         list(APPEND _progpu_native_clang_runtime_arguments
             "/clang:--target=${CMAKE_CXX_COMPILER_TARGET}")
