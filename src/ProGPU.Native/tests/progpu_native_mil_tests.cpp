@@ -11083,6 +11083,9 @@ bool retained_drawing_image_infers_drawing_group_bounds() {
     constexpr std::uint32_t outer_group = 11U;
     constexpr std::uint32_t outer_transform = 12U;
     constexpr std::uint32_t drawing_image = 13U;
+    constexpr std::uint32_t clip_geometry = 14U;
+    constexpr std::uint32_t opacity_animation = 15U;
+    constexpr std::uint32_t guidelines = 16U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -11098,6 +11101,9 @@ bool retained_drawing_image_infers_drawing_group_bounds() {
     append_create(batch, outer_group, 91U);
     append_create(batch, outer_transform, 66U);
     append_create(batch, drawing_image, 59U);
+    append_create(batch, clip_geometry, 69U);
+    append_create(batch, opacity_animation, 49U);
+    append_create(batch, guidelines, 92U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -11165,18 +11171,44 @@ bool retained_drawing_image_infers_drawing_group_bounds() {
         0U);
     append_command(
         batch,
+        command::rectangle_geometry,
+        clip_geometry,
+        0.0,
+        0.0,
+        12.0,
+        8.0,
+        20.0,
+        15.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::double_resource,
+        opacity_animation,
+        0.75);
+    append_command(
+        batch,
+        command::guideline_set,
+        guidelines,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
         command::drawing_group,
         inner_group,
-        1.0,
+        0.25,
         8U,
-        0U,
-        0U,
-        0U,
+        clip_geometry,
+        opacity_animation,
+        brush,
         inner_transform,
-        0U,
-        0U,
-        0U,
-        0U,
+        guidelines,
+        1U,
+        3U,
+        1U,
         first_drawing,
         second_drawing);
     append_command(
@@ -11252,10 +11284,13 @@ bool retained_drawing_image_infers_drawing_group_bounds() {
         }
         const auto scene_state = read_value<progpu_native_scene_state>(
             stream, resource.payload_offset);
-        if (scene_state.transform.m11 == 4.0F &&
-            scene_state.transform.m22 == 1.0F &&
-            scene_state.transform.m31 == -50.0F &&
-            scene_state.transform.m32 == -43.0F &&
+        if (std::abs(scene_state.transform.m11 - 5.0F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m22 - 5.0F / 3.0F) < 0.0001F &&
+            std::abs(scene_state.transform.m31 + 73.0F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m32 - (4.0F - 325.0F / 3.0F)) <
+                0.0001F &&
             (scene_state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
             scene_state.clip_rect.x == 2.0F &&
             scene_state.clip_rect.y == 4.0F &&
