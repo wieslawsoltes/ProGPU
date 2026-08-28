@@ -801,6 +801,28 @@ progpu_native_status render_paths(
         }
     }
 
+    const bool split_raster_submissions =
+        !coverage_combine_uniforms.empty();
+    const bool restore_semantic_encoder = split_raster_submissions &&
+        engine->semantic_encoder != nullptr;
+    if (restore_semantic_encoder) {
+        WGPUCommandEncoder semantic_encoder = engine->semantic_encoder;
+        engine->semantic_encoder = nullptr;
+        WGPUCommandBufferDescriptor command_descriptor{};
+        command_descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU native pre-XOR semantic commands");
+        WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+            semantic_encoder,
+            &command_descriptor);
+        wgpuCommandEncoderRelease(semantic_encoder);
+        if (command == nullptr) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The pre-XOR semantic command buffer could not be finished.");
+        }
+        engine->submit(command);
+        wgpuCommandBufferRelease(command);
+    }
     const bool owns_encoder = engine->semantic_encoder == nullptr;
     WGPUCommandEncoder encoder = engine->semantic_encoder;
     WGPUCommandEncoderDescriptor encoder_descriptor{};
@@ -815,6 +837,25 @@ progpu_native_status render_paths(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native path command encoder could not be created.");
     }
+    const auto submit_raster_phase = [&](const char* label) {
+        WGPUCommandBufferDescriptor command_descriptor{};
+        command_descriptor.label =
+            progpu::native::webgpu::string_view(label);
+        WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+            encoder,
+            &command_descriptor);
+        wgpuCommandEncoderRelease(encoder);
+        encoder = nullptr;
+        if (command == nullptr) {
+            return false;
+        }
+        engine->submit(command);
+        wgpuCommandBufferRelease(command);
+        encoder = wgpuDeviceCreateCommandEncoder(
+            engine->device,
+            &encoder_descriptor);
+        return encoder != nullptr;
+    };
 
     if (raster_bind_group != nullptr) {
         std::uint32_t workgroups_x = 0U;
@@ -869,17 +910,38 @@ progpu_native_status render_paths(
             !encode_raster_pass(
                 "ProGPU native path binary XOR leaf A coverage pass",
                 binary_leaf_a_bind_group,
-                binary_leaf_a_uniforms.size()) ||
-            !encode_raster_pass(
-                "ProGPU native path binary XOR leaf B coverage pass",
-                binary_leaf_b_bind_group,
-                binary_leaf_b_uniforms.size())) {
-            if (owns_encoder) {
+                binary_leaf_a_uniforms.size())) {
+            if (owns_encoder && encoder != nullptr) {
                 wgpuCommandEncoderRelease(encoder);
             }
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "A native path compute pass could not be created.");
+        }
+        if (split_raster_submissions &&
+            !submit_raster_phase(
+                "ProGPU native path raster phase A commands")) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The native path raster phase A could not be submitted.");
+        }
+        if (!encode_raster_pass(
+                "ProGPU native path binary XOR leaf B coverage pass",
+                binary_leaf_b_bind_group,
+                binary_leaf_b_uniforms.size())) {
+            if (owns_encoder && encoder != nullptr) {
+                wgpuCommandEncoderRelease(encoder);
+            }
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "A native path compute pass could not be created.");
+        }
+        if (split_raster_submissions &&
+            !submit_raster_phase(
+                "ProGPU native path raster phase B commands")) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The native path raster phase B could not be submitted.");
         }
 
         if (!coverage_combine_uniforms.empty()) {
@@ -1040,9 +1102,12 @@ progpu_native_status render_paths(
         }
     }
 
+    }
+
     if (owns_encoder) {
         WGPUCommandBufferDescriptor command_descriptor{};
-        command_descriptor.label = progpu::native::webgpu::string_view("ProGPU native retained path commands");
+        command_descriptor.label = progpu::native::webgpu::string_view(
+            "ProGPU native retained path commands");
         WGPUCommandBuffer command = wgpuCommandEncoderFinish(
             encoder,
             &command_descriptor);
@@ -1055,13 +1120,22 @@ progpu_native_status render_paths(
         engine->submit(command);
         wgpuCommandBufferRelease(command);
     }
-    if (use_group_layer) {
+    if (restore_semantic_encoder) {
+        engine->semantic_encoder = wgpuDeviceCreateCommandEncoder(
+            engine->device,
+            &encoder_descriptor);
+        if (engine->semantic_encoder == nullptr) {
+            return engine->fail(
+                PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                "The post-XOR semantic command encoder could not be created.");
+        }
+    }
+    if (!engine->semantic_prepare_only && use_group_layer) {
         retain_group_layer_content(
             *engine,
             layer_family::path,
             frame->dpi_scale,
             draw_state);
-    }
     }
 
     std::uint64_t payload_hash = 0U;

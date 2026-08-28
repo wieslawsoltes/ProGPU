@@ -676,6 +676,27 @@ bool rebuild_vector_clip_chain(
         if (encoder == nullptr) {
             return false;
         }
+        const bool split_raster_submissions =
+            !coverage_combine_uniforms.empty();
+        const auto submit_raster_phase = [&](const char* label) {
+            WGPUCommandBufferDescriptor command_descriptor{};
+            command_descriptor.label =
+                ::progpu::native::webgpu::string_view(label);
+            WGPUCommandBuffer command = wgpuCommandEncoderFinish(
+                encoder,
+                &command_descriptor);
+            wgpuCommandEncoderRelease(encoder);
+            encoder = nullptr;
+            if (command == nullptr) {
+                return false;
+            }
+            engine.submit(command);
+            wgpuCommandBufferRelease(command);
+            encoder = wgpuDeviceCreateCommandEncoder(
+                engine.device,
+                &encoder_descriptor);
+            return encoder != nullptr;
+        };
         std::uint32_t workgroups_x = 0U;
         std::uint32_t workgroups_y = 0U;
         for (const auto& raster : rasters) {
@@ -728,12 +749,29 @@ bool rebuild_vector_clip_chain(
             !encode_raster_pass(
                 "ProGPU native clip binary XOR leaf A coverage pass",
                 temporary.binary_leaf_a_bind_group,
-                binary_leaf_a_uniforms.size()) ||
-            !encode_raster_pass(
+                binary_leaf_a_uniforms.size())) {
+            if (encoder != nullptr) {
+                wgpuCommandEncoderRelease(encoder);
+            }
+            return false;
+        }
+        if (split_raster_submissions &&
+            !submit_raster_phase(
+                "ProGPU native clip raster phase A commands")) {
+            return false;
+        }
+        if (!encode_raster_pass(
                 "ProGPU native clip binary XOR leaf B coverage pass",
                 temporary.binary_leaf_b_bind_group,
                 binary_leaf_b_uniforms.size())) {
-            wgpuCommandEncoderRelease(encoder);
+            if (encoder != nullptr) {
+                wgpuCommandEncoderRelease(encoder);
+            }
+            return false;
+        }
+        if (split_raster_submissions &&
+            !submit_raster_phase(
+                "ProGPU native clip raster phase B commands")) {
             return false;
         }
         if (!coverage_combine_uniforms.empty()) {
