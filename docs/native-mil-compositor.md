@@ -620,13 +620,17 @@ shape. Nonzero groups keep that shared contour batch because cross-child winding
 cancellation is significant. EvenOdd groups compile the same child leaves into
 an exact postfix XOR program; XOR of the child-inside predicates is the outer
 EvenOdd result and bounds each raster operation to its own leaf without changing
-WPF parity semantics. A temporary typed compiler guard rejects overlapping
-translated-equivalent simple leaf streams participating in the same group XOR
-before scene submission; boolean operand leaves are not conflated with sibling
-group contours. That exact
-pattern removes the current Parallels D3D12 device in the shared path backend,
-so it remains an observable `unsupported_command` until the backend can execute
-it safely. Nonsingular affine transforms on native arc records are
+WPF parity semantics. The canonical two-leaf XOR case now executes through a
+typed split-GPU program when its overlapping leaves are translated-equivalent:
+the compiler emits ordinary records for both leaves, the backend rasterizes all
+leaf-A work and all leaf-B work in separately submitted GPU phases, and a final
+packed-coverage compute phase XORs the two masks before the atlas copy. Pending
+semantic work is flushed once before those phases and a fresh semantic encoder
+is restored afterwards. The split is fixed by phase, not by item, and ordinary
+paths retain the original single-submission fast path. Larger or mixed postfix
+programs that contain this driver-sensitive overlap remain guarded before scene
+submission; boolean operand leaves are not conflated with sibling group
+contours. Nonsingular affine transforms on native arc records are
 baked without flattening: ProGPU transforms the arc's two ellipse basis vectors,
 factors the resulting `T*T^T` metric into orthogonal output axes/radii, projects
 the start parameter into that basis, and reverses the sweep exactly when the
@@ -696,12 +700,13 @@ and rolls segment/node appends back together on failure. Nonzero groups with a
 boolean child still fail closed because a postfix inside predicate cannot
 recover the signed contour winding required by WPF's outer Nonzero rule.
 
-This extension changes no public ABI, backend selection, shader, or CPU raster
+This extension changes no public ABI, backend selection, or CPU raster
 fallback. The native compiler performs one bounded, order-dependent `O(S + N)`
 walk over segments `S` and postfix nodes `N`; the dependency chain is not an
-independent-lane SIMD candidate. Pixel coverage remains on the existing shared
-GPU path rasterizer on Metal, D3D12, Vulkan, and browser WebGPU, with no CPU
-readback, repacking, or per-child submission.
+independent-lane SIMD candidate. Pixel coverage remains on the shared GPU path
+rasterizer on Metal, D3D12, Vulkan, and browser WebGPU. The split binary form
+adds one packed-u32 XOR compute entry point and bounded phase submissions, with
+no CPU readback, repacking, or per-child/per-item submission.
 
 The provider-resolved Metal hardware gate now uses the same five-node
 `leaf leaf difference leaf xor` program in its retained vector-mask fixture.
@@ -1023,8 +1028,8 @@ minimum clamps remain defense in depth for already-validated streams, not an
 API policy that silently converts invalid lighting state. Native C++ coverage
 checks all three rejection boundaries alongside the existing face-flag guard.
 
-- Implement the remaining 2D/3D resource execution, exact
-  translated-equivalent EvenOdd overlap execution, remaining pen/image/media
+- Implement the remaining 2D/3D resource execution, larger/mixed
+  translated-equivalent EvenOdd postfix programs, remaining pen/image/media
   paths, dynamic guidelines, caches, effects, and render-data commands.
 - Lower every supported update to stable semantic resource identities and
   generation numbers; unchanged resources must not be rebuilt.
@@ -1588,8 +1593,9 @@ failure; all approximation experiments remain removed and analytic 8x8
 rasterization retained. The guard compares typed segment kinds, arc metadata,
 translated control/end/center points, invariant radii, and positive overlapping
 bounds. Non-overlapping equivalents and non-equivalent mixed leaves keep the
-normal GPU path. Exact rendering for the guarded overlap remains an open parity
-item; fail-closed behavior is the supported interim contract.
+normal GPU path. The canonical two-leaf form is resolved by the phased GPU
+execution checkpoint below; larger/mixed programs retain this deterministic
+fail-closed contract.
 
 The isolated curved-stroke implementation at `e0a9d15f`, with the MSVC
 portability correction at `42e05f29`, first passed the focused Windows ARM64
@@ -4453,6 +4459,49 @@ C++ renderer, so this adapter's gate keeps full native stress and a bounded
 managed differential as separate processes. Neither is evidence of
 full DirectX/MIL parity; Stages 1–5 remain open until their listed protocol and
 integration surfaces are implemented.
+
+## Translated binary EvenOdd XOR GPU checkpoint
+
+Exact ProGPU checkpoint `d4ca87d92877eb38b84106a6bdd0bcb0f02d72c3`
+closes the canonical translated-equivalent two-leaf EvenOdd overlap that was
+previously fail closed. The typed boolean compiler recognizes only the exact
+`leaf leaf xor` postfix shape and emits two ordinary leaf records plus one
+packed coverage-combine record. Path fills and vector clips batch leaf A and
+leaf B independently, submit those GPU phases in order, then execute the shared
+packed-u32 XOR kernel and atlas copy. A semantic caller flushes pending work
+once and receives a fresh encoder after the split phases. Normal scenes do not
+allocate the two extra uniform buffers or bind groups and retain the existing
+single-submission path. There is no CPU coverage readback, CPU repacking,
+per-leaf submission, new public ABI, or managed fallback.
+
+The immutable archive
+`ProGPU-native-phased-xor-d4ca87d9.zip` has SHA-256
+`CBA84443FA2EFC2AE74A6677370E9C6CF4E69729FEC5FEF15EC27E5EBEEB3DA2`.
+Apple M3 Pro Metal rebuilt the native backend, passed all 10 configured CTests,
+and read the permanent binary-XOR sample as cyan `51/209/242`, clear overlap
+`5/6/10`, and cyan `51/209/242`. The same exact archive was hash-copied into
+the Windows 11 ARM64 Parallels guest. Strict MSVC/Ninja rebuilt both native
+providers, all 11 CTests passed, and the real D3D12 sample on
+`Parallels Display Adapter (WDDM)` reproduced the same three pixels. The sample
+executed nine draws from fifteen retained commands and uploaded 12,512 vertex
+bytes.
+
+The complete bounded Windows D3D12 integration profile also passed. It built
+the managed graph with zero warnings/errors, passed the managed native sample,
+qualified automatic and forced raster-shader glyph paths, intrinsic-SIMD CPU,
+and scalar-reference modes with exact pixel parity, and proved that forced
+native compute fails closed with the typed unsupported-adapter diagnostic.
+HelloTriangle and HelloTexture DirectX contracts rendered through ProGPU with
+SHA-256 `AE1BC0A9B0623BACAB15BE1706FFA3E7FC15E33676A66F05C969C1B86A66FEA3`
+and `591CC311F35E3C2612F529C3D4D7061FC93751A9B8614BF588A73599B0AA2790`.
+The retained masks, effects, 3D, text, images, cache, vector-clip, box-blur,
+effect-chain, Overlay, and ColorDodge gates all remained within their declared
+differential contracts; Overlay and ColorDodge were exact. Final staged binary
+SHA-256 values are
+`894B9C4337FED2134245E0D59ED17E0A0BCBBE52988681453393D3462F48CA97`
+for `progpu_native.dll` and
+`BEC988C393985D52900A787F667501ADB4F7A3CB8ADC6A29EDF9497C7D7BFF4B`
+for `progpu_native_dawn.dll`.
 
 ## DirectX retained-texture boundary
 
