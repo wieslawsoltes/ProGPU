@@ -89,14 +89,34 @@ public static class StrokeJoinGeometry
                 outgoingDirection,
                 out var miterPoint) &&
                 Vector2.Distance(joinPoint, miterPoint) <= radius * clampedMiterLimit + Epsilon;
-            var count = hasMiter ? 2 : 1;
-            EnsureDestination(destination, count);
-            destination[0] = new StrokeJoinTriangle(previousOuterPoint, joinPoint, nextOuterPoint);
             if (hasMiter)
             {
+                EnsureDestination(destination, 2);
+                destination[0] = new StrokeJoinTriangle(previousOuterPoint, joinPoint, nextOuterPoint);
                 destination[1] = new StrokeJoinTriangle(previousOuterPoint, miterPoint, nextOuterPoint);
+                return 2;
             }
-            return count;
+
+            if (!TryGetClippedMiterPoints(
+                    incomingDirection,
+                    outgoingDirection,
+                    previousOuterPoint,
+                    nextOuterPoint,
+                    radius,
+                    clampedMiterLimit,
+                    out var firstClipPoint,
+                    out var secondClipPoint))
+            {
+                EnsureDestination(destination, 1);
+                destination[0] = new StrokeJoinTriangle(previousOuterPoint, joinPoint, nextOuterPoint);
+                return 1;
+            }
+
+            EnsureDestination(destination, 3);
+            destination[0] = new StrokeJoinTriangle(joinPoint, previousOuterPoint, firstClipPoint);
+            destination[1] = new StrokeJoinTriangle(joinPoint, firstClipPoint, secondClipPoint);
+            destination[2] = new StrokeJoinTriangle(joinPoint, secondClipPoint, nextOuterPoint);
+            return 3;
         }
 
         var start = MathF.Atan2(
@@ -232,7 +252,56 @@ public static class StrokeJoinGeometry
             };
         }
 
+        if (TryGetClippedMiterPoints(
+                incomingDirection,
+                outgoingDirection,
+                previousOuterPoint,
+                nextOuterPoint,
+                radius,
+                clampedMiterLimit,
+                out var firstClipPoint,
+                out var secondClipPoint))
+        {
+            return new[]
+            {
+                new StrokeJoinTriangle(joinPoint, previousOuterPoint, firstClipPoint),
+                new StrokeJoinTriangle(joinPoint, firstClipPoint, secondClipPoint),
+                new StrokeJoinTriangle(joinPoint, secondClipPoint, nextOuterPoint)
+            };
+        }
+
         return CreateBevelJoin(previousOuterPoint, joinPoint, nextOuterPoint);
+    }
+
+    private static bool TryGetClippedMiterPoints(
+        Vector2 incomingDirection,
+        Vector2 outgoingDirection,
+        Vector2 previousOuterPoint,
+        Vector2 nextOuterPoint,
+        float radius,
+        float miterLimit,
+        out Vector2 firstClipPoint,
+        out Vector2 secondClipPoint)
+    {
+        var dot = Vector2.Dot(incomingDirection, outgoingDirection);
+        var denominator = radius * MathF.Sqrt(MathF.Max(0f, (1f - dot) * 0.5f));
+        var numerator = radius * MathF.Sqrt(MathF.Max(0f, (1f + dot) * 0.5f));
+        if (!float.IsFinite(denominator) || denominator <= Epsilon)
+        {
+            firstClipPoint = default;
+            secondClipPoint = default;
+            return false;
+        }
+
+        var ratio = MathF.Max(0f, (miterLimit * radius - numerator) / denominator);
+        var offset = radius * ratio;
+        firstClipPoint = new Vector2(
+            previousOuterPoint.X + incomingDirection.X * offset,
+            previousOuterPoint.Y + incomingDirection.Y * offset);
+        secondClipPoint = new Vector2(
+            nextOuterPoint.X - outgoingDirection.X * offset,
+            nextOuterPoint.Y - outgoingDirection.Y * offset);
+        return IsFinite(firstClipPoint) && IsFinite(secondClipPoint);
     }
 
     private static StrokeJoinTriangle[] CreateRoundJoin(
@@ -305,6 +374,11 @@ public static class StrokeJoinGeometry
     private static float Cross(Vector2 a, Vector2 b)
     {
         return a.X * b.Y - a.Y * b.X;
+    }
+
+    private static bool IsFinite(Vector2 point)
+    {
+        return float.IsFinite(point.X) && float.IsFinite(point.Y);
     }
 
     private static bool TryIntersectLines(
