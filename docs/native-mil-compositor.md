@@ -2142,6 +2142,14 @@ for `progpu_native_mil.cpp` and
 `CD79B51484FCFA6047C84BFD3EB95FD78D12918DBA6E7E084762E6B0E3810D7A`
 for the test source.
 
+Empty-solid-DashStyle checkpoint `cc629948` passed the Windows MSVC `/W4 /WX`
+build and focused native test in 1.93 seconds. Exact guest hashes matched the
+host at
+`680D3CBE0D571BEC95F1B8CD796D2C2FAB1380D392B39AA21166C68CE0D1FBF7`
+for `progpu_native_mil.cpp` and
+`BD6A99C80293C154F7114E4FD867C2B0B663BD72171EAA0C88CC24018493FECC`
+for the test source.
+
 `NativeMilRenderDataBuilder.DrawImage(...)` now exposes the same canonical
 static packet to typed hosts. It validates finite nonnegative destination
 bounds and a nonzero image handle, writes the required zero padding, and is
