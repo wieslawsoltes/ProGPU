@@ -2052,10 +2052,14 @@ reduction for lines, analytic derivative roots for quadratic and cubic Beziers,
 and canonical ellipse extrema for arcs. The transformed-segment scratch buffer
 is reused across image commands in one render stream. Unfilled figures,
 control-point hulls, and packet bounds therefore cannot broaden the mapped
-content. Default-state `DrawingGroup` trees now union their separately drawn
-child bounds and apply nested axis-preserving group transforms exactly;
-multiple children are safe here because they are independent draws rather than
-one fill-rule contour. Group clips, opacity/mask/animation/guideline state,
+content. `DrawingGroup` trees now union their separately drawn child bounds and
+apply nested axis-preserving group transforms exactly; multiple children are
+safe here because they are independent draws rather than one fill-rule contour.
+Static fixed, path, and geometry-group clip bounds intersect that local child
+union before the group transform, matching WPF's `BoundsDrawingContextWalker`
+ordering. Group opacity, animated opacity, opacity masks, guidelines, edge
+mode, bitmap sampling, and ClearType state deliberately do not participate in
+bounds, also matching the WPF walker. Unsupported clip geometry,
 non-axis-preserving group transforms, stroked drawings, and unsupported or
 singular path transforms still require the exact drawing-content-bounds
 sideband and fail closed when it is absent. The exact native lane also accepts
@@ -2067,7 +2071,11 @@ image/drawing ownership is rejected as `invalid_graph`, and an empty
 DrawingImage remains a no-op. Native coverage locks down distinct retained,
 direct-static, and direct-animated destination mappings plus sideband-free
 fixed, polygonal, curved, arc, independently transformed path,
-single-child geometry-group, and nested multi-child drawing-group replay.
+single-child geometry-group, and nested multi-child drawing-group replay. The
+drawing-group case combines a real rectangle clip with animated opacity, an
+opacity mask, a guideline resource, aliased edges, nearest image sampling, and
+ClearType, and verifies the clip-derived destination mapping while retaining a
+shear rejection oracle.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive

@@ -8479,11 +8479,7 @@ struct channel::implementation {
             const auto drawing_group = drawing_groups.find(drawing_handle);
             if (drawing_group != drawing_groups.end()) {
                 const auto& group = drawing_group->second;
-                if (group.children.empty() || group.opacity != 1.0 ||
-                    group.clip_geometry_handle != 0U ||
-                    group.opacity_animation_handle != 0U ||
-                    group.opacity_mask_handle != 0U ||
-                    group.guideline_set_handle != 0U) {
+                if (group.children.empty()) {
                     return status::unsupported_command;
                 }
                 double left = 0.0;
@@ -8522,6 +8518,34 @@ struct channel::implementation {
                 }
                 if (!has_bounds || right <= left || bottom <= top) {
                     return status::unsupported_command;
+                }
+                if (group.clip_geometry_handle != 0U) {
+                    drawing_image_bounds_segments.clear();
+                    shallow_fill_leaf clip{};
+                    const status clip_status = geometry_groups.contains(
+                            group.clip_geometry_handle)
+                        ? append_group_fill_leaf(
+                            group.clip_geometry_handle,
+                            drawing_image_bounds_segments,
+                            clip)
+                        : append_shallow_fill_leaf(
+                            group.clip_geometry_handle,
+                            drawing_image_bounds_segments,
+                            clip);
+                    if (clip_status != status::success) {
+                        return clip_status;
+                    }
+                    if (!clip.has_bounds || clip.right <= clip.left ||
+                        clip.bottom <= clip.top) {
+                        return status::unsupported_command;
+                    }
+                    left = std::max(left, clip.left);
+                    top = std::max(top, clip.top);
+                    right = std::min(right, clip.right);
+                    bottom = std::min(bottom, clip.bottom);
+                    if (right <= left || bottom <= top) {
+                        return status::unsupported_command;
+                    }
                 }
                 affine_2d_double transform{};
                 if (group.transform_handle != 0U) {
