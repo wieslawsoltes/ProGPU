@@ -2069,10 +2069,10 @@ broadened union or filling gaps between separately drawn children. Empty and
 singular groups are valid empty draws. Group opacity, animated opacity, opacity
 masks, guidelines, edge
 mode, bitmap sampling, and ClearType state deliberately do not participate in
-bounds, also matching the WPF walker. Unsupported clip geometry, stroked
-drawings under a non-axis-preserving effective transform, and unsupported leaf
-transforms still require the exact drawing-content-bounds sideband and fail
-closed when it is absent. The exact native lane also accepts
+bounds, also matching the WPF walker. Unsupported clip geometry, stroked fixed
+shapes and path/group strokes under non-axis-preserving transforms, and other
+unsupported leaf transforms still require the exact drawing-content-bounds
+sideband and fail closed when it is absent. The exact native lane also accepts
 single-child/nested-single-child `GeometryGroup` chains and composes every group
 and leaf transform; multi-child groups remain sideband-only until WPF fill-rule
 cancellation bounds have a qualified oracle. Fixed lines plus rectangles,
@@ -2082,11 +2082,11 @@ the renderer's canonical live Pen resolver, cap-aware line bounds, and shared
 positive-shape stroke-bounds helper. Animated thickness changes the inferred
 DrawingImage mapping without retransmitting the Pen or Drawing. Fixed shapes
 still require axis-preserving effective transforms. Lines with flat, square,
-or triangle caps instead transform the actual stroke polygon vertices, so
-rotation and shear remain exact without transforming a broadened local AABB.
-Round-capped affine lines remain sideband-only until transformed semicircle
-extrema are qualified. A missing DashStyle and a DashStyle with an empty
-interval collection both take the solid lane; nonempty dashed and path/group
+triangle, or round caps instead preserve WPF's separate geometry-transform,
+pen-widening, and group/world-transform stages. Polygonal caps reduce the
+actual stroke vertices; round caps reduce WPF's two canonical cubic arcs.
+A missing DashStyle and a DashStyle with an empty interval collection both take
+the solid lane; nonempty dashed and path/group
 stroke cases remain sideband-only. No bitmap intermediate,
 pointer
 transport, reflection, or host raster fallback is introduced. Recursive
@@ -2102,7 +2102,7 @@ verifies the per-child clip-derived destination mapping while retaining a shear
 rejection oracle. Separate native coverage verifies exact square-cap mappings
 at two animated thickness values, rounded-rectangle and ellipse mappings,
 zero-width rectangle, collapsed-axis ellipse, and point-ellipse mappings, plus
-explicit sheared-transform and nonempty-dashed-Pen rejections. The same Pen
+geometry- and group-level shear oracles and nonempty-dashed-Pen rejection. The same Pen
 then succeeds after its DashStyle resource updates to empty intervals without
 retransmitting the Pen or Drawing.
 Checkpoint `30fcf084` extends that same sideband-free lane to general affine
@@ -2155,10 +2155,9 @@ Checkpoint `34529979` extends solid line-stroke inference to general affine
 effective transforms for flat, square, and triangle caps. The bounds helper
 transforms the actual four strip vertices plus cap vertices and reduces those
 world-space points, avoiding the incorrect transform-of-local-AABB shortcut.
-Coverage checks exact sheared square- and triangle-cap mappings while retaining
-the nonempty-dash rejection and live empty-DashStyle success. Round caps still
-fail closed outside the axis-preserving lane. Apple native tests pass 8/8. A
-clean archive rebuilt all 136 focused target steps under Windows ARM64 MSVC
+Coverage checks sheared square- and triangle-cap mappings while retaining the
+nonempty-dash rejection and live empty-DashStyle success. Apple native tests
+pass 8/8. A clean archive rebuilt all 136 focused target steps under Windows ARM64 MSVC
 `19.44.35228.0` with `/W4 /WX`; focused CTest passed in 1.00 second and direct
 execution returned zero. Host and guest hashes matched at
 `00917E307C125E7F8573BBC487C3E51395191EF84986C1768E3ABCADD73E64A2`
@@ -2166,6 +2165,26 @@ for `progpu_native_mil.cpp` and
 `8EC1AC257B61C7F7A4888002B54392A751EE2BEE4391CB2B1B0BA4428C751CF6`
 for its test. The guest executable SHA-256 was
 `FE386E7FB3B93E0BE7125E8AD60B7005CBF6D2264C1A12FAA8A4EB2CC38A2051`.
+Checkpoint `cd3e70c3` completes that line-cap lane and corrects the initial
+affine implementation against live Windows WPF. `Geometry.Transform` maps the
+line spine before WPF widens it by the Pen; `DrawingGroup.Transform` maps the
+already widened stroke afterward. ProGPU now keeps those stages separate.
+Round caps use the exact WpfGfx `ARC_AS_BEZIER` constant and analytic cubic
+derivative roots. In the Windows 11 ARM64 Parallels oracle, the same 8-unit
+round-capped line and `[1,.25,.5,1,0,0]` matrix produced
+`15.999053955078125,18.499053955078125,28.00189208984375,13.00189208984375`
+as `Geometry.Transform` bounds and
+`15.526884078979492,18.375919342041016,28.946229934692383,13.248161315917969`
+as `DrawingGroup.Transform` bounds; native mappings for both are locked down,
+alongside the corresponding square and triangle WPF oracles. Apple native
+tests pass 8/8. A clean archive rebuilt all 136 focused target steps under
+Windows ARM64 MSVC `19.44.35228.0` with `/W4 /WX`; focused CTest passed in
+1.62 seconds and direct execution returned zero. Host and guest hashes matched
+at `C1A647F6BDF4650C78ED2FEE52F4BC4AE1CC43D4E544539F426716F4E3BA7E0F`
+for `progpu_native_mil.cpp` and
+`554160BFEF4E6B8F5A4A2BF2B08A2CEA69DD45B916FFEBDDA671BBC6E983E08D`
+for its test. The guest executable SHA-256 was
+`02BB1A776DBDC7A019D12BC362944B8253324334C97EF2B5796FFEB48F0AD2EE`.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive
