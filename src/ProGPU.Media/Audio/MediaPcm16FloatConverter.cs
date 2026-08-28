@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 
@@ -34,43 +35,57 @@ internal static class MediaPcm16FloatConverter
         if (Vector256.IsHardwareAccelerated)
         {
             Vector256<float> scale = Vector256.Create(Scale);
+            int unrolledCount = Vector256<short>.Count * 2;
+            for (; index <= source.Length - unrolledCount;
+                 index += unrolledCount)
+            {
+                ConvertVector256(
+                    ref sourceStart,
+                    ref destinationStart,
+                    index,
+                    scale);
+                ConvertVector256(
+                    ref sourceStart,
+                    ref destinationStart,
+                    index + Vector256<short>.Count,
+                    scale);
+            }
             for (; index <= source.Length - Vector256<short>.Count;
                  index += Vector256<short>.Count)
             {
-                Vector256<short> samples = Vector256.LoadUnsafe(
+                ConvertVector256(
                     ref sourceStart,
-                    (nuint)index);
-                (Vector256<int> low, Vector256<int> high) =
-                    Vector256.Widen(samples);
-                (Vector256.ConvertToSingle(low) * scale)
-                    .StoreUnsafe(
-                        ref destinationStart,
-                        (nuint)index);
-                (Vector256.ConvertToSingle(high) * scale)
-                    .StoreUnsafe(
-                        ref destinationStart,
-                        (nuint)(index + Vector256<int>.Count));
+                    ref destinationStart,
+                    index,
+                    scale);
             }
         }
         else if (Vector128.IsHardwareAccelerated)
         {
             Vector128<float> scale = Vector128.Create(Scale);
+            int unrolledCount = Vector128<short>.Count * 2;
+            for (; index <= source.Length - unrolledCount;
+                 index += unrolledCount)
+            {
+                ConvertVector128(
+                    ref sourceStart,
+                    ref destinationStart,
+                    index,
+                    scale);
+                ConvertVector128(
+                    ref sourceStart,
+                    ref destinationStart,
+                    index + Vector128<short>.Count,
+                    scale);
+            }
             for (; index <= source.Length - Vector128<short>.Count;
                  index += Vector128<short>.Count)
             {
-                Vector128<short> samples = Vector128.LoadUnsafe(
+                ConvertVector128(
                     ref sourceStart,
-                    (nuint)index);
-                (Vector128<int> low, Vector128<int> high) =
-                    Vector128.Widen(samples);
-                (Vector128.ConvertToSingle(low) * scale)
-                    .StoreUnsafe(
-                        ref destinationStart,
-                        (nuint)index);
-                (Vector128.ConvertToSingle(high) * scale)
-                    .StoreUnsafe(
-                        ref destinationStart,
-                        (nuint)(index + Vector128<int>.Count));
+                    ref destinationStart,
+                    index,
+                    scale);
             }
         }
 
@@ -78,5 +93,49 @@ internal static class MediaPcm16FloatConverter
         {
             destination[index] = source[index] / 32_768F;
         }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void ConvertVector256(
+        ref short source,
+        ref float destination,
+        int index,
+        Vector256<float> scale)
+    {
+        Vector256<short> samples = Vector256.LoadUnsafe(
+            ref source,
+            (nuint)index);
+        (Vector256<int> low, Vector256<int> high) =
+            Vector256.Widen(samples);
+        (Vector256.ConvertToSingle(low) * scale)
+            .StoreUnsafe(
+                ref destination,
+                (nuint)index);
+        (Vector256.ConvertToSingle(high) * scale)
+            .StoreUnsafe(
+                ref destination,
+                (nuint)(index + Vector256<int>.Count));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void ConvertVector128(
+        ref short source,
+        ref float destination,
+        int index,
+        Vector128<float> scale)
+    {
+        Vector128<short> samples = Vector128.LoadUnsafe(
+            ref source,
+            (nuint)index);
+        (Vector128<int> low, Vector128<int> high) =
+            Vector128.Widen(samples);
+        (Vector128.ConvertToSingle(low) * scale)
+            .StoreUnsafe(
+                ref destination,
+                (nuint)index);
+        (Vector128.ConvertToSingle(high) * scale)
+            .StoreUnsafe(
+                ref destination,
+                (nuint)(index + Vector128<int>.Count));
     }
 }
