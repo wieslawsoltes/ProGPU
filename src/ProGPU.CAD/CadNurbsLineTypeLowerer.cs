@@ -111,7 +111,7 @@ internal static class CadNurbsLineTypeLowerer
         }
 
         int degree = spline.Degree;
-        var bezierPoints = new HomogeneousPoint[checked(spanCount * (degree + 1))];
+        var bezierPoints = new CadHomogeneousPoint[checked(spanCount * (degree + 1))];
         var spans = new BezierSpan[spanCount];
         if (!CadSplineCanonicalizer.TryCreate(snapshot, spline, out CadCanonicalSpline canonical) ||
             !TryExtractBezierSpans(canonical, bezierPoints, spans))
@@ -349,7 +349,7 @@ internal static class CadNurbsLineTypeLowerer
         double pathLength,
         int degree,
         ReadOnlySpan<BezierSpan> spans,
-        ReadOnlySpan<HomogeneousPoint> bezierPoints,
+        ReadOnlySpan<CadHomogeneousPoint> bezierPoints,
         ReadOnlySpan<double> arcMaps,
         ReadOnlySpan<CadLineTypeElement> elements,
         double patternLength,
@@ -361,7 +361,7 @@ internal static class CadNurbsLineTypeLowerer
         Span<double> outputWeights,
         Span<CadLineTypePlacement> placements)
     {
-        var scratch = new HomogeneousPoint[checked((degree + 1) * 3)];
+        var scratch = new CadHomogeneousPoint[checked((degree + 1) * 3)];
         int fragmentIndex = 0;
         int pointIndex = 0;
         int knotIndex = 0;
@@ -379,7 +379,7 @@ internal static class CadNurbsLineTypeLowerer
             if (current.IsContent)
             {
                 int spanIndex = FindSpan(spans, current.Start, preferNextAtBoundary: true);
-                ReadOnlySpan<HomogeneousPoint> controlPoints = bezierPoints.Slice(
+                ReadOnlySpan<CadHomogeneousPoint> controlPoints = bezierPoints.Slice(
                     spans[spanIndex].ControlPointOffset,
                     degree + 1);
                 double t = ParameterAtDistance(
@@ -414,14 +414,14 @@ internal static class CadNurbsLineTypeLowerer
                 double localEnd = spanIndex == lastSpan
                     ? Math.Clamp(end - span.PathOffset, 0.0, span.Length)
                     : span.Length;
-                ReadOnlySpan<HomogeneousPoint> spanPoints = bezierPoints.Slice(
+                ReadOnlySpan<CadHomogeneousPoint> spanPoints = bezierPoints.Slice(
                     span.ControlPointOffset,
                     degree + 1);
                 double t0 = InvertArcDistance(span, localStart, arcMaps, spanPoints);
                 double t1 = current.IsPoint
                     ? t0
                     : InvertArcDistance(span, localEnd, arcMaps, spanPoints);
-                Span<HomogeneousPoint> piece = scratch.AsSpan(0, degree + 1);
+                Span<CadHomogeneousPoint> piece = scratch.AsSpan(0, degree + 1);
                 ExtractSubcurve(
                     bezierPoints.Slice(span.ControlPointOffset, degree + 1),
                     t0,
@@ -432,7 +432,7 @@ internal static class CadNurbsLineTypeLowerer
                 int sourceStart = spanIndex == firstSpan ? 0 : 1;
                 for (int i = sourceStart; i <= degree; i++)
                 {
-                    HomogeneousPoint value = piece[i];
+                    CadHomogeneousPoint value = piece[i];
                     CadPoint3D point = value.Cartesian;
                     outputPoints[pointIndex] = Project(point, rebaseOrigin);
                     outputWeights[pointIndex] = value.W;
@@ -471,16 +471,10 @@ internal static class CadNurbsLineTypeLowerer
 
     private static bool TryExtractBezierSpans(
         in CadCanonicalSpline canonical,
-        Span<HomogeneousPoint> destination,
+        Span<CadHomogeneousPoint> destination,
         Span<BezierSpan> spans)
     {
         int degree = canonical.Degree;
-        int maxControlPointCount = (degree * 3) + 3;
-        int maxKnotCount = (degree * 4) + 4;
-        var pointsA = new HomogeneousPoint[maxControlPointCount];
-        var pointsB = new HomogeneousPoint[maxControlPointCount];
-        var knotsA = new double[maxKnotCount];
-        var knotsB = new double[maxKnotCount];
         int outputSpanIndex = 0;
         for (int sourceSpan = degree; sourceSpan < canonical.ControlPointCount; sourceSpan++)
         {
@@ -491,77 +485,14 @@ internal static class CadNurbsLineTypeLowerer
                 continue;
             }
 
-            int pointCount = degree + 1;
-            int knotCount = (degree * 2) + 2;
-            for (int i = 0; i <= degree; i++)
-            {
-                int sourceIndex = sourceSpan - degree + i;
-                double weight = canonical.GetWeight(sourceIndex);
-                pointsA[i] = HomogeneousPoint.FromCartesian(
-                    canonical.GetControlPoint(sourceIndex),
-                    weight);
-            }
-            for (int i = 0; i < knotCount; i++)
-            {
-                knotsA[i] = canonical.GetKnot(sourceSpan - degree + i);
-            }
-
-            HomogeneousPoint[] currentPoints = pointsA;
-            HomogeneousPoint[] nextPoints = pointsB;
-            double[] currentKnots = knotsA;
-            double[] nextKnots = knotsB;
-            while (CountMultiplicity(currentKnots.AsSpan(0, knotCount), start) < degree + 1)
-            {
-                if (!InsertKnot(
-                    currentPoints.AsSpan(0, pointCount),
-                    currentKnots.AsSpan(0, knotCount),
-                    degree,
-                    start,
-                    nextPoints,
-                    nextKnots))
-                {
-                    return false;
-                }
-                pointCount++;
-                knotCount++;
-                (currentPoints, nextPoints) = (nextPoints, currentPoints);
-                (currentKnots, nextKnots) = (nextKnots, currentKnots);
-            }
-            while (CountMultiplicity(currentKnots.AsSpan(0, knotCount), end) < degree + 1)
-            {
-                if (!InsertKnot(
-                    currentPoints.AsSpan(0, pointCount),
-                    currentKnots.AsSpan(0, knotCount),
-                    degree,
-                    end,
-                    nextPoints,
-                    nextKnots))
-                {
-                    return false;
-                }
-                pointCount++;
-                knotCount++;
-                (currentPoints, nextPoints) = (nextPoints, currentPoints);
-                (currentKnots, nextKnots) = (nextKnots, currentKnots);
-            }
-
-            int isolatedSpan = -1;
-            for (int i = degree; i < pointCount; i++)
-            {
-                if (currentKnots[i] == start && currentKnots[i + 1] == end)
-                {
-                    isolatedSpan = i;
-                    break;
-                }
-            }
-            if (isolatedSpan < degree)
+            int destinationOffset = outputSpanIndex * (degree + 1);
+            if (!CadRationalBezier.TryExtractSpan(
+                    canonical,
+                    sourceSpan,
+                    destination.Slice(destinationOffset, degree + 1)))
             {
                 return false;
             }
-
-            int destinationOffset = outputSpanIndex * (degree + 1);
-            currentPoints.AsSpan(isolatedSpan - degree, degree + 1)
-                .CopyTo(destination.Slice(destinationOffset, degree + 1));
             spans[outputSpanIndex] = new BezierSpan(
                 destinationOffset,
                 start,
@@ -577,13 +508,10 @@ internal static class CadNurbsLineTypeLowerer
             CadPoint3D start = destination[0].Cartesian;
             CadPoint3D end = destination[(outputSpanIndex * (degree + 1)) - 1].Cartesian;
             int destinationOffset = outputSpanIndex * (degree + 1);
-            for (int i = 0; i <= degree; i++)
-            {
-                double amount = (double)i / degree;
-                destination[destinationOffset + i] = HomogeneousPoint.FromCartesian(
-                    end + ((start - end) * amount),
-                    1.0);
-            }
+            CadRationalBezier.CreateElevatedLine(
+                end,
+                start,
+                destination.Slice(destinationOffset, degree + 1));
 
             spans[outputSpanIndex] = new BezierSpan(
                 destinationOffset,
@@ -598,76 +526,8 @@ internal static class CadNurbsLineTypeLowerer
         return outputSpanIndex == spans.Length;
     }
 
-    private static bool InsertKnot(
-        ReadOnlySpan<HomogeneousPoint> points,
-        ReadOnlySpan<double> knots,
-        int degree,
-        double knot,
-        Span<HomogeneousPoint> outputPoints,
-        Span<double> outputKnots)
-    {
-        int n = points.Length - 1;
-        int span = FindInsertionSpan(knots, n, degree, knot);
-        int multiplicity = CountMultiplicity(knots, knot);
-        if (span < degree || multiplicity > degree)
-        {
-            return false;
-        }
-
-        knots.Slice(0, span + 1).CopyTo(outputKnots);
-        outputKnots[span + 1] = knot;
-        knots.Slice(span + 1).CopyTo(outputKnots.Slice(span + 2));
-        points.Slice(0, span - degree + 1).CopyTo(outputPoints);
-        points.Slice(span - multiplicity).CopyTo(outputPoints.Slice(span - multiplicity + 1));
-        for (int i = span - degree + 1; i <= span - multiplicity; i++)
-        {
-            double denominator = knots[i + degree] - knots[i];
-            if (!(denominator > 0.0))
-            {
-                return false;
-            }
-            double alpha = (knot - knots[i]) / denominator;
-            outputPoints[i] = HomogeneousPoint.Lerp(points[i - 1], points[i], alpha);
-        }
-
-        return true;
-    }
-
-    private static int FindInsertionSpan(
-        ReadOnlySpan<double> knots,
-        int lastControlPoint,
-        int degree,
-        double knot)
-    {
-        if (knot == knots[lastControlPoint + 1])
-        {
-            return lastControlPoint;
-        }
-        for (int i = degree; i <= lastControlPoint; i++)
-        {
-            if (knot >= knots[i] && knot < knots[i + 1])
-            {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private static int CountMultiplicity(ReadOnlySpan<double> knots, double knot)
-    {
-        int count = 0;
-        for (int i = 0; i < knots.Length; i++)
-        {
-            if (knots[i] == knot)
-            {
-                count++;
-            }
-        }
-        return count;
-    }
-
     private static double BuildArcLengthMap(
-        ReadOnlySpan<HomogeneousPoint> points,
+        ReadOnlySpan<CadHomogeneousPoint> points,
         Span<double> destination)
     {
         destination[0] = 0.0;
@@ -683,7 +543,7 @@ internal static class CadNurbsLineTypeLowerer
     }
 
     private static double IntegrateArcLength(
-        ReadOnlySpan<HomogeneousPoint> points,
+        ReadOnlySpan<CadHomogeneousPoint> points,
         double start,
         double end)
     {
@@ -741,7 +601,7 @@ internal static class CadNurbsLineTypeLowerer
         in BezierSpan span,
         double pathDistance,
         ReadOnlySpan<double> arcMaps,
-        ReadOnlySpan<HomogeneousPoint> points) =>
+        ReadOnlySpan<CadHomogeneousPoint> points) =>
         InvertArcDistance(
             span,
             Math.Clamp(pathDistance - span.PathOffset, 0.0, span.Length),
@@ -752,7 +612,7 @@ internal static class CadNurbsLineTypeLowerer
         in BezierSpan span,
         double distance,
         ReadOnlySpan<double> arcMaps,
-        ReadOnlySpan<HomogeneousPoint> points)
+        ReadOnlySpan<CadHomogeneousPoint> points)
     {
         if (!(span.Length > 0.0) || distance <= 0.0)
         {
@@ -814,12 +674,12 @@ internal static class CadNurbsLineTypeLowerer
     }
 
     private static void ExtractSubcurve(
-        ReadOnlySpan<HomogeneousPoint> source,
+        ReadOnlySpan<CadHomogeneousPoint> source,
         double start,
         double end,
-        Span<HomogeneousPoint> destination,
-        Span<HomogeneousPoint> left,
-        Span<HomogeneousPoint> right)
+        Span<CadHomogeneousPoint> destination,
+        Span<CadHomogeneousPoint> left,
+        Span<CadHomogeneousPoint> right)
     {
         Subdivide(source, start, left, right);
         if (start >= 1.0)
@@ -833,78 +693,50 @@ internal static class CadNurbsLineTypeLowerer
     }
 
     private static void Subdivide(
-        ReadOnlySpan<HomogeneousPoint> source,
+        ReadOnlySpan<CadHomogeneousPoint> source,
         double parameter,
-        Span<HomogeneousPoint> left,
-        Span<HomogeneousPoint> right)
-    {
-        int degree = source.Length - 1;
-        Span<HomogeneousPoint> work = degree <= 10
-            ? stackalloc HomogeneousPoint[degree + 1]
-            : new HomogeneousPoint[degree + 1];
-        source.CopyTo(work);
-        left[0] = work[0];
-        right[degree] = work[degree];
-        for (int level = 1; level <= degree; level++)
-        {
-            for (int i = 0; i <= degree - level; i++)
-            {
-                work[i] = HomogeneousPoint.Lerp(work[i], work[i + 1], parameter);
-            }
-            left[level] = work[0];
-            right[degree - level] = work[degree - level];
-        }
-    }
+        Span<CadHomogeneousPoint> left,
+        Span<CadHomogeneousPoint> right) =>
+        CadRationalBezier.Subdivide(source, parameter, left, right);
 
     private static CadPoint3D EvaluatePoint(
-        ReadOnlySpan<HomogeneousPoint> points,
-        double parameter)
-    {
-        Span<HomogeneousPoint> work = stackalloc HomogeneousPoint[points.Length];
-        points.CopyTo(work);
-        for (int remaining = points.Length - 1; remaining > 0; remaining--)
-        {
-            for (int i = 0; i < remaining; i++)
-            {
-                work[i] = HomogeneousPoint.Lerp(work[i], work[i + 1], parameter);
-            }
-        }
-        return work[0].Cartesian;
-    }
+        ReadOnlySpan<CadHomogeneousPoint> points,
+        double parameter) =>
+        CadRationalBezier.EvaluateHomogeneous(points, parameter).Cartesian;
 
     private static CadPoint3D EvaluateDerivative(
-        ReadOnlySpan<HomogeneousPoint> points,
+        ReadOnlySpan<CadHomogeneousPoint> points,
         double parameter)
     {
         int degree = points.Length - 1;
-        Span<HomogeneousPoint> derivative = stackalloc HomogeneousPoint[degree];
+        Span<CadHomogeneousPoint> derivative = stackalloc CadHomogeneousPoint[degree];
         for (int i = 0; i < degree; i++)
         {
             derivative[i] = (points[i + 1] - points[i]) * degree;
         }
 
-        Span<HomogeneousPoint> work = stackalloc HomogeneousPoint[points.Length];
+        Span<CadHomogeneousPoint> work = stackalloc CadHomogeneousPoint[points.Length];
         points.CopyTo(work);
         for (int remaining = degree; remaining > 0; remaining--)
         {
             for (int i = 0; i < remaining; i++)
             {
-                work[i] = HomogeneousPoint.Lerp(work[i], work[i + 1], parameter);
+                work[i] = CadHomogeneousPoint.Lerp(work[i], work[i + 1], parameter);
             }
         }
         for (int remaining = degree - 1; remaining > 0; remaining--)
         {
             for (int i = 0; i < remaining; i++)
             {
-                derivative[i] = HomogeneousPoint.Lerp(
+                derivative[i] = CadHomogeneousPoint.Lerp(
                     derivative[i],
                     derivative[i + 1],
                     parameter);
             }
         }
 
-        HomogeneousPoint value = work[0];
-        HomogeneousPoint delta = derivative[0];
+        CadHomogeneousPoint value = work[0];
+        CadHomogeneousPoint delta = derivative[0];
         double denominator = value.W * value.W;
         if (!(denominator > 0.0))
         {
@@ -940,49 +772,4 @@ internal static class CadNurbsLineTypeLowerer
         double Length,
         double PathOffset,
         int ArcMapOffset);
-
-    private readonly record struct HomogeneousPoint(
-        double X,
-        double Y,
-        double Z,
-        double W)
-    {
-        public CadPoint3D Cartesian => new(X / W, Y / W, Z / W);
-
-        public static HomogeneousPoint FromCartesian(CadPoint3D point, double weight) =>
-            new(point.X * weight, point.Y * weight, point.Z * weight, weight);
-
-        public static HomogeneousPoint Lerp(
-            HomogeneousPoint start,
-            HomogeneousPoint end,
-            double amount) =>
-            start + ((end - start) * amount);
-
-        public static HomogeneousPoint operator +(
-            HomogeneousPoint left,
-            HomogeneousPoint right) =>
-            new(
-                left.X + right.X,
-                left.Y + right.Y,
-                left.Z + right.Z,
-                left.W + right.W);
-
-        public static HomogeneousPoint operator -(
-            HomogeneousPoint left,
-            HomogeneousPoint right) =>
-            new(
-                left.X - right.X,
-                left.Y - right.Y,
-                left.Z - right.Z,
-                left.W - right.W);
-
-        public static HomogeneousPoint operator *(
-            HomogeneousPoint value,
-            double scale) =>
-            new(
-                value.X * scale,
-                value.Y * scale,
-                value.Z * scale,
-                value.W * scale);
-    }
 }

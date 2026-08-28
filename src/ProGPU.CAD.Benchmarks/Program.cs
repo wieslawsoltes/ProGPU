@@ -19,6 +19,7 @@ bool lowerComplexLineTypes = HasFlag("--complex-linetypes");
 bool lowerLinearSplineLineTypes = HasFlag("--linear-spline-linetypes");
 bool lowerNurbsSplineLineTypes = HasFlag("--nurbs-spline-linetypes");
 bool lowerPeriodicSplineLineTypes = HasFlag("--periodic-spline-linetypes");
+bool measureSplineSelection = HasFlag("--spline-selection");
 int shxInterpretationCount = ReadNonNegativeInt("--shx-interpretations", 0);
 int shxLayoutCount = ReadNonNegativeInt("--shx-layouts", 0);
 int warmupCount = ReadNonNegativeInt("--warmup", 3);
@@ -40,6 +41,14 @@ if (blockArrayColumnCount > ushort.MaxValue)
         $"--block-array-columns cannot exceed {ushort.MaxValue}.");
 }
 
+if (measureSplineSelection &&
+    (entityCount == 0 || blockArrayColumnCount != 0 ||
+     textEntityCount != 0 || shxTextEntityCount != 0))
+{
+    throw new ArgumentException(
+        "--spline-selection requires a positive --entities count and no block-array or text fixtures.");
+}
+
 CadDocumentSession session = CreateDocument(
     entityCount,
     blockArrayColumnCount,
@@ -52,7 +61,8 @@ CadDocumentSession session = CreateDocument(
     lowerComplexLineTypes,
     lowerLinearSplineLineTypes,
     lowerNurbsSplineLineTypes,
-    lowerPeriodicSplineLineTypes);
+    lowerPeriodicSplineLineTypes,
+    measureSplineSelection);
 var snapshotCompiler = new CadSnapshotCompiler();
 var pageSetupCompiler = new CadPageSetupCatalogCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
@@ -132,6 +142,12 @@ Measurement rotatedPrintPlanMeasurement = Measure(
     iterationCount,
     () => printPlanCompiler.Compile(snapshot, rotatedPrintOptions));
 Measurement queryMeasurement = MeasureQueries(snapshot, queryCount);
+Measurement? splinePointSelectionMeasurement = measureSplineSelection
+    ? MeasureSplinePointSelections(snapshot, queryCount)
+    : null;
+Measurement? splineBoundsSelectionMeasurement = measureSplineSelection
+    ? MeasureSplineBoundsSelections(snapshot, queryCount)
+    : null;
 Measurement? shxMeasurement = shxInterpretationCount == 0
     ? null
     : Measure(
@@ -161,6 +177,7 @@ var report = new CadBenchmarkReport(
     lowerLinearSplineLineTypes,
     lowerNurbsSplineLineTypes,
     lowerPeriodicSplineLineTypes,
+    measureSplineSelection,
     shxInterpretationCount,
     shxLayoutCount,
     warmupCount,
@@ -176,6 +193,8 @@ var report = new CadBenchmarkReport(
     printPlanMeasurement,
     rotatedPrintPlanMeasurement,
     queryMeasurement,
+    splinePointSelectionMeasurement,
+    splineBoundsSelectionMeasurement,
     shxMeasurement,
     shxLayoutMeasurement,
     Process.GetCurrentProcess().WorkingSet64);
@@ -231,7 +250,8 @@ CadDocumentSession CreateDocument(
     bool useComplexLineTypes,
     bool useLinearSplineLineTypes,
     bool useNurbsSplineLineTypes,
-    bool usePeriodicSplineLineTypes)
+    bool usePeriodicSplineLineTypes,
+    bool useSplineSelection)
 {
     CadDocumentSession result = CadDocumentSession.CreateNew();
     result.Edit("Build benchmark document", document =>
@@ -289,7 +309,7 @@ CadDocumentSession CreateDocument(
                 document.Entities.Add(spline);
                 continue;
             }
-            if (useNurbsSplineLineTypes)
+            if (useNurbsSplineLineTypes || useSplineSelection)
             {
                 var spline = new Spline
                 {
@@ -529,6 +549,105 @@ Measurement MeasureQueries(CadDocumentSnapshot source, int count)
     return Summarize("spatial-query-ns", elapsed, allocated / count);
 }
 
+Measurement MeasureSplinePointSelections(CadDocumentSnapshot source, int count)
+{
+    CadSelectionCandidate[] candidates = CreateSelectionCandidates(source);
+    var elapsed = new double[count];
+    CadSelectionCandidate warmCandidate = candidates[0];
+    _ = CadSelectionHitTester.HitTestPoint(
+        source,
+        warmCandidate,
+        warmCandidate.Bounds.Center,
+        tolerance: 1.0);
+    _ = GC.GetAllocatedBytesForCurrentThread();
+    long allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+    int checksum = 0;
+    for (int i = 0; i < count; i++)
+    {
+        CadSelectionCandidate candidate = candidates[i % candidates.Length];
+        CadPoint3D center = candidate.Bounds.Center;
+        var point = new CadPoint3D(
+            center.X + ((i & 1) == 0 ? 0.25 : -0.25),
+            center.Y + 0.5,
+            center.Z);
+        long started = Stopwatch.GetTimestamp();
+        CadPointHitResult result = CadSelectionHitTester.HitTestPoint(
+            source,
+            candidate,
+            point,
+            tolerance: 1.0);
+        elapsed[i] = Stopwatch.GetElapsedTime(started).TotalNanoseconds;
+        checksum += (int)result.Status;
+    }
+
+    long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedStart;
+    GC.KeepAlive(checksum);
+    return Summarize("spline-point-selection-ns", elapsed, allocated / count);
+}
+
+Measurement MeasureSplineBoundsSelections(CadDocumentSnapshot source, int count)
+{
+    CadSelectionCandidate[] candidates = CreateSelectionCandidates(source);
+    var elapsed = new double[count];
+    CadSelectionCandidate warmCandidate = candidates[0];
+    CadBounds3D warmBounds = CreateSelectionBounds(warmCandidate.Bounds.Center);
+    _ = CadSelectionHitTester.HitTestBounds(
+        source,
+        warmCandidate,
+        warmBounds,
+        CadBoundsSelectionMode.Crossing);
+    _ = GC.GetAllocatedBytesForCurrentThread();
+    long allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+    int checksum = 0;
+    for (int i = 0; i < count; i++)
+    {
+        CadSelectionCandidate candidate = candidates[i % candidates.Length];
+        CadBounds3D bounds = CreateSelectionBounds(candidate.Bounds.Center);
+        CadBoundsSelectionMode mode = (i & 1) == 0
+            ? CadBoundsSelectionMode.Crossing
+            : CadBoundsSelectionMode.Window;
+        long started = Stopwatch.GetTimestamp();
+        CadBoundsHitResult result = CadSelectionHitTester.HitTestBounds(
+            source,
+            candidate,
+            bounds,
+            mode);
+        elapsed[i] = Stopwatch.GetElapsedTime(started).TotalNanoseconds;
+        checksum += (int)result.Status;
+    }
+
+    long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedStart;
+    GC.KeepAlive(checksum);
+    return Summarize("spline-bounds-selection-ns", elapsed, allocated / count);
+}
+
+CadSelectionCandidate[] CreateSelectionCandidates(CadDocumentSnapshot source)
+{
+    ReadOnlySpan<CadEntityHeader> entities = source.Entities.Span;
+    var candidates = new CadSelectionCandidate[entities.Length];
+    for (int i = 0; i < entities.Length; i++)
+    {
+        CadEntityHeader entity = entities[i];
+        if (entity.Kind != CadEntityKind.Spline)
+        {
+            throw new InvalidOperationException(
+                "The spline-selection benchmark requires an all-spline fixture.");
+        }
+        candidates[i] = new CadSelectionCandidate(
+            source.ContentGeneration,
+            i,
+            entity.Handle,
+            entity.Kind,
+            entity.Bounds);
+    }
+    return candidates;
+}
+
+static CadBounds3D CreateSelectionBounds(CadPoint3D center) =>
+    new(
+        new CadPoint3D(center.X - 0.5, center.Y - 0.5, center.Z - 0.5),
+        new CadPoint3D(center.X + 0.5, center.Y + 0.5, center.Z + 0.5));
+
 static Measurement Summarize(string name, double[] values, long allocatedBytesPerOperation)
 {
     Array.Sort(values);
@@ -599,6 +718,7 @@ internal sealed record CadBenchmarkReport(
     bool LoweredLinearSplineLineTypes,
     bool LoweredNurbsSplineLineTypes,
     bool LoweredPeriodicSplineLineTypes,
+    bool MeasuredSplineSelection,
     int ShxInterpretationCount,
     int ShxLayoutCount,
     int WarmupCount,
@@ -614,6 +734,8 @@ internal sealed record CadBenchmarkReport(
     Measurement PrintPlanMilliseconds,
     Measurement RotatedPrintPlanMilliseconds,
     Measurement SpatialQueryNanoseconds,
+    Measurement? SplinePointSelectionNanoseconds,
+    Measurement? SplineBoundsSelectionNanoseconds,
     Measurement? ShxInterpretBatchMilliseconds,
     Measurement? ShxLayoutBatchMilliseconds,
     long WorkingSetBytes);

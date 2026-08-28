@@ -367,7 +367,19 @@ The exact box-selection implementation is likewise original ProGPU code derived
 from these retained parametric records, inclusive AABB inequalities, and the
 standard convex separating-axis theorem. No third-party selection implementation,
 helper layout, lookup data, or source structure was consulted or reproduced. The
-semantic-handle collector is an original bounded open-addressed table over the
+new spline-selection implementation shares only the ProGPU-owned homogeneous
+knot-insertion and de Casteljau representation already used by exact spline
+linetype lowering. Its Bernstein products, stationary-distance polynomial,
+six-plane parameter partition, bounded Descartes subdivision, duplicate-root
+policy, and typed numerical-failure path are original code derived from the
+published mathematical contracts listed in the research record. No Autodesk,
+ACadSharp, geometry-kernel, or research implementation text, helper structure,
+coefficient table, or control flow was copied. This is a managed immutable-
+snapshot query and changes no retained draw command, shader, C ABI, native
+renderer, resource identity, upload, or device-loss behavior; the native parity
+finding is therefore not applicable, while both renderers continue consuming
+the same unchanged spline records. The semantic-handle collector is an original
+bounded open-addressed table over the
 existing ProGPU candidate records; its folding, probing, ordering, and capacity
 contract were designed here rather than taken from a foreign container. The
 shared sample interaction is an original composition of the existing ProGPU
@@ -640,8 +652,12 @@ an interactive browser picker/download smoke remains open.
   expanded block primitives remain separate even when they share one root
   handle. `CadSelectionHitTester` then performs exact allocation-free world-space
   proximity tests for lines, conformal circles/arcs, lightweight and legacy 2D
-  polylines (including signed circular bulges under conformal transforms), and
-  3D polylines. Filled SOLID proximity uses the retained triangle union, while
+  polylines (including signed circular bulges under conformal transforms), 3D
+  polylines, and positive-weight rational splines. Spline picking isolates the
+  exact rational Bezier spans of the canonical open, closed, or periodic NURBS,
+  forms the degree-`3P-1` squared-distance stationary polynomial in homogeneous
+  Bernstein form, and evaluates every isolated real root plus both endpoints.
+  Filled SOLID proximity uses the retained triangle union, while
   stroke-only 3DFACE proximity tests only non-degenerate edges not masked by
   its invisible-edge flags. It validates candidate generation and
   immutable header identity before indexing primitive buffers. Inclusive
@@ -649,13 +665,21 @@ an interactive browser picker/download smoke remains open.
   Crossing (any intersection) semantics. Window containment consumes the exact
   retained extrema; crossing uses segment slabs, bounded analytic parameter
   partitioning at box-plane roots for affine circles/arcs/ellipses and bulges,
-  and the complete convex triangle/box separating-axis set for filled SOLIDs.
+  exact rational spline partitioning at every real root against all six box
+  planes, and the complete convex triangle/box separating-axis set for filled
+  SOLIDs.
   3DFACE box tests again ignore masked and degenerate edges. These tests remain
-  O(S) for S polyline/face segments, O(1) otherwise, use bounded stack storage,
-  and allocate no managed memory after snapshot construction. Anisotropically
-  transformed circular/bulge geometry, ellipses, splines, and text return typed
-  `UnsupportedGeometry`/`UnsupportedKind` point results rather than AABB false
-  hits; affine curve box tests are supported without circular assumptions. A
+  O(S) for S polyline/face segments and O(B * P^2 * R) for B spline spans,
+  degree P, and bounded root-isolation work R; analytic non-spline primitives
+  remain O(1). All paths use bounded stack storage and allocate no managed
+  memory after snapshot construction. The root solver caps degree at 29,
+  recursion at 52 bisections, and work at 16,384 nodes per polynomial; clustered
+  roots that double precision cannot resolve return `UnsupportedGeometry`
+  instead of an AABB or viewport-tessellation answer. Anisotropically
+  transformed circular/bulge geometry, ellipses, and text still return typed
+  `UnsupportedGeometry`/`UnsupportedKind` point results; affine curve and spline
+  box tests remain world-space exact within the shared relative coordinate
+  tolerance. A
   caller-buffered open-addressed collector then collapses primitive hits to one
   semantic root handle while preserving first-candidate order. It rejects mixed
   snapshot generations before touching scratch/output, keeps its table at no
@@ -666,9 +690,11 @@ an interactive browser picker/download smoke remains open.
   candidate and destination truncation remain distinct. `CadPlanViewport`
   applies the same WCS rebase, Y inversion, zoom, pan, and viewport center to
   rendering and inverse pointer mapping, and creates an inclusive WCS-XY
-  selection column spanning the snapshot's complete Z range. Spline/text box
-  tests, their full distance contracts, arbitrary-camera projected selection
-  volumes, and draw-order resolution remain explicit work.
+  selection column spanning the snapshot's complete Z range. Text selection,
+  arbitrary-camera projected selection volumes, draw-order resolution, and
+  AutoCAD's viewport-visible dashed-linetype Window exception remain explicit
+  work; the current Window contract intentionally evaluates complete retained
+  source geometry.
 - The shared sample's actionable transforms consume selected semantic root
   handles in the existing multi-entity translate, pivoted axis-angle rotate, or
   pivoted uniform-scale commands. Selection-bound refresh visits all retained
@@ -1157,6 +1183,7 @@ dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --linear-spline-linetypes --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --nurbs-spline-linetypes --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --periodic-spline-linetypes --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 1000 --spline-selection --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --block-array-columns 10000 --warmup 5 --iterations 100 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --warmup 5 --iterations 50 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --text-decorations --warmup 3 --iterations 50 --queries 10000
@@ -1232,6 +1259,18 @@ closed-pattern traversal, and the dedicated resource-accounting lane; it is a
 feature-cost result only, not a comparison or performance claim, and does not
 replace matched viewer/GPU, image-quality, managed/native, or Instruments
 evidence.
+
+The first 2026-08-28 exact spline-selection feature-cost run used one final
+Release binary, 1,000 open weighted quadratic NURBS with three non-empty spans,
+three warmups, 24 construction iterations, and 10,000 direct immutable-candidate
+queries. Point-selection p50/p95/p99 was 12.8/79.5/97.0 microseconds; alternating
+Crossing/Window box selection was 14.0/18.2/27.9 microseconds. Both paths
+reported zero managed allocation per warm query. Snapshot p50/p95/p99 was
+4.735/6.252/12.203 ms with 1,467,941 managed bytes, and the unchanged retained
+scene recorded 1,000 commands. These measurements expose feature cost and the
+long-tail root-isolation workload only; they are not a before/after improvement
+claim and do not replace representative viewer interaction, quality comparison,
+managed/native rendering, GPU counters, or required Instruments evidence.
 
 The first two fresh 24-iteration Release runs of the 10,000-entity physical
 print-plan path measured p50/p95/p99 at 16.320/49.488/58.868 ms and
@@ -1451,6 +1490,25 @@ Sources consulted on 2026-08-27 and 2026-08-28:
   changes the representation without changing the curve. ProGPU adopts that
   mathematical contract, not the page's implementation text or structure, and
   applies original bounded local insertion to isolate each Bezier span.
+- [Autodesk's Window/Crossing selection contract](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Core/files/GUID-531FB60D-833B-4813-927A-42275CF6777D.htm),
+  [`SELECT` command reference](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-0DD5DA73-9DC5-4424-8FED-7BBE3BE52A4D.htm), and
+  [`AcDbCurve::getClosestPointTo`](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-RefGuide/files/OREF-__OVERLOADED_getClosestPointTo_AcDbCurve.html):
+  adopted complete-object containment for Window, enclosed-or-touching geometry
+  for Crossing, and the nearest point on the unextended curve for point picks.
+  The documented dashed-linetype visible-vector exception is recorded but
+  rejected for this source-geometry slice because selection does not yet retain
+  viewport-visible dash fragments as semantic geometry.
+- [Mourrain, Rouillier, and Roy's Bernstein-basis real-root isolation paper](https://library.slmath.org/books/Book52/files/24roy.pdf),
+  [Mehlhorn and Sagraloff's deterministic bitstream Descartes analysis](https://www.mpi-inf.mpg.de/~mehlhorn/ftp/DeterministicBitstreamDescartes.pdf), and
+  [Chen et al.'s global point-to-NURBS distance paper](https://www-sop.inria.fr/members/Gang.Xu/English/paper/CAD08_miniDistance.pdf):
+  adopted the public mathematical facts that de Casteljau subdivision preserves
+  Bernstein form, sign variation bounds interval roots, and interactive NURBS
+  selection requires a global rather than one-seed local closest point. ProGPU
+  adapts these concepts into a fixed degree-29 double-precision solver with
+  explicit recursion/work caps. It evaluates all isolated stationary roots and
+  all six box-plane roots; it rejects Newton-only local projection, viewport
+  flattening, unbounded recursion, dependency geometry helpers, and silent
+  answers when clustered roots cannot be resolved.
 - [Skia `SkPathMeasure`](https://api.skia.org/classSkPathMeasure.html),
   [Direct2D `ComputeLength`/`ComputePointAtLength`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1geometry),
   [Win2D path measurement](https://microsoft.github.io/Win2D/WinUI3/html/Overload_Microsoft_Graphics_Canvas_Geometry_CanvasGeometry_ComputePathLength.htm),

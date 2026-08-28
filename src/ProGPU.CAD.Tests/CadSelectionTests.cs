@@ -199,7 +199,7 @@ public sealed class CadSelectionTests
     }
 
     [Fact]
-    public void ExactBoundsQueryFiltersUnsupportedPrimitivesAndDeduplicatesRoots()
+    public void ExactBoundsQueryIncludesSplinesAndDeduplicatesRoots()
     {
         var document = new CadDocument();
         var block = new BlockRecord("EXACT_QUERY_BLOCK");
@@ -239,12 +239,13 @@ public sealed class CadSelectionTests
         Assert.Equal(3, result.CandidateWrittenCount);
         Assert.Equal(3, result.CandidateTotalCount);
         Assert.False(result.AreCandidatesTruncated);
-        Assert.Equal(2, result.MatchedPrimitiveCount);
-        Assert.Equal(1, result.UnsupportedPrimitiveCount);
-        Assert.Equal(1, result.HandleWrittenCount);
-        Assert.Equal(1, result.HandleTotalCount);
+        Assert.Equal(3, result.MatchedPrimitiveCount);
+        Assert.Equal(0, result.UnsupportedPrimitiveCount);
+        Assert.Equal(2, result.HandleWrittenCount);
+        Assert.Equal(2, result.HandleTotalCount);
         Assert.False(result.AreHandlesTruncated);
         Assert.Equal(insert.Handle, handles[0]);
+        Assert.Equal(spline.Handle, handles[1]);
     }
 
     [Fact]
@@ -475,6 +476,215 @@ public sealed class CadSelectionTests
     }
 
     [Fact]
+    public void PointHitTesterFindsGlobalQuadraticSplineDistance()
+    {
+        Spline spline = CreateQuadraticSpline();
+
+        CadPointHitResult hit = Hit(
+            spline,
+            new CadPoint3D(5, 6, 0),
+            1.0);
+        CadPointHitResult miss = Hit(
+            (Entity)spline.Clone(),
+            new CadPoint3D(5, 6, 0),
+            0.999);
+
+        Assert.Equal(CadPointHitStatus.Hit, hit.Status);
+        Assert.Equal(1.0, hit.Distance, 10);
+        Assert.Equal(CadPointHitStatus.Miss, miss.Status);
+        Assert.Equal(1.0, miss.Distance, 10);
+    }
+
+    [Fact]
+    public void PointHitTesterPreservesRationalQuarterCircleDistance()
+    {
+        var spline = new Spline { Degree = 2 };
+        spline.ControlPoints.AddRange([
+            new XYZ(1, 0, 0),
+            new XYZ(1, 1, 0),
+            new XYZ(0, 1, 0),
+        ]);
+        spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+        spline.Weights.AddRange([1, Math.Sqrt(0.5), 1]);
+
+        CadPointHitResult result = Hit(
+            spline,
+            CadPoint3D.Zero,
+            1.0);
+
+        Assert.Equal(CadPointHitStatus.Hit, result.Status);
+        Assert.Equal(1.0, result.Distance, 10);
+    }
+
+    [Fact]
+    public void PointHitTesterFindsInteriorRootOnRationalLinearSpan()
+    {
+        var spline = new Spline { Degree = 1 };
+        spline.ControlPoints.AddRange([
+            new XYZ(0, 0, 0),
+            new XYZ(10, 0, 0),
+        ]);
+        spline.Knots.AddRange([0, 0, 1, 1]);
+        spline.Weights.AddRange([1, 10]);
+
+        CadPointHitResult result = Hit(
+            spline,
+            new CadPoint3D(5, 3, 0),
+            3.0);
+
+        Assert.Equal(CadPointHitStatus.Hit, result.Status);
+        Assert.Equal(3.0, result.Distance, 10);
+    }
+
+    [Fact]
+    public void PointHitTesterIncludesClosedSplineSeam()
+    {
+        Spline spline = CreateQuadraticSpline(isClosed: true);
+
+        CadPointHitResult result = Hit(
+            spline,
+            new CadPoint3D(5, 0, 0),
+            0.0);
+
+        Assert.Equal(CadPointHitStatus.Hit, result.Status);
+        Assert.Equal(0.0, result.Distance, 10);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PointHitTesterUsesCompactAndExpandedPeriodicSplineTopology(
+        bool expandedKnots)
+    {
+        Spline spline = CreatePeriodicSpline(expandedKnots);
+
+        CadPointHitResult result = Hit(
+            spline,
+            new CadPoint3D(2, 0, 0),
+            1e-10);
+
+        Assert.Equal(CadPointHitStatus.Hit, result.Status);
+        Assert.Equal(0.0, result.Distance, 9);
+    }
+
+    [Fact]
+    public void PointHitTesterUsesWorldTransformedSplineGeometry()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("TRANSFORMED_SPLINE");
+        block.Entities.Add(CreateQuadraticSpline());
+        document.Entities.Add(new Insert(block)
+        {
+            XScale = 2.0,
+            YScale = 3.0,
+            ZScale = 1.0,
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        CadPointHitResult result = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            SingleCandidate(snapshot),
+            new CadPoint3D(10, 16, 0),
+            1.0);
+
+        Assert.Equal(CadPointHitStatus.Hit, result.Status);
+        Assert.Equal(1.0, result.Distance, 9);
+    }
+
+    [Fact]
+    public void SplineSelectionNormalizesLargeWorldCoordinates()
+    {
+        const double origin = 1_000_000_000_000.0;
+        var spline = new Spline { Degree = 2 };
+        spline.ControlPoints.AddRange([
+            new XYZ(origin, origin, 0),
+            new XYZ(origin + 5, origin + 10, 0),
+            new XYZ(origin + 10, origin, 0),
+        ]);
+        spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+
+        CadPointHitResult result = Hit(
+            spline,
+            new CadPoint3D(origin + 5, origin + 6, 0),
+            1.0);
+
+        Assert.Equal(CadPointHitStatus.Hit, result.Status);
+        Assert.Equal(1.0, result.Distance, 6);
+
+        var tangentPoint = new CadBounds3D(
+            new CadPoint3D(origin + 5, origin + 5, 0),
+            new CadPoint3D(origin + 5, origin + 5, 0));
+        var exactWindow = new CadBounds3D(
+            new CadPoint3D(origin, origin, 0),
+            new CadPoint3D(origin + 10, origin + 5, 0));
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            HitBounds(
+                (Entity)spline.Clone(),
+                tangentPoint,
+                CadBoundsSelectionMode.Crossing).Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            HitBounds(
+                (Entity)spline.Clone(),
+                exactWindow,
+                CadBoundsSelectionMode.Window).Status);
+    }
+
+    [Fact]
+    public void PointHitTesterSupportsDegreeTenRationalSpline()
+    {
+        var spline = new Spline { Degree = 10 };
+        for (int i = 0; i <= 10; i++)
+        {
+            spline.ControlPoints.Add(new XYZ(i, 0, 0));
+            spline.Weights.Add(1 + (i % 3));
+        }
+        spline.Knots.AddRange(Enumerable.Repeat(0.0, 11));
+        spline.Knots.AddRange(Enumerable.Repeat(1.0, 11));
+
+        CadPointHitResult result = Hit(
+            spline,
+            new CadPoint3D(5, 3, 0),
+            3.0);
+
+        Assert.Equal(CadPointHitStatus.Hit, result.Status);
+        Assert.Equal(3.0, result.Distance, 9);
+    }
+
+    [Fact]
+    public void MalformedSplineSelectionReportsUnsupportedGeometry()
+    {
+        var spline = new Spline { Degree = 2 };
+        spline.ControlPoints.AddRange([
+            new XYZ(0, 0, 0),
+            new XYZ(5, 10, 0),
+            new XYZ(10, 0, 0),
+        ]);
+        spline.Knots.AddRange([0, 0, 1, 1]);
+        var document = new CadDocument();
+        document.Entities.Add(spline);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        CadSelectionCandidate candidate = SingleCandidate(snapshot);
+
+        CadPointHitResult point = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(5, 5, 0),
+            1.0);
+        CadBoundsHitResult bounds = CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            candidate,
+            snapshot.Bounds,
+            CadBoundsSelectionMode.Crossing);
+
+        Assert.Equal(CadPointHitStatus.UnsupportedGeometry, point.Status);
+        Assert.Equal(CadBoundsHitStatus.UnsupportedGeometry, bounds.Status);
+    }
+
+    [Fact]
     public void NonUniformlyTransformedBulgeReportsUnsupportedGeometry()
     {
         var document = new CadDocument();
@@ -697,6 +907,93 @@ public sealed class CadSelectionTests
     }
 
     [Fact]
+    public void BoundsHitTesterPartitionsSplineAtAllBoxPlaneRoots()
+    {
+        Spline spline = CreateQuadraticSpline();
+        var controlHullOnly = new CadBounds3D(
+            new CadPoint3D(4.9, 7.9, -0.1),
+            new CadPoint3D(5.1, 8.1, 0.1));
+        var tangentPoint = new CadBounds3D(
+            new CadPoint3D(5, 5, 0),
+            new CadPoint3D(5, 5, 0));
+        var tangentSlab = new CadBounds3D(
+            new CadPoint3D(0, 5, 0),
+            new CadPoint3D(10, 5, 0));
+        var exactWindow = new CadBounds3D(
+            new CadPoint3D(-0.1, -0.1, -0.1),
+            new CadPoint3D(10.1, 5.1, 0.1));
+        var clippedWindow = new CadBounds3D(
+            new CadPoint3D(-0.1, -0.1, -0.1),
+            new CadPoint3D(10.1, 4.9, 0.1));
+
+        Assert.Equal(
+            CadBoundsHitStatus.Miss,
+            HitBounds(
+                spline,
+                controlHullOnly,
+                CadBoundsSelectionMode.Crossing).Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            HitBounds(
+                (Entity)spline.Clone(),
+                tangentPoint,
+                CadBoundsSelectionMode.Crossing).Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            HitBounds(
+                (Entity)spline.Clone(),
+                tangentSlab,
+                CadBoundsSelectionMode.Crossing).Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            HitBounds(
+                (Entity)spline.Clone(),
+                exactWindow,
+                CadBoundsSelectionMode.Window).Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Miss,
+            HitBounds(
+                (Entity)spline.Clone(),
+                clippedWindow,
+                CadBoundsSelectionMode.Window).Status);
+    }
+
+    [Fact]
+    public void BoundsHitTesterIncludesClosedSplineSeam()
+    {
+        Spline spline = CreateQuadraticSpline(isClosed: true);
+        var seamPoint = new CadBounds3D(
+            new CadPoint3D(5, 0, 0),
+            new CadPoint3D(5, 0, 0));
+
+        CadBoundsHitResult result = HitBounds(
+            spline,
+            seamPoint,
+            CadBoundsSelectionMode.Crossing);
+
+        Assert.Equal(CadBoundsHitStatus.Hit, result.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BoundsHitTesterUsesCompactAndExpandedPeriodicSplineTopology(
+        bool expandedKnots)
+    {
+        Spline spline = CreatePeriodicSpline(expandedKnots);
+        var seamPoint = new CadBounds3D(
+            new CadPoint3D(2, 0, 0),
+            new CadPoint3D(2, 0, 0));
+
+        CadBoundsHitResult result = HitBounds(
+            spline,
+            seamPoint,
+            CadBoundsSelectionMode.Crossing);
+
+        Assert.Equal(CadBoundsHitStatus.Hit, result.Status);
+    }
+
+    [Fact]
     public void BoundsHitTesterHandlesAffineBulgesAndThreeDimensionalPolylines()
     {
         var document = new CadDocument();
@@ -789,7 +1086,7 @@ public sealed class CadSelectionTests
     }
 
     [Fact]
-    public void BoundsHitTesterRejectsStaleCandidatesAndReportsUnsupportedKinds()
+    public void BoundsHitTesterSupportsSplinesAndRejectsStaleCandidates()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
         session.Edit("Add spline", document =>
@@ -806,13 +1103,13 @@ public sealed class CadSelectionTests
         CadDocumentSnapshot first = new CadSnapshotCompiler().Compile(session);
         CadSelectionCandidate candidate = SingleCandidate(first);
 
-        CadBoundsHitResult unsupported = CadSelectionHitTester.HitTestBounds(
+        CadBoundsHitResult supported = CadSelectionHitTester.HitTestBounds(
             first,
             candidate,
             first.Bounds,
             CadBoundsSelectionMode.Crossing);
 
-        Assert.Equal(CadBoundsHitStatus.UnsupportedKind, unsupported.Status);
+        Assert.Equal(CadBoundsHitStatus.Hit, supported.Status);
         session.Edit("Advance generation", _ => { });
         CadDocumentSnapshot second = new CadSnapshotCompiler().Compile(session);
         Assert.Throws<InvalidOperationException>(() =>
@@ -894,6 +1191,47 @@ public sealed class CadSelectionTests
         Assert.Equal(0, allocated);
     }
 
+    [Fact]
+    public void WarmExactSplineHitTestsAllocateNoManagedMemory()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(CreateQuadraticSpline());
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        CadSelectionCandidate candidate = SingleCandidate(snapshot);
+        var point = new CadPoint3D(5, 6, 0);
+        var bounds = new CadBounds3D(
+            new CadPoint3D(4.9, 4.9, -0.1),
+            new CadPoint3D(5.1, 5.1, 0.1));
+        _ = CadSelectionHitTester.HitTestPoint(snapshot, candidate, point, 1.0);
+        _ = CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            candidate,
+            bounds,
+            CadBoundsSelectionMode.Crossing);
+        _ = GC.GetAllocatedBytesForCurrentThread();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int checksum = 0;
+        for (int i = 0; i < 1_000; i++)
+        {
+            checksum += CadSelectionHitTester.HitTestPoint(
+                snapshot,
+                candidate,
+                point,
+                1.0).IsHit ? 1 : 0;
+            checksum += CadSelectionHitTester.HitTestBounds(
+                snapshot,
+                candidate,
+                bounds,
+                CadBoundsSelectionMode.Crossing).IsHit ? 1 : 0;
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(2_000, checksum);
+        Assert.Equal(0, allocated);
+    }
+
     private static void AssertHit(
         Entity entity,
         CadPoint3D point,
@@ -960,6 +1298,42 @@ public sealed class CadSelectionTests
         Assert.Equal(1, result.WrittenCount);
         Assert.Equal(1, result.TotalCount);
         return candidates[0];
+    }
+
+    private static Spline CreateQuadraticSpline(bool isClosed = false)
+    {
+        var spline = new Spline
+        {
+            Degree = 2,
+            IsClosed = isClosed,
+        };
+        spline.ControlPoints.AddRange([
+            new XYZ(0, 0, 0),
+            new XYZ(5, 10, 0),
+            new XYZ(10, 0, 0),
+        ]);
+        spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+        return spline;
+    }
+
+    private static Spline CreatePeriodicSpline(bool expandedKnots)
+    {
+        var spline = new Spline
+        {
+            Degree = 2,
+            IsClosed = true,
+            IsPeriodic = true,
+        };
+        spline.ControlPoints.AddRange([
+            new XYZ(0, 0, 0),
+            new XYZ(4, 0, 0),
+            new XYZ(4, 4, 0),
+            new XYZ(0, 4, 0),
+        ]);
+        spline.Knots.AddRange(expandedKnots
+            ? [-2, -1, 0, 1, 2, 3, 4, 5, 6]
+            : [0, 1, 2, 3, 4]);
+        return spline;
     }
 
     private static CadSelectionCandidate Candidate(

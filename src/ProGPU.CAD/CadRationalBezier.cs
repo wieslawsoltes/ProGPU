@@ -1,0 +1,321 @@
+namespace ProGPU.CAD;
+
+/// <summary>One homogeneous control point for positive-weight rational curves.</summary>
+internal readonly record struct CadHomogeneousPoint(
+    double X,
+    double Y,
+    double Z,
+    double W)
+{
+    public CadPoint3D Cartesian => new(X / W, Y / W, Z / W);
+
+    public static CadHomogeneousPoint FromCartesian(
+        CadPoint3D point,
+        double weight) =>
+        new(point.X * weight, point.Y * weight, point.Z * weight, weight);
+
+    public static CadHomogeneousPoint Lerp(
+        CadHomogeneousPoint start,
+        CadHomogeneousPoint end,
+        double amount)
+    {
+        double inverse = 1.0 - amount;
+        return new CadHomogeneousPoint(
+            (start.X * inverse) + (end.X * amount),
+            (start.Y * inverse) + (end.Y * amount),
+            (start.Z * inverse) + (end.Z * amount),
+            (start.W * inverse) + (end.W * amount));
+    }
+
+    public static CadHomogeneousPoint operator +(
+        CadHomogeneousPoint left,
+        CadHomogeneousPoint right) =>
+        new(
+            left.X + right.X,
+            left.Y + right.Y,
+            left.Z + right.Z,
+            left.W + right.W);
+
+    public static CadHomogeneousPoint operator -(
+        CadHomogeneousPoint left,
+        CadHomogeneousPoint right) =>
+        new(
+            left.X - right.X,
+            left.Y - right.Y,
+            left.Z - right.Z,
+            left.W - right.W);
+
+    public static CadHomogeneousPoint operator *(
+        CadHomogeneousPoint value,
+        double scale) =>
+        new(
+            value.X * scale,
+            value.Y * scale,
+            value.Z * scale,
+            value.W * scale);
+}
+
+/// <summary>
+/// Extracts exact rational Bezier spans from one validated canonical NURBS.
+/// </summary>
+/// <remarks>
+/// For degree P, one extraction performs at most 2P knot insertions and costs
+/// O(P^2) time with O(P) bounded stack storage. Positive weights remain
+/// positive under knot insertion and de Casteljau subdivision. The helper is
+/// shared by retained linetype lowering and geometry selection so both consume
+/// the same open, closed, and periodic curve topology.
+/// </remarks>
+internal static class CadRationalBezier
+{
+    private const int MaximumDegree = 10;
+    private const int MaximumExtractionControlPointCount =
+        (MaximumDegree * 3) + 3;
+    private const int MaximumExtractionKnotCount =
+        (MaximumDegree * 4) + 4;
+
+    public static bool TryExtractSpan(
+        in CadCanonicalSpline canonical,
+        int sourceSpan,
+        Span<CadHomogeneousPoint> destination)
+    {
+        int degree = canonical.Degree;
+        if (degree < 1 || degree > MaximumDegree ||
+            sourceSpan < degree || sourceSpan >= canonical.ControlPointCount ||
+            destination.Length < degree + 1)
+        {
+            return false;
+        }
+
+        double start = canonical.GetKnot(sourceSpan);
+        double end = canonical.GetKnot(sourceSpan + 1);
+        if (!(end > start))
+        {
+            return false;
+        }
+
+        Span<CadHomogeneousPoint> pointsA =
+            stackalloc CadHomogeneousPoint[MaximumExtractionControlPointCount];
+        Span<CadHomogeneousPoint> pointsB =
+            stackalloc CadHomogeneousPoint[MaximumExtractionControlPointCount];
+        Span<double> knotsA = stackalloc double[MaximumExtractionKnotCount];
+        Span<double> knotsB = stackalloc double[MaximumExtractionKnotCount];
+        int pointCount = degree + 1;
+        int knotCount = (degree * 2) + 2;
+        for (int i = 0; i <= degree; i++)
+        {
+            int sourceIndex = sourceSpan - degree + i;
+            pointsA[i] = CadHomogeneousPoint.FromCartesian(
+                canonical.GetControlPoint(sourceIndex),
+                canonical.GetWeight(sourceIndex));
+        }
+        for (int i = 0; i < knotCount; i++)
+        {
+            knotsA[i] = canonical.GetKnot(sourceSpan - degree + i);
+        }
+
+        Span<CadHomogeneousPoint> currentPoints = pointsA;
+        Span<CadHomogeneousPoint> nextPoints = pointsB;
+        Span<double> currentKnots = knotsA;
+        Span<double> nextKnots = knotsB;
+        while (CountMultiplicity(currentKnots[..knotCount], start) < degree + 1)
+        {
+            if (!InsertKnot(
+                    currentPoints[..pointCount],
+                    currentKnots[..knotCount],
+                    degree,
+                    start,
+                    nextPoints,
+                    nextKnots))
+            {
+                return false;
+            }
+            pointCount++;
+            knotCount++;
+            Span<CadHomogeneousPoint> pointSwap = currentPoints;
+            currentPoints = nextPoints;
+            nextPoints = pointSwap;
+            Span<double> knotSwap = currentKnots;
+            currentKnots = nextKnots;
+            nextKnots = knotSwap;
+        }
+        while (CountMultiplicity(currentKnots[..knotCount], end) < degree + 1)
+        {
+            if (!InsertKnot(
+                    currentPoints[..pointCount],
+                    currentKnots[..knotCount],
+                    degree,
+                    end,
+                    nextPoints,
+                    nextKnots))
+            {
+                return false;
+            }
+            pointCount++;
+            knotCount++;
+            Span<CadHomogeneousPoint> pointSwap = currentPoints;
+            currentPoints = nextPoints;
+            nextPoints = pointSwap;
+            Span<double> knotSwap = currentKnots;
+            currentKnots = nextKnots;
+            nextKnots = knotSwap;
+        }
+
+        int isolatedSpan = -1;
+        for (int i = degree; i < pointCount; i++)
+        {
+            if (currentKnots[i] == start && currentKnots[i + 1] == end)
+            {
+                isolatedSpan = i;
+                break;
+            }
+        }
+        if (isolatedSpan < degree)
+        {
+            return false;
+        }
+
+        currentPoints.Slice(isolatedSpan - degree, degree + 1)
+            .CopyTo(destination);
+        return true;
+    }
+
+    public static void CreateElevatedLine(
+        CadPoint3D start,
+        CadPoint3D end,
+        Span<CadHomogeneousPoint> destination)
+    {
+        int degree = destination.Length - 1;
+        if (degree < 1 || degree > MaximumDegree)
+        {
+            throw new ArgumentOutOfRangeException(nameof(destination));
+        }
+
+        for (int i = 0; i <= degree; i++)
+        {
+            double amount = (double)i / degree;
+            destination[i] = CadHomogeneousPoint.FromCartesian(
+                start + ((end - start) * amount),
+                1.0);
+        }
+    }
+
+    public static CadHomogeneousPoint EvaluateHomogeneous(
+        ReadOnlySpan<CadHomogeneousPoint> points,
+        double parameter)
+    {
+        Span<CadHomogeneousPoint> work =
+            stackalloc CadHomogeneousPoint[MaximumDegree + 1];
+        points.CopyTo(work);
+        for (int remaining = points.Length - 1; remaining > 0; remaining--)
+        {
+            for (int i = 0; i < remaining; i++)
+            {
+                work[i] = CadHomogeneousPoint.Lerp(
+                    work[i],
+                    work[i + 1],
+                    parameter);
+            }
+        }
+        return work[0];
+    }
+
+    public static void Subdivide(
+        ReadOnlySpan<CadHomogeneousPoint> source,
+        double parameter,
+        Span<CadHomogeneousPoint> left,
+        Span<CadHomogeneousPoint> right)
+    {
+        int degree = source.Length - 1;
+        Span<CadHomogeneousPoint> work =
+            stackalloc CadHomogeneousPoint[MaximumDegree + 1];
+        source.CopyTo(work);
+        left[0] = work[0];
+        right[degree] = work[degree];
+        for (int level = 1; level <= degree; level++)
+        {
+            for (int i = 0; i <= degree - level; i++)
+            {
+                work[i] = CadHomogeneousPoint.Lerp(
+                    work[i],
+                    work[i + 1],
+                    parameter);
+            }
+            left[level] = work[0];
+            right[degree - level] = work[degree - level];
+        }
+    }
+
+    private static bool InsertKnot(
+        ReadOnlySpan<CadHomogeneousPoint> points,
+        ReadOnlySpan<double> knots,
+        int degree,
+        double knot,
+        Span<CadHomogeneousPoint> outputPoints,
+        Span<double> outputKnots)
+    {
+        int lastControlPoint = points.Length - 1;
+        int span = FindInsertionSpan(knots, lastControlPoint, degree, knot);
+        int multiplicity = CountMultiplicity(knots, knot);
+        if (span < degree || multiplicity > degree)
+        {
+            return false;
+        }
+
+        knots[..(span + 1)].CopyTo(outputKnots);
+        outputKnots[span + 1] = knot;
+        knots[(span + 1)..].CopyTo(outputKnots[(span + 2)..]);
+        points[..(span - degree + 1)].CopyTo(outputPoints);
+        points[(span - multiplicity)..]
+            .CopyTo(outputPoints[(span - multiplicity + 1)..]);
+        for (int i = span - degree + 1; i <= span - multiplicity; i++)
+        {
+            double denominator = knots[i + degree] - knots[i];
+            if (!(denominator > 0.0))
+            {
+                return false;
+            }
+            double alpha = (knot - knots[i]) / denominator;
+            outputPoints[i] = CadHomogeneousPoint.Lerp(
+                points[i - 1],
+                points[i],
+                alpha);
+        }
+
+        return true;
+    }
+
+    private static int FindInsertionSpan(
+        ReadOnlySpan<double> knots,
+        int lastControlPoint,
+        int degree,
+        double knot)
+    {
+        if (knot == knots[lastControlPoint + 1])
+        {
+            return lastControlPoint;
+        }
+        for (int i = degree; i <= lastControlPoint; i++)
+        {
+            if (knot >= knots[i] && knot < knots[i + 1])
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static int CountMultiplicity(
+        ReadOnlySpan<double> knots,
+        double knot)
+    {
+        int count = 0;
+        for (int i = 0; i < knots.Length; i++)
+        {
+            if (knots[i] == knot)
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+}

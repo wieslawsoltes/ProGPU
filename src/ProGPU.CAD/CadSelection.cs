@@ -357,6 +357,11 @@ public static class CadSelectionHitTester
                 HitPolyline2D(snapshot, header, point, tolerance),
             CadEntityKind.Polyline3D =>
                 HitPolyline3D(snapshot, header, point, tolerance),
+            CadEntityKind.Spline => CadSplineSelection.HitTestPoint(
+                snapshot,
+                snapshot.Splines.Span[header.PrimitiveIndex],
+                point,
+                tolerance),
             CadEntityKind.Solid =>
                 HitSolid(snapshot.Faces.Span[header.PrimitiveIndex], point, tolerance),
             CadEntityKind.Face3D =>
@@ -415,6 +420,12 @@ public static class CadSelectionHitTester
                 HitPolyline2DBounds(snapshot, header, bounds, mode),
             CadEntityKind.Polyline3D =>
                 HitPolyline3DBounds(snapshot, header, bounds, mode),
+            CadEntityKind.Spline => CadSplineSelection.HitTestBounds(
+                snapshot,
+                snapshot.Splines.Span[header.PrimitiveIndex],
+                header.Bounds,
+                bounds,
+                mode),
             CadEntityKind.Solid => HitSolidBounds(
                 snapshot.Faces.Span[header.PrimitiveIndex],
                 bounds,
