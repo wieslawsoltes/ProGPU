@@ -11175,10 +11175,10 @@ bool retained_drawing_image_infers_drawing_group_bounds() {
         clip_geometry,
         0.0,
         0.0,
-        12.0,
-        8.0,
-        20.0,
-        15.0,
+        18.0,
+        22.0,
+        14.0,
+        3.0,
         0U,
         0U,
         0U,
@@ -11284,12 +11284,12 @@ bool retained_drawing_image_infers_drawing_group_bounds() {
         }
         const auto scene_state = read_value<progpu_native_scene_state>(
             stream, resource.payload_offset);
-        if (std::abs(scene_state.transform.m11 - 5.0F) < 0.0001F &&
+        if (std::abs(scene_state.transform.m11 - 50.0F) < 0.0001F &&
             std::abs(
-                scene_state.transform.m22 - 5.0F / 3.0F) < 0.0001F &&
-            std::abs(scene_state.transform.m31 + 73.0F) < 0.0001F &&
+                scene_state.transform.m22 - 25.0F / 3.0F) < 0.0001F &&
+            std::abs(scene_state.transform.m31 + 1'048.0F) < 0.0001F &&
             std::abs(
-                scene_state.transform.m32 - (4.0F - 325.0F / 3.0F)) <
+                scene_state.transform.m32 + 3'713.0F / 3.0F) <
                 0.0001F &&
             (scene_state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
             scene_state.clip_rect.x == 2.0F &&
