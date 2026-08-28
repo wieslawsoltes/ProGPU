@@ -11679,9 +11679,9 @@ bool retained_drawing_image_infers_drawing_group_bounds() {
     }
     PROGPU_REQUIRE(found_mapping);
 
-    std::vector<std::byte> unsupported_update;
+    std::vector<std::byte> sheared_update;
     append_command(
-        unsupported_update,
+        sheared_update,
         command::matrix_transform,
         inner_transform,
         1.0,
@@ -11691,10 +11691,82 @@ bool retained_drawing_image_infers_drawing_group_bounds() {
         0.0,
         0.0,
         0U);
-    PROGPU_REQUIRE(state.apply(unsupported_update) == status::success);
+    PROGPU_REQUIRE(state.apply(sheared_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7008U, 2U, stream, nullptr) ==
-        status::unsupported_command);
+        state.build_scene(target, 7008U, 2U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 2U);
+    const auto sheared_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    bool found_sheared_mapping = false;
+    for (std::uint32_t index = 0U;
+         index < sheared_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            sheared_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            continue;
+        }
+        const auto scene_state = read_value<progpu_native_scene_state>(
+            stream, resource.payload_offset);
+        if (std::abs(
+                scene_state.transform.m11 - 400.0F / 31.0F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m22 - 150.0F / 13.0F) < 0.0001F &&
+            std::abs(scene_state.transform.m31 + 198.0F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m32 + 8'348.0F / 13.0F) <
+                0.0001F &&
+            (scene_state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
+            scene_state.clip_rect.x == 2.0F &&
+            scene_state.clip_rect.y == 4.0F &&
+            scene_state.clip_rect.width == 100.0F &&
+            scene_state.clip_rect.height == 150.0F) {
+            found_sheared_mapping = true;
+        }
+    }
+    PROGPU_REQUIRE(found_sheared_mapping);
+
+    std::vector<std::byte> singular_update;
+    append_command(
+        singular_update,
+        command::matrix_transform,
+        inner_transform,
+        1.0,
+        0.25,
+        4.0,
+        1.0,
+        0.0,
+        0.0,
+        0U);
+    PROGPU_REQUIRE(state.apply(singular_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 3U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 0U);
+
+    std::vector<std::byte> empty_group_update;
+    append_command(
+        empty_group_update,
+        command::drawing_group,
+        inner_group,
+        1.0,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U);
+    PROGPU_REQUIRE(state.apply(empty_group_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 4U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 0U);
     return true;
 }
 
