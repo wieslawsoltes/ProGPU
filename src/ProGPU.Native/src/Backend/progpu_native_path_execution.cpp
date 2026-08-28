@@ -126,6 +126,8 @@ progpu_native_status render_paths(
     std::uint32_t required_atlas_size = engine->path_atlas_size;
 
     std::vector<gpu_path_uniforms> path_uniforms;
+    std::vector<gpu_path_uniforms> binary_leaf_a_uniforms;
+    std::vector<gpu_path_uniforms> binary_leaf_b_uniforms;
     std::vector<gpu_path_record> path_records;
     std::vector<gpu_path_coverage_combine_uniforms>
         coverage_combine_uniforms;
@@ -138,6 +140,8 @@ progpu_native_status render_paths(
             engine->path_brush_bytes.clear();
             engine->path_rasters.clear();
             path_uniforms.reserve(frame->path_count);
+            binary_leaf_a_uniforms.reserve(frame->path_count);
+            binary_leaf_b_uniforms.reserve(frame->path_count);
             coverage_combine_uniforms.reserve(frame->path_count);
             path_records.reserve(
                 frame->path_count + boolean_node_count * 2U);
@@ -346,14 +350,25 @@ progpu_native_status render_paths(
                                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                                 "The split path coverage staging batch exceeds 4 GiB.");
                         }
-                        for (const auto record_index : std::array{
-                                 program.path_record_index,
-                                 program.program_index}) {
-                            const std::uint32_t leaf_output_offset =
-                                record_index == program.path_record_index
-                                ? static_cast<std::uint32_t>(source_a_offset)
-                                : static_cast<std::uint32_t>(source_b_offset);
-                            path_uniforms.push_back({
+                        const auto append_leaf_uniform = [
+                            &binary_leaf_a_uniforms,
+                            &binary_leaf_b_uniforms,
+                            raster_min_x,
+                            raster_min_y,
+                            subpixel_x,
+                            subpixel_y,
+                            raster_scale,
+                            output_bytes_per_row,
+                            width,
+                            height,
+                            &path](
+                            std::uint32_t record_index,
+                            std::uint32_t leaf_output_offset,
+                            bool first) {
+                            auto& destination = first
+                                ? binary_leaf_a_uniforms
+                                : binary_leaf_b_uniforms;
+                            destination.push_back({
                                 raster_min_x - subpixel_x,
                                 raster_min_y - subpixel_y,
                                 raster_scale,
@@ -366,7 +381,15 @@ progpu_native_status render_paths(
                                 path.sample_grid,
                                 0U,
                                 0U});
-                        }
+                        };
+                        append_leaf_uniform(
+                            program.path_record_index,
+                            static_cast<std::uint32_t>(source_a_offset),
+                            true);
+                        append_leaf_uniform(
+                            program.program_index,
+                            static_cast<std::uint32_t>(source_b_offset),
+                            false);
                         coverage_combine_uniforms.push_back({
                             static_cast<std::uint32_t>(source_a_offset) / 4U,
                             static_cast<std::uint32_t>(source_b_offset) / 4U,
@@ -589,12 +612,20 @@ progpu_native_status render_paths(
     }
     path_raster_resources temporary;
     WGPUBuffer& path_uniform_buffer = temporary.uniforms;
+    WGPUBuffer& binary_leaf_a_uniform_buffer =
+        temporary.binary_leaf_a_uniforms;
+    WGPUBuffer& binary_leaf_b_uniform_buffer =
+        temporary.binary_leaf_b_uniforms;
     WGPUBuffer& path_record_buffer = temporary.records;
     WGPUBuffer& path_segment_buffer = temporary.segments;
     WGPUBuffer& coverage_buffer = temporary.coverage;
     WGPUBuffer& coverage_combine_uniform_buffer =
         temporary.coverage_combine_uniforms;
     WGPUBindGroup& raster_bind_group = temporary.bind_group;
+    WGPUBindGroup& binary_leaf_a_bind_group =
+        temporary.binary_leaf_a_bind_group;
+    WGPUBindGroup& binary_leaf_b_bind_group =
+        temporary.binary_leaf_b_bind_group;
     const auto create_buffer = [&](
         const char* label,
         std::uint64_t size,
@@ -611,8 +642,21 @@ progpu_native_status render_paths(
     if (!compiled_payload_hit && frame->path_count != 0U) {
         path_uniform_buffer = create_buffer(
             "ProGPU native path uniforms",
-            path_uniforms.size() * sizeof(gpu_path_uniforms),
+            std::max<std::size_t>(path_uniforms.size(), 1U) *
+                sizeof(gpu_path_uniforms),
             WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+        if (!binary_leaf_a_uniforms.empty()) {
+            binary_leaf_a_uniform_buffer = create_buffer(
+                "ProGPU native binary XOR leaf A uniforms",
+                binary_leaf_a_uniforms.size() * sizeof(gpu_path_uniforms),
+                WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+        }
+        if (!binary_leaf_b_uniforms.empty()) {
+            binary_leaf_b_uniform_buffer = create_buffer(
+                "ProGPU native binary XOR leaf B uniforms",
+                binary_leaf_b_uniforms.size() * sizeof(gpu_path_uniforms),
+                WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+        }
         path_record_buffer = create_buffer(
             "ProGPU native path records",
             path_records.size() * sizeof(gpu_path_record),
@@ -631,7 +675,12 @@ progpu_native_status render_paths(
                 coverage_combine_uniforms.size(),
                 1U) * sizeof(gpu_path_coverage_combine_uniforms),
             WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
-        if (path_uniform_buffer == nullptr || path_record_buffer == nullptr ||
+        if (path_uniform_buffer == nullptr ||
+            (!binary_leaf_a_uniforms.empty() &&
+                binary_leaf_a_uniform_buffer == nullptr) ||
+            (!binary_leaf_b_uniforms.empty() &&
+                binary_leaf_b_uniform_buffer == nullptr) ||
+            path_record_buffer == nullptr ||
             path_segment_buffer == nullptr || coverage_buffer == nullptr ||
             coverage_combine_uniform_buffer == nullptr) {
             return engine->fail(
@@ -640,12 +689,34 @@ progpu_native_status render_paths(
         }
         const std::uint64_t uniform_bytes = path_uniforms.size() *
             sizeof(gpu_path_uniforms);
+        const std::uint64_t binary_leaf_a_uniform_bytes =
+            binary_leaf_a_uniforms.size() * sizeof(gpu_path_uniforms);
+        const std::uint64_t binary_leaf_b_uniform_bytes =
+            binary_leaf_b_uniforms.size() * sizeof(gpu_path_uniforms);
         const std::uint64_t record_bytes = path_records.size() *
             sizeof(gpu_path_record);
         const std::uint64_t segment_bytes = frame->segment_count *
             sizeof(progpu_native_path_segment);
-        wgpuQueueWriteBuffer(engine->queue, path_uniform_buffer, 0U,
-            path_uniforms.data(), uniform_bytes);
+        if (uniform_bytes != 0U) {
+            wgpuQueueWriteBuffer(engine->queue, path_uniform_buffer, 0U,
+                path_uniforms.data(), uniform_bytes);
+        }
+        if (binary_leaf_a_uniform_bytes != 0U) {
+            wgpuQueueWriteBuffer(
+                engine->queue,
+                binary_leaf_a_uniform_buffer,
+                0U,
+                binary_leaf_a_uniforms.data(),
+                binary_leaf_a_uniform_bytes);
+        }
+        if (binary_leaf_b_uniform_bytes != 0U) {
+            wgpuQueueWriteBuffer(
+                engine->queue,
+                binary_leaf_b_uniform_buffer,
+                0U,
+                binary_leaf_b_uniforms.data(),
+                binary_leaf_b_uniform_bytes);
+        }
         wgpuQueueWriteBuffer(engine->queue, path_record_buffer, 0U,
             path_records.data(), record_bytes);
         wgpuQueueWriteBuffer(engine->queue, path_segment_buffer, 0U,
@@ -661,33 +732,69 @@ progpu_native_status render_paths(
                 coverage_combine_uniforms.data(),
                 combine_uniform_bytes);
         }
-        path_upload_bytes = uniform_bytes + record_bytes + segment_bytes +
+        path_upload_bytes = uniform_bytes + binary_leaf_a_uniform_bytes +
+            binary_leaf_b_uniform_bytes + record_bytes + segment_bytes +
             combine_uniform_bytes;
 
-        const std::array<WGPUBindGroupEntry, 5U> entries{{
-            {nullptr, 0U, path_uniform_buffer, 0U, uniform_bytes,
-                nullptr, nullptr},
-            {nullptr, 1U, path_record_buffer, 0U, record_bytes,
-                nullptr, nullptr},
-            {nullptr, 2U, path_segment_buffer, 0U, segment_bytes,
-                nullptr, nullptr},
-            {nullptr, 3U, coverage_buffer, 0U, coverage_staging_bytes,
-                nullptr, nullptr},
-            {nullptr, 4U, coverage_combine_uniform_buffer, 0U,
-                std::max<std::uint64_t>(
-                    combine_uniform_bytes,
-                    sizeof(gpu_path_coverage_combine_uniforms)),
-                nullptr, nullptr}
-        }};
-        WGPUBindGroupDescriptor descriptor{};
-        descriptor.label = progpu::native::webgpu::string_view("ProGPU native path raster bind group");
-        descriptor.layout = engine->path_raster_layout;
-        descriptor.entryCount = entries.size();
-        descriptor.entries = entries.data();
-        raster_bind_group = wgpuDeviceCreateBindGroup(
-            engine->device,
-            &descriptor);
-        if (raster_bind_group == nullptr) {
+        const auto create_raster_bind_group = [
+            engine,
+            path_record_buffer,
+            record_bytes,
+            path_segment_buffer,
+            segment_bytes,
+            coverage_buffer,
+            coverage_staging_bytes,
+            coverage_combine_uniform_buffer,
+            combine_uniform_bytes](
+            const char* label,
+            WGPUBuffer uniform_buffer,
+            std::uint64_t uniform_size) {
+            const std::array<WGPUBindGroupEntry, 5U> entries{{
+                {nullptr, 0U, uniform_buffer, 0U,
+                    std::max<std::uint64_t>(
+                        uniform_size,
+                        sizeof(gpu_path_uniforms)),
+                    nullptr, nullptr},
+                {nullptr, 1U, path_record_buffer, 0U, record_bytes,
+                    nullptr, nullptr},
+                {nullptr, 2U, path_segment_buffer, 0U, segment_bytes,
+                    nullptr, nullptr},
+                {nullptr, 3U, coverage_buffer, 0U,
+                    coverage_staging_bytes, nullptr, nullptr},
+                {nullptr, 4U, coverage_combine_uniform_buffer, 0U,
+                    std::max<std::uint64_t>(
+                        combine_uniform_bytes,
+                        sizeof(gpu_path_coverage_combine_uniforms)),
+                    nullptr, nullptr}
+            }};
+            WGPUBindGroupDescriptor descriptor{};
+            descriptor.label = progpu::native::webgpu::string_view(label);
+            descriptor.layout = engine->path_raster_layout;
+            descriptor.entryCount = entries.size();
+            descriptor.entries = entries.data();
+            return wgpuDeviceCreateBindGroup(engine->device, &descriptor);
+        };
+        raster_bind_group = create_raster_bind_group(
+            "ProGPU native path raster bind group",
+            path_uniform_buffer,
+            uniform_bytes);
+        if (!binary_leaf_a_uniforms.empty()) {
+            binary_leaf_a_bind_group = create_raster_bind_group(
+                "ProGPU native binary XOR leaf A bind group",
+                binary_leaf_a_uniform_buffer,
+                binary_leaf_a_uniform_bytes);
+        }
+        if (!binary_leaf_b_uniforms.empty()) {
+            binary_leaf_b_bind_group = create_raster_bind_group(
+                "ProGPU native binary XOR leaf B bind group",
+                binary_leaf_b_uniform_buffer,
+                binary_leaf_b_uniform_bytes);
+        }
+        if (raster_bind_group == nullptr ||
+            (!binary_leaf_a_uniforms.empty() &&
+                binary_leaf_a_bind_group == nullptr) ||
+            (!binary_leaf_b_uniforms.empty() &&
+                binary_leaf_b_bind_group == nullptr)) {
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                 "The native path raster bind group could not be created.");
@@ -720,34 +827,60 @@ progpu_native_status render_paths(
                 workgroups_y,
                 (raster.height + 15U) / 16U);
         }
-        WGPUComputePassDescriptor compute_descriptor{};
-        compute_descriptor.label = progpu::native::webgpu::string_view("ProGPU native path coverage pass");
-        WGPUComputePassEncoder compute_pass =
-            wgpuCommandEncoderBeginComputePass(encoder, &compute_descriptor);
-        if (compute_pass == nullptr) {
+        const auto encode_raster_pass = [&](
+            const char* label,
+            WGPUBindGroup bind_group,
+            std::size_t uniform_count) {
+            if (uniform_count == 0U) {
+                return true;
+            }
+            WGPUComputePassDescriptor compute_descriptor{};
+            compute_descriptor.label =
+                progpu::native::webgpu::string_view(label);
+            WGPUComputePassEncoder compute_pass =
+                wgpuCommandEncoderBeginComputePass(
+                    encoder,
+                    &compute_descriptor);
+            if (compute_pass == nullptr) {
+                return false;
+            }
+            wgpuComputePassEncoderSetPipeline(
+                compute_pass,
+                engine->path_raster_pipeline);
+            wgpuComputePassEncoderSetBindGroup(
+                compute_pass,
+                0U,
+                bind_group,
+                0U,
+                nullptr);
+            wgpuComputePassEncoderDispatchWorkgroups(
+                compute_pass,
+                workgroups_x,
+                workgroups_y,
+                static_cast<std::uint32_t>(uniform_count));
+            wgpuComputePassEncoderEnd(compute_pass);
+            wgpuComputePassEncoderRelease(compute_pass);
+            return true;
+        };
+        if (!encode_raster_pass(
+                "ProGPU native path coverage pass",
+                raster_bind_group,
+                path_uniforms.size()) ||
+            !encode_raster_pass(
+                "ProGPU native path binary XOR leaf A coverage pass",
+                binary_leaf_a_bind_group,
+                binary_leaf_a_uniforms.size()) ||
+            !encode_raster_pass(
+                "ProGPU native path binary XOR leaf B coverage pass",
+                binary_leaf_b_bind_group,
+                binary_leaf_b_uniforms.size())) {
             if (owns_encoder) {
                 wgpuCommandEncoderRelease(encoder);
             }
             return engine->fail(
                 PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                "The native path compute pass could not be created.");
+                "A native path compute pass could not be created.");
         }
-        wgpuComputePassEncoderSetPipeline(
-            compute_pass,
-            engine->path_raster_pipeline);
-        wgpuComputePassEncoderSetBindGroup(
-            compute_pass,
-            0U,
-            raster_bind_group,
-            0U,
-            nullptr);
-        wgpuComputePassEncoderDispatchWorkgroups(
-            compute_pass,
-            workgroups_x,
-            workgroups_y,
-            static_cast<std::uint32_t>(path_uniforms.size()));
-        wgpuComputePassEncoderEnd(compute_pass);
-        wgpuComputePassEncoderRelease(compute_pass);
 
         if (!coverage_combine_uniforms.empty()) {
             WGPUComputePassDescriptor combine_descriptor{};
