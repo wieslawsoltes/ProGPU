@@ -76,6 +76,16 @@ public class ShaderResourceTests
     }
 
     [Fact]
+    public void VectorShaderRetainsBoundedMultiFamilyHatchGrammar()
+    {
+        Assert.Contains("fn hatch_pattern_set_coverage(", Shaders.VectorShader, StringComparison.Ordinal);
+        Assert.Contains("familyIndex * 4u", Shaders.VectorShader, StringComparison.Ordinal);
+        Assert.Contains("dashIndex >= 6u", Shaders.VectorShader, StringComparison.Ordinal);
+        Assert.Contains("brush.brushType == 8u", Shaders.VectorShader, StringComparison.Ordinal);
+        Assert.Contains("row * record1.color.x", Shaders.VectorShader, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TextureShaderSupportsBatchedFixedColorLatticeCells()
     {
         Assert.Contains("@location(3) patchKind: f32", Shaders.TextureShader, StringComparison.Ordinal);

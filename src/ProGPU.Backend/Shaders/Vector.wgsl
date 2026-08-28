@@ -1,5 +1,5 @@
 // Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; reserved negative width encodings select either the Skia one-framebuffer-pixel hairline or an arbitrary positive fixed-device width, both expanded after the late transform, while one fixed quad evaluates each device or affine round cap and device join analytically with hard-owned body seams; evaluate analytic curves, arcs, quarter-pixel-snapped periodic dot grids, and affine pattern-space hatch families with derivative-filtered coverage; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
-// Time complexity: O(1) per vertex or fragment under the shader's fixed primitive and gradient limits; static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, the general material path derives local brush/shape gradients once per fragment, non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic, and a semantic mask chain evaluates at most four analytic rounded masks.
+// Time complexity: O(F * 6) for a multi-family DXF/PAT hatch with F retained families and the specified six-dash maximum; all other material and primitive paths remain O(1) per vertex or fragment under their fixed limits. Static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, the general material path derives local brush/shape gradients once per fragment, non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic, and a semantic mask chain evaluates at most four analytic rounded masks.
 // Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth; a nested analytic chain reads one primary 96-byte record and one fixed 288-byte continuation record.
 struct Brush {
     brushType: u32,
@@ -330,6 +330,120 @@ fn hatch_axis_coverage(
         max(halfWidth - filterWidth * 0.5, 0.0),
         halfWidth + filterWidth * 0.5,
         phase);
+}
+
+fn hatch_pattern_dash_value(record2: GradientStop, record3: GradientStop, index: u32) -> f32 {
+    switch index {
+        case 0u: { return record2.color.x; }
+        case 1u: { return record2.color.y; }
+        case 2u: { return record2.color.z; }
+        case 3u: { return record2.color.w; }
+        case 4u: { return record2.offset; }
+        default: { return record3.color.x; }
+    }
+}
+
+fn hatch_pattern_row_coverage(
+    brush: Brush,
+    familyRecord: u32,
+    coord: vec2<f32>,
+    coordDx: vec2<f32>,
+    coordDy: vec2<f32>,
+    row: f32) -> f32 {
+    let record0 = gradientStops[familyRecord];
+    let record1 = gradientStops[familyRecord + 1u];
+    let record2 = gradientStops[familyRecord + 2u];
+    let record3 = gradientStops[familyRecord + 3u];
+    let base = record0.color.xy;
+    let tangent = record0.color.zw;
+    let normal = vec2<f32>(-tangent.y, tangent.x);
+    let spacing = record0.offset;
+    let delta = coord - base;
+    let normalDistance = abs(dot(delta, normal) - row * spacing);
+    let normalFilter = max(
+        abs(dot(normal, coordDx)) + abs(dot(normal, coordDy)),
+        0.0001);
+    var halfWidth = brush.gradientRadius * 0.5;
+    if (brush.gradientRadius <= 0.0) {
+        halfWidth = normalFilter * 0.5;
+    }
+    let normalCoverage = 1.0 - smoothstep(
+        max(halfWidth - normalFilter * 0.5, 0.0),
+        halfWidth + normalFilter * 0.5,
+        normalDistance);
+    let dashCount = u32(round(record1.color.z));
+    if (dashCount == 0u || normalCoverage <= 0.0) {
+        return normalCoverage;
+    }
+
+    let period = record1.color.y;
+    let tangentCoordinate = dot(delta, tangent) - row * record1.color.x;
+    let phase = fract(tangentCoordinate / period) * period;
+    let tangentFilter = max(
+        abs(dot(tangent, coordDx)) + abs(dot(tangent, coordDy)),
+        0.0001);
+    let radialFilter = max(length(coordDx) + length(coordDy), 0.0001);
+    var cursor = 0.0;
+    var coverage = 0.0;
+    var dashIndex = 0u;
+    loop {
+        if (dashIndex >= dashCount || dashIndex >= 6u) { break; }
+        let dash = hatch_pattern_dash_value(record2, record3, dashIndex);
+        let lengthValue = abs(dash);
+        if (dash > 0.0) {
+            let center = cursor + lengthValue * 0.5;
+            let wrapped = abs(phase - center);
+            let tangentDistance = max(
+                min(wrapped, period - wrapped) - lengthValue * 0.5,
+                0.0);
+            let tangentCoverage = 1.0 - smoothstep(
+                0.0,
+                tangentFilter * 0.5,
+                tangentDistance);
+            coverage = max(coverage, normalCoverage * tangentCoverage);
+        } else if (dash == 0.0) {
+            let wrapped = abs(phase - cursor);
+            let tangentDistance = min(wrapped, period - wrapped);
+            let dotDistance = length(vec2<f32>(normalDistance, tangentDistance));
+            var dotRadius = brush.gradientRadius * 0.5;
+            if (brush.gradientRadius <= 0.0) {
+                dotRadius = radialFilter * 0.5;
+            }
+            coverage = max(coverage, 1.0 - smoothstep(
+                max(dotRadius - radialFilter * 0.5, 0.0),
+                dotRadius + radialFilter * 0.5,
+                dotDistance));
+        }
+        cursor = cursor + lengthValue;
+        dashIndex = dashIndex + 1u;
+    }
+    return coverage;
+}
+
+fn hatch_pattern_set_coverage(
+    brush: Brush,
+    coord: vec2<f32>,
+    coordDx: vec2<f32>,
+    coordDy: vec2<f32>) -> f32 {
+    var coverage = 0.0;
+    var familyIndex = 0u;
+    loop {
+        if (familyIndex >= brush.spreadMethod) { break; }
+        let familyRecord = brush.stopOffset + familyIndex * 4u;
+        let record0 = gradientStops[familyRecord];
+        let tangent = record0.color.zw;
+        let normal = vec2<f32>(-tangent.y, tangent.x);
+        let rowCoordinate = dot(coord - record0.color.xy, normal) / record0.offset;
+        let nearestRow = floor(rowCoordinate + 0.5);
+        coverage = max(coverage, hatch_pattern_row_coverage(
+            brush, familyRecord, coord, coordDx, coordDy, nearestRow - 1.0));
+        coverage = max(coverage, hatch_pattern_row_coverage(
+            brush, familyRecord, coord, coordDx, coordDy, nearestRow));
+        coverage = max(coverage, hatch_pattern_row_coverage(
+            brush, familyRecord, coord, coordDx, coordDy, nearestRow + 1.0));
+        familyIndex = familyIndex + 1u;
+    }
+    return coverage;
 }
 
 fn perlin_fade(value: vec2<f32>) -> vec2<f32> {
@@ -2523,9 +2637,18 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         } else if (brush.brushType == 7u) {
             let noiseColor = sample_perlin_noise(brush, brushCoord);
             finalColor = vec4<f32>(noiseColor.rgb, noiseColor.a * brush.opacity);
+        } else if (brush.brushType == 8u) {
+            let hatchCoverage = hatch_pattern_set_coverage(
+                brush, brushCoord, brushCoordDx, brushCoordDy);
+            if (hatchCoverage <= 0.0) {
+                discard;
+            }
+            finalColor = vec4<f32>(
+                brush.stopColors0.rgb,
+                brush.stopColors0.a * brush.opacity * hatchCoverage);
         }
         if (brush.brushType == 3u || brush.brushType == 4u ||
-            brush.brushType == 7u) {
+            brush.brushType == 7u || brush.brushType == 8u) {
             // Procedural hatch/noise was evaluated directly above.
         } else if (gradientCoverage <= 0.0) {
             if ((brush.spreadMethod & 0x80000000u) != 0u) {

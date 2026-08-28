@@ -4,8 +4,8 @@ namespace ProGPU.CAD;
 /// <remarks>
 /// Point containment evaluates direction-aware half-open ray crossings over the
 /// retained line and elliptic-arc segments in O(S) time and O(1) storage.
-/// Continuous patterned point selection additionally evaluates one or two
-/// affine line-family equations in O(1). Window selection uses exact analytic
+/// Patterned point selection evaluates the retained affine row and dash grammar
+/// with bounded nearest-row visits. Window selection uses exact analytic
 /// bounds. Patterned crossing queries, curved outside-proximity, and
 /// non-horizontal filled-surface queries return UnsupportedGeometry rather than
 /// using a flattened or iterative approximation.
@@ -14,6 +14,7 @@ internal static class CadHatchSelection
 {
     private const double TwoPi = Math.PI * 2.0;
     private const double AxisTolerance = 1e-10;
+    private const int MaximumPatternRowVisits = 4096;
 
     public static CadPointHitResult HitTestPoint(
         CadDocumentSnapshot snapshot,
@@ -199,34 +200,37 @@ internal static class CadHatchSelection
         }
 
         CadHatchPattern pattern = snapshot.HatchPatterns.Span[hatch.PatternIndex];
-        if (!TryGetLocalCoordinates(hatch, point.X, point.Y, out double localX, out double localY) ||
-            !TryGetPatternDistance(
-                hatch,
-                pattern,
-                localX,
-                localY,
-                pattern.NormalX,
-                pattern.NormalY,
-                out double distance,
-                out double projectedX,
-                out double projectedY))
+        if (!TryGetLocalCoordinates(hatch, point.X, point.Y, out _, out _))
         {
             return UnsupportedPoint();
         }
-        if (pattern.IsDouble && TryGetPatternDistance(
-            hatch,
-            pattern,
-            localX,
-            localY,
-            -pattern.NormalY,
-            pattern.NormalX,
-            out double secondDistance,
-            out double secondProjectedX,
-            out double secondProjectedY) && secondDistance < distance)
+        double distance = double.PositiveInfinity;
+        double projectedX = 0.0;
+        double projectedY = 0.0;
+        ReadOnlySpan<CadHatchPatternFamily> families =
+            snapshot.HatchPatternFamilies.Span.Slice(
+                pattern.FamilyOffset,
+                pattern.FamilyCount);
+        for (int i = 0; i < families.Length; i++)
         {
-            distance = secondDistance;
-            projectedX = secondProjectedX;
-            projectedY = secondProjectedY;
+            if (!TryGetPatternFamilyDistance(
+                    snapshot,
+                    hatch,
+                    families[i],
+                    point.X,
+                    point.Y,
+                    out double familyDistance,
+                    out double familyProjectedX,
+                    out double familyProjectedY))
+            {
+                return UnsupportedPoint();
+            }
+            if (familyDistance < distance)
+            {
+                distance = familyDistance;
+                projectedX = familyProjectedX;
+                projectedY = familyProjectedY;
+            }
         }
 
         double combinedDistance = Math.Sqrt(
@@ -248,51 +252,188 @@ internal static class CadHatchSelection
         return new CadPointHitResult(CadPointHitStatus.Hit, combinedDistance);
     }
 
-    private static bool TryGetPatternDistance(
+    private static bool TryGetPatternFamilyDistance(
+        CadDocumentSnapshot snapshot,
         in CadHatchPrimitive hatch,
-        in CadHatchPattern pattern,
-        double localX,
-        double localY,
-        double normalX,
-        double normalY,
+        in CadHatchPatternFamily family,
+        double queryX,
+        double queryY,
         out double distance,
         out double projectedX,
         out double projectedY)
     {
-        double determinant =
-            (hatch.CoordinateSystem.XAxis.X * hatch.CoordinateSystem.YAxis.Y) -
-            (hatch.CoordinateSystem.XAxis.Y * hatch.CoordinateSystem.YAxis.X);
-        double covectorX =
-            ((normalX * hatch.CoordinateSystem.YAxis.Y) -
-             (normalY * hatch.CoordinateSystem.XAxis.Y)) / determinant;
-        double covectorY =
-            ((-normalX * hatch.CoordinateSystem.YAxis.X) +
-             (normalY * hatch.CoordinateSystem.XAxis.X)) / determinant;
-        double squaredCovectorLength =
-            (covectorX * covectorX) + (covectorY * covectorY);
-        if (!double.IsFinite(squaredCovectorLength) || squaredCovectorLength <= 0.0)
+        double directionX = family.DirectionX;
+        double directionY = family.DirectionY;
+        double normalX = -directionY;
+        double normalY = directionX;
+        double worldTangentX =
+            (hatch.CoordinateSystem.XAxis.X * directionX) +
+            (hatch.CoordinateSystem.YAxis.X * directionY);
+        double worldTangentY =
+            (hatch.CoordinateSystem.XAxis.Y * directionX) +
+            (hatch.CoordinateSystem.YAxis.Y * directionY);
+        double worldRowX =
+            (hatch.CoordinateSystem.XAxis.X *
+                ((family.TangentShift * directionX) + (family.Spacing * normalX))) +
+            (hatch.CoordinateSystem.YAxis.X *
+                ((family.TangentShift * directionY) + (family.Spacing * normalY)));
+        double worldRowY =
+            (hatch.CoordinateSystem.XAxis.Y *
+                ((family.TangentShift * directionX) + (family.Spacing * normalX))) +
+            (hatch.CoordinateSystem.YAxis.Y *
+                ((family.TangentShift * directionY) + (family.Spacing * normalY)));
+        double tangentLengthSquared =
+            (worldTangentX * worldTangentX) + (worldTangentY * worldTangentY);
+        double tangentLength = Math.Sqrt(tangentLengthSquared);
+        double signedRowSeparation =
+            ((worldRowX * -worldTangentY) + (worldRowY * worldTangentX)) /
+            tangentLength;
+        if (!double.IsFinite(tangentLengthSquared) || tangentLengthSquared <= 0.0 ||
+            !double.IsFinite(signedRowSeparation) ||
+            Math.Abs(signedRowSeparation) <= AxisTolerance)
         {
             distance = projectedX = projectedY = 0.0;
             return false;
         }
 
-        double phase =
-            ((localX - pattern.BasePointX) * normalX) +
-            ((localY - pattern.BasePointY) * normalY);
-        double residual = phase - (Math.Round(phase / pattern.Spacing) * pattern.Spacing);
-        distance = Math.Abs(residual) / Math.Sqrt(squaredCovectorLength);
-        double correction = residual / squaredCovectorLength;
-        projectedX = hatch.WorldOrigin.X +
-            (hatch.CoordinateSystem.XAxis.X * localX) +
-            (hatch.CoordinateSystem.YAxis.X * localY) -
-            (covectorX * correction);
-        projectedY = hatch.WorldOrigin.Y +
-            (hatch.CoordinateSystem.XAxis.Y * localX) +
-            (hatch.CoordinateSystem.YAxis.Y * localY) -
-            (covectorY * correction);
-        return double.IsFinite(distance) &&
-            double.IsFinite(projectedX) &&
+        double baseX = hatch.WorldOrigin.X +
+            (hatch.CoordinateSystem.XAxis.X * family.BasePointX) +
+            (hatch.CoordinateSystem.YAxis.X * family.BasePointY);
+        double baseY = hatch.WorldOrigin.Y +
+            (hatch.CoordinateSystem.XAxis.Y * family.BasePointX) +
+            (hatch.CoordinateSystem.YAxis.Y * family.BasePointY);
+        double queryDeltaX = queryX - baseX;
+        double queryDeltaY = queryY - baseY;
+        double signedQueryDistance =
+            ((queryDeltaX * -worldTangentY) +
+             (queryDeltaY * worldTangentX)) / tangentLength;
+        double nearestRowValue = Math.Round(
+            signedQueryDistance / signedRowSeparation);
+        if (!double.IsFinite(nearestRowValue) ||
+            nearestRowValue < long.MinValue || nearestRowValue > long.MaxValue)
+        {
+            distance = projectedX = projectedY = 0.0;
+            return false;
+        }
+        long nearestRow = (long)nearestRowValue;
+
+        distance = double.PositiveInfinity;
+        projectedX = projectedY = 0.0;
+        int visits = 0;
+        for (long radius = 0; ; radius++)
+        {
+            int candidates = radius == 0 ? 1 : 2;
+            for (int side = 0; side < candidates; side++)
+            {
+                if (++visits > MaximumPatternRowVisits)
+                    return false;
+                if ((side == 0 && nearestRow > long.MaxValue - radius) ||
+                    (side != 0 && nearestRow < long.MinValue + radius))
+                    return false;
+                long row = nearestRow + (side == 0 ? radius : -radius);
+                if (!TryGetPatternRowDistance(
+                        snapshot.HatchPatternDashes.Span,
+                        family,
+                        row,
+                        baseX,
+                        baseY,
+                        worldTangentX,
+                        worldTangentY,
+                        worldRowX,
+                        worldRowY,
+                        queryX,
+                        queryY,
+                        out double candidateDistance,
+                        out double candidateX,
+                        out double candidateY))
+                    return false;
+                if (candidateDistance < distance)
+                {
+                    distance = candidateDistance;
+                    projectedX = candidateX;
+                    projectedY = candidateY;
+                }
+            }
+
+            double nextLowerBound =
+                Math.Max(0.0, (radius + 0.5) * Math.Abs(signedRowSeparation));
+            if (double.IsFinite(distance) && nextLowerBound > distance)
+                break;
+        }
+        double zeroTolerance = AxisTolerance * Math.Max(
+            1.0,
+            Math.Max(Math.Abs(queryX), Math.Abs(queryY)));
+        if (distance <= zeroTolerance)
+            distance = 0.0;
+        return double.IsFinite(distance) && double.IsFinite(projectedX) &&
             double.IsFinite(projectedY);
+    }
+
+    private static bool TryGetPatternRowDistance(
+        ReadOnlySpan<double> allDashes,
+        in CadHatchPatternFamily family,
+        long row,
+        double baseX,
+        double baseY,
+        double tangentX,
+        double tangentY,
+        double rowX,
+        double rowY,
+        double queryX,
+        double queryY,
+        out double distance,
+        out double projectedX,
+        out double projectedY)
+    {
+        double originX = baseX + (row * rowX);
+        double originY = baseY + (row * rowY);
+        double tangentLengthSquared = (tangentX * tangentX) + (tangentY * tangentY);
+        double u = (((queryX - originX) * tangentX) +
+            ((queryY - originY) * tangentY)) / tangentLengthSquared;
+        if (family.DashCount == 0)
+        {
+            projectedX = originX + (u * tangentX);
+            projectedY = originY + (u * tangentY);
+            distance = Math.Sqrt(
+                ((queryX - projectedX) * (queryX - projectedX)) +
+                ((queryY - projectedY) * (queryY - projectedY)));
+            return double.IsFinite(distance);
+        }
+
+        ReadOnlySpan<double> dashes = allDashes.Slice(
+            family.DashOffset,
+            family.DashCount);
+        double cycle = Math.Floor(u / family.DashPeriod);
+        distance = double.PositiveInfinity;
+        projectedX = projectedY = 0.0;
+        for (int cycleDelta = -1; cycleDelta <= 1; cycleDelta++)
+        {
+            double cursor = (cycle + cycleDelta) * family.DashPeriod;
+            for (int dashIndex = 0; dashIndex < dashes.Length; dashIndex++)
+            {
+                double dash = dashes[dashIndex];
+                double length = Math.Abs(dash);
+                if (dash >= 0.0)
+                {
+                    double candidateU = dash == 0.0
+                        ? cursor
+                        : Math.Clamp(u, cursor, cursor + length);
+                    double candidateX = originX + (candidateU * tangentX);
+                    double candidateY = originY + (candidateU * tangentY);
+                    double candidateDistance = Math.Sqrt(
+                        ((queryX - candidateX) * (queryX - candidateX)) +
+                        ((queryY - candidateY) * (queryY - candidateY)));
+                    if (candidateDistance < distance)
+                    {
+                        distance = candidateDistance;
+                        projectedX = candidateX;
+                        projectedY = candidateY;
+                    }
+                }
+                cursor += length;
+            }
+        }
+        return double.IsFinite(distance);
     }
 
     private static bool TryGetLocalCoordinates(

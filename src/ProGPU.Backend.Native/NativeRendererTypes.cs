@@ -566,7 +566,8 @@ public enum NativeSceneBrushKind : uint
     CrossHatch = 4,
     TwoPointConicalGradient = 5,
     SweepGradient = 6,
-    PerlinNoise = 7
+    PerlinNoise = 7,
+    HatchPatternSet = 8
 }
 
 public enum NativeSceneGradientSpread : uint
@@ -868,6 +869,32 @@ public struct NativeSceneBrush
             coordinateTransform ?? Matrix3x2.Identity);
         brush.Radius = angle;
         brush.Center = new Vector2(spacing, thickness);
+        brush.Color0 = color;
+        return brush;
+    }
+
+    /// <summary>
+    /// Creates a retained multi-family hatch. The auxiliary records use four
+    /// canonical 32-byte records per family and begin at
+    /// <paramref name="recordOffset"/>.
+    /// </summary>
+    public static NativeSceneBrush HatchPatternSet(
+        uint recordOffset,
+        uint recordCount,
+        uint familyCount,
+        float thickness,
+        Vector4 color,
+        float opacity = 1f,
+        Matrix3x2? coordinateTransform = null)
+    {
+        var brush = CreateBase(
+            NativeSceneBrushKind.HatchPatternSet,
+            opacity,
+            coordinateTransform ?? Matrix3x2.Identity);
+        brush.StopOffset = recordOffset;
+        brush.StopCount = recordCount;
+        brush.Spread = (NativeSceneGradientSpread)familyCount;
+        brush.Radius = thickness;
         brush.Color0 = color;
         return brush;
     }

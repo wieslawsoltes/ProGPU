@@ -6403,6 +6403,15 @@ SceneStateUploadComplete:
                 Opacity = crossHatch.Opacity,
                 CoordinateTransform = inverseCommandTransform * crossHatch.CoordinateTransform
             },
+            HatchPatternSetBrush hatchSet => new HatchPatternSetBrush(
+                hatchSet.Families.Span,
+                hatchSet.Dashes.Span,
+                hatchSet.Thickness,
+                hatchSet.Color)
+            {
+                Opacity = hatchSet.Opacity,
+                CoordinateTransform = inverseCommandTransform * hatchSet.CoordinateTransform
+            },
             _ => brush
         };
     }
@@ -12197,6 +12206,19 @@ SceneStateUploadComplete:
             gpuBrush.StopCount = 1;
             SetBrushCoordinateTransform(ref gpuBrush, crossHatch.CoordinateTransform);
         }
+        else if (brush is HatchPatternSetBrush hatchSet)
+        {
+            gpuBrush.Type = 8;
+            gpuBrush.Radius = hatchSet.Thickness;
+            gpuBrush.Color0 = hatchSet.Color;
+            gpuBrush.SpreadMethod = checked((uint)hatchSet.Families.Length);
+            SetBrushCoordinateTransform(ref gpuBrush, hatchSet.CoordinateTransform);
+            if (!ApplyHatchPatternSet(ref gpuBrush, hatchSet))
+            {
+                TrimGradientStops((uint)gradientStopStart);
+                return 0f;
+            }
+        }
 
         for (int i = 0; i < _activeBrushes.Count; i++)
         {
@@ -12250,7 +12272,7 @@ SceneStateUploadComplete:
             return false;
         }
 
-        return !IsGradientBrushType(a.Type) || GradientStopsEqual(a, b);
+        return !UsesAuxiliaryBrushRecords(a.Type) || GradientStopsEqual(a, b);
     }
 
     private float RegisterTextStyle(
@@ -12291,9 +12313,63 @@ SceneStateUploadComplete:
         }
     }
 
-    private static bool IsGradientBrushType(uint brushType)
+    private static bool UsesAuxiliaryBrushRecords(uint brushType)
     {
-        return brushType == 1 || brushType == 2 || brushType == 5 || brushType == 6;
+        return brushType == 1 || brushType == 2 || brushType == 5 ||
+            brushType == 6 || brushType == 8;
+    }
+
+    private bool ApplyHatchPatternSet(
+        ref GpuBrush gpuBrush,
+        HatchPatternSetBrush brush)
+    {
+        const int recordsPerFamily = 4;
+        ReadOnlySpan<HatchPatternLineFamily> families = brush.Families.Span;
+        int recordCount = checked(families.Length * recordsPerFamily);
+        if (recordCount > MaxGradientStops - _activeGradientStops.Count)
+            return false;
+
+        gpuBrush.StopOffset = checked((uint)_activeGradientStops.Count);
+        gpuBrush.StopCount = checked((uint)recordCount);
+        ReadOnlySpan<float> dashes = brush.Dashes.Span;
+        Span<float> packedDashes = stackalloc float[HatchPatternSetBrush.MaximumDashCount];
+        for (int i = 0; i < families.Length; i++)
+        {
+            HatchPatternLineFamily family = families[i];
+            packedDashes.Clear();
+            for (int dashIndex = 0; dashIndex < family.DashCount; dashIndex++)
+                packedDashes[dashIndex] = dashes[family.DashOffset + dashIndex];
+
+            _activeGradientStops.Add(new GpuGradientStop
+            {
+                Color = new Vector4(
+                    family.BasePoint.X,
+                    family.BasePoint.Y,
+                    family.Direction.X,
+                    family.Direction.Y),
+                Offset = family.Spacing,
+            });
+            _activeGradientStops.Add(new GpuGradientStop
+            {
+                Color = new Vector4(
+                    family.TangentShift,
+                    family.DashPeriod,
+                    family.DashCount,
+                    0f),
+            });
+            _activeGradientStops.Add(new GpuGradientStop
+            {
+                Color = new Vector4(
+                    packedDashes[0], packedDashes[1],
+                    packedDashes[2], packedDashes[3]),
+                Offset = packedDashes[4],
+            });
+            _activeGradientStops.Add(new GpuGradientStop
+            {
+                Color = new Vector4(packedDashes[5], 0f, 0f, 0f),
+            });
+        }
+        return true;
     }
 
     private static void SetBrushCoordinateTransform(ref GpuBrush gpuBrush, Matrix4x4 transform)

@@ -1,5 +1,5 @@
 // Algorithm: Transform hatch geometry and evaluate analytic brush, gradient, affine pattern-space hatch-family, and anti-aliased coverage functions.
-// Time complexity: O(1) per vertex or fragment under fixed brush and pattern limits.
+// Time complexity: O(F * 6) per fragment for a multi-family DXF/PAT hatch with F retained families and the specified six-dash maximum; other brush paths are O(1).
 // Space complexity: O(1) local storage with bounded uniform/storage reads.
 struct Brush {
     brushType: u32,
@@ -222,6 +222,101 @@ fn hatch_axis_coverage(
         max(halfWidth - filterWidth * 0.5, 0.0),
         halfWidth + filterWidth * 0.5,
         phase);
+}
+
+fn hatch_pattern_dash_value(record2: GradientStop, record3: GradientStop, index: u32) -> f32 {
+    switch index {
+        case 0u: { return record2.color.x; }
+        case 1u: { return record2.color.y; }
+        case 2u: { return record2.color.z; }
+        case 3u: { return record2.color.w; }
+        case 4u: { return record2.offset; }
+        default: { return record3.color.x; }
+    }
+}
+
+fn hatch_pattern_row_coverage(
+    brush: Brush,
+    familyRecord: u32,
+    coord: vec2<f32>,
+    coordDx: vec2<f32>,
+    coordDy: vec2<f32>,
+    row: f32) -> f32 {
+    let record0 = gradientStops[familyRecord];
+    let record1 = gradientStops[familyRecord + 1u];
+    let record2 = gradientStops[familyRecord + 2u];
+    let record3 = gradientStops[familyRecord + 3u];
+    let base = record0.color.xy;
+    let tangent = record0.color.zw;
+    let normal = vec2<f32>(-tangent.y, tangent.x);
+    let spacing = record0.offset;
+    let delta = coord - base;
+    let normalDistance = abs(dot(delta, normal) - row * spacing);
+    let normalFilter = max(abs(dot(normal, coordDx)) + abs(dot(normal, coordDy)), 0.0001);
+    var halfWidth = brush.gradientRadius * 0.5;
+    if (brush.gradientRadius <= 0.0) { halfWidth = normalFilter * 0.5; }
+    let normalCoverage = 1.0 - smoothstep(
+        max(halfWidth - normalFilter * 0.5, 0.0),
+        halfWidth + normalFilter * 0.5,
+        normalDistance);
+    let dashCount = u32(round(record1.color.z));
+    if (dashCount == 0u || normalCoverage <= 0.0) { return normalCoverage; }
+    let period = record1.color.y;
+    let tangentCoordinate = dot(delta, tangent) - row * record1.color.x;
+    let phase = fract(tangentCoordinate / period) * period;
+    let tangentFilter = max(abs(dot(tangent, coordDx)) + abs(dot(tangent, coordDy)), 0.0001);
+    let radialFilter = max(length(coordDx) + length(coordDy), 0.0001);
+    var cursor = 0.0;
+    var coverage = 0.0;
+    var dashIndex = 0u;
+    loop {
+        if (dashIndex >= dashCount || dashIndex >= 6u) { break; }
+        let dash = hatch_pattern_dash_value(record2, record3, dashIndex);
+        let lengthValue = abs(dash);
+        if (dash > 0.0) {
+            let center = cursor + lengthValue * 0.5;
+            let wrapped = abs(phase - center);
+            let tangentDistance = max(min(wrapped, period - wrapped) - lengthValue * 0.5, 0.0);
+            let tangentCoverage = 1.0 - smoothstep(0.0, tangentFilter * 0.5, tangentDistance);
+            coverage = max(coverage, normalCoverage * tangentCoverage);
+        } else if (dash == 0.0) {
+            let wrapped = abs(phase - cursor);
+            let tangentDistance = min(wrapped, period - wrapped);
+            let dotDistance = length(vec2<f32>(normalDistance, tangentDistance));
+            var dotRadius = brush.gradientRadius * 0.5;
+            if (brush.gradientRadius <= 0.0) { dotRadius = radialFilter * 0.5; }
+            coverage = max(coverage, 1.0 - smoothstep(
+                max(dotRadius - radialFilter * 0.5, 0.0),
+                dotRadius + radialFilter * 0.5,
+                dotDistance));
+        }
+        cursor = cursor + lengthValue;
+        dashIndex = dashIndex + 1u;
+    }
+    return coverage;
+}
+
+fn hatch_pattern_set_coverage(
+    brush: Brush,
+    coord: vec2<f32>,
+    coordDx: vec2<f32>,
+    coordDy: vec2<f32>) -> f32 {
+    var coverage = 0.0;
+    var familyIndex = 0u;
+    loop {
+        if (familyIndex >= brush.spreadMethod) { break; }
+        let familyRecord = brush.stopOffset + familyIndex * 4u;
+        let record0 = gradientStops[familyRecord];
+        let tangent = record0.color.zw;
+        let normal = vec2<f32>(-tangent.y, tangent.x);
+        let rowCoordinate = dot(coord - record0.color.xy, normal) / record0.offset;
+        let nearestRow = floor(rowCoordinate + 0.5);
+        coverage = max(coverage, hatch_pattern_row_coverage(brush, familyRecord, coord, coordDx, coordDy, nearestRow - 1.0));
+        coverage = max(coverage, hatch_pattern_row_coverage(brush, familyRecord, coord, coordDx, coordDy, nearestRow));
+        coverage = max(coverage, hatch_pattern_row_coverage(brush, familyRecord, coord, coordDx, coordDy, nearestRow + 1.0));
+        familyIndex = familyIndex + 1u;
+    }
+    return coverage;
 }
 
 fn solve_two_point_conical_gradient(brush: Brush, coord: vec2<f32>) -> vec2<f32> {
@@ -585,6 +680,18 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
                     spacing,
                     thickness));
         }
+        if (hatchCoverage <= 0.0) {
+            discard;
+        }
+        finalColor = vec4<f32>(
+            brush.stopColors0.rgb,
+            brush.stopColors0.a * brush.opacity * hatchCoverage);
+    } else if (brush.brushType == 8u) {
+        let brushCoord = transform_brush_coordinate(brush, evalCoord);
+        let brushCoordDx = transform_brush_vector(brush, evalCoordDx);
+        let brushCoordDy = transform_brush_vector(brush, evalCoordDy);
+        let hatchCoverage = hatch_pattern_set_coverage(
+            brush, brushCoord, brushCoordDx, brushCoordDy);
         if (hatchCoverage <= 0.0) {
             discard;
         }

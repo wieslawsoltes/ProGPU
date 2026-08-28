@@ -144,12 +144,18 @@ typedef enum progpu_native_scene_brush_kind {
     PROGPU_NATIVE_SCENE_BRUSH_CROSS_HATCH = 4,
     PROGPU_NATIVE_SCENE_BRUSH_TWO_POINT_CONICAL_GRADIENT = 5,
     PROGPU_NATIVE_SCENE_BRUSH_SWEEP_GRADIENT = 6,
-    PROGPU_NATIVE_SCENE_BRUSH_PERLIN_NOISE = 7
+    PROGPU_NATIVE_SCENE_BRUSH_PERLIN_NOISE = 7,
+    PROGPU_NATIVE_SCENE_BRUSH_HATCH_PATTERN_SET = 8
 } progpu_native_scene_brush_kind;
 
 enum {
     PROGPU_NATIVE_SCENE_PERLIN_TABLE_RECORDS = 512U,
     PROGPU_NATIVE_SCENE_MAX_PERLIN_OCTAVES = 255U
+};
+
+enum {
+    PROGPU_NATIVE_SCENE_HATCH_PATTERN_RECORDS_PER_FAMILY = 4U,
+    PROGPU_NATIVE_SCENE_HATCH_PATTERN_MAX_DASHES = 6U
 };
 
 typedef enum progpu_native_scene_gradient_spread {
@@ -1215,6 +1221,10 @@ typedef struct progpu_native_scene_image_effect {
  * fractal/turbulence noise. Interpolation 0 selects the bounded hash fallback;
  * interpolation 1 references exactly 512 packed permutation/gradient records
  * at StopOffset. Hatch kinds use Radius as angle and Center as spacing/thickness.
+ * Hatch-pattern-set uses Radius as thickness, SpreadMethod as family count,
+ * Color[0] as color, and four auxiliary records per family. The records carry
+ * base/tangent/spacing, row tangent shift/dash period/dash count, and the six
+ * signed PAT dash values. Reserved record fields remain zero.
  */
 typedef struct progpu_native_scene_brush {
     uint32_t type;

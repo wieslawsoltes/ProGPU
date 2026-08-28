@@ -249,6 +249,26 @@ internal sealed class NativeBrushTableBuilder
                     opacity: brush.Opacity,
                     coordinateTransform: crossHatchTransform);
                 break;
+            case HatchPatternSetBrush hatchSet:
+                if (!float.IsFinite(hatchSet.Thickness) || hatchSet.Thickness < 0f ||
+                    !IsFinite(hatchSet.Color) ||
+                    !TryGetAffine(hatchSet.CoordinateTransform, out Matrix3x2 hatchSetTransform) ||
+                    !TryAppendHatchPatternSet(
+                        hatchSet,
+                        out uint hatchRecordOffset,
+                        out uint hatchRecordCount))
+                {
+                    return Fail(out index, out error);
+                }
+                native = NativeSceneBrush.HatchPatternSet(
+                    hatchRecordOffset,
+                    hatchRecordCount,
+                    checked((uint)hatchSet.Families.Length),
+                    hatchSet.Thickness,
+                    hatchSet.Color,
+                    brush.Opacity,
+                    hatchSetTransform);
+                break;
             default:
                 return Fail(out index, out error);
         }
@@ -296,6 +316,7 @@ internal sealed class NativeBrushTableBuilder
                     native.Interpolation ==
                         NativeSceneGradientInterpolation.ScRgb =>
                 NativeSceneBrush.PerlinTableRecordCount,
+            NativeSceneBrushKind.HatchPatternSet => native.StopCount,
             _ => 0U
         };
         if (native.StopOffset > (uint)_gradientStops.Count ||
@@ -349,6 +370,44 @@ internal sealed class NativeBrushTableBuilder
         }
         offset = checked((uint)start);
         appended = CollectionsMarshal.AsSpan(_gradientStops).Slice(start, source.Length);
+        return true;
+    }
+
+    private bool TryAppendHatchPatternSet(
+        HatchPatternSetBrush brush,
+        out uint offset,
+        out uint count)
+    {
+        const int recordsPerFamily = 4;
+        offset = checked((uint)_gradientStops.Count);
+        count = 0U;
+        ReadOnlySpan<HatchPatternLineFamily> families = brush.Families.Span;
+        ReadOnlySpan<float> dashes = brush.Dashes.Span;
+        int recordCount = checked(families.Length * recordsPerFamily);
+        if (recordCount > 65_536 - _gradientStops.Count)
+            return false;
+
+        Span<float> packed = stackalloc float[HatchPatternSetBrush.MaximumDashCount];
+        for (int familyIndex = 0; familyIndex < families.Length; familyIndex++)
+        {
+            packed.Clear();
+            HatchPatternLineFamily family = families[familyIndex];
+            for (int dashIndex = 0; dashIndex < family.DashCount; dashIndex++)
+                packed[dashIndex] = dashes[family.DashOffset + dashIndex];
+            _gradientStops.Add(new(
+                new Vector4(family.BasePoint.X, family.BasePoint.Y,
+                    family.Direction.X, family.Direction.Y),
+                family.Spacing));
+            _gradientStops.Add(new(
+                new Vector4(family.TangentShift, family.DashPeriod,
+                    family.DashCount, 0f),
+                0f));
+            _gradientStops.Add(new(
+                new Vector4(packed[0], packed[1], packed[2], packed[3]),
+                packed[4]));
+            _gradientStops.Add(new(new Vector4(packed[5], 0f, 0f, 0f), 0f));
+        }
+        count = checked((uint)recordCount);
         return true;
     }
 

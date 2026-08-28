@@ -344,8 +344,9 @@ public sealed class CadHatchSnapshotTests
         AssertPoint(new CadPoint3D(-3, 0, 0), hatch.CoordinateSystem.YAxis);
         Assert.NotEqual(System.Numerics.Matrix4x4.Identity, command.Transform);
         CadHatchPattern pattern = Assert.Single(snapshot.HatchPatterns.ToArray());
-        Assert.Equal(2.0, pattern.BasePointX, 12);
-        Assert.Equal(3.0, pattern.BasePointY, 12);
+        CadHatchPatternFamily family = snapshot.HatchPatternFamilies.Span[pattern.FamilyOffset];
+        Assert.Equal(2.0, family.BasePointX, 12);
+        Assert.Equal(3.0, family.BasePointY, 12);
         var patternBrush = Assert.IsType<HatchPatternBrush>(command.Brush);
         Assert.Equal(-2.0f, patternBrush.CoordinateTransform.M41);
         Assert.Equal(-0.5f, patternBrush.CoordinateTransform.M42);
@@ -387,16 +388,19 @@ public sealed class CadHatchSnapshotTests
         CadEntityHeader entity = Assert.Single(snapshot.Entities.ToArray());
         CadHatchPrimitive hatch = Assert.Single(snapshot.Hatches.ToArray());
         CadHatchPattern pattern = Assert.Single(snapshot.HatchPatterns.ToArray());
+        CadHatchPatternFamily family = snapshot.HatchPatternFamilies.Span[pattern.FamilyOffset];
         RenderCommand command = Assert.Single(
             new CadPlanSceneCompiler().Compile(snapshot).DrawingContext.Commands.ToArray());
 
         Assert.Equal(0, hatch.PatternIndex);
-        Assert.Equal(2.0, pattern.BasePointX, 12);
-        Assert.Equal(3.0, pattern.BasePointY, 12);
-        Assert.Equal(0.0, pattern.NormalX, 12);
-        Assert.Equal(1.0, pattern.NormalY, 12);
-        Assert.Equal(5.0, pattern.Spacing, 12);
-        Assert.False(pattern.IsDouble);
+        Assert.Equal(1, pattern.FamilyCount);
+        Assert.Equal(2.0, family.BasePointX, 12);
+        Assert.Equal(3.0, family.BasePointY, 12);
+        Assert.Equal(1.0, family.DirectionX, 12);
+        Assert.Equal(0.0, family.DirectionY, 12);
+        Assert.Equal(4.0, family.TangentShift, 12);
+        Assert.Equal(5.0, family.Spacing, 12);
+        Assert.Equal(0, family.DashCount);
         var brush = Assert.IsType<HatchPatternBrush>(command.Brush);
         Assert.Equal(MathF.PI / 2.0f, brush.Angle, 5);
         Assert.Equal(5.0f, brush.Spacing);
@@ -489,8 +493,8 @@ public sealed class CadHatchSnapshotTests
             .Compile(snapshot)
             .DrawingContext.Commands.ToArray();
 
-        Assert.True(patterns[0].IsDouble);
-        Assert.False(patterns[1].IsDouble);
+        Assert.Equal(2, patterns[0].FamilyCount);
+        Assert.Equal(1, patterns[1].FamilyCount);
         Assert.IsType<CrossHatchBrush>(commands[0].Brush);
         Assert.IsType<HatchPatternBrush>(commands[1].Brush);
         Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
@@ -506,7 +510,7 @@ public sealed class CadHatchSnapshotTests
     }
 
     [Fact]
-    public void UnsupportedHatchesAreTransactionalAndDiagnosedWithoutApproximation()
+    public void PatternGrammarIsRetainedWhileUnsupportedBoundariesRemainTransactional()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
         session.Edit("Add unsupported hatches", document =>
@@ -574,17 +578,37 @@ public sealed class CadHatchSnapshotTests
 
         CadDocumentSnapshot snapshot = Compile(session);
 
-        Assert.Empty(snapshot.Entities.ToArray());
-        Assert.Empty(snapshot.Hatches.ToArray());
-        Assert.Empty(snapshot.HatchPatterns.ToArray());
-        Assert.Empty(snapshot.HatchLoops.ToArray());
-        Assert.Empty(snapshot.HatchSegments.ToArray());
-        Assert.Equal(4, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Equal(2, snapshot.Entities.Length);
+        Assert.Equal(2, snapshot.Hatches.Length);
+        Assert.Equal(2, snapshot.HatchPatterns.Length);
+        Assert.Equal(3, snapshot.HatchPatternFamilies.Length);
+        Assert.Equal(new[] { 1.0, -1.0 }, snapshot.HatchPatternDashes.ToArray());
+        Assert.Equal(2, snapshot.HatchLoops.Length);
+        Assert.Equal(8, snapshot.HatchSegments.Length);
+        Assert.Equal(2, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Equal(0, snapshot.Statistics.InvalidEntityCount);
-        Assert.Contains(snapshot.Diagnostics.ToArray(), item => item.Message.Contains("variable-dash", StringComparison.Ordinal));
-        Assert.Contains(snapshot.Diagnostics.ToArray(), item => item.Message.Contains("exactly one continuous line family", StringComparison.Ordinal));
         Assert.Contains(snapshot.Diagnostics.ToArray(), item => item.Message.Contains("island-depth", StringComparison.Ordinal));
         Assert.Contains(snapshot.Diagnostics.ToArray(), item => item.Message.Contains("Spline HATCH", StringComparison.Ordinal));
+        RenderCommand[] commands = new CadPlanSceneCompiler()
+            .Compile(snapshot)
+            .DrawingContext.Commands.ToArray();
+        Assert.IsType<HatchPatternSetBrush>(commands[0].Brush);
+        Assert.IsType<CrossHatchBrush>(commands[1].Brush);
+
+        Assert.Equal(
+            CadPointHitStatus.Hit,
+            CadSelectionHitTester.HitTestPoint(
+                snapshot,
+                Candidate(snapshot, snapshot.Entities.Span[0]),
+                new CadPoint3D(0.25, 0.25, 0),
+                0.0).Status);
+        Assert.Equal(
+            CadPointHitStatus.Miss,
+            CadSelectionHitTester.HitTestPoint(
+                snapshot,
+                Candidate(snapshot, snapshot.Entities.Span[0]),
+                new CadPoint3D(0.9, 0.9, 0),
+                0.0).Status);
     }
 
     [Fact]
@@ -612,6 +636,73 @@ public sealed class CadHatchSnapshotTests
         Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Contains(snapshot.Diagnostics.ToArray(), item =>
             item.Message.Contains("3-segment HATCH document limit", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PatternFamiliesRetainSixDashGrammarAndNormalizeNegativeRowDirection()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add bounded PAT grammar", document =>
+        {
+            Hatch valid = CreatePatternedHatch(
+                "SIX",
+                HatchPatternType.SolidFill,
+                isDouble: false,
+                angle: 0.0,
+                basePoint: new XY(2, 3),
+                offset: new XY(4, -5));
+            valid.Pattern.Lines[0].DashLengths.AddRange([2.0, -1.0, 0.0, -0.5, 3.0, -2.0]);
+            valid.Paths.Add(CreatePolylineLoop(
+                (0.0, 0.0, 0.0),
+                (20.0, 0.0, 0.0),
+                (20.0, 20.0, 0.0),
+                (0.0, 20.0, 0.0)));
+            document.Entities.Add(valid);
+
+            Hatch invalid = CreatePatternedHatch(
+                "SEVEN",
+                HatchPatternType.SolidFill,
+                isDouble: false,
+                angle: 0.0,
+                basePoint: new XY(30, 0),
+                offset: new XY(0, 2));
+            invalid.Pattern.Lines[0].DashLengths.AddRange([1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0]);
+            invalid.Paths.Add(CreatePolylineLoop(
+                (30.0, 0.0, 0.0),
+                (40.0, 0.0, 0.0),
+                (40.0, 10.0, 0.0),
+                (30.0, 10.0, 0.0)));
+            document.Entities.Add(invalid);
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadHatchPattern pattern = Assert.Single(snapshot.HatchPatterns.ToArray());
+        CadHatchPatternFamily family = snapshot.HatchPatternFamilies.Span[pattern.FamilyOffset];
+        Assert.Equal(1.0, family.DirectionX, 12);
+        Assert.Equal(0.0, family.DirectionY, 12);
+        Assert.Equal(-4.0, family.TangentShift, 12);
+        Assert.Equal(5.0, family.Spacing, 12);
+        Assert.Equal(6, family.DashCount);
+        Assert.Equal(8.5, family.DashPeriod, 12);
+        Assert.Equal(
+            new[] { 2.0, -1.0, 0.0, -0.5, 3.0, -2.0 },
+            snapshot.HatchPatternDashes.ToArray());
+        Assert.IsType<HatchPatternSetBrush>(Assert.Single(
+            new CadPlanSceneCompiler().Compile(snapshot).DrawingContext.Commands.ToArray()).Brush);
+        InvalidOperationException budgetFailure = Assert.Throws<InvalidOperationException>(() =>
+            new CadPlanSceneCompiler().Compile(
+                snapshot,
+                new CadPlanSceneOptions { MaxHatchPatternAuxiliaryRecords = 3 }));
+        Assert.Contains("3 retained auxiliary records", budgetFailure.Message, StringComparison.Ordinal);
+        CadSelectionCandidate candidate = Candidate(snapshot, snapshot.Entities.Span[0]);
+        Assert.Equal(1_000, CountPatternHits(snapshot, candidate, 1_000));
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int hits = CountPatternHits(snapshot, candidate, 1_000);
+        Assert.Equal(1_000, hits);
+        Assert.Equal(0, (GC.GetAllocatedBytesForCurrentThread() - before) / 1_000);
+        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
+            diagnostic.Message.Contains("6-dash PAT definition limit", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -688,11 +779,66 @@ public sealed class CadHatchSnapshotTests
 
         CadDocumentSnapshot snapshot = Compile(loaded.Session);
         CadHatchPattern pattern = Assert.Single(snapshot.HatchPatterns.ToArray());
-        Assert.Equal(-0.5, pattern.NormalX, 12);
-        Assert.Equal(Math.Sqrt(3) / 2.0, pattern.NormalY, 12);
-        Assert.Equal(4.0, pattern.Spacing, 12);
+        CadHatchPatternFamily family = snapshot.HatchPatternFamilies.Span[pattern.FamilyOffset];
+        Assert.Equal(Math.Sqrt(3) / 2.0, family.DirectionX, 12);
+        Assert.Equal(0.5, family.DirectionY, 12);
+        Assert.Equal(0.0, family.TangentShift, 12);
+        Assert.Equal(4.0, family.Spacing, 12);
         Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
         Assert.IsType<HatchPatternBrush>(Assert.Single(
+            new CadPlanSceneCompiler().Compile(snapshot).DrawingContext.Commands.ToArray()).Brush);
+    }
+
+    [Fact]
+    public async Task MultiFamilyDashGapDotPatternSurvivesDxfSaveReload()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew(ACadVersion.AC1032);
+        session.Edit("Add saved multi-family pattern", document =>
+        {
+            Hatch hatch = CreatePatternedHatch(
+                "GRID_DASH",
+                HatchPatternType.SolidFill,
+                isDouble: false,
+                angle: 0.0,
+                basePoint: new XY(2, 3),
+                offset: new XY(4, 5));
+            hatch.Pattern.Lines[0].DashLengths.AddRange([2.0, -1.0, 0.0, -3.0]);
+            hatch.Pattern.Lines.Add(new HatchPattern.Line
+            {
+                Angle = Math.PI / 2.0,
+                BasePoint = new XY(5, 1),
+                Offset = new XY(-6, 2),
+                DashLengths = { 1.5, -0.5 },
+            });
+            hatch.Paths.Add(CreatePolylineLoop(
+                (0.0, 0.0, 0.0),
+                (12.0, 0.0, 0.0),
+                (12.0, 10.0, 0.0),
+                (0.0, 10.0, 0.0)));
+            document.Entities.Add(hatch);
+        });
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+        await store.SaveAsync(
+            session,
+            stream,
+            CadDocumentFormat.Dxf,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            CadDocumentFormat.Dxf,
+            sourceName: "multi-family-pattern-hatch-roundtrip.dxf");
+
+        CadDocumentSnapshot snapshot = Compile(loaded.Session);
+        CadHatchPattern pattern = Assert.Single(snapshot.HatchPatterns.ToArray());
+        Assert.Equal(2, pattern.FamilyCount);
+        Assert.Equal(6, snapshot.HatchPatternDashes.Length);
+        Assert.Equal(
+            new[] { 2.0, -1.0, 0.0, -3.0, 1.5, -0.5 },
+            snapshot.HatchPatternDashes.ToArray());
+        Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.IsType<HatchPatternSetBrush>(Assert.Single(
             new CadPlanSceneCompiler().Compile(snapshot).DrawingContext.Commands.ToArray()).Brush);
     }
 
@@ -810,6 +956,24 @@ public sealed class CadHatchSnapshotTests
 
     private static CadDocumentSnapshot Compile(CadDocumentSession session) =>
         new CadSnapshotCompiler().Compile(session);
+
+    private static int CountPatternHits(
+        CadDocumentSnapshot snapshot,
+        CadSelectionCandidate candidate,
+        int count)
+    {
+        int hits = 0;
+        for (int i = 0; i < count; i++)
+        {
+            if (CadSelectionHitTester.HitTestPoint(
+                    snapshot,
+                    candidate,
+                    new CadPoint3D(2.5, 3, 0),
+                    0.0).Status == CadPointHitStatus.Hit)
+                hits++;
+        }
+        return hits;
+    }
 
     private static CadSelectionCandidate Candidate(
         CadDocumentSnapshot snapshot,

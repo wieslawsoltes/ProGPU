@@ -1109,6 +1109,7 @@ public ref struct NativeSceneStreamBuilder
                     mask.Brush.Interpolation ==
                         NativeSceneGradientInterpolation.ScRgb =>
                 NativeSceneBrush.PerlinTableRecordCount,
+            NativeSceneBrushKind.HatchPatternSet => mask.Brush.StopCount,
             _ => 0U
         };
         if (mask.StructSize != Unsafe.SizeOf<NativeSceneLayerBrushMask>() ||
@@ -1202,6 +1203,7 @@ public ref struct NativeSceneStreamBuilder
                     mask.Brush.Interpolation ==
                         NativeSceneGradientInterpolation.ScRgb =>
                 NativeSceneBrush.PerlinTableRecordCount,
+            NativeSceneBrushKind.HatchPatternSet => mask.Brush.StopCount,
             _ => 0U
         };
         if (mask.Brush.StopOffset != 0U ||
@@ -1396,6 +1398,8 @@ public ref struct NativeSceneStreamBuilder
                         brushMask.Brush.Interpolation ==
                             NativeSceneGradientInterpolation.ScRgb =>
                     NativeSceneBrush.PerlinTableRecordCount,
+                NativeSceneBrushKind.HatchPatternSet =>
+                    brushMask.Brush.StopCount,
                 _ => 0U
             };
             ReadOnlySpan<NativeSceneBrush> oneBrush =
@@ -1437,6 +1441,8 @@ public ref struct NativeSceneStreamBuilder
                         geometryMask.Brush.Interpolation ==
                             NativeSceneGradientInterpolation.ScRgb =>
                     NativeSceneBrush.PerlinTableRecordCount,
+                NativeSceneBrushKind.HatchPatternSet =>
+                    geometryMask.Brush.StopCount,
                 _ => 0U
             };
             ReadOnlySpan<NativeSceneBrush> oneBrush =
@@ -2703,6 +2709,7 @@ public ref struct NativeSceneStreamBuilder
             bool conical = brush.Kind ==
                 NativeSceneBrushKind.TwoPointConicalGradient;
             bool perlin = brush.Kind == NativeSceneBrushKind.PerlinNoise;
+            bool hatchSet = brush.Kind == NativeSceneBrushKind.HatchPatternSet;
             bool supported = brush.Kind is
                 NativeSceneBrushKind.Solid or
                 NativeSceneBrushKind.LinearGradient or
@@ -2711,7 +2718,8 @@ public ref struct NativeSceneStreamBuilder
                 NativeSceneBrushKind.CrossHatch or
                 NativeSceneBrushKind.TwoPointConicalGradient or
                 NativeSceneBrushKind.SweepGradient or
-                NativeSceneBrushKind.PerlinNoise;
+                NativeSceneBrushKind.PerlinNoise or
+                NativeSceneBrushKind.HatchPatternSet;
             bool gradient = brush.Kind is
                 NativeSceneBrushKind.LinearGradient or
                 NativeSceneBrushKind.RadialGradient or
@@ -2736,8 +2744,8 @@ public ref struct NativeSceneStreamBuilder
                 brush.CoordinateTransform1.W != 0f ||
                 (uint)brush.Interpolation >
                     (uint)NativeSceneGradientInterpolation.ScRgb ||
-                (spread & 0x7FFFFFFFU) >
-                    (uint)NativeSceneGradientSpread.Decal ||
+                (!hatchSet && (spread & 0x7FFFFFFFU) >
+                    (uint)NativeSceneGradientSpread.Decal) ||
                 ((spread & 0x80000000U) != 0U && !conical))
             {
                 return false;
@@ -2758,6 +2766,12 @@ public ref struct NativeSceneStreamBuilder
                 {
                     return false;
                 }
+                continue;
+            }
+            if (hatchSet)
+            {
+                if (!IsValidHatchPatternSet(brush, gradientStops))
+                    return false;
                 continue;
             }
             if (!gradient)
@@ -2793,6 +2807,78 @@ public ref struct NativeSceneStreamBuilder
                 }
                 previous = offset;
             }
+        }
+        return true;
+    }
+
+    private static bool IsValidHatchPatternSet(
+        in NativeSceneBrush brush,
+        ReadOnlySpan<NativeSceneGradientStop> records)
+    {
+        uint familyCount = (uint)brush.Spread;
+        if (familyCount == 0U || brush.Radius < 0f || brush.RadiusY != 0f ||
+            brush.Interpolation != NativeSceneGradientInterpolation.SRgb ||
+            familyCount > uint.MaxValue / 4U ||
+            brush.StopCount != familyCount * 4U ||
+            brush.StopOffset > (uint)records.Length ||
+            brush.StopCount > (uint)records.Length - brush.StopOffset)
+            return false;
+
+        for (uint family = 0U; family < familyCount; family++)
+        {
+            int start = checked((int)(brush.StopOffset + family * 4U));
+            NativeSceneGradientStop record0 = records[start];
+            NativeSceneGradientStop record1 = records[start + 1];
+            NativeSceneGradientStop record2 = records[start + 2];
+            NativeSceneGradientStop record3 = records[start + 3];
+            float directionLength =
+                (record0.Color.Z * record0.Color.Z) +
+                (record0.Color.W * record0.Color.W);
+            float dashCountValue = record1.Color.Z;
+            if (record0.Offset <= 0f || brush.Radius > record0.Offset ||
+                MathF.Abs(directionLength - 1f) > 0.001f ||
+                dashCountValue < 0f || dashCountValue > 6f ||
+                MathF.Floor(dashCountValue) != dashCountValue ||
+                record1.Color.W != 0f || record1.Offset != 0f ||
+                record3.Color.Y != 0f || record3.Color.Z != 0f ||
+                record3.Color.W != 0f || record3.Offset != 0f)
+                return false;
+            int dashCount = (int)dashCountValue;
+            float period = 0f;
+            bool draws = false;
+            for (int dash = 0; dash < dashCount; dash++)
+            {
+                float value = dash switch
+                {
+                    0 => record2.Color.X,
+                    1 => record2.Color.Y,
+                    2 => record2.Color.Z,
+                    3 => record2.Color.W,
+                    4 => record2.Offset,
+                    _ => record3.Color.X,
+                };
+                period += MathF.Abs(value);
+                draws |= value >= 0f;
+            }
+            for (int dash = dashCount; dash < 6; dash++)
+            {
+                float unused = dash switch
+                {
+                    0 => record2.Color.X,
+                    1 => record2.Color.Y,
+                    2 => record2.Color.Z,
+                    3 => record2.Color.W,
+                    4 => record2.Offset,
+                    _ => record3.Color.X,
+                };
+                if (unused != 0f)
+                    return false;
+            }
+            float tolerance = MathF.Max(1f, period) * 0.00001f;
+            if ((dashCount == 0 && record1.Color.Y != 0f) ||
+                (dashCount != 0 && (!draws || period <= 0f ||
+                    MathF.Abs(period - record1.Color.Y) > tolerance)))
+                return false;
         }
         return true;
     }

@@ -17,6 +17,7 @@ int shxMTextEntityCount = ReadNonNegativeInt("--shx-mtext-entities", 0);
 int attributeInsertCount = ReadNonNegativeInt("--attribute-inserts", 0);
 int solidHatchCount = ReadNonNegativeInt("--solid-hatches", 0);
 int patternHatchCount = ReadNonNegativeInt("--pattern-hatches", 0);
+bool complexPatternGrammar = HasFlag("--complex-pattern-grammar");
 bool decorateText = HasFlag("--text-decorations");
 bool decorateShxText = HasFlag("--shx-decorations");
 bool lowerLineTypes = HasFlag("--linetypes");
@@ -94,6 +95,7 @@ CadDocumentSession session = CreateDocument(
     attributeInsertCount,
     solidHatchCount,
     patternHatchCount,
+    complexPatternGrammar,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -228,6 +230,7 @@ var report = new CadBenchmarkReport(
     attributeInsertCount,
     solidHatchCount,
     patternHatchCount,
+    complexPatternGrammar,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -324,6 +327,7 @@ CadDocumentSession CreateDocument(
     int attributeCount,
     int hatchCount,
     int patternedHatchCount,
+    bool useComplexPatternGrammar,
     bool decorateTextRuns,
     bool decorateShxTextRuns,
     bool useLineTypes,
@@ -637,6 +641,17 @@ CadDocumentSession CreateDocument(
                 BasePoint = new XY(x, y + 2.0),
                 Offset = new XY(3.0, 4.0),
             });
+            if (useComplexPatternGrammar)
+            {
+                pattern.Lines[0].DashLengths.AddRange([4.0, -2.0, 0.0, -2.0]);
+                pattern.Lines.Add(new HatchPattern.Line
+                {
+                    Angle = Math.PI / 2.0,
+                    BasePoint = new XY(x + 10.0, y),
+                    Offset = new XY(-6.0, 2.0),
+                    DashLengths = { 2.0, -1.0 },
+                });
+            }
             hatch.Paths.Add(CreateHatchLoop(
                 (x, y),
                 (x + 20, y),
@@ -1111,6 +1126,7 @@ internal sealed record CadBenchmarkReport(
     int AttributeInsertCount,
     int SolidHatchCount,
     int PatternHatchCount,
+    bool ComplexPatternGrammar,
     bool DecoratedText,
     bool DecoratedShxText,
     bool LoweredLineTypes,

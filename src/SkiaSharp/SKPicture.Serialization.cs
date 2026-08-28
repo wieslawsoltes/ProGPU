@@ -140,7 +140,7 @@ public partial class SKPicture
 internal static class PictureArchive
 {
     private const ulong Magic = 0x314349504B534750UL;
-    private const int Version = 4;
+    private const int Version = 5;
     private const int MinimumSupportedVersion = 1;
     private const int MaxDepth = 64;
     private const int MaxCommands = 1_000_000;
@@ -163,6 +163,7 @@ internal static class PictureArchive
         ThemeResource,
         BackdropMaterial,
         SweepAngles,
+        HatchPatternSet,
     }
 
     private enum SegmentKind : byte
@@ -535,6 +536,7 @@ internal static class PictureArchive
             PerlinNoiseBrush => BrushKind.PerlinNoise,
             HatchPatternBrush => BrushKind.Hatch,
             CrossHatchBrush => BrushKind.CrossHatch,
+            HatchPatternSetBrush when version >= 5 => BrushKind.HatchPatternSet,
             ThemeResourceBrush => BrushKind.ThemeResource,
             BackdropMaterialBrush => BrushKind.BackdropMaterial,
             _ => throw new NotSupportedException($"Brush type '{brush.GetType().FullName}' is not serializable."),
@@ -623,6 +625,25 @@ internal static class PictureArchive
                     WriteMatrix(writer, crossHatch.CoordinateTransform);
                 }
                 break;
+            case HatchPatternSetBrush hatchSet:
+                writer.Write(hatchSet.Thickness);
+                WriteVector4(writer, hatchSet.Color);
+                WriteMatrix(writer, hatchSet.CoordinateTransform);
+                WriteCount(writer, hatchSet.Families.Length, MaxArrayElements, "hatch pattern families");
+                foreach (HatchPatternLineFamily family in hatchSet.Families.Span)
+                {
+                    WriteVector2(writer, family.BasePoint);
+                    WriteVector2(writer, family.Direction);
+                    writer.Write(family.TangentShift);
+                    writer.Write(family.Spacing);
+                    writer.Write(family.DashOffset);
+                    writer.Write(family.DashCount);
+                    writer.Write(family.DashPeriod);
+                }
+                WriteCount(writer, hatchSet.Dashes.Length, MaxArrayElements, "hatch pattern dashes");
+                foreach (float dash in hatchSet.Dashes.Span)
+                    writer.Write(dash);
+                break;
             case ThemeResourceBrush theme:
                 WriteString(writer, theme.ResourceKey as string ?? throw new NotSupportedException(
                     $"Picture serialization supports string theme-resource keys; key type '{theme.ResourceKey.GetType().FullName}' is not serializable."));
@@ -664,6 +685,7 @@ internal static class PictureArchive
             BrushKind.PerlinNoise => ReadPerlinNoise(reader),
             BrushKind.Hatch => ReadHatchPattern(reader, version, crossHatch: false),
             BrushKind.CrossHatch => ReadHatchPattern(reader, version, crossHatch: true),
+            BrushKind.HatchPatternSet when version >= 5 => ReadHatchPatternSet(reader),
             BrushKind.ThemeResource => new ThemeResourceBrush(
                 ReadString(reader) ?? throw new InvalidDataException("Theme resource keys cannot be null.")),
             BrushKind.BackdropMaterial => ReadBackdropMaterial(reader),
@@ -690,6 +712,34 @@ internal static class PictureArchive
                 { CoordinateTransform = coordinateTransform }
             : new HatchPatternBrush(angle, spacing, thickness, color)
                 { CoordinateTransform = coordinateTransform };
+    }
+
+    private static Brush ReadHatchPatternSet(BinaryReader reader)
+    {
+        float thickness = reader.ReadSingle();
+        Vector4 color = ReadVector4(reader);
+        Matrix4x4 transform = ReadMatrix(reader);
+        int familyCount = ReadCount(reader, MaxArrayElements, "hatch pattern families");
+        var families = new HatchPatternLineFamily[familyCount];
+        for (int i = 0; i < familyCount; i++)
+        {
+            families[i] = new HatchPatternLineFamily(
+                ReadVector2(reader),
+                ReadVector2(reader),
+                reader.ReadSingle(),
+                reader.ReadSingle(),
+                reader.ReadInt32(),
+                reader.ReadInt32(),
+                reader.ReadSingle());
+        }
+        int dashCount = ReadCount(reader, MaxArrayElements, "hatch pattern dashes");
+        var dashes = new float[dashCount];
+        for (int i = 0; i < dashCount; i++)
+            dashes[i] = reader.ReadSingle();
+        return new HatchPatternSetBrush(families, dashes, thickness, color)
+        {
+            CoordinateTransform = transform,
+        };
     }
 
     private static LinearGradientBrush ReadLinearGradient(BinaryReader reader)

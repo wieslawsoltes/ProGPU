@@ -22,6 +22,8 @@ public sealed class CadSnapshotOptions
     public const int DefaultMaxHatchLoops = 1_000_000;
     public const int DefaultMaxHatchSegments = 5_000_000;
     public const int DefaultMaxHatchPatterns = 1_000_000;
+    public const int DefaultMaxHatchPatternFamilies = 1_000_000;
+    public const int DefaultMaxHatchPatternDashes = 6_000_000;
 
     public double DefaultLineWeightMillimeters { get; init; } = 0.25;
     public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
@@ -35,6 +37,8 @@ public sealed class CadSnapshotOptions
     public int MaxHatchLoops { get; init; } = DefaultMaxHatchLoops;
     public int MaxHatchSegments { get; init; } = DefaultMaxHatchSegments;
     public int MaxHatchPatterns { get; init; } = DefaultMaxHatchPatterns;
+    public int MaxHatchPatternFamilies { get; init; } = DefaultMaxHatchPatternFamilies;
+    public int MaxHatchPatternDashes { get; init; } = DefaultMaxHatchPatternDashes;
     public bool IncludeNonPlottableLayers { get; init; } = true;
     public ICadTextFontResolver? TextFontResolver { get; init; }
     public ICadShxFontResolver? ShxFontResolver { get; init; }
@@ -101,6 +105,8 @@ public sealed partial class CadSnapshotCompiler
         var polylines3D = new List<CadPolyline3DPrimitive>();
         var hatches = new List<CadHatchPrimitive>();
         var hatchPatterns = new List<CadHatchPattern>();
+        var hatchPatternFamilies = new List<CadHatchPatternFamily>();
+        var hatchPatternDashes = new List<double>();
         var hatchLoops = new List<CadHatchLoop>();
         var hatchSegments = new List<CadHatchSegment>();
         var texts = new List<CadTextPrimitive>();
@@ -188,6 +194,8 @@ public sealed partial class CadSnapshotCompiler
             polylines3D.ToArray(),
             hatches.ToArray(),
             hatchPatterns.ToArray(),
+            hatchPatternFamilies.ToArray(),
+            hatchPatternDashes.ToArray(),
             hatchLoops.ToArray(),
             hatchSegments.ToArray(),
             texts.ToArray(),
@@ -348,6 +356,8 @@ public sealed partial class CadSnapshotCompiler
                         options,
                         hatches,
                         hatchPatterns,
+                        hatchPatternFamilies,
+                        hatchPatternDashes,
                         hatchLoops,
                         hatchSegments),
                     TextEntity text => CompileText(
@@ -3237,6 +3247,12 @@ public sealed partial class CadSnapshotCompiler
             1);
         ArgumentOutOfRangeException.ThrowIfLessThan(
             options.MaxHatchPatterns,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxHatchPatternFamilies,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxHatchPatternDashes,
             1);
     }
 

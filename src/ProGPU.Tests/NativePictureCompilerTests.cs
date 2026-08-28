@@ -1941,6 +1941,30 @@ public class NativePictureCompilerTests
                 CoordinateTransform = Matrix4x4.CreateScale(2f, 3f, 1f),
             },
             path);
+        drawing.DrawHatch(
+            new HatchPatternSetBrush(
+                [
+                    new HatchPatternLineFamily(
+                        new Vector2(1f, 2f),
+                        Vector2.UnitX,
+                        3f,
+                        5f,
+                        0,
+                        6,
+                        8.5f),
+                    new HatchPatternLineFamily(
+                        new Vector2(4f, 5f),
+                        Vector2.UnitY,
+                        -2f,
+                        7f,
+                        6,
+                        0,
+                        0f),
+                ],
+                [2f, -1f, 0f, -0.5f, 3f, -2f],
+                0f,
+                new Vector4(0.25f, 0.5f, 0.75f, 1f)),
+            path);
         using GpuPicture picture = recorder.EndRecording();
 
         Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
@@ -1951,7 +1975,8 @@ public class NativePictureCompilerTests
             out NativePictureCompileFailure failure),
             failure.ToString());
         Assert.NotNull(compiled);
-        Assert.Equal(2, compiled.PathCount);
+        Assert.Equal(3, compiled.PathCount);
+        Assert.Equal(8, compiled.GradientStopCount);
         NativeMethods.SceneHeader header =
             MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
         ReadOnlySpan<NativeMethods.SceneResource> resources =
@@ -1970,12 +1995,27 @@ public class NativePictureCompilerTests
                     checked((int)brushResource.PayloadSize)));
         Assert.Equal(NativeSceneBrushKind.HatchPattern, brushes[0].Kind);
         Assert.Equal(NativeSceneBrushKind.CrossHatch, brushes[1].Kind);
+        Assert.Equal(NativeSceneBrushKind.HatchPatternSet, brushes[2].Kind);
+        Assert.Equal(8U, brushes[2].StopCount);
+        Assert.Equal((NativeSceneGradientSpread)2U, brushes[2].Spread);
         Assert.Equal(6f, brushes[0].Center.X);
         Assert.Equal(2f, brushes[1].Center.Y);
         Assert.Equal(3f, brushes[0].CoordinateTransform0.Z);
         Assert.Equal(5f, brushes[0].CoordinateTransform1.Z);
         Assert.Equal(2f, brushes[1].CoordinateTransform0.X);
         Assert.Equal(3f, brushes[1].CoordinateTransform1.Y);
+        ReadOnlySpan<NativeSceneGradientStop> records =
+            MemoryMarshal.Cast<byte, NativeSceneGradientStop>(
+                compiled.Stream.Slice(
+                    checked((int)brushResource.AuxiliaryOffset),
+                    checked((int)brushResource.AuxiliarySize)));
+        Assert.Equal(8, records.Length);
+        Assert.Equal(new Vector4(1f, 2f, 1f, 0f), records[0].Color);
+        Assert.Equal(5f, records[0].Offset);
+        Assert.Equal(new Vector4(3f, 8.5f, 6f, 0f), records[1].Color);
+        Assert.Equal(new Vector4(2f, -1f, 0f, -0.5f), records[2].Color);
+        Assert.Equal(3f, records[2].Offset);
+        Assert.Equal(-2f, records[3].Color.X);
     }
 
     [Fact]

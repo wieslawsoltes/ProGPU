@@ -1,5 +1,6 @@
 using ACadSharp.Entities;
 using CSMath;
+using ProGPU.Vector;
 using HatchArc = ACadSharp.Entities.Hatch.BoundaryPath.Arc;
 using HatchEllipse = ACadSharp.Entities.Hatch.BoundaryPath.Ellipse;
 using HatchLine = ACadSharp.Entities.Hatch.BoundaryPath.Line;
@@ -21,6 +22,8 @@ public sealed partial class CadSnapshotCompiler
         CadSnapshotOptions options,
         List<CadHatchPrimitive> destination,
         List<CadHatchPattern> patterns,
+        List<CadHatchPatternFamily> patternFamilies,
+        List<double> patternDashes,
         List<CadHatchLoop> loops,
         List<CadHatchSegment> segments)
     {
@@ -52,9 +55,9 @@ public sealed partial class CadSnapshotCompiler
         EnsureFinite(coordinateSystem.YAxis);
         EnsureFinite(coordinateSystem.ZAxis);
 
-        CadHatchPattern? localPattern = hatch.IsSolid
+        CompiledHatchPattern? localPattern = hatch.IsSolid
             ? null
-            : CompileContinuousPattern(hatch);
+            : CompilePattern(hatch);
 
         var localLoops = new List<CadHatchLoop>(hatch.Paths.Count);
         var localSegments = new List<CadHatchSegment>();
@@ -110,6 +113,20 @@ public sealed partial class CadSnapshotCompiler
             throw new CadUnsupportedEntityException(
                 $"The configured {options.MaxHatchPatterns}-pattern HATCH document limit was reached.");
         }
+        if (localPattern is { } boundedPattern &&
+            checked(patternFamilies.Count + boundedPattern.Families.Length) >
+                options.MaxHatchPatternFamilies)
+        {
+            throw new CadUnsupportedEntityException(
+                $"The configured {options.MaxHatchPatternFamilies}-family HATCH document limit was reached.");
+        }
+        if (localPattern is { } dashedPattern &&
+            checked(patternDashes.Count + dashedPattern.Dashes.Length) >
+                options.MaxHatchPatternDashes)
+        {
+            throw new CadUnsupportedEntityException(
+                $"The configured {options.MaxHatchPatternDashes}-dash HATCH document limit was reached.");
+        }
 
         CadHatchSegment first = localSegments[0];
         double localOriginX = first.StartX;
@@ -143,11 +160,20 @@ public sealed partial class CadSnapshotCompiler
         if (localPattern is { } retainedPattern)
         {
             patternIndex = patterns.Count;
-            patterns.Add(retainedPattern with
+            int familyOffset = patternFamilies.Count;
+            int dashOffset = patternDashes.Count;
+            for (int i = 0; i < retainedPattern.Families.Length; i++)
             {
-                BasePointX = retainedPattern.BasePointX - localOriginX,
-                BasePointY = retainedPattern.BasePointY - localOriginY,
-            });
+                CadHatchPatternFamily family = retainedPattern.Families[i];
+                patternFamilies.Add(family with
+                {
+                    BasePointX = family.BasePointX - localOriginX,
+                    BasePointY = family.BasePointY - localOriginY,
+                    DashOffset = checked(dashOffset + family.DashOffset),
+                });
+            }
+            patternDashes.AddRange(retainedPattern.Dashes);
+            patterns.Add(new CadHatchPattern(familyOffset, retainedPattern.Families.Length));
         }
         int primitiveIndex = destination.Count;
         destination.Add(new CadHatchPrimitive(
@@ -166,22 +192,55 @@ public sealed partial class CadSnapshotCompiler
             bounds);
     }
 
-    private static CadHatchPattern CompileContinuousPattern(Hatch hatch)
+    private readonly record struct CompiledHatchPattern(
+        CadHatchPatternFamily[] Families,
+        double[] Dashes);
+
+    private static CompiledHatchPattern CompilePattern(Hatch hatch)
     {
         HatchPattern pattern = hatch.Pattern ??
             throw new CadUnsupportedEntityException(
                 "A patterned HATCH requires a persisted pattern definition.");
-        if (pattern.Lines.Count != 1)
+        if (pattern.Lines.Count == 0)
         {
             throw new CadUnsupportedEntityException(
-                "Patterned HATCH currently requires exactly one continuous line family; multi-family patterns require a bounded variable-family GPU contract.");
+                "A patterned HATCH requires at least one persisted line family.");
         }
 
-        HatchPattern.Line line = pattern.Lines[0];
-        if (line.DashLengths.Count != 0)
+        int extraFamilyCount = hatch.IsDouble &&
+            hatch.PatternType == HatchPatternType.PatternFill
+            ? pattern.Lines.Count
+            : 0;
+        var families = new CadHatchPatternFamily[checked(pattern.Lines.Count + extraFamilyCount)];
+        var dashes = new List<double>(checked(pattern.Lines.Count * HatchPatternSetBrush.MaximumDashCount));
+        for (int lineIndex = 0; lineIndex < pattern.Lines.Count; lineIndex++)
+        {
+            families[lineIndex] = CompilePatternFamily(pattern.Lines[lineIndex], dashes);
+        }
+
+        if (extraFamilyCount != 0)
+        {
+            for (int i = 0; i < pattern.Lines.Count; i++)
+            {
+                CadHatchPatternFamily source = families[i];
+                families[pattern.Lines.Count + i] = source with
+                {
+                    DirectionX = -source.DirectionY,
+                    DirectionY = source.DirectionX,
+                };
+            }
+        }
+        return new CompiledHatchPattern(families, dashes.ToArray());
+    }
+
+    private static CadHatchPatternFamily CompilePatternFamily(
+        HatchPattern.Line line,
+        List<double> dashes)
+    {
+        if (line.DashLengths.Count > HatchPatternSetBrush.MaximumDashCount)
         {
             throw new CadUnsupportedEntityException(
-                "Dashed or dotted HATCH families require a bounded variable-dash GPU contract.");
+                $"A HATCH pattern family exceeds Autodesk's {HatchPatternSetBrush.MaximumDashCount}-dash PAT definition limit.");
         }
         if (!double.IsFinite(line.Angle) ||
             !double.IsFinite(line.BasePoint.X) ||
@@ -196,26 +255,52 @@ public sealed partial class CadSnapshotCompiler
         double sine = Math.Sin(line.Angle);
         double normalX = -sine;
         double normalY = cosine;
-        double spacing = Math.Abs(
+        double signedSpacing =
             (line.Offset.X * normalX) +
-            (line.Offset.Y * normalY));
+            (line.Offset.Y * normalY);
+        double tangentShift =
+            (line.Offset.X * cosine) +
+            (line.Offset.Y * sine);
+        double spacing = signedSpacing;
+        if (spacing < 0.0)
+        {
+            spacing = -spacing;
+            tangentShift = -tangentShift;
+        }
         if (!double.IsFinite(spacing) || spacing <= 1e-12)
         {
             throw new CadUnsupportedEntityException(
-                "A continuous HATCH family requires a finite positive perpendicular spacing.");
+                "A HATCH family requires a finite positive perpendicular spacing.");
         }
 
-        // DXF group 77 is defined only for user-defined (type 0) hatches. It is
-        // ignored for predefined and custom definitions by AutoCAD.
-        bool isDouble = hatch.IsDouble &&
-            hatch.PatternType == HatchPatternType.PatternFill;
-        return new CadHatchPattern(
+        int dashOffset = dashes.Count;
+        double dashPeriod = 0.0;
+        bool draws = false;
+        foreach (double dash in line.DashLengths)
+        {
+            if (!double.IsFinite(dash))
+                throw new ArgumentException("HATCH dash values must be finite.");
+            dashPeriod += Math.Abs(dash);
+            draws |= dash >= 0.0;
+            dashes.Add(dash);
+        }
+        if (line.DashLengths.Count != 0 &&
+            (!draws || !double.IsFinite(dashPeriod) || dashPeriod <= 1e-12))
+        {
+            throw new CadUnsupportedEntityException(
+                "A dashed HATCH family requires a positive finite repeating period and at least one drawn segment or dot.");
+        }
+
+        return new CadHatchPatternFamily(
             line.BasePoint.X,
             line.BasePoint.Y,
-            normalX,
-            normalY,
+            cosine,
+            sine,
+            tangentShift,
             spacing,
-            isDouble);
+            dashOffset,
+            line.DashLengths.Count,
+            dashPeriod);
     }
 
     private static void AddPolylineLoop(

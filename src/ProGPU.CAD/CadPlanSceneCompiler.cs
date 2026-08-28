@@ -12,6 +12,7 @@ public sealed class CadPlanSceneOptions
     public const int DefaultMaxLineTypeSourceSegments = 1_000_000;
     public const int DefaultMaxLineTypeArcMapsPerEntity = 16_384;
     public const int DefaultMaxLineTypePlacements = 1_000_000;
+    public const int DefaultMaxHatchPatternAuxiliaryRecords = 65_536;
 
     public float PhysicalDpi { get; init; } = 96.0f;
     public float LineWeightScale { get; init; } = 1.0f;
@@ -21,6 +22,8 @@ public sealed class CadPlanSceneOptions
     public int MaxLineTypeSourceSegments { get; init; } = DefaultMaxLineTypeSourceSegments;
     public int MaxLineTypeArcMapsPerEntity { get; init; } = DefaultMaxLineTypeArcMapsPerEntity;
     public int MaxLineTypePlacements { get; init; } = DefaultMaxLineTypePlacements;
+    public int MaxHatchPatternAuxiliaryRecords { get; init; } =
+        DefaultMaxHatchPatternAuxiliaryRecords;
 }
 
 public readonly record struct CadPlanSceneStatistics(
@@ -137,6 +140,7 @@ public sealed class CadPlanSceneCompiler
         int lineTypePatternSteps = 0;
         int lineTypeSourceSegments = 0;
         int lineTypePlacementBudgetUsed = 0;
+        int hatchPatternAuxiliaryRecords = 0;
 
         foreach (CadEntityHeader entity in entities)
         {
@@ -285,7 +289,9 @@ public sealed class CadPlanSceneCompiler
                         context,
                         pen.Brush,
                         snapshot,
-                        snapshot.Hatches.Span[entity.PrimitiveIndex]);
+                        snapshot.Hatches.Span[entity.PrimitiveIndex],
+                        options.MaxHatchPatternAuxiliaryRecords,
+                        ref hatchPatternAuxiliaryRecords);
                     break;
                 case CadEntityKind.Face3D:
                     RecordFace3D(context, pen, snapshot.Faces.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
@@ -717,7 +723,9 @@ public sealed class CadPlanSceneCompiler
         DrawingContext context,
         Brush brush,
         CadDocumentSnapshot snapshot,
-        CadHatchPrimitive hatch)
+        CadHatchPrimitive hatch,
+        int maximumAuxiliaryRecords,
+        ref int auxiliaryRecords)
     {
         var path = new PathGeometry { FillRule = FillRule.EvenOdd };
         ReadOnlySpan<CadHatchLoop> loops = snapshot.HatchLoops.Span.Slice(
@@ -748,31 +756,93 @@ public sealed class CadPlanSceneCompiler
             ? brush
             : CreateHatchPatternBrush(
                 brush,
-                snapshot.HatchPatterns.Span[hatch.PatternIndex]);
+                snapshot,
+                snapshot.HatchPatterns.Span[hatch.PatternIndex],
+                maximumAuxiliaryRecords,
+                ref auxiliaryRecords);
         context.DrawPath(fill, null, path, transform);
     }
 
     private static Brush CreateHatchPatternBrush(
         Brush styleBrush,
-        in CadHatchPattern pattern)
+        CadDocumentSnapshot snapshot,
+        in CadHatchPattern pattern,
+        int maximumAuxiliaryRecords,
+        ref int auxiliaryRecords)
     {
         SolidColorBrush solid = styleBrush as SolidColorBrush ??
             throw new InvalidOperationException(
                 "CAD HATCH styles require a resolved solid-color brush.");
-        float normalX = ToFloat(pattern.NormalX);
-        float normalY = ToFloat(pattern.NormalY);
-        float spacing = ToFloat(pattern.Spacing);
-        float baseX = ToFloat(pattern.BasePointX);
-        float baseY = ToFloat(pattern.BasePointY);
-        float translateX = -baseX + (normalX * spacing * 0.5f);
-        float translateY = -baseY + (normalY * spacing * 0.5f);
-        if (pattern.IsDouble)
+        ReadOnlySpan<CadHatchPatternFamily> families =
+            snapshot.HatchPatternFamilies.Span.Slice(
+                pattern.FamilyOffset,
+                pattern.FamilyCount);
+        bool simple = families.Length == 1 && families[0].DashCount == 0;
+        bool simpleCross = families.Length == 2 &&
+            families[0].DashCount == 0 && families[1].DashCount == 0 &&
+            Math.Abs(families[0].Spacing - families[1].Spacing) <=
+                Math.Max(1.0, families[0].Spacing) * 1e-10 &&
+            Math.Abs(families[0].BasePointX - families[1].BasePointX) <= 1e-10 &&
+            Math.Abs(families[0].BasePointY - families[1].BasePointY) <= 1e-10 &&
+            Math.Abs((families[0].DirectionX * families[1].DirectionX) +
+                (families[0].DirectionY * families[1].DirectionY)) <= 1e-10;
+        if (!simple && !simpleCross)
         {
-            translateX += -normalY * spacing * 0.5f;
-            translateY += normalX * spacing * 0.5f;
+            int requiredRecords = checked(families.Length * 4);
+            if (requiredRecords > maximumAuxiliaryRecords - auxiliaryRecords)
+            {
+                throw new InvalidOperationException(
+                    $"Patterned HATCH brushes require more than the configured {maximumAuxiliaryRecords} retained auxiliary records.");
+            }
+            auxiliaryRecords += requiredRecords;
+            var retainedFamilies = new HatchPatternLineFamily[families.Length];
+            var retainedDashes = new float[CountPatternDashes(families)];
+            int localDashOffset = 0;
+            for (int i = 0; i < families.Length; i++)
+            {
+                CadHatchPatternFamily family = families[i];
+                for (int dashIndex = 0; dashIndex < family.DashCount; dashIndex++)
+                {
+                    retainedDashes[localDashOffset + dashIndex] = ToFloat(
+                        snapshot.HatchPatternDashes.Span[family.DashOffset + dashIndex]);
+                }
+                retainedFamilies[i] = new HatchPatternLineFamily(
+                    new Vector2(ToFloat(family.BasePointX), ToFloat(family.BasePointY)),
+                    new Vector2(ToFloat(family.DirectionX), ToFloat(family.DirectionY)),
+                    ToFloat(family.TangentShift),
+                    ToFloat(family.Spacing),
+                    localDashOffset,
+                    family.DashCount,
+                    ToFloat(family.DashPeriod));
+                localDashOffset += family.DashCount;
+            }
+            return new HatchPatternSetBrush(
+                retainedFamilies,
+                retainedDashes,
+                thickness: 0f,
+                color: solid.Color)
+            {
+                Opacity = styleBrush.Opacity,
+            };
         }
 
-        Brush result = pattern.IsDouble
+        CadHatchPatternFamily first = families[0];
+        float normalX = ToFloat(-first.DirectionY);
+        float normalY = ToFloat(first.DirectionX);
+        float spacing = ToFloat(first.Spacing);
+        float baseX = ToFloat(first.BasePointX);
+        float baseY = ToFloat(first.BasePointY);
+        float translateX = -baseX + (normalX * spacing * 0.5f);
+        float translateY = -baseY + (normalY * spacing * 0.5f);
+        if (simpleCross)
+        {
+            float secondNormalX = ToFloat(-families[1].DirectionY);
+            float secondNormalY = ToFloat(families[1].DirectionX);
+            translateX += secondNormalX * spacing * 0.5f;
+            translateY += secondNormalY * spacing * 0.5f;
+        }
+
+        Brush result = simpleCross
             ? new CrossHatchBrush(
                 MathF.Atan2(normalY, normalX),
                 spacing,
@@ -797,6 +867,14 @@ public sealed class CadPlanSceneCompiler
                 };
         result.Opacity = styleBrush.Opacity;
         return result;
+    }
+
+    private static int CountPatternDashes(ReadOnlySpan<CadHatchPatternFamily> families)
+    {
+        int count = 0;
+        for (int i = 0; i < families.Length; i++)
+            count = checked(count + families[i].DashCount);
+        return count;
     }
 
     private static void AddHatchPathSegment(
@@ -1458,6 +1536,9 @@ public sealed class CadPlanSceneCompiler
         {
             throw new ArgumentOutOfRangeException(nameof(options), "Lineweight scale must be finite and positive.");
         }
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxHatchPatternAuxiliaryRecords,
+            1);
 
         ArgumentOutOfRangeException.ThrowIfLessThan(
             options.MaxLineTypeFigures,
