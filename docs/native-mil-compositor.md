@@ -432,8 +432,11 @@ zero-height rectangle uses WPF's optimized widened-shape result directly: the
 degenerate contour has no inner boundary, so ProGPU emits the one exact outer
 vector fill. Miter and Bevel joins preserve `Get90DegreeBevelOffset()` and its
 miter-limit clamp; Round joins preserve the rounded outer path. Nonempty dash
-patterns on degenerate rectangles remain fail closed pending exact collapsed
-dash traversal.
+patterns on one-axis sharp rectangles now retain the original four-point
+closed contour and use the shared connected-stroke engine. Its exact reversal
+join emits WPF's half-width square for Miter/Bevel and incoming semicircle for
+Round. Fully collapsed sharp rectangles and rounded degenerate rectangles
+remain fail closed pending their distinct collapsed-contour traversal.
 
 `MILCMD_DRAW_ELLIPSE` records likewise accept independent fill and pen handles.
 Solid ellipse pens lower to ProGPU's exact analytic full-ellipse arc primitive,
@@ -448,8 +451,12 @@ produce no coverage. A solid one-axis ellipse lowers to the exact round-ended
 capsule implied by WPF's four SmoothJoin cubic segments; a fully collapsed
 ellipse uses the same Round/Round point-disk path as the native widener. Both
 retain their geometry-local affine transform without curve flattening.
-Nonempty dashes on one-axis or fully collapsed ellipses remain fail closed
-pending exact collapsed-contour dash traversal.
+Nonempty dashes on a one-axis ellipse now traverse its four collapsed quarter
+arcs as an exact center/end/center/end closed polyline with forced WPF smooth
+Round joins; dash phase, DashCap, affine state, and closed-seam merging remain
+in the shared connected-stroke lane. A fully collapsed ellipse keeps the
+existing WPF point-disk path when its initial dash interval is visible and is
+an exact no-op when the initial interval is a gap.
 
 Uniform-radius `MILCMD_DRAW_ROUNDED_RECTANGLE` records now accept independent
 fill and pen handles. Positive-radius solid outlines lower to ProGPU's exact
@@ -2313,6 +2320,31 @@ direct executions returned zero. Host/guest hashes matched (`21C131E2...D8C4D`
 archive, `3D67CDD5...2B43C` MIL source, `45ABD421...F6D0E` MIL test); guest
 MIL/internal executable hashes were `F7E4E8F7...626C1` and
 `62A9AE08...F175`.
+Checkpoint `f308c676` adds the shared 180-degree reversal primitive needed by
+collapsed dashed contours. Managed `StrokeJoinGeometry` and the C++ backend
+now emit WPF's half-width three-triangle square for Miter/Bevel reversals and
+an eight-triangle incoming semicircle for Round. Native MIL one-axis sharp
+rectangles retain their four canonical points; one-axis ellipses retain four
+ordered collapsed quarter traversals and force Round smooth joins. Both stay
+inside the typed semantic stroke resource, so DirectX, WebGPU, managed, and
+native CPU geometry consume the same dash phase, DashCap, seam, affine, and
+join rules without readback or host-specific fallback. Live Windows
+PresentationCore oracles lock down all four DashCap bounds, the `2.0` boundary
+versus `2.01` initial-gap transition, and Miter/Bevel/Round reversal outlines.
+Apple passes 10/10 native CTests and 3,883/3,883 managed tests. The 96-polyline
+Metal differential remains byte exact (`C67040E2A28F2507` on both sides,
+3,408 vertices and 5,112 indices); the dash differential retains matching
+31,840/47,760 vertex/index counts and its existing one-channel edge budget.
+The immutable archive SHA-256 is
+`DD7E6B9D66305527E0F20F3445619F393943B00BEAABD4FEA88CD8450526491A`.
+Windows ARM64 MSVC `19.44.35228.0` rebuilt 178 steps with 161 `/W4 /WX`
+Ninja flag lines; both focused CTests passed in 2.98 seconds and direct
+executions returned zero. Host/guest source hashes matched
+(`992C8391...0BD0` stroke header, `7A2FCB07...30A` MIL,
+`02062853...CCF` internal test, `2C2DAFF5...DEA9` MIL test,
+`86CA4F83...D94A` managed geometry, and `9B378FDC...5CD6` managed tests).
+Guest MIL/internal executable hashes were `A5272CE9...FAAC` and
+`30295F83...D0D6`.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive
