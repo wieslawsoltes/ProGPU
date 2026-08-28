@@ -787,6 +787,105 @@ bool try_line_stroke_bounds(
         width >= 0.0 && height >= 0.0;
 }
 
+bool try_transformed_polygonal_line_stroke_bounds(
+    double x0,
+    double y0,
+    double x1,
+    double y1,
+    double thickness,
+    std::uint32_t start_cap,
+    std::uint32_t end_cap,
+    const affine_2d_double& transform,
+    progpu_native_image_rect& bounds) noexcept {
+    if (start_cap == PROGPU_NATIVE_STROKE_CAP_ROUND ||
+        end_cap == PROGPU_NATIVE_STROKE_CAP_ROUND) {
+        return false;
+    }
+    const double delta_x = x1 - x0;
+    const double delta_y = y1 - y0;
+    const double length = std::hypot(delta_x, delta_y);
+    if (!std::isfinite(length) || length <= 0.0 || thickness <= 0.0) {
+        return false;
+    }
+    const double half_thickness = thickness * 0.5;
+    const double unit_x = delta_x / length;
+    const double unit_y = delta_y / length;
+    const double normal_x = -unit_y * half_thickness;
+    const double normal_y = unit_x * half_thickness;
+    double minimum_x = std::numeric_limits<double>::infinity();
+    double minimum_y = std::numeric_limits<double>::infinity();
+    double maximum_x = -std::numeric_limits<double>::infinity();
+    double maximum_y = -std::numeric_limits<double>::infinity();
+    const auto include = [
+        &transform,
+        &minimum_x,
+        &minimum_y,
+        &maximum_x,
+        &maximum_y](double point_x, double point_y) noexcept {
+        const double transformed_x = point_x * transform.m11 +
+            point_y * transform.m21 + transform.m31;
+        const double transformed_y = point_x * transform.m12 +
+            point_y * transform.m22 + transform.m32;
+        if (!std::isfinite(transformed_x) ||
+            !std::isfinite(transformed_y)) {
+            return false;
+        }
+        minimum_x = std::min(minimum_x, transformed_x);
+        minimum_y = std::min(minimum_y, transformed_y);
+        maximum_x = std::max(maximum_x, transformed_x);
+        maximum_y = std::max(maximum_y, transformed_y);
+        return true;
+    };
+    if (!include(x0 - normal_x, y0 - normal_y) ||
+        !include(x0 + normal_x, y0 + normal_y) ||
+        !include(x1 - normal_x, y1 - normal_y) ||
+        !include(x1 + normal_x, y1 + normal_y)) {
+        return false;
+    }
+    const auto include_cap = [
+        &include,
+        half_thickness,
+        normal_x,
+        normal_y,
+        unit_x,
+        unit_y](
+        double center_x,
+        double center_y,
+        double outward_sign,
+        std::uint32_t cap) noexcept {
+        const double outer_x =
+            center_x + outward_sign * unit_x * half_thickness;
+        const double outer_y =
+            center_y + outward_sign * unit_y * half_thickness;
+        if (cap == PROGPU_NATIVE_STROKE_CAP_SQUARE) {
+            return include(outer_x - normal_x, outer_y - normal_y) &&
+                include(outer_x + normal_x, outer_y + normal_y);
+        }
+        if (cap == PROGPU_NATIVE_STROKE_CAP_TRIANGLE) {
+            return include(outer_x, outer_y);
+        }
+        return cap == PROGPU_NATIVE_STROKE_CAP_FLAT;
+    };
+    if (!include_cap(x0, y0, -1.0, start_cap) ||
+        !include_cap(x1, y1, 1.0, end_cap)) {
+        return false;
+    }
+    const double width = maximum_x - minimum_x;
+    const double height = maximum_y - minimum_y;
+    if (!finite_double_as_float(minimum_x) ||
+        !finite_double_as_float(minimum_y) ||
+        !finite_double_as_float(width) ||
+        !finite_double_as_float(height) || width <= 0.0 || height <= 0.0) {
+        return false;
+    }
+    bounds = {
+        static_cast<float>(minimum_x),
+        static_cast<float>(minimum_y),
+        static_cast<float>(width),
+        static_cast<float>(height)};
+    return true;
+}
+
 bool try_degenerate_cap_stroke_bounds(
     double point_x,
     double point_y,
@@ -8749,11 +8848,13 @@ struct channel::implementation {
                         geometry_transform,
                         current_transform);
                 }
-                if (!affine_preserves_axis_alignment(transform) ||
-                    affine_has_zero_area(transform)) {
+                if (affine_has_zero_area(transform)) {
                     return status::unsupported_command;
                 }
                 if (geometry.kind != fixed_geometry_kind::line) {
+                    if (!affine_preserves_axis_alignment(transform)) {
+                        return status::unsupported_command;
+                    }
                     const bool is_ellipse =
                         geometry.kind == fixed_geometry_kind::ellipse;
                     const double shape_x = is_ellipse
@@ -8781,11 +8882,7 @@ struct channel::implementation {
                     }
                     return finish_bounds();
                 }
-                double stroke_x = 0.0;
-                double stroke_y = 0.0;
-                double stroke_width = 0.0;
-                double stroke_height = 0.0;
-                if (!try_line_stroke_bounds(
+                if (!try_transformed_polygonal_line_stroke_bounds(
                         geometry.first,
                         geometry.second,
                         geometry.third,
@@ -8793,15 +8890,6 @@ struct channel::implementation {
                         pen.thickness,
                         pen.start_line_cap,
                         pen.end_line_cap,
-                        stroke_x,
-                        stroke_y,
-                        stroke_width,
-                        stroke_height) ||
-                    !try_transform_bounds(
-                        stroke_x,
-                        stroke_y,
-                        stroke_width,
-                        stroke_height,
                         transform,
                         bounds) ||
                     bounds.width <= 0.0F || bounds.height <= 0.0F) {

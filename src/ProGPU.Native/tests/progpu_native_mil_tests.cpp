@@ -11479,10 +11479,10 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         status::success);
     PROGPU_REQUIRE(contains_mapping(5.0F, 2.5F, -78.0F, -61.0F));
 
-    std::vector<std::byte> unsupported_update;
-    append_create(unsupported_update, shear_transform, 66U);
+    std::vector<std::byte> shear_update;
+    append_create(shear_update, shear_transform, 66U);
     append_command(
-        unsupported_update,
+        shear_update,
         command::matrix_transform,
         shear_transform,
         1.0,
@@ -11493,7 +11493,7 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         0.0,
         0U);
     append_command(
-        unsupported_update,
+        shear_update,
         command::line_geometry,
         geometry,
         10.0,
@@ -11504,16 +11504,45 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         0U,
         0U);
     append_command(
-        unsupported_update,
+        shear_update,
         command::geometry_drawing,
         geometry_drawing,
         0U,
         pen,
         geometry);
-    PROGPU_REQUIRE(state.apply(unsupported_update) == status::success);
+    PROGPU_REQUIRE(state.apply(shear_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7008U, 8U, stream, nullptr) ==
-        status::unsupported_command);
+        state.build_scene(target, 7008U, 8U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(contains_mapping(
+        1.25F,
+        4.0F / 3.0F,
+        -15.5F,
+        -58.0F / 3.0F));
+
+    std::vector<std::byte> triangle_cap_update;
+    append_command(
+        triangle_cap_update,
+        command::pen,
+        pen,
+        2.0,
+        10.0,
+        brush,
+        thickness_animation,
+        PROGPU_NATIVE_STROKE_CAP_TRIANGLE,
+        PROGPU_NATIVE_STROKE_CAP_TRIANGLE,
+        PROGPU_NATIVE_STROKE_CAP_FLAT,
+        PROGPU_NATIVE_STROKE_JOIN_MITER,
+        0U);
+    PROGPU_REQUIRE(state.apply(triangle_cap_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 9U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(contains_mapping(
+        10.0F / 7.0F,
+        20.0F / 13.0F,
+        -146.0F / 7.0F,
+        -318.0F / 13.0F));
 
     std::vector<std::byte> dashed_update;
     append_command(
@@ -11542,7 +11571,7 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         dash_style);
     PROGPU_REQUIRE(state.apply(dashed_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7008U, 9U, stream, nullptr) ==
+        state.build_scene(target, 7008U, 10U, stream, nullptr) ==
         status::unsupported_command);
 
     std::vector<std::byte> solid_dash_style_update;
@@ -11555,7 +11584,7 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
     PROGPU_REQUIRE(
         state.apply(solid_dash_style_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7008U, 10U, stream, &metrics) ==
+        state.build_scene(target, 7008U, 11U, stream, &metrics) ==
         status::success);
     PROGPU_REQUIRE(contains_mapping(
         10.0F / 7.0F, 2.5F, -46.0F / 7.0F, -36.0F));
