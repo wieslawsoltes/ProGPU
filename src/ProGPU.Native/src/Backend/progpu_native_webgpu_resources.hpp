@@ -8,6 +8,7 @@ struct path_raster_resources {
     WGPUBuffer uniforms = nullptr;
     WGPUBuffer binary_leaf_a_uniforms = nullptr;
     WGPUBuffer binary_leaf_b_uniforms = nullptr;
+    WGPUBuffer ternary_leaf_c_uniforms = nullptr;
     WGPUBuffer records = nullptr;
     WGPUBuffer segments = nullptr;
     WGPUBuffer coverage = nullptr;
@@ -15,6 +16,7 @@ struct path_raster_resources {
     WGPUBindGroup bind_group = nullptr;
     WGPUBindGroup binary_leaf_a_bind_group = nullptr;
     WGPUBindGroup binary_leaf_b_bind_group = nullptr;
+    WGPUBindGroup ternary_leaf_c_bind_group = nullptr;
 
     path_raster_resources() = default;
     path_raster_resources(const path_raster_resources&) = delete;
@@ -30,9 +32,13 @@ struct path_raster_resources {
         if (binary_leaf_b_bind_group != nullptr) {
             wgpuBindGroupRelease(binary_leaf_b_bind_group);
         }
+        if (ternary_leaf_c_bind_group != nullptr) {
+            wgpuBindGroupRelease(ternary_leaf_c_bind_group);
+        }
         release_buffer(uniforms);
         release_buffer(binary_leaf_a_uniforms);
         release_buffer(binary_leaf_b_uniforms);
+        release_buffer(ternary_leaf_c_uniforms);
         release_buffer(records);
         release_buffer(segments);
         release_buffer(coverage);

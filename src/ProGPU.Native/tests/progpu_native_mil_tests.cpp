@@ -13230,6 +13230,10 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     constexpr std::uint32_t arc_transform = 19U;
     constexpr std::uint32_t singular_transform = 20U;
     constexpr std::uint32_t pen = 21U;
+    constexpr std::uint32_t second_child_transform = 22U;
+    constexpr std::uint32_t second_same_fill_group = 23U;
+    constexpr std::uint32_t third_child_transform = 24U;
+    constexpr std::uint32_t third_same_fill_group = 25U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -14340,6 +14344,14 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     PROGPU_REQUIRE(found_outer_fill_override);
 
     std::vector<std::byte> overlapping_translation_update;
+    append_create(
+        overlapping_translation_update,
+        second_child_transform,
+        66U);
+    append_create(
+        overlapping_translation_update,
+        second_same_fill_group,
+        71U);
     append_command(
         overlapping_translation_update,
         command::matrix_transform,
@@ -14351,9 +14363,28 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         1.0,
         1.0,
         0U);
+    append_command(
+        overlapping_translation_update,
+        command::matrix_transform,
+        second_child_transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        2.0,
+        2.0,
+        0U);
+    const std::array second_same_fill_children{path_a};
+    append_geometry_group(
+        overlapping_translation_update,
+        second_same_fill_group,
+        second_child_transform,
+        0U,
+        second_same_fill_children);
     const std::array overlapping_translation_children{
         path_a,
-        same_fill_group};
+        same_fill_group,
+        second_same_fill_group};
     append_geometry_group(
         overlapping_translation_update,
         group,
@@ -14364,6 +14395,50 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         state.apply(overlapping_translation_update) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7003U, 9U, stream) == status::success);
+
+    std::vector<std::byte> unsupported_four_leaf_update;
+    append_create(
+        unsupported_four_leaf_update,
+        third_child_transform,
+        66U);
+    append_create(
+        unsupported_four_leaf_update,
+        third_same_fill_group,
+        71U);
+    append_command(
+        unsupported_four_leaf_update,
+        command::matrix_transform,
+        third_child_transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        3.0,
+        3.0,
+        0U);
+    const std::array third_same_fill_children{path_a};
+    append_geometry_group(
+        unsupported_four_leaf_update,
+        third_same_fill_group,
+        third_child_transform,
+        0U,
+        third_same_fill_children);
+    const std::array unsupported_four_leaf_children{
+        path_a,
+        same_fill_group,
+        second_same_fill_group,
+        third_same_fill_group};
+    append_geometry_group(
+        unsupported_four_leaf_update,
+        group,
+        transform,
+        0U,
+        unsupported_four_leaf_children);
+    PROGPU_REQUIRE(
+        state.apply(unsupported_four_leaf_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7003U, 10U, stream) ==
+        status::unsupported_command);
 
     std::vector<std::byte> clip_update;
     append_path_geometry(

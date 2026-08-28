@@ -6814,12 +6814,18 @@ struct channel::implementation {
         return false;
     }
 
-    static bool is_binary_xor_leaf_program(
+    static bool is_split_xor_leaf_program(
         std::span<const progpu_native_scene_path_boolean_node> nodes) noexcept {
-        return nodes.size() == 3U &&
+        if (nodes.size() != 3U && nodes.size() != 5U) {
+            return false;
+        }
+        const bool binary_prefix =
             nodes[0U].kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
             nodes[1U].kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
             nodes[2U].kind == PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+        return binary_prefix && (nodes.size() == 3U ||
+            (nodes[3U].kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
+                nodes[4U].kind == PROGPU_NATIVE_PATH_BOOLEAN_XOR));
     }
 
     status append_shallow_fill_leaf(
@@ -7461,7 +7467,7 @@ struct channel::implementation {
             if (has_overlapping_translated_equivalent_leaves(
                     segments,
                     group_leaves) &&
-                !is_binary_xor_leaf_program(group_nodes)) {
+                !is_split_xor_leaf_program(group_nodes)) {
                 segments.resize(original_segment_size);
                 nodes.resize(original_node_size);
                 tree = {};
@@ -11897,7 +11903,7 @@ struct channel::implementation {
                         if (has_overlapping_translated_equivalent_leaves(
                                 group_segments,
                                 group_leaves) &&
-                            !is_binary_xor_leaf_program(
+                            !is_split_xor_leaf_program(
                                 group_boolean_nodes)) {
                             return status::unsupported_command;
                         }

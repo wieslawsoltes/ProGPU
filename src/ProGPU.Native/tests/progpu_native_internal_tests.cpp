@@ -58,13 +58,38 @@ void binary_xor_is_split_into_independent_gpu_records() {
         path,
         nodes.data(),
         records);
-    require(program.split_binary_xor);
+    require(program.split_xor_leaf_count == 2U);
     require(program.path_record_index == 0U);
-    require(program.program_index == 1U);
+    require(program.program_index == 0U);
     require(program.operation_kind == 0U);
     require(records.size() == 2U);
     require(records[0U].start_segment == 2U);
     require(records[1U].start_segment == 6U);
+
+    path.boolean_node_count = 5U;
+    std::array<progpu_native_scene_path_boolean_node, 5U> ternary_nodes{};
+    ternary_nodes[0U] = nodes[0U];
+    ternary_nodes[1U] = nodes[1U];
+    ternary_nodes[2U] = nodes[2U];
+    ternary_nodes[3U] = {
+        10U, 4U, 3.0F, 4.0F, 11.0F, 12.0F,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U};
+    ternary_nodes[4U].kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+    records.clear();
+    const auto ternary_program =
+        progpu::native::path_boolean::append_gpu_records(
+            path,
+            ternary_nodes.data(),
+            records);
+    require(ternary_program.split_xor_leaf_count == 3U);
+    require(ternary_program.path_record_index == 0U);
+    require(ternary_program.program_index == 0U);
+    require(ternary_program.operation_kind == 0U);
+    require(records.size() == 3U);
+    require(records[0U].start_segment == 2U);
+    require(records[1U].start_segment == 6U);
+    require(records[2U].start_segment == 10U);
 }
 
 void clipped_miter_join_uses_the_wpf_three_triangle_wedge() {
