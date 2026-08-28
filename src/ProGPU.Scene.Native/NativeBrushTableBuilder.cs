@@ -211,7 +211,10 @@ internal sealed class NativeBrushTableBuilder
                 if (!float.IsFinite(hatch.Angle) ||
                     !float.IsFinite(hatch.Spacing) || hatch.Spacing <= 0f ||
                     !float.IsFinite(hatch.Thickness) || hatch.Thickness < 0f ||
-                    !IsFinite(hatch.Color))
+                    !IsFinite(hatch.Color) ||
+                    !TryGetAffine(
+                        hatch.CoordinateTransform,
+                        out Matrix3x2 hatchTransform))
                 {
                     return Fail(out index, out error);
                 }
@@ -221,7 +224,8 @@ internal sealed class NativeBrushTableBuilder
                     hatch.Thickness,
                     hatch.Color,
                     crossHatch: false,
-                    opacity: brush.Opacity);
+                    opacity: brush.Opacity,
+                    coordinateTransform: hatchTransform);
                 break;
             case CrossHatchBrush crossHatch:
                 if (!float.IsFinite(crossHatch.Angle) ||
@@ -229,7 +233,10 @@ internal sealed class NativeBrushTableBuilder
                     crossHatch.Spacing <= 0f ||
                     !float.IsFinite(crossHatch.Thickness) ||
                     crossHatch.Thickness < 0f ||
-                    !IsFinite(crossHatch.Color))
+                    !IsFinite(crossHatch.Color) ||
+                    !TryGetAffine(
+                        crossHatch.CoordinateTransform,
+                        out Matrix3x2 crossHatchTransform))
                 {
                     return Fail(out index, out error);
                 }
@@ -239,7 +246,8 @@ internal sealed class NativeBrushTableBuilder
                     crossHatch.Thickness,
                     crossHatch.Color,
                     crossHatch: true,
-                    opacity: brush.Opacity);
+                    opacity: brush.Opacity,
+                    coordinateTransform: crossHatchTransform);
                 break;
             default:
                 return Fail(out index, out error);

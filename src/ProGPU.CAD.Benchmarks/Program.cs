@@ -16,6 +16,7 @@ int shxTextEntityCount = ReadNonNegativeInt("--shx-text-entities", 0);
 int shxMTextEntityCount = ReadNonNegativeInt("--shx-mtext-entities", 0);
 int attributeInsertCount = ReadNonNegativeInt("--attribute-inserts", 0);
 int solidHatchCount = ReadNonNegativeInt("--solid-hatches", 0);
+int patternHatchCount = ReadNonNegativeInt("--pattern-hatches", 0);
 bool decorateText = HasFlag("--text-decorations");
 bool decorateShxText = HasFlag("--shx-decorations");
 bool lowerLineTypes = HasFlag("--linetypes");
@@ -35,10 +36,10 @@ string? outputPath = ReadString("--output-json");
 
 if (entityCount == 0 && blockArrayColumnCount == 0 && textEntityCount == 0 &&
     mtextEntityCount == 0 && shxTextEntityCount == 0 && shxMTextEntityCount == 0 &&
-    attributeInsertCount == 0 && solidHatchCount == 0)
+    attributeInsertCount == 0 && solidHatchCount == 0 && patternHatchCount == 0)
 {
     throw new ArgumentException(
-        "At least one ordinary entity, block-array column, text entity, attributed INSERT, or solid HATCH is required.");
+        "At least one ordinary entity, block-array column, text entity, attributed INSERT, or HATCH is required.");
 }
 
 if (blockArrayColumnCount > ushort.MaxValue)
@@ -51,13 +52,15 @@ if (blockArrayColumnCount > ushort.MaxValue)
 if (measureSplineSelection &&
     (entityCount == 0 || blockArrayColumnCount != 0 ||
      textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
-     shxMTextEntityCount != 0 || attributeInsertCount != 0 || solidHatchCount != 0))
+     shxMTextEntityCount != 0 || attributeInsertCount != 0 ||
+     solidHatchCount != 0 || patternHatchCount != 0))
 {
     throw new ArgumentException(
         "--spline-selection requires a positive --entities count and no block-array or text fixtures.");
 }
 if (measureTextSelection &&
     (entityCount != 0 || blockArrayColumnCount != 0 || solidHatchCount != 0 ||
+     patternHatchCount != 0 ||
      new[]
      {
          textEntityCount,
@@ -72,12 +75,13 @@ if (measureTextSelection &&
         "--text-selection requires exactly one positive text or attributed-INSERT fixture count and no ordinary or block-array fixtures.");
 }
 if (measureHatchSelection &&
-    (solidHatchCount == 0 || entityCount != 0 || blockArrayColumnCount != 0 ||
+    ((solidHatchCount == 0) == (patternHatchCount == 0) ||
+     entityCount != 0 || blockArrayColumnCount != 0 ||
      textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
      shxMTextEntityCount != 0 || attributeInsertCount != 0))
 {
     throw new ArgumentException(
-        "--hatch-selection requires a positive --solid-hatches count and no other fixtures.");
+        "--hatch-selection requires exactly one positive --solid-hatches or --pattern-hatches count and no other fixtures.");
 }
 
 CadDocumentSession session = CreateDocument(
@@ -89,6 +93,7 @@ CadDocumentSession session = CreateDocument(
     shxMTextEntityCount,
     attributeInsertCount,
     solidHatchCount,
+    patternHatchCount,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -222,6 +227,7 @@ var report = new CadBenchmarkReport(
     shxMTextEntityCount,
     attributeInsertCount,
     solidHatchCount,
+    patternHatchCount,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -276,7 +282,8 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         shxTextEntityCount +
         shxMTextEntityCount +
         attributeInsertCount +
-        solidHatchCount);
+        solidHatchCount +
+        patternHatchCount);
     int expectedExpanded = checked(
         entityCount +
         (blockArrayColumnCount == 0 ? 0 : blockArrayColumnCount + 1) +
@@ -285,7 +292,8 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         shxTextEntityCount +
         shxMTextEntityCount +
         (attributeInsertCount * 2) +
-        solidHatchCount);
+        solidHatchCount +
+        patternHatchCount);
     if (source.Statistics.SourceEntityCount == expectedSource &&
         source.Statistics.VisibleEntityCount == expectedSource &&
         source.Statistics.ExpandedEntityCount == expectedExpanded &&
@@ -315,6 +323,7 @@ CadDocumentSession CreateDocument(
     int shxMTextCount,
     int attributeCount,
     int hatchCount,
+    int patternedHatchCount,
     bool decorateTextRuns,
     bool decorateShxTextRuns,
     bool useLineTypes,
@@ -597,6 +606,37 @@ CadDocumentSession CreateDocument(
                 PatternType = HatchPatternType.SolidFill,
                 Style = HatchStyleType.Normal,
             };
+            hatch.Paths.Add(CreateHatchLoop(
+                (x, y),
+                (x + 20, y),
+                (x + 20, y + 20),
+                (x, y + 20)));
+            hatch.Paths.Add(CreateHatchLoop(
+                (x + 7, y + 7),
+                (x + 13, y + 7),
+                (x + 13, y + 13),
+                (x + 7, y + 13)));
+            document.Entities.Add(hatch);
+        }
+
+        for (int i = 0; i < patternedHatchCount; i++)
+        {
+            double x = (i % 100) * 24.0;
+            double y = (i / 100) * 24.0;
+            var pattern = new HatchPattern("BENCHMARK_USER");
+            var hatch = new Hatch
+            {
+                IsSolid = false,
+                Pattern = pattern,
+                PatternType = HatchPatternType.PatternFill,
+                Style = HatchStyleType.Normal,
+            };
+            pattern.Lines.Add(new HatchPattern.Line
+            {
+                Angle = 0.0,
+                BasePoint = new XY(x, y + 2.0),
+                Offset = new XY(3.0, 4.0),
+            });
             hatch.Paths.Add(CreateHatchLoop(
                 (x, y),
                 (x + 20, y),
@@ -1070,6 +1110,7 @@ internal sealed record CadBenchmarkReport(
     int ShxMTextEntityCount,
     int AttributeInsertCount,
     int SolidHatchCount,
+    int PatternHatchCount,
     bool DecoratedText,
     bool DecoratedShxText,
     bool LoweredLineTypes,

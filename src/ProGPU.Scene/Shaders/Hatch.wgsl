@@ -1,4 +1,4 @@
-// Algorithm: Transform hatch geometry and evaluate analytic brush, gradient, pattern, and anti-aliased coverage functions.
+// Algorithm: Transform hatch geometry and evaluate analytic brush, gradient, affine pattern-space hatch-family, and anti-aliased coverage functions.
 // Time complexity: O(1) per vertex or fragment under fixed brush and pattern limits.
 // Space complexity: O(1) local storage with bounded uniform/storage reads.
 struct Brush {
@@ -191,6 +191,37 @@ fn transform_brush_coordinate(brush: Brush, coord: vec2<f32>) -> vec2<f32> {
     return vec2<f32>(
         dot(p, brush.coordinateTransform0.xyz),
         dot(p, brush.coordinateTransform1.xyz));
+}
+
+fn transform_brush_vector(brush: Brush, value: vec2<f32>) -> vec2<f32> {
+    return vec2<f32>(
+        dot(value, brush.coordinateTransform0.xy),
+        dot(value, brush.coordinateTransform1.xy));
+}
+
+// One periodic hatch family. A zero authored thickness is a one-device-pixel
+// hairline derived from the projected pattern-coordinate footprint; positive
+// widths remain in pattern coordinates. Work and storage are O(1).
+fn hatch_axis_coverage(
+    coord: vec2<f32>,
+    coordDx: vec2<f32>,
+    coordDy: vec2<f32>,
+    direction: vec2<f32>,
+    spacing: f32,
+    thickness: f32) -> f32 {
+    let distance = dot(coord, direction);
+    let phase = abs(fract(distance / spacing) * spacing - spacing * 0.5);
+    let filterWidth = max(
+        abs(dot(direction, coordDx)) + abs(dot(direction, coordDy)),
+        0.0001);
+    var halfWidth = thickness * 0.5;
+    if (thickness <= 0.0) {
+        halfWidth = filterWidth * 0.5;
+    }
+    return 1.0 - smoothstep(
+        max(halfWidth - filterWidth * 0.5, 0.0),
+        halfWidth + filterWidth * 0.5,
+        phase);
 }
 
 fn solve_two_point_conical_gradient(brush: Brush, coord: vec2<f32>) -> vec2<f32> {
@@ -501,6 +532,8 @@ fn is_hatch_point_inside(p: vec2<f32>, record: GpuHatchRecord) -> bool {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    let evalCoordDx = dpdx(input.color.xy);
+    let evalCoordDy = dpdy(input.color.xy);
     var shapeAlpha = 0.0;
 
     let hatchRecordIndex = u32(round(input.color.z));
@@ -525,41 +558,39 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
     if (brush.brushType == 0u) {
         finalColor = vec4<f32>(brush.stopColors0.rgb, brush.stopColors0.a * brush.opacity);
-    } else if (brush.brushType == 3u) {
+    } else if (brush.brushType == 3u || brush.brushType == 4u) {
         let theta = brush.gradientRadius;
         let spacing = brush.gradientCenter.x;
         let thickness = brush.gradientCenter.y;
-
-        let dir = vec2<f32>(cos(theta), sin(theta));
-        let dist = dot(evalCoord, dir);
-
-        let modDist = abs(fract(dist / spacing) * spacing - spacing * 0.5);
-        if (modDist < thickness * 0.5) {
-            finalColor = vec4<f32>(brush.stopColors0.rgb, brush.stopColors0.a * brush.opacity);
-            shapeAlpha = brush.opacity;
-        } else {
+        let brushCoord = transform_brush_coordinate(brush, evalCoord);
+        let brushCoordDx = transform_brush_vector(brush, evalCoordDx);
+        let brushCoordDy = transform_brush_vector(brush, evalCoordDy);
+        let direction0 = vec2<f32>(cos(theta), sin(theta));
+        var hatchCoverage = hatch_axis_coverage(
+            brushCoord,
+            brushCoordDx,
+            brushCoordDy,
+            direction0,
+            spacing,
+            thickness);
+        if (brush.brushType == 4u) {
+            let direction1 = vec2<f32>(-direction0.y, direction0.x);
+            hatchCoverage = max(
+                hatchCoverage,
+                hatch_axis_coverage(
+                    brushCoord,
+                    brushCoordDx,
+                    brushCoordDy,
+                    direction1,
+                    spacing,
+                    thickness));
+        }
+        if (hatchCoverage <= 0.0) {
             discard;
         }
-    } else if (brush.brushType == 4u) {
-        let theta = brush.gradientRadius;
-        let spacing = brush.gradientCenter.x;
-        let thickness = brush.gradientCenter.y;
-
-        let dir1 = vec2<f32>(cos(theta), sin(theta));
-        let dist1 = dot(evalCoord, dir1);
-        let modDist1 = abs(fract(dist1 / spacing) * spacing - spacing * 0.5);
-
-        let theta2 = theta + 1.57079632679;
-        let dir2 = vec2<f32>(cos(theta2), sin(theta2));
-        let dist2 = dot(evalCoord, dir2);
-        let modDist2 = abs(fract(dist2 / spacing) * spacing - spacing * 0.5);
-
-        if (modDist1 < thickness * 0.5 || modDist2 < thickness * 0.5) {
-            finalColor = vec4<f32>(brush.stopColors0.rgb, brush.stopColors0.a * brush.opacity);
-            shapeAlpha = brush.opacity;
-        } else {
-            discard;
-        }
+        finalColor = vec4<f32>(
+            brush.stopColors0.rgb,
+            brush.stopColors0.a * brush.opacity * hatchCoverage);
     } else {
         let brushCoord = transform_brush_coordinate(brush, evalCoord);
         var t: f32 = 0.0;

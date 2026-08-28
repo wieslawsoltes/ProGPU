@@ -140,7 +140,7 @@ public partial class SKPicture
 internal static class PictureArchive
 {
     private const ulong Magic = 0x314349504B534750UL;
-    private const int Version = 3;
+    private const int Version = 4;
     private const int MinimumSupportedVersion = 1;
     private const int MaxDepth = 64;
     private const int MaxCommands = 1_000_000;
@@ -373,7 +373,7 @@ internal static class PictureArchive
         writer.Write((int)command.Type);
         writer.Write(command.HitTestId);
         WriteRect(writer, command.Rect);
-        WriteBrush(writer, command.Brush);
+        WriteBrush(writer, command.Brush, version);
         WritePen(writer, command.Pen, version);
         WritePath(writer, command.Path, depth, version);
         WriteString(writer, command.Text);
@@ -450,7 +450,7 @@ internal static class PictureArchive
             Type = ReadEnum<RenderCommandType>(reader),
             HitTestId = reader.ReadInt32(),
             Rect = ReadSceneRect(reader),
-            Brush = ReadBrush(reader),
+            Brush = ReadBrush(reader, version),
             Pen = ReadPen(reader, version),
             Path = ReadPath(reader, depth, version),
             Text = ReadString(reader),
@@ -521,7 +521,7 @@ internal static class PictureArchive
         return command;
     }
 
-    private static void WriteBrush(BinaryWriter writer, Brush? brush)
+    private static void WriteBrush(BinaryWriter writer, Brush? brush, int version)
     {
         var kind = brush switch
         {
@@ -608,12 +608,20 @@ internal static class PictureArchive
                 writer.Write(hatch.Spacing);
                 writer.Write(hatch.Thickness);
                 WriteVector4(writer, hatch.Color);
+                if (version >= 4)
+                {
+                    WriteMatrix(writer, hatch.CoordinateTransform);
+                }
                 break;
             case CrossHatchBrush crossHatch:
                 writer.Write(crossHatch.Angle);
                 writer.Write(crossHatch.Spacing);
                 writer.Write(crossHatch.Thickness);
                 WriteVector4(writer, crossHatch.Color);
+                if (version >= 4)
+                {
+                    WriteMatrix(writer, crossHatch.CoordinateTransform);
+                }
                 break;
             case ThemeResourceBrush theme:
                 WriteString(writer, theme.ResourceKey as string ?? throw new NotSupportedException(
@@ -637,7 +645,7 @@ internal static class PictureArchive
         }
     }
 
-    private static Brush? ReadBrush(BinaryReader reader)
+    private static Brush? ReadBrush(BinaryReader reader, int version)
     {
         var kind = (BrushKind)reader.ReadByte();
         if (kind == BrushKind.Null)
@@ -654,16 +662,8 @@ internal static class PictureArchive
             BrushKind.Sweep => ReadSweepGradient(reader),
             BrushKind.SweepAngles => ReadSweepGradient(reader, hasAngles: true),
             BrushKind.PerlinNoise => ReadPerlinNoise(reader),
-            BrushKind.Hatch => new HatchPatternBrush(
-                reader.ReadSingle(),
-                reader.ReadSingle(),
-                reader.ReadSingle(),
-                ReadVector4(reader)),
-            BrushKind.CrossHatch => new CrossHatchBrush(
-                reader.ReadSingle(),
-                reader.ReadSingle(),
-                reader.ReadSingle(),
-                ReadVector4(reader)),
+            BrushKind.Hatch => ReadHatchPattern(reader, version, crossHatch: false),
+            BrushKind.CrossHatch => ReadHatchPattern(reader, version, crossHatch: true),
             BrushKind.ThemeResource => new ThemeResourceBrush(
                 ReadString(reader) ?? throw new InvalidDataException("Theme resource keys cannot be null.")),
             BrushKind.BackdropMaterial => ReadBackdropMaterial(reader),
@@ -671,6 +671,25 @@ internal static class PictureArchive
         };
         brush.Opacity = opacity;
         return brush;
+    }
+
+    private static Brush ReadHatchPattern(
+        BinaryReader reader,
+        int version,
+        bool crossHatch)
+    {
+        float angle = reader.ReadSingle();
+        float spacing = reader.ReadSingle();
+        float thickness = reader.ReadSingle();
+        Vector4 color = ReadVector4(reader);
+        Matrix4x4 coordinateTransform = version >= 4
+            ? ReadMatrix(reader)
+            : Matrix4x4.Identity;
+        return crossHatch
+            ? new CrossHatchBrush(angle, spacing, thickness, color)
+                { CoordinateTransform = coordinateTransform }
+            : new HatchPatternBrush(angle, spacing, thickness, color)
+                { CoordinateTransform = coordinateTransform };
     }
 
     private static LinearGradientBrush ReadLinearGradient(BinaryReader reader)
@@ -789,7 +808,7 @@ internal static class PictureArchive
         {
             return;
         }
-        WriteBrush(writer, pen.Brush);
+        WriteBrush(writer, pen.Brush, version);
         writer.Write(pen.Thickness);
         writer.Write((int)pen.LineJoin);
         writer.Write(pen.MiterLimit);
@@ -810,7 +829,7 @@ internal static class PictureArchive
         {
             return null;
         }
-        var brush = ReadBrush(reader) ?? throw new InvalidDataException("Pens require a brush.");
+        var brush = ReadBrush(reader, version) ?? throw new InvalidDataException("Pens require a brush.");
         var pen = new Pen(brush)
         {
             Thickness = reader.ReadSingle(),

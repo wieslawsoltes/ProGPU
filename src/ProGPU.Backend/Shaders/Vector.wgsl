@@ -1,5 +1,5 @@
-// Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; reserved negative width encodings select either the Skia one-framebuffer-pixel hairline or an arbitrary positive fixed-device width, both expanded after the late transform, while one fixed quad evaluates each device or affine round cap and device join analytically with hard-owned body seams; evaluate analytic curves, arcs, and quarter-pixel-snapped periodic dot grids; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
-// Time complexity: O(1) per vertex or fragment under the shader's fixed primitive and gradient limits; static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic, and a semantic mask chain evaluates at most four analytic rounded masks.
+// Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; reserved negative width encodings select either the Skia one-framebuffer-pixel hairline or an arbitrary positive fixed-device width, both expanded after the late transform, while one fixed quad evaluates each device or affine round cap and device join analytically with hard-owned body seams; evaluate analytic curves, arcs, quarter-pixel-snapped periodic dot grids, and affine pattern-space hatch families with derivative-filtered coverage; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
+// Time complexity: O(1) per vertex or fragment under the shader's fixed primitive and gradient limits; static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, the general material path derives local brush/shape gradients once per fragment, non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic, and a semantic mask chain evaluates at most four analytic rounded masks.
 // Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth; a nested analytic chain reads one primary 96-byte record and one fixed 288-byte continuation record.
 struct Brush {
     brushType: u32,
@@ -299,6 +299,37 @@ fn transform_brush_coordinate(brush: Brush, coord: vec2<f32>) -> vec2<f32> {
     return vec2<f32>(
         dot(p, brush.coordinateTransform0.xyz),
         dot(p, brush.coordinateTransform1.xyz));
+}
+
+fn transform_brush_vector(brush: Brush, value: vec2<f32>) -> vec2<f32> {
+    return vec2<f32>(
+        dot(value, brush.coordinateTransform0.xy),
+        dot(value, brush.coordinateTransform1.xy));
+}
+
+// One periodic hatch family. A zero authored thickness is a one-device-pixel
+// hairline derived from the projected pattern-coordinate footprint; positive
+// widths remain in pattern coordinates. Work and storage are O(1).
+fn hatch_axis_coverage(
+    coord: vec2<f32>,
+    coordDx: vec2<f32>,
+    coordDy: vec2<f32>,
+    direction: vec2<f32>,
+    spacing: f32,
+    thickness: f32) -> f32 {
+    let distance = dot(coord, direction);
+    let phase = abs(fract(distance / spacing) * spacing - spacing * 0.5);
+    let filterWidth = max(
+        abs(dot(direction, coordDx)) + abs(dot(direction, coordDy)),
+        0.0001);
+    var halfWidth = thickness * 0.5;
+    if (thickness <= 0.0) {
+        halfWidth = filterWidth * 0.5;
+    }
+    return 1.0 - smoothstep(
+        max(halfWidth - filterWidth * 0.5, 0.0),
+        halfWidth + filterWidth * 0.5,
+        phase);
 }
 
 fn perlin_fade(value: vec2<f32>) -> vec2<f32> {
@@ -1732,6 +1763,10 @@ fn box_distance_gradient(
 fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     let atlasCoordDx = dpdx(input.texCoord);
     let atlasCoordDy = dpdy(input.texCoord);
+    let localBrushCoordDx = dpdx(input.brushCoord);
+    let localBrushCoordDy = dpdy(input.brushCoord);
+    let shapeSizeDx = dpdx(input.shapeSize);
+    let shapeSizeDy = dpdy(input.shapeSize);
     let strokeDistanceDx = dpdx(input.gridIndex);
     let strokeDistanceDy = dpdy(input.gridIndex);
     var encodedShapeType = input.shapeType;
@@ -1747,10 +1782,16 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     }
 
     var evalCoord = input.brushCoord;
+    var evalCoordDx = localBrushCoordDx;
+    var evalCoordDy = localBrushCoordDy;
     if (sType < 3u) {
         evalCoord = input.color.xy + input.texCoord;
+        evalCoordDx = atlasCoordDx;
+        evalCoordDy = atlasCoordDy;
     } else if (sType == 4u) {
         evalCoord = input.shapeSize;
+        evalCoordDx = shapeSizeDx;
+        evalCoordDy = shapeSizeDy;
     }
 
     var shapeAlpha: f32 = 1.0;
@@ -2398,6 +2439,8 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
 
     } else {
         let brushCoord = transform_brush_coordinate(brush, evalCoord);
+        let brushCoordDx = transform_brush_vector(brush, evalCoordDx);
+        let brushCoordDy = transform_brush_vector(brush, evalCoordDy);
         var t: f32 = 0.0;
         var gradientCoverage: f32 = 1.0;
         if (brush.brushType == 1u) {
@@ -2428,28 +2471,38 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
                 }
             }
         } else if (brush.brushType == 3u || brush.brushType == 4u) {
-            // Analytic hatch: project the local point onto one periodic axis;
-            // cross-hatch evaluates the perpendicular axis as well. The native
-            // semantic compiler validates positive spacing before GPU upload.
+            // Analytic hatch: project the transformed pattern point onto one
+            // periodic normal axis; cross-hatch evaluates its perpendicular.
+            // The semantic compilers validate positive spacing before upload.
             let theta = brush.gradientRadius;
             let spacing = brush.gradientCenter.x;
             let thickness = brush.gradientCenter.y;
             let direction0 = vec2<f32>(cos(theta), sin(theta));
-            let distance0 = dot(evalCoord, direction0);
-            let phase0 = abs(fract(distance0 / spacing) * spacing - spacing * 0.5);
-            var hatchHit = phase0 < thickness * 0.5;
+            var hatchCoverage = hatch_axis_coverage(
+                brushCoord,
+                brushCoordDx,
+                brushCoordDy,
+                direction0,
+                spacing,
+                thickness);
             if (brush.brushType == 4u) {
                 let direction1 = vec2<f32>(-direction0.y, direction0.x);
-                let distance1 = dot(evalCoord, direction1);
-                let phase1 = abs(fract(distance1 / spacing) * spacing - spacing * 0.5);
-                hatchHit = hatchHit || phase1 < thickness * 0.5;
+                hatchCoverage = max(
+                    hatchCoverage,
+                    hatch_axis_coverage(
+                        brushCoord,
+                        brushCoordDx,
+                        brushCoordDy,
+                        direction1,
+                        spacing,
+                        thickness));
             }
-            if (!hatchHit) {
+            if (hatchCoverage <= 0.0) {
                 discard;
             }
             finalColor = vec4<f32>(
                 brush.stopColors0.rgb,
-                brush.stopColors0.a * brush.opacity);
+                brush.stopColors0.a * brush.opacity * hatchCoverage);
         } else if (brush.brushType == 5u) {
             // Two-point conical gradient: interpolate between two moving circle boundaries.
             let solution = solve_two_point_conical_gradient(brush, brushCoord);

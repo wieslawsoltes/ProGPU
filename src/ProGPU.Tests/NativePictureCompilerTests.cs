@@ -1926,14 +1926,20 @@ public class NativePictureCompilerTests
                 0.35f,
                 6f,
                 1.5f,
-                new Vector4(1f, 0.25f, 0.1f, 1f)),
+                new Vector4(1f, 0.25f, 0.1f, 1f))
+            {
+                CoordinateTransform = Matrix4x4.CreateTranslation(3f, 5f, 0f),
+            },
             path);
         drawing.DrawHatch(
             new CrossHatchBrush(
                 0.7f,
                 8f,
                 2f,
-                new Vector4(0.1f, 0.5f, 1f, 1f)),
+                new Vector4(0.1f, 0.5f, 1f, 1f))
+            {
+                CoordinateTransform = Matrix4x4.CreateScale(2f, 3f, 1f),
+            },
             path);
         using GpuPicture picture = recorder.EndRecording();
 
@@ -1966,6 +1972,10 @@ public class NativePictureCompilerTests
         Assert.Equal(NativeSceneBrushKind.CrossHatch, brushes[1].Kind);
         Assert.Equal(6f, brushes[0].Center.X);
         Assert.Equal(2f, brushes[1].Center.Y);
+        Assert.Equal(3f, brushes[0].CoordinateTransform0.Z);
+        Assert.Equal(5f, brushes[0].CoordinateTransform1.Z);
+        Assert.Equal(2f, brushes[1].CoordinateTransform0.X);
+        Assert.Equal(3f, brushes[1].CoordinateTransform1.Y);
     }
 
     [Fact]

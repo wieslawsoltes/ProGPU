@@ -6385,6 +6385,24 @@ SceneStateUploadComplete:
                 Opacity = perlin.Opacity,
                 CoordinateTransform = inverseCommandTransform * perlin.CoordinateTransform
             },
+            HatchPatternBrush hatch => new HatchPatternBrush(
+                hatch.Angle,
+                hatch.Spacing,
+                hatch.Thickness,
+                hatch.Color)
+            {
+                Opacity = hatch.Opacity,
+                CoordinateTransform = inverseCommandTransform * hatch.CoordinateTransform
+            },
+            CrossHatchBrush crossHatch => new CrossHatchBrush(
+                crossHatch.Angle,
+                crossHatch.Spacing,
+                crossHatch.Thickness,
+                crossHatch.Color)
+            {
+                Opacity = crossHatch.Opacity,
+                CoordinateTransform = inverseCommandTransform * crossHatch.CoordinateTransform
+            },
             _ => brush
         };
     }
@@ -12168,6 +12186,7 @@ SceneStateUploadComplete:
             gpuBrush.Center = new Vector2(hatch.Spacing, hatch.Thickness);
             gpuBrush.Color0 = hatch.Color;
             gpuBrush.StopCount = 1;
+            SetBrushCoordinateTransform(ref gpuBrush, hatch.CoordinateTransform);
         }
         else if (brush is CrossHatchBrush crossHatch)
         {
@@ -12176,6 +12195,7 @@ SceneStateUploadComplete:
             gpuBrush.Center = new Vector2(crossHatch.Spacing, crossHatch.Thickness);
             gpuBrush.Color0 = crossHatch.Color;
             gpuBrush.StopCount = 1;
+            SetBrushCoordinateTransform(ref gpuBrush, crossHatch.CoordinateTransform);
         }
 
         for (int i = 0; i < _activeBrushes.Count; i++)

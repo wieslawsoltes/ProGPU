@@ -189,6 +189,7 @@ public sealed class CadHatchSnapshotTests
             out NativePictureCompileFailure failure),
             failure.ToString());
         Assert.NotNull(nativePicture);
+
     }
 
     [Fact]
@@ -299,7 +300,13 @@ public sealed class CadHatchSnapshotTests
         {
             var layer = new Layer("HATCHES") { Color = ACadSharp.Color.Green };
             document.Layers.Add(layer);
-            Hatch hatch = CreateSolidHatch();
+            Hatch hatch = CreatePatternedHatch(
+                "USER",
+                HatchPatternType.PatternFill,
+                isDouble: false,
+                angle: 0.0,
+                basePoint: new XY(1_000_002.0, 2_000_003.0),
+                offset: new XY(4, 5));
             hatch.Color = ACadSharp.Color.ByBlock;
             hatch.Paths.Add(CreatePolylineLoop(
                 (1_000_000.0, 2_000_000.0, 0.0),
@@ -336,10 +343,166 @@ public sealed class CadHatchSnapshotTests
         AssertPoint(new CadPoint3D(0, 2, 0), hatch.CoordinateSystem.XAxis);
         AssertPoint(new CadPoint3D(-3, 0, 0), hatch.CoordinateSystem.YAxis);
         Assert.NotEqual(System.Numerics.Matrix4x4.Identity, command.Transform);
+        CadHatchPattern pattern = Assert.Single(snapshot.HatchPatterns.ToArray());
+        Assert.Equal(2.0, pattern.BasePointX, 12);
+        Assert.Equal(3.0, pattern.BasePointY, 12);
+        var patternBrush = Assert.IsType<HatchPatternBrush>(command.Brush);
+        Assert.Equal(-2.0f, patternBrush.CoordinateTransform.M41);
+        Assert.Equal(-0.5f, patternBrush.CoordinateTransform.M42);
         Assert.All(command.Path!.Figures.SelectMany(figure => figure.Segments), segment =>
         {
             Vector2ValueIsSmall(segment);
         });
+        Assert.Equal(
+            CadPointHitStatus.Hit,
+            CadSelectionHitTester.HitTestPoint(
+                snapshot,
+                Candidate(snapshot, entity),
+                new CadPoint3D(-5_999_979, 2_000_050, 0),
+                0.0).Status);
+    }
+
+    [Fact]
+    public void ContinuousPatternRetainsExactFamilyOriginAndAnalyticBoundary()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add continuous patterned hatch", document =>
+        {
+            Hatch hatch = CreatePatternedHatch(
+                "USER",
+                HatchPatternType.PatternFill,
+                isDouble: false,
+                angle: 0.0,
+                basePoint: new XY(2, 3),
+                offset: new XY(4, 5));
+            hatch.Paths.Add(CreatePolylineLoop(
+                (0.0, 0.0, 0.0),
+                (20.0, 0.0, 0.0),
+                (20.0, 20.0, 0.0),
+                (0.0, 20.0, 0.0)));
+            document.Entities.Add(hatch);
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadEntityHeader entity = Assert.Single(snapshot.Entities.ToArray());
+        CadHatchPrimitive hatch = Assert.Single(snapshot.Hatches.ToArray());
+        CadHatchPattern pattern = Assert.Single(snapshot.HatchPatterns.ToArray());
+        RenderCommand command = Assert.Single(
+            new CadPlanSceneCompiler().Compile(snapshot).DrawingContext.Commands.ToArray());
+
+        Assert.Equal(0, hatch.PatternIndex);
+        Assert.Equal(2.0, pattern.BasePointX, 12);
+        Assert.Equal(3.0, pattern.BasePointY, 12);
+        Assert.Equal(0.0, pattern.NormalX, 12);
+        Assert.Equal(1.0, pattern.NormalY, 12);
+        Assert.Equal(5.0, pattern.Spacing, 12);
+        Assert.False(pattern.IsDouble);
+        var brush = Assert.IsType<HatchPatternBrush>(command.Brush);
+        Assert.Equal(MathF.PI / 2.0f, brush.Angle, 5);
+        Assert.Equal(5.0f, brush.Spacing);
+        Assert.Equal(0.0f, brush.Thickness);
+        Assert.Equal(-2.0f, brush.CoordinateTransform.M41);
+        Assert.Equal(-0.5f, brush.CoordinateTransform.M42);
+        Assert.All(command.Path!.Figures.SelectMany(figure => figure.Segments), segment =>
+            Assert.IsType<LineSegment>(segment));
+
+        CadSelectionCandidate candidate = Candidate(snapshot, entity);
+        Assert.Equal(
+            CadPointHitStatus.Hit,
+            CadSelectionHitTester.HitTestPoint(
+                snapshot,
+                candidate,
+                new CadPoint3D(10, 3, 0),
+                0.0).Status);
+        CadPointHitResult miss = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(10, 5, 0),
+            0.0);
+        Assert.Equal(CadPointHitStatus.Miss, miss.Status);
+        Assert.Equal(2.0, miss.Distance, 12);
+        Assert.Equal(
+            CadBoundsHitStatus.UnsupportedGeometry,
+            CadSelectionHitTester.HitTestBounds(
+                snapshot,
+                candidate,
+                new CadBounds3D(
+                    new CadPoint3D(9, 2, -1),
+                    new CadPoint3D(11, 4, 1)),
+                CadBoundsSelectionMode.Crossing).Status);
+
+        using GpuPicture picture = new CadPlanSceneCompiler().Compile(snapshot).CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            96U,
+            snapshot.ContentGeneration,
+            out NativeCompiledPicture? nativePicture,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(nativePicture);
+
+        using CadPrintPlan patternPrintPlan = new CadPrintPlanCompiler().Compile(snapshot);
+        using GpuPicture patternPage = patternPrintPlan.CreatePagePicture();
+        RenderCommand retainedPatternCommand = Assert.Single(
+            patternPage.GetCommand(1).Picture!.Commands.ToArray());
+        Assert.IsType<HatchPatternBrush>(retainedPatternCommand.Brush);
+    }
+
+    [Fact]
+    public void UserDefinedDoubleAddsPerpendicularFamilyButPredefinedDoubleIsIgnored()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add double patterned hatches", document =>
+        {
+            Hatch user = CreatePatternedHatch(
+                "USER",
+                HatchPatternType.PatternFill,
+                isDouble: true,
+                angle: 0.0,
+                basePoint: new XY(1, 2),
+                offset: new XY(0, 4));
+            user.Paths.Add(CreatePolylineLoop(
+                (0.0, 0.0, 0.0),
+                (10.0, 0.0, 0.0),
+                (10.0, 10.0, 0.0),
+                (0.0, 10.0, 0.0)));
+            document.Entities.Add(user);
+
+            Hatch predefined = CreatePatternedHatch(
+                "ANSI31",
+                HatchPatternType.SolidFill,
+                isDouble: true,
+                angle: Math.PI / 4.0,
+                basePoint: new XY(20, 0),
+                offset: new XY(-3, 3));
+            predefined.Paths.Add(CreatePolylineLoop(
+                (20.0, 0.0, 0.0),
+                (30.0, 0.0, 0.0),
+                (30.0, 10.0, 0.0),
+                (20.0, 10.0, 0.0)));
+            document.Entities.Add(predefined);
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadHatchPattern[] patterns = snapshot.HatchPatterns.ToArray();
+        RenderCommand[] commands = new CadPlanSceneCompiler()
+            .Compile(snapshot)
+            .DrawingContext.Commands.ToArray();
+
+        Assert.True(patterns[0].IsDouble);
+        Assert.False(patterns[1].IsDouble);
+        Assert.IsType<CrossHatchBrush>(commands[0].Brush);
+        Assert.IsType<HatchPatternBrush>(commands[1].Brush);
+        Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
+
+        CadEntityHeader userEntity = snapshot.Entities.Span[0];
+        Assert.Equal(
+            CadPointHitStatus.Hit,
+            CadSelectionHitTester.HitTestPoint(
+                snapshot,
+                Candidate(snapshot, userEntity),
+                new CadPoint3D(1, 7, 0),
+                0.0).Status);
     }
 
     [Fact]
@@ -351,12 +514,39 @@ public sealed class CadHatchSnapshotTests
             Hatch patterned = CreateSolidHatch();
             patterned.IsSolid = false;
             patterned.Pattern = new HatchPattern("ANSI31");
+            patterned.Pattern.Lines.Add(new HatchPattern.Line
+            {
+                Angle = Math.PI / 4.0,
+                BasePoint = XY.Zero,
+                Offset = new XY(-2, 2),
+                DashLengths = { 1.0, -1.0 },
+            });
             patterned.Paths.Add(CreatePolylineLoop(
                 (0.0, 0.0, 0.0),
                 (1.0, 0.0, 0.0),
                 (1.0, 1.0, 0.0),
                 (0.0, 1.0, 0.0)));
             document.Entities.Add(patterned);
+
+            Hatch multiFamily = CreatePatternedHatch(
+                "GRID",
+                HatchPatternType.SolidFill,
+                isDouble: false,
+                angle: 0.0,
+                basePoint: new XY(4, 0),
+                offset: new XY(0, 1));
+            multiFamily.Pattern.Lines.Add(new HatchPattern.Line
+            {
+                Angle = Math.PI / 2.0,
+                BasePoint = new XY(4, 0),
+                Offset = new XY(-1, 0),
+            });
+            multiFamily.Paths.Add(CreatePolylineLoop(
+                (4.0, 0.0, 0.0),
+                (5.0, 0.0, 0.0),
+                (5.0, 1.0, 0.0),
+                (4.0, 1.0, 0.0)));
+            document.Entities.Add(multiFamily);
 
             Hatch outerStyle = CreateSolidHatch();
             outerStyle.Style = HatchStyleType.Outer;
@@ -386,11 +576,13 @@ public sealed class CadHatchSnapshotTests
 
         Assert.Empty(snapshot.Entities.ToArray());
         Assert.Empty(snapshot.Hatches.ToArray());
+        Assert.Empty(snapshot.HatchPatterns.ToArray());
         Assert.Empty(snapshot.HatchLoops.ToArray());
         Assert.Empty(snapshot.HatchSegments.ToArray());
-        Assert.Equal(3, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Equal(4, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Equal(0, snapshot.Statistics.InvalidEntityCount);
-        Assert.Contains(snapshot.Diagnostics.ToArray(), item => item.Message.Contains("Patterned and gradient", StringComparison.Ordinal));
+        Assert.Contains(snapshot.Diagnostics.ToArray(), item => item.Message.Contains("variable-dash", StringComparison.Ordinal));
+        Assert.Contains(snapshot.Diagnostics.ToArray(), item => item.Message.Contains("exactly one continuous line family", StringComparison.Ordinal));
         Assert.Contains(snapshot.Diagnostics.ToArray(), item => item.Message.Contains("island-depth", StringComparison.Ordinal));
         Assert.Contains(snapshot.Diagnostics.ToArray(), item => item.Message.Contains("Spline HATCH", StringComparison.Ordinal));
     }
@@ -420,6 +612,88 @@ public sealed class CadHatchSnapshotTests
         Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Contains(snapshot.Diagnostics.ToArray(), item =>
             item.Message.Contains("3-segment HATCH document limit", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PatternBudgetRejectsOnlyTheExcessPrimitiveWithoutLeakingBoundaryData()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add budgeted patterns", document =>
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                double x = i * 4.0;
+                Hatch hatch = CreatePatternedHatch(
+                    $"USER{i}",
+                    HatchPatternType.PatternFill,
+                    isDouble: false,
+                    angle: 0.0,
+                    basePoint: new XY(x, 0),
+                    offset: new XY(0, 1));
+                hatch.Paths.Add(CreatePolylineLoop(
+                    (x, 0.0, 0.0),
+                    (x + 2.0, 0.0, 0.0),
+                    (x + 2.0, 2.0, 0.0),
+                    (x, 2.0, 0.0)));
+                document.Entities.Add(hatch);
+            }
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions { MaxHatchPatterns = 1 });
+
+        Assert.Single(snapshot.Entities.ToArray());
+        Assert.Single(snapshot.Hatches.ToArray());
+        Assert.Single(snapshot.HatchPatterns.ToArray());
+        Assert.Single(snapshot.HatchLoops.ToArray());
+        Assert.Equal(4, snapshot.HatchSegments.Length);
+        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Contains(snapshot.Diagnostics.ToArray(), item =>
+            item.Message.Contains("1-pattern HATCH document limit", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ContinuousPatternSurvivesDxfSaveReloadWithAuthoritativeLineRecords()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew(ACadVersion.AC1032);
+        session.Edit("Add saved patterned hatch", document =>
+        {
+            Hatch hatch = CreatePatternedHatch(
+                "USER",
+                HatchPatternType.PatternFill,
+                isDouble: false,
+                angle: Math.PI / 6.0,
+                basePoint: new XY(2, 3),
+                offset: new XY(-2, 2 * Math.Sqrt(3)));
+            hatch.Paths.Add(CreatePolylineLoop(
+                (0.0, 0.0, 0.0),
+                (8.0, 0.0, 0.0),
+                (8.0, 6.0, 0.0),
+                (0.0, 6.0, 0.0)));
+            document.Entities.Add(hatch);
+        });
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+        await store.SaveAsync(
+            session,
+            stream,
+            CadDocumentFormat.Dxf,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            CadDocumentFormat.Dxf,
+            sourceName: "continuous-pattern-hatch-roundtrip.dxf");
+
+        CadDocumentSnapshot snapshot = Compile(loaded.Session);
+        CadHatchPattern pattern = Assert.Single(snapshot.HatchPatterns.ToArray());
+        Assert.Equal(-0.5, pattern.NormalX, 12);
+        Assert.Equal(Math.Sqrt(3) / 2.0, pattern.NormalY, 12);
+        Assert.Equal(4.0, pattern.Spacing, 12);
+        Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.IsType<HatchPatternBrush>(Assert.Single(
+            new CadPlanSceneCompiler().Compile(snapshot).DrawingContext.Commands.ToArray()).Brush);
     }
 
     [Fact]
@@ -491,6 +765,35 @@ public sealed class CadHatchSnapshotTests
         Style = HatchStyleType.Normal,
         Normal = XYZ.AxisZ,
     };
+
+    private static Hatch CreatePatternedHatch(
+        string name,
+        HatchPatternType patternType,
+        bool isDouble,
+        double angle,
+        XY basePoint,
+        XY offset)
+    {
+        var definition = new HatchPattern(name);
+        var hatch = new Hatch
+        {
+            IsSolid = false,
+            Pattern = definition,
+            PatternType = patternType,
+            IsDouble = isDouble,
+            PatternAngle = 0.125,
+            PatternScale = 2.0,
+            Style = HatchStyleType.Normal,
+            Normal = XYZ.AxisZ,
+        };
+        definition.Lines.Add(new HatchPattern.Line
+        {
+            Angle = angle,
+            BasePoint = basePoint,
+            Offset = offset,
+        });
+        return hatch;
+    }
 
     private static Hatch.BoundaryPath CreatePolylineLoop(
         params (double X, double Y, double Bulge)[] vertices)

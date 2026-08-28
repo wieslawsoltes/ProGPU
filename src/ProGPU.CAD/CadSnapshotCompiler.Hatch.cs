@@ -20,13 +20,14 @@ public sealed partial class CadSnapshotCompiler
         int styleIndex,
         CadSnapshotOptions options,
         List<CadHatchPrimitive> destination,
+        List<CadHatchPattern> patterns,
         List<CadHatchLoop> loops,
         List<CadHatchSegment> segments)
     {
-        if (!hatch.IsSolid || hatch.GradientColor?.Enabled == true)
+        if (hatch.GradientColor?.Enabled == true)
         {
             throw new CadUnsupportedEntityException(
-                "Patterned and gradient HATCH fills require retained pattern-space lowering.");
+                "Gradient HATCH fills require retained gradient-space lowering.");
         }
         if (hatch.Style != HatchStyleType.Normal)
         {
@@ -35,7 +36,7 @@ public sealed partial class CadSnapshotCompiler
         }
         if (hatch.Paths.Count == 0)
         {
-            throw new ArgumentException("A solid HATCH must contain at least one boundary loop.");
+            throw new ArgumentException("A HATCH must contain at least one boundary loop.");
         }
         if (!double.IsFinite(hatch.Elevation))
         {
@@ -50,6 +51,10 @@ public sealed partial class CadSnapshotCompiler
         EnsureFinite(coordinateSystem.XAxis);
         EnsureFinite(coordinateSystem.YAxis);
         EnsureFinite(coordinateSystem.ZAxis);
+
+        CadHatchPattern? localPattern = hatch.IsSolid
+            ? null
+            : CompileContinuousPattern(hatch);
 
         var localLoops = new List<CadHatchLoop>(hatch.Paths.Count);
         var localSegments = new List<CadHatchSegment>();
@@ -100,6 +105,11 @@ public sealed partial class CadSnapshotCompiler
             throw new CadUnsupportedEntityException(
                 $"The configured {options.MaxHatchSegments}-segment HATCH document limit was reached.");
         }
+        if (localPattern.HasValue && checked(patterns.Count + 1) > options.MaxHatchPatterns)
+        {
+            throw new CadUnsupportedEntityException(
+                $"The configured {options.MaxHatchPatterns}-pattern HATCH document limit was reached.");
+        }
 
         CadHatchSegment first = localSegments[0];
         double localOriginX = first.StartX;
@@ -129,13 +139,24 @@ public sealed partial class CadSnapshotCompiler
             loops.Add(loop with { SegmentOffset = checked(segmentBase + loop.SegmentOffset) });
         }
         segments.AddRange(localSegments);
+        int patternIndex = -1;
+        if (localPattern is { } retainedPattern)
+        {
+            patternIndex = patterns.Count;
+            patterns.Add(retainedPattern with
+            {
+                BasePointX = retainedPattern.BasePointX - localOriginX,
+                BasePointY = retainedPattern.BasePointY - localOriginY,
+            });
+        }
         int primitiveIndex = destination.Count;
         destination.Add(new CadHatchPrimitive(
             worldOrigin,
             coordinateSystem,
             loopOffset,
             localLoops.Count,
-            hasCurves));
+            hasCurves,
+            patternIndex));
         return new CadEntityHeader(
             handle,
             CadEntityKind.Hatch,
@@ -143,6 +164,58 @@ public sealed partial class CadSnapshotCompiler
             styleIndex,
             primitiveIndex,
             bounds);
+    }
+
+    private static CadHatchPattern CompileContinuousPattern(Hatch hatch)
+    {
+        HatchPattern pattern = hatch.Pattern ??
+            throw new CadUnsupportedEntityException(
+                "A patterned HATCH requires a persisted pattern definition.");
+        if (pattern.Lines.Count != 1)
+        {
+            throw new CadUnsupportedEntityException(
+                "Patterned HATCH currently requires exactly one continuous line family; multi-family patterns require a bounded variable-family GPU contract.");
+        }
+
+        HatchPattern.Line line = pattern.Lines[0];
+        if (line.DashLengths.Count != 0)
+        {
+            throw new CadUnsupportedEntityException(
+                "Dashed or dotted HATCH families require a bounded variable-dash GPU contract.");
+        }
+        if (!double.IsFinite(line.Angle) ||
+            !double.IsFinite(line.BasePoint.X) ||
+            !double.IsFinite(line.BasePoint.Y) ||
+            !double.IsFinite(line.Offset.X) ||
+            !double.IsFinite(line.Offset.Y))
+        {
+            throw new ArgumentException("HATCH pattern coordinates must be finite.");
+        }
+
+        double cosine = Math.Cos(line.Angle);
+        double sine = Math.Sin(line.Angle);
+        double normalX = -sine;
+        double normalY = cosine;
+        double spacing = Math.Abs(
+            (line.Offset.X * normalX) +
+            (line.Offset.Y * normalY));
+        if (!double.IsFinite(spacing) || spacing <= 1e-12)
+        {
+            throw new CadUnsupportedEntityException(
+                "A continuous HATCH family requires a finite positive perpendicular spacing.");
+        }
+
+        // DXF group 77 is defined only for user-defined (type 0) hatches. It is
+        // ignored for predefined and custom definitions by AutoCAD.
+        bool isDouble = hatch.IsDouble &&
+            hatch.PatternType == HatchPatternType.PatternFill;
+        return new CadHatchPattern(
+            line.BasePoint.X,
+            line.BasePoint.Y,
+            normalX,
+            normalY,
+            spacing,
+            isDouble);
     }
 
     private static void AddPolylineLoop(

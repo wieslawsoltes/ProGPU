@@ -89,6 +89,9 @@ public sealed class CadRecordedPlanScene
 /// control/knot/weight values, bounded before allocation by options. Complex payloads
 /// are shaped or interpreted once per referenced definition and shared by all P
 /// occurrences.
+/// Normal HATCH compilation adds O(L + S) retained boundary work for L loops
+/// and S analytic segments plus O(1) procedural brush work for a supported
+/// continuous pattern family; it never emits geometry per pattern line.
 /// A later
 /// camera or viewport change can reuse the recorded scene.
 /// </remarks>
@@ -741,7 +744,59 @@ public sealed class CadPlanSceneCompiler
             hatch.WorldOrigin,
             hatch.CoordinateSystem,
             snapshot.RebaseOrigin);
-        context.DrawPath(brush, null, path, transform);
+        Brush fill = hatch.PatternIndex < 0
+            ? brush
+            : CreateHatchPatternBrush(
+                brush,
+                snapshot.HatchPatterns.Span[hatch.PatternIndex]);
+        context.DrawPath(fill, null, path, transform);
+    }
+
+    private static Brush CreateHatchPatternBrush(
+        Brush styleBrush,
+        in CadHatchPattern pattern)
+    {
+        SolidColorBrush solid = styleBrush as SolidColorBrush ??
+            throw new InvalidOperationException(
+                "CAD HATCH styles require a resolved solid-color brush.");
+        float normalX = ToFloat(pattern.NormalX);
+        float normalY = ToFloat(pattern.NormalY);
+        float spacing = ToFloat(pattern.Spacing);
+        float baseX = ToFloat(pattern.BasePointX);
+        float baseY = ToFloat(pattern.BasePointY);
+        float translateX = -baseX + (normalX * spacing * 0.5f);
+        float translateY = -baseY + (normalY * spacing * 0.5f);
+        if (pattern.IsDouble)
+        {
+            translateX += -normalY * spacing * 0.5f;
+            translateY += normalX * spacing * 0.5f;
+        }
+
+        Brush result = pattern.IsDouble
+            ? new CrossHatchBrush(
+                MathF.Atan2(normalY, normalX),
+                spacing,
+                thickness: 0.0f,
+                color: solid.Color)
+                {
+                    CoordinateTransform = Matrix4x4.CreateTranslation(
+                        translateX,
+                        translateY,
+                        0.0f),
+                }
+            : new HatchPatternBrush(
+                MathF.Atan2(normalY, normalX),
+                spacing,
+                thickness: 0.0f,
+                color: solid.Color)
+                {
+                    CoordinateTransform = Matrix4x4.CreateTranslation(
+                        translateX,
+                        translateY,
+                        0.0f),
+                };
+        result.Opacity = styleBrush.Opacity;
+        return result;
     }
 
     private static void AddHatchPathSegment(

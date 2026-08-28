@@ -198,13 +198,28 @@ public readonly record struct CadPolyline3DPrimitive(
     int PointCount,
     bool IsClosed);
 
-/// <summary>One immutable solid HATCH composed of closed boundary loops.</summary>
+/// <summary>One immutable HATCH composed of closed boundary loops.</summary>
 public readonly record struct CadHatchPrimitive(
     CadPoint3D WorldOrigin,
     CadCoordinateSystem CoordinateSystem,
     int LoopOffset,
     int LoopCount,
-    bool HasCurvedSegments);
+    bool HasCurvedSegments,
+    int PatternIndex);
+
+/// <summary>
+/// One exact continuous pattern-line family in the owning HATCH's local OCS
+/// plane. The normal is unit length, spacing is perpendicular, and the base
+/// point is shifted by the primitive's retained local origin. Double patterns
+/// add the perpendicular family through the same base point and spacing.
+/// </summary>
+public readonly record struct CadHatchPattern(
+    double BasePointX,
+    double BasePointY,
+    double NormalX,
+    double NormalY,
+    double Spacing,
+    bool IsDouble);
 
 /// <summary>A closed contour addressing the shared hatch-segment stream.</summary>
 public readonly record struct CadHatchLoop(
@@ -420,6 +435,7 @@ public sealed class CadDocumentSnapshot
     private readonly CadPolylinePrimitive[] _polylines;
     private readonly CadPolyline3DPrimitive[] _polylines3D;
     private readonly CadHatchPrimitive[] _hatches;
+    private readonly CadHatchPattern[] _hatchPatterns;
     private readonly CadHatchLoop[] _hatchLoops;
     private readonly CadHatchSegment[] _hatchSegments;
     private readonly CadTextPrimitive[] _texts;
@@ -468,6 +484,7 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadPolylinePrimitive> Polylines => _polylines;
     public ReadOnlyMemory<CadPolyline3DPrimitive> Polylines3D => _polylines3D;
     public ReadOnlyMemory<CadHatchPrimitive> Hatches => _hatches;
+    public ReadOnlyMemory<CadHatchPattern> HatchPatterns => _hatchPatterns;
     public ReadOnlyMemory<CadHatchLoop> HatchLoops => _hatchLoops;
     public ReadOnlyMemory<CadHatchSegment> HatchSegments => _hatchSegments;
     public ReadOnlyMemory<CadTextPrimitive> Texts => _texts;
@@ -517,6 +534,7 @@ public sealed class CadDocumentSnapshot
         CadPolylinePrimitive[] polylines,
         CadPolyline3DPrimitive[] polylines3D,
         CadHatchPrimitive[] hatches,
+        CadHatchPattern[] hatchPatterns,
         CadHatchLoop[] hatchLoops,
         CadHatchSegment[] hatchSegments,
         CadTextPrimitive[] texts,
@@ -563,6 +581,7 @@ public sealed class CadDocumentSnapshot
         _polylines = polylines;
         _polylines3D = polylines3D;
         _hatches = hatches;
+        _hatchPatterns = hatchPatterns;
         _hatchLoops = hatchLoops;
         _hatchSegments = hatchSegments;
         _texts = texts;

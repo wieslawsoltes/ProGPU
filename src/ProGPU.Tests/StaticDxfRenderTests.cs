@@ -15,6 +15,26 @@ namespace ProGPU.Tests;
 public sealed class StaticDxfRenderTests
 {
     [Fact]
+    public void AffineHatchPatternBrushRendersInPatternSpace()
+    {
+        using var window = new HeadlessWindow(64, 32);
+        window.Content = new PatternHatchVisual();
+
+        window.Render();
+
+        byte[] pixels = window.ReadPixels();
+        foreach (int x in new[] { 16, 48 })
+        {
+            RgbaPixel line = ReadPixel(pixels, window.Width, x, y: 3);
+            RgbaPixel gap = ReadPixel(pixels, window.Width, x, y: 7);
+            Assert.True(line.R >= 180, $"Expected transformed red hatch line at x={x}, found {line}.");
+            Assert.True(line.B <= 80, $"Expected low blue on transformed hatch line at x={x}, found {line}.");
+            Assert.True(gap.R <= 80, $"Expected low red between hatch lines at x={x}, found {gap}.");
+            Assert.True(gap.B >= 180, $"Expected blue between hatch lines at x={x}, found {gap}.");
+        }
+    }
+
+    [Fact]
     public void DrawStaticDxfHonorsActiveOpacityMask()
     {
         var window = HeadlessWindow.Shared;
@@ -485,6 +505,35 @@ public sealed class StaticDxfRenderTests
     }
 
     private readonly record struct RgbaPixel(byte R, byte G, byte B, byte A);
+
+    private sealed class PatternHatchVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _background =
+            new(new Vector4(0f, 0f, 1f, 1f));
+        private readonly HatchPatternBrush _pattern = new(
+            MathF.PI / 2f,
+            spacing: 8f,
+            thickness: 0f,
+            color: new Vector4(1f, 0f, 0f, 1f))
+        {
+            CoordinateTransform = Matrix4x4.CreateTranslation(0f, 0.5f, 0f),
+        };
+        private readonly PathGeometry _extensionPath =
+            PrimitivePathGeometry.CreateRectangle(32f, 0f, 32f, 32f);
+
+        public PatternHatchVisual()
+        {
+            Width = 64f;
+            Height = 32f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(_background, null, new Rect(0f, 0f, 64f, 32f));
+            context.DrawRectangle(_pattern, null, new Rect(0f, 0f, 32f, 32f));
+            context.DrawHatch(_pattern, _extensionPath);
+        }
+    }
 
     private sealed class MaskedStaticDxfVisual : FrameworkElement
     {

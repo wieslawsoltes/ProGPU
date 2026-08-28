@@ -1,13 +1,14 @@
 namespace ProGPU.CAD;
 
-/// <summary>Exact top-plane selection for retained Normal solid HATCH fills.</summary>
+/// <summary>Exact top-plane selection for retained Normal HATCH fills.</summary>
 /// <remarks>
 /// Point containment evaluates direction-aware half-open ray crossings over the
-/// retained line and elliptic-arc segments in O(S) time and O(1) storage. Window
-/// selection uses exact analytic bounds; Crossing selection combines exact
-/// segment/box intersections with corner containment. Curved outside-proximity
-/// and non-horizontal filled-surface queries return UnsupportedGeometry rather
-/// than using a flattened or iterative distance approximation.
+/// retained line and elliptic-arc segments in O(S) time and O(1) storage.
+/// Continuous patterned point selection additionally evaluates one or two
+/// affine line-family equations in O(1). Window selection uses exact analytic
+/// bounds. Patterned crossing queries, curved outside-proximity, and
+/// non-horizontal filled-surface queries return UnsupportedGeometry rather than
+/// using a flattened or iterative approximation.
 /// </remarks>
 internal static class CadHatchSelection
 {
@@ -32,6 +33,16 @@ internal static class CadHatchSelection
         if (!TryContainsProjected(snapshot, hatch, point.X, point.Y, out bool contains))
         {
             return UnsupportedPoint();
+        }
+        if (hatch.PatternIndex >= 0)
+        {
+            return HitTestPatternPoint(
+                snapshot,
+                hatch,
+                point,
+                tolerance,
+                planeDistance,
+                contains);
         }
         if (contains)
         {
@@ -92,6 +103,12 @@ internal static class CadHatchSelection
         {
             return ContainsBounds(selectionBounds, hatchBounds)
                 ? BoundsHit()
+                : BoundsMiss();
+        }
+        if (hatch.PatternIndex >= 0)
+        {
+            return IntersectsBounds(hatchBounds, selectionBounds)
+                ? BoundsUnsupported()
                 : BoundsMiss();
         }
         if (!TryGetHorizontalPlane(hatch, out double planeZ))
@@ -164,6 +181,144 @@ internal static class CadHatchSelection
             }
         }
         return BoundsMiss();
+    }
+
+    private static CadPointHitResult HitTestPatternPoint(
+        CadDocumentSnapshot snapshot,
+        in CadHatchPrimitive hatch,
+        CadPoint3D point,
+        double tolerance,
+        double planeDistance,
+        bool contains)
+    {
+        if (!contains)
+        {
+            return tolerance == 0.0
+                ? new CadPointHitResult(CadPointHitStatus.Miss, double.PositiveInfinity)
+                : UnsupportedPoint();
+        }
+
+        CadHatchPattern pattern = snapshot.HatchPatterns.Span[hatch.PatternIndex];
+        if (!TryGetLocalCoordinates(hatch, point.X, point.Y, out double localX, out double localY) ||
+            !TryGetPatternDistance(
+                hatch,
+                pattern,
+                localX,
+                localY,
+                pattern.NormalX,
+                pattern.NormalY,
+                out double distance,
+                out double projectedX,
+                out double projectedY))
+        {
+            return UnsupportedPoint();
+        }
+        if (pattern.IsDouble && TryGetPatternDistance(
+            hatch,
+            pattern,
+            localX,
+            localY,
+            -pattern.NormalY,
+            pattern.NormalX,
+            out double secondDistance,
+            out double secondProjectedX,
+            out double secondProjectedY) && secondDistance < distance)
+        {
+            distance = secondDistance;
+            projectedX = secondProjectedX;
+            projectedY = secondProjectedY;
+        }
+
+        double combinedDistance = Math.Sqrt(
+            (distance * distance) +
+            (planeDistance * planeDistance));
+        if (combinedDistance > tolerance)
+        {
+            return new CadPointHitResult(CadPointHitStatus.Miss, combinedDistance);
+        }
+        if (!TryContainsProjected(
+            snapshot,
+            hatch,
+            projectedX,
+            projectedY,
+            out bool projectedInside) || !projectedInside)
+        {
+            return UnsupportedPoint();
+        }
+        return new CadPointHitResult(CadPointHitStatus.Hit, combinedDistance);
+    }
+
+    private static bool TryGetPatternDistance(
+        in CadHatchPrimitive hatch,
+        in CadHatchPattern pattern,
+        double localX,
+        double localY,
+        double normalX,
+        double normalY,
+        out double distance,
+        out double projectedX,
+        out double projectedY)
+    {
+        double determinant =
+            (hatch.CoordinateSystem.XAxis.X * hatch.CoordinateSystem.YAxis.Y) -
+            (hatch.CoordinateSystem.XAxis.Y * hatch.CoordinateSystem.YAxis.X);
+        double covectorX =
+            ((normalX * hatch.CoordinateSystem.YAxis.Y) -
+             (normalY * hatch.CoordinateSystem.XAxis.Y)) / determinant;
+        double covectorY =
+            ((-normalX * hatch.CoordinateSystem.YAxis.X) +
+             (normalY * hatch.CoordinateSystem.XAxis.X)) / determinant;
+        double squaredCovectorLength =
+            (covectorX * covectorX) + (covectorY * covectorY);
+        if (!double.IsFinite(squaredCovectorLength) || squaredCovectorLength <= 0.0)
+        {
+            distance = projectedX = projectedY = 0.0;
+            return false;
+        }
+
+        double phase =
+            ((localX - pattern.BasePointX) * normalX) +
+            ((localY - pattern.BasePointY) * normalY);
+        double residual = phase - (Math.Round(phase / pattern.Spacing) * pattern.Spacing);
+        distance = Math.Abs(residual) / Math.Sqrt(squaredCovectorLength);
+        double correction = residual / squaredCovectorLength;
+        projectedX = hatch.WorldOrigin.X +
+            (hatch.CoordinateSystem.XAxis.X * localX) +
+            (hatch.CoordinateSystem.YAxis.X * localY) -
+            (covectorX * correction);
+        projectedY = hatch.WorldOrigin.Y +
+            (hatch.CoordinateSystem.XAxis.Y * localX) +
+            (hatch.CoordinateSystem.YAxis.Y * localY) -
+            (covectorY * correction);
+        return double.IsFinite(distance) &&
+            double.IsFinite(projectedX) &&
+            double.IsFinite(projectedY);
+    }
+
+    private static bool TryGetLocalCoordinates(
+        in CadHatchPrimitive hatch,
+        double worldX,
+        double worldY,
+        out double localX,
+        out double localY)
+    {
+        double determinant =
+            (hatch.CoordinateSystem.XAxis.X * hatch.CoordinateSystem.YAxis.Y) -
+            (hatch.CoordinateSystem.XAxis.Y * hatch.CoordinateSystem.YAxis.X);
+        if (!double.IsFinite(determinant) || Math.Abs(determinant) <= AxisTolerance)
+        {
+            localX = localY = 0.0;
+            return false;
+        }
+        double deltaX = worldX - hatch.WorldOrigin.X;
+        double deltaY = worldY - hatch.WorldOrigin.Y;
+        localX =
+            ((deltaX * hatch.CoordinateSystem.YAxis.Y) -
+             (deltaY * hatch.CoordinateSystem.YAxis.X)) / determinant;
+        localY =
+            ((hatch.CoordinateSystem.XAxis.X * deltaY) -
+             (hatch.CoordinateSystem.XAxis.Y * deltaX)) / determinant;
+        return double.IsFinite(localX) && double.IsFinite(localY);
     }
 
     private static bool TryContainsProjected(
@@ -455,6 +610,12 @@ internal static class CadHatchSelection
         inner.Min.X >= outer.Min.X && inner.Max.X <= outer.Max.X &&
         inner.Min.Y >= outer.Min.Y && inner.Max.Y <= outer.Max.Y &&
         inner.Min.Z >= outer.Min.Z && inner.Max.Z <= outer.Max.Z;
+
+    private static bool IntersectsBounds(CadBounds3D first, CadBounds3D second) =>
+        !first.IsEmpty && !second.IsEmpty &&
+        first.Min.X <= second.Max.X && first.Max.X >= second.Min.X &&
+        first.Min.Y <= second.Max.Y && first.Max.Y >= second.Min.Y &&
+        first.Min.Z <= second.Max.Z && first.Max.Z >= second.Min.Z;
 
     private static double NormalizePositive(double angle)
     {

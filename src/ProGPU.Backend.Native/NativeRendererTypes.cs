@@ -857,14 +857,15 @@ public struct NativeSceneBrush
         float thickness,
         Vector4 color,
         bool crossHatch = false,
-        float opacity = 1f)
+        float opacity = 1f,
+        Matrix3x2? coordinateTransform = null)
     {
         var brush = CreateBase(
             crossHatch
                 ? NativeSceneBrushKind.CrossHatch
                 : NativeSceneBrushKind.HatchPattern,
             opacity,
-            Matrix3x2.Identity);
+            coordinateTransform ?? Matrix3x2.Identity);
         brush.Radius = angle;
         brush.Center = new Vector2(spacing, thickness);
         brush.Color0 = color;

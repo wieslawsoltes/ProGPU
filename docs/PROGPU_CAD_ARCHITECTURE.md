@@ -119,11 +119,13 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   wireframe records only visible edges while preserving the same face record
   for the later shaded/depth compiler. Nonzero ellipse/SOLID thickness is
   reported until complete 3D side-surface lowering is available.
-- Normal-style solid HATCH entities retain bounded packed loops and analytic
-  line/circular-arc/elliptic-arc segments in one OCS-relative double-precision
-  coordinate system. The plan compiler records one even-odd filled path per
-  hatch with one affine OCS-to-plan transform; it never samples a curve or emits
-  a command per edge. Patterned, gradient, Outer/Ignore-style, spline-edge,
+- Normal-style solid and exact continuous single-family HATCH entities retain
+  bounded packed loops and analytic line/circular-arc/elliptic-arc segments in
+  one OCS-relative double-precision coordinate system. The plan compiler records
+  one even-odd filled path per hatch with one affine OCS-to-plan transform;
+  continuous patterns add one retained procedural brush without generating
+  hatch-line geometry. It never samples a curve or emits a command per edge/line.
+  Multi-family, dashed/dotted, gradient, Outer/Ignore-style, spline-edge,
   annotative, paper-oriented, disconnected, and malformed hatches remain
   explicit diagnostics rather than approximated fills.
 - Single-line TrueType TEXT resolves through a typed host font service, shapes
@@ -225,6 +227,54 @@ applicable. Both renderers consume the same existing retained filled path and
 analytic arc commands; polygonal and curved native-picture regressions cover
 that shared boundary. No canonical shader, C ABI, compositor, atlas, DPI,
 invalidation, or device-loss behavior changes.
+
+### Retained continuous patterned-HATCH contract
+
+The first patterned subset accepts finite, non-gradient, Normal-style HATCHes
+whose persisted pattern contains exactly one continuous line family. The
+snapshot stores one bounded `CadHatchPattern` per accepted entity: the local
+base point, unit normal, perpendicular spacing, and effective double flag.
+ACadSharp's line records are authoritative because its DXF/DWG readers assign
+overall angle/scale metadata before appending the already evaluated line
+records; snapshot construction does not rotate or scale them a second time.
+The tangent component of the family offset is immaterial for continuous lines,
+while perpendicular spacing is the absolute normal projection of that offset.
+DXF group 77 adds the perpendicular family only for user-defined type 0; the
+flag is ignored for predefined/custom patterns as Autodesk specifies.
+
+Construction retains the exact solid-HATCH boundary pipeline and adds `O(1)`
+time/storage per patterned hatch. A separate one-million-record pattern budget
+is checked before publication, so an over-limit or invalid entity cannot leak a
+pattern, loop, or segment. The plan compiler emits the same one analytic
+`DrawPath` command and selects `HatchPatternBrush` or `CrossHatchBrush`.
+Its affine pattern-coordinate transform places the periodic family through the
+persisted base point after local-origin rebasing. Zero brush thickness means a
+derivative-filtered one-device-pixel hairline; positive thickness remains in
+pattern coordinates. Camera, DPI, and INSERT transforms therefore change
+placement and coverage in the GPU without CPU line generation, curve
+flattening, or per-frame allocation.
+
+Managed/native applicability was audited and implemented together. Both
+semantic compilers validate the affine transform and reuse the existing
+`NativeSceneBrush` coordinate fields, so no C ABI record or extra crossing was
+added. The managed renderer and native C++ renderer consume the same canonical
+`Vector.wgsl`; the legacy retained hatch extension's canonical `Hatch.wgsl`
+uses the identical affine/coverage function for its public brush contract.
+Picture archive version 4 preserves the coordinate transform, while versions
+1–3 retain identity semantics. Live GPU pixels cover both shader entry paths;
+native-picture and print regressions cover the CAD path. CAD deliberately uses
+ordinary `DrawPath`, not the hatch extension, because only the former retains
+elliptic `ArcSegment` boundaries across both renderers.
+
+Horizontal point selection first evaluates exact odd-parity clipping and then
+one or two affine family equations. World distance uses the inverse-transpose
+normal, so nonuniform or rotated INSERT transforms remain exact and allocation-
+free. A nearest family point that cannot be proven inside the clipped fill, an
+outside positive-tolerance query, and patterned Crossing selection return typed
+unsupported results. Window selection remains exact from analytic bounds.
+Multi-family and dashed/dotted definitions remain explicit transactional gates
+until a bounded variable-family/dash managed/native GPU record exists; the old
+renderer’s CPU hatch-line explosion and fixed-detail clipping remain rejected.
 
 ### Retained simple-linetype contract
 
@@ -1473,6 +1523,7 @@ dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --shx-text-entities 1000 --warmup 3 --iterations 24 --queries 1000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --shx-text-entities 1000 --shx-decorations --warmup 3 --iterations 24 --queries 1000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --solid-hatches 100 --hatch-selection --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --pattern-hatches 100 --hatch-selection --warmup 3 --iterations 24 --queries 10000
 ```
 
 The initial 2026-08-27 Apple Silicon/.NET 10 baseline for 10,000 mixed analytic
@@ -1543,6 +1594,19 @@ Crossing/Window selection was 2.1/4.9/5.2 microseconds, both with zero managed
 allocation per warm query. This is a standalone feature-cost baseline, not a
 before/after performance claim, and does not replace viewer/GPU, image-quality,
 managed/native differential, or required Instruments evidence.
+
+The first 2026-08-28 continuous patterned-HATCH feature-cost run used one final
+Release binary, 100 single-family hatches with one square outer loop and one
+square island, three warmups, 24 construction iterations, and 10,000 direct
+immutable-candidate queries. It retained 100 commands and 100 pattern records
+with no unsupported or invalid input. Snapshot p50/p95/p99 was
+1.764/4.546/5.894 ms with 628,712 managed bytes; plan recording was
+0.218/0.426/0.869 ms with 151,080 bytes. Point-selection p50/p95/p99 was
+3.5/7.9/17.6 microseconds and alternating typed-unsupported Crossing/exact
+Window selection was 0.2/0.5/0.6 microseconds, both with zero managed
+allocation per warm query. This is a standalone feature-cost baseline, not a
+before/after performance claim, and does not replace matched GPU/image-quality,
+managed/native, or required Instruments evidence.
 
 The first 2026-08-28 weighted periodic quadratic-NURBS linetype feature-cost
 run used one final Release binary, 1,000 four-span loops, three warmups, and 24
@@ -1687,6 +1751,30 @@ dotnet run --project src/ProGPU.CAD.Sample.Browser -c Debug
 ## Primary research record
 
 Sources consulted on 2026-08-27 and 2026-08-28:
+
+- For continuous patterned HATCH lowering, Autodesk's
+  [pattern-definition contract](https://help.autodesk.com/view/ACD/2026/ENU/?caas=caas%2Fdocumentation%2FACDLT%2F2014%2FENU%2Ffiles%2FGUID-A6F2E6FF-1717-44B6-A476-0CA817ADD77E-htm.html),
+  [DXF pattern-line data](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-DXF/files/GUID-7C05C0EC-B0FB-4A86-A164-B9E5C6C03990.htm),
+  [simple-pattern guidance](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Customization/files/GUID-7E1BFC62-C5F2-48C6-84D7-71FAD4DF0BEF.htm),
+  [multi-line/dash grammar](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Customization/files/GUID-F3333A6A-DE51-4864-BEA6-1C6C5BF9BEF8.htm),
+  [pattern-type contract](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-RefGuide/files/OREF-AcDbHatch__HatchPatternType.html),
+  and [double-pattern contract](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-AcDbHatch__setPatternDouble_bool.html)
+  establish line direction/base point, tangent/perpendicular offsets, dash
+  arrays, absolute origin, and the user-defined-only perpendicular double.
+  Adopted the exact continuous one-family subset; rejected CPU line explosion,
+  silent dash removal, and treating full offset-vector length as spacing.
+  [Skia local shader matrices](https://api.skia.org/classSkShader.html),
+  [Direct2D brush transforms](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-transforms-overview),
+  [Win2D image-brush transforms/extend modes](https://microsoft.github.io/Win2D/WinUI3/html/Properties_T_Microsoft_Graphics_Canvas_Brushes_CanvasImageBrush.htm),
+  [WebRender's repeating segmented brush shader](https://searchfox.org/firefox-main/source/gfx/wr/webrender/res/brush.glsl),
+  [Vello's retained path transforms](https://github.com/linebender/vello/blob/main/vello_encoding/src/path.rs),
+  and [Vello's retained-scene vision](https://github.com/linebender/vello/blob/main/doc/vision.md)
+  informed the independent pattern-space transform and retained procedural
+  evaluation. ProGPU keeps its own typed brush/wire/shader design and copies no
+  foreign implementation. SkParagraph, DirectWrite text layout, Parley, and
+  HarfBuzz were rechecked through the sources listed in the solid-HATCH audit;
+  they are not applicable because this slice changes no shaping, glyph, font,
+  fallback, DPI text-snapping, or text-cache contract.
 
 - For solid HATCH lowering, Autodesk's
   [HATCH DXF contract](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DXF/files/GUID-C6C71CED-CE0F-4184-82A5-07AD6241F15B.htm),

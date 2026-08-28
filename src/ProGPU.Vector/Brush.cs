@@ -272,8 +272,19 @@ public class Pen
 
 public class HatchPatternBrush : Brush
 {
+    /// <summary>
+    /// Gets or sets the affine transform from geometry-local coordinates into
+    /// pattern coordinates.
+    /// </summary>
+    public Matrix4x4 CoordinateTransform { get; set; } = Matrix4x4.Identity;
+
+    /// <summary>The angle, in radians, of the pattern's periodic normal axis.</summary>
     public float Angle { get; set; }
     public float Spacing { get; set; }
+    /// <summary>
+    /// Gets or sets the pattern-coordinate line width. Zero selects a
+    /// derivative-based one-device-pixel hairline.
+    /// </summary>
     public float Thickness { get; set; }
     public Vector4 Color { get; set; }
 
@@ -288,8 +299,19 @@ public class HatchPatternBrush : Brush
 
 public class CrossHatchBrush : Brush
 {
+    /// <summary>
+    /// Gets or sets the affine transform from geometry-local coordinates into
+    /// pattern coordinates.
+    /// </summary>
+    public Matrix4x4 CoordinateTransform { get; set; } = Matrix4x4.Identity;
+
+    /// <summary>The angle, in radians, of the first periodic normal axis.</summary>
     public float Angle { get; set; }
     public float Spacing { get; set; }
+    /// <summary>
+    /// Gets or sets the pattern-coordinate line width. Zero selects a
+    /// derivative-based one-device-pixel hairline.
+    /// </summary>
     public float Thickness { get; set; }
     public Vector4 Color { get; set; }
 
