@@ -106,10 +106,13 @@ public sealed class GraphicsContextQualityTests
         using var bitmap = new Bitmap(10, 10);
         using Graphics graphics = Graphics.FromImage(bitmap);
         graphics.TranslateTransform(3, 5);
-        graphics.GetContextInfo(out _);
+        PointF offset = default;
+        for (int iteration = 0; iteration < 1_024; iteration++)
+        {
+            graphics.GetContextInfo(out offset);
+        }
 
         long before = GC.GetAllocatedBytesForCurrentThread();
-        PointF offset = default;
         for (int iteration = 0; iteration < 10_000; iteration++)
         {
             graphics.GetContextInfo(out offset);
