@@ -382,6 +382,163 @@ bool try_fixed_shape_stroke_bounds(
         bounds);
 }
 
+bool try_transformed_rectangle_stroke_bounds(
+    double x,
+    double y,
+    double width,
+    double height,
+    double thickness,
+    std::uint32_t line_join,
+    double miter_limit,
+    const affine_2d_double& geometry_transform,
+    const affine_2d_double& world_transform,
+    progpu_native_image_rect& bounds) noexcept {
+    if (width <= 0.0 || height <= 0.0 || thickness <= 0.0 ||
+        line_join > PROGPU_NATIVE_STROKE_JOIN_BEVEL) {
+        return false;
+    }
+    using point = std::array<double, 2U>;
+    const auto map_point = [](
+        const point& source,
+        const affine_2d_double& transform,
+        point& destination) noexcept {
+        destination = {
+            source[0U] * transform.m11 +
+                source[1U] * transform.m21 + transform.m31,
+            source[0U] * transform.m12 +
+                source[1U] * transform.m22 + transform.m32};
+        return std::isfinite(destination[0U]) &&
+            std::isfinite(destination[1U]);
+    };
+    std::array<point, 4U> vertices{
+        point{x, y},
+        point{x + width, y},
+        point{x + width, y + height},
+        point{x, y + height}};
+    for (auto& vertex : vertices) {
+        point transformed{};
+        if (!map_point(vertex, geometry_transform, transformed)) {
+            return false;
+        }
+        vertex = transformed;
+    }
+    std::array<point, 4U> directions{};
+    for (std::size_t index = 0U; index < vertices.size(); ++index) {
+        const point& start = vertices[index];
+        const point& end = vertices[(index + 1U) % vertices.size()];
+        const double delta_x = end[0U] - start[0U];
+        const double delta_y = end[1U] - start[1U];
+        const double length = std::hypot(delta_x, delta_y);
+        if (!std::isfinite(length) || length <= 0.0) {
+            return false;
+        }
+        directions[index] = {delta_x / length, delta_y / length};
+    }
+    double minimum_x = std::numeric_limits<double>::infinity();
+    double minimum_y = std::numeric_limits<double>::infinity();
+    double maximum_x = -std::numeric_limits<double>::infinity();
+    double maximum_y = -std::numeric_limits<double>::infinity();
+    const auto include = [
+        &map_point,
+        &world_transform,
+        &minimum_x,
+        &minimum_y,
+        &maximum_x,
+        &maximum_y](const point& source) noexcept {
+        point transformed{};
+        if (!map_point(source, world_transform, transformed)) {
+            return false;
+        }
+        minimum_x = std::min(minimum_x, transformed[0U]);
+        minimum_y = std::min(minimum_y, transformed[1U]);
+        maximum_x = std::max(maximum_x, transformed[0U]);
+        maximum_y = std::max(maximum_y, transformed[1U]);
+        return true;
+    };
+    const double radius = thickness * 0.5;
+    for (std::size_t index = 0U; index < vertices.size(); ++index) {
+        const point& start = vertices[index];
+        const point& end = vertices[(index + 1U) % vertices.size()];
+        const point& direction = directions[index];
+        const point normal{-direction[1U] * radius,
+            direction[0U] * radius};
+        if (!include({start[0U] - normal[0U],
+                start[1U] - normal[1U]}) ||
+            !include({start[0U] + normal[0U],
+                start[1U] + normal[1U]}) ||
+            !include({end[0U] - normal[0U],
+                end[1U] - normal[1U]}) ||
+            !include({end[0U] + normal[0U],
+                end[1U] + normal[1U]})) {
+            return false;
+        }
+    }
+    if (line_join == PROGPU_NATIVE_STROKE_JOIN_MITER) {
+        const double resolved_limit = std::max(1.0, miter_limit);
+        for (std::size_t index = 0U; index < vertices.size(); ++index) {
+            const point& join = vertices[index];
+            const point& incoming = directions[
+                (index + directions.size() - 1U) % directions.size()];
+            const point& outgoing = directions[index];
+            const double turn = incoming[0U] * outgoing[1U] -
+                incoming[1U] * outgoing[0U];
+            if (!std::isfinite(turn) || std::abs(turn) <= 0.0001) {
+                return false;
+            }
+            const double outer_sign = turn > 0.0 ? -1.0 : 1.0;
+            const point previous_outer{
+                join[0U] - incoming[1U] * outer_sign * radius,
+                join[1U] + incoming[0U] * outer_sign * radius};
+            const point next_outer{
+                join[0U] - outgoing[1U] * outer_sign * radius,
+                join[1U] + outgoing[0U] * outer_sign * radius};
+            const point delta{
+                next_outer[0U] - previous_outer[0U],
+                next_outer[1U] - previous_outer[1U]};
+            const double denominator =
+                incoming[0U] * outgoing[1U] -
+                incoming[1U] * outgoing[0U];
+            const double distance =
+                (delta[0U] * outgoing[1U] -
+                    delta[1U] * outgoing[0U]) /
+                denominator;
+            const point miter{
+                previous_outer[0U] + incoming[0U] * distance,
+                previous_outer[1U] + incoming[1U] * distance};
+            if (!std::isfinite(miter[0U]) || !std::isfinite(miter[1U])) {
+                return false;
+            }
+            if (std::hypot(
+                    miter[0U] - join[0U],
+                    miter[1U] - join[1U]) >
+                radius * resolved_limit + 0.0001) {
+                // WPF clips an over-limit miter instead of reducing it to
+                // the bevel triangle used by the current native tessellator.
+                // Fail closed until that clipped outline is shared here.
+                return false;
+            }
+            if (!include(miter)) {
+                return false;
+            }
+        }
+    }
+    const double bounds_width = maximum_x - minimum_x;
+    const double bounds_height = maximum_y - minimum_y;
+    if (!finite_double_as_float(minimum_x) ||
+        !finite_double_as_float(minimum_y) ||
+        !finite_double_as_float(bounds_width) ||
+        !finite_double_as_float(bounds_height) ||
+        bounds_width <= 0.0 || bounds_height <= 0.0) {
+        return false;
+    }
+    bounds = {
+        static_cast<float>(minimum_x),
+        static_cast<float>(minimum_y),
+        static_cast<float>(bounds_width),
+        static_cast<float>(bounds_height)};
+    return true;
+}
+
 bool try_get_path_segment_bounds(
     std::span<const progpu_native_path_segment> segments,
     progpu_native_image_rect& bounds) noexcept {
@@ -8914,15 +9071,6 @@ struct channel::implementation {
                     }
                 }
                 if (geometry.kind != fixed_geometry_kind::line) {
-                    const affine_2d_double transform = compose_affine(
-                        geometry_transform,
-                        current_transform);
-                    if (affine_has_zero_area(transform)) {
-                        return status::unsupported_command;
-                    }
-                    if (!affine_preserves_axis_alignment(transform)) {
-                        return status::unsupported_command;
-                    }
                     const bool is_ellipse =
                         geometry.kind == fixed_geometry_kind::ellipse;
                     const double shape_x = is_ellipse
@@ -8937,6 +9085,39 @@ struct channel::implementation {
                     const double shape_height = is_ellipse
                         ? geometry.fourth * 2.0
                         : geometry.fourth;
+                    const bool has_rounded_corners =
+                        geometry.kind == fixed_geometry_kind::rectangle &&
+                        geometry.radius_x > 0.0 && geometry.radius_y > 0.0;
+                    if (geometry.kind == fixed_geometry_kind::rectangle &&
+                        !has_rounded_corners && shape_width > 0.0 &&
+                        shape_height > 0.0 &&
+                        pen.line_join != PROGPU_NATIVE_STROKE_JOIN_ROUND) {
+                        // Geometry.Transform changes the closed spine before
+                        // WPF widens it; DrawingGroup/world state transforms
+                        // the completed strip and joins afterward.
+                        if (!try_transformed_rectangle_stroke_bounds(
+                                shape_x,
+                                shape_y,
+                                shape_width,
+                                shape_height,
+                                pen.thickness,
+                                pen.line_join,
+                                pen.miter_limit,
+                                geometry_transform,
+                                current_transform,
+                                bounds) ||
+                            bounds.width <= 0.0F || bounds.height <= 0.0F) {
+                            return status::unsupported_command;
+                        }
+                        return finish_bounds();
+                    }
+                    const affine_2d_double transform = compose_affine(
+                        geometry_transform,
+                        current_transform);
+                    if (affine_has_zero_area(transform) ||
+                        !affine_preserves_axis_alignment(transform)) {
+                        return status::unsupported_command;
+                    }
                     if (!try_fixed_shape_stroke_bounds(
                             shape_x,
                             shape_y,
