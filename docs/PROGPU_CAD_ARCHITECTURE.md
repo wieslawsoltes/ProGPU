@@ -382,6 +382,24 @@ the same unchanged spline records. The semantic-handle collector is an original
 bounded open-addressed table over the
 existing ProGPU candidate records; its folding, probing, ordering, and capacity
 contract were designed here rather than taken from a foreign container. The
+TEXT selection implementation is also original ProGPU code. Its approved
+in-repository provenance is the retained payload and renderer convention in
+`CadDocumentSnapshot.cs`, `CadSnapshotCompiler.cs`, `CadPlanSceneCompiler.cs`,
+`TtfFont.GetGlyphOutline`, `PathGeometry`,
+`ArcSegmentGeometry.TryGetArcCenter`, and the ProGPU-owned Bernstein solver
+introduced for exact spline selection. The new code derives fill winding,
+affine plane projection, Bezier stationary-distance equations, box-plane
+intersection, and SVG endpoint-arc conics from public mathematical/API
+contracts; it does not reproduce third-party source, helper organization,
+tables, names, or control flow. TrueType outlines remain scaled by
+`1 / UnitsPerEm` with the renderer's explicit y inversion, while SHX paths keep
+their authored analytic coordinates. Whitespace/no-outline glyphs remain empty
+rendered geometry rather than guessed boxes. This CPU immutable-snapshot query
+changes no command, shader, C ABI, native renderer, resource generation,
+upload, or device-loss contract. The managed/native applicability audit is
+therefore not applicable to implementation changes; both renderers still
+consume the same unchanged retained glyph runs and SHX paths, and native picture
+coverage remains in the existing paired CAD picture tests. The
 shared sample interaction is an original composition of the existing ProGPU
 `GpuPicture`, `DrawingContext`, pointer-capture, and dynamic-theme contracts. Its
 `CadPlanViewport` factors the sample's existing rebase/camera mapping into one
@@ -653,7 +671,15 @@ an interactive browser picker/download smoke remains open.
   handle. `CadSelectionHitTester` then performs exact allocation-free world-space
   proximity tests for lines, conformal circles/arcs, lightweight and legacy 2D
   polylines (including signed circular bulges under conformal transforms), 3D
-  polylines, and positive-weight rational splines. Spline picking isolates the
+  polylines, positive-weight rational splines, filled TrueType TEXT, and stroked
+  SHX TEXT. TrueType selection consumes the retained shaped glyph IDs,
+  positions, per-run fonts, cached line/quadratic/cubic outlines, and filled
+  decoration rectangles. It preserves holes and the outline fill rule rather
+  than selecting advance/ascent boxes. SHX selection consumes the same cached
+  analytic glyph paths and decoration segments as recording; elliptical arc
+  segments are split into at most four exact positive-weight rational conics,
+  never flattened. Affine text bases are tested directly in WCS, including
+  non-uniform block transforms and text-plane distance. Spline picking isolates the
   exact rational Bezier spans of the canonical open, closed, or periodic NURBS,
   forms the degree-`3P-1` squared-distance stationary polynomial in homogeneous
   Bernstein form, and evaluates every isolated real root plus both endpoints.
@@ -669,15 +695,18 @@ an interactive browser picker/download smoke remains open.
   planes, and the complete convex triangle/box separating-axis set for filled
   SOLIDs.
   3DFACE box tests again ignore masked and degenerate edges. These tests remain
-  O(S) for S polyline/face segments and O(B * P^2 * R) for B spline spans,
-  degree P, and bounded root-isolation work R; analytic non-spline primitives
-  remain O(1). All paths use bounded stack storage and allocate no managed
+  O(S) for S polyline/face segments, O(B * P^2 * R) for B spline spans and
+  degree P, and O(G * T * R) for G retained glyphs with T analytic outline
+  segments and bounded root-isolation work R; analytic non-spline primitives
+  remain O(1). Filled Crossing additionally tests the exact intersection polygon
+  of the text plane and selection box, covering a box slice wholly inside a
+  glyph without accepting a hole. All paths use bounded stack storage and allocate no managed
   memory after snapshot construction. The root solver caps degree at 29,
   recursion at 52 bisections, and work at 16,384 nodes per polynomial; clustered
   roots that double precision cannot resolve return `UnsupportedGeometry`
   instead of an AABB or viewport-tessellation answer. Anisotropically
-  transformed circular/bulge geometry, ellipses, and text still return typed
-  `UnsupportedGeometry`/`UnsupportedKind` point results; affine curve and spline
+  transformed circular/bulge geometry and ellipses still return typed
+  `UnsupportedGeometry` point results; affine curve, spline, and text
   box tests remain world-space exact within the shared relative coordinate
   tolerance. A
   caller-buffered open-addressed collector then collapses primitive hits to one
@@ -1184,6 +1213,8 @@ dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --nurbs-spline-linetypes --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --periodic-spline-linetypes --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 1000 --spline-selection --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --text-selection --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --shx-text-entities 1000 --text-selection --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --block-array-columns 10000 --warmup 5 --iterations 100 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --warmup 5 --iterations 50 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --text-decorations --warmup 3 --iterations 50 --queries 10000
@@ -1271,6 +1302,22 @@ scene recorded 1,000 commands. These measurements expose feature cost and the
 long-tail root-isolation workload only; they are not a before/after improvement
 claim and do not replace representative viewer interaction, quality comparison,
 managed/native rendering, GPU counters, or required Instruments evidence.
+
+The first 2026-08-28 retained TEXT-selection feature-cost runs used the final
+Release binary, 1,000 entities, three warmups, 24 construction iterations, and
+10,000 direct immutable-candidate queries. The TrueType fixture retained 20
+shaped glyphs per entity; point-selection p50/p95/p99 was 435/496/750
+microseconds and alternating Crossing/Window selection was 191/325/338
+microseconds. The SHX fixture retained eight analytic glyph instances per
+entity; point-selection p50/p95/p99 was 63.1/72.0/76.5 microseconds and box
+selection was 23.3/29.5/32.6 microseconds. All four warm query lanes reported
+zero managed allocation. TrueType snapshot p50/p95/p99 was
+11.655/86.502/102.837 ms with 4,371,169 managed bytes; SHX snapshot cost was
+7.147/11.971/12.220 ms with 1,905,049 bytes. These figures expose exact-outline
+feature cost—including the TrueType per-segment stationary-root workload—and
+are not a before/after improvement claim. They do not replace representative
+viewer interaction, image-quality comparison, managed/native rendering, GPU
+counters, or required Instruments evidence.
 
 The first two fresh 24-iteration Release runs of the 10,000-entity physical
 print-plan path measured p50/p95/p99 at 16.320/49.488/58.868 ms and
@@ -1498,6 +1545,53 @@ Sources consulted on 2026-08-27 and 2026-08-28:
   The documented dashed-linetype visible-vector exception is recorded but
   rejected for this source-geometry slice because selection does not yet retain
   viewport-visible dash fragments as semantic geometry.
+- [HarfBuzz glyph rendering](https://harfbuzz.github.io/glyphs-and-rendering.html)
+  and [`hb_font_draw_glyph_or_fail`](https://harfbuzz.github.io/harfbuzz-hb-font.html#hb-font-draw-glyph-or-fail)
+  separate shaping's positioned glyph list from optional quadratic/cubic
+  outline extraction and color/bitmap painting. ProGPU adopts that separation:
+  it reuses the snapshot's shaped IDs and positions, queries cached monochrome
+  outlines once per font/glyph, and treats a missing outline as no monochrome
+  geometry rather than inventing an advance rectangle. Color/bitmap TEXT is not
+  claimed by this monochrome CAD selection slice.
+- [SkParagraph's public paragraph contract](https://github.com/google/skia/blob/main/modules/skparagraph/include/Paragraph.h)
+  exposes coordinate-to-glyph and range-box APIs separately from line-path
+  extraction, while [`SkPath::contains` and tight bounds](https://api.skia.org/classSkPath.html)
+  operate on filled path geometry and its fill rule. ProGPU adopts the
+  layout-versus-outline distinction and fill-rule containment. It rejects
+  caret/cluster rectangles for CAD entity selection because they intentionally
+  include layout space and do not preserve glyph holes.
+- [DirectWrite `HitTestPoint`](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritetextlayout-hittestpoint)
+  and [`HitTestTextRange`](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritetextlayout-hittesttextrange)
+  likewise return text-layout positions/regions, whereas Direct2D
+  [`FillContainsPoint`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-fillcontainspoint)
+  and Win2D
+  [`CanvasGeometry` containment methods](https://microsoft.github.io/Win2D/WinUI2/html/Methods_T_Microsoft_Graphics_Canvas_Geometry_CanvasGeometry.htm)
+  test rendered fill or stroke geometry under a transform. ProGPU adapts the
+  latter geometry contract for CAD picks and keeps DirectWrite-style layout hit
+  testing available as a distinct future text-editing concern. Platform
+  flattening tolerances are rejected because retained CAD selection must not
+  change with backend or viewport scale.
+- [Parley `Cluster::from_point_exact`](https://docs.rs/parley/latest/parley/layout/struct.Cluster.html#method.from_point_exact)
+  and [`Cursor::from_point`](https://docs.rs/parley/latest/parley/editing/struct.Cursor.html#method.from_point)
+  confirm that editor hit testing targets clusters/caret affinity, not painted
+  contours. [Vello's glyph rendering plan](https://github.com/linebender/vello/issues/204)
+  and [retained glyph-run roadmap](https://github.com/linebender/vello/blob/main/doc/roadmap_2023.md)
+  separate glyph-run identity from dynamic vector outlines and later caches.
+  ProGPU adopts retained runs plus reusable outline resources and rejects both
+  per-query reshaping and permanent per-glyph draw-command expansion.
+- The [W3C SVG 2 elliptical-arc implementation notes](https://www.w3.org/TR/SVG/implnote.html#ArcConversionEndpointToCenter)
+  provide the endpoint-to-center conversion and out-of-range-radii correction
+  for retained `ArcSegment` values. ProGPU adapts that public mathematical
+  parameterization, then splits a sweep into at most four 90-degree rational
+  conics so SHX distance, winding, and box roots remain exact in Bernstein form.
+  Fixed-angle or tolerance-dependent polyline flattening is rejected.
+- [Firefox's WebRender hit-testing architecture](https://github.com/mozilla/gecko-dev/blob/master/gfx/docs/AsyncPanZoom.rst)
+  uses dedicated transformed/clipped hit-test display items rather than reading
+  glyph coverage, and the [rendering overview](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html)
+  keeps layout-produced display lists separate from GPU painting. ProGPU adopts
+  the separation of semantic hit data from GPU submission but rejects rectangle
+  display items as the final CAD answer: immutable snapshot AABBs stay broad
+  phase and analytic TEXT/SHX paths provide the exact phase.
 - [Mourrain, Rouillier, and Roy's Bernstein-basis real-root isolation paper](https://library.slmath.org/books/Book52/files/24roy.pdf),
   [Mehlhorn and Sagraloff's deterministic bitstream Descartes analysis](https://www.mpi-inf.mpg.de/~mehlhorn/ftp/DeterministicBitstreamDescartes.pdf), and
   [Chen et al.'s global point-to-NURBS distance paper](https://www-sop.inria.fr/members/Gang.Xu/English/paper/CAD08_miniDistance.pdf):

@@ -2,6 +2,11 @@ using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.Tables;
 using CSMath;
+using ProGPU.Fonts.Inter;
+using ProGPU.Text;
+using ProGPU.Vector;
+using System.Numerics;
+using System.Text;
 using Xunit;
 
 namespace ProGPU.CAD.Tests;
@@ -1232,6 +1237,250 @@ public sealed class CadSelectionTests
         Assert.Equal(0, allocated);
     }
 
+    [Fact]
+    public void TrueTypeTextPointSelectionUsesFilledGlyphOutlinesAndPreservesCounters()
+    {
+        CadDocumentSnapshot snapshot = CompileTrueTypeText("O", height: 10.0);
+        CadSelectionCandidate candidate = SingleCandidate(snapshot);
+        CadBounds3D glyphBounds = snapshot.Entities.Span[0].Bounds;
+        double centerX = (glyphBounds.Min.X + glyphBounds.Max.X) * 0.5;
+        double centerY = (glyphBounds.Min.Y + glyphBounds.Max.Y) * 0.5;
+        double width = glyphBounds.Max.X - glyphBounds.Min.X;
+
+        CadPointHitResult hole = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(centerX, centerY, 0.0),
+            0.0);
+        CadPointHitResult fill = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(glyphBounds.Min.X + (width * 0.08), centerY, 0.0),
+            width * 0.05);
+
+        Assert.Equal(CadPointHitStatus.Miss, hole.Status);
+        Assert.True(hole.Distance > 0.0);
+        Assert.Equal(CadPointHitStatus.Hit, fill.Status);
+        Assert.Equal(0.0, fill.Distance, 9);
+    }
+
+    [Fact]
+    public void TrueTypeTextBoundsSelectionDistinguishesHoleCrossingFromOutlineCrossing()
+    {
+        CadDocumentSnapshot snapshot = CompileTrueTypeText("O", height: 10.0);
+        CadSelectionCandidate candidate = SingleCandidate(snapshot);
+        CadBounds3D glyphBounds = snapshot.Entities.Span[0].Bounds;
+        double centerX = (glyphBounds.Min.X + glyphBounds.Max.X) * 0.5;
+        double centerY = (glyphBounds.Min.Y + glyphBounds.Max.Y) * 0.5;
+        double size = Math.Min(
+            glyphBounds.Max.X - glyphBounds.Min.X,
+            glyphBounds.Max.Y - glyphBounds.Min.Y) * 0.05;
+
+        CadBoundsHitResult hole = CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            candidate,
+            new CadBounds3D(
+                new CadPoint3D(centerX - size, centerY - size, -0.1),
+                new CadPoint3D(centerX + size, centerY + size, 0.1)),
+            CadBoundsSelectionMode.Crossing);
+        CadBoundsHitResult window = CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            candidate,
+            glyphBounds,
+            CadBoundsSelectionMode.Window);
+
+        Assert.Equal(CadBoundsHitStatus.Miss, hole.Status);
+        Assert.Equal(CadBoundsHitStatus.Hit, window.Status);
+    }
+
+    [Fact]
+    public void TrueTypeTextPointSelectionUsesRetainedAffineBlockBasis()
+    {
+        var document = new CadDocument();
+        var style = new TextStyle("INTER") { Filename = "Inter.ttf" };
+        document.TextStyles.Add(style);
+        var block = new BlockRecord("SELECT_TEXT");
+        block.Entities.Add(new TextEntity("A") { Style = style, Height = 3.0 });
+        document.Entities.Add(new Insert(block)
+        {
+            InsertPoint = new XYZ(10, 20, 0),
+            XScale = 2.0,
+            YScale = 3.0,
+            Rotation = Math.PI / 2.0,
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document),
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new SelectionTextFontResolver(InterFontFamily.Regular),
+            });
+        CadTextPrimitive text = snapshot.Texts.Span[0];
+        TtfFont font = snapshot.TextFonts.Span[0];
+        Vector2 glyphPosition = snapshot.TextGlyphPositions.Span[0];
+        PathGeometry outline = Assert.IsType<PathGeometry>(
+            font.GetGlyphOutline(snapshot.TextGlyphIndices.Span[0]));
+        Vector2 outlinePoint = outline.Figures[0].StartPoint;
+        CadPoint3D worldPoint = text.Origin +
+            (text.XAxis * (glyphPosition.X + (outlinePoint.X / font.UnitsPerEm))) +
+            (text.YAxis * (glyphPosition.Y - (outlinePoint.Y / font.UnitsPerEm)));
+
+        CadPointHitResult result = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            SingleCandidate(snapshot),
+            worldPoint,
+            1e-8);
+
+        Assert.Equal(CadPointHitStatus.Hit, result.Status);
+        Assert.InRange(result.Distance, 0.0, 1e-7);
+    }
+
+    [Fact]
+    public void ShxTextSelectionUsesStrokedGlyphAndDecorationGeometry()
+    {
+        CadDocumentSnapshot snapshot = CompileShxText("%%uA");
+        CadSelectionCandidate candidate = SingleCandidate(snapshot);
+        CadShxTextPrimitive text = Assert.Single(snapshot.ShxTexts.ToArray());
+        CadShxGlyphInstance glyph = Assert.Single(snapshot.ShxGlyphInstances.ToArray());
+        Assert.True(glyph.Glyph.HasGeometry);
+        Assert.Single(snapshot.ShxDecorationSegments.ToArray());
+
+        CadPointHitResult glyphHit = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            text.Origin + (text.XAxis * glyph.X) + (text.YAxis * glyph.Y),
+            1e-9);
+        CadShxDecorationSegment decoration = snapshot.ShxDecorationSegments.Span[0];
+        CadPoint3D decorationMiddle = text.Origin +
+            (text.XAxis * ((decoration.StartX + decoration.EndX) * 0.5)) +
+            (text.YAxis * ((decoration.StartY + decoration.EndY) * 0.5));
+        CadPointHitResult decorationHit = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            decorationMiddle,
+            1e-9);
+
+        Assert.Equal(CadPointHitStatus.Hit, glyphHit.Status);
+        Assert.Equal(0.0, glyphHit.Distance, 9);
+        Assert.Equal(CadPointHitStatus.Hit, decorationHit.Status);
+        Assert.Equal(0.0, decorationHit.Distance, 9);
+    }
+
+    [Fact]
+    public void ShxTextSelectionPreservesAnalyticFullCircleArcs()
+    {
+        CadDocumentSnapshot snapshot = CompileShxText("B");
+        CadSelectionCandidate candidate = SingleCandidate(snapshot);
+        CadShxTextPrimitive text = snapshot.ShxTexts.Span[0];
+        CadShxGlyphInstance glyph = snapshot.ShxGlyphInstances.Span[0];
+        CadPoint3D arcStart = text.Origin +
+            (text.XAxis * (glyph.X + 1.0)) +
+            (text.YAxis * glyph.Y);
+
+        CadPointHitResult point = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            arcStart,
+            1e-8);
+        CadBoundsHitResult crossing = CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            candidate,
+            new CadBounds3D(
+                arcStart - new CadPoint3D(0.01, 0.01, 0.01),
+                arcStart + new CadPoint3D(0.01, 0.01, 0.01)),
+            CadBoundsSelectionMode.Crossing);
+
+        Assert.Equal(CadPointHitStatus.Hit, point.Status);
+        Assert.InRange(point.Distance, 0.0, 1e-7);
+        Assert.Equal(CadBoundsHitStatus.Hit, crossing.Status);
+    }
+
+    [Fact]
+    public void ExactBoundsQueryIncludesTrueTypeAndShxTextWithoutUnsupportedFallbacks()
+    {
+        CadShxGlyphCache cache = CreateSelectionShxCache();
+        var document = new CadDocument();
+        var trueTypeStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+        var shxStyle = new TextStyle("TESTSHX") { Filename = "test.shx" };
+        document.TextStyles.Add(trueTypeStyle);
+        document.TextStyles.Add(shxStyle);
+        document.Entities.Add(new TextEntity("CAD")
+        {
+            Style = trueTypeStyle,
+            Height = 10.0,
+        });
+        document.Entities.Add(new TextEntity("AB")
+        {
+            Style = shxStyle,
+            InsertPoint = new XYZ(20, 0, 0),
+            Height = 10.0,
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document),
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new SelectionTextFontResolver(InterFontFamily.Regular),
+                ShxFontResolver = new SelectionShxFontResolver(cache),
+            });
+        var entityScratch = new int[2];
+        var candidates = new CadSelectionCandidate[2];
+        var matches = new CadSelectionCandidate[2];
+        var hashScratch = new int[CadSelectionQuery.GetUniqueHandleScratchLength(2)];
+        var handles = new ulong[2];
+
+        CadBoundsSelectionQueryResult result = CadSelectionQuery.QueryExactBounds(
+            snapshot,
+            snapshot.Bounds,
+            CadBoundsSelectionMode.Window,
+            entityScratch,
+            candidates,
+            matches,
+            hashScratch,
+            handles);
+
+        Assert.Equal(2, result.MatchedPrimitiveCount);
+        Assert.Equal(0, result.UnsupportedPrimitiveCount);
+        Assert.Equal(2, result.HandleTotalCount);
+    }
+
+    [Fact]
+    public void WarmTrueTypeTextSelectionAllocatesNoManagedMemory()
+    {
+        CadDocumentSnapshot snapshot = CompileTrueTypeText("%%uCAD", height: 10.0);
+        CadSelectionCandidate candidate = SingleCandidate(snapshot);
+        CadBounds3D bounds = snapshot.Entities.Span[0].Bounds;
+        CadPoint3D point = bounds.Center;
+        _ = CadSelectionHitTester.HitTestPoint(snapshot, candidate, point, 1.0);
+        _ = CadSelectionHitTester.HitTestBounds(
+            snapshot, candidate, bounds, CadBoundsSelectionMode.Window);
+        CadTextPrimitive text = snapshot.Texts.Span[0];
+        CadTextDecoration decoration = snapshot.TextDecorations.Span[0];
+        CadPoint3D decorationMiddle = text.Origin +
+            (text.XAxis * (decoration.X + (decoration.Width * 0.5))) +
+            (text.YAxis * (decoration.Y + (decoration.Height * 0.5)));
+        var decorationBounds = new CadBounds3D(
+            decorationMiddle - new CadPoint3D(0.001, 0.001, 0.001),
+            decorationMiddle + new CadPoint3D(0.001, 0.001, 0.001));
+        _ = CadSelectionHitTester.HitTestBounds(
+            snapshot, candidate, decorationBounds, CadBoundsSelectionMode.Crossing);
+        _ = GC.GetAllocatedBytesForCurrentThread();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int checksum = 0;
+        for (int i = 0; i < 1_000; i++)
+        {
+            checksum += CadSelectionHitTester.HitTestPoint(
+                snapshot, candidate, point, 1.0).IsSupported ? 1 : 0;
+            checksum += CadSelectionHitTester.HitTestBounds(
+                snapshot, candidate, bounds, CadBoundsSelectionMode.Window).IsHit ? 1 : 0;
+            checksum += CadSelectionHitTester.HitTestBounds(
+                snapshot, candidate, decorationBounds, CadBoundsSelectionMode.Crossing).IsHit ? 1 : 0;
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(3_000, checksum);
+        Assert.Equal(0, allocated);
+    }
+
     private static void AssertHit(
         Entity entity,
         CadPoint3D point,
@@ -1334,6 +1583,85 @@ public sealed class CadSelectionTests
             ? [-2, -1, 0, 1, 2, 3, 4, 5, 6]
             : [0, 1, 2, 3, 4]);
         return spline;
+    }
+
+    private static CadDocumentSnapshot CompileTrueTypeText(string value, double height)
+    {
+        var document = new CadDocument();
+        var style = new TextStyle("INTER") { Filename = "Inter.ttf" };
+        document.TextStyles.Add(style);
+        document.Entities.Add(new TextEntity(value)
+        {
+            Style = style,
+            Height = height,
+        });
+        return new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document),
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new SelectionTextFontResolver(InterFontFamily.Regular),
+            });
+    }
+
+    private static CadDocumentSnapshot CompileShxText(string value)
+    {
+        CadShxGlyphCache cache = CreateSelectionShxCache();
+        var document = new CadDocument();
+        var style = new TextStyle("TESTSHX") { Filename = "test.shx" };
+        document.TextStyles.Add(style);
+        document.Entities.Add(new TextEntity(value)
+        {
+            Style = style,
+            Height = 10.0,
+        });
+        return new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document),
+            new CadSnapshotOptions
+            {
+                ShxFontResolver = new SelectionShxFontResolver(cache),
+            });
+    }
+
+    private static CadShxGlyphCache CreateSelectionShxCache()
+    {
+        (ushort Number, string Name, byte[] Program)[] shapes =
+        {
+            (0, "TESTSHX", new byte[] { 10, 2, 0, 0 }),
+            (32, "SPACE", new byte[] { 2, 8, 10, 0, 0 }),
+            (65, "UCA", new byte[] { 0xA4, 0xA0, 2, 8, 20, 0xF6, 0 }),
+            (66, "UCB", new byte[] { 2, 8, 1, 0, 1, 10, 1, 0x00, 2, 8, 10, 0, 0 }),
+        };
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);
+        writer.Write("AutoCAD-86 shapes 1.0\r\n\x1A"u8);
+        writer.Write(shapes.Min(shape => shape.Number));
+        writer.Write(shapes.Max(shape => shape.Number));
+        writer.Write(checked((ushort)shapes.Length));
+        foreach ((ushort number, string name, byte[] program) in shapes)
+        {
+            byte[] nameBytes = Encoding.ASCII.GetBytes(name);
+            writer.Write(number);
+            writer.Write(checked((ushort)(nameBytes.Length + 1 + program.Length)));
+        }
+        foreach ((ushort _, string name, byte[] program) in shapes)
+        {
+            writer.Write(Encoding.ASCII.GetBytes(name));
+            writer.Write((byte)0);
+            writer.Write(program);
+        }
+        writer.Write("EOF"u8);
+        return new CadShxGlyphCache(CadShxFont.Parse(stream.ToArray()));
+    }
+
+    private sealed class SelectionTextFontResolver(TtfFont font) : ICadTextFontResolver
+    {
+        public CadTextFontResolution Resolve(in CadTextFontRequest request) => new(font, false);
+    }
+
+    private sealed class SelectionShxFontResolver(CadShxGlyphCache cache) : ICadShxFontResolver
+    {
+        public CadShxFontResolution Resolve(in CadShxFontRequest request) =>
+            new(cache, cache.Font.Name, false);
     }
 
     private static CadSelectionCandidate Candidate(

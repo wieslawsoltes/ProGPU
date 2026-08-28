@@ -49,7 +49,7 @@ internal static class CadSplineSelection
             }
             Span<CadHomogeneousPoint> span = controlPoints[..(canonical.Degree + 1)];
             if (!CadRationalBezier.TryExtractSpan(canonical, sourceSpan, span) ||
-                !TryDistanceToSpan(span, point, out double distance))
+                !TryDistanceToBezier(span, point, out double distance))
             {
                 return UnsupportedPoint();
             }
@@ -72,7 +72,7 @@ internal static class CadSplineSelection
             Span<CadHomogeneousPoint> closing =
                 controlPoints[..(canonical.Degree + 1)];
             CadRationalBezier.CreateElevatedLine(lastPoint, firstPoint, closing);
-            if (!TryDistanceToSpan(closing, point, out double distance))
+            if (!TryDistanceToBezier(closing, point, out double distance))
             {
                 return UnsupportedPoint();
             }
@@ -141,7 +141,7 @@ internal static class CadSplineSelection
                 hasSpan = true;
             }
             lastPoint = span[^1].Cartesian;
-            if (!TryTestSpanBounds(span, selectionBounds, mode, out bool hit))
+            if (!TryTestBezierBounds(span, selectionBounds, mode, out bool hit))
             {
                 unresolved = true;
                 continue;
@@ -165,7 +165,7 @@ internal static class CadSplineSelection
             Span<CadHomogeneousPoint> closing =
                 controlPoints[..(canonical.Degree + 1)];
             CadRationalBezier.CreateElevatedLine(lastPoint, firstPoint, closing);
-            if (!TryTestSpanBounds(closing, selectionBounds, mode, out bool hit))
+            if (!TryTestBezierBounds(closing, selectionBounds, mode, out bool hit))
             {
                 unresolved = true;
             }
@@ -188,7 +188,7 @@ internal static class CadSplineSelection
             : BoundsMiss();
     }
 
-    private static bool TryDistanceToSpan(
+    internal static bool TryDistanceToBezier(
         ReadOnlySpan<CadHomogeneousPoint> points,
         CadPoint3D point,
         out double distance)
@@ -348,7 +348,7 @@ internal static class CadSplineSelection
         return true;
     }
 
-    private static bool TryTestSpanBounds(
+    internal static bool TryTestBezierBounds(
         ReadOnlySpan<CadHomogeneousPoint> points,
         CadBounds3D bounds,
         CadBoundsSelectionMode mode,

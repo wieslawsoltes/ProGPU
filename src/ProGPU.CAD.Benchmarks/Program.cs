@@ -20,6 +20,7 @@ bool lowerLinearSplineLineTypes = HasFlag("--linear-spline-linetypes");
 bool lowerNurbsSplineLineTypes = HasFlag("--nurbs-spline-linetypes");
 bool lowerPeriodicSplineLineTypes = HasFlag("--periodic-spline-linetypes");
 bool measureSplineSelection = HasFlag("--spline-selection");
+bool measureTextSelection = HasFlag("--text-selection");
 int shxInterpretationCount = ReadNonNegativeInt("--shx-interpretations", 0);
 int shxLayoutCount = ReadNonNegativeInt("--shx-layouts", 0);
 int warmupCount = ReadNonNegativeInt("--warmup", 3);
@@ -47,6 +48,13 @@ if (measureSplineSelection &&
 {
     throw new ArgumentException(
         "--spline-selection requires a positive --entities count and no block-array or text fixtures.");
+}
+if (measureTextSelection &&
+    (entityCount != 0 || blockArrayColumnCount != 0 ||
+     (textEntityCount == 0) == (shxTextEntityCount == 0)))
+{
+    throw new ArgumentException(
+        "--text-selection requires exactly one positive TrueType or SHX text fixture count and no ordinary or block-array fixtures.");
 }
 
 CadDocumentSession session = CreateDocument(
@@ -148,6 +156,12 @@ Measurement? splinePointSelectionMeasurement = measureSplineSelection
 Measurement? splineBoundsSelectionMeasurement = measureSplineSelection
     ? MeasureSplineBoundsSelections(snapshot, queryCount)
     : null;
+Measurement? textPointSelectionMeasurement = measureTextSelection
+    ? MeasureTextPointSelections(snapshot, queryCount)
+    : null;
+Measurement? textBoundsSelectionMeasurement = measureTextSelection
+    ? MeasureTextBoundsSelections(snapshot, queryCount)
+    : null;
 Measurement? shxMeasurement = shxInterpretationCount == 0
     ? null
     : Measure(
@@ -178,6 +192,7 @@ var report = new CadBenchmarkReport(
     lowerNurbsSplineLineTypes,
     lowerPeriodicSplineLineTypes,
     measureSplineSelection,
+    measureTextSelection,
     shxInterpretationCount,
     shxLayoutCount,
     warmupCount,
@@ -195,6 +210,8 @@ var report = new CadBenchmarkReport(
     queryMeasurement,
     splinePointSelectionMeasurement,
     splineBoundsSelectionMeasurement,
+    textPointSelectionMeasurement,
+    textBoundsSelectionMeasurement,
     shxMeasurement,
     shxLayoutMeasurement,
     Process.GetCurrentProcess().WorkingSet64);
@@ -621,6 +638,72 @@ Measurement MeasureSplineBoundsSelections(CadDocumentSnapshot source, int count)
     return Summarize("spline-bounds-selection-ns", elapsed, allocated / count);
 }
 
+Measurement MeasureTextPointSelections(CadDocumentSnapshot source, int count)
+{
+    CadSelectionCandidate[] candidates = CreateTextSelectionCandidates(source);
+    var elapsed = new double[count];
+    for (int i = 0; i < candidates.Length; i++)
+    {
+        _ = CadSelectionHitTester.HitTestPoint(
+            source, candidates[i], candidates[i].Bounds.Center, tolerance: 0.5);
+    }
+    _ = GC.GetAllocatedBytesForCurrentThread();
+    long allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+    int checksum = 0;
+    for (int i = 0; i < count; i++)
+    {
+        CadSelectionCandidate candidate = candidates[i % candidates.Length];
+        CadPoint3D center = candidate.Bounds.Center;
+        var point = new CadPoint3D(
+            center.X + ((i & 1) == 0 ? 0.125 : -0.125),
+            center.Y,
+            center.Z);
+        long started = Stopwatch.GetTimestamp();
+        CadPointHitResult result = CadSelectionHitTester.HitTestPoint(
+            source, candidate, point, tolerance: 0.5);
+        elapsed[i] = Stopwatch.GetElapsedTime(started).TotalNanoseconds;
+        checksum += (int)result.Status;
+    }
+    long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedStart;
+    GC.KeepAlive(checksum);
+    return Summarize("text-point-selection-ns", elapsed, allocated / count);
+}
+
+Measurement MeasureTextBoundsSelections(CadDocumentSnapshot source, int count)
+{
+    CadSelectionCandidate[] candidates = CreateTextSelectionCandidates(source);
+    var elapsed = new double[count];
+    for (int i = 0; i < candidates.Length; i++)
+    {
+        _ = CadSelectionHitTester.HitTestBounds(
+            source,
+            candidates[i],
+            CreateSelectionBounds(candidates[i].Bounds.Center),
+            CadBoundsSelectionMode.Crossing);
+    }
+    _ = GC.GetAllocatedBytesForCurrentThread();
+    long allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+    int checksum = 0;
+    for (int i = 0; i < count; i++)
+    {
+        CadSelectionCandidate candidate = candidates[i % candidates.Length];
+        CadBounds3D bounds = (i & 1) == 0
+            ? CreateSelectionBounds(candidate.Bounds.Center)
+            : candidate.Bounds;
+        CadBoundsSelectionMode mode = (i & 1) == 0
+            ? CadBoundsSelectionMode.Crossing
+            : CadBoundsSelectionMode.Window;
+        long started = Stopwatch.GetTimestamp();
+        CadBoundsHitResult result = CadSelectionHitTester.HitTestBounds(
+            source, candidate, bounds, mode);
+        elapsed[i] = Stopwatch.GetElapsedTime(started).TotalNanoseconds;
+        checksum += (int)result.Status;
+    }
+    long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedStart;
+    GC.KeepAlive(checksum);
+    return Summarize("text-bounds-selection-ns", elapsed, allocated / count);
+}
+
 CadSelectionCandidate[] CreateSelectionCandidates(CadDocumentSnapshot source)
 {
     ReadOnlySpan<CadEntityHeader> entities = source.Entities.Span;
@@ -632,6 +715,28 @@ CadSelectionCandidate[] CreateSelectionCandidates(CadDocumentSnapshot source)
         {
             throw new InvalidOperationException(
                 "The spline-selection benchmark requires an all-spline fixture.");
+        }
+        candidates[i] = new CadSelectionCandidate(
+            source.ContentGeneration,
+            i,
+            entity.Handle,
+            entity.Kind,
+            entity.Bounds);
+    }
+    return candidates;
+}
+
+CadSelectionCandidate[] CreateTextSelectionCandidates(CadDocumentSnapshot source)
+{
+    ReadOnlySpan<CadEntityHeader> entities = source.Entities.Span;
+    var candidates = new CadSelectionCandidate[entities.Length];
+    for (int i = 0; i < entities.Length; i++)
+    {
+        CadEntityHeader entity = entities[i];
+        if (entity.Kind is not (CadEntityKind.Text or CadEntityKind.ShxText))
+        {
+            throw new InvalidOperationException(
+                "The text-selection benchmark requires an all-TEXT fixture.");
         }
         candidates[i] = new CadSelectionCandidate(
             source.ContentGeneration,
@@ -719,6 +824,7 @@ internal sealed record CadBenchmarkReport(
     bool LoweredNurbsSplineLineTypes,
     bool LoweredPeriodicSplineLineTypes,
     bool MeasuredSplineSelection,
+    bool MeasuredTextSelection,
     int ShxInterpretationCount,
     int ShxLayoutCount,
     int WarmupCount,
@@ -736,6 +842,8 @@ internal sealed record CadBenchmarkReport(
     Measurement SpatialQueryNanoseconds,
     Measurement? SplinePointSelectionNanoseconds,
     Measurement? SplineBoundsSelectionNanoseconds,
+    Measurement? TextPointSelectionNanoseconds,
+    Measurement? TextBoundsSelectionNanoseconds,
     Measurement? ShxInterpretBatchMilliseconds,
     Measurement? ShxLayoutBatchMilliseconds,
     long WorkingSetBytes);

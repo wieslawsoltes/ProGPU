@@ -362,6 +362,16 @@ public static class CadSelectionHitTester
                 snapshot.Splines.Span[header.PrimitiveIndex],
                 point,
                 tolerance),
+            CadEntityKind.Text => CadTextSelection.HitTestTextPoint(
+                snapshot,
+                snapshot.Texts.Span[header.PrimitiveIndex],
+                point,
+                tolerance),
+            CadEntityKind.ShxText => CadTextSelection.HitTestShxPoint(
+                snapshot,
+                snapshot.ShxTexts.Span[header.PrimitiveIndex],
+                point,
+                tolerance),
             CadEntityKind.Solid =>
                 HitSolid(snapshot.Faces.Span[header.PrimitiveIndex], point, tolerance),
             CadEntityKind.Face3D =>
@@ -379,8 +389,10 @@ public static class CadSelectionHitTester
     /// Window mode requires the complete selectable geometry to lie inside the box.
     /// Crossing mode accepts any geometric intersection. Curved crossing tests partition
     /// their bounded parameter interval at exact box-plane roots; filled SOLIDs use the
-    /// convex triangle/box separating axes. Work is O(S) for S polyline segments and O(1)
-    /// for the other supported primitives, with bounded stack storage and no allocation.
+    /// convex triangle/box separating axes. Work is O(S) for S polyline segments,
+    /// O(B * P^2 * R) for B degree-P spline spans, and O(G * T * R) for G glyphs with
+    /// T retained outline segments and bounded root work R. Other supported primitives
+    /// are O(1); all paths use bounded stack storage and no warm-query allocation.
     /// </remarks>
     public static CadBoundsHitResult HitTestBounds(
         CadDocumentSnapshot snapshot,
@@ -424,6 +436,16 @@ public static class CadSelectionHitTester
                 snapshot,
                 snapshot.Splines.Span[header.PrimitiveIndex],
                 header.Bounds,
+                bounds,
+                mode),
+            CadEntityKind.Text => CadTextSelection.HitTestTextBounds(
+                snapshot,
+                snapshot.Texts.Span[header.PrimitiveIndex],
+                bounds,
+                mode),
+            CadEntityKind.ShxText => CadTextSelection.HitTestShxBounds(
+                snapshot,
+                snapshot.ShxTexts.Span[header.PrimitiveIndex],
                 bounds,
                 mode),
             CadEntityKind.Solid => HitSolidBounds(
