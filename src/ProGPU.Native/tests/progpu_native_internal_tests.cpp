@@ -39,7 +39,7 @@ void require(bool condition) {
     }
 }
 
-void pure_xor_is_split_into_independent_gpu_records() {
+void translated_boolean_programs_split_into_independent_gpu_records() {
     progpu_native_scene_path_fill path{};
     path.boolean_node_count = 3U;
     std::array<progpu_native_scene_path_boolean_node, 3U> nodes{};
@@ -58,11 +58,11 @@ void pure_xor_is_split_into_independent_gpu_records() {
         path,
         nodes.data(),
         records);
-    require(program.split_xor_leaf_count == 2U);
+    require(program.split_leaf_count == 2U);
     require(program.path_record_index == 0U);
-    require(program.program_index == 0U);
-    require(program.operation_kind == 0U);
-    require(records.size() == 2U);
+    require(program.program_index == 2U);
+    require(program.operation_kind != 0U);
+    require(records.size() == 5U);
     require(records[0U].start_segment == 2U);
     require(records[1U].start_segment == 6U);
 
@@ -82,11 +82,11 @@ void pure_xor_is_split_into_independent_gpu_records() {
             path,
             ternary_nodes.data(),
             records);
-    require(ternary_program.split_xor_leaf_count == 3U);
+    require(ternary_program.split_leaf_count == 3U);
     require(ternary_program.path_record_index == 0U);
-    require(ternary_program.program_index == 0U);
-    require(ternary_program.operation_kind == 0U);
-    require(records.size() == 3U);
+    require(ternary_program.program_index == 3U);
+    require(ternary_program.operation_kind != 0U);
+    require(records.size() == 8U);
     require(records[0U].start_segment == 2U);
     require(records[1U].start_segment == 6U);
     require(records[2U].start_segment == 10U);
@@ -108,19 +108,56 @@ void pure_xor_is_split_into_independent_gpu_records() {
             path,
             quaternary_nodes.data(),
             records);
-    require(quaternary_program.split_xor_leaf_count == 4U);
-    require(records.size() == 4U);
+    require(quaternary_program.split_leaf_count == 4U);
+    require(records.size() == 11U);
     require(records[3U].start_segment == 14U);
 
     quaternary_nodes[6U].kind = PROGPU_NATIVE_PATH_BOOLEAN_UNION;
+    std::array<progpu_native_path_segment, 18U> translated_segments{};
+    const auto set_rectangle = [&translated_segments](
+        std::size_t offset,
+        float left,
+        float top) {
+        const std::array<progpu_native_point, 4U> points{{
+            {left, top},
+            {left + 8.0F, top},
+            {left + 8.0F, top + 8.0F},
+            {left, top + 8.0F}}};
+        for (std::size_t index = 0U; index < points.size(); ++index) {
+            auto& segment = translated_segments[offset + index];
+            segment.p0 = points[index];
+            segment.p1 = points[(index + 1U) % points.size()];
+            segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        }
+    };
+    set_rectangle(2U, 1.0F, 2.0F);
+    set_rectangle(6U, 2.0F, 3.0F);
+    set_rectangle(10U, 3.0F, 4.0F);
+    set_rectangle(14U, 4.0F, 5.0F);
     records.clear();
     const auto mixed_program =
         progpu::native::path_boolean::append_gpu_records(
             path,
             quaternary_nodes.data(),
-            records);
-    require(mixed_program.split_xor_leaf_count == 0U);
+            records,
+            translated_segments);
+    require(mixed_program.split_leaf_count == 4U);
     require(mixed_program.operation_kind != 0U);
+    require(records.size() == 11U);
+
+    auto non_equivalent_segments = translated_segments;
+    non_equivalent_segments[6U].p1.x += 0.25F;
+    non_equivalent_segments[10U].p1.x += 0.5F;
+    non_equivalent_segments[14U].p1.x += 0.75F;
+    records.clear();
+    const auto ordinary_mixed_program =
+        progpu::native::path_boolean::append_gpu_records(
+            path,
+            quaternary_nodes.data(),
+            records,
+            non_equivalent_segments);
+    require(ordinary_mixed_program.split_leaf_count == 0U);
+    require(ordinary_mixed_program.operation_kind != 0U);
     require(records.size() == 11U);
 
     std::vector<progpu_native_scene_path_boolean_node> maximum_nodes;
@@ -150,9 +187,9 @@ void pure_xor_is_split_into_independent_gpu_records() {
             path,
             maximum_nodes.data(),
             records);
-    require(maximum_program.split_xor_leaf_count == 32U);
-    require(records.size() == 32U);
-    require(records.back().start_segment == 124U);
+    require(maximum_program.split_leaf_count == 32U);
+    require(records.size() == 95U);
+    require(records[31U].start_segment == 124U);
 }
 
 void clipped_miter_join_uses_the_wpf_three_triangle_wedge() {
@@ -1226,7 +1263,7 @@ void draw_state_resolution_is_cpu_only_and_bounded() {
 } // namespace
 
 int main() {
-    pure_xor_is_split_into_independent_gpu_records();
+    translated_boolean_programs_split_into_independent_gpu_records();
     clipped_miter_join_uses_the_wpf_three_triangle_wedge();
     reversal_joins_match_wpf_collapsed_contours();
     native_webgpu_scopes_share_one_process_lock();

@@ -6675,164 +6675,6 @@ struct channel::implementation {
             : status::invalid_graph;
     }
 
-    static bool has_overlapping_translated_equivalent_leaves(
-        std::span<const progpu_native_path_segment> segments,
-        std::span<const shallow_fill_leaf> leaves) noexcept {
-        const auto nearly_equal = [](float first, float second) noexcept {
-            const float scale = std::max(
-                1.0F,
-                std::max(std::abs(first), std::abs(second)));
-            return std::abs(first - second) <= 0.00001F * scale;
-        };
-        const auto translated_point_equal = [
-            &nearly_equal](
-            progpu_native_point first,
-            progpu_native_point second,
-            float translation_x,
-            float translation_y) noexcept {
-            return nearly_equal(
-                       first.x + translation_x,
-                       second.x) &&
-                nearly_equal(first.y + translation_y, second.y);
-        };
-        const auto invariant_point_equal = [
-            &nearly_equal](
-            progpu_native_point first,
-            progpu_native_point second) noexcept {
-            return nearly_equal(first.x, second.x) &&
-                nearly_equal(first.y, second.y);
-        };
-        const auto translated_segment_equal = [
-            &translated_point_equal,
-            &invariant_point_equal](
-            const progpu_native_path_segment& first,
-            const progpu_native_path_segment& second,
-            float translation_x,
-            float translation_y) noexcept {
-            if (first.kind != second.kind || first.pad0 != second.pad0 ||
-                first.pad1 != second.pad1 || first.pad2 != second.pad2 ||
-                !translated_point_equal(
-                    first.p0,
-                    second.p0,
-                    translation_x,
-                    translation_y) ||
-                !translated_point_equal(
-                    first.p1,
-                    second.p1,
-                    translation_x,
-                    translation_y)) {
-                return false;
-            }
-            switch (first.kind) {
-            case PROGPU_NATIVE_PATH_SEGMENT_LINE:
-                return invariant_point_equal(first.p2, second.p2) &&
-                    invariant_point_equal(first.p3, second.p3);
-            case PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC:
-                return translated_point_equal(
-                           first.p2,
-                           second.p2,
-                           translation_x,
-                           translation_y) &&
-                    invariant_point_equal(first.p3, second.p3);
-            case PROGPU_NATIVE_PATH_SEGMENT_CUBIC:
-                return translated_point_equal(
-                           first.p2,
-                           second.p2,
-                           translation_x,
-                           translation_y) &&
-                    translated_point_equal(
-                        first.p3,
-                        second.p3,
-                        translation_x,
-                        translation_y);
-            case PROGPU_NATIVE_PATH_SEGMENT_ARC:
-                return translated_point_equal(
-                           first.p2,
-                           second.p2,
-                           translation_x,
-                           translation_y) &&
-                    invariant_point_equal(first.p3, second.p3);
-            default:
-                return false;
-            }
-        };
-
-        for (std::size_t first_index = 0U;
-             first_index < leaves.size();
-             ++first_index) {
-            const auto& first = leaves[first_index];
-            if (first.segment_count == 0U ||
-                first.segment_offset > segments.size() ||
-                first.segment_count >
-                    segments.size() - first.segment_offset) {
-                continue;
-            }
-            for (std::size_t second_index = first_index + 1U;
-                 second_index < leaves.size();
-                 ++second_index) {
-                const auto& second = leaves[second_index];
-                if (first.segment_count != second.segment_count ||
-                    second.segment_offset > segments.size() ||
-                    second.segment_count >
-                        segments.size() - second.segment_offset ||
-                    std::max(first.left, second.left) >=
-                        std::min(first.right, second.right) ||
-                    std::max(first.top, second.top) >=
-                        std::min(first.bottom, second.bottom)) {
-                    continue;
-                }
-                const auto& first_segment =
-                    segments[first.segment_offset];
-                const auto& second_segment =
-                    segments[second.segment_offset];
-                const float translation_x =
-                    second_segment.p0.x - first_segment.p0.x;
-                const float translation_y =
-                    second_segment.p0.y - first_segment.p0.y;
-                if (nearly_equal(translation_x, 0.0F) &&
-                    nearly_equal(translation_y, 0.0F)) {
-                    continue;
-                }
-                bool equivalent = true;
-                for (std::size_t segment_index = 0U;
-                     segment_index < first.segment_count;
-                     ++segment_index) {
-                    if (!translated_segment_equal(
-                            segments[first.segment_offset + segment_index],
-                            segments[second.segment_offset + segment_index],
-                            translation_x,
-                            translation_y)) {
-                        equivalent = false;
-                        break;
-                    }
-                }
-                if (equivalent) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    static bool is_split_xor_leaf_program(
-        std::span<const progpu_native_scene_path_boolean_node> nodes) noexcept {
-        if (nodes.size() < 3U || (nodes.size() & 1U) == 0U) {
-            return false;
-        }
-        if (nodes[0U].kind != PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
-            nodes[1U].kind != PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
-            nodes[2U].kind != PROGPU_NATIVE_PATH_BOOLEAN_XOR) {
-            return false;
-        }
-        for (std::size_t index = 3U; index < nodes.size(); index += 2U) {
-            if (nodes[index].kind != PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
-                nodes[index + 1U].kind != PROGPU_NATIVE_PATH_BOOLEAN_XOR) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     status append_shallow_fill_leaf(
         std::uint32_t geometry_handle,
         std::vector<progpu_native_path_segment>& segments,
@@ -7388,8 +7230,6 @@ struct channel::implementation {
                 nodes.push_back(empty);
                 return status::success;
             }
-            std::vector<shallow_fill_leaf> group_leaves;
-            group_leaves.reserve(group->second.children.size());
             std::size_t appended_child_count = 0U;
             for (std::size_t child_index = 0U;
                  child_index < group->second.children.size();
@@ -7404,8 +7244,6 @@ struct channel::implementation {
                     transform,
                     depth + 1U,
                     per_point_guidelines);
-                bool child_is_shallow_leaf =
-                    child_status == status::success;
                 if (child_status == status::success && child.has_bounds) {
                     nodes.push_back({
                         child.segment_offset,
@@ -7419,7 +7257,6 @@ struct channel::implementation {
                         0U,
                         0U});
                 } else if (child_status == status::unsupported_command) {
-                    child_is_shallow_leaf = false;
                     segments.resize(child_segment_offset);
                     nodes.resize(child_node_offset);
                     child_status = append_boolean_geometry(
@@ -7443,9 +7280,6 @@ struct channel::implementation {
                     nodes.resize(child_node_offset);
                     continue;
                 }
-                if (child_is_shallow_leaf) {
-                    group_leaves.push_back(child);
-                }
                 if (!tree.has_bounds) {
                     tree.left = child.left;
                     tree.top = child.top;
@@ -7464,20 +7298,6 @@ struct channel::implementation {
                     nodes.push_back(operation);
                 }
                 ++appended_child_count;
-            }
-            const std::span<const progpu_native_scene_path_boolean_node>
-                group_nodes{
-                    nodes.data() + original_node_size,
-                    nodes.size() - original_node_size};
-            if (has_overlapping_translated_equivalent_leaves(
-                    segments,
-                    group_leaves) &&
-                !is_split_xor_leaf_program(group_nodes)) {
-                segments.resize(original_segment_size);
-                nodes.resize(original_node_size);
-                tree = {};
-                tree.segment_offset = original_segment_size;
-                return status::unsupported_command;
             }
             if (appended_child_count == 0U) {
                 progpu_native_scene_path_boolean_node empty{};
@@ -11772,14 +11592,11 @@ struct channel::implementation {
                         continue;
                     }
                     std::vector<progpu_native_path_segment> group_segments;
-                    std::vector<shallow_fill_leaf> group_leaves;
                     std::vector<progpu_native_scene_path_boolean_node>
                         group_boolean_nodes;
                     const bool use_even_odd_leaf_program =
                         geometry_group->second.fill_rule == 0U &&
                         geometry_group->second.children.size() <= 32U;
-                    group_leaves.reserve(
-                        geometry_group->second.children.size());
                     if (use_even_odd_leaf_program) {
                         group_boolean_nodes.reserve(
                             geometry_group->second.children.size() * 2U -
@@ -11828,8 +11645,6 @@ struct channel::implementation {
                             {},
                             1U,
                             current.per_point_guidelines);
-                        bool child_is_shallow_leaf =
-                            child_status == status::success;
                         if (use_even_odd_leaf_program &&
                             child_status == status::success &&
                             child.has_bounds) {
@@ -11846,7 +11661,6 @@ struct channel::implementation {
                                 0U});
                         } else if (use_even_odd_leaf_program &&
                             child_status == status::unsupported_command) {
-                            child_is_shallow_leaf = false;
                             group_segments.resize(child_segment_offset);
                             group_boolean_nodes.resize(child_node_offset);
                             child_status = append_boolean_geometry(
@@ -11868,11 +11682,6 @@ struct channel::implementation {
                             continue;
                         }
                         if (child.has_bounds) {
-                            if ((!use_even_odd_leaf_program ||
-                                    child_is_shallow_leaf) &&
-                                child.segment_count != 0U) {
-                                group_leaves.push_back(child);
-                            }
                             include_group_point({
                                 static_cast<float>(child.left),
                                 static_cast<float>(child.top)});
@@ -11905,13 +11714,6 @@ struct channel::implementation {
                         group_boolean_nodes.clear();
                     }
                     if (use_even_odd_leaf_program && has_group_fill) {
-                        if (has_overlapping_translated_equivalent_leaves(
-                                group_segments,
-                                group_leaves) &&
-                            !is_split_xor_leaf_program(
-                                group_boolean_nodes)) {
-                            return status::unsupported_command;
-                        }
                         if (group_boolean_nodes.size() > 63U) {
                             return status::unsupported_command;
                         }

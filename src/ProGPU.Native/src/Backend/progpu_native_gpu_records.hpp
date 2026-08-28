@@ -98,11 +98,13 @@ struct gpu_path_coverage_combine_uniforms {
     std::uint32_t source_offset_words;
     std::uint32_t source_stride_words;
     std::uint32_t source_count;
+    std::uint32_t program_index;
+    std::uint32_t program_count;
     std::uint32_t destination_offset_words;
-    std::uint32_t row_words;
+    std::uint32_t destination_row_words;
     std::uint32_t width;
     std::uint32_t height;
-    std::uint32_t pad0;
+    std::uint32_t sample_grid;
 };
 
 struct gpu_path_record {
@@ -244,6 +246,7 @@ static_assert(sizeof(gpu_drop_shadow_params) == 32U);
 static_assert(sizeof(gpu_group_blend_uniforms) == 32U);
 static_assert(sizeof(gpu_gaussian_blur_params) == 16U);
 static_assert(sizeof(gpu_path_uniforms) == 48U);
+static_assert(sizeof(gpu_path_coverage_combine_uniforms) == 40U);
 static_assert(sizeof(gpu_path_record) == 32U);
 static_assert(sizeof(gpu_path_record) ==
     sizeof(progpu_native_path_segment) - 16U);
@@ -256,6 +259,12 @@ static_assert(sizeof(gpu_glyph_instance) == 96U);
 [[nodiscard]] constexpr std::uint32_t align_up(
     std::uint32_t value,
     std::uint32_t alignment) noexcept {
+    return (value + alignment - 1U) / alignment * alignment;
+}
+
+[[nodiscard]] constexpr std::uint64_t align_up_u64(
+    std::uint64_t value,
+    std::uint64_t alignment) noexcept {
     return (value + alignment - 1U) / alignment * alignment;
 }
 

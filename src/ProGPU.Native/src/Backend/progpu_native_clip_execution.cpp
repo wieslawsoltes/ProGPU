@@ -233,9 +233,15 @@ bool rebuild_vector_clip_chain(
                 const std::uint32_t output_bytes_per_row = align_up(
                     raster_width_u,
                     webgpu_copy_row_alignment);
-                output_offset = align_up(
+                const std::uint64_t aligned_output_offset = align_up_u64(
                     output_offset,
                     webgpu_copy_row_alignment);
+                if (aligned_output_offset >
+                    std::numeric_limits<std::uint32_t>::max()) {
+                    return false;
+                }
+                output_offset =
+                    static_cast<std::uint32_t>(aligned_output_offset);
                 const std::uint64_t next_output =
                     static_cast<std::uint64_t>(output_offset) +
                     static_cast<std::uint64_t>(output_bytes_per_row) *
@@ -262,17 +268,22 @@ bool rebuild_vector_clip_chain(
                 const auto program = path_boolean::append_gpu_records(
                     path,
                     chain.boolean_nodes,
-                    path_records);
-                if (program.split_xor_leaf_count != 0U) {
+                    path_records,
+                    std::span<const progpu_native_path_segment>(
+                        chain.segments,
+                        chain.segment_count));
+                if (program.split_leaf_count != 0U) {
+                    const std::uint64_t leaf_words_per_row =
+                        static_cast<std::uint64_t>(raster_width_u) * 2U;
                     const std::uint64_t leaf_bytes =
-                        static_cast<std::uint64_t>(output_bytes_per_row) *
-                            raster_height_u;
-                    const std::uint64_t source_offset = align_up(
-                        static_cast<std::uint32_t>(next_output),
+                        leaf_words_per_row * sizeof(std::uint32_t) *
+                        raster_height_u;
+                    const std::uint64_t source_offset = align_up_u64(
+                        next_output,
                         webgpu_copy_row_alignment);
                     const std::uint64_t split_next_output =
                         source_offset + leaf_bytes *
-                            program.split_xor_leaf_count;
+                            program.split_leaf_count;
                     if (split_next_output >
                         std::numeric_limits<std::uint32_t>::max()) {
                         return false;
@@ -283,7 +294,7 @@ bool rebuild_vector_clip_chain(
                         subpixel_x,
                         subpixel_y,
                         raster_scale,
-                        output_bytes_per_row,
+                        leaf_words_per_row,
                         raster_width_u,
                         raster_height_u,
                         &path](
@@ -297,7 +308,8 @@ bool rebuild_vector_clip_chain(
                             raster_scale,
                             record_index,
                             leaf_output_offset / 4U,
-                            output_bytes_per_row / 4U,
+                            static_cast<std::uint32_t>(
+                                leaf_words_per_row),
                             raster_width_u,
                             raster_height_u,
                             path.sample_grid,
@@ -305,9 +317,9 @@ bool rebuild_vector_clip_chain(
                             0U});
                     };
                     split_leaf_uniforms.resize(
-                        program.split_xor_leaf_count);
+                        program.split_leaf_count);
                     for (std::uint32_t leaf_index = 0U;
-                         leaf_index < program.split_xor_leaf_count;
+                         leaf_index < program.split_leaf_count;
                          ++leaf_index) {
                         const std::uint64_t leaf_output_offset =
                             source_offset + leaf_bytes * leaf_index;
@@ -320,12 +332,15 @@ bool rebuild_vector_clip_chain(
                     coverage_combine_uniforms.push_back({
                         static_cast<std::uint32_t>(source_offset) / 4U,
                         static_cast<std::uint32_t>(leaf_bytes) / 4U,
-                        program.split_xor_leaf_count,
+                        program.split_leaf_count,
+                        program.program_index,
+                        program.operation_kind &
+                            ~path_boolean::gpu_program_flag,
                         output_offset / 4U,
                         output_bytes_per_row / 4U,
                         raster_width_u,
                         raster_height_u,
-                        0U});
+                        path.sample_grid});
                     output_offset =
                         static_cast<std::uint32_t>(split_next_output);
                 } else {
@@ -538,7 +553,7 @@ bool rebuild_vector_clip_chain(
             split_leaf_uniform_bytes += phase_bytes;
             if (phase_bytes != 0U) {
                 temporary.split_leaf_uniforms[phase_index] = create_buffer(
-                    "ProGPU native clip split XOR leaf uniforms",
+                    "ProGPU native clip split boolean leaf uniforms",
                     phase_bytes,
                     WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
             }
@@ -661,7 +676,7 @@ bool rebuild_vector_clip_chain(
             if (phase_bytes != 0U) {
                 temporary.split_leaf_bind_groups[phase_index] =
                     create_raster_bind_group(
-                        "ProGPU native clip split XOR leaf bind group",
+                        "ProGPU native clip split boolean leaf bind group",
                         temporary.split_leaf_uniforms[phase_index],
                         phase_bytes);
                 split_bind_group_creation_failed |=
@@ -704,11 +719,15 @@ bool rebuild_vector_clip_chain(
             return encoder != nullptr;
         };
         std::uint32_t workgroups_x = 0U;
+        std::uint32_t split_workgroups_x = 0U;
         std::uint32_t workgroups_y = 0U;
         for (const auto& raster : rasters) {
             workgroups_x = std::max(
                 workgroups_x,
                 (raster.width + 63U) / 64U);
+            split_workgroups_x = std::max(
+                split_workgroups_x,
+                (raster.width + 15U) / 16U);
             workgroups_y = std::max(
                 workgroups_y,
                 (raster.height + 15U) / 16U);
@@ -716,7 +735,9 @@ bool rebuild_vector_clip_chain(
         const auto encode_raster_pass = [&](
             const char* label,
             WGPUBindGroup bind_group,
-            std::size_t uniform_count) {
+            std::size_t uniform_count,
+            WGPUComputePipeline pipeline,
+            std::uint32_t dispatch_x) {
             if (uniform_count == 0U) {
                 return true;
             }
@@ -732,7 +753,7 @@ bool rebuild_vector_clip_chain(
             }
             wgpuComputePassEncoderSetPipeline(
                 compute,
-                engine.path_raster_pipeline);
+                pipeline);
             wgpuComputePassEncoderSetBindGroup(
                 compute,
                 0U,
@@ -741,7 +762,7 @@ bool rebuild_vector_clip_chain(
                 nullptr);
             wgpuComputePassEncoderDispatchWorkgroups(
                 compute,
-                workgroups_x,
+                dispatch_x,
                 workgroups_y,
                 static_cast<std::uint32_t>(uniform_count));
             wgpuComputePassEncoderEnd(compute);
@@ -751,7 +772,9 @@ bool rebuild_vector_clip_chain(
         if (!encode_raster_pass(
                 "ProGPU native retained clip coverage pass",
                 temporary.bind_group,
-                path_uniforms.size())) {
+                path_uniforms.size(),
+                engine.path_raster_pipeline,
+                workgroups_x)) {
             if (encoder != nullptr) {
                 wgpuCommandEncoderRelease(encoder);
             }
@@ -761,9 +784,11 @@ bool rebuild_vector_clip_chain(
              phase_index < split_leaf_uniforms.size();
              ++phase_index) {
             if (!encode_raster_pass(
-                    "ProGPU native clip split XOR leaf coverage pass",
+                    "ProGPU native clip split boolean leaf coverage pass",
                     temporary.split_leaf_bind_groups[phase_index],
-                    split_leaf_uniforms[phase_index].size())) {
+                    split_leaf_uniforms[phase_index].size(),
+                    engine.path_split_leaf_pipeline,
+                    split_workgroups_x)) {
                 if (encoder != nullptr) {
                     wgpuCommandEncoderRelease(encoder);
                 }
@@ -771,7 +796,7 @@ bool rebuild_vector_clip_chain(
             }
             if (split_raster_submissions &&
                 !submit_raster_phase(
-                    "ProGPU native clip split XOR raster phase commands")) {
+                    "ProGPU native clip split boolean raster phase commands")) {
                 return false;
             }
         }
@@ -779,7 +804,7 @@ bool rebuild_vector_clip_chain(
             WGPUComputePassDescriptor combine_descriptor{};
             combine_descriptor.label =
                 ::progpu::native::webgpu::string_view(
-                    "ProGPU native clip split XOR coverage combine pass");
+                    "ProGPU native clip split boolean coverage combine pass");
             WGPUComputePassEncoder combine =
                 wgpuCommandEncoderBeginComputePass(
                     encoder,
@@ -790,7 +815,7 @@ bool rebuild_vector_clip_chain(
             }
             wgpuComputePassEncoderSetPipeline(
                 combine,
-                engine.path_split_xor_combine_pipeline);
+                engine.path_split_boolean_combine_pipeline);
             wgpuComputePassEncoderSetBindGroup(
                 combine,
                 0U,

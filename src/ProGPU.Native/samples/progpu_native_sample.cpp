@@ -269,6 +269,16 @@ bool has_expected_colors(
     const std::uint8_t* quaternary_xor_bcd = pixel(425U, 12U);
     const std::uint8_t* quaternary_xor_cd = pixel(435U, 12U);
     const std::uint8_t* quaternary_xor_d = pixel(445U, 12U);
+    const std::uint8_t* mixed_difference = pixel(465U, 12U);
+    const std::uint8_t* mixed_gap = pixel(475U, 12U);
+    const std::uint8_t* mixed_union_start = pixel(485U, 12U);
+    const std::uint8_t* mixed_union_end = pixel(515U, 12U);
+    const std::uint8_t* mixed_path_difference = pixel(465U, 44U);
+    const std::uint8_t* mixed_path_gap = pixel(475U, 44U);
+    const std::uint8_t* mixed_path_union = pixel(485U, 44U);
+    const std::uint8_t* fractional_xor_left = pixel(540U, 12U);
+    const std::uint8_t* fractional_xor_overlap = pixel(550U, 12U);
+    const std::uint8_t* fractional_xor_right = pixel(570U, 12U);
     if (!(blue[2] > 180U && blue[0] < 100U &&
         pad_start[0] > 180U && pad_start[1] > 90U &&
         pad_start[2] < 80U &&
@@ -295,7 +305,23 @@ bool has_expected_colors(
         quaternary_xor_abcd[1] < 30U &&
         quaternary_xor_bcd[1] > 180U && quaternary_xor_bcd[2] > 180U &&
         quaternary_xor_cd[0] < 30U && quaternary_xor_cd[1] < 30U &&
-        quaternary_xor_d[1] > 180U && quaternary_xor_d[2] > 180U)) {
+        quaternary_xor_d[1] > 180U && quaternary_xor_d[2] > 180U &&
+        mixed_difference[1] > 180U && mixed_difference[2] > 180U &&
+        mixed_gap[0] < 30U && mixed_gap[1] < 30U &&
+        mixed_union_start[1] > 180U && mixed_union_start[2] > 180U &&
+        mixed_union_end[1] > 180U && mixed_union_end[2] > 180U &&
+        mixed_path_difference[1] > 180U &&
+        mixed_path_difference[2] > 180U &&
+        mixed_path_gap[0] < 30U && mixed_path_gap[1] < 30U &&
+        mixed_path_union[1] > 180U && mixed_path_union[2] > 180U &&
+        fractional_xor_left[0] == 28U &&
+        fractional_xor_left[1] == 108U &&
+        fractional_xor_left[2] == 126U &&
+        fractional_xor_overlap[0] < 30U &&
+        fractional_xor_overlap[1] < 30U &&
+        fractional_xor_right[0] == 28U &&
+        fractional_xor_right[1] == 108U &&
+        fractional_xor_right[2] == 126U)) {
         const auto print_pixel = [](const char* name,
                                     const std::uint8_t* value) {
             std::cerr << name << "="
@@ -329,6 +355,16 @@ bool has_expected_colors(
         print_pixel("quaternary-xor-bcd", quaternary_xor_bcd);
         print_pixel("quaternary-xor-cd", quaternary_xor_cd);
         print_pixel("quaternary-xor-d", quaternary_xor_d);
+        print_pixel("mixed-difference", mixed_difference);
+        print_pixel("mixed-gap", mixed_gap);
+        print_pixel("mixed-union-start", mixed_union_start);
+        print_pixel("mixed-union-end", mixed_union_end);
+        print_pixel("mixed-path-difference", mixed_path_difference);
+        print_pixel("mixed-path-gap", mixed_path_gap);
+        print_pixel("mixed-path-union", mixed_path_union);
+        print_pixel("fractional-xor-left", fractional_xor_left);
+        print_pixel("fractional-xor-overlap", fractional_xor_overlap);
+        print_pixel("fractional-xor-right", fractional_xor_right);
         std::cerr << '\n';
         return false;
     }
@@ -419,7 +455,47 @@ bool has_expected_colors(
               << " quaternary-d="
               << static_cast<unsigned int>(quaternary_xor_d[0]) << ","
               << static_cast<unsigned int>(quaternary_xor_d[1]) << ","
-              << static_cast<unsigned int>(quaternary_xor_d[2]) << '\n';
+              << static_cast<unsigned int>(quaternary_xor_d[2])
+              << " mixed-difference="
+              << static_cast<unsigned int>(mixed_difference[0]) << ","
+              << static_cast<unsigned int>(mixed_difference[1]) << ","
+              << static_cast<unsigned int>(mixed_difference[2])
+              << " mixed-gap="
+              << static_cast<unsigned int>(mixed_gap[0]) << ","
+              << static_cast<unsigned int>(mixed_gap[1]) << ","
+              << static_cast<unsigned int>(mixed_gap[2])
+              << " mixed-union-start="
+              << static_cast<unsigned int>(mixed_union_start[0]) << ","
+              << static_cast<unsigned int>(mixed_union_start[1]) << ","
+              << static_cast<unsigned int>(mixed_union_start[2])
+              << " mixed-union-end="
+              << static_cast<unsigned int>(mixed_union_end[0]) << ","
+              << static_cast<unsigned int>(mixed_union_end[1]) << ","
+              << static_cast<unsigned int>(mixed_union_end[2])
+              << " mixed-path-difference="
+              << static_cast<unsigned int>(mixed_path_difference[0]) << ","
+              << static_cast<unsigned int>(mixed_path_difference[1]) << ","
+              << static_cast<unsigned int>(mixed_path_difference[2])
+              << " mixed-path-gap="
+              << static_cast<unsigned int>(mixed_path_gap[0]) << ","
+              << static_cast<unsigned int>(mixed_path_gap[1]) << ","
+              << static_cast<unsigned int>(mixed_path_gap[2])
+              << " mixed-path-union="
+              << static_cast<unsigned int>(mixed_path_union[0]) << ","
+              << static_cast<unsigned int>(mixed_path_union[1]) << ","
+              << static_cast<unsigned int>(mixed_path_union[2])
+              << " fractional-xor-left="
+              << static_cast<unsigned int>(fractional_xor_left[0]) << ","
+              << static_cast<unsigned int>(fractional_xor_left[1]) << ","
+              << static_cast<unsigned int>(fractional_xor_left[2])
+              << " fractional-xor-overlap="
+              << static_cast<unsigned int>(fractional_xor_overlap[0]) << ","
+              << static_cast<unsigned int>(fractional_xor_overlap[1]) << ","
+              << static_cast<unsigned int>(fractional_xor_overlap[2])
+              << " fractional-xor-right="
+              << static_cast<unsigned int>(fractional_xor_right[0]) << ","
+              << static_cast<unsigned int>(fractional_xor_right[1]) << ","
+              << static_cast<unsigned int>(fractional_xor_right[2]) << '\n';
     if (!requires_decoded_glyph) {
         return true;
     }
@@ -1379,6 +1455,228 @@ int main(int argc, char** argv) {
             {380.0F, 4.0F, 70.0F, 20.0F}) ||
         !scene_builder.pop_layer()) {
         std::cerr << "Could not record translated quaternary XOR layer.\n";
+        return EXIT_FAILURE;
+    }
+    std::vector<progpu_native_path_segment> mixed_boolean_segments;
+    std::vector<progpu_native_scene_path_boolean_node> mixed_boolean_nodes;
+    mixed_boolean_segments.reserve(12U);
+    mixed_boolean_nodes.reserve(5U);
+    constexpr std::array mixed_lefts{460.0F, 470.0F, 480.0F};
+    for (std::size_t leaf_index = 0U;
+         leaf_index < mixed_lefts.size();
+         ++leaf_index) {
+        const float left = mixed_lefts[leaf_index];
+        const float right = left + 40.0F;
+        mixed_boolean_segments.push_back({
+            {left, 4.0F}, {right, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+        mixed_boolean_segments.push_back({
+            {right, 4.0F}, {right, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+        mixed_boolean_segments.push_back({
+            {right, 24.0F}, {left, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+        mixed_boolean_segments.push_back({
+            {left, 24.0F}, {left, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+        mixed_boolean_nodes.push_back({
+            static_cast<std::uint64_t>(leaf_index * 4U),
+            4U,
+            left,
+            4.0F,
+            right,
+            24.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF,
+            0U,
+            0U});
+        if (leaf_index != 0U) {
+            progpu_native_scene_path_boolean_node operation{};
+            operation.kind = leaf_index == 1U
+                ? PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE
+                : PROGPU_NATIVE_PATH_BOOLEAN_UNION;
+            mixed_boolean_nodes.push_back(operation);
+        }
+    }
+    const progpu_native_scene_clip_path mixed_boolean_path{
+        0U,
+        mixed_boolean_segments.size(),
+        0U,
+        mixed_boolean_nodes.size(),
+        460.0F,
+        4.0F,
+        520.0F,
+        24.0F,
+        identity,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        8U,
+        PROGPU_NATIVE_CLIP_INTERSECT,
+        0U};
+    std::uint32_t mixed_boolean_mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scene_builder.add_vector_clip_mask(
+            std::span<const progpu_native_scene_clip_path>(
+                &mixed_boolean_path,
+                1U),
+            mixed_boolean_segments,
+            mixed_boolean_nodes,
+            1.0F,
+            mixed_boolean_mask_index)) {
+        std::cerr << "Could not record translated mixed boolean mask.\n";
+        return EXIT_FAILURE;
+    }
+    progpu_native_scene_layer mixed_boolean_layer{};
+    mixed_boolean_layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    mixed_boolean_layer.bounds = {460.0F, 4.0F, 60.0F, 20.0F};
+    mixed_boolean_layer.opacity = 1.0F;
+    mixed_boolean_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    mixed_boolean_layer.mask_resource_index = mixed_boolean_mask_index;
+    mixed_boolean_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    mixed_boolean_layer.content_revision = 1U;
+    mixed_boolean_layer.composite_revision = 1U;
+    const progpu_native_analytic_primitive mixed_boolean_content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        460.0F,
+        4.0F,
+        60.0F,
+        20.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity};
+    if (!scene_builder.push_layer(mixed_boolean_layer) ||
+        !scene_builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &mixed_boolean_content,
+                1U),
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {460.0F, 4.0F, 60.0F, 20.0F}) ||
+        !scene_builder.pop_layer()) {
+        std::cerr << "Could not record translated mixed boolean layer.\n";
+        return EXIT_FAILURE;
+    }
+    auto mixed_path_transform = identity;
+    mixed_path_transform.m32 = 32.0F;
+    const progpu_native_scene_path_fill mixed_path_fill{
+        0U,
+        mixed_boolean_segments.size(),
+        0U,
+        mixed_boolean_nodes.size(),
+        460.0F,
+        4.0F,
+        520.0F,
+        24.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        mixed_path_transform,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        8U};
+    if (!scene_builder.draw_paths(
+            std::span<const progpu_native_scene_path_fill>(
+                &mixed_path_fill,
+                1U),
+            mixed_boolean_segments,
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {460.0F, 36.0F, 60.0F, 20.0F},
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            mixed_boolean_nodes)) {
+        std::cerr << "Could not record translated mixed boolean path.\n";
+        return EXIT_FAILURE;
+    }
+    const std::array fractional_xor_segments{
+        progpu_native_path_segment{
+            {540.25F, 4.0F}, {570.25F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {570.25F, 4.0F}, {570.25F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {570.25F, 24.0F}, {540.25F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {540.25F, 24.0F}, {540.25F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {540.75F, 4.0F}, {570.75F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {570.75F, 4.0F}, {570.75F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {570.75F, 24.0F}, {540.75F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {540.75F, 24.0F}, {540.75F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const std::array fractional_xor_nodes{
+        progpu_native_scene_path_boolean_node{
+            0U, 4U, 540.25F, 4.0F, 570.25F, 24.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            4U, 4U, 540.75F, 4.0F, 570.75F, 24.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_XOR, 0U, 0U}};
+    const progpu_native_scene_clip_path fractional_xor_path{
+        0U,
+        fractional_xor_segments.size(),
+        0U,
+        fractional_xor_nodes.size(),
+        540.25F,
+        4.0F,
+        570.75F,
+        24.0F,
+        identity,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        8U,
+        PROGPU_NATIVE_CLIP_INTERSECT,
+        0U};
+    std::uint32_t fractional_xor_mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scene_builder.add_vector_clip_mask(
+            std::span<const progpu_native_scene_clip_path>(
+                &fractional_xor_path,
+                1U),
+            fractional_xor_segments,
+            fractional_xor_nodes,
+            1.0F,
+            fractional_xor_mask_index)) {
+        std::cerr << "Could not record fractional translated XOR mask.\n";
+        return EXIT_FAILURE;
+    }
+    progpu_native_scene_layer fractional_xor_layer{};
+    fractional_xor_layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    fractional_xor_layer.bounds = {540.0F, 4.0F, 31.0F, 20.0F};
+    fractional_xor_layer.opacity = 1.0F;
+    fractional_xor_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    fractional_xor_layer.mask_resource_index = fractional_xor_mask_index;
+    fractional_xor_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    fractional_xor_layer.content_revision = 1U;
+    fractional_xor_layer.composite_revision = 1U;
+    const progpu_native_analytic_primitive fractional_xor_content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        540.0F,
+        4.0F,
+        31.0F,
+        20.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity};
+    if (!scene_builder.push_layer(fractional_xor_layer) ||
+        !scene_builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &fractional_xor_content,
+                1U),
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {540.0F, 4.0F, 31.0F, 20.0F}) ||
+        !scene_builder.pop_layer()) {
+        std::cerr << "Could not record fractional translated XOR layer.\n";
         return EXIT_FAILURE;
     }
     progpu_native_hit_test_primitive hit_primitive{};

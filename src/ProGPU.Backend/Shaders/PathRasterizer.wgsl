@@ -1,6 +1,6 @@
-// Algorithm: Rasterize ordinary, binary-boolean, or bounded postfix path-expression coverage by supersampling each atlas texel, applying analytic winding tests, and combining per-sample membership before coverage averaging.
+// Algorithm: Rasterize ordinary or bounded postfix path-expression coverage by supersampling each atlas texel and applying analytic winding tests. Driver-sensitive translated overlaps rasterize one full 64-sample mask per leaf in phase batches, then evaluate the original postfix program before the single R8 coverage average.
 // Time complexity: O(A*(S+N)) per expression texel for A anti-aliasing samples, total leaf segment visits S, and N postfix instructions; ordinary paths are O(A*S).
-// Space complexity: O(D) private mask storage for expression stack depth D<=16 plus O(S+N) read-only record/segment bandwidth and one packed u32 output write per four R8 texels.
+// Space complexity: O(D) private mask storage for expression stack depth D<=16; split programs additionally retain two u32 sample words per leaf texel until the bounded combine pass, while ordinary paths write one packed u32 per four R8 texels.
 const BOOLEAN_PROGRAM_FLAG: u32 = 0x80000000u;
 const BOOLEAN_EMPTY_TOKEN: u32 = 0x40000000u;
 const BOOLEAN_TOKEN_VALUE_MASK: u32 = 0x3fffffffu;
@@ -36,11 +36,13 @@ struct CoverageCombineUniforms {
     sourceOffsetWords: u32,
     sourceStrideWords: u32,
     sourceCount: u32,
+    programIndex: u32,
+    programCount: u32,
     destinationOffsetWords: u32,
-    rowWords: u32,
+    destinationRowWords: u32,
     width: u32,
     height: u32,
-    _pad0: u32,
+    sampleGrid: u32,
 };
 
 struct Segment {
@@ -653,6 +655,30 @@ fn path_coverage_byte(x: u32, y: u32, uniforms: PathUniforms) -> u32 {
     return min(255u, u32(round(f32(coveredSamples) * sampleWeight * 255.0)));
 }
 
+fn path_sample_mask(x: u32, y: u32, uniforms: PathUniforms) -> vec2<u32> {
+    let record = pathRecords[uniforms.pathIndex];
+    let px = uniforms.xStart + f32(x);
+    let py = uniforms.yStart + f32(y);
+    let sampleGrid = clamp(uniforms.sampleGrid, 1u, 8u);
+    var samples = vec2<u32>(0u);
+    for (var sampleY = 0u; sampleY < sampleGrid; sampleY = sampleY + 1u) {
+        let samplePositionY = py + (f32(sampleY) + 0.5) / f32(sampleGrid);
+        let samplePathY = samplePositionY / uniforms.scaleY;
+        let rowMask = row_coverage_mask(
+            px,
+            samplePathY,
+            sampleGrid,
+            uniforms.scaleX,
+            record);
+        if (sampleY < 4u) {
+            samples.x = samples.x | (rowMask << (sampleY * 8u));
+        } else {
+            samples.y = samples.y | (rowMask << ((sampleY - 4u) * 8u));
+        }
+    }
+    return samples;
+}
+
 // Four adjacent pixels are packed by one invocation so the storage buffer has
 // the exact byte layout required by WebGPU copyBufferToTexture for R8Unorm.
 @compute @workgroup_size(16, 16)
@@ -677,7 +703,76 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 }
 
 @compute @workgroup_size(16, 16)
-fn cs_split_xor_combine(
+fn cs_split_leaf(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let uniforms = pathUniforms[global_id.z];
+    let x = global_id.x;
+    let y = global_id.y;
+    if (x >= uniforms.width || y >= uniforms.height) {
+        return;
+    }
+    let samples = path_sample_mask(x, y, uniforms);
+    let outputIndex = uniforms.outputOffsetWords +
+        y * uniforms.outputRowWords + x * 2u;
+    coverageOutput[outputIndex] = samples.x;
+    coverageOutput[outputIndex + 1u] = samples.y;
+}
+
+fn combine_sample_masks(
+    maskA: vec2<u32>,
+    maskB: vec2<u32>,
+    operation: u32) -> vec2<u32> {
+    return vec2<u32>(
+        combine_coverage_masks(maskA.x, maskB.x, operation),
+        combine_coverage_masks(maskA.y, maskB.y, operation));
+}
+
+fn split_boolean_program_sample_mask(
+    uniforms: CoverageCombineUniforms,
+    x: u32,
+    y: u32) -> vec2<u32> {
+    var stack: array<vec2<u32>, 16>;
+    var stackCount = 0u;
+    for (var instructionIndex = 0u;
+         instructionIndex < uniforms.programCount;
+         instructionIndex = instructionIndex + 1u) {
+        let token = pathRecords[
+            uniforms.programIndex + instructionIndex].startSegment;
+        if ((token & BOOLEAN_PROGRAM_FLAG) != 0u) {
+            if (stackCount < 2u) {
+                return vec2<u32>(0u);
+            }
+            let maskB = stack[stackCount - 1u];
+            let maskA = stack[stackCount - 2u];
+            stackCount = stackCount - 1u;
+            stack[stackCount - 1u] = combine_sample_masks(
+                maskA,
+                maskB,
+                token & BOOLEAN_TOKEN_VALUE_MASK);
+        } else {
+            if (stackCount >= MAX_BOOLEAN_STACK_DEPTH) {
+                return vec2<u32>(0u);
+            }
+            var samples = vec2<u32>(0u);
+            if (token != BOOLEAN_EMPTY_TOKEN) {
+                if (token >= uniforms.sourceCount) {
+                    return vec2<u32>(0u);
+                }
+                let sourceIndex = uniforms.sourceOffsetWords +
+                    token * uniforms.sourceStrideWords +
+                    (y * uniforms.width + x) * 2u;
+                samples = vec2<u32>(
+                    coverageOutput[sourceIndex],
+                    coverageOutput[sourceIndex + 1u]);
+            }
+            stack[stackCount] = samples;
+            stackCount = stackCount + 1u;
+        }
+    }
+    return select(vec2<u32>(0u), stack[0], stackCount == 1u);
+}
+
+@compute @workgroup_size(16, 16)
+fn cs_split_boolean_combine(
     @builtin(global_invocation_id) global_id: vec3<u32>) {
     let uniforms = coverageCombineUniforms[global_id.z];
     let wordX = global_id.x;
@@ -685,16 +780,25 @@ fn cs_split_xor_combine(
     if (wordX * 4u >= uniforms.width || y >= uniforms.height) {
         return;
     }
-    let rowOffset = y * uniforms.rowWords;
     var packed = 0u;
-    for (var sourceIndex = 0u;
-         sourceIndex < uniforms.sourceCount;
-         sourceIndex = sourceIndex + 1u) {
-        packed = packed ^ coverageOutput[
-            uniforms.sourceOffsetWords +
-            sourceIndex * uniforms.sourceStrideWords +
-            rowOffset + wordX];
+    let sampleGrid = clamp(uniforms.sampleGrid, 1u, 8u);
+    let sampleWeight = 1.0 / f32(sampleGrid * sampleGrid);
+    for (var lane = 0u; lane < 4u; lane = lane + 1u) {
+        let x = wordX * 4u + lane;
+        if (x < uniforms.width) {
+            let samples = split_boolean_program_sample_mask(
+                uniforms,
+                x,
+                y);
+            let coveredSamples =
+                countOneBits(samples.x) + countOneBits(samples.y);
+            let coverage = min(
+                255u,
+                u32(round(f32(coveredSamples) * sampleWeight * 255.0)));
+            packed = packed | (coverage << (lane * 8u));
+        }
     }
-    coverageOutput[uniforms.destinationOffsetWords + rowOffset + wordX] =
-        packed;
+    coverageOutput[
+        uniforms.destinationOffsetWords +
+        y * uniforms.destinationRowWords + wordX] = packed;
 }

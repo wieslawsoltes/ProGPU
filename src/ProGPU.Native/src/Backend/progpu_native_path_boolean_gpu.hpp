@@ -3,27 +3,222 @@
 #include "progpu_native_gpu_records.hpp"
 #include "progpu_native_path_boolean_validation.hpp"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace progpu::native::path_boolean {
 
 inline constexpr std::uint32_t gpu_program_flag = 0x80000000U;
 inline constexpr std::uint32_t gpu_empty_token = 0x40000000U;
+inline constexpr std::size_t maximum_equivalence_segment_comparisons =
+    1U << 20U;
 
 struct gpu_program_reference final {
     std::uint32_t path_record_index;
     std::uint32_t program_index;
     std::uint32_t operation_kind;
-    std::uint32_t split_xor_leaf_count;
+    std::uint32_t split_leaf_count;
 };
+
+template<typename Node>
+bool has_overlapping_translated_equivalent_leaves(
+    std::span<const progpu_native_path_segment> segments,
+    const Node* nodes,
+    std::size_t node_offset,
+    std::size_t node_count) noexcept {
+    if (segments.empty() || nodes == nullptr || node_count < 2U) {
+        return false;
+    }
+    const auto nearly_equal = [](float first, float second) noexcept {
+        const float scale = std::max(
+            1.0F,
+            std::max(std::abs(first), std::abs(second)));
+        return std::abs(first - second) <= 0.00001F * scale;
+    };
+    const auto translated_point_equal = [&nearly_equal](
+        progpu_native_point first,
+        progpu_native_point second,
+        float translation_x,
+        float translation_y) noexcept {
+        return nearly_equal(first.x + translation_x, second.x) &&
+            nearly_equal(first.y + translation_y, second.y);
+    };
+    const auto invariant_point_equal = [&nearly_equal](
+        progpu_native_point first,
+        progpu_native_point second) noexcept {
+        return nearly_equal(first.x, second.x) &&
+            nearly_equal(first.y, second.y);
+    };
+    const auto translated_segment_equal = [
+        &translated_point_equal,
+        &invariant_point_equal](
+        const progpu_native_path_segment& first,
+        const progpu_native_path_segment& second,
+        float translation_x,
+        float translation_y) noexcept {
+        if (first.kind != second.kind || first.pad0 != second.pad0 ||
+            first.pad1 != second.pad1 || first.pad2 != second.pad2 ||
+            !translated_point_equal(
+                first.p0,
+                second.p0,
+                translation_x,
+                translation_y) ||
+            !translated_point_equal(
+                first.p1,
+                second.p1,
+                translation_x,
+                translation_y)) {
+            return false;
+        }
+        switch (first.kind) {
+        case PROGPU_NATIVE_PATH_SEGMENT_LINE:
+            return invariant_point_equal(first.p2, second.p2) &&
+                invariant_point_equal(first.p3, second.p3);
+        case PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC:
+            return translated_point_equal(
+                       first.p2,
+                       second.p2,
+                       translation_x,
+                       translation_y) &&
+                invariant_point_equal(first.p3, second.p3);
+        case PROGPU_NATIVE_PATH_SEGMENT_CUBIC:
+            return translated_point_equal(
+                       first.p2,
+                       second.p2,
+                       translation_x,
+                       translation_y) &&
+                translated_point_equal(
+                    first.p3,
+                    second.p3,
+                    translation_x,
+                    translation_y);
+        case PROGPU_NATIVE_PATH_SEGMENT_ARC:
+            return translated_point_equal(
+                       first.p2,
+                       second.p2,
+                       translation_x,
+                       translation_y) &&
+                invariant_point_equal(first.p3, second.p3);
+        default:
+            return false;
+        }
+    };
+
+    // This retained-compilation classifier is intentionally scalar: segment
+    // kinds select different invariant/transformed fields, and the first
+    // mismatch terminates a candidate. A fixed comparison budget prevents an
+    // adversarial near-match matrix from becoming a compute-heavy CPU path;
+    // exhausting it conservatively selects the exact split-GPU evaluator.
+    std::size_t comparison_count = 0U;
+    const auto node_end = node_offset + node_count;
+    for (std::size_t first_index = node_offset;
+         first_index < node_end;
+         ++first_index) {
+        const auto& first = nodes[first_index];
+        if (first.kind != PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
+            first.segment_count == 0U ||
+            first.segment_offset > segments.size() ||
+            first.segment_count > segments.size() - first.segment_offset) {
+            continue;
+        }
+        for (std::size_t second_index = first_index + 1U;
+             second_index < node_end;
+             ++second_index) {
+            const auto& second = nodes[second_index];
+            if (second.kind != PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
+                first.segment_count != second.segment_count ||
+                second.segment_offset > segments.size() ||
+                second.segment_count >
+                    segments.size() - second.segment_offset ||
+                std::max(first.min_x, second.min_x) >=
+                    std::min(first.max_x, second.max_x) ||
+                std::max(first.min_y, second.min_y) >=
+                    std::min(first.max_y, second.max_y) ||
+                !nearly_equal(
+                    first.max_x - first.min_x,
+                    second.max_x - second.min_x) ||
+                !nearly_equal(
+                    first.max_y - first.min_y,
+                    second.max_y - second.min_y)) {
+                continue;
+            }
+            const auto& first_segment = segments[first.segment_offset];
+            const auto& second_segment = segments[second.segment_offset];
+            const float translation_x =
+                second_segment.p0.x - first_segment.p0.x;
+            const float translation_y =
+                second_segment.p0.y - first_segment.p0.y;
+            if (nearly_equal(translation_x, 0.0F) &&
+                nearly_equal(translation_y, 0.0F)) {
+                continue;
+            }
+            bool equivalent = true;
+            for (std::size_t segment_index = 0U;
+                 segment_index < first.segment_count;
+                 ++segment_index) {
+                if (comparison_count ==
+                    maximum_equivalence_segment_comparisons) {
+                    return true;
+                }
+                ++comparison_count;
+                if (!translated_segment_equal(
+                        segments[first.segment_offset + segment_index],
+                        segments[second.segment_offset + segment_index],
+                        translation_x,
+                        translation_y)) {
+                    equivalent = false;
+                    break;
+                }
+            }
+            if (equivalent) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+template<typename Path, typename Node>
+std::uint32_t pure_left_fold_xor_leaf_count(
+    const Path& path,
+    const Node* nodes) noexcept {
+    if (path.boolean_node_count < 3U ||
+        (path.boolean_node_count & 1U) == 0U) {
+        return 0U;
+    }
+    if (nodes[path.boolean_node_offset].kind !=
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
+        nodes[path.boolean_node_offset + 1U].kind !=
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
+        nodes[path.boolean_node_offset + 2U].kind !=
+            PROGPU_NATIVE_PATH_BOOLEAN_XOR) {
+        return 0U;
+    }
+    std::uint32_t leaf_count = 2U;
+    for (std::size_t index = 3U;
+         index < path.boolean_node_count;
+         index += 2U) {
+        if (nodes[path.boolean_node_offset + index].kind !=
+                PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
+            nodes[path.boolean_node_offset + index + 1U].kind !=
+                PROGPU_NATIVE_PATH_BOOLEAN_XOR) {
+            return 0U;
+        }
+        ++leaf_count;
+    }
+    return leaf_count;
+}
 
 template<typename Path, typename Node>
 gpu_program_reference append_gpu_records(
     const Path& path,
     const Node* nodes,
-    std::vector<gpu_path_record>& records) {
+    std::vector<gpu_path_record>& records,
+    std::span<const progpu_native_path_segment> segments = {}) {
     const auto path_record_index =
         static_cast<std::uint32_t>(records.size());
     if (path.boolean_node_count == 0U) {
@@ -37,60 +232,6 @@ gpu_program_reference append_gpu_records(
             path.fill_rule,
             0U});
         return {path_record_index, 0U, 0U, 0U};
-    }
-
-    const auto split_xor_leaf_count = [&]() {
-        if (path.boolean_node_count < 3U ||
-            (path.boolean_node_count & 1U) == 0U) {
-            return 0U;
-        }
-        if (nodes[path.boolean_node_offset].kind !=
-                PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
-            nodes[path.boolean_node_offset + 1U].kind !=
-                PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
-            nodes[path.boolean_node_offset + 2U].kind !=
-                PROGPU_NATIVE_PATH_BOOLEAN_XOR) {
-            return 0U;
-        }
-        std::uint32_t leaf_count = 2U;
-        for (std::size_t index = 3U;
-             index < path.boolean_node_count;
-             index += 2U) {
-            if (nodes[path.boolean_node_offset + index].kind !=
-                    PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
-                nodes[path.boolean_node_offset + index + 1U].kind !=
-                    PROGPU_NATIVE_PATH_BOOLEAN_XOR) {
-                return 0U;
-            }
-            ++leaf_count;
-        }
-        return leaf_count;
-    }();
-    if (split_xor_leaf_count != 0U) {
-        const auto append_leaf = [&records](const Node& leaf) {
-            records.push_back({
-                static_cast<std::uint32_t>(leaf.segment_offset),
-                static_cast<std::uint32_t>(leaf.segment_count),
-                leaf.min_x,
-                leaf.min_y,
-                leaf.max_x,
-                leaf.max_y,
-                leaf.fill_rule,
-                0U});
-        };
-        append_leaf(nodes[path.boolean_node_offset]);
-        append_leaf(nodes[path.boolean_node_offset + 1U]);
-        for (std::uint32_t leaf_index = 2U;
-             leaf_index < split_xor_leaf_count;
-             ++leaf_index) {
-            append_leaf(nodes[
-                path.boolean_node_offset + leaf_index * 2U - 1U]);
-        }
-        return {
-            path_record_index,
-            0U,
-            0U,
-            split_xor_leaf_count};
     }
 
     std::array<std::uint32_t, maximum_instruction_count> tokens{};
@@ -116,6 +257,13 @@ gpu_program_reference append_gpu_records(
             tokens[index] = gpu_program_flag | (node.kind - 1U);
         }
     }
+    const bool split_program =
+        pure_left_fold_xor_leaf_count(path, nodes) != 0U ||
+        has_overlapping_translated_equivalent_leaves(
+            segments,
+            nodes,
+            static_cast<std::size_t>(path.boolean_node_offset),
+            static_cast<std::size_t>(path.boolean_node_count));
 
     const auto program_index = static_cast<std::uint32_t>(records.size());
     for (std::size_t index = 0U;
@@ -129,7 +277,7 @@ gpu_program_reference append_gpu_records(
         program_index,
         gpu_program_flag |
             static_cast<std::uint32_t>(path.boolean_node_count),
-        0U};
+        split_program ? leaf_count : 0U};
 }
 
 } // namespace progpu::native::path_boolean

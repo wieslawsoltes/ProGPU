@@ -78,7 +78,8 @@ struct progpu_native_engine {
     WGPUTextureView analytic_sentinel_texture_view = nullptr;
     WGPUShaderModule path_raster_shader = nullptr;
     WGPUComputePipeline path_raster_pipeline = nullptr;
-    WGPUComputePipeline path_split_xor_combine_pipeline = nullptr;
+    WGPUComputePipeline path_split_leaf_pipeline = nullptr;
+    WGPUComputePipeline path_split_boolean_combine_pipeline = nullptr;
     WGPUBindGroupLayout path_raster_layout = nullptr;
     WGPUPipelineLayout path_raster_pipeline_layout = nullptr;
     WGPUSampler path_atlas_sampler = nullptr;
@@ -1688,8 +1689,11 @@ struct progpu_native_engine {
         if (path_raster_pipeline != nullptr) {
             wgpuComputePipelineRelease(path_raster_pipeline);
         }
-        if (path_split_xor_combine_pipeline != nullptr) {
-            wgpuComputePipelineRelease(path_split_xor_combine_pipeline);
+        if (path_split_leaf_pipeline != nullptr) {
+            wgpuComputePipelineRelease(path_split_leaf_pipeline);
+        }
+        if (path_split_boolean_combine_pipeline != nullptr) {
+            wgpuComputePipelineRelease(path_split_boolean_combine_pipeline);
         }
         if (path_raster_pipeline_layout != nullptr) {
             wgpuPipelineLayoutRelease(path_raster_pipeline_layout);
