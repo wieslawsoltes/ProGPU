@@ -2083,6 +2083,15 @@ lambda depth-name shadow that Apple Clang does not diagnose, so the strict
 cross-compiler lane remains part of this bounds checkpoint rather than a later
 cleanup.
 
+The follow-up exact `022a44cc` clip/state checkpoint rebuilt the changed native
+MIL library and test executable in the Windows 11 ARM64 Parallels guest with
+MSVC 19.44 and the existing `/W4 /WX` configuration; the focused test passed
+in 1.70 seconds. Guest SHA-256 values matched the host at
+`848F81F686BFDF674496E49F19B7F07ECD7256E20C46A02FB0DDB61A8A4F5E95`
+for `progpu_native_mil.cpp` and
+`2BA928A65CE70E9907A3DAB7BAC41805E6EA5AFB038E97B1263C7102D1F8C14C`
+for the test source.
+
 `NativeMilRenderDataBuilder.DrawImage(...)` now exposes the same canonical
 static packet to typed hosts. It validates finite nonnegative destination
 bounds and a nonzero image handle, writes the required zero padding, and is
