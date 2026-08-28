@@ -479,9 +479,10 @@ reuse that same closed analytic line/quarter-arc contour and native curve-dash
 compiler. Degenerate records with both radii positive now preserve WpfGfx's
 canonical 17-point alternating cubic/line contour after independent radius
 clamping and reuse the same native curve-dash compiler. Point records reduce
-to the visible-initial-dash Round/Round disk or initial-gap no-op. Degenerate
-asymmetric records with either radius zero remain fail closed pending their
-sharp-rectangle normalization.
+to the visible-initial-dash Round/Round disk or initial-gap no-op. When either
+radius is zero, including asymmetric degenerate records, WpfGfx normalizes the
+shape to a sharp rectangle before widening; ProGPU now routes those records to
+the qualified sharp one-axis or point lane.
 
 The retained fixed-geometry slice implements the exact fixed-size
 `MILCMD_LINEGEOMETRY`, `MILCMD_RECTANGLEGEOMETRY`, and
@@ -1022,8 +1023,7 @@ minimum clamps remain defense in depth for already-validated streams, not an
 API policy that silently converts invalid lighting state. Native C++ coverage
 checks all three rejection boundaries alongside the existing face-flag guard.
 
-- Implement the remaining 2D/3D resource execution, exact degenerate
-  zero-axis asymmetric rounded-rectangle normalization, exact
+- Implement the remaining 2D/3D resource execution, exact
   translated-equivalent EvenOdd overlap execution, remaining pen/image/media
   paths, dynamic guidelines, caches, effects, and render-data commands.
 - Lower every supported update to stable semantic resource identities and
@@ -2421,6 +2421,26 @@ executables returned zero. Host/guest source hashes matched at
 and `DAC859981EF978FCCDC1C7CEEF6E382F611DA2B23A0E01BF37E535B35AB89549`.
 Guest MIL/internal executable SHA-256 values were
 `DE5C145CA0529B82B292B43E558509476AE62C95C63819805115D0F77D0D37DD`
+and `61ADE59E104E6D29FC4FDA04550FE2CFAE34C871455E3510E04ED07F606823C7`.
+
+Checkpoint `649fe3a5` completes the remaining degenerate zero-radius
+normalization. It follows WpfGfx `CShape::AddRoundedRectangle` directly: if
+either radius is zero, the rounded record is a sharp rectangle before any
+widening or dashing. Vertical and horizontal one-axis records therefore reuse
+the four-point WPF semantic polyline and reversal joins; visible/gap point
+records reuse the qualified Round/Round disk decision. Tests cover both
+asymmetric orientations and point phases and retain invalid brush-handle
+failure after removing the obsolete early unsupported result. Apple passes all
+10 native CTests. The exact archive SHA-256 is
+`E831663733B21EF2232F11F3225F27DDABDF1FF2198F6625DE157C4CD6C491BE`.
+Against the fully qualified `35edc9c6` parent build, MSVC rebuilt the exact two
+changed sources through the 7-step incremental graph; all 10 Windows ARM64
+CTests passed in 7.53 seconds and both focused executables returned zero.
+Host/guest source hashes matched at
+`89D7E319A6E51F9AFBAA79DD21921D64645F7EF5B2F92C9BF1D1147801500858`
+and `F16CB5EAA918C04A47BFB895A4682046D22BF195B56688A2428AA18746E7B63F`.
+Guest MIL/internal executable SHA-256 values were
+`F78174BC5DF1E31207F37BDD10AA56ED680EB965BA5E0B7F5A1107D97E666AED`
 and `61ADE59E104E6D29FC4FDA04550FE2CFAE34C871455E3510E04ED07F606823C7`.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
