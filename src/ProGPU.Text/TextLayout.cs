@@ -162,7 +162,7 @@ public class TextLayout
         return FallbackMetadataWarmup.Value;
     }
 
-    private static bool TryResolveFallback(
+    internal static bool TryResolveFallback(
         TtfFont requestedFont,
         uint codePoint,
         out TtfFont? font,
