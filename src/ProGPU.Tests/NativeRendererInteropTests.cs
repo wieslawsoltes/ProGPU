@@ -2985,18 +2985,24 @@ public class NativeRendererInteropTests
                 builder.TryBuild(out _);
         }
 
-        Assert.True(Build(
-            destination,
-            analytic,
-            paths,
-            outlines,
-            segments,
-            glyphs,
-            textStyles,
-            pixels,
-            in image));
-        long before = GC.GetAllocatedBytesForCurrentThread();
         bool success = true;
+        for (int iteration = 0; iteration < 1_024; ++iteration)
+        {
+            success &= Build(
+                destination,
+                analytic,
+                paths,
+                outlines,
+                segments,
+                glyphs,
+                textStyles,
+                pixels,
+                in image);
+        }
+
+        Assert.True(success);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        success = true;
         for (int iteration = 0; iteration < 10_000; ++iteration)
         {
             success &= Build(
