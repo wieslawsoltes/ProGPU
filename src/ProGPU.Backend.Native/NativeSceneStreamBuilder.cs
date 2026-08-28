@@ -417,7 +417,8 @@ public ref struct NativeSceneStreamBuilder
             NativePolylineFlags.EdgeAliased |
             NativePolylineFlags.Hairline |
             NativePolylineFlags.FixedDeviceStroke |
-            NativePolylineFlags.Closed;
+            NativePolylineFlags.Closed |
+            NativePolylineFlags.WpfJoinSemantics;
         ulong expectedPoints = 0U;
         ulong expectedDoubles = 0U;
         foreach (ref readonly NativeSceneStroke stroke in strokes)
@@ -435,6 +436,9 @@ public ref struct NativeSceneStreamBuilder
                 !float.IsFinite(stroke.StrokeThickness) ||
                 !float.IsFinite(stroke.MiterLimit) ||
                 stroke.MiterLimit < 1f || !double.IsFinite(stroke.DashOffset) ||
+                ((stroke.Flags & NativePolylineFlags.WpfJoinSemantics) != 0 &&
+                    (stroke.Flags & (NativePolylineFlags.Hairline |
+                        NativePolylineFlags.FixedDeviceStroke)) != 0) ||
                 !stroke.HasCanonicalReservedFields ||
                 stroke.PointCount > ulong.MaxValue - expectedPoints)
             {

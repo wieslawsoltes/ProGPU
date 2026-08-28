@@ -8031,7 +8031,8 @@ struct channel::implementation {
             progpu_native_image_rect bounds,
             const progpu_native_affine_2d& local_transform,
             std::uint32_t start_cap,
-            std::uint32_t end_cap) noexcept {
+            std::uint32_t end_cap,
+            bool use_wpf_join_semantics = false) noexcept {
             std::span<const double> intervals;
             double dash_offset = 0.0;
             if (pen.dash_style_handle != 0U) {
@@ -8056,6 +8057,10 @@ struct channel::implementation {
                 : 0U;
             if (closed) {
                 stroke.flags |= PROGPU_NATIVE_POLYLINE_FLAG_CLOSED;
+            }
+            if (use_wpf_join_semantics) {
+                stroke.flags |=
+                    PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS;
             }
             stroke.point_count = points.size();
             stroke.dash_interval_count = intervals.size();
@@ -8408,7 +8413,8 @@ struct channel::implementation {
                     transformed_bounds,
                     native_local_transform,
                     pen.start_line_cap,
-                    pen.end_line_cap);
+                    pen.end_line_cap,
+                    true);
                 if (stroke_status != status::success) {
                     return stroke_status;
                 }
@@ -8577,7 +8583,8 @@ struct channel::implementation {
                     stroke_bounds,
                     native_local_transform,
                     pen.start_line_cap,
-                    pen.end_line_cap);
+                    pen.end_line_cap,
+                    true);
             }
             const std::uint32_t flags =
                 (current.edge_aliased
@@ -9168,7 +9175,8 @@ struct channel::implementation {
                         : pen.start_line_cap,
                     contour.end_uses_dash_cap
                         ? pen.dash_cap
-                        : pen.end_line_cap);
+                        : pen.end_line_cap,
+                    true);
                 if (stroke_status != status::success) {
                     return stroke_status;
                 }
@@ -9523,7 +9531,8 @@ struct channel::implementation {
                 stroke_bounds,
                 native_local_transform,
                 pen.start_line_cap,
-                pen.end_line_cap);
+                pen.end_line_cap,
+                true);
         };
         const auto append_degenerate_rectangle_stroke = [
             this,
@@ -9612,7 +9621,8 @@ struct channel::implementation {
                     stroke_bounds,
                     native_local_transform,
                     pen.start_line_cap,
-                    pen.end_line_cap);
+                    pen.end_line_cap,
+                    true);
             }
             std::vector<progpu_native_path_segment> segments;
             const auto append_line = [&segments](

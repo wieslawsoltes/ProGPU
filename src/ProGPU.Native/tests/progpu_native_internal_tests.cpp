@@ -47,12 +47,24 @@ void clipped_miter_join_uses_the_wpf_three_triangle_wedge() {
         1.0F,
         {25.0F, 15.0F},
         {30.0F, 7.5F},
-        {7.5F, 15.0F});
+        {7.5F, 15.0F},
+        true);
     require(count == 3U);
     require(progpu::native::is_finite(triangles[0U].p2));
     require(progpu::native::is_finite(triangles[1U].p1));
     require(progpu::native::is_finite(triangles[1U].p2));
     require(progpu::native::is_finite(triangles[2U].p1));
+
+    const std::size_t standard_count =
+        progpu::native::create_join_triangles(
+            triangles,
+            PROGPU_NATIVE_STROKE_JOIN_MITER,
+            8.0F,
+            1.0F,
+            {25.0F, 15.0F},
+            {30.0F, 7.5F},
+            {7.5F, 15.0F});
+    require(standard_count == 1U);
 }
 
 void reversal_joins_match_wpf_collapsed_contours() {
@@ -65,7 +77,8 @@ void reversal_joins_match_wpf_collapsed_contours() {
             1.0F,
             {0.0F, 0.0F},
             {0.0F, -1.0F},
-            {0.0F, 1.0F});
+            {0.0F, 1.0F},
+            true);
     require(square_count == 3U);
     require(triangles[0U].p1.x == 1.0F);
     require(triangles[0U].p2.x == 1.0F);
@@ -82,7 +95,8 @@ void reversal_joins_match_wpf_collapsed_contours() {
             1.0F,
             {0.0F, 0.0F},
             {0.0F, -1.0F},
-            {0.0F, 1.0F});
+            {0.0F, 1.0F},
+            true);
     require(round_count == 8U);
     require(triangles[0U].p1.x == 1.0F);
     require(std::abs(triangles[3U].p2.x) < 0.000001F);
