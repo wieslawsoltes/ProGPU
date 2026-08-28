@@ -26,6 +26,7 @@ public sealed class CadSnapshotOptions
     public const int DefaultMaxHatchPatternDashes = 6_000_000;
     public const int DefaultMaxHatchTopologyVisits = 10_000_000;
     public const int DefaultMaxHatchSplineSourceValues = 10_000_000;
+    public const int DefaultMaxMeshFaceIndices = 10_000_000;
 
     public double DefaultLineWeightMillimeters { get; init; } = 0.25;
     public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
@@ -43,6 +44,7 @@ public sealed class CadSnapshotOptions
     public int MaxHatchPatternDashes { get; init; } = DefaultMaxHatchPatternDashes;
     public int MaxHatchTopologyVisits { get; init; } = DefaultMaxHatchTopologyVisits;
     public int MaxHatchSplineSourceValues { get; init; } = DefaultMaxHatchSplineSourceValues;
+    public int MaxMeshFaceIndices { get; init; } = DefaultMaxMeshFaceIndices;
     public bool IncludeNonPlottableLayers { get; init; } = true;
     public ICadTextFontResolver? TextFontResolver { get; init; }
     public ICadShxFontResolver? ShxFontResolver { get; init; }
@@ -143,6 +145,7 @@ public sealed partial class CadSnapshotCompiler
         int expandedCount = 0;
         int unsupportedCount = 0;
         int invalidCount = 0;
+        int remainingMeshFaceIndices = options.MaxMeshFaceIndices;
         var hatchTopologyBudget = new CadHatchTopologyBudget(
             options.MaxHatchTopologyVisits);
         var hatchSplineSourceBudget = new CadHatchSplineSourceBudget(
@@ -293,6 +296,17 @@ public sealed partial class CadSnapshotCompiler
                         effectiveLayer,
                         resolvedStyle,
                         depth);
+                    return;
+                }
+                if (entity is Mesh mesh)
+                {
+                    CompileMesh(
+                        mesh,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle);
                     return;
                 }
 
@@ -723,6 +737,149 @@ public sealed partial class CadSnapshotCompiler
             finally
             {
                 activeBlocks.Remove(block);
+            }
+        }
+
+        void CompileMesh(
+            Mesh mesh,
+            CadAffineTransform3D transform,
+            bool hasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle resolvedStyle)
+        {
+            if (mesh.SubdivisionLevel != 0)
+            {
+                throw new CadUnsupportedEntityException(
+                    "Subdivided MESH display requires exact surface evaluation and a depth-aware shaded renderer.");
+            }
+            if (mesh.Vertices.Count < 3 || mesh.Faces.Count == 0)
+            {
+                throw new ArgumentException(
+                    "A level-0 MESH requires at least three vertices and one face.");
+            }
+
+            var worldVertices = new CadPoint3D[mesh.Vertices.Count];
+            for (int i = 0; i < mesh.Vertices.Count; i++)
+            {
+                CadPoint3D point = TransformPoint(
+                    transform,
+                    hasTransform,
+                    ToPoint(mesh.Vertices[i]));
+                EnsureFinite(point);
+                worldVertices[i] = point;
+            }
+
+            var uniqueEdges = new HashSet<ulong>();
+            var orderedEdges = new List<(int Start, int End)>();
+            var faceVertices = new HashSet<int>();
+            int availableExpandedEntities = options.MaxExpandedEntities - expandedCount;
+            foreach (int[] face in mesh.Faces)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (face is null || face.Length < 3)
+                {
+                    throw new ArgumentException(
+                        "Every level-0 MESH face must contain at least three vertex indices.");
+                }
+                if (face.Length > remainingMeshFaceIndices)
+                {
+                    remainingMeshFaceIndices = 0;
+                    throw new CadUnsupportedEntityException(
+                        $"MESH topology exceeds the configured {options.MaxMeshFaceIndices}-index document limit.");
+                }
+                remainingMeshFaceIndices -= face.Length;
+
+                faceVertices.Clear();
+                for (int i = 0; i < face.Length; i++)
+                {
+                    if ((i & 1023) == 0)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
+                    int start = face[i];
+                    int end = face[(i + 1) % face.Length];
+                    if ((uint)start >= (uint)worldVertices.Length ||
+                        (uint)end >= (uint)worldVertices.Length)
+                    {
+                        throw new ArgumentException(
+                            "A level-0 MESH face references a vertex outside the persisted vertex array.");
+                    }
+                    faceVertices.Add(start);
+                    if (start == end)
+                    {
+                        continue;
+                    }
+                    if (worldVertices[start] == worldVertices[end])
+                    {
+                        throw new ArgumentException(
+                            "A level-0 MESH face contains a geometrically collapsed edge.");
+                    }
+
+                    int lower = Math.Min(start, end);
+                    int upper = Math.Max(start, end);
+                    ulong key = ((ulong)(uint)lower << 32) | (uint)upper;
+                    if (!uniqueEdges.Add(key))
+                    {
+                        continue;
+                    }
+                    if (orderedEdges.Count >= availableExpandedEntities)
+                    {
+                        throw new CadSnapshotExpansionLimitException(
+                            $"Expanded entity count exceeds the configured limit of {options.MaxExpandedEntities}.");
+                    }
+                    orderedEdges.Add((start, end));
+                }
+                if (faceVertices.Count < 3)
+                {
+                    throw new ArgumentException(
+                        "A level-0 MESH face must reference at least three distinct vertices.");
+                }
+            }
+            if (orderedEdges.Count == 0)
+            {
+                throw new ArgumentException("A level-0 MESH has no visible topology edges.");
+            }
+
+            int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
+            int styleIndex = InternStyle(
+                resolvedStyle,
+                styles,
+                styleIndices,
+                lineTypePatterns,
+                lineTypePatternIndices,
+                lineTypeElements,
+                lineTypeTextResources,
+                lineTypeShapeResources,
+                textGlyphRuns,
+                textGlyphIndices,
+                textGlyphPositions,
+                textFonts,
+                textFontIndices,
+                shxGlyphInstances,
+                shxFontResolver,
+                options);
+            expandedCount = checked(expandedCount + orderedEdges.Count);
+            for (int i = 0; i < orderedEdges.Count; i++)
+            {
+                if ((i & 1023) == 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+                (int startIndex, int endIndex) = orderedEdges[i];
+                CadPoint3D start = worldVertices[startIndex];
+                CadPoint3D end = worldVertices[endIndex];
+                int primitiveIndex = lines.Count;
+                lines.Add(new CadLinePrimitive(start, end));
+                CadBounds3D bounds = CadBounds3D.FromPoint(start).Include(end);
+                entities.Add(new CadEntityHeader(
+                    rootHandle,
+                    CadEntityKind.Line,
+                    layerIndex,
+                    styleIndex,
+                    primitiveIndex,
+                    bounds));
+                documentBounds = documentBounds.Union(bounds);
             }
         }
 
@@ -3494,6 +3651,9 @@ public sealed partial class CadSnapshotCompiler
             1);
         ArgumentOutOfRangeException.ThrowIfLessThan(
             options.MaxHatchSplineSourceValues,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxMeshFaceIndices,
             1);
     }
 

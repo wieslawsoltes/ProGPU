@@ -1115,6 +1115,35 @@ dimensions. Associative constraint evaluation, DIMSTYLE-driven regeneration,
 annotative contexts, grip/measurement editing, and creating new dimension
 pictures remain separate required contracts.
 
+## Exact level-0 MESH wireframe lowering
+
+An ACadSharp `Mesh` at subdivision level zero lowers its persisted vertex and
+face lists into one deterministic set of undirected topology edges. Face order
+and winding do not affect deduplication: the first occurrence of canonical
+`(min(vertexA, vertexB), max(vertexA, vertexB))` establishes output order, so a
+shared face boundary is recorded once. Vertices remain double-precision WCS
+points through snapshot normalization and any ancestor INSERT affine transform.
+Every retained edge carries the MESH/ancestor semantic root handle and existing
+layer, ByBlock, lineweight, linetype, transparency, BVH, exact selection,
+printing, and managed/native line-command behavior.
+
+Compilation validates all vertices, face lengths, distinct vertex counts, and
+zero-based index ranges before publishing any edge. It bounds total visited face
+indices with `MaxMeshFaceIndices`, charges every derived edge to the global
+expanded-entity limit, and emits neither partial topology nor guessed repairs.
+For `V` vertices and `K` total face-index visits, expected construction is
+`O(V + K)` time and `O(V + E)` temporary/output storage for `E <= K` unique
+edges; hash-table worst case is `O(K^2)`. Stable replay uses the ordinary
+retained line stream and adds no MESH-specific allocation, upload, crossing, or
+shader.
+
+Nonzero subdivision is diagnosed rather than showing the level-0 control cage,
+because that would visibly change the requested surface. Filled/shaded faces,
+materials/UVs, crease-driven subdivision, hidden-line removal, depth buffering,
+and orbit-aware culling remain the matched 3D renderer contract. This checkpoint
+therefore claims exact level-0 wireframe topology only, while preserving the
+source MESH object for editing and DXF/DWG saving.
+
 ## Retained TrueType TEXT lowering
 
 The snapshot compiler accepts an `ICadTextFontResolver`; hosts may use the
@@ -1728,6 +1757,7 @@ dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --soli
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --pattern-hatches 100 --hatch-selection --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --pattern-hatches 100 --complex-pattern-grammar --hatch-island-styles --hatch-selection --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --dimension-entities 1000 --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --mesh-entities 1000 --warmup 3 --iterations 24 --queries 10000
 ```
 
 The initial 2026-08-27 Apple Silicon/.NET 10 baseline for 10,000 mixed analytic
@@ -1753,6 +1783,22 @@ p50/p95/p99 was `5.5/9.0/11.1 us` with zero managed allocation. This is a
 transparent feature/cost baseline with visibly noisy construction tails, not
 an improvement or release-acceptance claim; matched viewer/GPU/native-image and
 required Instruments evidence remain open acceptance gates.
+
+The 2026-08-29 level-0 MESH feature-cost run used one final Apple
+Silicon/.NET 10.0.5 Release process, 1,000 tetrahedral MESH roots, three
+warmups, 24 construction iterations, and 10,000 spatial queries. Four persisted
+triangular faces per source deduplicated to six unique topology edges. The
+snapshot reported exactly 1,000 source roots, 7,000 expanded records including
+those roots, 6,000 retained commands, and zero unsupported or invalid entities.
+Snapshot p50/p95/p99 was `9.7672/74.9136/83.5604 ms` at `5,039,586 B/op`;
+plan-scene recording was `2.9977/24.9205/38.4965 ms` at `6,144,691 B/op`;
+print planning was `10.5460/38.3424/54.3644 ms` at `9,628,565 B/op`; and warm
+spatial-query p50/p95/p99 was `16.0/33.8/74.1 us` with zero managed
+allocation. This is a transparent feature/cost baseline with noisy tails and a
+deliberately overlapping 3D-to-plan projection, not an improvement or release-
+acceptance claim. Indexed edge batches, representative orbit/depth workloads,
+GPU counters, managed/native images, and required Instruments traces remain
+open gates.
 
 The 2026-08-28 simple-linetype feature-cost baseline used one final Release
 binary in two sequential processes, 1,000 mixed analytic entities, five
@@ -2053,6 +2099,36 @@ dotnet run --project src/ProGPU.CAD.Sample.Browser -c Debug
 ## Primary research record
 
 Sources consulted on 2026-08-27 through 2026-08-29:
+
+- For exact level-0 MESH wireframes, Autodesk's
+  [MESH DXF contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-4B9ADA67-87C8-4673-A579-6E4C76FF7025.htm)
+  establishes the subdivision level, level-0 vertex/face lists, explicit edge
+  and crease records, and property overrides. Adopted the authoritative
+  persisted level-0 topology and explicit subdivision boundary; rejected
+  synthesizing a smooth surface, rendering a nonzero-subdivision control cage,
+  and silently repairing invalid indices. Autodesk's
+  [polyface-mesh guidance](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-DXF/files/GUID-96B6288E-F413-46C0-968A-A314171C0AAE.htm)
+  was consulted for the distinct legacy face-record/invisible-edge model but
+  not applied to modern MESH; legacy polyface and polygon meshes remain separate
+  contracts.
+  [Skia triangle meshes](https://api.skia.org/classSkCanvas.html),
+  [Direct2D `ID2D1Mesh`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1mesh),
+  [Win2D cached geometry](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasCachedGeometry.htm),
+  [WebRender's display-list/scene pipeline](https://searchfox.org/mozilla-central/source/gfx/docs/RenderingOverview.rst),
+  [Vello's retained scene](https://github.com/linebender/vello/blob/main/vello/src/scene.rs), and the
+  [WebGPU primitive-topology contract](https://gpuweb.github.io/gpuweb/#enumdef-gpuprimitivetopology)
+  informed immutable topology retention, culling, device ownership, and future
+  indexed line-list batching. Backend-specific triangle resources were rejected
+  for this checkpoint because they are 2D/device-owned or would require the
+  not-yet-matched shaded/depth pipeline; lowering exact edges to existing
+  ProGPU-owned lines preserves lineweight, linetype, selection, print, and both
+  renderer implementations today. SkParagraph, DirectWrite, Win2D text,
+  Parley, and HarfBuzz were rechecked through the sources below and are not
+  applicable: MESH changes no shaping, layout, font/fallback, glyph cache,
+  subpixel/DPI, or text device-loss contract. Native C++ has no ACadSharp
+  document compiler; both renderers consume the same canonical line commands,
+  so no C++ source, C ABI/wire, P/Invoke, shader, or generated binding change
+  applies.
 
 - For persisted DIMENSION pictures, Autodesk's
   [common DIMENSION DXF contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-EDD54EAC-A339-4EBA-AEA6-EC8066505E2B.htm),
