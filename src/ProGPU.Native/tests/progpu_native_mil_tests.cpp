@@ -11643,8 +11643,13 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         0U);
     PROGPU_REQUIRE(state.apply(clipped_miter_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7008U, 13U, stream, nullptr) ==
-        status::unsupported_command);
+        state.build_scene(target, 7008U, 13U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(contains_mapping(
+        0.8520085F,
+        0.6348318F,
+        -15.275372F,
+        -2.6643355F));
 
     std::vector<std::byte> group_transform_update;
     append_create(group_transform_update, transformed_group, 91U);
