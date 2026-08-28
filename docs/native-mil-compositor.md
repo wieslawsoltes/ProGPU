@@ -618,11 +618,23 @@ child: ordinary descendants retain the compact outer-fill contour leaf, while
 the boolean child retains its existing postfix subtree and each subsequent
 nonempty child adds one group-level XOR node. DrawGeometry fills and vector
 PushClip use this same bounded compiler, including per-point guideline segments
-for fills. A Nonzero group containing a boolean child and meaningful group pens
-remain fail closed until their winding/stroke contours can be composed without
-approximation. Exact singular affine transforms now lower fill and stroke
-coverage to empty, matching WPF's zero-determinant area semantics without
-attempting to invert or factor an arc basis.
+for fills. A `GeometryGroup` containing only `PathGeometry` children may now
+carry a meaningful pen. The compiler preserves each child's original
+open/closed stroke contours, composes child then group then drawing transforms,
+resets dash state at each figure, resolves one pen brush against the aggregate
+group bounds expanded by the existing native miter envelope, and submits fill
+before stroke. This mirrors
+`CMilGeometryGroupDuce::GetShapeDataCore`, which appends every child figure to
+one `CShape`, and `CDrawingContext::DrawGeometry`, which computes aggregate
+stroke bounds and strokes that shape after its fill. Native scene fixtures
+cover filled and explicitly unfilled closed figures in the same group,
+different child transforms, shared brush resolution, exact solid curve bodies,
+and dashed curve bodies/caps on both children. A group pen whose children
+include fixed, nested, or boolean geometry remains fail closed until those
+stroke contours can be composed without approximation. Exact singular affine
+transforms now lower fill and stroke coverage to empty, matching WPF's
+zero-determinant area semantics without attempting to invert or factor an arc
+basis.
 
 Canonical fixed-size `MILCMD_COMBINEDGEOMETRY` state now retains the optional
 matrix transform, two geometry dependencies, and WPF Union/Intersect/Xor/
