@@ -6814,14 +6814,6 @@ struct channel::implementation {
         return false;
     }
 
-    static bool is_binary_xor_leaf_program(
-        std::span<const progpu_native_scene_path_boolean_node> nodes) noexcept {
-        return nodes.size() == 3U &&
-            nodes[0U].kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
-            nodes[1U].kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
-            nodes[2U].kind == PROGPU_NATIVE_PATH_BOOLEAN_XOR;
-    }
-
     status append_shallow_fill_leaf(
         std::uint32_t geometry_handle,
         std::vector<progpu_native_path_segment>& segments,
@@ -7454,14 +7446,9 @@ struct channel::implementation {
                 }
                 ++appended_child_count;
             }
-            const std::span<const progpu_native_scene_path_boolean_node>
-                group_nodes{
-                    nodes.data() + original_node_size,
-                    nodes.size() - original_node_size};
             if (has_overlapping_translated_equivalent_leaves(
                     segments,
-                    group_leaves) &&
-                !is_binary_xor_leaf_program(group_nodes)) {
+                    group_leaves)) {
                 segments.resize(original_segment_size);
                 nodes.resize(original_node_size);
                 tree = {};
@@ -11896,9 +11883,7 @@ struct channel::implementation {
                     if (use_even_odd_leaf_program && has_group_fill) {
                         if (has_overlapping_translated_equivalent_leaves(
                                 group_segments,
-                                group_leaves) &&
-                            !is_binary_xor_leaf_program(
-                                group_boolean_nodes)) {
+                                group_leaves)) {
                             return status::unsupported_command;
                         }
                         if (group_boolean_nodes.size() > 63U) {

@@ -14363,50 +14363,8 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     PROGPU_REQUIRE(
         state.apply(overlapping_translation_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7003U, 9U, stream) == status::success);
-    const auto overlapping_translation_header =
-        read_value<progpu_native_scene_header>(stream, 0U);
-    bool found_binary_translated_xor = false;
-    for (std::uint32_t resource_index = 0U;
-         resource_index < overlapping_translation_header.resource_count;
-         ++resource_index) {
-        const auto resource = read_value<progpu_native_scene_resource>(
-            stream,
-            overlapping_translation_header.resource_offset +
-                resource_index * sizeof(progpu_native_scene_resource));
-        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
-            continue;
-        }
-        const auto path = read_value<progpu_native_scene_path_fill>(
-            stream,
-            resource.payload_offset);
-        if (path.segment_count != 8U || path.boolean_node_count != 3U) {
-            continue;
-        }
-        const std::size_t boolean_offset = resource.auxiliary_offset +
-            path.segment_count * sizeof(progpu_native_path_segment);
-        const auto first = read_value<
-            progpu_native_scene_path_boolean_node>(
-                stream,
-                boolean_offset);
-        const auto second = read_value<
-            progpu_native_scene_path_boolean_node>(
-                stream,
-                boolean_offset + sizeof(first));
-        const auto operation = read_value<
-            progpu_native_scene_path_boolean_node>(
-                stream,
-                boolean_offset + 2U * sizeof(first));
-        PROGPU_REQUIRE(
-            first.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
-            first.segment_offset == 0U && first.segment_count == 4U);
-        PROGPU_REQUIRE(
-            second.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
-            second.segment_offset == 4U && second.segment_count == 4U);
-        PROGPU_REQUIRE(operation.kind == PROGPU_NATIVE_PATH_BOOLEAN_XOR);
-        found_binary_translated_xor = true;
-    }
-    PROGPU_REQUIRE(found_binary_translated_xor);
+        state.build_scene(target, 7003U, 9U, stream) ==
+        status::unsupported_command);
 
     std::vector<std::byte> clip_update;
     append_path_geometry(
