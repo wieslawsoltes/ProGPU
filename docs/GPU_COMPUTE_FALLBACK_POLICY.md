@@ -82,17 +82,27 @@ The CPU fallback uses the same analytic crossing algorithm. Managed code uses
 explicit hardware-backed `Vector256<T>` or `Vector128<T>` intrinsics. Native
 C++ uses ARM NEON or SSE2 lanes. Curve roots and crossing positions are solved
 once per subpixel scanline and reused across the complete glyph row; they are
-not recomputed for every destination pixel. All eight independent horizontal samples then
-accumulate winding in vectors. The native lane count uses NEON/SSE2 masks
-without spilling the winding vectors to temporary arrays. Managed code reduces
-comparison masks through `ExtractMostSignificantBits` and population count,
-normalizes 16 coverage bytes per vector block, and retains a bounded scalar
-tail. The scalar path remains available as the deliberately independent
+not recomputed for every destination pixel. The managed and native paths retain
+all eight row-local crossing spans, visit X afterward, build each horizontal
+sample vector once, and write exact integer-quantized coverage directly. The
+native lane count uses NEON/SSE2 masks without spilling winding vectors to
+temporary arrays. Managed code reduces comparison masks through
+`ExtractMostSignificantBits` and population count. The scalar path remains
+available as the deliberately independent
 differential oracle and as the bounded fallback on architectures without a
 supported intrinsic target. The implementation, primary-source review,
 managed/native applicability audit, exact differential coverage, and current
 Apple M3 Pro measurement are recorded in
 [`GLYPH_CPU_FALLBACK_SIMD_RESEARCH.md`](GLYPH_CPU_FALLBACK_SIMD_RESEARCH.md).
+
+Managed checkpoints `2960fb39` and `ffb285af` close the former traversal
+asymmetry with the native implementation. Eight alternating Apple ARM64
+processes improved median p50/p95 from 218.649/227.590 to
+205.471/212.347 us/glyph while remaining byte-exact and allocation-neutral.
+The immutable final archive rebuilt with zero warnings in Windows ARM64 and
+three Vector128 runs retained the same deterministic checksum. The available
+Windows and Rosetta runtimes reported `Vector256=False`, so hardware-backed
+Vector256 runtime coverage remains an explicit x64 CI/qualification gate.
 
 ## Validation gate
 
