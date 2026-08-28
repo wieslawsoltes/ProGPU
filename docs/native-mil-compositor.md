@@ -2294,8 +2294,10 @@ Host/guest source hashes matched (`8B71B473...77D4D` MIL and
 Checkpoint `e4d1d2c8` closes the corresponding shared managed-renderer gap:
 `StrokeJoinGeometry` now emits the same WPF clipped-miter three-triangle
 fallback through both its allocation-free span writer and allocating
-compatibility API. This keeps C++ native, managed WebGPU, and downstream host
-renderers on one geometric rule instead of weakening the differential gate.
+compatibility API. Checkpoint `2f55b1ba` below subsequently scopes this WPF
+rule to typed MIL/WPF consumers, preserving standard joins for generic
+ProGPU, Svg.Skia, and downstream callers instead of weakening either parity
+gate.
 The previously failing 96-polyline Apple Metal comparison is byte exact
 (`max=0`, zero differing pixels, identical `C67040E2A28F2507` frame hashes),
 with matching 3,408 vertices and 5,112 indices. The full managed suite passes
@@ -2321,9 +2323,10 @@ archive, `3D67CDD5...2B43C` MIL source, `45ABD421...F6D0E` MIL test); guest
 MIL/internal executable hashes were `F7E4E8F7...626C1` and
 `62A9AE08...F175`.
 Checkpoint `f308c676` adds the shared 180-degree reversal primitive needed by
-collapsed dashed contours. Managed `StrokeJoinGeometry` and the C++ backend
-now emit WPF's half-width three-triangle square for Miter/Bevel reversals and
-an eight-triangle incoming semicircle for Round. Native MIL one-axis sharp
+collapsed dashed contours. When WPF join semantics are requested, managed
+`StrokeJoinGeometry` and the C++ backend emit WPF's half-width three-triangle
+square for Miter/Bevel reversals and an eight-triangle incoming semicircle for
+Round. Native MIL one-axis sharp
 rectangles retain their four canonical points; one-axis ellipses retain four
 ordered collapsed quarter traversals and force Round smooth joins. Both stay
 inside the typed semantic stroke resource, so DirectX, WebGPU, managed, and
@@ -2345,6 +2348,30 @@ executions returned zero. Host/guest source hashes matched
 `86CA4F83...D94A` managed geometry, and `9B378FDC...5CD6` managed tests).
 Guest MIL/internal executable hashes were `A5272CE9...FAAC` and
 `30295F83...D0D6`.
+
+Checkpoint `2f55b1ba` makes that qualification explicit with the typed
+`WpfJoinSemantics` policy. The original managed join APIs and native polyline
+flags retain standard renderer behavior; explicit managed WPF APIs and every
+MIL-created semantic stroke opt in to both clipped-miter and 180-degree
+reversal geometry. Native validation rejects this semantic flag with hairline
+or fixed-device strokes, so an incompatible forced combination fails closed.
+The pinned Svg.Skia W3C gate is restored to its reviewed inventory: native
+530/533 with three skips and ProGPU 486/533 with 44 reviewed differences and
+three skips. The three previously new differences (`animate-elem-35-t`,
+`painting-stroke-07-t`, and `shapes-polyline-02-t`) pass individually. Apple
+passes 10/10 native CTests and 3,885/3,885 managed tests. The generic
+96-polyline differential is again byte exact with 3,360 vertices, 5,040
+indices, and identical `DE73D991697DAB3F` hashes. Dash differential topology
+matches at 31,776 vertices and 47,664 indices with zero pixels outside the
+one-channel edge tolerance (native `34DBC0EA94EF5BDB`, managed
+`D09D785B5B327753`). The immutable source archive SHA-256 is
+`4420B6E1D842FDD4F2C9101FC7C438773FB53707A11060F2DD5A6F17EF8867D6`.
+Its exact sources rebuilt 257 steps on Windows ARM64 with MSVC
+`19.44.35228.0`; all 10 CTests passed in 29.51 seconds and both MIL/internal
+executables returned zero directly. Host/guest hashes matched for all six
+changed source and test files. Guest MIL/internal executable SHA-256 values
+were `3082D4214B1B6147A8BD40B2D6B9A56D39A2B3FE929AADF071043A4E42DD56CC`
+and `0328FBF9528582E54D7E90F4051290ACD1C7F419709DAE16BA3A0D87EE4CE872`.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive
