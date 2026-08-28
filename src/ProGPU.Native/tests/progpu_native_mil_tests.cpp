@@ -6448,6 +6448,50 @@ bool solid_pen_line_compiles_to_geometry_scene() {
         1.0,
         0U,
         point_gap_pen);
+    append_command(
+        dashed_degenerate_rounded,
+        command::draw_rounded_rectangle,
+        44.0,
+        4.0,
+        0.0,
+        8.0,
+        0.0,
+        2.0,
+        0U,
+        pen);
+    append_command(
+        dashed_degenerate_rounded,
+        command::draw_rounded_rectangle,
+        48.0,
+        4.0,
+        8.0,
+        0.0,
+        2.0,
+        0.0,
+        0U,
+        pen);
+    append_command(
+        dashed_degenerate_rounded,
+        command::draw_rounded_rectangle,
+        60.0,
+        4.0,
+        0.0,
+        0.0,
+        0.0,
+        2.0,
+        0U,
+        pen);
+    append_command(
+        dashed_degenerate_rounded,
+        command::draw_rounded_rectangle,
+        64.0,
+        4.0,
+        0.0,
+        0.0,
+        2.0,
+        0.0,
+        0U,
+        point_gap_pen);
     append_render_data(
         dashed_degenerate_rounded_batch,
         content,
@@ -6457,12 +6501,13 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     PROGPU_REQUIRE(
         state.build_scene(target, 7002U, 55U, stream, &metrics) ==
         status::success);
-    PROGPU_REQUIRE(metrics.rounded_rectangle_count == 4U);
+    PROGPU_REQUIRE(metrics.rounded_rectangle_count == 8U);
     const auto dashed_degenerate_rounded_header =
         read_value<progpu_native_scene_header>(stream, 0U);
     std::uint32_t dashed_degenerate_rounded_cubic_count = 0U;
     std::uint32_t dashed_degenerate_rounded_line_count = 0U;
     std::uint32_t dashed_degenerate_rounded_point_cap_count = 0U;
+    std::uint32_t dashed_zero_radius_stroke_count = 0U;
     for (std::uint32_t index = 0U;
          index < dashed_degenerate_rounded_header.resource_count;
          ++index) {
@@ -6470,8 +6515,25 @@ bool solid_pen_line_compiles_to_geometry_scene() {
             stream,
             dashed_degenerate_rounded_header.resource_offset +
                 index * sizeof(progpu_native_scene_resource));
-        PROGPU_REQUIRE(
-            record.kind != PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH);
+        if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
+            const std::size_t stroke_count =
+                record.payload_size / sizeof(progpu_native_scene_stroke);
+            for (std::size_t stroke_index = 0U;
+                 stroke_index < stroke_count;
+                 ++stroke_index) {
+                const auto stroke = read_value<progpu_native_scene_stroke>(
+                    stream,
+                    record.payload_offset +
+                        stroke_index * sizeof(progpu_native_scene_stroke));
+                PROGPU_REQUIRE(stroke.point_count == 4U);
+                PROGPU_REQUIRE(
+                    (stroke.flags &
+                        PROGPU_NATIVE_POLYLINE_FLAG_WPF_JOIN_SEMANTICS) !=
+                    0U);
+                ++dashed_zero_radius_stroke_count;
+            }
+            continue;
+        }
         if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
             continue;
         }
@@ -6492,7 +6554,9 @@ bool solid_pen_line_compiles_to_geometry_scene() {
             } else if (primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE) {
                 ++dashed_degenerate_rounded_line_count;
             } else if (primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP &&
-                primitive.p0.x == 36.0F && primitive.p0.y == 4.0F) {
+                (primitive.p0.x == 36.0F ||
+                    primitive.p0.x == 60.0F) &&
+                primitive.p0.y == 4.0F) {
                 PROGPU_REQUIRE(
                     (primitive.flags &
                         PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) ==
@@ -6502,11 +6566,14 @@ bool solid_pen_line_compiles_to_geometry_scene() {
             }
             PROGPU_REQUIRE(
                 primitive.p0.x != 40.0F || primitive.p0.y != 4.0F);
+            PROGPU_REQUIRE(
+                primitive.p0.x != 64.0F || primitive.p0.y != 4.0F);
         }
     }
     PROGPU_REQUIRE(dashed_degenerate_rounded_cubic_count > 0U);
     PROGPU_REQUIRE(dashed_degenerate_rounded_line_count > 0U);
-    PROGPU_REQUIRE(dashed_degenerate_rounded_point_cap_count == 2U);
+    PROGPU_REQUIRE(dashed_degenerate_rounded_point_cap_count == 4U);
+    PROGPU_REQUIRE(dashed_zero_radius_stroke_count == 2U);
     bool found_dashed_degenerate_rounded_point_bounds = false;
     for (std::uint32_t index = 0U;
          index < dashed_degenerate_rounded_header.command_count;
@@ -14692,7 +14759,7 @@ bool render_data_scope_errors_fail_closed() {
     PROGPU_REQUIRE(state.apply(unequal_batch) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 1U, 3U, stream) ==
-        status::unsupported_command);
+        status::invalid_handle);
 
     std::vector<std::byte> null_transform_batch;
     std::vector<std::byte> null_transform;
