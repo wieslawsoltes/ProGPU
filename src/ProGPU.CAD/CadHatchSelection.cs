@@ -1,9 +1,11 @@
 namespace ProGPU.CAD;
 
-/// <summary>Exact top-plane selection for retained Normal HATCH fills.</summary>
+/// <summary>Exact top-plane selection for retained HATCH island styles.</summary>
 /// <remarks>
 /// Point containment evaluates direction-aware half-open ray crossings over the
-/// retained line and elliptic-arc segments in O(S) time and O(1) storage.
+/// contributing retained line and elliptic-arc segments in O(S) time and O(1)
+/// storage. Normal, Outer, and Ignore reuse the immutable contribution decision
+/// made during snapshot construction.
 /// Patterned point selection evaluates the retained affine row and dash grammar
 /// with bounded nearest-row visits. Window selection uses exact analytic
 /// bounds. Patterned crossing queries, curved outside-proximity, and
@@ -12,7 +14,6 @@ namespace ProGPU.CAD;
 /// </remarks>
 internal static class CadHatchSelection
 {
-    private const double TwoPi = Math.PI * 2.0;
     private const double AxisTolerance = 1e-10;
     private const int MaximumPatternRowVisits = 4096;
 
@@ -62,6 +63,10 @@ internal static class CadHatchSelection
         for (int loopIndex = 0; loopIndex < loops.Length; loopIndex++)
         {
             CadHatchLoop loop = loops[loopIndex];
+            if (!loop.ContributesToFill)
+            {
+                continue;
+            }
             int end = checked(loop.SegmentOffset + loop.SegmentCount);
             for (int i = loop.SegmentOffset; i < end; i++)
             {
@@ -128,6 +133,10 @@ internal static class CadHatchSelection
         for (int loopIndex = 0; loopIndex < loops.Length; loopIndex++)
         {
             CadHatchLoop loop = loops[loopIndex];
+            if (!loop.ContributesToFill)
+            {
+                continue;
+            }
             int end = checked(loop.SegmentOffset + loop.SegmentCount);
             for (int i = loop.SegmentOffset; i < end; i++)
             {
@@ -469,8 +478,17 @@ internal static class CadHatchSelection
         double queryY,
         out bool contains)
     {
+        if (!TryGetLocalCoordinates(
+            hatch,
+            queryX,
+            queryY,
+            out double localX,
+            out double localY))
+        {
+            contains = false;
+            return false;
+        }
         bool parity = false;
-        bool boundary = false;
         ReadOnlySpan<CadHatchLoop> loops = snapshot.HatchLoops.Span.Slice(
             hatch.LoopOffset,
             hatch.LoopCount);
@@ -478,217 +496,31 @@ internal static class CadHatchSelection
         for (int loopIndex = 0; loopIndex < loops.Length; loopIndex++)
         {
             CadHatchLoop loop = loops[loopIndex];
-            int end = checked(loop.SegmentOffset + loop.SegmentCount);
-            for (int i = loop.SegmentOffset; i < end; i++)
+            if (!loop.ContributesToFill)
             {
-                CadHatchSegment segment = segments[i];
-                if (segment.Kind == CadHatchSegmentKind.Line)
-                {
-                    AccumulateLineCrossing(
-                        ToWorldPoint(hatch, segment.StartX, segment.StartY),
-                        ToWorldPoint(hatch, segment.EndX, segment.EndY),
-                        queryX,
-                        queryY,
-                        ref parity,
-                        ref boundary);
-                    continue;
-                }
-                if (!TryAccumulateArcCrossings(
-                    ToWorldPoint(hatch, segment.CenterX, segment.CenterY),
-                    ToWorldVector(hatch, segment.CosineAxisX, segment.CosineAxisY),
-                    ToWorldVector(hatch, segment.SineAxisX, segment.SineAxisY),
-                    segment.StartParameter,
-                    segment.SweepParameter,
-                    queryX,
-                    queryY,
-                    ref parity,
-                    ref boundary))
-                {
-                    contains = false;
-                    return false;
-                }
+                continue;
+            }
+            CadHatchPointContainment classification = CadHatchContainment.Classify(
+                segments.Slice(loop.SegmentOffset, loop.SegmentCount),
+                localX,
+                localY);
+            if (classification == CadHatchPointContainment.Unsupported)
+            {
+                contains = false;
+                return false;
+            }
+            if (classification == CadHatchPointContainment.Boundary)
+            {
+                contains = true;
+                return true;
+            }
+            if (classification == CadHatchPointContainment.Inside)
+            {
+                parity = !parity;
             }
         }
-        contains = boundary || parity;
+        contains = parity;
         return true;
-    }
-
-    private static void AccumulateLineCrossing(
-        CadPoint3D start,
-        CadPoint3D end,
-        double queryX,
-        double queryY,
-        ref bool parity,
-        ref bool boundary)
-    {
-        double scale = Math.Max(
-            1.0,
-            Math.Max(
-                Math.Max(Math.Abs(start.X), Math.Abs(start.Y)),
-                Math.Max(
-                    Math.Max(Math.Abs(end.X), Math.Abs(end.Y)),
-                    Math.Max(Math.Abs(queryX), Math.Abs(queryY)))));
-        double tolerance = 1e-12 * scale;
-        double dx = end.X - start.X;
-        double dy = end.Y - start.Y;
-        double cross = ((queryX - start.X) * dy) - ((queryY - start.Y) * dx);
-        double dot = ((queryX - start.X) * dx) + ((queryY - start.Y) * dy);
-        double squaredLength = (dx * dx) + (dy * dy);
-        if (Math.Abs(cross) <= tolerance * Math.Max(1.0, Math.Abs(dx) + Math.Abs(dy)) &&
-            dot >= -tolerance && dot <= squaredLength + tolerance)
-        {
-            boundary = true;
-            return;
-        }
-
-        bool upward = dy > 0.0;
-        bool crosses = upward
-            ? queryY >= start.Y && queryY < end.Y
-            : dy < 0.0 && queryY > end.Y && queryY <= start.Y;
-        if (!crosses)
-        {
-            return;
-        }
-        double intersectionX = start.X + ((queryY - start.Y) * dx / dy);
-        if (intersectionX > queryX)
-        {
-            parity = !parity;
-        }
-    }
-
-    private static bool TryAccumulateArcCrossings(
-        CadPoint3D center,
-        CadPoint3D cosineAxis,
-        CadPoint3D sineAxis,
-        double start,
-        double sweep,
-        double queryX,
-        double queryY,
-        ref bool parity,
-        ref bool boundary)
-    {
-        double cosineY = cosineAxis.Y;
-        double sineY = sineAxis.Y;
-        double amplitude = new CadPoint3D(cosineY, sineY, 0.0).Length;
-        if (!double.IsFinite(amplitude) || amplitude == 0.0)
-        {
-            return false;
-        }
-        double normalized = (queryY - center.Y) / amplitude;
-        double tolerance = 1e-12 * Math.Max(1.0, Math.Abs(normalized));
-        if (normalized < -1.0 - tolerance || normalized > 1.0 + tolerance)
-        {
-            return true;
-        }
-
-        normalized = Math.Clamp(normalized, -1.0, 1.0);
-        double phase = Math.Atan2(sineY, cosineY);
-        double delta = Math.Acos(normalized);
-        double first = phase + delta;
-        double second = phase - delta;
-        if (!TryAccumulateArcRoot(
-            center,
-            cosineAxis,
-            sineAxis,
-            start,
-            sweep,
-            first,
-            queryX,
-            queryY,
-            ref parity,
-            ref boundary))
-        {
-            return false;
-        }
-        if (NormalizePositive(first - second) <= 1e-12 ||
-            NormalizePositive(second - first) <= 1e-12)
-        {
-            return true;
-        }
-        return TryAccumulateArcRoot(
-            center,
-            cosineAxis,
-            sineAxis,
-            start,
-            sweep,
-            second,
-            queryX,
-            queryY,
-            ref parity,
-            ref boundary);
-    }
-
-    private static bool TryAccumulateArcRoot(
-        CadPoint3D center,
-        CadPoint3D cosineAxis,
-        CadPoint3D sineAxis,
-        double start,
-        double sweep,
-        double parameter,
-        double queryX,
-        double queryY,
-        ref bool parity,
-        ref bool boundary)
-    {
-        if (!TryGetProgress(parameter, start, sweep, out double progress))
-        {
-            return true;
-        }
-        double cosine = Math.Cos(parameter);
-        double sine = Math.Sin(parameter);
-        double x = center.X + (cosineAxis.X * cosine) + (sineAxis.X * sine);
-        double y = center.Y + (cosineAxis.Y * cosine) + (sineAxis.Y * sine);
-        double scale = Math.Max(
-            1.0,
-            Math.Max(
-                Math.Max(Math.Abs(x), Math.Abs(y)),
-                Math.Max(Math.Abs(queryX), Math.Abs(queryY))));
-        double tolerance = 1e-11 * scale;
-        if (Math.Abs(x - queryX) <= tolerance && Math.Abs(y - queryY) <= tolerance)
-        {
-            boundary = true;
-            return true;
-        }
-        double derivativeY =
-            (-cosineAxis.Y * sine) + (sineAxis.Y * cosine);
-        derivativeY *= Math.CopySign(1.0, sweep);
-        if (Math.Abs(derivativeY) <= tolerance)
-        {
-            return true;
-        }
-        double span = Math.Min(Math.Abs(sweep), TwoPi);
-        if (span >= TwoPi - 1e-12 && progress <= 1e-12 && derivativeY < 0.0)
-        {
-            // A full closed arc has one geometric endpoint represented at both
-            // progress 0 and 2pi. Downward half-open crossings own the end.
-            progress = span;
-        }
-        bool include = derivativeY > 0.0
-            ? progress < span - 1e-12
-            : progress > 1e-12;
-        if (include && x > queryX)
-        {
-            parity = !parity;
-        }
-        return true;
-    }
-
-    private static bool TryGetProgress(
-        double parameter,
-        double start,
-        double sweep,
-        out double progress)
-    {
-        double span = Math.Min(Math.Abs(sweep), TwoPi);
-        progress = sweep >= 0.0
-            ? NormalizePositive(parameter - start)
-            : NormalizePositive(start - parameter);
-        if (progress <= span + 1e-12)
-        {
-            progress = Math.Clamp(progress, 0.0, span);
-            return true;
-        }
-        return false;
     }
 
     private static bool TryGetHorizontalPlane(
@@ -757,12 +589,6 @@ internal static class CadHatchSelection
         first.Min.X <= second.Max.X && first.Max.X >= second.Min.X &&
         first.Min.Y <= second.Max.Y && first.Max.Y >= second.Min.Y &&
         first.Min.Z <= second.Max.Z && first.Max.Z >= second.Min.Z;
-
-    private static double NormalizePositive(double angle)
-    {
-        double normalized = angle % TwoPi;
-        return normalized < 0.0 ? normalized + TwoPi : normalized;
-    }
 
     private static CadPointHitResult UnsupportedPoint() =>
         new(CadPointHitStatus.UnsupportedGeometry, double.NaN);

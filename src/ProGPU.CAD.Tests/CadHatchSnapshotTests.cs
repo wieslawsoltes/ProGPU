@@ -103,6 +103,224 @@ public sealed class CadHatchSnapshotTests
     }
 
     [Fact]
+    public void AllIslandStylesRetainSourceLoopsAndSelectTheirExactFilledRegions()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add all hatch island styles", document =>
+        {
+            for (int styleIndex = 0; styleIndex < 3; styleIndex++)
+            {
+                double x = styleIndex * 40.0;
+                Hatch hatch = CreateSolidHatch();
+                hatch.Style = (HatchStyleType)styleIndex;
+                AddThreeNestedRectangleLoops(hatch, x);
+                document.Entities.Add(hatch);
+            }
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session);
+        Assert.Equal(3, snapshot.Hatches.Length);
+        Assert.Equal(9, snapshot.HatchLoops.Length);
+        Assert.Equal(
+            new[] { true, true, true, true, true, false, true, false, false },
+            snapshot.HatchLoops.ToArray().Select(loop => loop.ContributesToFill).ToArray());
+
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        RenderCommand[] commands = scene.DrawingContext.Commands.ToArray();
+        Assert.Equal(new[] { 3, 2, 1 }, commands.Select(command => command.Path!.Figures.Count));
+        Assert.All(commands, command => Assert.Equal(FillRule.EvenOdd, command.Path!.FillRule));
+
+        CadEntityHeader[] entities = snapshot.Entities.ToArray();
+        for (int styleIndex = 0; styleIndex < entities.Length; styleIndex++)
+        {
+            double x = styleIndex * 40.0;
+            CadSelectionCandidate candidate = Candidate(
+                snapshot,
+                entities[styleIndex],
+                styleIndex);
+            Assert.Equal(CadPointHitStatus.Hit, PointStatus(snapshot, candidate, x + 2, 2));
+            Assert.Equal(
+                styleIndex == (int)HatchStyleType.Ignore
+                    ? CadPointHitStatus.Hit
+                    : CadPointHitStatus.Miss,
+                PointStatus(snapshot, candidate, x + 7, 7));
+            Assert.Equal(
+                styleIndex == (int)HatchStyleType.Outer
+                    ? CadPointHitStatus.Miss
+                    : CadPointHitStatus.Hit,
+                PointStatus(snapshot, candidate, x + 12, 12));
+            Assert.Equal(
+                styleIndex == (int)HatchStyleType.Outer
+                    ? CadBoundsHitStatus.Miss
+                    : CadBoundsHitStatus.Hit,
+                CadSelectionHitTester.HitTestBounds(
+                    snapshot,
+                    candidate,
+                    new CadBounds3D(
+                        new CadPoint3D(x + 11, 11, -1),
+                        new CadPoint3D(x + 13, 13, 1)),
+                    CadBoundsSelectionMode.Crossing).Status);
+        }
+
+        using GpuPicture picture = scene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            96U,
+            scene.ContentGeneration,
+            out NativeCompiledPicture? nativePicture,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(nativePicture);
+
+        using CadPrintPlan printPlan = new CadPrintPlanCompiler().Compile(snapshot);
+        using GpuPicture page = printPlan.CreatePagePicture();
+        Assert.Equal(3, printPlan.SceneStatistics.RecordedEntityCount);
+        Assert.Equal(3, page.GetCommand(1).Picture!.CommandCount);
+    }
+
+    [Fact]
+    public void CurvedOuterIslandClassificationRemainsAnalytic()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add curved outer hatch", document =>
+        {
+            Hatch hatch = CreateSolidHatch();
+            hatch.Style = HatchStyleType.Outer;
+            foreach (double radius in new[] { 10.0, 6.0, 2.0 })
+            {
+                var loop = new Hatch.BoundaryPath();
+                loop.Edges.Add(new Hatch.BoundaryPath.Arc
+                {
+                    Center = XY.Zero,
+                    Radius = radius,
+                    StartAngle = 0.0,
+                    EndAngle = Math.PI * 2.0,
+                    CounterClockWise = true,
+                });
+                hatch.Paths.Add(loop);
+            }
+            document.Entities.Add(hatch);
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadEntityHeader entity = Assert.Single(snapshot.Entities.ToArray());
+        Assert.Equal(
+            new[] { true, true, false },
+            snapshot.HatchLoops.ToArray().Select(loop => loop.ContributesToFill).ToArray());
+        RenderCommand command = Assert.Single(
+            new CadPlanSceneCompiler().Compile(snapshot).DrawingContext.Commands.ToArray());
+        Assert.Equal(2, command.Path!.Figures.Count);
+        Assert.All(command.Path.Figures.SelectMany(figure => figure.Segments), segment =>
+            Assert.IsType<ArcSegment>(segment));
+        CadSelectionCandidate candidate = Candidate(snapshot, entity);
+        Assert.Equal(CadPointHitStatus.Hit, PointStatus(snapshot, candidate, 8, 0));
+        Assert.Equal(CadPointHitStatus.Miss, PointStatus(snapshot, candidate, 4, 0));
+        Assert.Equal(CadPointHitStatus.Miss, PointStatus(snapshot, candidate, 0, 0));
+    }
+
+    [Fact]
+    public void OuterIslandClassificationIsPathOrderIndependentAcrossDisconnectedRegions()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add shuffled outer hatch loops", document =>
+        {
+            Hatch hatch = CreateSolidHatch();
+            hatch.Style = HatchStyleType.Outer;
+            hatch.Paths.Add(CreatePolylineLoop(
+                (10.0, 10.0, 0.0),
+                (20.0, 10.0, 0.0),
+                (20.0, 20.0, 0.0),
+                (10.0, 20.0, 0.0)));
+            hatch.Paths.Add(CreatePolylineLoop(
+                (40.0, 0.0, 0.0),
+                (50.0, 0.0, 0.0),
+                (50.0, 10.0, 0.0),
+                (40.0, 10.0, 0.0)));
+            hatch.Paths.Add(CreatePolylineLoop(
+                (5.0, 5.0, 0.0),
+                (25.0, 5.0, 0.0),
+                (25.0, 25.0, 0.0),
+                (5.0, 25.0, 0.0)));
+            hatch.Paths.Add(CreatePolylineLoop(
+                (0.0, 0.0, 0.0),
+                (30.0, 0.0, 0.0),
+                (30.0, 30.0, 0.0),
+                (0.0, 30.0, 0.0)));
+            document.Entities.Add(hatch);
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session);
+        Assert.Equal(
+            new[] { false, true, true, true },
+            snapshot.HatchLoops.ToArray().Select(loop => loop.ContributesToFill).ToArray());
+        RenderCommand command = Assert.Single(
+            new CadPlanSceneCompiler().Compile(snapshot).DrawingContext.Commands.ToArray());
+        Assert.Equal(3, command.Path!.Figures.Count);
+        CadSelectionCandidate candidate = Candidate(snapshot, snapshot.Entities.Span[0]);
+        Assert.Equal(CadPointHitStatus.Miss, PointStatus(snapshot, candidate, 15, 15));
+        Assert.Equal(CadPointHitStatus.Hit, PointStatus(snapshot, candidate, 45, 5));
+    }
+
+    [Fact]
+    public void PatternedOuterAndIgnoreStylesClipTheSameProceduralGrammar()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add patterned island styles", document =>
+        {
+            foreach (HatchStyleType style in new[] { HatchStyleType.Outer, HatchStyleType.Ignore })
+            {
+                double x = style == HatchStyleType.Outer ? 0.0 : 40.0;
+                Hatch hatch = CreatePatternedHatch(
+                    style.ToString(),
+                    HatchPatternType.PatternFill,
+                    isDouble: false,
+                    angle: 0.0,
+                    basePoint: new XY(x, 0.0),
+                    offset: new XY(0.0, 1.0));
+                hatch.Style = style;
+                AddThreeNestedRectangleLoops(hatch, x);
+                document.Entities.Add(hatch);
+            }
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session);
+        RenderCommand[] commands = new CadPlanSceneCompiler()
+            .Compile(snapshot)
+            .DrawingContext.Commands.ToArray();
+        Assert.Equal(new[] { 2, 1 }, commands.Select(command => command.Path!.Figures.Count));
+        Assert.All(commands, command => Assert.IsType<HatchPatternBrush>(command.Brush));
+
+        CadEntityHeader[] entities = snapshot.Entities.ToArray();
+        CadSelectionCandidate outer = Candidate(snapshot, entities[0], 0);
+        Assert.Equal(CadPointHitStatus.Hit, PointStatus(snapshot, outer, 2, 2));
+        Assert.Equal(CadPointHitStatus.Miss, PointStatus(snapshot, outer, 7, 7));
+        Assert.Equal(CadPointHitStatus.Miss, PointStatus(snapshot, outer, 12, 12));
+        CadSelectionCandidate ignore = Candidate(snapshot, entities[1], 1);
+        Assert.Equal(CadPointHitStatus.Hit, PointStatus(snapshot, ignore, 42, 2));
+        Assert.Equal(CadPointHitStatus.Hit, PointStatus(snapshot, ignore, 47, 7));
+        Assert.Equal(CadPointHitStatus.Hit, PointStatus(snapshot, ignore, 52, 12));
+        Assert.Equal(
+            CadBoundsHitStatus.UnsupportedGeometry,
+            CadSelectionHitTester.HitTestBounds(
+                snapshot,
+                ignore,
+                new CadBounds3D(
+                    new CadPoint3D(41, 1, -1),
+                    new CadPoint3D(43, 3, 1)),
+                CadBoundsSelectionMode.Crossing).Status);
+
+        using GpuPicture picture = new CadPlanSceneCompiler().Compile(snapshot).CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            96U,
+            snapshot.ContentGeneration,
+            out NativeCompiledPicture? nativePicture,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(nativePicture);
+    }
+
+    [Fact]
     public void CircularAndEllipticLoopsRemainAnalyticAndUseDirectionAwareParity()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
@@ -510,7 +728,7 @@ public sealed class CadHatchSnapshotTests
     }
 
     [Fact]
-    public void PatternGrammarIsRetainedWhileUnsupportedBoundariesRemainTransactional()
+    public void PatternGrammarAndOuterStyleRetainWhileSplineBoundaryIsTransactional()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
         session.Edit("Add unsupported hatches", document =>
@@ -578,22 +796,22 @@ public sealed class CadHatchSnapshotTests
 
         CadDocumentSnapshot snapshot = Compile(session);
 
-        Assert.Equal(2, snapshot.Entities.Length);
-        Assert.Equal(2, snapshot.Hatches.Length);
+        Assert.Equal(3, snapshot.Entities.Length);
+        Assert.Equal(3, snapshot.Hatches.Length);
         Assert.Equal(2, snapshot.HatchPatterns.Length);
         Assert.Equal(3, snapshot.HatchPatternFamilies.Length);
         Assert.Equal(new[] { 1.0, -1.0 }, snapshot.HatchPatternDashes.ToArray());
-        Assert.Equal(2, snapshot.HatchLoops.Length);
-        Assert.Equal(8, snapshot.HatchSegments.Length);
-        Assert.Equal(2, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Equal(3, snapshot.HatchLoops.Length);
+        Assert.Equal(12, snapshot.HatchSegments.Length);
+        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Equal(0, snapshot.Statistics.InvalidEntityCount);
-        Assert.Contains(snapshot.Diagnostics.ToArray(), item => item.Message.Contains("island-depth", StringComparison.Ordinal));
         Assert.Contains(snapshot.Diagnostics.ToArray(), item => item.Message.Contains("Spline HATCH", StringComparison.Ordinal));
         RenderCommand[] commands = new CadPlanSceneCompiler()
             .Compile(snapshot)
             .DrawingContext.Commands.ToArray();
         Assert.IsType<HatchPatternSetBrush>(commands[0].Brush);
         Assert.IsType<CrossHatchBrush>(commands[1].Brush);
+        Assert.IsType<SolidColorBrush>(commands[2].Brush);
 
         Assert.Equal(
             CadPointHitStatus.Hit,
@@ -636,6 +854,73 @@ public sealed class CadHatchSnapshotTests
         Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Contains(snapshot.Diagnostics.ToArray(), item =>
             item.Message.Contains("3-segment HATCH document limit", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void IslandTopologyBudgetIsDocumentWideAndFailedPrimitiveLeaksNoStreams()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add topology-budgeted hatches", document =>
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                Hatch hatch = CreateSolidHatch();
+                hatch.Style = HatchStyleType.Outer;
+                double x = i * 20.0;
+                hatch.Paths.Add(CreatePolylineLoop(
+                    (x, 0.0, 0.0),
+                    (x + 10.0, 0.0, 0.0),
+                    (x + 10.0, 10.0, 0.0),
+                    (x, 10.0, 0.0)));
+                hatch.Paths.Add(CreatePolylineLoop(
+                    (x + 2.0, 2.0, 0.0),
+                    (x + 8.0, 2.0, 0.0),
+                    (x + 8.0, 8.0, 0.0),
+                    (x + 2.0, 8.0, 0.0)));
+                document.Entities.Add(hatch);
+            }
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions { MaxHatchTopologyVisits = 6 });
+
+        Assert.Single(snapshot.Entities.ToArray());
+        Assert.Single(snapshot.Hatches.ToArray());
+        Assert.Equal(2, snapshot.HatchLoops.Length);
+        Assert.Equal(8, snapshot.HatchSegments.Length);
+        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
+            diagnostic.Message.Contains("6-visit document topology limit", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void CoincidentOuterLoopsAreDiagnosedWithoutPublishingPartialStreams()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add coincident outer hatch loops", document =>
+        {
+            Hatch hatch = CreateSolidHatch();
+            hatch.Style = HatchStyleType.Outer;
+            for (int i = 0; i < 2; i++)
+            {
+                hatch.Paths.Add(CreatePolylineLoop(
+                    (0.0, 0.0, 0.0),
+                    (10.0, 0.0, 0.0),
+                    (10.0, 10.0, 0.0),
+                    (0.0, 10.0, 0.0)));
+            }
+            document.Entities.Add(hatch);
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session);
+        Assert.Empty(snapshot.Entities.ToArray());
+        Assert.Empty(snapshot.Hatches.ToArray());
+        Assert.Empty(snapshot.HatchLoops.ToArray());
+        Assert.Empty(snapshot.HatchSegments.ToArray());
+        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
+            diagnostic.Message.Contains("coincident or touch", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -843,6 +1128,49 @@ public sealed class CadHatchSnapshotTests
     }
 
     [Fact]
+    public async Task OuterAndIgnoreIslandStylesSurviveDxfSaveReload()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew(ACadVersion.AC1032);
+        session.Edit("Add saved island styles", document =>
+        {
+            foreach (HatchStyleType style in new[] { HatchStyleType.Outer, HatchStyleType.Ignore })
+            {
+                double x = style == HatchStyleType.Outer ? 0.0 : 40.0;
+                Hatch hatch = CreateSolidHatch();
+                hatch.Style = style;
+                AddThreeNestedRectangleLoops(hatch, x);
+                document.Entities.Add(hatch);
+            }
+        });
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+        await store.SaveAsync(
+            session,
+            stream,
+            CadDocumentFormat.Dxf,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            CadDocumentFormat.Dxf,
+            sourceName: "hatch-island-styles-roundtrip.dxf");
+
+        CadDocumentSnapshot snapshot = Compile(loaded.Session);
+        Assert.Equal(2, snapshot.Hatches.Length);
+        Assert.Equal(6, snapshot.HatchLoops.Length);
+        Assert.Equal(
+            new[] { true, true, false, true, false, false },
+            snapshot.HatchLoops.ToArray().Select(loop => loop.ContributesToFill).ToArray());
+        Assert.Equal(
+            new[] { 2, 1 },
+            new CadPlanSceneCompiler()
+                .Compile(snapshot)
+                .DrawingContext.Commands.ToArray()
+                .Select(command => command.Path!.Figures.Count));
+        Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
+    }
+
+    [Fact]
     public async Task SolidHatchSurvivesDxfSaveReloadAndRetainsZeroAllocationLineSelection()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew(ACadVersion.AC1032);
@@ -954,6 +1282,25 @@ public sealed class CadHatchSnapshotTests
         return path;
     }
 
+    private static void AddThreeNestedRectangleLoops(Hatch hatch, double x)
+    {
+        hatch.Paths.Add(CreatePolylineLoop(
+            (x, 0.0, 0.0),
+            (x + 30.0, 0.0, 0.0),
+            (x + 30.0, 30.0, 0.0),
+            (x, 30.0, 0.0)));
+        hatch.Paths.Add(CreatePolylineLoop(
+            (x + 5.0, 5.0, 0.0),
+            (x + 25.0, 5.0, 0.0),
+            (x + 25.0, 25.0, 0.0),
+            (x + 5.0, 25.0, 0.0)));
+        hatch.Paths.Add(CreatePolylineLoop(
+            (x + 10.0, 10.0, 0.0),
+            (x + 20.0, 10.0, 0.0),
+            (x + 20.0, 20.0, 0.0),
+            (x + 10.0, 20.0, 0.0)));
+    }
+
     private static CadDocumentSnapshot Compile(CadDocumentSession session) =>
         new CadSnapshotCompiler().Compile(session);
 
@@ -977,8 +1324,25 @@ public sealed class CadHatchSnapshotTests
 
     private static CadSelectionCandidate Candidate(
         CadDocumentSnapshot snapshot,
-        CadEntityHeader entity) =>
-        new(snapshot.ContentGeneration, 0, entity.Handle, entity.Kind, entity.Bounds);
+        CadEntityHeader entity,
+        int entityIndex = 0) =>
+        new(
+            snapshot.ContentGeneration,
+            entityIndex,
+            entity.Handle,
+            entity.Kind,
+            entity.Bounds);
+
+    private static CadPointHitStatus PointStatus(
+        CadDocumentSnapshot snapshot,
+        CadSelectionCandidate candidate,
+        double x,
+        double y) =>
+        CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(x, y, 0.0),
+            0.0).Status;
 
     private static void AssertPoint(CadPoint3D expected, CadPoint3D actual)
     {

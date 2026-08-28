@@ -735,6 +735,10 @@ public sealed class CadPlanSceneCompiler
         for (int loopIndex = 0; loopIndex < loops.Length; loopIndex++)
         {
             CadHatchLoop loop = loops[loopIndex];
+            if (!loop.ContributesToFill)
+            {
+                continue;
+            }
             ReadOnlySpan<CadHatchSegment> segments = allSegments.Slice(
                 loop.SegmentOffset,
                 loop.SegmentCount);

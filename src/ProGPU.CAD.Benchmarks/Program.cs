@@ -18,6 +18,7 @@ int attributeInsertCount = ReadNonNegativeInt("--attribute-inserts", 0);
 int solidHatchCount = ReadNonNegativeInt("--solid-hatches", 0);
 int patternHatchCount = ReadNonNegativeInt("--pattern-hatches", 0);
 bool complexPatternGrammar = HasFlag("--complex-pattern-grammar");
+bool hatchIslandStyles = HasFlag("--hatch-island-styles");
 bool decorateText = HasFlag("--text-decorations");
 bool decorateShxText = HasFlag("--shx-decorations");
 bool lowerLineTypes = HasFlag("--linetypes");
@@ -84,6 +85,11 @@ if (measureHatchSelection &&
     throw new ArgumentException(
         "--hatch-selection requires exactly one positive --solid-hatches or --pattern-hatches count and no other fixtures.");
 }
+if (hatchIslandStyles && solidHatchCount == 0 && patternHatchCount == 0)
+{
+    throw new ArgumentException(
+        "--hatch-island-styles requires a positive solid or patterned HATCH count.");
+}
 
 CadDocumentSession session = CreateDocument(
     entityCount,
@@ -96,6 +102,7 @@ CadDocumentSession session = CreateDocument(
     solidHatchCount,
     patternHatchCount,
     complexPatternGrammar,
+    hatchIslandStyles,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -231,6 +238,7 @@ var report = new CadBenchmarkReport(
     solidHatchCount,
     patternHatchCount,
     complexPatternGrammar,
+    hatchIslandStyles,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -328,6 +336,7 @@ CadDocumentSession CreateDocument(
     int hatchCount,
     int patternedHatchCount,
     bool useComplexPatternGrammar,
+    bool useHatchIslandStyles,
     bool decorateTextRuns,
     bool decorateShxTextRuns,
     bool useLineTypes,
@@ -608,7 +617,11 @@ CadDocumentSession CreateDocument(
                 IsSolid = true,
                 Pattern = HatchPattern.Solid,
                 PatternType = HatchPatternType.SolidFill,
-                Style = HatchStyleType.Normal,
+                Style = useHatchIslandStyles
+                    ? (i & 1) == 0
+                        ? HatchStyleType.Outer
+                        : HatchStyleType.Ignore
+                    : HatchStyleType.Normal,
             };
             hatch.Paths.Add(CreateHatchLoop(
                 (x, y),
@@ -620,6 +633,14 @@ CadDocumentSession CreateDocument(
                 (x + 13, y + 7),
                 (x + 13, y + 13),
                 (x + 7, y + 13)));
+            if (useHatchIslandStyles)
+            {
+                hatch.Paths.Add(CreateHatchLoop(
+                    (x + 9, y + 9),
+                    (x + 11, y + 9),
+                    (x + 11, y + 11),
+                    (x + 9, y + 11)));
+            }
             document.Entities.Add(hatch);
         }
 
@@ -633,7 +654,11 @@ CadDocumentSession CreateDocument(
                 IsSolid = false,
                 Pattern = pattern,
                 PatternType = HatchPatternType.PatternFill,
-                Style = HatchStyleType.Normal,
+                Style = useHatchIslandStyles
+                    ? (i & 1) == 0
+                        ? HatchStyleType.Outer
+                        : HatchStyleType.Ignore
+                    : HatchStyleType.Normal,
             };
             pattern.Lines.Add(new HatchPattern.Line
             {
@@ -662,6 +687,14 @@ CadDocumentSession CreateDocument(
                 (x + 13, y + 7),
                 (x + 13, y + 13),
                 (x + 7, y + 13)));
+            if (useHatchIslandStyles)
+            {
+                hatch.Paths.Add(CreateHatchLoop(
+                    (x + 9, y + 9),
+                    (x + 11, y + 9),
+                    (x + 11, y + 11),
+                    (x + 9, y + 11)));
+            }
             document.Entities.Add(hatch);
         }
     });
@@ -1127,6 +1160,7 @@ internal sealed record CadBenchmarkReport(
     int SolidHatchCount,
     int PatternHatchCount,
     bool ComplexPatternGrammar,
+    bool HatchIslandStyles,
     bool DecoratedText,
     bool DecoratedShxText,
     bool LoweredLineTypes,

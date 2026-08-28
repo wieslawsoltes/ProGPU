@@ -25,17 +25,20 @@ public sealed partial class CadSnapshotCompiler
         List<CadHatchPatternFamily> patternFamilies,
         List<double> patternDashes,
         List<CadHatchLoop> loops,
-        List<CadHatchSegment> segments)
+        List<CadHatchSegment> segments,
+        CadHatchTopologyBudget topologyBudget)
     {
         if (hatch.GradientColor?.Enabled == true)
         {
             throw new CadUnsupportedEntityException(
                 "Gradient HATCH fills require retained gradient-space lowering.");
         }
-        if (hatch.Style != HatchStyleType.Normal)
+        if (hatch.Style is not HatchStyleType.Normal and
+            not HatchStyleType.Outer and
+            not HatchStyleType.Ignore)
         {
             throw new CadUnsupportedEntityException(
-                $"HATCH style {hatch.Style} requires explicit island-depth classification.");
+                $"HATCH style value {(int)hatch.Style} is not defined by the DXF contract.");
         }
         if (hatch.Paths.Count == 0)
         {
@@ -69,6 +72,13 @@ public sealed partial class CadSnapshotCompiler
             {
                 throw new ArgumentException("A HATCH boundary loop is marked as open.");
             }
+            if (hatch.Style != HatchStyleType.Normal &&
+                (flags & (BoundaryPathFlags.SelfIntersecting |
+                          BoundaryPathFlags.Duplicate)) != 0)
+            {
+                throw new CadUnsupportedEntityException(
+                    "Outer/Ignore HATCH island classification requires non-self-intersecting, non-duplicate loops.");
+            }
             if ((flags & (BoundaryPathFlags.IsAnnotative |
                           BoundaryPathFlags.IsAnnotativeBlock |
                           BoundaryPathFlags.ForceAnnoAllVisible |
@@ -95,7 +105,10 @@ public sealed partial class CadSnapshotCompiler
                 throw new ArgumentException("A HATCH boundary loop contains no drawable segments.");
             }
             ValidateClosedLoop(localSegments, segmentOffset, segmentCount);
-            localLoops.Add(new CadHatchLoop(segmentOffset, segmentCount));
+            localLoops.Add(new CadHatchLoop(
+                segmentOffset,
+                segmentCount,
+                ContributesToFill: true));
         }
 
         if (checked(loops.Count + localLoops.Count) > options.MaxHatchLoops)
@@ -127,6 +140,12 @@ public sealed partial class CadSnapshotCompiler
             throw new CadUnsupportedEntityException(
                 $"The configured {options.MaxHatchPatternDashes}-dash HATCH document limit was reached.");
         }
+
+        ClassifyIslandContribution(
+            hatch.Style,
+            localLoops,
+            localSegments,
+            topologyBudget);
 
         CadHatchSegment first = localSegments[0];
         double localOriginX = first.StartX;
@@ -195,6 +214,206 @@ public sealed partial class CadSnapshotCompiler
     private readonly record struct CompiledHatchPattern(
         CadHatchPatternFamily[] Families,
         double[] Dashes);
+
+    private sealed class CadHatchTopologyBudget
+    {
+        private int _remaining;
+
+        public CadHatchTopologyBudget(int limit)
+        {
+            Limit = limit;
+            _remaining = limit;
+        }
+
+        public int Limit { get; }
+
+        public void Consume(int visits)
+        {
+            if (visits < 0 || visits > _remaining)
+            {
+                _remaining = 0;
+                throw new CadUnsupportedEntityException(
+                    $"HATCH island classification exceeds the configured {Limit}-visit document topology limit.");
+            }
+            _remaining -= visits;
+        }
+    }
+
+    private static void ClassifyIslandContribution(
+        HatchStyleType style,
+        List<CadHatchLoop> loops,
+        List<CadHatchSegment> segments,
+        CadHatchTopologyBudget budget)
+    {
+        if (style == HatchStyleType.Normal)
+        {
+            return;
+        }
+
+        var bounds = new CadBounds3D[loops.Count];
+        for (int loopIndex = 0; loopIndex < loops.Count; loopIndex++)
+        {
+            CadHatchLoop loop = loops[loopIndex];
+            CadBounds3D loopBounds = CadBounds3D.Empty;
+            int end = checked(loop.SegmentOffset + loop.SegmentCount);
+            for (int segmentIndex = loop.SegmentOffset; segmentIndex < end; segmentIndex++)
+            {
+                loopBounds = loopBounds.Union(GetLocalBounds(segments[segmentIndex]));
+            }
+            bounds[loopIndex] = loopBounds;
+        }
+
+        int excludedDepth = style == HatchStyleType.Outer ? 2 : 1;
+        for (int candidateIndex = 0; candidateIndex < loops.Count; candidateIndex++)
+        {
+            int depth = 0;
+            for (int containerIndex = 0; containerIndex < loops.Count; containerIndex++)
+            {
+                if (containerIndex == candidateIndex)
+                {
+                    continue;
+                }
+                budget.Consume(1);
+                if (!ContainsLoopBounds(bounds[containerIndex], bounds[candidateIndex]))
+                {
+                    continue;
+                }
+                if (ClassifyLoopRelativeToContainer(
+                    loops[candidateIndex],
+                    loops[containerIndex],
+                    segments,
+                    budget))
+                {
+                    depth++;
+                    if (depth >= excludedDepth)
+                    {
+                        break;
+                    }
+                }
+            }
+            CadHatchLoop candidate = loops[candidateIndex];
+            loops[candidateIndex] = candidate with
+            {
+                ContributesToFill = depth < excludedDepth,
+            };
+        }
+    }
+
+    private static bool ClassifyLoopRelativeToContainer(
+        CadHatchLoop candidate,
+        CadHatchLoop container,
+        List<CadHatchSegment> segments,
+        CadHatchTopologyBudget budget)
+    {
+        ReadOnlySpan<CadHatchSegment> containerSegments =
+            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(segments).Slice(
+                container.SegmentOffset,
+                container.SegmentCount);
+        int end = checked(candidate.SegmentOffset + candidate.SegmentCount);
+        for (int segmentIndex = candidate.SegmentOffset; segmentIndex < end; segmentIndex++)
+        {
+            CadHatchSegment segment = segments[segmentIndex];
+            CadHatchPointContainment start = ClassifyTopologyPoint(
+                containerSegments,
+                segment.StartX,
+                segment.StartY,
+                budget);
+            if (start == CadHatchPointContainment.Inside)
+            {
+                return true;
+            }
+            if (start == CadHatchPointContainment.Outside)
+            {
+                return false;
+            }
+
+            GetSegmentMidpoint(segment, out double middleX, out double middleY);
+            CadHatchPointContainment middle = ClassifyTopologyPoint(
+                containerSegments,
+                middleX,
+                middleY,
+                budget);
+            if (middle == CadHatchPointContainment.Inside)
+            {
+                return true;
+            }
+            if (middle == CadHatchPointContainment.Outside)
+            {
+                return false;
+            }
+        }
+        throw new CadUnsupportedEntityException(
+            "Outer/Ignore HATCH loops are coincident or touch without an unambiguous containment sample.");
+    }
+
+    private static CadHatchPointContainment ClassifyTopologyPoint(
+        ReadOnlySpan<CadHatchSegment> container,
+        double x,
+        double y,
+        CadHatchTopologyBudget budget)
+    {
+        budget.Consume(container.Length);
+        CadHatchPointContainment result = CadHatchContainment.Classify(container, x, y);
+        if (result == CadHatchPointContainment.Unsupported)
+        {
+            throw new CadUnsupportedEntityException(
+                "A HATCH loop could not be classified by the exact analytic containment evaluator.");
+        }
+        return result;
+    }
+
+    private static CadBounds3D GetLocalBounds(CadHatchSegment segment)
+    {
+        var start = new CadPoint3D(segment.StartX, segment.StartY, 0.0);
+        var end = new CadPoint3D(segment.EndX, segment.EndY, 0.0);
+        if (segment.Kind == CadHatchSegmentKind.Line)
+        {
+            return CadBounds3D.FromPoint(start).Include(end);
+        }
+        return CadBounds3D.EllipseArc(
+            new CadPoint3D(segment.CenterX, segment.CenterY, 0.0),
+            new CadPoint3D(segment.CosineAxisX, segment.CosineAxisY, 0.0),
+            new CadPoint3D(segment.SineAxisX, segment.SineAxisY, 0.0),
+            segment.StartParameter,
+            segment.SweepParameter);
+    }
+
+    private static bool ContainsLoopBounds(CadBounds3D outer, CadBounds3D inner)
+    {
+        double scale = Math.Max(
+            1.0,
+            Math.Max(
+                Math.Max(Math.Abs(outer.Min.X), Math.Abs(outer.Min.Y)),
+                Math.Max(Math.Abs(outer.Max.X), Math.Abs(outer.Max.Y))));
+        double tolerance = HatchClosureToleranceScale * scale;
+        return inner.Min.X >= outer.Min.X - tolerance &&
+            inner.Max.X <= outer.Max.X + tolerance &&
+            inner.Min.Y >= outer.Min.Y - tolerance &&
+            inner.Max.Y <= outer.Max.Y + tolerance;
+    }
+
+    private static void GetSegmentMidpoint(
+        CadHatchSegment segment,
+        out double x,
+        out double y)
+    {
+        if (segment.Kind == CadHatchSegmentKind.Line)
+        {
+            x = (segment.StartX + segment.EndX) * 0.5;
+            y = (segment.StartY + segment.EndY) * 0.5;
+            return;
+        }
+        GetEllipsePoint(
+            segment.CenterX,
+            segment.CenterY,
+            segment.CosineAxisX,
+            segment.CosineAxisY,
+            segment.SineAxisX,
+            segment.SineAxisY,
+            segment.StartParameter + (segment.SweepParameter * 0.5),
+            out x,
+            out y);
+    }
 
     private static CompiledHatchPattern CompilePattern(Hatch hatch)
     {

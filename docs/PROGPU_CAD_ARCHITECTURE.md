@@ -119,16 +119,18 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   wireframe records only visible edges while preserving the same face record
   for the later shaded/depth compiler. Nonzero ellipse/SOLID thickness is
   reported until complete 3D side-surface lowering is available.
-- Normal-style solid and exact DXF/PAT patterned HATCH entities retain
+- Normal/Outer/Ignore solid and exact DXF/PAT patterned HATCH entities retain
   bounded packed loops and analytic line/circular-arc/elliptic-arc segments in
   one OCS-relative double-precision coordinate system. The plan compiler records
   one even-odd filled path per hatch with one affine OCS-to-plan transform;
   patterns add one retained procedural brush without generating hatch-line
   geometry. Multiple families, tangent row shifts, and the specified six-item
   positive-dash/negative-gap/zero-dot grammar remain compact and procedural.
-  It never samples a curve or emits a command per edge/line. Gradient,
-  Outer/Ignore-style, spline-edge,
-  annotative, paper-oriented, disconnected, and malformed hatches remain
+  Normal keeps every loop, Outer keeps nesting levels zero and one, and Ignore
+  keeps only level zero in the rendered path while all source loops remain in
+  the immutable snapshot. It never samples a curve or emits a command per
+  edge/line. Gradient, spline-edge, annotative, paper-oriented, coincident, and
+  malformed hatches remain
   explicit diagnostics rather than approximated fills.
 - Single-line TrueType TEXT resolves through a typed host font service, shapes
   during immutable snapshot construction with the existing ProGPU Unicode/
@@ -184,11 +186,13 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   bounded desktop discovery is host initialization work rather than a render-
   path filesystem dependency.
 
-### Retained Normal solid-HATCH contract
+### Retained HATCH island-style contract
 
-Autodesk defines HATCH boundary coordinates in OCS and Normal island detection
-as odd parity. `CadSnapshotCompiler` therefore accepts only finite, closed,
-non-gradient solid hatches with `HatchStyleType.Normal`. It normalizes each
+Autodesk defines HATCH boundary coordinates in OCS and defines Normal island
+detection as odd parity, Outer as the first inward level without resuming, and
+Ignore as filling through internal loops. `CadSnapshotCompiler` accepts finite,
+closed, non-gradient solid and patterned hatches with all three styles. It
+normalizes each
 polyline bulge or ordered line, circular-arc, and elliptic-arc edge into a
 `CadHatchSegment`; loops refer to contiguous segment ranges and the entity
 refers to a contiguous loop range. One world origin plus an orthonormal OCS is
@@ -196,18 +200,29 @@ stored per hatch, so large WCS translations remain outside the local float
 geometry used for retained drawing. Signed polyline bulges and clockwise edge
 arcs remain analytic. Full turns are represented in the snapshot as one
 parametric segment and split into two half arcs only when recorded, matching the
-existing ProGPU path contract.
+existing ProGPU path contract. Every source loop remains retained. Each loop
+also carries an immutable `ContributesToFill` decision: Normal marks all loops,
+Outer marks topology depths zero and one, and Ignore marks only depth zero.
+Rendering then selects those contours into the same one even-odd path. The
+result is independent of source-loop order and supports multiple disconnected
+outer regions without trusting the unrelated DXF `External` bit as topology.
 
-Compilation is transactional and `O(L + S)` time/storage for `L` loops and `S`
-segments. Defaults bound one snapshot to 1,000,000 hatch loops and 5,000,000
+Normal compilation is transactional and `O(L + S)` time/storage for `L` loops
+and `S` segments. Outer/Ignore add exact analytic containment visits after
+double-precision loop-bound rejection. Their worst case is `O(L^2 * S)`, so a
+shared document-wide 10,000,000-visit budget counts both pair probes and every
+examined segment; successful and failed entity attempts consume the same
+budget. Defaults also bound one snapshot to 1,000,000 hatch loops and 5,000,000
 hatch segments. Failure cannot publish a partial entity or orphan its local
-loop/segment data. Exact double-precision arc extrema supply world bounds.
+loop/segment data. Explicit self-intersecting/duplicate flags and coincident or
+touch-only topology without an unambiguous analytic sample are diagnosed rather
+than guessed. Exact double-precision arc extrema supply world bounds.
 Recording is `O(L + S)`, emits one `DrawPath` command and one transform per
 hatch, and delegates winding coverage and antialiasing to the existing canonical
 ProGPU analytic path pipeline. There is no hatch-specific shader, upload, cache,
 or managed/native crossing.
 
-Horizontal-WCS point selection uses the same Normal odd parity. Line and
+Horizontal-WCS point selection uses the same retained contribution set. Line and
 ellipse-ray crossings use direction-aware half-open endpoint ownership so a
 shared vertex is counted once, including clockwise full turns. Zero-tolerance
 queries and line-edge proximity are exact and allocation-free. Curved-edge
@@ -217,7 +232,11 @@ tessellation guess. Window selection is exact from the entity bounds; horizontal
 Crossing selection combines exact analytic boundary/box intersection with
 rectangle-corner fill containment. Query cost is `O(S)` time and `O(1)` storage.
 
-This is an original ProGPU.CAD implementation. The exact approved in-repository
+The pinned ACadSharp fork now reads DXF group 75 into `Hatch.Style` at commit
+[`94597d6c`](https://github.com/wieslawsoltes/ACadSharp/commit/94597d6c3b7f6a296d7048ca3e8cff6f0add976c), with an
+independent writer/reader round-trip regression; previously its writer emitted
+the field but its reader discarded it. This is an original ProGPU.CAD
+implementation. The exact approved in-repository
 provenance inspected was `src/ProGPU.Dxf/DxfHatchRenderer.cs`, the generic path
 records in `src/ProGPU.Vector`, and the managed/native scene compilers. The old
 renderer's fixed 16-step arc flattening, per-pattern-line CPU construction, and
@@ -232,7 +251,7 @@ invalidation, or device-loss behavior changes.
 
 ### Retained DXF/PAT patterned-HATCH contract
 
-The patterned contract accepts finite, non-gradient, Normal-style HATCHes with
+The patterned contract accepts finite, non-gradient Normal/Outer/Ignore HATCHes with
 one or more persisted line families. `CadHatchPattern` addresses shared packed
 family and dash streams. Each family retains its local base point, unit tangent,
 positive perpendicular spacing, signed tangent row shift, dash range, and dash
@@ -1538,6 +1557,7 @@ dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --shx-
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --shx-text-entities 1000 --shx-decorations --warmup 3 --iterations 24 --queries 1000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --solid-hatches 100 --hatch-selection --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --pattern-hatches 100 --hatch-selection --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --pattern-hatches 100 --complex-pattern-grammar --hatch-island-styles --hatch-selection --warmup 3 --iterations 24 --queries 10000
 ```
 
 The initial 2026-08-27 Apple Silicon/.NET 10 baseline for 10,000 mixed analytic
@@ -1635,6 +1655,21 @@ Window selection was 0.2/0.3/0.3 microseconds, both with zero managed allocation
 per warm query. This is a standalone feature-cost baseline, not a before/after
 performance claim, and does not replace matched GPU/image-quality,
 managed/native, or required Instruments evidence.
+
+Two sequential 2026-08-28 island-style feature-cost runs used the same final
+Release binary with 100 alternating Outer/Ignore patterned HATCHes, three nested
+square loops per entity, 200 procedural families, 600 dash items, three warmups,
+24 construction iterations, and 10,000 direct immutable-candidate queries.
+Both retained 100 commands with no unsupported or invalid input. Snapshot
+p50/p95/p99 was 2.7805/4.0557/4.6995 and 1.4276/2.3745/3.3648 ms with 1,106,576
+managed bytes per snapshot in both runs; plan recording was
+0.3466/0.7514/5.9948 and 0.1288/0.2929/0.8586 ms with 167,088 bytes. Point
+selection was 3.6/4.6/27.2 and 1.7/4.3/8.5 microseconds; alternating typed-
+unsupported Crossing/exact Window selection was 0.4/0.5/0.7 and
+0.2/0.5/0.6 microseconds. Both warm query lanes allocated zero managed bytes.
+The process-order and tail spread preclude a latency comparison claim; these
+runs establish bounded feature cost and do not replace matched GPU/image-
+quality, managed/native, or required Instruments evidence.
 
 The first 2026-08-28 weighted periodic quadratic-NURBS linetype feature-cost
 run used one final Release binary, 1,000 four-span loops, three warmups, and 24
@@ -1779,6 +1814,34 @@ dotnet run --project src/ProGPU.CAD.Sample.Browser -c Debug
 ## Primary research record
 
 Sources consulted on 2026-08-27 and 2026-08-28:
+
+- For complete HATCH island-style lowering, Autodesk's
+  [DXF HATCH group-75 contract](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DXF/files/GUID-C6C71CED-CE0F-4184-82A5-07AD6241F15B.htm),
+  [island-detection behavior](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-981679AC-7097-4724-A30D-33F1CAFDD81D.htm),
+  [ObjectARX HatchStyle contract](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-RefGuide/files/OREF-AcDbHatch__HatchStyle1.html),
+  [boundary-path flags](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-DC5215D6-E73F-4DFF-8BE9-01CA9610FAEE.htm),
+  and [ObjectARX loop-type definitions](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-RefGuide/files/OREF-AcDbHatch__HatchLoopType.html)
+  establish odd-parity Normal, first-level-only Outer, fill-through Ignore, and
+  the distinction between persisted loop provenance flags and geometric
+  nesting. Adopted exact bounded containment-derived contribution metadata;
+  rejected source-order assumptions, treating `External` as island depth,
+  deleting ignored source loops, and CPU/raster mask composition.
+  [Skia path fill types](https://skia.googlesource.com/skia/+/f0b2393fdedc6d77b98a8c6ce8103c20cd11e400/docs/SkPath_Reference.bmh),
+  [Direct2D alternate fill mode](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_fill_mode),
+  [Win2D geometry path construction](https://microsoft.github.io/Win2D/WinUI2/html/Methods_T_Microsoft_Graphics_Canvas_Geometry_CanvasPathBuilder.htm),
+  [WebRender's retained renderer](https://github.com/servo/webrender), and
+  [Vello's retained fill-style encoding](https://github.com/linebender/vello/blob/main/vello_encoding/src/path.rs)
+  reinforce keeping contour selection separate from analytic GPU coverage and
+  retaining one explicit even-odd fill. ProGPU reuses its own canonical path
+  rasterizers and managed/native picture contract; no renderer ABI, shader,
+  cache, upload, DPI, invalidation, or device-loss rule changed. The required
+  text audit rechecked
+  [SkParagraph](https://docs.skia.org/docs/dev/design/text_shaper/),
+  [DirectWrite](https://learn.microsoft.com/en-us/windows/win32/directwrite/introducing-directwrite),
+  [Parley](https://github.com/linebender/parley), and
+  [HarfBuzz shape plans](https://harfbuzz.github.io/harfbuzz-hb-shape-plan.html);
+  they are not applicable because island classification changes no text,
+  shaping, font, glyph-cache, fallback, subpixel, or DPI contract.
 
 - For complete bounded DXF/PAT patterned-HATCH lowering, Autodesk's
   [pattern-definition contract](https://help.autodesk.com/view/ACD/2026/ENU/?caas=caas%2Fdocumentation%2FACDLT%2F2014%2FENU%2Ffiles%2FGUID-A6F2E6FF-1717-44B6-A476-0CA817ADD77E-htm.html),

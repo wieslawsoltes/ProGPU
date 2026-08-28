@@ -230,10 +230,15 @@ public readonly record struct CadHatchPatternFamily(
     int DashCount,
     double DashPeriod);
 
-/// <summary>A closed contour addressing the shared hatch-segment stream.</summary>
+/// <summary>
+/// A closed source contour addressing the shared hatch-segment stream.
+/// ContributesToFill records the owning HATCH style's immutable island
+/// decision without discarding ignored source-loop geometry.
+/// </summary>
 public readonly record struct CadHatchLoop(
     int SegmentOffset,
-    int SegmentCount);
+    int SegmentCount,
+    bool ContributesToFill);
 
 public enum CadHatchSegmentKind : byte
 {
