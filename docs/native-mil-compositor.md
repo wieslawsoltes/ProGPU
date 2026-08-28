@@ -2225,6 +2225,25 @@ seconds. Direct executions returned zero. Host and guest hashes matched
 for MIL and
 `4A36E7E6E3AE5B00D34252F5556793FC31A46A96AC61B7D8A4DFE277210D1958`
 for the internal topology gate.
+Checkpoint `269005a5` extends exact affine rectangle bounds to WPF round joins.
+The implementation follows WpfGfx `CSimplePen::RoundCorner` and
+`GetBezierDistance`: it applies the 0.25 default widening tolerance/refinement
+threshold, emits the same one- or two-cubic outer arc, and evaluates analytic
+cubic derivative roots after the `DrawingGroup` transform. It therefore does
+not replace the rounded outline with a transformed circle or broad local AABB.
+For rectangle `[20,10,30,15]`, thickness 8, and matrix
+`[1,.25,.5,1,0,0]`, live Windows PresentationCore returned
+`20.999963760376,10.9998416900635,45.5000743865967,30.5003185272217`
+for `Geometry.Transform` and
+`20.5268840789795,10.875919342041,46.4462299346924,30.748161315918`
+for `DrawingGroup.Transform`; both native image mappings are locked down.
+The complete Apple native suite passes 8/8. The exact commit archive rebuilt
+153 MIL/internal target steps under Windows ARM64 MSVC `19.44.35228.0`; 161
+Ninja flag lines carry `/W4 /WX`, both focused CTests passed in 4.01 seconds,
+and direct execution returned zero. Host and guest hashes matched for the
+archive (`1CAB3180...F60569`), MIL source (`D6730AFD...91BDB`), and MIL test
+(`8581A4D5...FCD3F`). Guest MIL and internal executable SHA-256 values were
+`865BB142...99714` and `287ECC0A...48117`.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive
