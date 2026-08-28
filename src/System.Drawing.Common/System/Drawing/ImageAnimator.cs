@@ -1,5 +1,3 @@
-using System.ComponentModel;
-
 namespace System.Drawing;
 
 /// <summary>
@@ -8,30 +6,24 @@ namespace System.Drawing;
 /// </summary>
 public static class ImageAnimator
 {
-    public static bool CanAnimate(Image image)
+    public static bool CanAnimate(Image? image)
     {
-        ArgumentNullException.ThrowIfNull(image);
         return false;
     }
 
-    public static void Animate(Image image, EventHandler onFrameChangedHandler)
+    public static void Animate(Image? image, EventHandler onFrameChangedHandler)
     {
-        ArgumentNullException.ThrowIfNull(image);
-        ArgumentNullException.ThrowIfNull(onFrameChangedHandler);
     }
 
-    public static void StopAnimate(Image image, EventHandler onFrameChangedHandler)
+    public static void StopAnimate(Image? image, EventHandler onFrameChangedHandler)
     {
-        ArgumentNullException.ThrowIfNull(image);
-        ArgumentNullException.ThrowIfNull(onFrameChangedHandler);
     }
 
     public static void UpdateFrames()
     {
     }
 
-    public static void UpdateFrames(Image image)
+    public static void UpdateFrames(Image? image)
     {
-        ArgumentNullException.ThrowIfNull(image);
     }
 }
