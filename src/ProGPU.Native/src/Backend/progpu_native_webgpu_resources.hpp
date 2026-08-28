@@ -24,9 +24,9 @@ struct path_raster_resources {
         if (bind_group != nullptr) {
             wgpuBindGroupRelease(bind_group);
         }
-        for (WGPUBindGroup bind_group : split_leaf_bind_groups) {
-            if (bind_group != nullptr) {
-                wgpuBindGroupRelease(bind_group);
+        for (WGPUBindGroup split_bind_group : split_leaf_bind_groups) {
+            if (split_bind_group != nullptr) {
+                wgpuBindGroupRelease(split_bind_group);
             }
         }
         release_buffer(uniforms);
