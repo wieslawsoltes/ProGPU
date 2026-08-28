@@ -619,10 +619,19 @@ samples, apply exact left/right scaling, widen contributions again before
 adding to the caller-owned accumulator, clamp final lanes, and narrow twice.
 Lengths around every vector boundary, mono/stereo levels, signed extremes,
 wrapping Int64 accumulator edges, and exact saturation boundaries are checked
-against independent scalar operations. The arbitrary processed-float effect
-lane retains its explicit per-sample finite validation, away-from-zero rounding,
-and saturating Int64 overflow semantics; it is outside this fixed-Q15 kernel
-and needs a separate cross-architecture qualification before vectorization.
+against independent scalar operations.
+
+Checkpoint `e6236472` adds the separate processed-float effect kernel shared by
+the Windows, Linux, and Android exporters. Valid `Vector256<float>` or
+`Vector128<float>` lanes widen to double before applying alternating Q15
+levels, round away from zero, clamp each contribution to Int64, and perform an
+exact saturating Int64 add. A vector containing a non-finite value resumes at
+its first lane through the scalar operation, preserving the established
+validation exception and partial-write semantics; valid input scalarizes only
+the bounded tail. The differential corpus covers seeded values, signed zero,
+subnormals, half-way rounding, float extrema, Int64 contribution and addition
+saturation, mono/stereo levels, lengths around both vector widths, a NaN inside
+a vector, and allocation-free repeated execution.
 
 Append `--wide` to both benchmark commands above to measure a complete
 1,024-frame stereo accumulate-and-saturate block. Four alternating Apple M3
@@ -645,6 +654,26 @@ free. The 48,000-frame gain/balance path produced median-of-run p50
 us/block (3.82x). These figures prove the emulated `Vector256` route wins this
 VM gate; they are explicitly not physical-x64 or hardware-wide performance
 claims.
+
+Append `--processed` instead of `--wide` to measure a 1,024-frame stereo float
+effect block through the saturating Int64 accumulator. Four alternating Apple
+M3 Pro runs with 100 warmups and 100 samples of 500 blocks produced a
+median-of-run p50 of 3.705 us/block for `Vector128` versus 8.064 us/block for
+the scalar oracle (2.18x throughput, -54.1% latency). Median p95 was 31.940
+versus 43.804 us and median p99 was 37.144 versus 50.083 us. Both paths were
+exact, allocation free, and reported checksum `-68911`.
+
+The identical self-contained `win-x64` source was then exercised in the
+Windows 11 ARM64 Parallels guest. .NET 10.0.5 reported process architecture
+`X64`, `Vector128=True`, `Vector256=True`, and `Vector512=False`. Four
+alternating runs produced median-of-run p50 28.571 us/block `Vector256` versus
+38.003 us/block scalar (1.33x, -24.8%) and median p95 70.954 versus 84.717 us
+(-16.2%); median p99 was effectively equal at 113.081 versus 113.118 us. Both
+paths remained exact and allocation free with checksum `-68911`. The guest
+executable SHA-256 was
+`4FA9ECCA268E4F7D51D860CEFC5D4138A3544A8CBE67BE35858FD838D81A9F5B`.
+This qualifies the emulated Windows x64 route without making a physical-x64
+performance claim.
 
 ## Extending the policy
 
