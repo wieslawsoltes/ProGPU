@@ -2131,6 +2131,14 @@ for `progpu_native_mil.cpp` and
 `B094837862908657F648F67C5819171D2EACC1BF7FF19B8BF0BB64C1255E32C7`
 for the test source.
 
+Degenerate fixed-shape checkpoint `dbec7d09` passed the same Windows MSVC
+`/W4 /WX` build and focused native test in 1.69 seconds. Exact guest hashes
+matched the host at
+`B47CA86FCCD04BE70529E2DC1355688432EB3A9C8685628BC3E2726CCDC363B5`
+for `progpu_native_mil.cpp` and
+`CD79B51484FCFA6047C84BFD3EB95FD78D12918DBA6E7E084762E6B0E3810D7A`
+for the test source.
+
 `NativeMilRenderDataBuilder.DrawImage(...)` now exposes the same canonical
 static packet to typed hosts. It validates finite nonnegative destination
 bounds and a nonzero image handle, writes the required zero padding, and is
