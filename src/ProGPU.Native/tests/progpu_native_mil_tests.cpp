@@ -10468,6 +10468,9 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
     constexpr std::uint32_t image_drawing = 8U;
     constexpr std::uint32_t rectangle_animation = 10U;
     constexpr std::uint32_t geometry_transform = 11U;
+    constexpr std::uint32_t nested_drawing_image = 12U;
+    constexpr std::uint32_t nested_group = 13U;
+    constexpr std::uint32_t nested_transform = 14U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -10480,6 +10483,9 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
     append_create(batch, image_drawing, 89U);
     append_create(batch, rectangle_animation, 52U);
     append_create(batch, geometry_transform, 66U);
+    append_create(batch, nested_drawing_image, 59U);
+    append_create(batch, nested_group, 91U);
+    append_create(batch, nested_transform, 66U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -10547,6 +10553,37 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
         20.0,
         drawing_image,
         0U);
+    append_command(
+        batch,
+        command::matrix_transform,
+        nested_transform,
+        1.0,
+        0.25,
+        0.5,
+        1.0,
+        3.0,
+        2.0,
+        0U);
+    append_command(
+        batch,
+        command::drawing_group,
+        nested_group,
+        1.0,
+        4U,
+        0U,
+        0U,
+        0U,
+        nested_transform,
+        0U,
+        0U,
+        0U,
+        0U,
+        image_drawing);
+    append_command(
+        batch,
+        command::drawing_image,
+        nested_drawing_image,
+        nested_group);
     std::vector<std::byte> nested;
     append_command(nested, command::draw_drawing, image_drawing, 0U);
     append_command(
@@ -10567,6 +10604,15 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
         1.0,
         drawing_image,
         rectangle_animation);
+    append_command(
+        nested,
+        command::draw_image,
+        5.0,
+        7.0,
+        80.0,
+        40.0,
+        nested_drawing_image,
+        0U);
     append_render_data(batch, content, nested);
     append_command(
         batch,
@@ -10586,13 +10632,14 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
     PROGPU_REQUIRE(
         state.build_scene(target, 7006U, 1U, stream, &metrics) ==
         status::success);
-    PROGPU_REQUIRE(metrics.rectangle_count == 3U);
+    PROGPU_REQUIRE(metrics.rectangle_count == 4U);
     PROGPU_REQUIRE(metrics.brush_count == 1U);
 
     const auto header = read_value<progpu_native_scene_header>(stream, 0U);
     bool found_mapping = false;
     bool found_direct_mapping = false;
     bool found_animated_mapping = false;
+    bool found_nested_mapping = false;
     for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
         const auto resource = read_value<progpu_native_scene_resource>(
             stream,
@@ -10633,20 +10680,88 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
             scene_state.clip_rect.width == 8.0F &&
             scene_state.clip_rect.height == 12.0F) {
             found_animated_mapping = true;
+        } else if (std::abs(scene_state.transform.m11 - 3.2F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m12 - 2.0F / 3.0F) < 0.0001F &&
+            std::abs(scene_state.transform.m21 - 1.6F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m22 - 8.0F / 3.0F) < 0.0001F &&
+            std::abs(scene_state.transform.m31 + 86.2F) < 0.0001F &&
+            std::abs(scene_state.transform.m32 + 75.0F) < 0.0001F &&
+            (scene_state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
+            scene_state.clip_rect.x == 5.0F &&
+            scene_state.clip_rect.y == 7.0F &&
+            scene_state.clip_rect.width == 80.0F &&
+            scene_state.clip_rect.height == 40.0F) {
+            found_nested_mapping = true;
         }
     }
     PROGPU_REQUIRE(found_mapping);
     PROGPU_REQUIRE(found_direct_mapping);
     PROGPU_REQUIRE(found_animated_mapping);
+    PROGPU_REQUIRE(found_nested_mapping);
+
+    std::vector<std::byte> animated_image_drawing;
+    append_command(
+        animated_image_drawing,
+        command::image_drawing,
+        image_drawing,
+        2.0,
+        4.0,
+        40.0,
+        20.0,
+        drawing_image,
+        rectangle_animation);
+    PROGPU_REQUIRE(state.apply(animated_image_drawing) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7006U, 2U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 4U);
+    const auto animated_image_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_live_nested_mapping = false;
+    for (std::uint32_t index = 0U;
+         index < animated_image_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            animated_image_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            continue;
+        }
+        const auto scene_state = read_value<progpu_native_scene_state>(
+            stream, resource.payload_offset);
+        if (std::abs(
+                scene_state.transform.m11 - 16.0F / 7.0F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m12 - 2.0F / 7.0F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m21 - 24.0F / 7.0F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m22 - 24.0F / 7.0F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m31 + 853.0F / 7.0F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m32 + 629.0F / 7.0F) < 0.0001F &&
+            (scene_state.flags & PROGPU_NATIVE_SCENE_STATE_CLIP_RECT) != 0U &&
+            scene_state.clip_rect.x == 5.0F &&
+            scene_state.clip_rect.y == 7.0F &&
+            scene_state.clip_rect.width == 80.0F &&
+            scene_state.clip_rect.height == 40.0F) {
+            found_live_nested_mapping = true;
+        }
+    }
+    PROGPU_REQUIRE(found_live_nested_mapping);
     PROGPU_REQUIRE(
         state.set_drawing_image_bounds(
             drawing_image, 15.0, 27.0, 20.0, 10.0) ==
         status::success);
     PROGPU_REQUIRE(state.resource_generation(drawing_image) == 3U);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7006U, 2U, stream, &metrics) ==
+        state.build_scene(target, 7006U, 3U, stream, &metrics) ==
         status::success);
-    PROGPU_REQUIRE(metrics.rectangle_count == 3U);
+    PROGPU_REQUIRE(metrics.rectangle_count == 4U);
     PROGPU_REQUIRE(metrics.brush_count == 1U);
 
     constexpr std::uint32_t transform = 9U;
@@ -10670,7 +10785,7 @@ bool retained_drawing_image_maps_vector_content_into_destination() {
         transform);
     PROGPU_REQUIRE(state.apply(affine_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7006U, 3U, stream, &metrics) ==
+        state.build_scene(target, 7006U, 4U, stream, &metrics) ==
         status::success);
     const auto affine_header = read_value<progpu_native_scene_header>(
         stream, 0U);

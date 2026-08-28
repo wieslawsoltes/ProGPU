@@ -8617,11 +8617,6 @@ struct channel::implementation {
                     static_cast<float>(bottom - top)};
                 return status::success;
             }
-            const auto drawing = geometry_drawings.find(drawing_handle);
-            if (drawing == geometry_drawings.end() ||
-                drawing->second.geometry_handle == 0U) {
-                return status::unsupported_command;
-            }
             const auto finish_bounds = [&bounds, active_clip]() noexcept {
                 if (bounds.width <= 0.0F || bounds.height <= 0.0F) {
                     bounds = {};
@@ -8645,6 +8640,43 @@ struct channel::implementation {
                 bounds = {left, top, right - left, bottom - top};
                 return status::success;
             };
+            const auto image_drawing = image_drawings.find(drawing_handle);
+            if (image_drawing != image_drawings.end()) {
+                auto image = image_drawing->second;
+                const status rectangle_status = resolve_animated_rect(
+                    image.x,
+                    image.y,
+                    image.width,
+                    image.height,
+                    image.rect_animation_handle,
+                    image.x,
+                    image.y,
+                    image.width,
+                    image.height);
+                if (rectangle_status != status::success) {
+                    return rectangle_status;
+                }
+                if (image.image_source_handle == 0U ||
+                    image.width <= 0.0 || image.height <= 0.0) {
+                    bounds = {};
+                    return status::success;
+                }
+                if (!try_transform_bounds(
+                        image.x,
+                        image.y,
+                        image.width,
+                        image.height,
+                        current_transform,
+                        bounds)) {
+                    return status::unsupported_command;
+                }
+                return finish_bounds();
+            }
+            const auto drawing = geometry_drawings.find(drawing_handle);
+            if (drawing == geometry_drawings.end() ||
+                drawing->second.geometry_handle == 0U) {
+                return status::unsupported_command;
+            }
             if (drawing->second.pen_handle != 0U) {
                 const auto fixed = fixed_geometries.find(
                     drawing->second.geometry_handle);
