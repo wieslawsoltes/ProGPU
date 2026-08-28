@@ -133,6 +133,10 @@ public sealed class FontQualityTests
         using var collection = new PrivateFontCollection();
         collection.AddFontFile(FontPath);
         using FontFamily family = Assert.Single(collection.Families);
+
+        _ = family.GetEmHeight(FontStyle.Regular);
+        _ = family.GetCellAscent(FontStyle.Regular);
+        _ = family.GetCellDescent(FontStyle.Regular);
         _ = family.GetLineSpacing(FontStyle.Regular);
 
         long before = GC.GetAllocatedBytesForCurrentThread();
