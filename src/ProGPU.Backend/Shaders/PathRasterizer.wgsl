@@ -35,12 +35,12 @@ struct PathRecord {
 struct CoverageCombineUniforms {
     sourceAOffsetWords: u32,
     sourceBOffsetWords: u32,
+    sourceCOffsetWords: u32,
+    sourceCount: u32,
     destinationOffsetWords: u32,
     rowWords: u32,
     width: u32,
     height: u32,
-    _pad0: u32,
-    _pad1: u32,
 };
 
 struct Segment {
@@ -677,7 +677,7 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 }
 
 @compute @workgroup_size(16, 16)
-fn cs_binary_xor_combine(
+fn cs_split_xor_combine(
     @builtin(global_invocation_id) global_id: vec3<u32>) {
     let uniforms = coverageCombineUniforms[global_id.z];
     let wordX = global_id.x;
@@ -686,7 +686,14 @@ fn cs_binary_xor_combine(
         return;
     }
     let rowOffset = y * uniforms.rowWords;
-    coverageOutput[uniforms.destinationOffsetWords + rowOffset + wordX] =
+    var packed =
         coverageOutput[uniforms.sourceAOffsetWords + rowOffset + wordX] ^
         coverageOutput[uniforms.sourceBOffsetWords + rowOffset + wordX];
+    if (uniforms.sourceCount == 3u) {
+        packed = packed ^
+            coverageOutput[
+                uniforms.sourceCOffsetWords + rowOffset + wordX];
+    }
+    coverageOutput[uniforms.destinationOffsetWords + rowOffset + wordX] =
+        packed;
 }

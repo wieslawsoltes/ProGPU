@@ -257,6 +257,11 @@ bool has_expected_colors(
     const std::uint8_t* binary_xor_left = pixel(285U, 12U);
     const std::uint8_t* binary_xor_overlap = pixel(295U, 12U);
     const std::uint8_t* binary_xor_right = pixel(305U, 12U);
+    const std::uint8_t* ternary_xor_a = pixel(325U, 12U);
+    const std::uint8_t* ternary_xor_ab = pixel(335U, 12U);
+    const std::uint8_t* ternary_xor_abc = pixel(345U, 12U);
+    const std::uint8_t* ternary_xor_bc = pixel(355U, 12U);
+    const std::uint8_t* ternary_xor_c = pixel(365U, 12U);
     if (!(blue[2] > 180U && blue[0] < 100U &&
         pad_start[0] > 180U && pad_start[1] > 90U &&
         pad_start[2] < 80U &&
@@ -270,7 +275,12 @@ bool has_expected_colors(
         binary_xor_left[1] > 180U && binary_xor_left[2] > 180U &&
         binary_xor_overlap[0] < 30U &&
         binary_xor_overlap[1] < 30U &&
-        binary_xor_right[1] > 180U && binary_xor_right[2] > 180U)) {
+        binary_xor_right[1] > 180U && binary_xor_right[2] > 180U &&
+        ternary_xor_a[1] > 180U && ternary_xor_a[2] > 180U &&
+        ternary_xor_ab[0] < 30U && ternary_xor_ab[1] < 30U &&
+        ternary_xor_abc[1] > 180U && ternary_xor_abc[2] > 180U &&
+        ternary_xor_bc[0] < 30U && ternary_xor_bc[1] < 30U &&
+        ternary_xor_c[1] > 180U && ternary_xor_c[2] > 180U)) {
         const auto print_pixel = [](const char* name,
                                     const std::uint8_t* value) {
             std::cerr << name << "="
@@ -292,6 +302,11 @@ bool has_expected_colors(
         print_pixel("binary-xor-left", binary_xor_left);
         print_pixel("binary-xor-overlap", binary_xor_overlap);
         print_pixel("binary-xor-right", binary_xor_right);
+        print_pixel("ternary-xor-a", ternary_xor_a);
+        print_pixel("ternary-xor-ab", ternary_xor_ab);
+        print_pixel("ternary-xor-abc", ternary_xor_abc);
+        print_pixel("ternary-xor-bc", ternary_xor_bc);
+        print_pixel("ternary-xor-c", ternary_xor_c);
         std::cerr << '\n';
         return false;
     }
@@ -334,7 +349,27 @@ bool has_expected_colors(
               << " binary-right="
               << static_cast<unsigned int>(binary_xor_right[0]) << ","
               << static_cast<unsigned int>(binary_xor_right[1]) << ","
-              << static_cast<unsigned int>(binary_xor_right[2]) << '\n';
+              << static_cast<unsigned int>(binary_xor_right[2])
+              << " ternary-a="
+              << static_cast<unsigned int>(ternary_xor_a[0]) << ","
+              << static_cast<unsigned int>(ternary_xor_a[1]) << ","
+              << static_cast<unsigned int>(ternary_xor_a[2])
+              << " ternary-ab="
+              << static_cast<unsigned int>(ternary_xor_ab[0]) << ","
+              << static_cast<unsigned int>(ternary_xor_ab[1]) << ","
+              << static_cast<unsigned int>(ternary_xor_ab[2])
+              << " ternary-abc="
+              << static_cast<unsigned int>(ternary_xor_abc[0]) << ","
+              << static_cast<unsigned int>(ternary_xor_abc[1]) << ","
+              << static_cast<unsigned int>(ternary_xor_abc[2])
+              << " ternary-bc="
+              << static_cast<unsigned int>(ternary_xor_bc[0]) << ","
+              << static_cast<unsigned int>(ternary_xor_bc[1]) << ","
+              << static_cast<unsigned int>(ternary_xor_bc[2])
+              << " ternary-c="
+              << static_cast<unsigned int>(ternary_xor_c[0]) << ","
+              << static_cast<unsigned int>(ternary_xor_c[1]) << ","
+              << static_cast<unsigned int>(ternary_xor_c[2]) << '\n';
     if (!requires_decoded_glyph) {
         return true;
     }
@@ -1081,6 +1116,122 @@ int main(int argc, char** argv) {
             {280.0F, 4.0F, 30.0F, 20.0F}) ||
         !scene_builder.pop_layer()) {
         std::cerr << "Could not record translated binary XOR layer.\n";
+        return EXIT_FAILURE;
+    }
+    const std::array ternary_xor_segments{
+        progpu_native_path_segment{
+            {320.0F, 4.0F}, {350.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {350.0F, 4.0F}, {350.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {350.0F, 24.0F}, {320.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {320.0F, 24.0F}, {320.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {330.0F, 4.0F}, {360.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {360.0F, 4.0F}, {360.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {360.0F, 24.0F}, {330.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {330.0F, 24.0F}, {330.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {340.0F, 4.0F}, {370.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {370.0F, 4.0F}, {370.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {370.0F, 24.0F}, {340.0F, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
+        progpu_native_path_segment{
+            {340.0F, 24.0F}, {340.0F, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
+    const std::array ternary_xor_nodes{
+        progpu_native_scene_path_boolean_node{
+            0U, 4U, 320.0F, 4.0F, 350.0F, 24.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            4U, 4U, 330.0F, 4.0F, 360.0F, 24.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_XOR, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            8U, 4U, 340.0F, 4.0F, 370.0F, 24.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
+        progpu_native_scene_path_boolean_node{
+            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
+            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
+            PROGPU_NATIVE_PATH_BOOLEAN_XOR, 0U, 0U}};
+    const progpu_native_scene_clip_path ternary_xor_path{
+        0U,
+        ternary_xor_segments.size(),
+        0U,
+        ternary_xor_nodes.size(),
+        320.0F,
+        4.0F,
+        370.0F,
+        24.0F,
+        identity,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        8U,
+        PROGPU_NATIVE_CLIP_INTERSECT,
+        0U};
+    std::uint32_t ternary_xor_mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scene_builder.add_vector_clip_mask(
+            std::span<const progpu_native_scene_clip_path>(
+                &ternary_xor_path,
+                1U),
+            ternary_xor_segments,
+            ternary_xor_nodes,
+            1.0F,
+            ternary_xor_mask_index)) {
+        std::cerr << "Could not record translated ternary XOR mask.\n";
+        return EXIT_FAILURE;
+    }
+    progpu_native_scene_layer ternary_xor_layer{};
+    ternary_xor_layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    ternary_xor_layer.bounds = {320.0F, 4.0F, 50.0F, 20.0F};
+    ternary_xor_layer.opacity = 1.0F;
+    ternary_xor_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    ternary_xor_layer.mask_resource_index = ternary_xor_mask_index;
+    ternary_xor_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    ternary_xor_layer.content_revision = 1U;
+    ternary_xor_layer.composite_revision = 1U;
+    const progpu_native_analytic_primitive ternary_xor_content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        320.0F,
+        4.0F,
+        50.0F,
+        20.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity};
+    if (!scene_builder.push_layer(ternary_xor_layer) ||
+        !scene_builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &ternary_xor_content,
+                1U),
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {320.0F, 4.0F, 50.0F, 20.0F}) ||
+        !scene_builder.pop_layer()) {
+        std::cerr << "Could not record translated ternary XOR layer.\n";
         return EXIT_FAILURE;
     }
     progpu_native_hit_test_primitive hit_primitive{};
