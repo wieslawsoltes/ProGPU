@@ -7478,6 +7478,8 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     constexpr std::uint32_t grouped_geometry = 9U;
     constexpr std::uint32_t group = 10U;
     constexpr std::uint32_t child_transform = 11U;
+    constexpr std::uint32_t grouped_line = 12U;
+    constexpr std::uint32_t line_transform = 13U;
     constexpr std::uint32_t line_size = 32U;
     constexpr std::uint32_t figure_size = 40U + 3U * line_size;
     constexpr std::uint32_t figures_size = 48U + 2U * figure_size;
@@ -7546,6 +7548,8 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     append_create(batch, grouped_geometry, 73U);
     append_create(batch, group, 71U);
     append_create(batch, child_transform, 66U);
+    append_create(batch, grouped_line, 68U);
+    append_create(batch, line_transform, 66U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -7594,6 +7598,28 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         1.0,
         30.0,
         0.0,
+        0U);
+    append_command(
+        batch,
+        command::matrix_transform,
+        line_transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        60.0,
+        10.0,
+        0U);
+    append_command(
+        batch,
+        command::line_geometry,
+        grouped_line,
+        0.0,
+        20.0,
+        10.0,
+        25.0,
+        line_transform,
+        0U,
         0U);
     append_path_geometry(batch, geometry, transform, 0U, figures);
     std::vector<std::byte> nested;
@@ -8426,7 +8452,10 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         child_transform,
         0U,
         unfilled_grouped_figures);
-    const std::array group_children{geometry, grouped_geometry};
+    const std::array group_children{
+        geometry,
+        grouped_geometry,
+        grouped_line};
     append_geometry_group(
         group_stroke_update,
         group,
@@ -8455,6 +8484,7 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     std::uint32_t group_fill_count = 0U;
     std::uint32_t first_child_body_count = 0U;
     std::uint32_t second_child_body_count = 0U;
+    std::uint32_t line_child_body_count = 0U;
     for (std::uint32_t resource_index = 0U;
          resource_index < group_stroke_header.resource_count;
          ++resource_index) {
@@ -8499,6 +8529,16 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
                 primitive.transform.m31 == 30.0F &&
                 primitive.transform.m32 == 0.0F) {
                 ++second_child_body_count;
+            } else if (
+                primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE &&
+                primitive.transform.m11 == 1.0F &&
+                primitive.transform.m22 == 1.0F &&
+                primitive.transform.m31 == 60.0F &&
+                primitive.transform.m32 == 10.0F) {
+                PROGPU_REQUIRE(
+                    primitive.p0.x == 0.0F && primitive.p0.y == 20.0F &&
+                    primitive.p1.x == 10.0F && primitive.p1.y == 25.0F);
+                ++line_child_body_count;
             }
         }
         PROGPU_REQUIRE(primitive_offset == record.payload_size);
@@ -8506,6 +8546,7 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     PROGPU_REQUIRE(group_fill_count == 1U);
     PROGPU_REQUIRE(first_child_body_count == 4U);
     PROGPU_REQUIRE(second_child_body_count == 4U);
+    PROGPU_REQUIRE(line_child_body_count == 1U);
 
     std::vector<std::byte> dashed_group_update;
     append_dash_style(
@@ -8536,6 +8577,7 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     std::uint32_t dashed_group_cap_count = 0U;
     bool found_first_dashed_child = false;
     bool found_second_dashed_child = false;
+    bool found_dashed_line_child = false;
     for (std::uint32_t resource_index = 0U;
          resource_index < dashed_group_header.resource_count;
          ++resource_index) {
@@ -8543,6 +8585,21 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
             stream,
             dashed_group_header.resource_offset +
                 resource_index * sizeof(progpu_native_scene_resource));
+        if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
+            const auto stroke = read_value<progpu_native_scene_stroke>(
+                stream,
+                record.payload_offset);
+            if (stroke.transform.m31 == 60.0F &&
+                stroke.transform.m32 == 10.0F) {
+                PROGPU_REQUIRE(stroke.point_count == 2U);
+                PROGPU_REQUIRE(stroke.dash_interval_count == 2U);
+                PROGPU_REQUIRE(stroke.dash_offset == 0.0);
+                PROGPU_REQUIRE(stroke.start_cap == 1U);
+                PROGPU_REQUIRE(stroke.end_cap == 2U);
+                found_dashed_line_child = true;
+            }
+            continue;
+        }
         if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
             continue;
         }
@@ -8578,6 +8635,7 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     PROGPU_REQUIRE(dashed_group_cap_count >= 4U);
     PROGPU_REQUIRE(found_first_dashed_child);
     PROGPU_REQUIRE(found_second_dashed_child);
+    PROGPU_REQUIRE(found_dashed_line_child);
     return true;
 }
 
