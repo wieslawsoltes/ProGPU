@@ -38,6 +38,37 @@ gpu_program_reference append_gpu_records(
         return {path_record_index, 0U, 0U};
     }
 
+    // Keep the canonical two-leaf XOR out of the bounded postfix interpreter.
+    // PathRasterizer.wgsl has an equivalent fixed binary operation path which
+    // avoids dynamic program-record indexing on affected D3D12 drivers while
+    // preserving the same per-sample XOR coverage.
+    if (path.boolean_node_count == 3U) {
+        const auto& first = nodes[path.boolean_node_offset];
+        const auto& second = nodes[path.boolean_node_offset + 1U];
+        const auto& operation = nodes[path.boolean_node_offset + 2U];
+        if (first.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
+            second.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
+            operation.kind == PROGPU_NATIVE_PATH_BOOLEAN_XOR) {
+            const auto append_leaf = [&records](const Node& leaf) {
+                records.push_back({
+                    static_cast<std::uint32_t>(leaf.segment_offset),
+                    static_cast<std::uint32_t>(leaf.segment_count),
+                    leaf.min_x,
+                    leaf.min_y,
+                    leaf.max_x,
+                    leaf.max_y,
+                    leaf.fill_rule,
+                    0U});
+            };
+            append_leaf(first);
+            append_leaf(second);
+            return {
+                path_record_index,
+                path_record_index + 1U,
+                operation.kind - 1U};
+        }
+    }
+
     std::array<std::uint32_t, maximum_instruction_count> tokens{};
     std::uint32_t leaf_count = 0U;
     for (std::size_t index = 0U;

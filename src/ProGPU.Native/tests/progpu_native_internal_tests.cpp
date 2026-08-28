@@ -6,6 +6,7 @@
 #include "progpu_native_geometry_spline.hpp"
 #include "progpu_native_geometry_stroke.hpp"
 #include "progpu_native_gpu_records.hpp"
+#include "progpu_native_path_boolean_gpu.hpp"
 #include "progpu_native_semantic_budget.hpp"
 #include "progpu_native_semantic_brush.hpp"
 #include "progpu_native_semantic_brush_tests.hpp"
@@ -36,6 +37,62 @@ void require(bool condition) {
     if (!condition) {
         std::abort();
     }
+}
+
+void binary_xor_uses_fixed_gpu_records() {
+    progpu_native_scene_path_fill path{};
+    path.boolean_node_count = 3U;
+    std::array<progpu_native_scene_path_boolean_node, 3U> nodes{};
+    nodes[0U] = {
+        2U,
+        4U,
+        1.0F,
+        2.0F,
+        9.0F,
+        10.0F,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        PROGPU_NATIVE_PATH_BOOLEAN_LEAF,
+        0U,
+        0U};
+    nodes[1U] = {
+        6U,
+        4U,
+        2.0F,
+        3.0F,
+        10.0F,
+        11.0F,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        PROGPU_NATIVE_PATH_BOOLEAN_LEAF,
+        0U,
+        0U};
+    nodes[2U].kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+
+    std::vector<progpu::native::gpu_path_record> records;
+    const auto program = progpu::native::path_boolean::append_gpu_records(
+        path,
+        nodes.data(),
+        records);
+    require(records.size() == 2U);
+    require(program.path_record_index == 0U);
+    require(program.program_index == 1U);
+    require(program.operation_kind == 4U);
+    require(records[0U].start_segment == 2U);
+    require(records[0U].segment_count == 4U);
+    require(records[1U].start_segment == 6U);
+    require(records[1U].segment_count == 4U);
+
+    nodes[2U].kind = PROGPU_NATIVE_PATH_BOOLEAN_UNION;
+    records.clear();
+    const auto generic = progpu::native::path_boolean::append_gpu_records(
+        path,
+        nodes.data(),
+        records);
+    require(records.size() == 5U);
+    require(generic.path_record_index == 0U);
+    require(generic.program_index == 2U);
+    require(
+        generic.operation_kind ==
+        (progpu::native::path_boolean::gpu_program_flag | 3U));
 }
 
 void clipped_miter_join_uses_the_wpf_three_triangle_wedge() {
@@ -1109,6 +1166,7 @@ void draw_state_resolution_is_cpu_only_and_bounded() {
 } // namespace
 
 int main() {
+    binary_xor_uses_fixed_gpu_records();
     clipped_miter_join_uses_the_wpf_three_triangle_wedge();
     reversal_joins_match_wpf_collapsed_contours();
     native_webgpu_scopes_share_one_process_lock();
