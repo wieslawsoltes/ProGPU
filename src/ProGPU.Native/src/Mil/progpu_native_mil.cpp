@@ -394,7 +394,7 @@ bool try_transformed_rectangle_stroke_bounds(
     const affine_2d_double& world_transform,
     progpu_native_image_rect& bounds) noexcept {
     if (width <= 0.0 || height <= 0.0 || thickness <= 0.0 ||
-        line_join > PROGPU_NATIVE_STROKE_JOIN_BEVEL) {
+        line_join > PROGPU_NATIVE_STROKE_JOIN_ROUND) {
         return false;
     }
     using point = std::array<double, 2U>;
@@ -438,22 +438,100 @@ bool try_transformed_rectangle_stroke_bounds(
     double minimum_y = std::numeric_limits<double>::infinity();
     double maximum_x = -std::numeric_limits<double>::infinity();
     double maximum_y = -std::numeric_limits<double>::infinity();
-    const auto include = [
-        &map_point,
-        &world_transform,
+    const auto include_mapped = [
         &minimum_x,
         &minimum_y,
         &maximum_x,
-        &maximum_y](const point& source) noexcept {
+        &maximum_y](const point& mapped) noexcept {
+        if (!std::isfinite(mapped[0U]) || !std::isfinite(mapped[1U])) {
+            return false;
+        }
+        minimum_x = std::min(minimum_x, mapped[0U]);
+        minimum_y = std::min(minimum_y, mapped[1U]);
+        maximum_x = std::max(maximum_x, mapped[0U]);
+        maximum_y = std::max(maximum_y, mapped[1U]);
+        return true;
+    };
+    const auto include = [
+        &map_point,
+        &world_transform,
+        &include_mapped](const point& source) noexcept {
         point transformed{};
         if (!map_point(source, world_transform, transformed)) {
             return false;
         }
-        minimum_x = std::min(minimum_x, transformed[0U]);
-        minimum_y = std::min(minimum_y, transformed[1U]);
-        maximum_x = std::max(maximum_x, transformed[0U]);
-        maximum_y = std::max(maximum_y, transformed[1U]);
-        return true;
+        return include_mapped(transformed);
+    };
+    const auto include_cubic = [
+        &map_point,
+        &world_transform,
+        &include_mapped](
+        const point& p0,
+        const point& p1,
+        const point& p2,
+        const point& p3) noexcept {
+        std::array<point, 4U> mapped{};
+        if (!map_point(p0, world_transform, mapped[0U]) ||
+            !map_point(p1, world_transform, mapped[1U]) ||
+            !map_point(p2, world_transform, mapped[2U]) ||
+            !map_point(p3, world_transform, mapped[3U])) {
+            return false;
+        }
+        const auto evaluate = [&mapped](double t, point& result) noexcept {
+            const double inverse = 1.0 - t;
+            result = {
+                inverse * inverse * inverse * mapped[0U][0U] +
+                    3.0 * inverse * inverse * t * mapped[1U][0U] +
+                    3.0 * inverse * t * t * mapped[2U][0U] +
+                    t * t * t * mapped[3U][0U],
+                inverse * inverse * inverse * mapped[0U][1U] +
+                    3.0 * inverse * inverse * t * mapped[1U][1U] +
+                    3.0 * inverse * t * t * mapped[2U][1U] +
+                    t * t * t * mapped[3U][1U]};
+            return std::isfinite(result[0U]) &&
+                std::isfinite(result[1U]);
+        };
+        const auto include_parameter = [
+            &evaluate,
+            &include_mapped](double t) noexcept {
+            if (t <= 0.0 || t >= 1.0) {
+                return true;
+            }
+            point value{};
+            if (!evaluate(t, value)) {
+                return false;
+            }
+            return include_mapped(value);
+        };
+        const auto include_axis_extrema = [
+            &mapped,
+            &include_parameter](std::size_t axis) noexcept {
+            const double p0_axis = mapped[0U][axis];
+            const double p1_axis = mapped[1U][axis];
+            const double p2_axis = mapped[2U][axis];
+            const double p3_axis = mapped[3U][axis];
+            const double quadratic = 3.0 *
+                (-p0_axis + 3.0 * p1_axis - 3.0 * p2_axis + p3_axis);
+            const double linear = 6.0 *
+                (p0_axis - 2.0 * p1_axis + p2_axis);
+            const double constant = 3.0 * (p1_axis - p0_axis);
+            if (quadratic == 0.0) {
+                return linear == 0.0 ||
+                    include_parameter(-constant / linear);
+            }
+            const double discriminant = linear * linear -
+                4.0 * quadratic * constant;
+            if (discriminant < 0.0) {
+                return true;
+            }
+            const double root = std::sqrt(discriminant);
+            const double denominator = 2.0 * quadratic;
+            return include_parameter((-linear - root) / denominator) &&
+                include_parameter((-linear + root) / denominator);
+        };
+        return include_mapped(mapped[0U]) &&
+            include_mapped(mapped[3U]) &&
+            include_axis_extrema(0U) && include_axis_extrema(1U);
     };
     const double radius = thickness * 0.5;
     for (std::size_t index = 0U; index < vertices.size(); ++index) {
@@ -540,6 +618,120 @@ bool try_transformed_rectangle_stroke_bounds(
                 continue;
             }
             if (!include(miter)) {
+                return false;
+            }
+        }
+    } else if (line_join == PROGPU_NATIVE_STROKE_JOIN_ROUND) {
+        constexpr double default_tolerance = 0.25;
+        const double refinement_threshold = radius < default_tolerance
+            ? -2.0
+            : 2.0 * (1.0 - default_tolerance / radius) *
+                    (1.0 - default_tolerance / radius) -
+                1.0;
+        const auto bezier_distance = [radius](double dot) noexcept {
+            const double radius_squared = radius * radius;
+            const double a = std::max(0.0, 0.5 * (radius_squared + dot));
+            const double denominator_squared = radius_squared - a;
+            if (denominator_squared <= 0.0) {
+                return 0.0;
+            }
+            const double denominator = std::sqrt(denominator_squared);
+            const double numerator = (4.0 / 3.0) *
+                (radius - std::sqrt(a));
+            return numerator <= denominator * 0.000001
+                ? 0.0
+                : numerator / denominator;
+        };
+        for (std::size_t index = 0U; index < vertices.size(); ++index) {
+            const point& join = vertices[index];
+            const point& incoming = directions[
+                (index + directions.size() - 1U) % directions.size()];
+            const point& outgoing = directions[index];
+            const double turn = incoming[0U] * outgoing[1U] -
+                incoming[1U] * outgoing[0U];
+            if (!std::isfinite(turn) || std::abs(turn) <= 0.0001) {
+                return false;
+            }
+            const double outer_sign = turn > 0.0 ? -1.0 : 1.0;
+            const point previous_outer{
+                join[0U] - incoming[1U] * outer_sign * radius,
+                join[1U] + incoming[0U] * outer_sign * radius};
+            const point next_outer{
+                join[0U] - outgoing[1U] * outer_sign * radius,
+                join[1U] + outgoing[0U] * outer_sign * radius};
+            const double direction_dot =
+                incoming[0U] * outgoing[0U] +
+                incoming[1U] * outgoing[1U];
+            if (!std::isfinite(direction_dot)) {
+                return false;
+            }
+            if (direction_dot > refinement_threshold) {
+                continue;
+            }
+            if (direction_dot >= 0.0) {
+                const double distance = bezier_distance(
+                    direction_dot * radius * radius);
+                const point control1{
+                    previous_outer[0U] + incoming[0U] * radius * distance,
+                    previous_outer[1U] + incoming[1U] * radius * distance};
+                const point control2{
+                    next_outer[0U] - outgoing[0U] * radius * distance,
+                    next_outer[1U] - outgoing[1U] * radius * distance};
+                if (!include_cubic(
+                        previous_outer, control1, control2, next_outer)) {
+                    return false;
+                }
+                continue;
+            }
+            const point tangent_sum{
+                incoming[0U] + outgoing[0U],
+                incoming[1U] + outgoing[1U]};
+            const double tangent_sum_length = std::hypot(
+                tangent_sum[0U], tangent_sum[1U]);
+            const point radial_sum{
+                previous_outer[0U] + next_outer[0U] - 2.0 * join[0U],
+                previous_outer[1U] + next_outer[1U] - 2.0 * join[1U]};
+            const double radial_sum_length = std::hypot(
+                radial_sum[0U], radial_sum[1U]);
+            if (!std::isfinite(tangent_sum_length) ||
+                !std::isfinite(radial_sum_length) ||
+                tangent_sum_length <= 0.0001 ||
+                radial_sum_length <= 0.0001) {
+                return false;
+            }
+            const point middle_tangent{
+                tangent_sum[0U] / tangent_sum_length,
+                tangent_sum[1U] / tangent_sum_length};
+            const point middle{
+                join[0U] + radial_sum[0U] / radial_sum_length * radius,
+                join[1U] + radial_sum[1U] / radial_sum_length * radius};
+            const double half_dot = std::abs(
+                outgoing[0U] * middle_tangent[0U] +
+                outgoing[1U] * middle_tangent[1U]);
+            const double distance = bezier_distance(
+                half_dot * radius * radius);
+            const point first_control1{
+                previous_outer[0U] + incoming[0U] * radius * distance,
+                previous_outer[1U] + incoming[1U] * radius * distance};
+            const point first_control2{
+                middle[0U] - middle_tangent[0U] * radius * distance,
+                middle[1U] - middle_tangent[1U] * radius * distance};
+            const point second_control1{
+                middle[0U] + middle_tangent[0U] * radius * distance,
+                middle[1U] + middle_tangent[1U] * radius * distance};
+            const point second_control2{
+                next_outer[0U] - outgoing[0U] * radius * distance,
+                next_outer[1U] - outgoing[1U] * radius * distance};
+            if (!include_cubic(
+                    previous_outer,
+                    first_control1,
+                    first_control2,
+                    middle) ||
+                !include_cubic(
+                    middle,
+                    second_control1,
+                    second_control2,
+                    next_outer)) {
                 return false;
             }
         }
@@ -9112,8 +9304,7 @@ struct channel::implementation {
                         geometry.radius_x > 0.0 && geometry.radius_y > 0.0;
                     if (geometry.kind == fixed_geometry_kind::rectangle &&
                         !has_rounded_corners && shape_width > 0.0 &&
-                        shape_height > 0.0 &&
-                        pen.line_join != PROGPU_NATIVE_STROKE_JOIN_ROUND) {
+                        shape_height > 0.0) {
                         // Geometry.Transform changes the closed spine before
                         // WPF widens it; DrawingGroup/world state transforms
                         // the completed strip and joins afterward.

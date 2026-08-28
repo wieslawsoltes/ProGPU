@@ -11651,6 +11651,33 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         -15.275372F,
         -2.6643355F));
 
+    std::vector<std::byte> round_rectangle_update;
+    append_command(
+        round_rectangle_update,
+        command::pen,
+        pen,
+        2.0,
+        10.0,
+        brush,
+        thickness_animation,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        PROGPU_NATIVE_STROKE_CAP_FLAT,
+        PROGPU_NATIVE_STROKE_JOIN_ROUND,
+        0U);
+    PROGPU_REQUIRE(state.apply(round_rectangle_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 130U, stream, &metrics) ==
+        status::success);
+    // Live Windows WPF RectangleGeometry.GetRenderBounds oracle:
+    // 20.999963760376,10.9998416900635,
+    // 45.5000743865967,30.5003185272217.
+    PROGPU_REQUIRE(contains_mapping(
+        0.87911946F,
+        0.65573084F,
+        -16.461477F,
+        -3.2129357F));
+
     std::vector<std::byte> group_transform_update;
     append_create(group_transform_update, transformed_group, 91U);
     append_command(
@@ -11709,6 +11736,33 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         0.6153846F,
         -13.353535F,
         -2.1538463F));
+
+    std::vector<std::byte> round_group_update;
+    append_command(
+        round_group_update,
+        command::pen,
+        pen,
+        2.0,
+        10.0,
+        brush,
+        thickness_animation,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        PROGPU_NATIVE_STROKE_CAP_FLAT,
+        PROGPU_NATIVE_STROKE_JOIN_ROUND,
+        0U);
+    PROGPU_REQUIRE(state.apply(round_group_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 140U, stream, &metrics) ==
+        status::success);
+    // Live Windows WPF DrawingGroup.Bounds oracle:
+    // 20.5268840789795,10.875919342041,
+    // 46.4462299346924,30.748161315918.
+    PROGPU_REQUIRE(contains_mapping(
+        0.8612109F,
+        0.6504454F,
+        -15.677977F,
+        -3.0741916F));
 
     std::vector<std::byte> group_line_update;
     append_command(
