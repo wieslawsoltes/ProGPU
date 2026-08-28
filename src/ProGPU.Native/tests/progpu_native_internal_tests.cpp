@@ -38,6 +38,23 @@ void require(bool condition) {
     }
 }
 
+void clipped_miter_join_uses_the_wpf_three_triangle_wedge() {
+    std::array<progpu::native::stroke_triangle, 8U> triangles{};
+    const std::size_t count = progpu::native::create_join_triangles(
+        triangles,
+        PROGPU_NATIVE_STROKE_JOIN_MITER,
+        8.0F,
+        1.0F,
+        {25.0F, 15.0F},
+        {30.0F, 7.5F},
+        {7.5F, 15.0F});
+    require(count == 3U);
+    require(progpu::native::is_finite(triangles[0U].p2));
+    require(progpu::native::is_finite(triangles[1U].p1));
+    require(progpu::native::is_finite(triangles[1U].p2));
+    require(progpu::native::is_finite(triangles[2U].p1));
+}
+
 void native_webgpu_scopes_share_one_process_lock() {
     using namespace std::chrono_literals;
     using progpu::native::webgpu::process_render_scope;
@@ -1043,6 +1060,7 @@ void draw_state_resolution_is_cpu_only_and_bounded() {
 } // namespace
 
 int main() {
+    clipped_miter_join_uses_the_wpf_three_triangle_wedge();
     native_webgpu_scopes_share_one_process_lock();
     native_submission_retirement_is_periodic_and_bounded();
     native_buffer_growth_respects_the_portable_device_limit();
