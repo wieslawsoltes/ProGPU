@@ -1648,10 +1648,11 @@ GpuComputeExecutionPreference computePreference =
     GpuComputeExecutionPolicy.ReadEnvironmentPreference();
 bool allowsGpuGlyphCoverageTies = useGlyphScene &&
     computePreference is GpuComputeExecutionPreference.Fastest or
-        GpuComputeExecutionPreference.NativeCompute;
-// Native compute and the managed GPU implementation independently evaluate
-// floating-point glyph coverage. Bound their antialiasing ties below while
-// keeping the explicitly forced raster and intrinsic-SIMD paths byte exact.
+        GpuComputeExecutionPreference.NativeCompute or
+        GpuComputeExecutionPreference.RasterShader;
+// Native compute/raster and the managed GPU implementation independently
+// evaluate floating-point glyph coverage. Bound their antialiasing ties below
+// while keeping the intrinsic-SIMD and scalar CPU paths byte exact.
 bool requiresExactPixels = !useSemanticScene &&
     ((useImageScene && !useMaskedImageScene) ||
     (useGlyphScene && !allowsGpuGlyphCoverageTies) ||
