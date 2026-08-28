@@ -4608,6 +4608,68 @@ for `progpu_native_mil_tests.exe`, and
 `EF4FDFB21F49F9BAD8A078E03D219C60BF40A843A8CDFB529CD724AF18BD44FD`
 for `progpu_native_internal_tests.exe`.
 
+## General mixed boolean GPU-mask checkpoint
+
+Exact implementation checkpoint `73319afa8c6cd7326b9c24769f95985b86f5bb56`
+removes the remaining typed rejection for overlapping translated-equivalent
+leaves inside mixed postfix boolean programs. A phased leaf kernel stores all
+64 supersamples as two packed `uint32` words per target pixel. The shared
+combine kernel evaluates the original bounded postfix program over those masks,
+including Difference, Intersect, Union, XOR, and ReverseDifference, and performs
+one final R8 average. Boolean coverage is therefore combined before
+quantization; the earlier fractional-edge XOR error cannot reappear.
+
+The compiler retains the ordinary single-dispatch program for non-overlapping
+mixed paths. It selects the phased route for pure left-fold XOR and for a mixed
+program only when its conservative transformed bounds identify overlapping
+translated-equivalent leaves. All leaf ordinals are batched by phase, not
+submitted per item. The path-fill and retained vector-clip families share the
+same mask records, shader modules, and combine evaluator. No CPU coverage
+readback, CPU repacking, scalar mask construction, public ABI change, or
+managed fallback was added.
+
+Native tests cover every boolean opcode, mixed Difference-then-Union ordering,
+translated overlap detection, safe single-dispatch retention, 64-sample
+packing, and fractional-edge quantization. Apple M3 Pro Metal passed all 10
+configured CTests and the complete native build gate. The permanent sample
+requires cyan/black/cyan for the mixed program and exact fractional XOR edge
+pixels `28/108/126`, black overlap `5/6/10`, and `28/108/126` on the far edge.
+It executes 18 draws from 28 commands and uploads 14,528 vertex bytes.
+
+The immutable full archive
+`ProGPU-native-mixed-boolean-73319afa.zip` has SHA-256
+`791BDEC1D4D18124A1AB6A55B866A6F4B4F502EEE1BF5B89E41F7CCEA7043E80`;
+the changed-file archive has SHA-256
+`7188E717842C04D4BC28708B65709FB17548FF5AE2DA3AEDAD56D42CDFC851BC`.
+The exact full archive was hash-verified and rebuilt in the Windows 11 ARM64
+Parallels VM. MSVC/Ninja completed the 312-target `/W4 /WX` build, all 11
+native/Dawn CTests, both zero-warning managed builds, the live D3D12 C++ and
+managed samples, every compute policy, text shaping, native stress, complete
+bounded differential profile, and package staging. Forced native compute
+failed closed before resource creation on the Parallels adapter; automatic and
+forced compatible raster shader, intrinsic SIMD, and scalar-reference paths
+all passed their declared contracts. Overlay, ColorDodge, group box blur, and
+the mixed boolean pixels were exact. The Microsoft HelloTriangle and
+HelloTexture semantic oracles retained SHA-256
+`AE1BC0A9B0623BACAB15BE1706FFA3E7FC15E33676A66F05C969C1B86A66FEA3`
+and `591CC311F35E3C2612F529C3D4D7061FC93751A9B8614BF588A73599B0AA2790`.
+
+The staged Windows SHA-256 values are
+`11DBB21369E7BFB375650AEFFB2A0DD2F21626ED2250FC01F3F583F0D7688009`
+for `progpu_native.dll`,
+`FC6E3796EB62F435606AC8821D947262FACF7E751FDAC471D55FD2EE6AB2AC64`
+for `progpu_native_dawn.dll`,
+`39FE55A2EC80559016C004B0187C1A4F2535A2FD7AC25F253A67C7364A52CE02`
+for `progpu_native_sample.exe`,
+`31A9EFA953990FAF7AE867C4EF07CDEC75609173F031A06B4B7B51B3D85207A9`
+for `progpu_native_mil_tests.exe`, and
+`416524D7A93D3606A054169B256617BBA73AB941DE0BE36828049F29537AE3C0`
+for `progpu_native_internal_tests.exe`. The 130,829-byte host-preserved
+terminal evidence file has SHA-256
+`F01C054984C9A24B241A203DAAF3390219E165769D524FEF36F3650476A071C5`.
+This qualifies correctness on the virtual Parallels D3D12 adapter, not
+physical Windows GPU performance.
+
 ## DirectX retained-texture boundary
 
 `ProGpuDirectXTexture2D` now implements the framework-neutral
