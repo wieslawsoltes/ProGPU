@@ -377,6 +377,11 @@ public static class CadSelectionHitTester
                 snapshot.ShxTexts.Span[header.PrimitiveIndex],
                 point,
                 tolerance),
+            CadEntityKind.ShxMText => CadTextSelection.HitTestShxMTextPoint(
+                snapshot,
+                snapshot.ShxMTexts.Span[header.PrimitiveIndex],
+                point,
+                tolerance),
             CadEntityKind.Solid =>
                 HitSolid(snapshot.Faces.Span[header.PrimitiveIndex], point, tolerance),
             CadEntityKind.Face3D =>
@@ -456,6 +461,11 @@ public static class CadSelectionHitTester
             CadEntityKind.ShxText => CadTextSelection.HitTestShxBounds(
                 snapshot,
                 snapshot.ShxTexts.Span[header.PrimitiveIndex],
+                bounds,
+                mode),
+            CadEntityKind.ShxMText => CadTextSelection.HitTestShxMTextBounds(
+                snapshot,
+                snapshot.ShxMTexts.Span[header.PrimitiveIndex],
                 bounds,
                 mode),
             CadEntityKind.Solid => HitSolidBounds(

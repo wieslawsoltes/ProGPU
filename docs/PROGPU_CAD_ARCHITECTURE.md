@@ -163,11 +163,13 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   position stack. `CadShxGlyphCache` and `CadShxTextLayout` retain interpreted
   glyphs per font/shape/orientation and produce bounded standard-font character
   placements. A typed host resolver supplies those caches to horizontal SHX
-  TEXT and default-insertion dual-orientation vertical TEXT lowering. The
-  immutable snapshot packs placements, coalesced horizontal decoration strokes,
-  and affine text bases; the plan compiler records each drawable placement with
-  its shared analytic glyph path. Compiled Unicode and Big Font containers plus
-  non-default/decorated vertical placement remain explicit gates. Ordered,
+  TEXT, standard horizontal SHX MTEXT, and default-insertion dual-orientation
+  vertical TEXT lowering. The immutable snapshot packs placements, paint and
+  transform runs, MTEXT masks/decorations/separators, coalesced single-line
+  decoration strokes, and affine text bases; the plan compiler records each
+  drawable placement with its shared analytic glyph path. Compiled Unicode and
+  Big Font containers, vertical/RTL SHX MTEXT, mixed TrueType/SHX MTEXT runs,
+  and non-default/decorated vertical TEXT placement remain explicit gates. Ordered,
   bounded desktop discovery is host initialization work rather than a render-
   path filesystem dependency.
 
@@ -915,9 +917,9 @@ entity's WCS normal/direction basis with any nested block affine transform.
 Horizontal, diagonal, and tolerance stacks remain inline objects; their upper
 and lower operands are independently shaped at a bounded relative size and
 their separators are retained filled geometry. Unsupported fields, paragraph
-indentation/tab payloads, vertical flow, SHX/Big Font content, invalid numeric
-state, and content exceeding persisted column capacity remain explicit typed
-diagnostics rather than degraded output.
+indentation/tab payloads, vertical flow for TrueType, compiled Unicode/Big Font
+SHX content, invalid numeric state, and content exceeding persisted column
+capacity remain explicit typed diagnostics rather than degraded output.
 
 The immutable snapshot owns global glyph indices/positions and font identities,
 plus MTEXT-specific contiguous runs carrying font size, stretch, shear, and
@@ -939,6 +941,44 @@ contract; a native-picture regression covers formatted MTEXT, so no separate
 native CAD scene compiler applies to this slice. Matched pixel and Release
 latency/throughput evidence remains required before making a performance claim.
 
+Standard horizontal SHX MTEXT reuses the same typed parser and column/background
+contracts but has an original analytic-path layout specialization in
+`CadSnapshotCompiler.ShxMText.cs`. Each decoded standard-SHX character resolves
+to the immutable `CadShxGlyphCache` once, retains the font-authored horizontal
+advance, and is positioned once before snapshot publication. Ordinary spaces,
+DXF U+0020 escapes, and decimal shape 032 are break opportunities; U+00A0 maps
+to the same space glyph while retaining its nonbreaking semantic bit. Wrapping
+breaks only at those opportunities, and a long unbroken word overflows its
+column instead of being split by character. Paragraph/column breaks, all nine
+attachments, Exact/AtLeast 3-on-5 spacing, left/center/right/justify/distributed
+alignment, static or dynamic auto-height/reverse columns, height/width/tracking/
+oblique/baseline/color formatting, three stack forms, masks/frames, decorations,
+and nested affine transforms lower into temporary device-independent geometry.
+
+The snapshot then appends one packed shared SHX glyph stream and contiguous
+SHX-MTEXT transform/paint runs plus the existing MTEXT rectangle/stroke streams
+transactionally. Compilation is `O(C + G + L)` time and temporary storage for
+decoded units `C`, retained glyph placements `G`, and lines `L`; the bounded
+32-iteration automatic-column search adds `O(32L)`. Recording and exact
+selection are `O(G + M + D + S)` for drawable glyphs, masks/frames,
+decorations, and stack separators. Replay performs no parsing, font lookup,
+interpretation, layout, or outline cloning, and warm point/Window/Crossing
+selection allocates zero managed memory. Standard SHX does not define Unicode
+shaping, fallback runs, variation axes, or synthetic bold/italic: compiled
+Unicode/Big Font, vertical/RTL layout, inline TrueType switching, and SHX bold/
+italic therefore remain diagnosed capability gates rather than approximations.
+
+The exact in-repository provenance is the existing ProGPU-owned
+`CadMTextParser`, `CadSnapshotCompiler.MText.cs`, `StyledTextLayout`,
+`CadShxText.cs`, single-line SHX lowering in `CadSnapshotCompiler.cs`, and the
+retained path/selection contracts in `CadPlanSceneCompiler` and
+`CadTextSelection`. No third-party parser, layout, renderer source, naming, or
+control flow was used. The managed/native applicability audit found no native
+CAD parser or scene compiler to duplicate: both picture compilers consume the
+same existing `DrawPath`/`DrawRectangle` commands. A formatted native-picture
+regression and print-plan regression cover that shared contract; no C ABI,
+shader, upload, atlas, cache-generation, or device-loss rule changes.
+
 A 2026-08-28 macOS arm64 Release smoke run of the checked-in benchmark fixture
 (`100` formatted MTEXT entities, one warmup, five measured iterations, `10,000`
 exact-selection queries) recorded snapshot p50/p95/p99 of
@@ -952,6 +992,18 @@ not a before/after performance or quality claim. The reproducible command uses
 `--entities 0 --mtext-entities 100 --text-selection --warmup 1 --iterations 5
 --queries 10000`; integration performance claims still require longer matched
 runs and the repository's platform/GPU profiling gates.
+
+The corresponding 2026-08-28 macOS arm64 Release SHX-MTEXT smoke fixture used
+`100` formatted, stacked, two-column entities, one warmup, five measured
+iterations, and `10,000` exact-selection queries. It retained `1,400` commands
+and recorded snapshot p50/p95/p99 of `1.6948/2.2920/2.2920 ms`, plan-scene
+`0.5510/3.3621/3.3621 ms`, point selection
+`87.0/164.3/474.5 us`, and bounds selection
+`41.2/53.7/100.1 us`. Snapshot and plan recording allocated `1,330,744` and
+`1,846,520` managed bytes per 100-entity operation; both warm exact-selection
+lanes allocated zero. The JSON output is reproducible with the checked-in
+`--shx-mtext-entities` lane and the command below. This is feature smoke
+evidence from one final binary, not a before/after performance or quality claim.
 
 ## Bounded standard SHX source
 
@@ -1005,7 +1057,9 @@ estimating character widths. Autodesk decimal controls address their exact
 three-digit shape number; degree, plus/minus, and diameter controls and literal
 Unicode equivalents map to the standard format's reserved shapes 256, 257, and
 258. Percent, DXF four-hex-digit escapes, and decoration toggles are decoded
-without changing glyph identity. Missing shapes, malformed controls, surrogate
+without changing glyph identity. Each placement also preserves whether its
+space is a line-break opportunity so U+00A0 can share shape 32 without becoming
+breakable. Missing shapes, malformed controls, surrogate
 pairs, unsupported nonstandard Unicode, empty control-only strings, coordinate
 growth, and code-unit/glyph limits fail explicitly. Decoration flags are
 retained per placement so snapshot lowering can coalesce exact authored spans
@@ -1100,8 +1154,8 @@ coalesced decoration segment, applying only retained affine placement; spaces
 and other pen-up-only shapes emit no glyph command. `D` is bounded by `3G`.
 All repeated character instances share the same cached `PathGeometry`, so
 snapshot compilation neither reinterprets nor clones glyph outlines. TrueType
-and SHX placements share one document-wide glyph budget. Freezing the recorded
-scene uses the normal retained picture ownership contract.
+and SHX TEXT/MTEXT placements share one document-wide glyph budget. Freezing the
+recorded scene uses the normal retained picture ownership contract.
 
 The binary container layout was independently observed from the compiled
 `external/ACadSharp/samples/test_shape.shx` artifact pinned by this repository;
@@ -1300,6 +1354,7 @@ dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 1000 --spline-selection --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --text-selection --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --shx-text-entities 1000 --text-selection --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --shx-mtext-entities 100 --text-selection --warmup 1 --iterations 5 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --block-array-columns 10000 --warmup 5 --iterations 100 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --warmup 5 --iterations 50 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --text-decorations --warmup 3 --iterations 50 --queries 10000
@@ -1879,6 +1934,42 @@ Sources consulted on 2026-08-27 and 2026-08-28:
   a contract Autodesk reserves for vertical SHX/Big Fonts and supported Asian
   vertical faces, and retained non-default/decorated vertical placement as an
   explicit gate pending observable conformance evidence.
+- For standard horizontal SHX MTEXT, Autodesk's current
+  [MTEXT command contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-E6BCE05D-B9E3-4875-BBBC-29134EA6FD51.htm),
+  [multiline formatting/columns/stacking guide](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-E4DC3A14-3F0A-46AE-9503-6BBEE8DAF916.htm),
+  [editing behavior](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-3740EC59-FB75-47FD-B042-03D6AC095D4F.htm),
+  [alternate-editor control codes](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-Core/files/GUID-7D8BB40F-5C4E-4AE5-BD75-9ED7112E5967.htm),
+  and [text-style ownership](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-7B194BD5-421E-4BC5-94A4-A805134003F4.htm)
+  were treated as the observable CAD contract. Adopted word-boundary wrapping,
+  long-word overflow, explicit columns/stacks, SHX file overrides, and the
+  documented absence of SHX bold/italic; rejected character-splitting overflow,
+  synthetic emphasis, and inference of compiled Unicode/Big Font layouts.
+  [Skia's text overview](https://docs.skia.org/docs/dev/design/text_overview/)
+  and [shaper stages](https://docs.skia.org/docs/dev/design/text_shaper/),
+  [DirectWrite rendering](https://learn.microsoft.com/en-us/windows/win32/directwrite/rendering-directwrite)
+  with [Direct2D integration](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite),
+  [Win2D retained text layout](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm)
+  and [cached geometry](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasCachedGeometry.htm),
+  [WebRender's rendering pipeline](https://searchfox.org/mozilla-central/source/gfx/docs/RenderingOverview.rst)
+  and [retained text-run contract](https://searchfox.org/mozilla-central/source/gfx/thebes/gfxTextRun.h),
+  [Vello's retained-scene vision](https://github.com/linebender/vello/blob/main/doc/vision.md),
+  [Parley's layout model](https://github.com/linebender/parley/blob/main/doc/concept.md),
+  and HarfBuzz's [cluster](https://harfbuzz.github.io/clusters.html) and
+  [shape-plan](https://harfbuzz.github.io/harfbuzz-hb-shape.html) contracts were
+  rechecked as the rendering/text architecture gate. Adopted their separation
+  of reusable CPU font/layout results, immutable positioned content, retained
+  display data, and renderer-owned device resources. Adapted that separation to
+  lazy standard-SHX interpretation/cache lookup during snapshot preparation,
+  one immutable analytic path per font/shape, one positioned generation reused
+  by spatial culling, plan replay, printing, and exact selection, and no texture
+  upload. Host discovery/substitution stays initialization work; ordinary
+  visibility uses the existing spatial index; preparation remains eligible for
+  worker execution; draw batching, DPI/subpixel transform, and device-loss
+  recovery remain the existing path-renderer contracts. Standard SHX has no
+  Unicode clusters, fallback shaping, variable-font state, hinting atlas, or
+  glyph texture residency to emulate. Rejected GPU text layout, per-frame
+  parsing/interpretation, backend-specific CAD glyph caches, retained uploads,
+  and a native-only layout fork.
 - [Skia shaped-text design](https://docs.skia.org/docs/dev/design/text_shaper/),
   [SkParagraph decoration declarations](https://skia.googlesource.com/skia/+/7a1bf999357aa755768f7b72265b91eea5c2758c/modules/skparagraph/include/TextStyle.h),
   and [Skia text guidance](https://skia.org/docs/user/tips/): adopted separation

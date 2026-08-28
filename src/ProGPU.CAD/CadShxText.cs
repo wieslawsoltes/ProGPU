@@ -110,7 +110,8 @@ public sealed class CadShxTextLayoutOptions
 public readonly record struct CadShxGlyphPlacement(
     CadShxGlyph Glyph,
     Vector2 Origin,
-    CadShxTextDecoration Decorations);
+    CadShxTextDecoration Decorations,
+    bool IsBreakOpportunity = false);
 
 /// <summary>
 /// A bounded device-independent standard SHX character layout.
@@ -190,7 +191,9 @@ public sealed class CadShxTextLayout
                     }
                     scalar = (scalar << 4) | hex;
                 }
-                AddShape(MapStandardScalar(scalar));
+                AddShape(
+                    MapStandardScalar(scalar),
+                    isBreakOpportunity: scalar == 0x20);
                 i += 6;
                 continue;
             }
@@ -223,10 +226,11 @@ public sealed class CadShxTextLayout
                         throw new NotSupportedException(
                             "SHX numeric control codes require exactly three decimal digits.");
                     }
-                    AddShape(checked((ushort)(
+                    ushort shapeNumber = checked((ushort)(
                         ((source[i + 2] - '0') * 100) +
                         ((source[i + 3] - '0') * 10) +
-                        (source[i + 4] - '0'))));
+                        (source[i + 4] - '0')));
+                    AddShape(shapeNumber, isBreakOpportunity: shapeNumber == 32);
                     i += 4;
                     continue;
                 }
@@ -249,7 +253,9 @@ public sealed class CadShxTextLayout
                 throw new NotSupportedException(
                     "Standard SHX text does not accept surrogate pairs; select a Unicode SHX contract explicitly.");
             }
-            AddShape(MapStandardScalar(value));
+            AddShape(
+                MapStandardScalar(value),
+                isBreakOpportunity: value == ' ');
         }
 
         if (placements.Count == 0)
@@ -268,7 +274,7 @@ public sealed class CadShxTextLayout
             ? new Vector2((float)maximumX, (float)maximumY)
             : Vector2.Zero;
 
-        void AddShape(ushort shapeNumber)
+        void AddShape(ushort shapeNumber, bool isBreakOpportunity = false)
         {
             if (placements.Count == options.MaxGlyphs)
             {
@@ -291,7 +297,11 @@ public sealed class CadShxTextLayout
             CheckCoordinate(penX, "glyph origin X");
             CheckCoordinate(penY, "glyph origin Y");
             var origin = new Vector2((float)penX, (float)penY);
-            placements.Add(new CadShxGlyphPlacement(glyph, origin, decorations));
+            placements.Add(new CadShxGlyphPlacement(
+                glyph,
+                origin,
+                decorations,
+                isBreakOpportunity));
             if (glyph.HasGeometry)
             {
                 double glyphMinimumX = penX + glyph.BoundsMin.X;
@@ -327,6 +337,7 @@ public sealed class CadShxTextLayout
 
     private static ushort MapStandardScalar(int scalar) => scalar switch
     {
+        0x00A0 => 32,
         0x00B0 => 256,
         0x00B1 => 257,
         0x2205 => 258,

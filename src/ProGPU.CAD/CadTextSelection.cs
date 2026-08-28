@@ -4,7 +4,7 @@ using ProGPU.Vector;
 
 namespace ProGPU.CAD;
 
-/// <summary>Exact retained-outline selection for TrueType and SHX TEXT.</summary>
+/// <summary>Exact retained-outline selection for TrueType and SHX TEXT/MTEXT.</summary>
 /// <remarks>
 /// Shaped glyph identity and position stay retained in the snapshot. Selection
 /// traverses the same cached analytic outlines used by rendering and never
@@ -349,6 +349,220 @@ internal static class CadTextSelection
         }
     }
 
+    public static CadPointHitResult HitTestShxMTextPoint(
+        CadDocumentSnapshot snapshot,
+        in CadShxMTextPrimitive text,
+        CadPoint3D point,
+        double tolerance)
+    {
+        double minimum = double.PositiveInfinity;
+        bool hasGeometry = false;
+        ReadOnlySpan<CadShxGlyphInstance> glyphs = snapshot.ShxGlyphInstances.Span;
+        ReadOnlySpan<CadShxMTextGlyphRun> runs = snapshot.ShxMTextGlyphRuns.Span.Slice(
+            text.RunOffset,
+            text.RunCount);
+        for (int runIndex = 0; runIndex < runs.Length; runIndex++)
+        {
+            CadShxMTextGlyphRun run = runs[runIndex];
+            CadPoint3D pathXAxis = text.XAxis * run.ScaleX;
+            CadPoint3D pathYAxis =
+                (text.XAxis * (run.ScaleY * run.SkewX)) +
+                (text.YAxis * -run.ScaleY);
+            int end = checked(run.GlyphOffset + run.GlyphCount);
+            for (int glyphIndex = run.GlyphOffset; glyphIndex < end; glyphIndex++)
+            {
+                CadShxGlyphInstance glyph = glyphs[glyphIndex];
+                if (!glyph.Glyph.HasGeometry) continue;
+                CadPoint3D glyphOrigin = Transform(
+                    text.Origin,
+                    text.XAxis,
+                    text.YAxis,
+                    glyph.X,
+                    glyph.Y);
+                var placement = new PathPlacement(
+                    glyphOrigin,
+                    pathXAxis,
+                    pathYAxis,
+                    0.0,
+                    0.0,
+                    1.0,
+                    1.0);
+                if (!TryPointPath(
+                        glyph.Glyph.Path,
+                        placement,
+                        point,
+                        filled: false,
+                        ref minimum,
+                        ref hasGeometry))
+                {
+                    return UnsupportedPoint();
+                }
+            }
+        }
+
+        var entityPlacement = new PathPlacement(
+            text.Origin, text.XAxis, text.YAxis, 0.0, 0.0, 1.0, 1.0);
+        if (!TryPointMTextRectangles(snapshot.MTextBackgrounds.Span.Slice(
+                text.BackgroundOffset, text.BackgroundCount), entityPlacement, point, ref minimum, ref hasGeometry) ||
+            !TryPointMTextRectangles(snapshot.MTextDecorations.Span.Slice(
+                text.DecorationOffset, text.DecorationCount), entityPlacement, point, ref minimum, ref hasGeometry))
+        {
+            return UnsupportedPoint();
+        }
+        ReadOnlySpan<CadMTextStroke> strokes = snapshot.MTextStrokes.Span.Slice(
+            text.StrokeOffset,
+            text.StrokeCount);
+        for (int index = 0; index < strokes.Length; index++)
+        {
+            if (!TryCreateMTextStrokePlacement(
+                    text.Origin,
+                    text.XAxis,
+                    text.YAxis,
+                    strokes[index],
+                    out PathPlacement placement,
+                    out double length) ||
+                !TryPointRectangle(0.0, -0.5, length, 1.0, placement, point, ref minimum))
+            {
+                return UnsupportedPoint();
+            }
+            hasGeometry = true;
+        }
+        return FromPoint(minimum, tolerance, hasGeometry);
+    }
+
+    public static CadBoundsHitResult HitTestShxMTextBounds(
+        CadDocumentSnapshot snapshot,
+        in CadShxMTextPrimitive text,
+        CadBounds3D bounds,
+        CadBoundsSelectionMode mode)
+    {
+        if (bounds.IsEmpty) return BoundsMiss();
+        bool hasGeometry = false;
+        ReadOnlySpan<CadShxGlyphInstance> glyphs = snapshot.ShxGlyphInstances.Span;
+        ReadOnlySpan<CadShxMTextGlyphRun> runs = snapshot.ShxMTextGlyphRuns.Span.Slice(
+            text.RunOffset,
+            text.RunCount);
+        for (int runIndex = 0; runIndex < runs.Length; runIndex++)
+        {
+            CadShxMTextGlyphRun run = runs[runIndex];
+            CadPoint3D pathXAxis = text.XAxis * run.ScaleX;
+            CadPoint3D pathYAxis =
+                (text.XAxis * (run.ScaleY * run.SkewX)) +
+                (text.YAxis * -run.ScaleY);
+            int end = checked(run.GlyphOffset + run.GlyphCount);
+            for (int glyphIndex = run.GlyphOffset; glyphIndex < end; glyphIndex++)
+            {
+                CadShxGlyphInstance glyph = glyphs[glyphIndex];
+                if (!glyph.Glyph.HasGeometry) continue;
+                CadPoint3D glyphOrigin = Transform(
+                    text.Origin,
+                    text.XAxis,
+                    text.YAxis,
+                    glyph.X,
+                    glyph.Y);
+                var placement = new PathPlacement(
+                    glyphOrigin,
+                    pathXAxis,
+                    pathYAxis,
+                    0.0,
+                    0.0,
+                    1.0,
+                    1.0);
+                if (!TryBoundsPath(
+                        glyph.Glyph.Path,
+                        placement,
+                        bounds,
+                        mode,
+                        filled: false,
+                        out bool hit,
+                        out bool pathGeometry))
+                {
+                    return BoundsUnsupported();
+                }
+                hasGeometry |= pathGeometry;
+                if (mode == CadBoundsSelectionMode.Crossing && hit) return BoundsHit();
+                if (mode == CadBoundsSelectionMode.Window && pathGeometry && !hit) return BoundsMiss();
+            }
+        }
+
+        var entityPlacement = new PathPlacement(
+            text.Origin, text.XAxis, text.YAxis, 0.0, 0.0, 1.0, 1.0);
+        CadBoundsHitResult rectangleResult = TestRectangles(
+            snapshot.MTextBackgrounds.Span.Slice(
+                text.BackgroundOffset,
+                text.BackgroundCount));
+        if (rectangleResult.Status == CadBoundsHitStatus.UnsupportedGeometry) return rectangleResult;
+        if (mode == CadBoundsSelectionMode.Crossing && rectangleResult.Status == CadBoundsHitStatus.Hit) return rectangleResult;
+        if (mode == CadBoundsSelectionMode.Window && rectangleResult.Status == CadBoundsHitStatus.Miss && text.BackgroundCount > 0) return rectangleResult;
+        hasGeometry |= text.BackgroundCount > 0;
+        rectangleResult = TestRectangles(snapshot.MTextDecorations.Span.Slice(
+            text.DecorationOffset,
+            text.DecorationCount));
+        if (rectangleResult.Status == CadBoundsHitStatus.UnsupportedGeometry) return rectangleResult;
+        if (mode == CadBoundsSelectionMode.Crossing && rectangleResult.Status == CadBoundsHitStatus.Hit) return rectangleResult;
+        if (mode == CadBoundsSelectionMode.Window && rectangleResult.Status == CadBoundsHitStatus.Miss && text.DecorationCount > 0) return rectangleResult;
+        hasGeometry |= text.DecorationCount > 0;
+
+        ReadOnlySpan<CadMTextStroke> strokes = snapshot.MTextStrokes.Span.Slice(
+            text.StrokeOffset,
+            text.StrokeCount);
+        for (int index = 0; index < strokes.Length; index++)
+        {
+            if (!TryCreateMTextStrokePlacement(
+                    text.Origin,
+                    text.XAxis,
+                    text.YAxis,
+                    strokes[index],
+                    out PathPlacement placement,
+                    out double length) ||
+                !TryBoundsRectangle(
+                    0.0,
+                    -0.5,
+                    length,
+                    1.0,
+                    placement,
+                    bounds,
+                    mode,
+                    out bool hit))
+            {
+                return BoundsUnsupported();
+            }
+            hasGeometry = true;
+            if (mode == CadBoundsSelectionMode.Crossing && hit) return BoundsHit();
+            if (mode == CadBoundsSelectionMode.Window && !hit) return BoundsMiss();
+        }
+        return mode == CadBoundsSelectionMode.Window && hasGeometry
+            ? BoundsHit()
+            : BoundsMiss();
+
+        CadBoundsHitResult TestRectangles(ReadOnlySpan<CadMTextRectangle> rectangles)
+        {
+            bool any = false;
+            for (int index = 0; index < rectangles.Length; index++)
+            {
+                CadMTextRectangle rectangle = rectangles[index];
+                if (!TryBoundsRectangle(
+                        rectangle.X,
+                        rectangle.Y,
+                        rectangle.Width,
+                        rectangle.Height,
+                        entityPlacement,
+                        bounds,
+                        mode,
+                        out bool hit))
+                {
+                    return BoundsUnsupported();
+                }
+                any = true;
+                if (mode == CadBoundsSelectionMode.Crossing && hit) return BoundsHit();
+                if (mode == CadBoundsSelectionMode.Window && !hit) return BoundsMiss();
+            }
+            return mode == CadBoundsSelectionMode.Window && any
+                ? BoundsHit()
+                : BoundsMiss();
+        }
+    }
+
     private static bool TryPointMTextRectangles(
         ReadOnlySpan<CadMTextRectangle> rectangles,
         in PathPlacement placement,
@@ -371,6 +585,21 @@ internal static class CadTextSelection
         in CadMTextPrimitive text,
         in CadMTextStroke stroke,
         out PathPlacement placement,
+        out double length) =>
+        TryCreateMTextStrokePlacement(
+            text.Origin,
+            text.XAxis,
+            text.YAxis,
+            stroke,
+            out placement,
+            out length);
+
+    private static bool TryCreateMTextStrokePlacement(
+        CadPoint3D origin,
+        CadPoint3D xAxis,
+        CadPoint3D yAxis,
+        in CadMTextStroke stroke,
+        out PathPlacement placement,
         out double length)
     {
         double dx = stroke.EndX - stroke.StartX;
@@ -385,9 +614,9 @@ internal static class CadTextSelection
         dx /= length;
         dy /= length;
         CadPoint3D strokeOrigin = Transform(
-            text.Origin, text.XAxis, text.YAxis, stroke.StartX, stroke.StartY);
-        CadPoint3D along = (text.XAxis * dx) + (text.YAxis * dy);
-        CadPoint3D across = ((text.XAxis * -dy) + (text.YAxis * dx)) * stroke.Thickness;
+            origin, xAxis, yAxis, stroke.StartX, stroke.StartY);
+        CadPoint3D along = (xAxis * dx) + (yAxis * dy);
+        CadPoint3D across = ((xAxis * -dy) + (yAxis * dx)) * stroke.Thickness;
         placement = new PathPlacement(strokeOrigin, along, across, 0.0, 0.0, 1.0, 1.0);
         return placement.IsFiniteAndNonDegenerate;
     }

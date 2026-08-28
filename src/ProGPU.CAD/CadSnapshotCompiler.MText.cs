@@ -68,7 +68,10 @@ public sealed partial class CadSnapshotCompiler
         List<Vector2> retainedGlyphPositions,
         List<TtfFont> retainedFonts,
         Dictionary<TtfFont, int> retainedFontIndices,
-        int retainedShxGlyphCount)
+        List<CadShxMTextPrimitive> retainedShxMTexts,
+        List<CadShxMTextGlyphRun> retainedShxRuns,
+        List<CadShxGlyphInstance> retainedShxGlyphs,
+        ICadShxFontResolver? shxFontResolver)
     {
         int retainedFontCountBefore = retainedFonts.Count;
         try
@@ -97,12 +100,34 @@ public sealed partial class CadSnapshotCompiler
             }
 
             TextStyle cadStyle = mtext.Style;
-            if (cadStyle.IsShapeFile ||
-                cadStyle.Filename.EndsWith(".shx", StringComparison.OrdinalIgnoreCase) ||
-                !string.IsNullOrWhiteSpace(cadStyle.BigFontFilename))
+            bool usesShx = cadStyle.IsShapeFile ||
+                cadStyle.Filename.EndsWith(".shx", StringComparison.OrdinalIgnoreCase);
+            if (usesShx || !string.IsNullOrWhiteSpace(cadStyle.BigFontFilename))
             {
-                throw new CadUnsupportedEntityException(
-                    "SHX and Big Font MTEXT require the retained multi-line SHX layout contract.");
+                if (!string.IsNullOrWhiteSpace(cadStyle.BigFontFilename))
+                {
+                    throw new CadUnsupportedEntityException(
+                        "Big Font MTEXT requires the distinct bounded Big Font container and character-range contract.");
+                }
+                return CompileShxMText(
+                    mtext,
+                    handle,
+                    transform,
+                    hasTransform,
+                    layerIndex,
+                    styleIndex,
+                    entityStyle,
+                    layerColor,
+                    options,
+                    diagnostics,
+                    retainedShxMTexts,
+                    retainedShxRuns,
+                    retainedShxGlyphs,
+                    retainedBackgrounds,
+                    retainedDecorations,
+                    retainedStrokes,
+                    retainedGlyphIndices.Count,
+                    shxFontResolver);
             }
             if (cadStyle.Flags.HasFlag(StyleFlags.VerticalText))
             {
@@ -316,7 +341,7 @@ public sealed partial class CadSnapshotCompiler
                     "MTEXT shaping produced no drawable glyph runs.");
             }
             if (compiledIndices.Count > options.MaxTextGlyphs -
-                retainedGlyphIndices.Count - retainedShxGlyphCount)
+                retainedGlyphIndices.Count - retainedShxGlyphs.Count)
             {
                 throw new CadSnapshotExpansionLimitException(
                     $"Retained MTEXT glyph count exceeds the configured document limit of {options.MaxTextGlyphs}.");

@@ -106,6 +106,8 @@ public sealed partial class CadSnapshotCompiler
         var textFonts = new List<TtfFont>();
         var textFontIndices = new Dictionary<TtfFont, int>(ReferenceEqualityComparer.Instance);
         var shxTexts = new List<CadShxTextPrimitive>();
+        var shxMTexts = new List<CadShxMTextPrimitive>();
+        var shxMTextGlyphRuns = new List<CadShxMTextGlyphRun>();
         var shxGlyphInstances = new List<CadShxGlyphInstance>();
         var shxDecorationSegments = new List<CadShxDecorationSegment>();
         var polylineVertices = new List<CadPolylineVertex>();
@@ -185,6 +187,8 @@ public sealed partial class CadSnapshotCompiler
             textGlyphPositions.ToArray(),
             textFonts.ToArray(),
             shxTexts.ToArray(),
+            shxMTexts.ToArray(),
+            shxMTextGlyphRuns.ToArray(),
             shxGlyphInstances.ToArray(),
             shxDecorationSegments.ToArray(),
             polylineVertices.ToArray(),
@@ -345,7 +349,10 @@ public sealed partial class CadSnapshotCompiler
                         textGlyphPositions,
                         textFonts,
                         textFontIndices,
-                        shxGlyphInstances.Count),
+                        shxMTexts,
+                        shxMTextGlyphRuns,
+                        shxGlyphInstances,
+                        shxFontResolver),
                     _ => null,
                 };
 

@@ -80,9 +80,10 @@ public sealed class CadRecordedPlanScene
 /// no viewport tessellation and owns no camera state. Recording is O(N + P), where N is
 /// the entity count and P is the total spline control/knot/weight data copied into the
 /// retained context. Large WCS coordinates are rebased before their checked float
-/// conversion. Text adds O(R + D) retained commands for R contiguous font runs
-/// and D TrueType decoration rectangles or SHX decoration segments; it does not
-/// copy or expand glyph streams. CAD linetypes add O(F + P + C) retained analytic
+/// conversion. Text adds O(R + G + D) retained commands for R contiguous
+/// TrueType runs, G drawable SHX paths, and D decoration/mask/separator
+/// primitives; it does not copy or reinterpret glyph streams. CAD linetypes add
+/// O(F + P + C) retained analytic
 /// figures, placement commands, and exact rational fragment values for F visible
 /// dash/dot figures, P embedded text/shape placements, and C emitted spline
 /// control/knot/weight values, bounded before allocation by options. Complex payloads
@@ -311,6 +312,14 @@ public sealed class CadPlanSceneCompiler
                         pen,
                         snapshot,
                         snapshot.ShxTexts.Span[entity.PrimitiveIndex]);
+                    break;
+                case CadEntityKind.ShxMText:
+                    RecordShxMText(
+                        context,
+                        pen,
+                        snapshot,
+                        snapshot.ShxMTexts.Span[entity.PrimitiveIndex],
+                        mtextBrushes);
                     break;
                 default:
                     throw new InvalidOperationException($"Unknown CAD entity kind {entity.Kind}.");
@@ -1102,6 +1111,117 @@ public sealed class CadPlanSceneCompiler
         }
     }
 
+    private static void RecordShxMText(
+        DrawingContext context,
+        Pen basePen,
+        CadDocumentSnapshot snapshot,
+        in CadShxMTextPrimitive text,
+        Dictionary<uint, Brush> brushes)
+    {
+        Matrix4x4 entityTransform = CreateProjectionTransform(
+            text.Origin,
+            text.XAxis,
+            text.YAxis,
+            snapshot.RebaseOrigin);
+        ReadOnlySpan<CadMTextRectangle> backgrounds = snapshot.MTextBackgrounds.Span.Slice(
+            text.BackgroundOffset,
+            text.BackgroundCount);
+        for (int index = 0; index < backgrounds.Length; index++)
+        {
+            CadMTextRectangle rectangle = backgrounds[index];
+            context.DrawRectangle(
+                GetMTextBrush(brushes, rectangle.Red, rectangle.Green, rectangle.Blue, rectangle.Alpha),
+                null,
+                new Rect(rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height),
+                entityTransform);
+        }
+
+        ReadOnlySpan<CadShxMTextGlyphRun> runs = snapshot.ShxMTextGlyphRuns.Span.Slice(
+            text.RunOffset,
+            text.RunCount);
+        ReadOnlySpan<CadShxGlyphInstance> glyphs = snapshot.ShxGlyphInstances.Span;
+        for (int runIndex = 0; runIndex < runs.Length; runIndex++)
+        {
+            CadShxMTextGlyphRun run = runs[runIndex];
+            Brush brush = GetMTextBrush(
+                brushes,
+                run.Red,
+                run.Green,
+                run.Blue,
+                run.Alpha);
+            var pen = new Pen(
+                brush,
+                basePen.Thickness,
+                lineJoin: basePen.LineJoin,
+                miterLimit: basePen.MiterLimit,
+                startLineCap: basePen.StartLineCap,
+                endLineCap: basePen.EndLineCap,
+                strokeTransformMode: basePen.StrokeTransformMode);
+            CadPoint3D pathXAxis = text.XAxis * run.ScaleX;
+            CadPoint3D pathYAxis =
+                (text.XAxis * (run.ScaleY * run.SkewX)) +
+                (text.YAxis * -run.ScaleY);
+            int end = checked(run.GlyphOffset + run.GlyphCount);
+            for (int glyphIndex = run.GlyphOffset; glyphIndex < end; glyphIndex++)
+            {
+                CadShxGlyphInstance glyph = glyphs[glyphIndex];
+                if (!glyph.Glyph.HasGeometry) continue;
+                CadPoint3D glyphOrigin = text.Origin +
+                    (text.XAxis * glyph.X) +
+                    (text.YAxis * glyph.Y);
+                Matrix4x4 transform = CreateProjectionTransform(
+                    glyphOrigin,
+                    pathXAxis,
+                    pathYAxis,
+                    snapshot.RebaseOrigin);
+                context.DrawPath(null, pen, glyph.Glyph.Path, transform);
+            }
+        }
+
+        ReadOnlySpan<CadMTextRectangle> decorations = snapshot.MTextDecorations.Span.Slice(
+            text.DecorationOffset,
+            text.DecorationCount);
+        for (int index = 0; index < decorations.Length; index++)
+        {
+            CadMTextRectangle rectangle = decorations[index];
+            context.DrawRectangle(
+                GetMTextBrush(brushes, rectangle.Red, rectangle.Green, rectangle.Blue, rectangle.Alpha),
+                null,
+                new Rect(rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height),
+                entityTransform);
+        }
+
+        ReadOnlySpan<CadMTextStroke> strokes = snapshot.MTextStrokes.Span.Slice(
+            text.StrokeOffset,
+            text.StrokeCount);
+        for (int index = 0; index < strokes.Length; index++)
+        {
+            CadMTextStroke stroke = strokes[index];
+            double dx = stroke.EndX - stroke.StartX;
+            double dy = stroke.EndY - stroke.StartY;
+            double length = Math.Sqrt((dx * dx) + (dy * dy));
+            if (!(length > 0.0) || !double.IsFinite(length)) continue;
+            dx /= length;
+            dy /= length;
+            CadPoint3D strokeOrigin = text.Origin +
+                (text.XAxis * stroke.StartX) +
+                (text.YAxis * stroke.StartY);
+            CadPoint3D along = (text.XAxis * dx) + (text.YAxis * dy);
+            CadPoint3D across =
+                ((text.XAxis * -dy) + (text.YAxis * dx)) * stroke.Thickness;
+            Matrix4x4 strokeTransform = CreateProjectionTransform(
+                strokeOrigin,
+                along,
+                across,
+                snapshot.RebaseOrigin);
+            context.DrawRectangle(
+                GetMTextBrush(brushes, stroke.Red, stroke.Green, stroke.Blue, stroke.Alpha),
+                null,
+                new Rect(0.0f, -0.5f, ToFloat(length), 1.0f),
+                strokeTransform);
+        }
+    }
+
     private static Brush GetMTextBrush(
         Dictionary<uint, Brush> brushes,
         byte red,
@@ -1159,7 +1279,7 @@ public sealed class CadPlanSceneCompiler
     }
 
     private static bool UsesStroke(CadEntityKind kind) =>
-        kind is not (CadEntityKind.Solid or CadEntityKind.Text or CadEntityKind.ShxText or CadEntityKind.MText);
+        kind is not (CadEntityKind.Solid or CadEntityKind.Text or CadEntityKind.ShxText or CadEntityKind.MText or CadEntityKind.ShxMText);
 
     private static void ValidateOptions(CadPlanSceneOptions options)
     {

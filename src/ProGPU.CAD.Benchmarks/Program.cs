@@ -13,6 +13,7 @@ int blockArrayColumnCount = ReadNonNegativeInt("--block-array-columns", 0);
 int textEntityCount = ReadNonNegativeInt("--text-entities", 0);
 int mtextEntityCount = ReadNonNegativeInt("--mtext-entities", 0);
 int shxTextEntityCount = ReadNonNegativeInt("--shx-text-entities", 0);
+int shxMTextEntityCount = ReadNonNegativeInt("--shx-mtext-entities", 0);
 bool decorateText = HasFlag("--text-decorations");
 bool decorateShxText = HasFlag("--shx-decorations");
 bool lowerLineTypes = HasFlag("--linetypes");
@@ -30,7 +31,7 @@ int queryCount = ReadPositiveInt("--queries", 10_000);
 string? outputPath = ReadString("--output-json");
 
 if (entityCount == 0 && blockArrayColumnCount == 0 && textEntityCount == 0 &&
-    mtextEntityCount == 0 && shxTextEntityCount == 0)
+    mtextEntityCount == 0 && shxTextEntityCount == 0 && shxMTextEntityCount == 0)
 {
     throw new ArgumentException(
         "At least one ordinary entity, block-array column, or text entity is required.");
@@ -45,14 +46,16 @@ if (blockArrayColumnCount > ushort.MaxValue)
 
 if (measureSplineSelection &&
     (entityCount == 0 || blockArrayColumnCount != 0 ||
-     textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0))
+     textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
+     shxMTextEntityCount != 0))
 {
     throw new ArgumentException(
         "--spline-selection requires a positive --entities count and no block-array or text fixtures.");
 }
 if (measureTextSelection &&
     (entityCount != 0 || blockArrayColumnCount != 0 ||
-     new[] { textEntityCount, mtextEntityCount, shxTextEntityCount }.Count(static count => count > 0) != 1))
+     new[] { textEntityCount, mtextEntityCount, shxTextEntityCount, shxMTextEntityCount }
+         .Count(static count => count > 0) != 1))
 {
     throw new ArgumentException(
         "--text-selection requires exactly one positive TrueType or SHX text fixture count and no ordinary or block-array fixtures.");
@@ -64,6 +67,7 @@ CadDocumentSession session = CreateDocument(
     textEntityCount,
     mtextEntityCount,
     shxTextEntityCount,
+    shxMTextEntityCount,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -82,14 +86,15 @@ var rotatedPrintOptions = new CadPrintPlanOptions
     Rotation = CadPageRotation.CounterClockwise270,
 };
 CadShxFont? shxFont = shxInterpretationCount == 0 && shxLayoutCount == 0 &&
-    shxTextEntityCount == 0
+    shxTextEntityCount == 0 && shxMTextEntityCount == 0
     ? null
     : CreateBenchmarkShxFont();
-CadShxGlyphCache? shxCache = shxLayoutCount == 0 && shxTextEntityCount == 0
+CadShxGlyphCache? shxCache = shxLayoutCount == 0 && shxTextEntityCount == 0 &&
+    shxMTextEntityCount == 0
     ? null
     : new CadShxGlyphCache(shxFont!);
 CadShxFontCatalog? shxCatalog = null;
-if (shxTextEntityCount != 0)
+if (shxTextEntityCount != 0 || shxMTextEntityCount != 0)
 {
     shxCatalog = new CadShxFontCatalog();
     shxCatalog.Register("benchmark.shx", shxCache!);
@@ -99,7 +104,7 @@ CadSnapshotOptions snapshotOptions = new()
     TextFontResolver = textEntityCount == 0 && mtextEntityCount == 0 && !lowerComplexLineTypes
         ? null
         : new BenchmarkTextFontResolver(InterFontFamily.Regular),
-    ShxFontResolver = shxTextEntityCount == 0
+    ShxFontResolver = shxTextEntityCount == 0 && shxMTextEntityCount == 0
         ? null
         : shxCatalog,
 };
@@ -186,6 +191,7 @@ var report = new CadBenchmarkReport(
     textEntityCount,
     mtextEntityCount,
     shxTextEntityCount,
+    shxMTextEntityCount,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -234,13 +240,15 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         (blockArrayColumnCount == 0 ? 0 : 1) +
         textEntityCount +
         mtextEntityCount +
-        shxTextEntityCount);
+        shxTextEntityCount +
+        shxMTextEntityCount);
     int expectedExpanded = checked(
         entityCount +
         (blockArrayColumnCount == 0 ? 0 : blockArrayColumnCount + 1) +
         textEntityCount +
         mtextEntityCount +
-        shxTextEntityCount);
+        shxTextEntityCount +
+        shxMTextEntityCount);
     if (source.Statistics.SourceEntityCount == expectedSource &&
         source.Statistics.VisibleEntityCount == expectedSource &&
         source.Statistics.ExpandedEntityCount == expectedExpanded &&
@@ -267,6 +275,7 @@ CadDocumentSession CreateDocument(
     int textCount,
     int mtextCount,
     int shxTextCount,
+    int shxMTextCount,
     bool decorateTextRuns,
     bool decorateShxTextRuns,
     bool useLineTypes,
@@ -478,6 +487,31 @@ CadDocumentSession CreateDocument(
                     WidthFactor = 0.9,
                     ObliqueAngle = (i & 1) == 0 ? 0.0 : 0.08,
                 });
+            }
+        }
+
+        if (shxMTextCount > 0)
+        {
+            var textStyle = new TextStyle("BENCHMARK_SHX_MTEXT")
+            {
+                Filename = "benchmark.shx",
+            };
+            document.TextStyles.Add(textStyle);
+            for (int i = 0; i < shxMTextCount; i++)
+            {
+                var text = new MText
+                {
+                    Style = textStyle,
+                    Value = @"{\C1;\LAAAA\l}\PAAAA\SAA/AA;",
+                    InsertPoint = new XYZ((i % 100) * 46.0, (i / 100) * 10.0, 0),
+                    Height = 2.5,
+                };
+                text.ColumnData.ColumnType = ColumnType.DynamicColumns;
+                text.ColumnData.ColumnCount = 2;
+                text.ColumnData.Width = 20.0;
+                text.ColumnData.Gutter = 2.0;
+                text.ColumnData.AutoHeight = true;
+                document.Entities.Add(text);
             }
         }
     });
@@ -756,7 +790,11 @@ CadSelectionCandidate[] CreateTextSelectionCandidates(CadDocumentSnapshot source
     for (int i = 0; i < entities.Length; i++)
     {
         CadEntityHeader entity = entities[i];
-        if (entity.Kind is not (CadEntityKind.Text or CadEntityKind.ShxText or CadEntityKind.MText))
+        if (entity.Kind is not (
+                CadEntityKind.Text or
+                CadEntityKind.ShxText or
+                CadEntityKind.MText or
+                CadEntityKind.ShxMText))
         {
             throw new InvalidOperationException(
                 "The text-selection benchmark requires an all-TEXT/MTEXT fixture.");
@@ -840,6 +878,7 @@ internal sealed record CadBenchmarkReport(
     int TextEntityCount,
     int MTextEntityCount,
     int ShxTextEntityCount,
+    int ShxMTextEntityCount,
     bool DecoratedText,
     bool DecoratedShxText,
     bool LoweredLineTypes,

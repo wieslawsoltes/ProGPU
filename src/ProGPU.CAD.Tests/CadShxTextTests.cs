@@ -46,6 +46,24 @@ public sealed class CadShxTextTests
     }
 
     [Fact]
+    public void StandardLayoutRetainsBreakableAndNonbreakingSpaceSemantics()
+    {
+        CadShxGlyphCache cache = CreateCache();
+
+        var layout = new CadShxTextLayout("A A\u00A0A\\U+0020A%%032A", cache);
+        CadShxGlyphPlacement[] glyphs = layout.Glyphs.ToArray();
+
+        Assert.Equal(9, glyphs.Length);
+        Assert.True(glyphs[1].IsBreakOpportunity);
+        Assert.False(glyphs[3].IsBreakOpportunity);
+        Assert.True(glyphs[5].IsBreakOpportunity);
+        Assert.True(glyphs[7].IsBreakOpportunity);
+        Assert.All(
+            glyphs.Where((_, index) => index is not (1 or 5 or 7)),
+            glyph => Assert.False(glyph.IsBreakOpportunity));
+    }
+
+    [Fact]
     public void DualOrientationCacheKeepsIndependentGlyphPrograms()
     {
         CadShxGlyphCache cache = CreateCache();

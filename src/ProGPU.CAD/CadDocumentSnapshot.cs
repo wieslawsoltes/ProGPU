@@ -18,6 +18,7 @@ public enum CadEntityKind : byte
     Text = 11,
     ShxText = 12,
     MText = 13,
+    ShxMText = 14,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -292,6 +293,44 @@ public readonly record struct CadShxTextPrimitive(
     int DecorationOffset,
     int DecorationCount);
 
+/// <summary>
+/// One retained standard-SHX MTEXT entity. Glyph paths address the shared SHX
+/// instance stream while paint/transform runs and MTEXT rectangles remain
+/// immutable generation-owned data.
+/// </summary>
+public readonly record struct CadShxMTextPrimitive(
+    CadPoint3D Origin,
+    CadPoint3D XAxis,
+    CadPoint3D YAxis,
+    int GlyphOffset,
+    int GlyphCount,
+    int RunOffset,
+    int RunCount,
+    int BackgroundOffset,
+    int BackgroundCount,
+    int DecorationOffset,
+    int DecorationCount,
+    int StrokeOffset,
+    int StrokeCount,
+    int ColumnCount,
+    float ContentWidth,
+    float ContentHeight);
+
+/// <summary>
+/// A contiguous standard-SHX MTEXT glyph range sharing local scale, oblique,
+/// and paint. Scale is applied to the cached font-unit path at replay time.
+/// </summary>
+public readonly record struct CadShxMTextGlyphRun(
+    int GlyphOffset,
+    int GlyphCount,
+    float ScaleX,
+    float ScaleY,
+    float SkewX,
+    byte Red,
+    byte Green,
+    byte Blue,
+    byte Alpha);
+
 public readonly record struct CadShxGlyphInstance(
     CadShxGlyph Glyph,
     float X,
@@ -353,6 +392,8 @@ public sealed class CadDocumentSnapshot
     private readonly Vector2[] _textGlyphPositions;
     private readonly TtfFont[] _textFonts;
     private readonly CadShxTextPrimitive[] _shxTexts;
+    private readonly CadShxMTextPrimitive[] _shxMTexts;
+    private readonly CadShxMTextGlyphRun[] _shxMTextGlyphRuns;
     private readonly CadShxGlyphInstance[] _shxGlyphInstances;
     private readonly CadShxDecorationSegment[] _shxDecorationSegments;
     private readonly CadPolylineVertex[] _polylineVertices;
@@ -396,6 +437,8 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<Vector2> TextGlyphPositions => _textGlyphPositions;
     public ReadOnlyMemory<TtfFont> TextFonts => _textFonts;
     public ReadOnlyMemory<CadShxTextPrimitive> ShxTexts => _shxTexts;
+    public ReadOnlyMemory<CadShxMTextPrimitive> ShxMTexts => _shxMTexts;
+    public ReadOnlyMemory<CadShxMTextGlyphRun> ShxMTextGlyphRuns => _shxMTextGlyphRuns;
     public ReadOnlyMemory<CadShxGlyphInstance> ShxGlyphInstances => _shxGlyphInstances;
     public ReadOnlyMemory<CadShxDecorationSegment> ShxDecorationSegments => _shxDecorationSegments;
     public ReadOnlyMemory<CadPolylineVertex> PolylineVertices => _polylineVertices;
@@ -440,6 +483,8 @@ public sealed class CadDocumentSnapshot
         Vector2[] textGlyphPositions,
         TtfFont[] textFonts,
         CadShxTextPrimitive[] shxTexts,
+        CadShxMTextPrimitive[] shxMTexts,
+        CadShxMTextGlyphRun[] shxMTextGlyphRuns,
         CadShxGlyphInstance[] shxGlyphInstances,
         CadShxDecorationSegment[] shxDecorationSegments,
         CadPolylineVertex[] polylineVertices,
@@ -481,6 +526,8 @@ public sealed class CadDocumentSnapshot
         _textGlyphPositions = textGlyphPositions;
         _textFonts = textFonts;
         _shxTexts = shxTexts;
+        _shxMTexts = shxMTexts;
+        _shxMTextGlyphRuns = shxMTextGlyphRuns;
         _shxGlyphInstances = shxGlyphInstances;
         _shxDecorationSegments = shxDecorationSegments;
         _polylineVertices = polylineVertices;
