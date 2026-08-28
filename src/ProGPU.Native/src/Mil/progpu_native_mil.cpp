@@ -8449,6 +8449,7 @@ struct channel::implementation {
             &builder,
             &resolve_brush_index,
             &append_degenerate_cap_stroke,
+            &append_polyline_stroke,
             &current](
             double center_x,
             double center_y,
@@ -8503,14 +8504,13 @@ struct channel::implementation {
                     PROGPU_NATIVE_STROKE_CAP_ROUND,
                     emitted);
             }
+            bool has_nonempty_dash = false;
             if (pen.dash_style_handle != 0U) {
                 const auto dash = dash_styles.find(pen.dash_style_handle);
                 if (dash == dash_styles.end()) {
                     return status::invalid_handle;
                 }
-                if (!dash->second.intervals.empty()) {
-                    return status::unsupported_command;
-                }
+                has_nonempty_dash = !dash->second.intervals.empty();
             }
             const double half_thickness = pen.thickness * 0.5;
             const brush_use_state brush_use{
@@ -8543,6 +8543,41 @@ struct channel::implementation {
                     local_transform,
                     native_local_transform)) {
                 return status::invalid_graph;
+            }
+            if (has_nonempty_dash) {
+                const progpu_native_point center{
+                    static_cast<float>(center_x),
+                    static_cast<float>(center_y)};
+                const std::array points = radius_x == 0.0
+                    ? std::array{
+                          center,
+                          progpu_native_point{
+                              static_cast<float>(center_x),
+                              static_cast<float>(center_y + radius_y)},
+                          center,
+                          progpu_native_point{
+                              static_cast<float>(center_x),
+                              static_cast<float>(center_y - radius_y)}}
+                    : std::array{
+                          progpu_native_point{
+                              static_cast<float>(center_x + radius_x),
+                              static_cast<float>(center_y)},
+                          center,
+                          progpu_native_point{
+                              static_cast<float>(center_x - radius_x),
+                              static_cast<float>(center_y)},
+                          center};
+                pen_state smooth_pen = pen;
+                smooth_pen.line_join = PROGPU_NATIVE_STROKE_JOIN_ROUND;
+                return append_polyline_stroke(
+                    smooth_pen,
+                    points,
+                    true,
+                    brush_index,
+                    stroke_bounds,
+                    native_local_transform,
+                    pen.start_line_cap,
+                    pen.end_line_cap);
             }
             const std::uint32_t flags =
                 (current.edge_aliased
@@ -9494,6 +9529,7 @@ struct channel::implementation {
             this,
             &builder,
             &resolve_brush_index,
+            &append_polyline_stroke,
             &append_rounded_rectangle_path,
             &current](
             double x,
@@ -9507,14 +9543,17 @@ struct channel::implementation {
             if (pen.brush_handle == 0U || pen.thickness == 0.0) {
                 return status::success;
             }
+            bool has_nonempty_dash = false;
             if (pen.dash_style_handle != 0U) {
                 const auto dash = dash_styles.find(pen.dash_style_handle);
                 if (dash == dash_styles.end()) {
                     return status::invalid_handle;
                 }
-                if (!dash->second.intervals.empty()) {
-                    return status::unsupported_command;
-                }
+                has_nonempty_dash = !dash->second.intervals.empty();
+            }
+            if (has_nonempty_dash &&
+                (radius > 0.0 || (width == 0.0 && height == 0.0))) {
+                return status::unsupported_command;
             }
             const double half_thickness = pen.thickness * 0.5;
             const double left = x - half_thickness;
@@ -9551,6 +9590,29 @@ struct channel::implementation {
                     local_transform,
                     native_local_transform)) {
                 return status::invalid_graph;
+            }
+            if (has_nonempty_dash) {
+                const std::array points{
+                    progpu_native_point{
+                        static_cast<float>(x), static_cast<float>(y)},
+                    progpu_native_point{
+                        static_cast<float>(x + width),
+                        static_cast<float>(y)},
+                    progpu_native_point{
+                        static_cast<float>(x + width),
+                        static_cast<float>(y + height)},
+                    progpu_native_point{
+                        static_cast<float>(x),
+                        static_cast<float>(y + height)}};
+                return append_polyline_stroke(
+                    pen,
+                    points,
+                    true,
+                    brush_index,
+                    stroke_bounds,
+                    native_local_transform,
+                    pen.start_line_cap,
+                    pen.end_line_cap);
             }
             std::vector<progpu_native_path_segment> segments;
             const auto append_line = [&segments](

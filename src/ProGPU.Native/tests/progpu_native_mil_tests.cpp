@@ -6151,7 +6151,107 @@ bool solid_pen_line_compiles_to_geometry_scene() {
         state.apply(dashed_degenerate_rectangle_batch) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7002U, 51U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
+    const auto dashed_degenerate_rectangle_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_dashed_degenerate_rectangle = false;
+    for (std::uint32_t index = 0U;
+         index < dashed_degenerate_rectangle_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            dashed_degenerate_rectangle_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
+            continue;
+        }
+        const auto stroke = read_value<progpu_native_scene_stroke>(
+            stream,
+            record.payload_offset);
+        PROGPU_REQUIRE(stroke.point_count == 4U);
+        PROGPU_REQUIRE(stroke.dash_interval_count == 2U);
+        PROGPU_REQUIRE(
+            (stroke.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U);
+        const std::array expected_points{
+            progpu_native_point{3.0F, 4.0F},
+            progpu_native_point{3.0F, 4.0F},
+            progpu_native_point{3.0F, 8.0F},
+            progpu_native_point{3.0F, 8.0F}};
+        for (std::size_t point_index = 0U;
+             point_index < expected_points.size();
+             ++point_index) {
+            const auto point = read_value<progpu_native_point>(
+                stream,
+                record.auxiliary_offset +
+                    point_index * sizeof(progpu_native_point));
+            PROGPU_REQUIRE(point.x == expected_points[point_index].x);
+            PROGPU_REQUIRE(point.y == expected_points[point_index].y);
+        }
+        found_dashed_degenerate_rectangle = true;
+    }
+    PROGPU_REQUIRE(found_dashed_degenerate_rectangle);
+
+    std::vector<std::byte> dashed_degenerate_ellipse_batch;
+    std::vector<std::byte> dashed_degenerate_ellipse;
+    append_command(
+        dashed_degenerate_ellipse,
+        command::draw_ellipse,
+        8.0,
+        4.0,
+        0.0,
+        2.0,
+        0U,
+        pen);
+    append_render_data(
+        dashed_degenerate_ellipse_batch,
+        content,
+        dashed_degenerate_ellipse);
+    PROGPU_REQUIRE(
+        state.apply(dashed_degenerate_ellipse_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 52U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.ellipse_count == 1U);
+    const auto dashed_degenerate_ellipse_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    bool found_dashed_degenerate_ellipse = false;
+    for (std::uint32_t index = 0U;
+         index < dashed_degenerate_ellipse_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            dashed_degenerate_ellipse_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
+            continue;
+        }
+        const auto stroke = read_value<progpu_native_scene_stroke>(
+            stream,
+            record.payload_offset);
+        PROGPU_REQUIRE(stroke.point_count == 4U);
+        PROGPU_REQUIRE(stroke.dash_interval_count == 2U);
+        PROGPU_REQUIRE(
+            stroke.line_join == PROGPU_NATIVE_STROKE_JOIN_ROUND);
+        PROGPU_REQUIRE(
+            (stroke.flags & PROGPU_NATIVE_POLYLINE_FLAG_CLOSED) != 0U);
+        const std::array expected_points{
+            progpu_native_point{8.0F, 4.0F},
+            progpu_native_point{8.0F, 6.0F},
+            progpu_native_point{8.0F, 4.0F},
+            progpu_native_point{8.0F, 2.0F}};
+        for (std::size_t point_index = 0U;
+             point_index < expected_points.size();
+             ++point_index) {
+            const auto point = read_value<progpu_native_point>(
+                stream,
+                record.auxiliary_offset +
+                    point_index * sizeof(progpu_native_point));
+            PROGPU_REQUIRE(point.x == expected_points[point_index].x);
+            PROGPU_REQUIRE(point.y == expected_points[point_index].y);
+        }
+        found_dashed_degenerate_ellipse = true;
+    }
+    PROGPU_REQUIRE(found_dashed_degenerate_ellipse);
 
     std::vector<std::byte> rounded_batch;
     std::vector<std::byte> rounded;

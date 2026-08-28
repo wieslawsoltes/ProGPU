@@ -66,6 +66,51 @@ public sealed class StrokeJoinGeometryTests
         AssertPoint(triangles[1].P1, 2f, -1f);
     }
 
+    [Theory]
+    [InlineData(PenLineJoin.Miter)]
+    [InlineData(PenLineJoin.Bevel)]
+    public void ReversalMiterAndBevelUseWpfHalfWidthSquare(PenLineJoin lineJoin)
+    {
+        Span<StrokeJoinTriangle> triangles =
+            stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
+
+        var count = StrokeJoinGeometry.WriteLineJoin(
+            triangles,
+            lineJoin,
+            thickness: 2f,
+            miterLimit: 1f,
+            previousPoint: new Vector2(0f, 1f),
+            joinPoint: Vector2.Zero,
+            nextPoint: new Vector2(0f, 1f));
+
+        Assert.Equal(3, count);
+        AssertPoint(triangles[0].P1, 1f, 0f);
+        AssertPoint(triangles[0].P2, 1f, -1f);
+        AssertPoint(triangles[1].P2, -1f, -1f);
+        AssertPoint(triangles[2].P2, -1f, 0f);
+    }
+
+    [Fact]
+    public void ReversalRoundUsesWpfIncomingSemicircle()
+    {
+        Span<StrokeJoinTriangle> triangles =
+            stackalloc StrokeJoinTriangle[StrokeJoinGeometry.MaxTrianglesPerJoin];
+
+        var count = StrokeJoinGeometry.WriteLineJoin(
+            triangles,
+            PenLineJoin.Round,
+            thickness: 2f,
+            miterLimit: 1f,
+            previousPoint: new Vector2(0f, 1f),
+            joinPoint: Vector2.Zero,
+            nextPoint: new Vector2(0f, 1f));
+
+        Assert.Equal(StrokeJoinGeometry.MaxTrianglesPerJoin, count);
+        AssertPoint(triangles[0].P1, 1f, 0f);
+        AssertPoint(triangles[3].P2, 0f, -1f);
+        AssertPoint(triangles[^1].P2, -1f, 0f);
+    }
+
     private static void AssertPoint(Vector2 actual, float x, float y)
     {
         Assert.InRange(MathF.Abs(actual.X - x), 0f, 0.000001f);

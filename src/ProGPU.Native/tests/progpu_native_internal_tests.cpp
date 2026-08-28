@@ -55,6 +55,41 @@ void clipped_miter_join_uses_the_wpf_three_triangle_wedge() {
     require(progpu::native::is_finite(triangles[2U].p1));
 }
 
+void reversal_joins_match_wpf_collapsed_contours() {
+    std::array<progpu::native::stroke_triangle, 8U> triangles{};
+    const std::size_t square_count =
+        progpu::native::create_join_triangles(
+            triangles,
+            PROGPU_NATIVE_STROKE_JOIN_BEVEL,
+            2.0F,
+            1.0F,
+            {0.0F, 0.0F},
+            {0.0F, -1.0F},
+            {0.0F, 1.0F});
+    require(square_count == 3U);
+    require(triangles[0U].p1.x == 1.0F);
+    require(triangles[0U].p2.x == 1.0F);
+    require(triangles[0U].p2.y == -1.0F);
+    require(triangles[1U].p2.x == -1.0F);
+    require(triangles[1U].p2.y == -1.0F);
+    require(triangles[2U].p2.x == -1.0F);
+
+    const std::size_t round_count =
+        progpu::native::create_join_triangles(
+            triangles,
+            PROGPU_NATIVE_STROKE_JOIN_ROUND,
+            2.0F,
+            1.0F,
+            {0.0F, 0.0F},
+            {0.0F, -1.0F},
+            {0.0F, 1.0F});
+    require(round_count == 8U);
+    require(triangles[0U].p1.x == 1.0F);
+    require(std::abs(triangles[3U].p2.x) < 0.000001F);
+    require(std::abs(triangles[3U].p2.y + 1.0F) < 0.000001F);
+    require(std::abs(triangles[7U].p2.x + 1.0F) < 0.000001F);
+}
+
 void native_webgpu_scopes_share_one_process_lock() {
     using namespace std::chrono_literals;
     using progpu::native::webgpu::process_render_scope;
@@ -1061,6 +1096,7 @@ void draw_state_resolution_is_cpu_only_and_bounded() {
 
 int main() {
     clipped_miter_join_uses_the_wpf_three_triangle_wedge();
+    reversal_joins_match_wpf_collapsed_contours();
     native_webgpu_scopes_share_one_process_lock();
     native_submission_retirement_is_periodic_and_bounded();
     native_buffer_growth_respects_the_portable_device_limit();
