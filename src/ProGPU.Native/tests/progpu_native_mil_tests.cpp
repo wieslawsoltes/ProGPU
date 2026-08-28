@@ -1,5 +1,6 @@
 #include "progpu_native_mil.hpp"
 #include "progpu_native_mil.h"
+#include "../src/Mil/progpu_native_mil_curve_dash.hpp"
 #include "progpu_native_text.hpp"
 #include "../src/Geometry/progpu_native_arc.hpp"
 
@@ -845,6 +846,139 @@ void append_dash_style(
         batch,
         static_cast<std::uint32_t>(packet.size() + sizeof(std::uint32_t)));
     batch.insert(batch.end(), packet.begin(), packet.end());
+}
+
+bool curve_dashes_match_managed_reference_contracts() {
+    namespace curve_dash = progpu::native::mil::curve_dash;
+    const std::array<std::uint8_t, 1U> one_join{};
+    std::vector<curve_dash::run> runs;
+
+    progpu_native_path_segment quadratic{};
+    quadratic.kind = PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC;
+    quadratic.p0 = {0.0F, 0.0F};
+    quadratic.p1 = {10.0F, 10.0F};
+    quadratic.p2 = {20.0F, 0.0F};
+    const std::array quadratic_pattern{8.0, 4.0};
+    PROGPU_REQUIRE(curve_dash::try_create_runs(
+        std::span<const progpu_native_path_segment>(&quadratic, 1U),
+        one_join,
+        false,
+        quadratic_pattern,
+        0.0,
+        1.0F,
+        runs) == curve_dash::result::success);
+    PROGPU_REQUIRE(runs.size() == 2U);
+    PROGPU_REQUIRE(runs.front().starts_at_source_start);
+    PROGPU_REQUIRE(
+        runs.front().segments.front().kind ==
+        PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC);
+    PROGPU_REQUIRE(runs.front().segments.front().p0.x == 0.0F);
+    PROGPU_REQUIRE(runs.front().segments.front().p0.y == 0.0F);
+
+    progpu_native_path_segment cubic{};
+    cubic.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+    cubic.p0 = {0.0F, 0.0F};
+    cubic.p1 = {10.0F, 20.0F};
+    cubic.p2 = {20.0F, 20.0F};
+    cubic.p3 = {30.0F, 0.0F};
+    const std::array cubic_pattern{12.0, 6.0};
+    PROGPU_REQUIRE(curve_dash::try_create_runs(
+        std::span<const progpu_native_path_segment>(&cubic, 1U),
+        one_join,
+        false,
+        cubic_pattern,
+        0.0,
+        1.0F,
+        runs) == curve_dash::result::success);
+    PROGPU_REQUIRE(runs.size() == 3U);
+    PROGPU_REQUIRE(runs.front().starts_at_source_start);
+    PROGPU_REQUIRE(
+        runs.front().segments.front().kind ==
+        PROGPU_NATIVE_PATH_SEGMENT_CUBIC);
+
+    progpu_native_path_segment arc{};
+    arc.kind = PROGPU_NATIVE_PATH_SEGMENT_ARC;
+    arc.p0 = {10.0F, 0.0F};
+    arc.p1 = {-10.0F, 0.0F};
+    arc.p2 = {0.0F, 0.0F};
+    arc.p3 = {10.0F, 10.0F};
+    arc.pad0 = std::bit_cast<std::uint32_t>(0.0F);
+    arc.pad1 = std::bit_cast<std::uint32_t>(
+        std::numbers::pi_v<float>);
+    arc.pad2 = std::bit_cast<std::uint32_t>(0.0F);
+    const std::array arc_pattern{10.0, 10.0};
+    PROGPU_REQUIRE(curve_dash::try_create_runs(
+        std::span<const progpu_native_path_segment>(&arc, 1U),
+        one_join,
+        false,
+        arc_pattern,
+        0.0,
+        1.0F,
+        runs) == curve_dash::result::success);
+    PROGPU_REQUIRE(runs.size() == 2U);
+    PROGPU_REQUIRE(runs.front().starts_at_source_start);
+    PROGPU_REQUIRE(
+        runs.front().segments.front().kind ==
+        PROGPU_NATIVE_PATH_SEGMENT_ARC);
+    PROGPU_REQUIRE(std::bit_cast<float>(
+        runs.front().segments.front().pad1) > 0.9F);
+    PROGPU_REQUIRE(std::bit_cast<float>(
+        runs.front().segments.front().pad1) < 1.1F);
+
+    progpu_native_path_segment phased_line{};
+    phased_line.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+    phased_line.p0 = {0.0F, 0.0F};
+    phased_line.p1 = {20.0F, 0.0F};
+    const std::array odd_pattern{2.0, 1.0, 3.0};
+    PROGPU_REQUIRE(curve_dash::try_create_runs(
+        std::span<const progpu_native_path_segment>(&phased_line, 1U),
+        one_join,
+        false,
+        odd_pattern,
+        -1.5,
+        2.0F,
+        runs) == curve_dash::result::success);
+    PROGPU_REQUIRE(runs.size() == 3U);
+    PROGPU_REQUIRE(!runs.front().starts_at_source_start);
+    PROGPU_REQUIRE(runs.back().ends_at_source_end);
+    PROGPU_REQUIRE(std::abs(
+        runs.front().segments.front().p0.x - 3.0F) < 0.001F);
+    PROGPU_REQUIRE(std::abs(
+        runs.back().segments.back().p1.x - 20.0F) < 0.001F);
+
+    std::array<progpu_native_path_segment, 4U> square{};
+    const std::array square_points{
+        progpu_native_point{0.0F, 0.0F},
+        progpu_native_point{10.0F, 0.0F},
+        progpu_native_point{10.0F, 10.0F},
+        progpu_native_point{0.0F, 10.0F}};
+    for (std::size_t index = 0U; index < square.size(); ++index) {
+        square[index].kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        square[index].p0 = square_points[index];
+        square[index].p1 = square_points[(index + 1U) % square.size()];
+    }
+    const std::array<std::uint8_t, 4U> square_joins{0U, 0U, 0U, 1U};
+    const std::array seam_pattern{5.0, 2.0};
+    PROGPU_REQUIRE(curve_dash::try_create_runs(
+        square,
+        square_joins,
+        true,
+        seam_pattern,
+        0.0,
+        1.0F,
+        runs) == curve_dash::result::success);
+    PROGPU_REQUIRE(runs.size() == 5U);
+    PROGPU_REQUIRE(!runs.back().closed);
+    PROGPU_REQUIRE(runs.back().segments.size() == 2U);
+    PROGPU_REQUIRE(runs.back().smooth_joins.size() == 1U);
+    PROGPU_REQUIRE(runs.back().smooth_joins.front() == 1U);
+    PROGPU_REQUIRE(
+        runs.back().segments.front().p1.x == 0.0F &&
+        runs.back().segments.front().p1.y == 0.0F);
+    PROGPU_REQUIRE(
+        runs.back().segments.back().p0.x == 0.0F &&
+        runs.back().segments.back().p0.y == 0.0F);
+    return true;
 }
 
 bool channel_retains_visual_target_graph() {
@@ -7474,7 +7608,7 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     PROGPU_REQUIRE(state.apply(smooth_update) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7002U, 3U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
 
     auto open_arc_figures = make_arc_path_figures();
     const std::uint32_t open_curve_figure = 0x0aU;
@@ -7726,13 +7860,52 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         0U,
         0U,
         0U,
-        0U,
+        3U,
         1U,
         dash);
     PROGPU_REQUIRE(state.apply(dashed_arc_update) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7002U, 9U, stream, &metrics) ==
-        status::unsupported_command);
+        status::success);
+    const auto dashed_arc_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t dashed_arc_count = 0U;
+    std::uint32_t dashed_arc_cap_count = 0U;
+    for (std::uint32_t resource_index = 0U;
+         resource_index < dashed_arc_header.resource_count;
+         ++resource_index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            dashed_arc_header.resource_offset +
+                resource_index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        std::uint32_t primitive_offset = 0U;
+        for (;
+             primitive_offset + primitive_stride <= record.payload_size;
+             primitive_offset += primitive_stride) {
+            const auto primitive =
+                read_value<progpu_native_geometry_primitive>(
+                    stream,
+                    record.payload_offset + primitive_offset);
+            if (primitive.kind == PROGPU_NATIVE_GEOMETRY_ARC) {
+                PROGPU_REQUIRE(primitive.p3.y > 0.0F);
+                ++dashed_arc_count;
+            } else if (
+                primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP) {
+                const std::uint32_t cap =
+                    (primitive.flags &
+                        PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
+                    PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+                PROGPU_REQUIRE(cap == PROGPU_NATIVE_STROKE_CAP_TRIANGLE);
+                ++dashed_arc_cap_count;
+            }
+        }
+        PROGPU_REQUIRE(primitive_offset == record.payload_size);
+    }
+    PROGPU_REQUIRE(dashed_arc_count >= 2U);
+    PROGPU_REQUIRE(dashed_arc_cap_count >= 2U);
 
     std::vector<std::byte> capped_arc_update;
     append_command(
@@ -7811,6 +7984,81 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     PROGPU_REQUIRE(start_cap_count == 1U);
     PROGPU_REQUIRE(end_cap_count == 1U);
 
+    const std::array short_dash_intervals{1.0, 1.0};
+    std::vector<std::byte> dashed_curve_update;
+    append_dash_style(
+        dashed_curve_update,
+        dash,
+        0.0,
+        0U,
+        short_dash_intervals);
+    append_command(
+        dashed_curve_update,
+        command::pen,
+        pen,
+        2.0,
+        4.0,
+        brush,
+        0U,
+        0U,
+        0U,
+        2U,
+        1U,
+        dash);
+    append_path_geometry(
+        dashed_curve_update,
+        geometry,
+        transform,
+        0U,
+        make_curve_path_figures());
+    PROGPU_REQUIRE(state.apply(dashed_curve_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 101U, stream, &metrics) ==
+        status::success);
+    const auto dashed_curve_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t dashed_line_count = 0U;
+    std::uint32_t dashed_quadratic_count = 0U;
+    std::uint32_t dashed_cubic_count = 0U;
+    std::uint32_t dashed_curve_cap_count = 0U;
+    for (std::uint32_t resource_index = 0U;
+         resource_index < dashed_curve_header.resource_count;
+         ++resource_index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            dashed_curve_header.resource_offset +
+                resource_index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        std::uint32_t primitive_offset = 0U;
+        for (;
+             primitive_offset + primitive_stride <= record.payload_size;
+             primitive_offset += primitive_stride) {
+            const auto primitive =
+                read_value<progpu_native_geometry_primitive>(
+                    stream,
+                    record.payload_offset + primitive_offset);
+            dashed_line_count +=
+                primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE ? 1U : 0U;
+            dashed_quadratic_count +=
+                primitive.kind == PROGPU_NATIVE_GEOMETRY_QUADRATIC_BEZIER
+                ? 1U
+                : 0U;
+            dashed_cubic_count +=
+                primitive.kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER
+                ? 1U
+                : 0U;
+            dashed_curve_cap_count +=
+                primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP ? 1U : 0U;
+        }
+        PROGPU_REQUIRE(primitive_offset == record.payload_size);
+    }
+    PROGPU_REQUIRE(dashed_line_count >= 2U);
+    PROGPU_REQUIRE(dashed_quadratic_count >= 1U);
+    PROGPU_REQUIRE(dashed_cubic_count >= 1U);
+    PROGPU_REQUIRE(dashed_curve_cap_count >= 2U);
+
     constexpr std::uint32_t zero_line_size = 32U;
     constexpr std::uint32_t zero_figure_size = 40U + zero_line_size;
     constexpr std::uint32_t zero_figures_size =
@@ -7850,6 +8098,19 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     append_zero_figure(zero_figure_size, 0x04U, 10.0, 12.0);
     PROGPU_REQUIRE(zero_figures.size() == zero_figures_size);
     std::vector<std::byte> zero_path_update;
+    append_command(
+        zero_path_update,
+        command::pen,
+        pen,
+        2.0,
+        4.0,
+        brush,
+        0U,
+        2U,
+        3U,
+        0U,
+        1U,
+        0U);
     append_path_geometry(
         zero_path_update,
         geometry,
@@ -12870,6 +13131,7 @@ bool c_abi_is_typed_and_size_versioned() {
 } // namespace
 
 int main() {
+    PROGPU_REQUIRE(curve_dashes_match_managed_reference_contracts());
     PROGPU_REQUIRE(channel_retains_visual_target_graph());
     PROGPU_REQUIRE(failed_batches_roll_back());
     PROGPU_REQUIRE(invalid_visual_graphs_fail_closed());

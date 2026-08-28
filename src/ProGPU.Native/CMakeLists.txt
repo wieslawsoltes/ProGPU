@@ -879,6 +879,7 @@ progpu_native_enable_sanitizers(progpu_native_scene_builder)
 add_library(progpu_native_mil STATIC
     include/progpu_native_mil_commands.generated.hpp
     include/progpu_native_mil.hpp
+    src/Mil/progpu_native_mil_curve_dash.hpp
     src/Mil/progpu_native_mil.cpp)
 target_compile_features(progpu_native_mil PUBLIC cxx_std_20)
 target_include_directories(progpu_native_mil PUBLIC
