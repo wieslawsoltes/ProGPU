@@ -120,8 +120,9 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   for the later shaded/depth compiler. Nonzero ellipse/SOLID thickness is
   reported until complete 3D side-surface lowering is available.
 - Normal/Outer/Ignore solid and exact DXF/PAT patterned HATCH entities retain
-  bounded packed loops and analytic line/circular-arc/elliptic-arc segments in
-  one OCS-relative double-precision coordinate system. The plan compiler records
+  bounded packed loops and analytic line/circular-arc/elliptic-arc plus exact
+  degree-one-through-three polynomial spline segments in one OCS-relative
+  double-precision coordinate system. The plan compiler records
   one even-odd filled path per hatch with one affine OCS-to-plan transform;
   patterns add one retained procedural brush without generating hatch-line
   geometry. Multiple families, tangent row shifts, and the specified six-item
@@ -129,8 +130,8 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   Normal keeps every loop, Outer keeps nesting levels zero and one, and Ignore
   keeps only level zero in the rendered path while all source loops remain in
   the immutable snapshot. It never samples a curve or emits a command per
-  edge/line. Gradient, spline-edge, annotative, paper-oriented, coincident, and
-  malformed hatches remain
+  edge/line. Non-uniform rational or above-cubic spline edges, gradient,
+  annotative, paper-oriented, coincident, and malformed hatches remain
   explicit diagnostics rather than approximated fills.
 - Single-line TrueType TEXT resolves through a typed host font service, shapes
   during immutable snapshot construction with the existing ProGPU Unicode/
@@ -193,7 +194,8 @@ detection as odd parity, Outer as the first inward level without resuming, and
 Ignore as filling through internal loops. `CadSnapshotCompiler` accepts finite,
 closed, non-gradient solid and patterned hatches with all three styles. It
 normalizes each
-polyline bulge or ordered line, circular-arc, and elliptic-arc edge into a
+polyline bulge or ordered line, circular-arc, elliptic-arc, and supported
+polynomial spline edge into a
 `CadHatchSegment`; loops refer to contiguous segment ranges and the entity
 refers to a contiguous loop range. One world origin plus an orthonormal OCS is
 stored per hatch, so large WCS translations remain outside the local float
@@ -216,21 +218,23 @@ budget. Defaults also bound one snapshot to 1,000,000 hatch loops and 5,000,000
 hatch segments. Failure cannot publish a partial entity or orphan its local
 loop/segment data. Explicit self-intersecting/duplicate flags and coincident or
 touch-only topology without an unambiguous analytic sample are diagnosed rather
-than guessed. Exact double-precision arc extrema supply world bounds.
+than guessed. Exact double-precision arc and polynomial-derivative extrema
+supply world bounds.
 Recording is `O(L + S)`, emits one `DrawPath` command and one transform per
 hatch, and delegates winding coverage and antialiasing to the existing canonical
 ProGPU analytic path pipeline. There is no hatch-specific shader, upload, cache,
 or managed/native crossing.
 
-Horizontal-WCS point selection uses the same retained contribution set. Line and
-ellipse-ray crossings use direction-aware half-open endpoint ownership so a
-shared vertex is counted once, including clockwise full turns. Zero-tolerance
-queries and line-edge proximity are exact and allocation-free. Curved-edge
-proximity outside the fill with positive tolerance, and point/Crossing queries
-for a non-horizontal hatch plane, return typed unsupported results instead of a
-tessellation guess. Window selection is exact from the entity bounds; horizontal
-Crossing selection combines exact analytic boundary/box intersection with
-rectangle-corner fill containment. Query cost is `O(S)` time and `O(1)` storage.
+Horizontal-WCS point selection uses the same retained contribution set. Line,
+ellipse, quadratic, and cubic ray crossings use direction-aware half-open
+endpoint ownership so a shared vertex is counted once, including clockwise full
+turns and Bezier tangencies. Zero-tolerance queries and line/Bezier proximity
+are exact and allocation-free. Elliptic-edge proximity outside the fill with
+positive tolerance, and point/Crossing queries for a non-horizontal hatch plane,
+return typed unsupported results instead of a tessellation guess. Window
+selection is exact from the entity bounds; horizontal Crossing selection combines
+exact analytic boundary/box intersection with rectangle-corner fill containment.
+Query cost is `O(S)` time and `O(1)` bounded stack storage.
 
 The pinned ACadSharp fork now reads DXF group 75 into `Hatch.Style` at commit
 [`94597d6c`](https://github.com/wieslawsoltes/ACadSharp/commit/94597d6c3b7f6a296d7048ca3e8cff6f0add976c), with an
@@ -248,6 +252,54 @@ applicable. Both renderers consume the same existing retained filled path and
 analytic arc commands; polygonal and curved native-picture regressions cover
 that shared boundary. No canonical shader, C ABI, compositor, atlas, DPI,
 invalidation, or device-loss behavior changes.
+
+### Exact polynomial HATCH spline-edge contract
+
+Autodesk's HATCH boundary record carries degree, rational and periodic flags,
+knots, weighted control points, and optional fit/tangent data. Snapshot
+construction validates all of that persisted input and retains the exact subset
+that the shared filled-path contract can represent: degree-one, quadratic, and
+cubic polynomial B-splines. A rational record with one identical finite positive
+weight on every control is mathematically the same polynomial and is accepted.
+Non-uniform rational records and degrees four through ten remain typed
+unsupported until the shared filled-path ABI and canonical rasterizer gain a
+genuine rational/general-degree segment. They are never tessellated or made
+zoom-dependent.
+
+Ordinary, compact-periodic, and validated cyclically expanded knot records share
+`ICadCanonicalSpline` and the original ProGPU `CadRationalBezier` homogeneous
+knot-insertion implementation. Each non-empty knot span becomes one exact line,
+`QuadraticBezierSegment`, or `CubicBezierSegment`. The shared extractor now keeps
+the controls on both sides of an interior span; this fixes the previously latent
+periodic/interior-span discontinuity instead of hiding it in HATCH-specific code.
+The final periodic span owns the same homogeneous seam point as the first span.
+Matched standalone-spline selection and linetype regressions cover this shared
+change. Fit points and tangents are validated as source metadata; the persisted
+control/knot representation remains the rendering authority.
+
+For `C` controls, `K` knots, `B` non-empty spans, and degree `P <= 3`, validation
+is `O(C + K)`, exact extraction is `O(B*P^2)`, and retained storage is `O(B)`.
+The document-wide default 10,000,000-scalar source budget counts three values per
+control, knots, fit-point coordinates, and authored tangents on successful and
+failed attempts. It complements the existing loop, segment, and topology budgets;
+failure publishes no entity or orphan stream. Tight bounds isolate derivative
+roots in Bernstein form. Point containment isolates `y(t)-queryY` roots and
+applies the same derivative-directed half-open ownership used by the canonical
+path rasterizers. Positive-tolerance Bezier proximity and Crossing-box tests
+reuse `CadSplineSelection`'s exact bounded Bernstein algorithms. Construction,
+selection, and retained replay allocate no geometry samples.
+
+This is an original ProGPU clean-room extension. Exact approved in-repository
+provenance is `CadCanonicalSpline.cs`, `CadRationalBezier.cs`,
+`CadSplineSelection.cs`, `CadSnapshotCompiler.Hatch.cs`, and
+`ProGPU.Vector/PathGeometry.cs`; ACadSharp supplies only its public persisted
+HATCH object model. The native C++ tree has no CAD document compiler, while both
+managed and native renderers already consume the identical retained line,
+quadratic, and cubic filled-path picture commands. Native-picture, print, solid,
+patterned, periodic, selection, and DXF round-trip regressions therefore provide
+the paired applicability coverage. No shader, C ABI, packed picture version,
+GPU cache, atlas, DPI, invalidation, upload, device-loss, or managed/native
+crossing changed.
 
 ### Retained DXF/PAT patterned-HATCH contract
 
@@ -1671,6 +1723,23 @@ The process-order and tail spread preclude a latency comparison claim; these
 runs establish bounded feature cost and do not replace matched GPU/image-
 quality, managed/native, or required Instruments evidence.
 
+Two sequential 2026-08-28 polynomial spline-edge feature-cost runs used the
+same final Release binary with 100 two-family patterned HATCHes, one exact cubic
+spline cap plus closing line and one square island per entity, three warmups, 24
+construction iterations, and 10,000 direct immutable-candidate queries. The
+command used `--entities 0 --pattern-hatches 100 --complex-pattern-grammar
+--hatch-spline-edges --hatch-selection`. Both runs retained 100 commands with no
+unsupported or invalid input. Snapshot p50/p95/p99 was
+1.4743/2.7308/3.2409 and 1.0174/2.0711/3.1591 ms with 640,112 managed bytes per
+snapshot; plan recording was 0.1333/0.8222/1.0487 and
+0.1311/0.2090/0.5217 ms with 175,888 bytes. Pattern-clipped point selection was
+9.1/95.2/147.0 and 8.8/64.3/130.8 microseconds; alternating typed-unsupported
+Crossing/exact Window selection was 0.1/0.1/0.1 and 0.1/0.2/0.2 microseconds.
+Both warm query lanes allocated zero managed bytes. The tail spread precludes a
+latency comparison claim; these runs establish bounded exact-subset feature cost
+and do not replace matched GPU/image-quality, managed/native, or required
+Instruments evidence.
+
 The first 2026-08-28 weighted periodic quadratic-NURBS linetype feature-cost
 run used one final Release binary, 1,000 four-span loops, three warmups, and 24
 iterations. It retained 4,083 exact rational spline commands through 8,083
@@ -1814,6 +1883,33 @@ dotnet run --project src/ProGPU.CAD.Sample.Browser -c Debug
 ## Primary research record
 
 Sources consulted on 2026-08-27 and 2026-08-28:
+
+- For exact polynomial HATCH spline edges, Autodesk's
+  [boundary-path spline record](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-DC5215D6-E73F-4DFF-8BE9-01CA9610FAEE.htm),
+  [HATCH entity contract](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-DXF/files/GUID-C6C71CED-CE0F-4184-82A5-07AD6241F15B.htm),
+  and [ObjectARX NURBS-loop API](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-__OVERLOADED_appendLoop_AcDbHatch.html)
+  establish the degree, rational, periodic, knot, weighted-control, fit, and
+  tangent fields and confirm that a HATCH loop may own a NURBS edge. Adopted
+  strict persisted-record validation and exact polynomial span extraction;
+  rejected fixed-detail polygon conversion and silently discarding weights.
+  [Skia's line/quad/conic/cubic path verbs](https://skia.googlesource.com/skia/%2B/refs/heads/main/include/core/SkPath.h),
+  [Skia's conic contract](https://skia.googlesource.com/skia/%2B/2a8c48be4ff65d873d9d5ba65ecef989d82dd0be/site/user/api/SkPath_Reference.md),
+  [Direct2D path geometries](https://learn.microsoft.com/en-us/windows/win32/direct2d/path-geometries-overview),
+  [Vello's retained line/quad/cubic encoding](https://github.com/linebender/vello/blob/main/vello_encoding/src/path.rs),
+  [Vello's rational-Bezier roadmap](https://github.com/linebender/vello/blob/main/doc/roadmap_2023.md),
+  and [WebRender's retained renderer](https://github.com/servo/webrender)
+  support using exact native path verbs for the polynomial subset and keeping
+  unavailable rational/general-degree filled segments explicit. ProGPU adapts
+  those public behavioral/architecture concepts to its own immutable packed
+  streams and shares only original in-repository spline/path algorithms; no
+  foreign implementation text or structure was used. The required text audit
+  rechecked
+  [SkParagraph](https://github.com/google/skia/blob/main/modules/skparagraph/include/Paragraph.h),
+  [DirectWrite](https://learn.microsoft.com/en-us/windows/win32/directwrite/introducing-directwrite),
+  [Parley](https://docs.rs/parley/latest/parley/), and
+  [HarfBuzz shape plans](https://harfbuzz.github.io/harfbuzz-hb-shape-plan.html);
+  they are not applicable because this boundary change affects no shaping,
+  layout, font fallback, glyph cache, DPI, or subpixel contract.
 
 - For complete HATCH island-style lowering, Autodesk's
   [DXF HATCH group-75 contract](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DXF/files/GUID-C6C71CED-CE0F-4184-82A5-07AD6241F15B.htm),

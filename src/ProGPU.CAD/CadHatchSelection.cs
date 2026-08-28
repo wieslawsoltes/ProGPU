@@ -3,14 +3,15 @@ namespace ProGPU.CAD;
 /// <summary>Exact top-plane selection for retained HATCH island styles.</summary>
 /// <remarks>
 /// Point containment evaluates direction-aware half-open ray crossings over the
-/// contributing retained line and elliptic-arc segments in O(S) time and O(1)
-/// storage. Normal, Outer, and Ignore reuse the immutable contribution decision
-/// made during snapshot construction.
+/// contributing retained line, elliptic-arc, quadratic, and cubic segments in
+/// O(S) time and O(1) bounded stack storage. Normal, Outer, and Ignore reuse the
+/// immutable contribution decision made during snapshot construction.
 /// Patterned point selection evaluates the retained affine row and dash grammar
 /// with bounded nearest-row visits. Window selection uses exact analytic
-/// bounds. Patterned crossing queries, curved outside-proximity, and
+/// bounds. Patterned crossing queries, elliptic outside-proximity, and
 /// non-horizontal filled-surface queries return UnsupportedGeometry rather than
-/// using a flattened or iterative approximation.
+/// using a flattened or iterative approximation; polynomial Bezier proximity
+/// and crossing remain exact.
 /// </remarks>
 internal static class CadHatchSelection
 {
@@ -56,6 +57,8 @@ internal static class CadHatchSelection
         }
 
         double minimum = double.PositiveInfinity;
+        bool hasUnsupportedCurvedProximity = false;
+        Span<CadHomogeneousPoint> bezierControls = stackalloc CadHomogeneousPoint[4];
         ReadOnlySpan<CadHatchLoop> loops = snapshot.HatchLoops.Span.Slice(
             hatch.LoopOffset,
             hatch.LoopCount);
@@ -71,23 +74,41 @@ internal static class CadHatchSelection
             for (int i = loop.SegmentOffset; i < end; i++)
             {
                 CadHatchSegment segment = segments[i];
-                if (segment.Kind != CadHatchSegmentKind.Line)
+                if (segment.Kind == CadHatchSegmentKind.Line)
                 {
+                    minimum = Math.Min(
+                        minimum,
+                        DistanceToSegment(
+                            point,
+                            ToWorldPoint(hatch, segment.StartX, segment.StartY),
+                            ToWorldPoint(hatch, segment.EndX, segment.EndY)));
                     continue;
                 }
-                minimum = Math.Min(
-                    minimum,
-                    DistanceToSegment(
-                        point,
-                        ToWorldPoint(hatch, segment.StartX, segment.StartY),
-                        ToWorldPoint(hatch, segment.EndX, segment.EndY)));
+                if (segment.Kind is CadHatchSegmentKind.QuadraticBezier or
+                    CadHatchSegmentKind.CubicBezier)
+                {
+                    int degree = FillWorldBezierControls(
+                        hatch,
+                        segment,
+                        bezierControls);
+                    if (!CadSplineSelection.TryDistanceToBezier(
+                            bezierControls[..(degree + 1)],
+                            point,
+                            out double distance))
+                    {
+                        return UnsupportedPoint();
+                    }
+                    minimum = Math.Min(minimum, distance);
+                    continue;
+                }
+                hasUnsupportedCurvedProximity = true;
             }
         }
         if (minimum <= tolerance)
         {
             return new CadPointHitResult(CadPointHitStatus.Hit, minimum);
         }
-        if (hatch.HasCurvedSegments)
+        if (hasUnsupportedCurvedProximity)
         {
             return UnsupportedPoint();
         }
@@ -130,6 +151,7 @@ internal static class CadHatchSelection
             hatch.LoopOffset,
             hatch.LoopCount);
         ReadOnlySpan<CadHatchSegment> segments = snapshot.HatchSegments.Span;
+        Span<CadHomogeneousPoint> bezierControls = stackalloc CadHomogeneousPoint[4];
         for (int loopIndex = 0; loopIndex < loops.Length; loopIndex++)
         {
             CadHatchLoop loop = loops[loopIndex];
@@ -148,6 +170,22 @@ internal static class CadHatchSelection
                         ToWorldPoint(hatch, segment.StartX, segment.StartY),
                         ToWorldPoint(hatch, segment.EndX, segment.EndY),
                         selectionBounds);
+                }
+                else if (segment.Kind is CadHatchSegmentKind.QuadraticBezier or
+                    CadHatchSegmentKind.CubicBezier)
+                {
+                    int degree = FillWorldBezierControls(
+                        hatch,
+                        segment,
+                        bezierControls);
+                    if (!CadSplineSelection.TryTestBezierBounds(
+                            bezierControls[..(degree + 1)],
+                            selectionBounds,
+                            CadBoundsSelectionMode.Crossing,
+                            out intersects))
+                    {
+                        return BoundsUnsupported();
+                    }
                 }
                 else if (!CadSelectionHitTester.TryParametricArcIntersectsBounds(
                     ToWorldPoint(hatch, segment.CenterX, segment.CenterY),
@@ -191,6 +229,30 @@ internal static class CadHatchSelection
             }
         }
         return BoundsMiss();
+    }
+
+    private static int FillWorldBezierControls(
+        in CadHatchPrimitive hatch,
+        CadHatchSegment segment,
+        Span<CadHomogeneousPoint> destination)
+    {
+        int degree = segment.Kind == CadHatchSegmentKind.QuadraticBezier ? 2 : 3;
+        destination[0] = CadHomogeneousPoint.FromCartesian(
+            ToWorldPoint(hatch, segment.StartX, segment.StartY),
+            1.0);
+        destination[1] = CadHomogeneousPoint.FromCartesian(
+            ToWorldPoint(hatch, segment.CenterX, segment.CenterY),
+            1.0);
+        if (degree == 3)
+        {
+            destination[2] = CadHomogeneousPoint.FromCartesian(
+                ToWorldPoint(hatch, segment.CosineAxisX, segment.CosineAxisY),
+                1.0);
+        }
+        destination[degree] = CadHomogeneousPoint.FromCartesian(
+            ToWorldPoint(hatch, segment.EndX, segment.EndY),
+            1.0);
+        return degree;
     }
 
     private static CadPointHitResult HitTestPatternPoint(

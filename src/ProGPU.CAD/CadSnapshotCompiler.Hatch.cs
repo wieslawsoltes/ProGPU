@@ -5,6 +5,7 @@ using HatchArc = ACadSharp.Entities.Hatch.BoundaryPath.Arc;
 using HatchEllipse = ACadSharp.Entities.Hatch.BoundaryPath.Ellipse;
 using HatchLine = ACadSharp.Entities.Hatch.BoundaryPath.Line;
 using HatchPolyline = ACadSharp.Entities.Hatch.BoundaryPath.Polyline;
+using HatchSpline = ACadSharp.Entities.Hatch.BoundaryPath.Spline;
 
 namespace ProGPU.CAD;
 
@@ -26,7 +27,8 @@ public sealed partial class CadSnapshotCompiler
         List<double> patternDashes,
         List<CadHatchLoop> loops,
         List<CadHatchSegment> segments,
-        CadHatchTopologyBudget topologyBudget)
+        CadHatchTopologyBudget topologyBudget,
+        CadHatchSplineSourceBudget splineSourceBudget)
     {
         if (hatch.GradientColor?.Enabled == true)
         {
@@ -96,7 +98,11 @@ public sealed partial class CadSnapshotCompiler
             }
             else
             {
-                AddEdgeLoop(path, localSegments, ref hasCurves);
+                AddEdgeLoop(
+                    path,
+                    localSegments,
+                    splineSourceBudget,
+                    ref hasCurves);
             }
 
             int segmentCount = localSegments.Count - segmentOffset;
@@ -239,6 +245,30 @@ public sealed partial class CadSnapshotCompiler
         }
     }
 
+    private sealed class CadHatchSplineSourceBudget
+    {
+        private int _remaining;
+
+        public CadHatchSplineSourceBudget(int limit)
+        {
+            Limit = limit;
+            _remaining = limit;
+        }
+
+        public int Limit { get; }
+
+        public void Consume(int values)
+        {
+            if (values < 0 || values > _remaining)
+            {
+                _remaining = 0;
+                throw new CadUnsupportedEntityException(
+                    $"HATCH spline input exceeds the configured {Limit}-value document source limit.");
+            }
+            _remaining -= values;
+        }
+    }
+
     private static void ClassifyIslandContribution(
         HatchStyleType style,
         List<CadHatchLoop> loops,
@@ -370,6 +400,18 @@ public sealed partial class CadSnapshotCompiler
         {
             return CadBounds3D.FromPoint(start).Include(end);
         }
+        if (segment.Kind is CadHatchSegmentKind.QuadraticBezier or
+            CadHatchSegmentKind.CubicBezier)
+        {
+            return GetBezierBounds(
+                start,
+                new CadPoint3D(segment.CenterX, segment.CenterY, 0.0),
+                segment.Kind == CadHatchSegmentKind.CubicBezier
+                    ? new CadPoint3D(segment.CosineAxisX, segment.CosineAxisY, 0.0)
+                    : end,
+                end,
+                segment.Kind == CadHatchSegmentKind.QuadraticBezier ? 2 : 3);
+        }
         return CadBounds3D.EllipseArc(
             new CadPoint3D(segment.CenterX, segment.CenterY, 0.0),
             new CadPoint3D(segment.CosineAxisX, segment.CosineAxisY, 0.0),
@@ -401,6 +443,12 @@ public sealed partial class CadSnapshotCompiler
         {
             x = (segment.StartX + segment.EndX) * 0.5;
             y = (segment.StartY + segment.EndY) * 0.5;
+            return;
+        }
+        if (segment.Kind is CadHatchSegmentKind.QuadraticBezier or
+            CadHatchSegmentKind.CubicBezier)
+        {
+            EvaluateHatchBezier(segment, 0.5, out x, out y);
             return;
         }
         GetEllipsePoint(
@@ -592,6 +640,7 @@ public sealed partial class CadSnapshotCompiler
     private static void AddEdgeLoop(
         Hatch.BoundaryPath path,
         List<CadHatchSegment> destination,
+        CadHatchSplineSourceBudget splineSourceBudget,
         ref bool hasCurves)
     {
         if (path.Edges.Count == 0)
@@ -617,9 +666,13 @@ public sealed partial class CadSnapshotCompiler
                 case HatchPolyline:
                     throw new ArgumentException(
                         "A polyline HATCH boundary cannot be mixed with other edge records.");
-                case Hatch.BoundaryPath.Spline:
-                    throw new CadUnsupportedEntityException(
-                        "Spline HATCH edges require an exact rational filled-path segment contract.");
+                case HatchSpline spline:
+                    AddSplineEdge(
+                        spline,
+                        destination,
+                        splineSourceBudget,
+                        ref hasCurves);
+                    break;
                 default:
                     throw new CadUnsupportedEntityException(
                         $"HATCH edge type {edge.Type} has no retained analytic representation.");
@@ -819,7 +872,8 @@ public sealed partial class CadSnapshotCompiler
             if (!PointsCoincide(current.EndX, current.EndY, next.StartX, next.StartY))
             {
                 throw new ArgumentException(
-                    "A HATCH boundary loop contains disconnected edge endpoints.");
+                    $"A HATCH boundary loop contains disconnected edge endpoints at segment {i}: " +
+                    $"({current.EndX:R}, {current.EndY:R}) to ({next.StartX:R}, {next.StartY:R}).");
             }
         }
     }
@@ -827,20 +881,31 @@ public sealed partial class CadSnapshotCompiler
     private static CadHatchSegment ShiftSegment(
         CadHatchSegment segment,
         double originX,
-        double originY) =>
-        segment with
+        double originY)
+    {
+        CadHatchSegment shifted = segment with
         {
             StartX = segment.StartX - originX,
             StartY = segment.StartY - originY,
             EndX = segment.EndX - originX,
             EndY = segment.EndY - originY,
-            CenterX = segment.Kind == CadHatchSegmentKind.EllipticArc
+            CenterX = segment.Kind != CadHatchSegmentKind.Line
                 ? segment.CenterX - originX
                 : 0.0,
-            CenterY = segment.Kind == CadHatchSegmentKind.EllipticArc
+            CenterY = segment.Kind != CadHatchSegmentKind.Line
                 ? segment.CenterY - originY
                 : 0.0,
         };
+        if (segment.Kind == CadHatchSegmentKind.CubicBezier)
+        {
+            shifted = shifted with
+            {
+                CosineAxisX = segment.CosineAxisX - originX,
+                CosineAxisY = segment.CosineAxisY - originY,
+            };
+        }
+        return shifted;
+    }
 
     private static CadBounds3D GetWorldBounds(
         CadPoint3D worldOrigin,
@@ -860,6 +925,28 @@ public sealed partial class CadSnapshotCompiler
         if (segment.Kind == CadHatchSegmentKind.Line)
         {
             return CadBounds3D.FromPoint(start).Include(end);
+        }
+        if (segment.Kind is CadHatchSegmentKind.QuadraticBezier or
+            CadHatchSegmentKind.CubicBezier)
+        {
+            CadPoint3D firstControl = ToHatchWorldPoint(
+                worldOrigin,
+                coordinateSystem,
+                segment.CenterX,
+                segment.CenterY);
+            CadPoint3D secondControl = segment.Kind == CadHatchSegmentKind.CubicBezier
+                ? ToHatchWorldPoint(
+                    worldOrigin,
+                    coordinateSystem,
+                    segment.CosineAxisX,
+                    segment.CosineAxisY)
+                : end;
+            return GetBezierBounds(
+                start,
+                firstControl,
+                secondControl,
+                end,
+                segment.Kind == CadHatchSegmentKind.QuadraticBezier ? 2 : 3);
         }
 
         CadPoint3D center = ToHatchWorldPoint(
@@ -882,6 +969,105 @@ public sealed partial class CadSnapshotCompiler
             segment.StartParameter,
             segment.SweepParameter);
     }
+
+    private static CadBounds3D GetBezierBounds(
+        CadPoint3D start,
+        CadPoint3D firstControl,
+        CadPoint3D secondControl,
+        CadPoint3D end,
+        int degree)
+    {
+        CadBounds3D bounds = CadBounds3D.FromPoint(start).Include(end);
+        Span<double> derivative = stackalloc double[3];
+        Span<double> roots = stackalloc double[2];
+        for (int axis = 0; axis < 3; axis++)
+        {
+            double p0 = GetCoordinate(start, axis);
+            double p1 = GetCoordinate(firstControl, axis);
+            double p2 = degree == 2
+                ? GetCoordinate(end, axis)
+                : GetCoordinate(secondControl, axis);
+            derivative[0] = degree * (p1 - p0);
+            derivative[1] = degree * (p2 - p1);
+            int coefficientCount = 2;
+            if (degree == 3)
+            {
+                derivative[2] = degree * (GetCoordinate(end, axis) - p2);
+                coefficientCount = 3;
+            }
+            if (!CadBernsteinPolynomial.TryCollectRoots(
+                    derivative[..coefficientCount],
+                    roots,
+                    out int rootCount))
+            {
+                throw new ArgumentException(
+                    "A HATCH Bezier bound has numerically unresolved extrema.");
+            }
+            for (int rootIndex = 0; rootIndex < rootCount; rootIndex++)
+            {
+                double parameter = roots[rootIndex];
+                if (parameter <= 0.0 || parameter >= 1.0)
+                {
+                    continue;
+                }
+                bounds = bounds.Include(EvaluateBezier(
+                    start,
+                    firstControl,
+                    secondControl,
+                    end,
+                    degree,
+                    parameter));
+            }
+        }
+        return bounds;
+    }
+
+    private static void EvaluateHatchBezier(
+        CadHatchSegment segment,
+        double parameter,
+        out double x,
+        out double y)
+    {
+        CadPoint3D value = EvaluateBezier(
+            new CadPoint3D(segment.StartX, segment.StartY, 0.0),
+            new CadPoint3D(segment.CenterX, segment.CenterY, 0.0),
+            segment.Kind == CadHatchSegmentKind.CubicBezier
+                ? new CadPoint3D(segment.CosineAxisX, segment.CosineAxisY, 0.0)
+                : new CadPoint3D(segment.EndX, segment.EndY, 0.0),
+            new CadPoint3D(segment.EndX, segment.EndY, 0.0),
+            segment.Kind == CadHatchSegmentKind.QuadraticBezier ? 2 : 3,
+            parameter);
+        x = value.X;
+        y = value.Y;
+    }
+
+    private static CadPoint3D EvaluateBezier(
+        CadPoint3D start,
+        CadPoint3D firstControl,
+        CadPoint3D secondControl,
+        CadPoint3D end,
+        int degree,
+        double parameter)
+    {
+        double inverse = 1.0 - parameter;
+        if (degree == 2)
+        {
+            return (start * (inverse * inverse)) +
+                (firstControl * (2.0 * inverse * parameter)) +
+                (end * (parameter * parameter));
+        }
+        return (start * (inverse * inverse * inverse)) +
+            (firstControl * (3.0 * inverse * inverse * parameter)) +
+            (secondControl * (3.0 * inverse * parameter * parameter)) +
+            (end * (parameter * parameter * parameter));
+    }
+
+    private static double GetCoordinate(CadPoint3D point, int axis) => axis switch
+    {
+        0 => point.X,
+        1 => point.Y,
+        _ => point.Z,
+    };
 
     internal static CadPoint3D ToHatchWorldPoint(
         CadPoint3D worldOrigin,

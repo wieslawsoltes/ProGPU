@@ -38,6 +38,20 @@ internal static class CadHatchContainment
                     ref boundary);
                 continue;
             }
+            if (segment.Kind is CadHatchSegmentKind.QuadraticBezier or
+                CadHatchSegmentKind.CubicBezier)
+            {
+                if (!TryAccumulateBezierCrossings(
+                        segment,
+                        queryX,
+                        queryY,
+                        ref parity,
+                        ref boundary))
+                {
+                    return CadHatchPointContainment.Unsupported;
+                }
+                continue;
+            }
             if (!TryAccumulateArcCrossings(
                 segment.CenterX,
                 segment.CenterY,
@@ -105,6 +119,147 @@ internal static class CadHatchContainment
         {
             parity = !parity;
         }
+    }
+
+    private static bool TryAccumulateBezierCrossings(
+        CadHatchSegment segment,
+        double queryX,
+        double queryY,
+        ref bool parity,
+        ref bool boundary)
+    {
+        int degree = segment.Kind == CadHatchSegmentKind.QuadraticBezier ? 2 : 3;
+        Span<CadHomogeneousPoint> controls = stackalloc CadHomogeneousPoint[4];
+        FillBezierControls(segment, controls[..(degree + 1)]);
+        double scale = Math.Max(
+            1.0,
+            Math.Max(
+                Math.Max(Math.Abs(queryX), Math.Abs(queryY)),
+                MaxBezierCoordinateMagnitude(controls[..(degree + 1)])));
+        double tolerance = scale * 1e-11;
+        Span<double> coefficients = stackalloc double[4];
+        double coefficientScale = 0.0;
+        for (int i = 0; i <= degree; i++)
+        {
+            coefficients[i] = controls[i].Y - queryY;
+            coefficientScale = Math.Max(coefficientScale, Math.Abs(coefficients[i]));
+        }
+        if (coefficientScale <= tolerance)
+        {
+            if (!CadSplineSelection.TryDistanceToBezier(
+                    controls[..(degree + 1)],
+                    new CadPoint3D(queryX, queryY, 0.0),
+                    out double horizontalDistance))
+            {
+                return false;
+            }
+            if (horizontalDistance <= tolerance)
+            {
+                boundary = true;
+            }
+            return true;
+        }
+        Span<double> roots = stackalloc double[3];
+        if (!CadBernsteinPolynomial.TryCollectRoots(
+                coefficients[..(degree + 1)],
+                roots,
+                out int rootCount))
+        {
+            return false;
+        }
+        for (int rootIndex = 0; rootIndex < rootCount; rootIndex++)
+        {
+            double parameter = Math.Clamp(roots[rootIndex], 0.0, 1.0);
+            CadPoint3D point = CadRationalBezier
+                .EvaluateHomogeneous(controls[..(degree + 1)], parameter)
+                .Cartesian;
+            if (Math.Abs(point.X - queryX) <= tolerance)
+            {
+                boundary = true;
+                continue;
+            }
+            double derivativeY = EvaluateBezierDerivativeY(
+                controls[..(degree + 1)],
+                parameter);
+            if (Math.Abs(derivativeY) <= tolerance)
+            {
+                continue;
+            }
+            bool include = derivativeY > 0.0
+                ? parameter < 1.0 - 1e-12
+                : parameter > 1e-12;
+            if (!include)
+            {
+                continue;
+            }
+            if (point.X > queryX)
+            {
+                parity = !parity;
+            }
+        }
+        return true;
+    }
+
+    internal static void FillBezierControls(
+        CadHatchSegment segment,
+        Span<CadHomogeneousPoint> destination)
+    {
+        int degree = segment.Kind == CadHatchSegmentKind.QuadraticBezier ? 2 : 3;
+        if (destination.Length < degree + 1)
+        {
+            throw new ArgumentException(
+                "The HATCH Bezier destination is too small.",
+                nameof(destination));
+        }
+        destination[0] = CadHomogeneousPoint.FromCartesian(
+            new CadPoint3D(segment.StartX, segment.StartY, 0.0),
+            1.0);
+        destination[1] = CadHomogeneousPoint.FromCartesian(
+            new CadPoint3D(segment.CenterX, segment.CenterY, 0.0),
+            1.0);
+        if (degree == 3)
+        {
+            destination[2] = CadHomogeneousPoint.FromCartesian(
+                new CadPoint3D(segment.CosineAxisX, segment.CosineAxisY, 0.0),
+                1.0);
+        }
+        destination[degree] = CadHomogeneousPoint.FromCartesian(
+            new CadPoint3D(segment.EndX, segment.EndY, 0.0),
+            1.0);
+    }
+
+    private static double EvaluateBezierDerivativeY(
+        ReadOnlySpan<CadHomogeneousPoint> controls,
+        double parameter)
+    {
+        int degree = controls.Length - 1;
+        double inverse = 1.0 - parameter;
+        if (degree == 2)
+        {
+            return 2.0 *
+                ((inverse * (controls[1].Y - controls[0].Y)) +
+                 (parameter * (controls[2].Y - controls[1].Y)));
+        }
+        double first = controls[1].Y - controls[0].Y;
+        double second = controls[2].Y - controls[1].Y;
+        double third = controls[3].Y - controls[2].Y;
+        return 3.0 *
+            ((inverse * inverse * first) +
+             (2.0 * inverse * parameter * second) +
+             (parameter * parameter * third));
+    }
+
+    private static double MaxBezierCoordinateMagnitude(
+        ReadOnlySpan<CadHomogeneousPoint> controls)
+    {
+        double result = 0.0;
+        for (int i = 0; i < controls.Length; i++)
+        {
+            result = Math.Max(
+                result,
+                Math.Max(Math.Abs(controls[i].X), Math.Abs(controls[i].Y)));
+        }
+        return result;
     }
 
     private static bool TryAccumulateArcCrossings(

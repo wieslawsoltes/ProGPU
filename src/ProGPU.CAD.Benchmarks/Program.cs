@@ -19,6 +19,7 @@ int solidHatchCount = ReadNonNegativeInt("--solid-hatches", 0);
 int patternHatchCount = ReadNonNegativeInt("--pattern-hatches", 0);
 bool complexPatternGrammar = HasFlag("--complex-pattern-grammar");
 bool hatchIslandStyles = HasFlag("--hatch-island-styles");
+bool hatchSplineEdges = HasFlag("--hatch-spline-edges");
 bool decorateText = HasFlag("--text-decorations");
 bool decorateShxText = HasFlag("--shx-decorations");
 bool lowerLineTypes = HasFlag("--linetypes");
@@ -90,6 +91,11 @@ if (hatchIslandStyles && solidHatchCount == 0 && patternHatchCount == 0)
     throw new ArgumentException(
         "--hatch-island-styles requires a positive solid or patterned HATCH count.");
 }
+if (hatchSplineEdges && solidHatchCount == 0 && patternHatchCount == 0)
+{
+    throw new ArgumentException(
+        "--hatch-spline-edges requires a positive solid or patterned HATCH count.");
+}
 
 CadDocumentSession session = CreateDocument(
     entityCount,
@@ -103,6 +109,7 @@ CadDocumentSession session = CreateDocument(
     patternHatchCount,
     complexPatternGrammar,
     hatchIslandStyles,
+    hatchSplineEdges,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -239,6 +246,7 @@ var report = new CadBenchmarkReport(
     patternHatchCount,
     complexPatternGrammar,
     hatchIslandStyles,
+    hatchSplineEdges,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -337,6 +345,7 @@ CadDocumentSession CreateDocument(
     int patternedHatchCount,
     bool useComplexPatternGrammar,
     bool useHatchIslandStyles,
+    bool useHatchSplineEdges,
     bool decorateTextRuns,
     bool decorateShxTextRuns,
     bool useLineTypes,
@@ -623,11 +632,13 @@ CadDocumentSession CreateDocument(
                         : HatchStyleType.Ignore
                     : HatchStyleType.Normal,
             };
-            hatch.Paths.Add(CreateHatchLoop(
-                (x, y),
-                (x + 20, y),
-                (x + 20, y + 20),
-                (x, y + 20)));
+            hatch.Paths.Add(useHatchSplineEdges
+                ? CreateHatchSplineCapLoop(x, y)
+                : CreateHatchLoop(
+                    (x, y),
+                    (x + 20, y),
+                    (x + 20, y + 20),
+                    (x, y + 20)));
             hatch.Paths.Add(CreateHatchLoop(
                 (x + 7, y + 7),
                 (x + 13, y + 7),
@@ -677,11 +688,13 @@ CadDocumentSession CreateDocument(
                     DashLengths = { 2.0, -1.0 },
                 });
             }
-            hatch.Paths.Add(CreateHatchLoop(
-                (x, y),
-                (x + 20, y),
-                (x + 20, y + 20),
-                (x, y + 20)));
+            hatch.Paths.Add(useHatchSplineEdges
+                ? CreateHatchSplineCapLoop(x, y)
+                : CreateHatchLoop(
+                    (x, y),
+                    (x + 20, y),
+                    (x + 20, y + 20),
+                    (x, y + 20)));
             hatch.Paths.Add(CreateHatchLoop(
                 (x + 7, y + 7),
                 (x + 13, y + 7),
@@ -710,6 +723,26 @@ Hatch.BoundaryPath CreateHatchLoop(params (double X, double Y)[] vertices)
     }
     var path = new Hatch.BoundaryPath();
     path.Edges.Add(polyline);
+    return path;
+}
+
+Hatch.BoundaryPath CreateHatchSplineCapLoop(double x, double y)
+{
+    var spline = new Hatch.BoundaryPath.Spline { Degree = 3 };
+    spline.ControlPoints.AddRange([
+        new XYZ(x, y, 0),
+        new XYZ(x, y + 20, 0),
+        new XYZ(x + 20, y + 20, 0),
+        new XYZ(x + 20, y, 0),
+    ]);
+    spline.Knots.AddRange([0, 0, 0, 0, 1, 1, 1, 1]);
+    var path = new Hatch.BoundaryPath();
+    path.Edges.Add(spline);
+    path.Edges.Add(new Hatch.BoundaryPath.Line
+    {
+        Start = new XY(x + 20, y),
+        End = new XY(x, y),
+    });
     return path;
 }
 
@@ -1161,6 +1194,7 @@ internal sealed record CadBenchmarkReport(
     int PatternHatchCount,
     bool ComplexPatternGrammar,
     bool HatchIslandStyles,
+    bool HatchSplineEdges,
     bool DecoratedText,
     bool DecoratedShxText,
     bool LoweredLineTypes,

@@ -1,5 +1,20 @@
 namespace ProGPU.CAD;
 
+internal interface ICadCanonicalSpline
+{
+    int Degree { get; }
+
+    int ControlPointCount { get; }
+
+    bool IsPeriodic { get; }
+
+    CadPoint3D GetControlPoint(int index);
+
+    double GetWeight(int index);
+
+    double GetKnot(int index);
+}
+
 /// <summary>
 /// Provides one validated standard B-spline view over ordinary, compact
 /// periodic, and already cyclically extended CAD spline records.
@@ -13,7 +28,7 @@ namespace ProGPU.CAD;
 /// ordinary knot/control representation and expose a separate closing-edge
 /// flag to callers that own path topology.
 /// </remarks>
-internal readonly struct CadCanonicalSpline
+internal readonly struct CadCanonicalSpline : ICadCanonicalSpline
 {
     private readonly CadDocumentSnapshot _snapshot;
     private readonly CadSplinePrimitive _spline;
@@ -31,6 +46,8 @@ internal readonly struct CadCanonicalSpline
     public int ControlPointCount => _spline.IsPeriodic
         ? checked(_spline.ControlPointCount + _spline.Degree)
         : _spline.ControlPointCount;
+
+    public bool IsPeriodic => _spline.IsPeriodic;
 
     public int KnotCount => _spline.IsPeriodic
         ? checked(_spline.ControlPointCount + (2 * _spline.Degree) + 1)

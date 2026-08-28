@@ -891,6 +891,21 @@ public sealed class CadPlanSceneCompiler
                 new Vector2(ToFloat(segment.EndX), ToFloat(segment.EndY))));
             return;
         }
+        if (segment.Kind == CadHatchSegmentKind.QuadraticBezier)
+        {
+            figure.Segments.Add(new QuadraticBezierSegment(
+                new Vector2(ToFloat(segment.CenterX), ToFloat(segment.CenterY)),
+                new Vector2(ToFloat(segment.EndX), ToFloat(segment.EndY))));
+            return;
+        }
+        if (segment.Kind == CadHatchSegmentKind.CubicBezier)
+        {
+            figure.Segments.Add(new CubicBezierSegment(
+                new Vector2(ToFloat(segment.CenterX), ToFloat(segment.CenterY)),
+                new Vector2(ToFloat(segment.CosineAxisX), ToFloat(segment.CosineAxisY)),
+                new Vector2(ToFloat(segment.EndX), ToFloat(segment.EndY))));
+            return;
+        }
 
         double radiusX = new CadPoint3D(
             segment.CosineAxisX,

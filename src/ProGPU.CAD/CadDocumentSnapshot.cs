@@ -244,11 +244,15 @@ public enum CadHatchSegmentKind : byte
 {
     Line = 0,
     EllipticArc = 1,
+    QuadraticBezier = 2,
+    CubicBezier = 3,
 }
 
 /// <summary>
 /// One double-precision HATCH boundary segment in the owning primitive's local
 /// OCS plane. Elliptic arcs use center + cosine-axis*cos(t) + sine-axis*sin(t).
+/// Quadratic Beziers use CenterX/CenterY as their control point; cubic Beziers
+/// additionally use CosineAxisX/CosineAxisY as their second control point.
 /// </summary>
 public readonly record struct CadHatchSegment(
     CadHatchSegmentKind Kind,

@@ -25,6 +25,7 @@ public sealed class CadSnapshotOptions
     public const int DefaultMaxHatchPatternFamilies = 1_000_000;
     public const int DefaultMaxHatchPatternDashes = 6_000_000;
     public const int DefaultMaxHatchTopologyVisits = 10_000_000;
+    public const int DefaultMaxHatchSplineSourceValues = 10_000_000;
 
     public double DefaultLineWeightMillimeters { get; init; } = 0.25;
     public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
@@ -41,6 +42,7 @@ public sealed class CadSnapshotOptions
     public int MaxHatchPatternFamilies { get; init; } = DefaultMaxHatchPatternFamilies;
     public int MaxHatchPatternDashes { get; init; } = DefaultMaxHatchPatternDashes;
     public int MaxHatchTopologyVisits { get; init; } = DefaultMaxHatchTopologyVisits;
+    public int MaxHatchSplineSourceValues { get; init; } = DefaultMaxHatchSplineSourceValues;
     public bool IncludeNonPlottableLayers { get; init; } = true;
     public ICadTextFontResolver? TextFontResolver { get; init; }
     public ICadShxFontResolver? ShxFontResolver { get; init; }
@@ -141,6 +143,8 @@ public sealed partial class CadSnapshotCompiler
         int invalidCount = 0;
         var hatchTopologyBudget = new CadHatchTopologyBudget(
             options.MaxHatchTopologyVisits);
+        var hatchSplineSourceBudget = new CadHatchSplineSourceBudget(
+            options.MaxHatchSplineSourceValues);
         var activeBlocks = new HashSet<BlockRecord>(ReferenceEqualityComparer.Instance);
         double globalLineTypeScale = document.Header.LineTypeScale;
         if (!double.IsFinite(globalLineTypeScale) || globalLineTypeScale <= 0.0)
@@ -364,7 +368,8 @@ public sealed partial class CadSnapshotCompiler
                         hatchPatternDashes,
                         hatchLoops,
                         hatchSegments,
-                        hatchTopologyBudget),
+                        hatchTopologyBudget,
+                        hatchSplineSourceBudget),
                     TextEntity text => CompileText(
                         text,
                         rootHandle,
@@ -3261,6 +3266,9 @@ public sealed partial class CadSnapshotCompiler
             1);
         ArgumentOutOfRangeException.ThrowIfLessThan(
             options.MaxHatchTopologyVisits,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxHatchSplineSourceValues,
             1);
     }
 

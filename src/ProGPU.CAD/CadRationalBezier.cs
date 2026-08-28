@@ -59,24 +59,59 @@ internal readonly record struct CadHomogeneousPoint(
 /// Extracts exact rational Bezier spans from one validated canonical NURBS.
 /// </summary>
 /// <remarks>
-/// For degree P, one extraction performs at most 2P knot insertions and costs
-/// O(P^2) time with O(P) bounded stack storage. Positive weights remain
-/// positive under knot insertion and de Casteljau subdivision. The helper is
-/// shared by retained linetype lowering and geometry selection so both consume
-/// the same open, closed, and periodic curve topology.
+/// For degree P, one extraction retains the bounded two-sided control window,
+/// performs at most 2P knot insertions, and costs O(P^2) time with O(P) bounded
+/// stack storage. Positive weights remain positive under knot insertion and de
+/// Casteljau subdivision. The helper is shared by retained linetype lowering,
+/// HATCH boundary compilation, and geometry selection so all consume the same
+/// open, closed, and periodic curve topology.
 /// </remarks>
 internal static class CadRationalBezier
 {
     private const int MaximumDegree = 10;
     private const int MaximumExtractionControlPointCount =
-        (MaximumDegree * 3) + 3;
+        (MaximumDegree * 4) + 1;
     private const int MaximumExtractionKnotCount =
-        (MaximumDegree * 4) + 4;
+        (MaximumDegree * 5) + 2;
 
     public static bool TryExtractSpan(
         in CadCanonicalSpline canonical,
         int sourceSpan,
+        Span<CadHomogeneousPoint> destination) =>
+        TryExtractSpan<CadCanonicalSpline>(canonical, sourceSpan, destination);
+
+    public static bool TryExtractSpan<TSpline>(
+        in TSpline canonical,
+        int sourceSpan,
         Span<CadHomogeneousPoint> destination)
+        where TSpline : struct, ICadCanonicalSpline
+    {
+        if (!TryExtractSpanCore(canonical, sourceSpan, destination))
+        {
+            return false;
+        }
+        if (canonical.IsPeriodic &&
+            sourceSpan == canonical.ControlPointCount - 1)
+        {
+            Span<CadHomogeneousPoint> firstSpan =
+                stackalloc CadHomogeneousPoint[MaximumDegree + 1];
+            if (!TryExtractSpanCore(
+                    canonical,
+                    canonical.Degree,
+                    firstSpan[..(canonical.Degree + 1)]))
+            {
+                return false;
+            }
+            destination[canonical.Degree] = firstSpan[0];
+        }
+        return true;
+    }
+
+    private static bool TryExtractSpanCore<TSpline>(
+        in TSpline canonical,
+        int sourceSpan,
+        Span<CadHomogeneousPoint> destination)
+        where TSpline : struct, ICadCanonicalSpline
     {
         int degree = canonical.Degree;
         if (degree < 1 || degree > MaximumDegree ||
@@ -99,18 +134,22 @@ internal static class CadRationalBezier
             stackalloc CadHomogeneousPoint[MaximumExtractionControlPointCount];
         Span<double> knotsA = stackalloc double[MaximumExtractionKnotCount];
         Span<double> knotsB = stackalloc double[MaximumExtractionKnotCount];
-        int pointCount = degree + 1;
-        int knotCount = (degree * 2) + 2;
-        for (int i = 0; i <= degree; i++)
+        int firstControlPoint = sourceSpan - degree;
+        int lastControlPoint = Math.Min(
+            canonical.ControlPointCount - 1,
+            sourceSpan + degree);
+        int pointCount = lastControlPoint - firstControlPoint + 1;
+        int knotCount = pointCount + degree + 1;
+        for (int i = 0; i < pointCount; i++)
         {
-            int sourceIndex = sourceSpan - degree + i;
+            int sourceIndex = firstControlPoint + i;
             pointsA[i] = CadHomogeneousPoint.FromCartesian(
                 canonical.GetControlPoint(sourceIndex),
                 canonical.GetWeight(sourceIndex));
         }
         for (int i = 0; i < knotCount; i++)
         {
-            knotsA[i] = canonical.GetKnot(sourceSpan - degree + i);
+            knotsA[i] = canonical.GetKnot(firstControlPoint + i);
         }
 
         Span<CadHomogeneousPoint> currentPoints = pointsA;

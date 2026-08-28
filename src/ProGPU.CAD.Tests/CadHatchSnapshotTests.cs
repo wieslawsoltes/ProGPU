@@ -219,6 +219,333 @@ public sealed class CadHatchSnapshotTests
     }
 
     [Fact]
+    public void CubicSplineEdgeRetainsExactBoundsFillSelectionAndNativeOutput()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add exact cubic spline hatch", document =>
+        {
+            Hatch hatch = CreateSolidHatch();
+            hatch.Paths.Add(CreateCubicSplineCapLoop());
+            document.Entities.Add(hatch);
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadEntityHeader entity = Assert.Single(snapshot.Entities.ToArray());
+        CadHatchPrimitive hatch = Assert.Single(snapshot.Hatches.ToArray());
+        CadHatchSegment[] retained = snapshot.HatchSegments.ToArray();
+        Assert.Equal(
+            new[] { CadHatchSegmentKind.CubicBezier, CadHatchSegmentKind.Line },
+            retained.Select(segment => segment.Kind));
+        Assert.True(hatch.HasCurvedSegments);
+        AssertPoint(new CadPoint3D(0, 0, 0), entity.Bounds.Min);
+        AssertPoint(new CadPoint3D(10, 7.5, 0), entity.Bounds.Max);
+
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands.ToArray());
+        PathFigure figure = Assert.Single(command.Path!.Figures);
+        var cubic = Assert.IsType<CubicBezierSegment>(figure.Segments[0]);
+        Assert.Equal(new System.Numerics.Vector2(0, 10), cubic.ControlPoint1);
+        Assert.Equal(new System.Numerics.Vector2(10, 10), cubic.ControlPoint2);
+        Assert.Equal(new System.Numerics.Vector2(10, 0), cubic.Point);
+        Assert.IsType<LineSegment>(figure.Segments[1]);
+
+        CadSelectionCandidate candidate = Candidate(snapshot, entity);
+        Assert.Equal(CadPointHitStatus.Hit, PointStatus(snapshot, candidate, 5, 2));
+        Assert.Equal(CadPointHitStatus.Hit, PointStatus(snapshot, candidate, 5, 7.5));
+        Assert.Equal(CadPointHitStatus.Miss, PointStatus(snapshot, candidate, 5, 8));
+        CadPointHitResult proximity = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(5, 7.6, 0),
+            0.11);
+        Assert.Equal(CadPointHitStatus.Hit, proximity.Status);
+        Assert.Equal(0.1, proximity.Distance, 10);
+        CadPointHitResult proximityMiss = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(5, 7.6, 0),
+            0.05);
+        Assert.Equal(CadPointHitStatus.Miss, proximityMiss.Status);
+        Assert.Equal(0.1, proximityMiss.Distance, 10);
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            CadSelectionHitTester.HitTestBounds(
+                snapshot,
+                candidate,
+                new CadBounds3D(
+                    new CadPoint3D(4.9, 7.4, -1),
+                    new CadPoint3D(5.1, 7.6, 1)),
+                CadBoundsSelectionMode.Crossing).Status);
+
+        using GpuPicture picture = scene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            96U,
+            scene.ContentGeneration,
+            out NativeCompiledPicture? nativePicture,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(nativePicture);
+
+        using CadPrintPlan printPlan = new CadPrintPlanCompiler().Compile(snapshot);
+        using GpuPicture page = printPlan.CreatePagePicture();
+        Assert.Single(page.GetCommand(1).Picture!.Commands.ToArray());
+    }
+
+    [Fact]
+    public void PatternedSplineEdgeRetainsProceduralBrushAndNativeOutput()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add patterned spline-edge hatch", document =>
+        {
+            Hatch hatch = CreatePatternedHatch(
+                "SPLINE_PATTERN",
+                HatchPatternType.PatternFill,
+                isDouble: false,
+                angle: 0.0,
+                basePoint: new XY(0, 2),
+                offset: new XY(0, 4));
+            hatch.Paths.Add(CreateCubicSplineCapLoop());
+            document.Entities.Add(hatch);
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands.ToArray());
+        Assert.IsType<HatchPatternBrush>(command.Brush);
+        Assert.IsType<CubicBezierSegment>(command.Path!.Figures[0].Segments[0]);
+        using GpuPicture picture = scene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            96U,
+            scene.ContentGeneration,
+            out NativeCompiledPicture? nativePicture,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(nativePicture);
+    }
+
+    [Fact]
+    public void QuadraticAndUniformRationalSplineEdgesUseExactPolynomialSegments()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add exact quadratic spline hatches", document =>
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                double x = i * 20.0;
+                Hatch hatch = CreateSolidHatch();
+                var loop = new Hatch.BoundaryPath();
+                var spline = new Hatch.BoundaryPath.Spline
+                {
+                    Degree = 2,
+                    IsRational = i == 1,
+                };
+                double weight = i == 1 ? 2.0 : 0.0;
+                spline.ControlPoints.AddRange([
+                    new XYZ(x, 0, weight),
+                    new XYZ(x + 5, 10, weight),
+                    new XYZ(x + 10, 0, weight),
+                ]);
+                spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+                loop.Edges.Add(spline);
+                loop.Edges.Add(new Hatch.BoundaryPath.Line
+                {
+                    Start = new XY(x + 10, 0),
+                    End = new XY(x, 0),
+                });
+                hatch.Paths.Add(loop);
+                document.Entities.Add(hatch);
+            }
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session);
+        Assert.Equal(2, snapshot.Hatches.Length);
+        Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Equal(
+            new[]
+            {
+                CadHatchSegmentKind.QuadraticBezier,
+                CadHatchSegmentKind.Line,
+                CadHatchSegmentKind.QuadraticBezier,
+                CadHatchSegmentKind.Line,
+            },
+            snapshot.HatchSegments.ToArray().Select(segment => segment.Kind));
+        Assert.Equal(5.0, snapshot.Entities.Span[0].Bounds.Max.Y, 12);
+        Assert.Equal(5.0, snapshot.Entities.Span[1].Bounds.Max.Y, 12);
+
+        RenderCommand[] commands = new CadPlanSceneCompiler()
+            .Compile(snapshot)
+            .DrawingContext.Commands.ToArray();
+        Assert.All(commands, command =>
+            Assert.IsType<QuadraticBezierSegment>(command.Path!.Figures[0].Segments[0]));
+    }
+
+    [Fact]
+    public void HatchAndStandaloneSplineShareIdenticalExactBoundaryEvaluation()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add differential spline records", document =>
+        {
+            var spline = new Spline { Degree = 3 };
+            spline.ControlPoints.AddRange([
+                new XYZ(0, 0, 0),
+                new XYZ(0, 10, 0),
+                new XYZ(10, 10, 0),
+                new XYZ(10, 0, 0),
+            ]);
+            spline.Knots.AddRange([0, 0, 0, 0, 1, 1, 1, 1]);
+            document.Entities.Add(spline);
+            Hatch hatch = CreateSolidHatch();
+            hatch.Paths.Add(CreateCubicSplineCapLoop());
+            document.Entities.Add(hatch);
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session);
+        Assert.Single(snapshot.Splines.ToArray());
+        CadEntityHeader standalone = snapshot.Entities.Span[0];
+        CadEntityHeader hatch = snapshot.Entities.Span[1];
+        foreach (CadPoint3D boundaryPoint in new[]
+        {
+            new CadPoint3D(0, 0, 0),
+            new CadPoint3D(5, 7.5, 0),
+            new CadPoint3D(10, 0, 0),
+        })
+        {
+            Assert.Equal(
+                CadPointHitStatus.Hit,
+                CadSelectionHitTester.HitTestPoint(
+                    snapshot,
+                    Candidate(snapshot, standalone),
+                    boundaryPoint,
+                    1e-9).Status);
+            Assert.Equal(
+                CadPointHitStatus.Hit,
+                CadSelectionHitTester.HitTestPoint(
+                    snapshot,
+                    Candidate(snapshot, hatch, entityIndex: 1),
+                    boundaryPoint,
+                    1e-9).Status);
+        }
+    }
+
+    [Fact]
+    public void OuterIslandClassificationUsesExactSplineContainment()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add spline outer-island hatch", document =>
+        {
+            Hatch hatch = CreateSolidHatch();
+            hatch.Style = HatchStyleType.Outer;
+            hatch.Paths.Add(CreateCubicSplineCapLoop());
+            hatch.Paths.Add(CreatePolylineLoop(
+                (4.0, 1.0, 0.0),
+                (6.0, 1.0, 0.0),
+                (6.0, 3.0, 0.0),
+                (4.0, 3.0, 0.0)));
+            document.Entities.Add(hatch);
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session);
+        Assert.Equal(
+            new[] { true, true },
+            snapshot.HatchLoops.ToArray().Select(loop => loop.ContributesToFill));
+        CadSelectionCandidate candidate = Candidate(snapshot, snapshot.Entities.Span[0]);
+        Assert.Equal(CadPointHitStatus.Hit, PointStatus(snapshot, candidate, 2, 2));
+        Assert.Equal(CadPointHitStatus.Miss, PointStatus(snapshot, candidate, 5, 2));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PeriodicPolynomialSplineEdgeRetainsExactClosedTopology(bool expandedKnots)
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add periodic spline hatch", document =>
+        {
+            Hatch hatch = CreateSolidHatch();
+            var loop = new Hatch.BoundaryPath();
+            var spline = new Hatch.BoundaryPath.Spline
+            {
+                Degree = 2,
+                IsPeriodic = true,
+            };
+            spline.ControlPoints.AddRange([
+                new XYZ(0, 0, 0),
+                new XYZ(10, 0, 0),
+                new XYZ(10, 10, 0),
+                new XYZ(0, 10, 0),
+            ]);
+            spline.Knots.AddRange(expandedKnots
+                ? [-2, -1, 0, 1, 2, 3, 4, 5, 6]
+                : [0, 1, 2, 3, 4]);
+            loop.Edges.Add(spline);
+            hatch.Paths.Add(loop);
+            document.Entities.Add(hatch);
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session);
+        Assert.True(
+            snapshot.HatchLoops.Length == 1,
+            string.Join(Environment.NewLine, snapshot.Diagnostics.ToArray().Select(item => item.Message)));
+        CadHatchLoop loop = snapshot.HatchLoops.Span[0];
+        Assert.Equal(4, loop.SegmentCount);
+        Assert.All(snapshot.HatchSegments.ToArray(), segment =>
+            Assert.Equal(CadHatchSegmentKind.QuadraticBezier, segment.Kind));
+        Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Equal(
+            CadPointHitStatus.Hit,
+            PointStatus(snapshot, Candidate(snapshot, snapshot.Entities.Span[0]), 5, 5));
+    }
+
+    [Fact]
+    public void NonUniformRationalAndHigherDegreeSplineEdgesFailTransactionally()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add unsupported spline hatches", document =>
+        {
+            Hatch rational = CreateSolidHatch();
+            Hatch.BoundaryPath rationalLoop = CreateCubicSplineCapLoop();
+            var rationalEdge = (Hatch.BoundaryPath.Spline)rationalLoop.Edges[0];
+            rationalEdge.IsRational = true;
+            for (int i = 0; i < rationalEdge.ControlPoints.Count; i++)
+            {
+                XYZ point = rationalEdge.ControlPoints[i];
+                rationalEdge.ControlPoints[i] = new XYZ(point.X, point.Y, 1);
+            }
+            rationalEdge.ControlPoints[1] = new XYZ(0, 10, 2);
+            rational.Paths.Add(rationalLoop);
+            document.Entities.Add(rational);
+
+            Hatch highDegree = CreateSolidHatch();
+            var highDegreeLoop = new Hatch.BoundaryPath();
+            var edge = new Hatch.BoundaryPath.Spline { Degree = 4 };
+            edge.ControlPoints.AddRange([
+                new XYZ(20, 0, 0),
+                new XYZ(22, 5, 0),
+                new XYZ(25, 8, 0),
+                new XYZ(28, 5, 0),
+                new XYZ(30, 0, 0),
+            ]);
+            edge.Knots.AddRange([0, 0, 0, 0, 0, 1, 1, 1, 1, 1]);
+            highDegreeLoop.Edges.Add(edge);
+            highDegree.Paths.Add(highDegreeLoop);
+            document.Entities.Add(highDegree);
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session);
+        Assert.Empty(snapshot.Entities.ToArray());
+        Assert.Empty(snapshot.Hatches.ToArray());
+        Assert.Empty(snapshot.HatchLoops.ToArray());
+        Assert.Empty(snapshot.HatchSegments.ToArray());
+        Assert.Equal(2, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
+            diagnostic.Message.Contains("Non-uniform rational HATCH spline", StringComparison.Ordinal));
+        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
+            diagnostic.Message.Contains("Degree-4 HATCH spline", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void OuterIslandClassificationIsPathOrderIndependentAcrossDisconnectedRegions()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
@@ -728,7 +1055,7 @@ public sealed class CadHatchSnapshotTests
     }
 
     [Fact]
-    public void PatternGrammarAndOuterStyleRetainWhileSplineBoundaryIsTransactional()
+    public void PatternGrammarAndOuterStyleRetainWhileHighDegreeSplineBoundaryIsTransactional()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
         session.Edit("Add unsupported hatches", document =>
@@ -781,14 +1108,16 @@ public sealed class CadHatchSnapshotTests
 
             Hatch spline = CreateSolidHatch();
             var splineLoop = new Hatch.BoundaryPath();
-            var edge = new Hatch.BoundaryPath.Spline { Degree = 2 };
+            var edge = new Hatch.BoundaryPath.Spline { Degree = 4 };
             edge.ControlPoints.AddRange(
             [
                 new XYZ(4, 0, 1),
                 new XYZ(5, 1, 1),
+                new XYZ(5.5, 0.5, 1),
+                new XYZ(5, 0, 1),
                 new XYZ(4, 0, 1),
             ]);
-            edge.Knots.AddRange([0.0, 0.0, 0.0, 1.0, 1.0, 1.0]);
+            edge.Knots.AddRange([0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
             splineLoop.Edges.Add(edge);
             spline.Paths.Add(splineLoop);
             document.Entities.Add(spline);
@@ -805,7 +1134,8 @@ public sealed class CadHatchSnapshotTests
         Assert.Equal(12, snapshot.HatchSegments.Length);
         Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Equal(0, snapshot.Statistics.InvalidEntityCount);
-        Assert.Contains(snapshot.Diagnostics.ToArray(), item => item.Message.Contains("Spline HATCH", StringComparison.Ordinal));
+        Assert.Contains(snapshot.Diagnostics.ToArray(), item =>
+            item.Message.Contains("Degree-4 HATCH spline", StringComparison.Ordinal));
         RenderCommand[] commands = new CadPlanSceneCompiler()
             .Compile(snapshot)
             .DrawingContext.Commands.ToArray();
@@ -854,6 +1184,36 @@ public sealed class CadHatchSnapshotTests
         Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Contains(snapshot.Diagnostics.ToArray(), item =>
             item.Message.Contains("3-segment HATCH document limit", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void HatchSplineSourceBudgetIsDocumentWideAndRejectsWithoutLeakingStreams()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add source-budgeted spline hatches", document =>
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                Hatch hatch = CreateSolidHatch();
+                Hatch.BoundaryPath loop = CreateCubicSplineCapLoop(i * 20.0);
+                hatch.Paths.Add(loop);
+                document.Entities.Add(hatch);
+            }
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions { MaxHatchSplineSourceValues = 30 });
+
+        Assert.Single(snapshot.Entities.ToArray());
+        Assert.Single(snapshot.Hatches.ToArray());
+        Assert.Single(snapshot.HatchLoops.ToArray());
+        Assert.Equal(2, snapshot.HatchSegments.Length);
+        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
+            diagnostic.Message.Contains(
+                "30-value document source limit",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1171,6 +1531,42 @@ public sealed class CadHatchSnapshotTests
     }
 
     [Fact]
+    public async Task PolynomialSplineHatchEdgeSurvivesDxfSaveReload()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew(ACadVersion.AC1032);
+        session.Edit("Add saved spline-edge hatch", document =>
+        {
+            Hatch hatch = CreateSolidHatch();
+            hatch.Paths.Add(CreateCubicSplineCapLoop());
+            document.Entities.Add(hatch);
+        });
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+        await store.SaveAsync(
+            session,
+            stream,
+            CadDocumentFormat.Dxf,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            CadDocumentFormat.Dxf,
+            sourceName: "polynomial-spline-edge-hatch-roundtrip.dxf");
+
+        CadDocumentSnapshot snapshot = Compile(loaded.Session);
+        Assert.Equal(
+            new[] { CadHatchSegmentKind.CubicBezier, CadHatchSegmentKind.Line },
+            snapshot.HatchSegments.ToArray().Select(segment => segment.Kind));
+        Assert.Equal(7.5, snapshot.Entities.Span[0].Bounds.Max.Y, 12);
+        Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.IsType<CubicBezierSegment>(Assert.Single(
+            new CadPlanSceneCompiler()
+                .Compile(snapshot)
+                .DrawingContext.Commands.ToArray())
+            .Path!.Figures[0].Segments[0]);
+    }
+
+    [Fact]
     public async Task SolidHatchSurvivesDxfSaveReloadAndRetainsZeroAllocationLineSelection()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew(ACadVersion.AC1032);
@@ -1280,6 +1676,27 @@ public sealed class CadHatchSnapshotTests
         var path = new Hatch.BoundaryPath();
         path.Edges.Add(polyline);
         return path;
+    }
+
+    private static Hatch.BoundaryPath CreateCubicSplineCapLoop(double x = 0.0)
+    {
+        var spline = new Hatch.BoundaryPath.Spline { Degree = 3 };
+        spline.ControlPoints.AddRange([
+            new XYZ(x, 0, 0),
+            new XYZ(x, 10, 0),
+            new XYZ(x + 10, 10, 0),
+            new XYZ(x + 10, 0, 0),
+        ]);
+        spline.Knots.AddRange([0, 0, 0, 0, 1, 1, 1, 1]);
+
+        var loop = new Hatch.BoundaryPath();
+        loop.Edges.Add(spline);
+        loop.Edges.Add(new Hatch.BoundaryPath.Line
+        {
+            Start = new XY(x + 10, 0),
+            End = new XY(x, 0),
+        });
+        return loop;
     }
 
     private static void AddThreeNestedRectangleLoops(Hatch hatch, double x)
