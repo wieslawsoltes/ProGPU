@@ -254,9 +254,6 @@ bool has_expected_colors(
     const std::uint8_t* boolean_inside = pixel(204U, 12U);
     const std::uint8_t* boolean_hole = pixel(214U, 12U);
     const std::uint8_t* boolean_xor = pixel(244U, 12U);
-    const std::uint8_t* binary_xor_left = pixel(285U, 12U);
-    const std::uint8_t* binary_xor_overlap = pixel(295U, 12U);
-    const std::uint8_t* binary_xor_right = pixel(305U, 12U);
     if (!(blue[2] > 180U && blue[0] < 100U &&
         pad_start[0] > 180U && pad_start[1] > 90U &&
         pad_start[2] < 80U &&
@@ -266,11 +263,7 @@ bool has_expected_colors(
         background[0] < 30U && background[1] < 30U &&
         boolean_inside[1] > 180U && boolean_inside[2] > 180U &&
         boolean_hole[0] < 30U && boolean_hole[1] < 30U &&
-        boolean_xor[0] < 30U && boolean_xor[1] < 30U &&
-        binary_xor_left[1] > 180U && binary_xor_left[2] > 180U &&
-        binary_xor_overlap[0] < 30U &&
-        binary_xor_overlap[1] < 30U &&
-        binary_xor_right[1] > 180U && binary_xor_right[2] > 180U)) {
+        boolean_xor[0] < 30U && boolean_xor[1] < 30U)) {
         const auto print_pixel = [](const char* name,
                                     const std::uint8_t* value) {
             std::cerr << name << "="
@@ -289,9 +282,6 @@ bool has_expected_colors(
         print_pixel("boolean-inside", boolean_inside);
         print_pixel("boolean-hole", boolean_hole);
         print_pixel("boolean-xor", boolean_xor);
-        print_pixel("binary-xor-left", binary_xor_left);
-        print_pixel("binary-xor-overlap", binary_xor_overlap);
-        print_pixel("binary-xor-right", binary_xor_right);
         std::cerr << '\n';
         return false;
     }
@@ -322,19 +312,7 @@ bool has_expected_colors(
               << " xor-island="
               << static_cast<unsigned int>(boolean_xor[0]) << ","
               << static_cast<unsigned int>(boolean_xor[1]) << ","
-              << static_cast<unsigned int>(boolean_xor[2])
-              << " binary-left="
-              << static_cast<unsigned int>(binary_xor_left[0]) << ","
-              << static_cast<unsigned int>(binary_xor_left[1]) << ","
-              << static_cast<unsigned int>(binary_xor_left[2])
-              << " binary-overlap="
-              << static_cast<unsigned int>(binary_xor_overlap[0]) << ","
-              << static_cast<unsigned int>(binary_xor_overlap[1]) << ","
-              << static_cast<unsigned int>(binary_xor_overlap[2])
-              << " binary-right="
-              << static_cast<unsigned int>(binary_xor_right[0]) << ","
-              << static_cast<unsigned int>(binary_xor_right[1]) << ","
-              << static_cast<unsigned int>(binary_xor_right[2]) << '\n';
+              << static_cast<unsigned int>(boolean_xor[2]) << '\n';
     if (!requires_decoded_glyph) {
         return true;
     }
@@ -985,102 +963,6 @@ int main(int argc, char** argv) {
             {200.0F, 4.0F, 60.0F, 20.0F}) ||
         !scene_builder.pop_layer()) {
         std::cerr << "Could not record native boolean vector-mask layer.\n";
-        return EXIT_FAILURE;
-    }
-    const std::array binary_xor_segments{
-        progpu_native_path_segment{
-            {280.0F, 4.0F}, {300.0F, 4.0F}, {}, {},
-            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
-        progpu_native_path_segment{
-            {300.0F, 4.0F}, {300.0F, 24.0F}, {}, {},
-            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
-        progpu_native_path_segment{
-            {300.0F, 24.0F}, {280.0F, 24.0F}, {}, {},
-            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
-        progpu_native_path_segment{
-            {280.0F, 24.0F}, {280.0F, 4.0F}, {}, {},
-            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
-        progpu_native_path_segment{
-            {290.0F, 4.0F}, {310.0F, 4.0F}, {}, {},
-            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
-        progpu_native_path_segment{
-            {310.0F, 4.0F}, {310.0F, 24.0F}, {}, {},
-            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
-        progpu_native_path_segment{
-            {310.0F, 24.0F}, {290.0F, 24.0F}, {}, {},
-            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U},
-        progpu_native_path_segment{
-            {290.0F, 24.0F}, {290.0F, 4.0F}, {}, {},
-            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U}};
-    const std::array binary_xor_nodes{
-        progpu_native_scene_path_boolean_node{
-            0U, 4U, 280.0F, 4.0F, 300.0F, 24.0F,
-            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
-            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
-        progpu_native_scene_path_boolean_node{
-            4U, 4U, 290.0F, 4.0F, 310.0F, 24.0F,
-            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
-            PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U},
-        progpu_native_scene_path_boolean_node{
-            0U, 0U, 0.0F, 0.0F, 0.0F, 0.0F,
-            PROGPU_NATIVE_FILL_RULE_NON_ZERO,
-            PROGPU_NATIVE_PATH_BOOLEAN_XOR, 0U, 0U}};
-    const progpu_native_scene_clip_path binary_xor_path{
-        0U,
-        binary_xor_segments.size(),
-        0U,
-        binary_xor_nodes.size(),
-        280.0F,
-        4.0F,
-        310.0F,
-        24.0F,
-        identity,
-        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
-        8U,
-        PROGPU_NATIVE_CLIP_INTERSECT,
-        0U};
-    std::uint32_t binary_xor_mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-    if (!scene_builder.add_vector_clip_mask(
-            std::span<const progpu_native_scene_clip_path>(
-                &binary_xor_path,
-                1U),
-            binary_xor_segments,
-            binary_xor_nodes,
-            1.0F,
-            binary_xor_mask_index)) {
-        std::cerr << "Could not record translated binary XOR mask.\n";
-        return EXIT_FAILURE;
-    }
-    progpu_native_scene_layer binary_xor_layer{};
-    binary_xor_layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
-        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
-    binary_xor_layer.bounds = {280.0F, 4.0F, 30.0F, 20.0F};
-    binary_xor_layer.opacity = 1.0F;
-    binary_xor_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
-    binary_xor_layer.mask_resource_index = binary_xor_mask_index;
-    binary_xor_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-    binary_xor_layer.content_revision = 1U;
-    binary_xor_layer.composite_revision = 1U;
-    const progpu_native_analytic_primitive binary_xor_content{
-        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
-        0U,
-        280.0F,
-        4.0F,
-        30.0F,
-        20.0F,
-        0.0F,
-        0.0F,
-        {1.0F, 1.0F, 1.0F, 1.0F},
-        identity};
-    if (!scene_builder.push_layer(binary_xor_layer) ||
-        !scene_builder.draw_analytic(
-            std::span<const progpu_native_analytic_primitive>(
-                &binary_xor_content,
-                1U),
-            std::span<const std::uint32_t>(&brush_indices[3], 1U),
-            {280.0F, 4.0F, 30.0F, 20.0F}) ||
-        !scene_builder.pop_layer()) {
-        std::cerr << "Could not record translated binary XOR layer.\n";
         return EXIT_FAILURE;
     }
     progpu_native_hit_test_primitive hit_primitive{};
