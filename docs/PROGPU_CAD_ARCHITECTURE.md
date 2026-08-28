@@ -868,6 +868,35 @@ consume the same retained glyph-run contract, so no paired native implementation
 change applies; matched native picture/pixel coverage remains the integration
 gate when the CAD differential suite lands.
 
+## Typed MTEXT content boundary
+
+`CadMTextParser` is the clean-room source-language boundary for retained MTEXT.
+It scans persisted content once and emits immutable text, paragraph-break,
+column-break, and stacked-text inlines. Every inline carries its fully resolved
+group state: font metadata, relative or absolute height, width, tracking,
+oblique angle, baseline alignment, indexed/true/inherited color, decoration
+flags, and paragraph alignment. Braces save and restore the complete state;
+the Autodesk eight-level default is caller configurable but remains strictly
+bounded. Semantic breaks are not flattened into spaces and stacked fractions
+retain both operands plus horizontal, diagonal, or tolerance separator kind.
+
+Escaped delimiters, nonbreaking space, four-hex Unicode, percent symbols,
+decoration toggles, font options, numeric formatting, paragraph alignment, and
+the three stack forms have focused conformance tests. The parser keeps the raw
+paragraph payload so indentation, tabs, and reset controls cannot disappear
+while their typed layout lands. Fields and unknown controls fail explicitly;
+malformed groups, numbers, Unicode, stacks, and missing semicolons report the
+source offset. Output code units, inline count, and nesting are independently
+bounded before retained snapshot streams change.
+
+Parsing is `O(C + R)` time and `O(D + R)` storage for `C` source code units,
+`D` decoded code units, and `R` semantic inlines. It performs no font lookup,
+shaping, GPU work, reflection, or ACadSharp mutation. The next stage consumes
+this typed stream to produce positioned ProGPU glyph runs, decorations,
+columns, and per-column background masks; until that stage is connected,
+snapshot compilation continues diagnosing MTEXT instead of painting parsed
+content approximately.
+
 ## Bounded standard SHX source
 
 `CadShxFont.Parse` is the initial clean-room SHX ingestion boundary. The input
@@ -1495,9 +1524,22 @@ Sources consulted on 2026-08-27 and 2026-08-28:
   Align/Fit scaling, generation flags, decimal/symbol/decoration controls,
   OpenType decoration metrics, font metadata, and MTEXT attachment/flow/column scope; adapted
   supported TrueType TEXT into normalized retained font and decoration runs with
-  conservative affine bounds; rejected guessed text
-  rectangles, stripped MTEXT formatting, silent SHX substitution, and claiming
-  MTEXT support before its complete contract lands.
+  conservative affine bounds and the MTEXT source language into bounded typed
+  immutable inlines; rejected guessed text rectangles, stripped MTEXT
+  formatting, silent SHX substitution, and claiming rendered MTEXT support
+  before its retained layout contract lands.
+- [Autodesk MTEXT object contract](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-ActiveX-Reference/files/GUID-2532B20E-413D-4F59-9E88-B40E8AABB9FF.htm),
+  [formatted MTEXT ranges](https://help.autodesk.com/view/OARX/2024/ITA/?caas=caas%2Fdocumentation%2FCIV3D%2F2014%2FITA%2FfilesACD%2FGUID-ECEEF65E-C327-44B8-AFB9-C0ACA2CAEF55-htm.html),
+  [column behavior](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-MAC-Core/files/GUID-6DF5368A-5F2F-44BE-8B80-F35FFEF80204.htm),
+  [background-mask contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-3448A24E-E18B-4C8C-B8AB-84F4CD4EBC81.htm),
+  and [line-spacing contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-ActiveX-Reference/files/GUID-429D5E20-4522-4699-BEC8-0D27CA17EDDF.htm):
+  adopted one semantic object with word wrapping, scoped range formatting,
+  eight-level grouping, semantic stack forms, explicit attachment/flow,
+  text-driven or fixed columns, gutter-excluding masks, and AtLeast/Exact
+  spacing; adapted the persisted language to original typed immutable ProGPU
+  runs with caller-owned bounds; rejected ACadSharp's formatting-stripping
+  convenience projection, runtime reflection, and treating unknown codes as
+  visible characters.
 - [Autodesk common entity property codes](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-3610039E-27D1-4E23-B6D3-7E60B22BB5BD.htm)
   and [ByBlock color behavior](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-14BC039D-238D-4D9E-921B-F4015F96CB54.htm):
   adopted layer `0`, ByLayer, and ByBlock inheritance without mutating block
@@ -1785,20 +1827,39 @@ Sources consulted on 2026-08-27 and 2026-08-28:
   and [Skia text guidance](https://skia.org/docs/user/tips/): adopted separation
   and reuse of shaping, formatting, and positioned-glyph drawing; retained the
   existing ProGPU/HarfBuzz implementation instead of adding another text stack.
+- [Skia CanvasKit paragraph shaping](https://skia.org/docs/user/modules/quickstart/)
+  and [SkParagraph implementation domains](https://skia.googlesource.com/skia/+/ae8d412b9a5947483bde5e695fc8e27c5eda7b09/modules/skparagraph/src/):
+  adopted build/layout/draw separation, nested style ranges, cached positioning,
+  and width-driven wrapping for MTEXT; rejected reparsing or shaping during CAD
+  scene replay.
 - [DirectWrite resource/layout model](https://learn.microsoft.com/en-us/windows/win32/directwrite/getting-started-with-directwrite),
   [DirectWrite strikethrough renderer contract](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritetextrenderer-drawstrikethrough),
   and [Direct2D geometry realizations](https://learn.microsoft.com/en-us/windows/win32/direct2d/geometry-realizations-overview):
   adopted device-independent semantic/layout results, device-dependent retained
   resources, and explicit flattening-quality tests; rejected fixed realizations
   as the only representation for unbounded CAD zoom.
+- [DirectWrite formatted layout](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nn-dwrite-idwritetextlayout)
+  and [Direct2D retained text-layout rendering](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite):
+  adopted range attributes, separate glyph/decoration callbacks, cluster-aware
+  hit regions, and layout reuse for MTEXT; adapted callbacks into immutable CAD
+  glyph and geometry streams.
 - [Win2D cached geometry](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasCachedGeometry.htm)
   and [Win2D text-layout range methods](https://microsoft.github.io/Win2D/WinUI2/html/Methods_T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm): adopted pay-
   once/draw-many retention, device identity, and range formatting; rejected per-
   frame creation and world-coordinate clipping limits.
+- [Win2D retained rich text](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm)
+  and [custom text renderer](https://microsoft.github.io/Win2D/WinUI2/html/T_Microsoft_Graphics_Canvas_Text_ICanvasTextRenderer.htm):
+  adopted cached formatted layouts, final-font glyph callbacks, explicit range
+  color, and separate draw/layout bounds; rejected measuring fallback from the
+  requested font alone.
 - [WebRender overview](https://github.com/servo/servo/wiki/Webrender-Overview)
   and [current profiler counters](https://github.com/servo/webrender/blob/main/webrender/src/profiler.rs):
   adopted serializable retained display data, off-thread scrolling/scene work,
   visibility stages, and explicit upload/cache/memory counters.
+- [Firefox rendering pipeline](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html)
+  and [WebRender transformed hit items](https://firefox-source-docs.mozilla.org/gfx/AsyncPanZoom.html):
+  adopted self-contained retained text/display streams, frame-time culling, and
+  identical transform/clip treatment for render and hit data.
 - [Vello retained scene vision](https://github.com/linebender/vello/blob/main/doc/vision.md),
   [encoding roadmap](https://github.com/linebender/vello/blob/main/doc/roadmap_2023.md),
   and [glyph-run encoder contract](https://docs.rs/vello/latest/vello/struct.DrawGlyphs.html):
