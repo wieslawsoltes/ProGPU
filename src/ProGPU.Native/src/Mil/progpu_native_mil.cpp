@@ -488,9 +488,10 @@ bool try_get_path_segment_bounds(
             }
             const float theta1 = std::bit_cast<float>(segment.pad0);
             const float delta_theta = std::bit_cast<float>(segment.pad1);
-            const float rotation = std::bit_cast<float>(segment.pad2);
             const float rotation_radians =
-                rotation * std::numbers::pi_v<float> / 180.0F;
+                std::bit_cast<float>(segment.pad2);
+            const float rotation_degrees = rotation_radians * 180.0F /
+                std::numbers::pi_v<float>;
             const float cosine_rotation = std::cos(rotation_radians);
             const float sine_rotation = std::sin(rotation_radians);
             const float x_extrema = std::atan2(
@@ -514,7 +515,7 @@ bool try_get_path_segment_bounds(
                         {segment.p2.x, segment.p2.y},
                         segment.p3.x,
                         segment.p3.y,
-                        rotation,
+                        rotation_degrees,
                         theta);
                 if (!include_point(point.x, point.y)) {
                     return false;
@@ -6417,6 +6418,8 @@ struct channel::implementation {
         std::vector<render_scope_state> scope_states;
         std::vector<bool> scope_layers;
         curve_dash::run_buffer curve_dash_scratch;
+        std::vector<progpu_native_path_segment>
+            drawing_image_bounds_segments;
         const auto save_state = [&builder](
             const render_scope_state& source) noexcept {
             auto state = native::semantic_scene_builder::identity_state();
@@ -8463,7 +8466,9 @@ struct channel::implementation {
                 ? status::success
                 : status::invalid_graph;
         };
-        const auto resolve_drawing_image_bounds = [this](
+        const auto resolve_drawing_image_bounds = [
+            this,
+            &drawing_image_bounds_segments](
             std::uint32_t drawing_handle,
             progpu_native_image_rect& bounds) noexcept {
             const auto drawing = geometry_drawings.find(drawing_handle);
@@ -8476,12 +8481,37 @@ struct channel::implementation {
             const auto path = path_geometries.find(
                 drawing->second.geometry_handle);
             if (path != path_geometries.end()) {
-                if (path->second.transform_handle != 0U ||
-                    path->second.segments.empty() ||
-                    !try_get_path_segment_bounds(
-                        path->second.segments, bounds)) {
+                if (path->second.segments.empty()) {
                     return status::unsupported_command;
                 }
+                if (path->second.transform_handle == 0U) {
+                    return try_get_path_segment_bounds(
+                            path->second.segments, bounds)
+                        ? status::success
+                        : status::unsupported_command;
+                }
+                drawing_image_bounds_segments.clear();
+                shallow_fill_leaf leaf{};
+                const status path_status = append_shallow_fill_leaf(
+                    drawing->second.geometry_handle,
+                    drawing_image_bounds_segments,
+                    leaf);
+                if (path_status != status::success) {
+                    return path_status;
+                }
+                if (!leaf.has_bounds || leaf.right <= leaf.left ||
+                    leaf.bottom <= leaf.top ||
+                    !finite_double_as_float(leaf.left) ||
+                    !finite_double_as_float(leaf.top) ||
+                    !finite_double_as_float(leaf.right - leaf.left) ||
+                    !finite_double_as_float(leaf.bottom - leaf.top)) {
+                    return status::unsupported_command;
+                }
+                bounds = {
+                    static_cast<float>(leaf.left),
+                    static_cast<float>(leaf.top),
+                    static_cast<float>(leaf.right - leaf.left),
+                    static_cast<float>(leaf.bottom - leaf.top)};
                 return status::success;
             }
             if (!fixed_geometries.contains(

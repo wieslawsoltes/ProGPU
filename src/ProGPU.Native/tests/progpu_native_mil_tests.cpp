@@ -10857,6 +10857,93 @@ bool retained_drawing_image_infers_line_path_bounds() {
     }
     PROGPU_REQUIRE(found_curve_mapping);
 
+    std::vector<std::byte> arc_update;
+    append_path_geometry(
+        arc_update,
+        geometry,
+        0U,
+        1U,
+        make_arc_path_figures());
+    PROGPU_REQUIRE(state.apply(arc_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7007U, 3U, stream, nullptr) ==
+        status::success);
+    progpu::native::geometry::arc_point arc_center{};
+    float arc_theta = 0.0F;
+    float arc_delta = 0.0F;
+    float arc_radius_x = 0.0F;
+    float arc_radius_y = 0.0F;
+    PROGPU_REQUIRE(progpu::native::geometry::resolve_arc(
+        {1.0F, 2.0F},
+        {9.0F, 8.0F},
+        {8.0F, 6.0F},
+        30.0F,
+        false,
+        true,
+        arc_center,
+        arc_theta,
+        arc_delta,
+        arc_radius_x,
+        arc_radius_y));
+    float arc_left = 1.0F;
+    float arc_top = 2.0F;
+    float arc_right = 9.0F;
+    float arc_bottom = 8.0F;
+    const float arc_rotation = 30.0F *
+        std::numbers::pi_v<float> / 180.0F;
+    const float arc_x_extrema = std::atan2(
+        -arc_radius_y * std::sin(arc_rotation),
+        arc_radius_x * std::cos(arc_rotation));
+    const float arc_y_extrema = std::atan2(
+        arc_radius_y * std::cos(arc_rotation),
+        arc_radius_x * std::sin(arc_rotation));
+    const float arc_extrema[4U]{
+        arc_x_extrema,
+        arc_x_extrema + std::numbers::pi_v<float>,
+        arc_y_extrema,
+        arc_y_extrema + std::numbers::pi_v<float>};
+    for (const float theta : arc_extrema) {
+        if (!progpu::native::geometry::angle_within_sweep(
+                theta, arc_theta, arc_delta)) {
+            continue;
+        }
+        const auto point = progpu::native::geometry::evaluate_arc(
+            arc_center,
+            arc_radius_x,
+            arc_radius_y,
+            30.0F,
+            theta);
+        arc_left = std::min(arc_left, point.x);
+        arc_top = std::min(arc_top, point.y);
+        arc_right = std::max(arc_right, point.x);
+        arc_bottom = std::max(arc_bottom, point.y);
+    }
+    const float arc_scale_x = 40.0F / (arc_right - arc_left);
+    const float arc_scale_y = 20.0F / (arc_bottom - arc_top);
+    const float arc_offset_x = 2.0F - arc_left * arc_scale_x;
+    const float arc_offset_y = 4.0F - arc_top * arc_scale_y;
+    const auto arc_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    bool found_arc_mapping = false;
+    for (std::uint32_t index = 0U; index < arc_header.resource_count; ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            arc_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            continue;
+        }
+        const auto scene_state = read_value<progpu_native_scene_state>(
+            stream, resource.payload_offset);
+        if (std::abs(scene_state.transform.m11 - arc_scale_x) < 0.0001F &&
+            std::abs(scene_state.transform.m22 - arc_scale_y) < 0.0001F &&
+            std::abs(scene_state.transform.m31 - arc_offset_x) < 0.0001F &&
+            std::abs(scene_state.transform.m32 - arc_offset_y) < 0.0001F) {
+            found_arc_mapping = true;
+        }
+    }
+    PROGPU_REQUIRE(found_arc_mapping);
+
     constexpr std::uint32_t transform = 8U;
     std::vector<std::byte> transformed_update;
     append_create(transformed_update, transform, 66U);
@@ -10879,8 +10966,33 @@ bool retained_drawing_image_infers_line_path_bounds() {
         make_single_bezier_path_figures(3U, quadratic_points));
     PROGPU_REQUIRE(state.apply(transformed_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7007U, 3U, stream, nullptr) ==
-        status::unsupported_command);
+        state.build_scene(target, 7007U, 4U, stream, nullptr) ==
+        status::success);
+    const auto transformed_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    bool found_transformed_mapping = false;
+    for (std::uint32_t index = 0U;
+         index < transformed_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            transformed_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            continue;
+        }
+        const auto scene_state = read_value<progpu_native_scene_state>(
+            stream, resource.payload_offset);
+        if (std::abs(scene_state.transform.m11 - 4.0F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m22 - 260.0F / 49.0F) < 0.0001F &&
+            std::abs(scene_state.transform.m31 + 6.0F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m32 + 844.0F / 49.0F) < 0.0001F) {
+            found_transformed_mapping = true;
+        }
+    }
+    PROGPU_REQUIRE(found_transformed_mapping);
     return true;
 }
 
