@@ -675,6 +675,34 @@ executable SHA-256 was
 This qualifies the emulated Windows x64 route without making a physical-x64
 performance claim.
 
+The typed-effect input side also uses one shared
+`MediaPcm16FloatConverter` instead of three whole-buffer scalar normalization
+loops. Windows Media Foundation, Linux, and Android pass their borrowed PCM16
+spans directly to this allocation-free kernel. It widens signed samples to
+Int32, converts independent lanes to Single, and applies the exact power-of-two
+`1 / 32768` scale with two-vector unrolling. The `Vector256` and `Vector128`
+paths are bit-identical to `sample / 32768f`; only the bounded remainder is
+scalar. Differential tests cover seeded full-range PCM16 data, signed extrema,
+zero and unit samples, every vector boundary and tail, destination bounds, and
+1,000 allocation-free repetitions. The full managed suite passes 3,877/3,877.
+
+Append `--convert` to the benchmark command to measure this conversion. Three
+fresh Apple M3 Pro runs over 48,000 stereo frames with 100 warmups, 100 samples,
+and 200 blocks per sample produced median-of-run p50 10.451 us/block for the
+unrolled `Vector128` path versus 33.191 us/block scalar (3.18x). Median p95 was
+27.255 versus 42.697 us and median p99 was 35.809 versus 47.037 us. Both paths
+allocated zero bytes and reported checksum `127672320`.
+
+The self-contained `win-x64` binary then ran inside the Windows 11 ARM64
+Parallels guest. .NET 10.0.5 reported `Vector128=True`, `Vector256=True`, and
+`Vector512=False`. Four fresh 1,024-frame runs produced median-of-run p50
+1.492 us/block for `Vector256` versus 14.874 us/block scalar (9.97x), median
+p95 3.285 versus 23.408 us, and median p99 5.406 versus 30.666 us. Checksums
+matched at `46373376` and both paths allocated zero bytes. The guest executable
+SHA-256 was
+`95ECEAE96594EAE211491850692CD76FBDDC908800D69CCD1E59779A2E3B557F`.
+These measurements qualify Apple ARM64 and emulated Windows x64 only.
+
 ## Extending the policy
 
 Each additional compute-heavy workload must declare the semantics that make a
