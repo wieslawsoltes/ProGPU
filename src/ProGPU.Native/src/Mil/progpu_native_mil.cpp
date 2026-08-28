@@ -6816,16 +6816,21 @@ struct channel::implementation {
 
     static bool is_split_xor_leaf_program(
         std::span<const progpu_native_scene_path_boolean_node> nodes) noexcept {
-        if (nodes.size() != 3U && nodes.size() != 5U) {
+        if (nodes.size() < 3U || (nodes.size() & 1U) == 0U) {
             return false;
         }
-        const bool binary_prefix =
-            nodes[0U].kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
-            nodes[1U].kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
-            nodes[2U].kind == PROGPU_NATIVE_PATH_BOOLEAN_XOR;
-        return binary_prefix && (nodes.size() == 3U ||
-            (nodes[3U].kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF &&
-                nodes[4U].kind == PROGPU_NATIVE_PATH_BOOLEAN_XOR));
+        if (nodes[0U].kind != PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
+            nodes[1U].kind != PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
+            nodes[2U].kind != PROGPU_NATIVE_PATH_BOOLEAN_XOR) {
+            return false;
+        }
+        for (std::size_t index = 3U; index < nodes.size(); index += 2U) {
+            if (nodes[index].kind != PROGPU_NATIVE_PATH_BOOLEAN_LEAF ||
+                nodes[index + 1U].kind != PROGPU_NATIVE_PATH_BOOLEAN_XOR) {
+                return false;
+            }
+        }
+        return true;
     }
 
     status append_shallow_fill_leaf(

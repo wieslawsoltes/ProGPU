@@ -262,6 +262,13 @@ bool has_expected_colors(
     const std::uint8_t* ternary_xor_abc = pixel(345U, 12U);
     const std::uint8_t* ternary_xor_bc = pixel(355U, 12U);
     const std::uint8_t* ternary_xor_c = pixel(365U, 12U);
+    const std::uint8_t* quaternary_xor_a = pixel(385U, 12U);
+    const std::uint8_t* quaternary_xor_ab = pixel(395U, 12U);
+    const std::uint8_t* quaternary_xor_abc = pixel(405U, 12U);
+    const std::uint8_t* quaternary_xor_abcd = pixel(415U, 12U);
+    const std::uint8_t* quaternary_xor_bcd = pixel(425U, 12U);
+    const std::uint8_t* quaternary_xor_cd = pixel(435U, 12U);
+    const std::uint8_t* quaternary_xor_d = pixel(445U, 12U);
     if (!(blue[2] > 180U && blue[0] < 100U &&
         pad_start[0] > 180U && pad_start[1] > 90U &&
         pad_start[2] < 80U &&
@@ -280,7 +287,15 @@ bool has_expected_colors(
         ternary_xor_ab[0] < 30U && ternary_xor_ab[1] < 30U &&
         ternary_xor_abc[1] > 180U && ternary_xor_abc[2] > 180U &&
         ternary_xor_bc[0] < 30U && ternary_xor_bc[1] < 30U &&
-        ternary_xor_c[1] > 180U && ternary_xor_c[2] > 180U)) {
+        ternary_xor_c[1] > 180U && ternary_xor_c[2] > 180U &&
+        quaternary_xor_a[1] > 180U && quaternary_xor_a[2] > 180U &&
+        quaternary_xor_ab[0] < 30U && quaternary_xor_ab[1] < 30U &&
+        quaternary_xor_abc[1] > 180U && quaternary_xor_abc[2] > 180U &&
+        quaternary_xor_abcd[0] < 30U &&
+        quaternary_xor_abcd[1] < 30U &&
+        quaternary_xor_bcd[1] > 180U && quaternary_xor_bcd[2] > 180U &&
+        quaternary_xor_cd[0] < 30U && quaternary_xor_cd[1] < 30U &&
+        quaternary_xor_d[1] > 180U && quaternary_xor_d[2] > 180U)) {
         const auto print_pixel = [](const char* name,
                                     const std::uint8_t* value) {
             std::cerr << name << "="
@@ -307,6 +322,13 @@ bool has_expected_colors(
         print_pixel("ternary-xor-abc", ternary_xor_abc);
         print_pixel("ternary-xor-bc", ternary_xor_bc);
         print_pixel("ternary-xor-c", ternary_xor_c);
+        print_pixel("quaternary-xor-a", quaternary_xor_a);
+        print_pixel("quaternary-xor-ab", quaternary_xor_ab);
+        print_pixel("quaternary-xor-abc", quaternary_xor_abc);
+        print_pixel("quaternary-xor-abcd", quaternary_xor_abcd);
+        print_pixel("quaternary-xor-bcd", quaternary_xor_bcd);
+        print_pixel("quaternary-xor-cd", quaternary_xor_cd);
+        print_pixel("quaternary-xor-d", quaternary_xor_d);
         std::cerr << '\n';
         return false;
     }
@@ -369,7 +391,35 @@ bool has_expected_colors(
               << " ternary-c="
               << static_cast<unsigned int>(ternary_xor_c[0]) << ","
               << static_cast<unsigned int>(ternary_xor_c[1]) << ","
-              << static_cast<unsigned int>(ternary_xor_c[2]) << '\n';
+              << static_cast<unsigned int>(ternary_xor_c[2])
+              << " quaternary-a="
+              << static_cast<unsigned int>(quaternary_xor_a[0]) << ","
+              << static_cast<unsigned int>(quaternary_xor_a[1]) << ","
+              << static_cast<unsigned int>(quaternary_xor_a[2])
+              << " quaternary-ab="
+              << static_cast<unsigned int>(quaternary_xor_ab[0]) << ","
+              << static_cast<unsigned int>(quaternary_xor_ab[1]) << ","
+              << static_cast<unsigned int>(quaternary_xor_ab[2])
+              << " quaternary-abc="
+              << static_cast<unsigned int>(quaternary_xor_abc[0]) << ","
+              << static_cast<unsigned int>(quaternary_xor_abc[1]) << ","
+              << static_cast<unsigned int>(quaternary_xor_abc[2])
+              << " quaternary-abcd="
+              << static_cast<unsigned int>(quaternary_xor_abcd[0]) << ","
+              << static_cast<unsigned int>(quaternary_xor_abcd[1]) << ","
+              << static_cast<unsigned int>(quaternary_xor_abcd[2])
+              << " quaternary-bcd="
+              << static_cast<unsigned int>(quaternary_xor_bcd[0]) << ","
+              << static_cast<unsigned int>(quaternary_xor_bcd[1]) << ","
+              << static_cast<unsigned int>(quaternary_xor_bcd[2])
+              << " quaternary-cd="
+              << static_cast<unsigned int>(quaternary_xor_cd[0]) << ","
+              << static_cast<unsigned int>(quaternary_xor_cd[1]) << ","
+              << static_cast<unsigned int>(quaternary_xor_cd[2])
+              << " quaternary-d="
+              << static_cast<unsigned int>(quaternary_xor_d[0]) << ","
+              << static_cast<unsigned int>(quaternary_xor_d[1]) << ","
+              << static_cast<unsigned int>(quaternary_xor_d[2]) << '\n';
     if (!requires_decoded_glyph) {
         return true;
     }
@@ -1232,6 +1282,103 @@ int main(int argc, char** argv) {
             {320.0F, 4.0F, 50.0F, 20.0F}) ||
         !scene_builder.pop_layer()) {
         std::cerr << "Could not record translated ternary XOR layer.\n";
+        return EXIT_FAILURE;
+    }
+    std::vector<progpu_native_path_segment> quaternary_xor_segments;
+    std::vector<progpu_native_scene_path_boolean_node> quaternary_xor_nodes;
+    quaternary_xor_segments.reserve(16U);
+    quaternary_xor_nodes.reserve(7U);
+    constexpr std::array quaternary_lefts{380.0F, 390.0F, 400.0F, 410.0F};
+    for (std::size_t leaf_index = 0U;
+         leaf_index < quaternary_lefts.size();
+         ++leaf_index) {
+        const float left = quaternary_lefts[leaf_index];
+        const float right = left + 40.0F;
+        quaternary_xor_segments.push_back({
+            {left, 4.0F}, {right, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+        quaternary_xor_segments.push_back({
+            {right, 4.0F}, {right, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+        quaternary_xor_segments.push_back({
+            {right, 24.0F}, {left, 24.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+        quaternary_xor_segments.push_back({
+            {left, 24.0F}, {left, 4.0F}, {}, {},
+            PROGPU_NATIVE_PATH_SEGMENT_LINE, 0U, 0U, 0U});
+        quaternary_xor_nodes.push_back({
+            static_cast<std::uint64_t>(leaf_index * 4U),
+            4U,
+            left,
+            4.0F,
+            right,
+            24.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF,
+            0U,
+            0U});
+        if (leaf_index != 0U) {
+            progpu_native_scene_path_boolean_node operation{};
+            operation.kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+            quaternary_xor_nodes.push_back(operation);
+        }
+    }
+    const progpu_native_scene_clip_path quaternary_xor_path{
+        0U,
+        quaternary_xor_segments.size(),
+        0U,
+        quaternary_xor_nodes.size(),
+        380.0F,
+        4.0F,
+        450.0F,
+        24.0F,
+        identity,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        8U,
+        PROGPU_NATIVE_CLIP_INTERSECT,
+        0U};
+    std::uint32_t quaternary_xor_mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    if (!scene_builder.add_vector_clip_mask(
+            std::span<const progpu_native_scene_clip_path>(
+                &quaternary_xor_path,
+                1U),
+            quaternary_xor_segments,
+            quaternary_xor_nodes,
+            1.0F,
+            quaternary_xor_mask_index)) {
+        std::cerr << "Could not record translated quaternary XOR mask.\n";
+        return EXIT_FAILURE;
+    }
+    progpu_native_scene_layer quaternary_xor_layer{};
+    quaternary_xor_layer.flags = PROGPU_NATIVE_SCENE_LAYER_BOUNDS |
+        PROGPU_NATIVE_SCENE_LAYER_FORCE_ISOLATION;
+    quaternary_xor_layer.bounds = {380.0F, 4.0F, 70.0F, 20.0F};
+    quaternary_xor_layer.opacity = 1.0F;
+    quaternary_xor_layer.blend_mode = PROGPU_NATIVE_BLEND_SRC_OVER;
+    quaternary_xor_layer.mask_resource_index = quaternary_xor_mask_index;
+    quaternary_xor_layer.effect_resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    quaternary_xor_layer.content_revision = 1U;
+    quaternary_xor_layer.composite_revision = 1U;
+    const progpu_native_analytic_primitive quaternary_xor_content{
+        PROGPU_NATIVE_PRIMITIVE_RECTANGLE,
+        0U,
+        380.0F,
+        4.0F,
+        70.0F,
+        20.0F,
+        0.0F,
+        0.0F,
+        {1.0F, 1.0F, 1.0F, 1.0F},
+        identity};
+    if (!scene_builder.push_layer(quaternary_xor_layer) ||
+        !scene_builder.draw_analytic(
+            std::span<const progpu_native_analytic_primitive>(
+                &quaternary_xor_content,
+                1U),
+            std::span<const std::uint32_t>(&brush_indices[3], 1U),
+            {380.0F, 4.0F, 70.0F, 20.0F}) ||
+        !scene_builder.pop_layer()) {
+        std::cerr << "Could not record translated quaternary XOR layer.\n";
         return EXIT_FAILURE;
     }
     progpu_native_hit_test_primitive hit_primitive{};

@@ -14396,17 +14396,17 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     PROGPU_REQUIRE(
         state.build_scene(target, 7003U, 9U, stream) == status::success);
 
-    std::vector<std::byte> unsupported_four_leaf_update;
+    std::vector<std::byte> four_leaf_update;
     append_create(
-        unsupported_four_leaf_update,
+        four_leaf_update,
         third_child_transform,
         66U);
     append_create(
-        unsupported_four_leaf_update,
+        four_leaf_update,
         third_same_fill_group,
         71U);
     append_command(
-        unsupported_four_leaf_update,
+        four_leaf_update,
         command::matrix_transform,
         third_child_transform,
         1.0,
@@ -14418,27 +14418,26 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
         0U);
     const std::array third_same_fill_children{path_a};
     append_geometry_group(
-        unsupported_four_leaf_update,
+        four_leaf_update,
         third_same_fill_group,
         third_child_transform,
         0U,
         third_same_fill_children);
-    const std::array unsupported_four_leaf_children{
+    const std::array four_leaf_children{
         path_a,
         same_fill_group,
         second_same_fill_group,
         third_same_fill_group};
     append_geometry_group(
-        unsupported_four_leaf_update,
+        four_leaf_update,
         group,
         transform,
         0U,
-        unsupported_four_leaf_children);
+        four_leaf_children);
     PROGPU_REQUIRE(
-        state.apply(unsupported_four_leaf_update) == status::success);
+        state.apply(four_leaf_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7003U, 10U, stream) ==
-        status::unsupported_command);
+        state.build_scene(target, 7003U, 10U, stream) == status::success);
 
     std::vector<std::byte> clip_update;
     append_path_geometry(

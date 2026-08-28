@@ -39,7 +39,7 @@ void require(bool condition) {
     }
 }
 
-void binary_xor_is_split_into_independent_gpu_records() {
+void pure_xor_is_split_into_independent_gpu_records() {
     progpu_native_scene_path_fill path{};
     path.boolean_node_count = 3U;
     std::array<progpu_native_scene_path_boolean_node, 3U> nodes{};
@@ -90,6 +90,69 @@ void binary_xor_is_split_into_independent_gpu_records() {
     require(records[0U].start_segment == 2U);
     require(records[1U].start_segment == 6U);
     require(records[2U].start_segment == 10U);
+
+    path.boolean_node_count = 7U;
+    std::array<progpu_native_scene_path_boolean_node, 7U> quaternary_nodes{};
+    std::copy(
+        ternary_nodes.begin(),
+        ternary_nodes.end(),
+        quaternary_nodes.begin());
+    quaternary_nodes[5U] = {
+        14U, 4U, 4.0F, 5.0F, 12.0F, 13.0F,
+        PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+        PROGPU_NATIVE_PATH_BOOLEAN_LEAF, 0U, 0U};
+    quaternary_nodes[6U].kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+    records.clear();
+    const auto quaternary_program =
+        progpu::native::path_boolean::append_gpu_records(
+            path,
+            quaternary_nodes.data(),
+            records);
+    require(quaternary_program.split_xor_leaf_count == 4U);
+    require(records.size() == 4U);
+    require(records[3U].start_segment == 14U);
+
+    quaternary_nodes[6U].kind = PROGPU_NATIVE_PATH_BOOLEAN_UNION;
+    records.clear();
+    const auto mixed_program =
+        progpu::native::path_boolean::append_gpu_records(
+            path,
+            quaternary_nodes.data(),
+            records);
+    require(mixed_program.split_xor_leaf_count == 0U);
+    require(mixed_program.operation_kind != 0U);
+    require(records.size() == 11U);
+
+    std::vector<progpu_native_scene_path_boolean_node> maximum_nodes;
+    maximum_nodes.reserve(63U);
+    for (std::uint32_t leaf_index = 0U; leaf_index < 32U; ++leaf_index) {
+        maximum_nodes.push_back({
+            leaf_index * 4U,
+            4U,
+            static_cast<float>(leaf_index),
+            0.0F,
+            static_cast<float>(leaf_index + 8U),
+            8.0F,
+            PROGPU_NATIVE_FILL_RULE_EVEN_ODD,
+            PROGPU_NATIVE_PATH_BOOLEAN_LEAF,
+            0U,
+            0U});
+        if (leaf_index != 0U) {
+            progpu_native_scene_path_boolean_node operation{};
+            operation.kind = PROGPU_NATIVE_PATH_BOOLEAN_XOR;
+            maximum_nodes.push_back(operation);
+        }
+    }
+    path.boolean_node_count = maximum_nodes.size();
+    records.clear();
+    const auto maximum_program =
+        progpu::native::path_boolean::append_gpu_records(
+            path,
+            maximum_nodes.data(),
+            records);
+    require(maximum_program.split_xor_leaf_count == 32U);
+    require(records.size() == 32U);
+    require(records.back().start_segment == 124U);
 }
 
 void clipped_miter_join_uses_the_wpf_three_triangle_wedge() {
@@ -1163,7 +1226,7 @@ void draw_state_resolution_is_cpu_only_and_bounded() {
 } // namespace
 
 int main() {
-    binary_xor_is_split_into_independent_gpu_records();
+    pure_xor_is_split_into_independent_gpu_records();
     clipped_miter_join_uses_the_wpf_three_triangle_wedge();
     reversal_joins_match_wpf_collapsed_contours();
     native_webgpu_scopes_share_one_process_lock();

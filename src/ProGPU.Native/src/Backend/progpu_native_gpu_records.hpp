@@ -95,14 +95,14 @@ struct gpu_path_uniforms {
 };
 
 struct gpu_path_coverage_combine_uniforms {
-    std::uint32_t source_a_offset_words;
-    std::uint32_t source_b_offset_words;
-    std::uint32_t source_c_offset_words;
+    std::uint32_t source_offset_words;
+    std::uint32_t source_stride_words;
     std::uint32_t source_count;
     std::uint32_t destination_offset_words;
     std::uint32_t row_words;
     std::uint32_t width;
     std::uint32_t height;
+    std::uint32_t pad0;
 };
 
 struct gpu_path_record {

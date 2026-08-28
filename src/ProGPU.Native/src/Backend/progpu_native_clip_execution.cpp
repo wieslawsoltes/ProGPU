@@ -96,9 +96,7 @@ bool rebuild_vector_clip_chain(
         }
 
         std::vector<gpu_path_uniforms> path_uniforms;
-        std::vector<gpu_path_uniforms> binary_leaf_a_uniforms;
-        std::vector<gpu_path_uniforms> binary_leaf_b_uniforms;
-        std::vector<gpu_path_uniforms> ternary_leaf_c_uniforms;
+        std::vector<std::vector<gpu_path_uniforms>> split_leaf_uniforms;
         std::vector<gpu_path_record> path_records;
         std::vector<gpu_path_coverage_combine_uniforms>
             coverage_combine_uniforms;
@@ -107,9 +105,6 @@ bool rebuild_vector_clip_chain(
         std::vector<std::uint32_t> indices;
         std::vector<std::byte> compose_uniform_bytes;
         path_uniforms.reserve(chain.path_count);
-        binary_leaf_a_uniforms.reserve(chain.path_count);
-        binary_leaf_b_uniforms.reserve(chain.path_count);
-        ternary_leaf_c_uniforms.reserve(chain.path_count);
         coverage_combine_uniforms.reserve(chain.path_count);
         path_records.reserve(
             chain.path_count + chain.boolean_node_count * 2U);
@@ -272,17 +267,12 @@ bool rebuild_vector_clip_chain(
                     const std::uint64_t leaf_bytes =
                         static_cast<std::uint64_t>(output_bytes_per_row) *
                             raster_height_u;
-                    const std::uint64_t source_a_offset = align_up(
+                    const std::uint64_t source_offset = align_up(
                         static_cast<std::uint32_t>(next_output),
                         webgpu_copy_row_alignment);
-                    const std::uint64_t source_b_offset =
-                        source_a_offset + leaf_bytes;
-                    const std::uint64_t source_c_offset =
-                        source_b_offset + leaf_bytes;
                     const std::uint64_t split_next_output =
-                        program.split_xor_leaf_count == 3U
-                        ? source_c_offset + leaf_bytes
-                        : source_b_offset + leaf_bytes;
+                        source_offset + leaf_bytes *
+                            program.split_xor_leaf_count;
                     if (split_next_output >
                         std::numeric_limits<std::uint32_t>::max()) {
                         return false;
@@ -314,32 +304,28 @@ bool rebuild_vector_clip_chain(
                             0U,
                             0U});
                     };
-                    append_leaf_uniform(
-                        binary_leaf_a_uniforms,
-                        program.path_record_index,
-                        static_cast<std::uint32_t>(source_a_offset));
-                    append_leaf_uniform(
-                        binary_leaf_b_uniforms,
-                        program.path_record_index + 1U,
-                        static_cast<std::uint32_t>(source_b_offset));
-                    if (program.split_xor_leaf_count == 3U) {
+                    split_leaf_uniforms.resize(
+                        program.split_xor_leaf_count);
+                    for (std::uint32_t leaf_index = 0U;
+                         leaf_index < program.split_xor_leaf_count;
+                         ++leaf_index) {
+                        const std::uint64_t leaf_output_offset =
+                            source_offset + leaf_bytes * leaf_index;
                         append_leaf_uniform(
-                            ternary_leaf_c_uniforms,
-                            program.path_record_index + 2U,
-                            static_cast<std::uint32_t>(source_c_offset));
+                            split_leaf_uniforms[leaf_index],
+                            program.path_record_index + leaf_index,
+                            static_cast<std::uint32_t>(
+                                leaf_output_offset));
                     }
                     coverage_combine_uniforms.push_back({
-                        static_cast<std::uint32_t>(source_a_offset) / 4U,
-                        static_cast<std::uint32_t>(source_b_offset) / 4U,
-                        program.split_xor_leaf_count == 3U
-                            ? static_cast<std::uint32_t>(
-                                source_c_offset) / 4U
-                            : 0U,
+                        static_cast<std::uint32_t>(source_offset) / 4U,
+                        static_cast<std::uint32_t>(leaf_bytes) / 4U,
                         program.split_xor_leaf_count,
                         output_offset / 4U,
                         output_bytes_per_row / 4U,
                         raster_width_u,
-                        raster_height_u});
+                        raster_height_u,
+                        0U});
                     output_offset =
                         static_cast<std::uint32_t>(split_next_output);
                 } else {
@@ -526,12 +512,7 @@ bool rebuild_vector_clip_chain(
         };
         const std::uint64_t path_uniform_bytes =
             path_uniforms.size() * sizeof(gpu_path_uniforms);
-        const std::uint64_t binary_leaf_a_uniform_bytes =
-            binary_leaf_a_uniforms.size() * sizeof(gpu_path_uniforms);
-        const std::uint64_t binary_leaf_b_uniform_bytes =
-            binary_leaf_b_uniforms.size() * sizeof(gpu_path_uniforms);
-        const std::uint64_t ternary_leaf_c_uniform_bytes =
-            ternary_leaf_c_uniforms.size() * sizeof(gpu_path_uniforms);
+        std::uint64_t split_leaf_uniform_bytes = 0U;
         const std::uint64_t path_record_bytes =
             path_records.size() * sizeof(gpu_path_record);
         const std::uint64_t path_segment_bytes =
@@ -545,23 +526,22 @@ bool rebuild_vector_clip_chain(
                 path_uniform_bytes,
                 sizeof(gpu_path_uniforms)),
             WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
-        if (!binary_leaf_a_uniforms.empty()) {
-            temporary.binary_leaf_a_uniforms = create_buffer(
-                "ProGPU native clip split XOR leaf A uniforms",
-                binary_leaf_a_uniform_bytes,
-                WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
-        }
-        if (!binary_leaf_b_uniforms.empty()) {
-            temporary.binary_leaf_b_uniforms = create_buffer(
-                "ProGPU native clip split XOR leaf B uniforms",
-                binary_leaf_b_uniform_bytes,
-                WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
-        }
-        if (!ternary_leaf_c_uniforms.empty()) {
-            temporary.ternary_leaf_c_uniforms = create_buffer(
-                "ProGPU native clip ternary XOR leaf C uniforms",
-                ternary_leaf_c_uniform_bytes,
-                WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+        temporary.split_leaf_uniforms.resize(
+            split_leaf_uniforms.size(),
+            nullptr);
+        for (std::size_t phase_index = 0U;
+             phase_index < split_leaf_uniforms.size();
+             ++phase_index) {
+            const std::uint64_t phase_bytes =
+                split_leaf_uniforms[phase_index].size() *
+                    sizeof(gpu_path_uniforms);
+            split_leaf_uniform_bytes += phase_bytes;
+            if (phase_bytes != 0U) {
+                temporary.split_leaf_uniforms[phase_index] = create_buffer(
+                    "ProGPU native clip split XOR leaf uniforms",
+                    phase_bytes,
+                    WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+            }
         }
         temporary.records = create_buffer(
             "ProGPU native clip path records",
@@ -581,13 +561,15 @@ bool rebuild_vector_clip_chain(
                 combine_uniform_bytes,
                 sizeof(gpu_path_coverage_combine_uniforms)),
             WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
-        if (temporary.uniforms == nullptr ||
-            (!binary_leaf_a_uniforms.empty() &&
-                temporary.binary_leaf_a_uniforms == nullptr) ||
-            (!binary_leaf_b_uniforms.empty() &&
-                temporary.binary_leaf_b_uniforms == nullptr) ||
-            (!ternary_leaf_c_uniforms.empty() &&
-                temporary.ternary_leaf_c_uniforms == nullptr) ||
+        bool split_buffer_allocation_failed = false;
+        for (std::size_t phase_index = 0U;
+             phase_index < split_leaf_uniforms.size();
+             ++phase_index) {
+            split_buffer_allocation_failed |=
+                !split_leaf_uniforms[phase_index].empty() &&
+                temporary.split_leaf_uniforms[phase_index] == nullptr;
+        }
+        if (temporary.uniforms == nullptr || split_buffer_allocation_failed ||
             temporary.records == nullptr ||
             temporary.segments == nullptr || temporary.coverage == nullptr ||
             temporary.coverage_combine_uniforms == nullptr) {
@@ -597,29 +579,20 @@ bool rebuild_vector_clip_chain(
             wgpuQueueWriteBuffer(engine.queue, temporary.uniforms, 0U,
                 path_uniforms.data(), path_uniform_bytes);
         }
-        if (binary_leaf_a_uniform_bytes != 0U) {
-            wgpuQueueWriteBuffer(
-                engine.queue,
-                temporary.binary_leaf_a_uniforms,
-                0U,
-                binary_leaf_a_uniforms.data(),
-                binary_leaf_a_uniform_bytes);
-        }
-        if (binary_leaf_b_uniform_bytes != 0U) {
-            wgpuQueueWriteBuffer(
-                engine.queue,
-                temporary.binary_leaf_b_uniforms,
-                0U,
-                binary_leaf_b_uniforms.data(),
-                binary_leaf_b_uniform_bytes);
-        }
-        if (ternary_leaf_c_uniform_bytes != 0U) {
-            wgpuQueueWriteBuffer(
-                engine.queue,
-                temporary.ternary_leaf_c_uniforms,
-                0U,
-                ternary_leaf_c_uniforms.data(),
-                ternary_leaf_c_uniform_bytes);
+        for (std::size_t phase_index = 0U;
+             phase_index < split_leaf_uniforms.size();
+             ++phase_index) {
+            const std::uint64_t phase_bytes =
+                split_leaf_uniforms[phase_index].size() *
+                    sizeof(gpu_path_uniforms);
+            if (phase_bytes != 0U) {
+                wgpuQueueWriteBuffer(
+                    engine.queue,
+                    temporary.split_leaf_uniforms[phase_index],
+                    0U,
+                    split_leaf_uniforms[phase_index].data(),
+                    phase_bytes);
+            }
         }
         wgpuQueueWriteBuffer(engine.queue, temporary.records, 0U,
             path_records.data(), path_record_bytes);
@@ -675,32 +648,28 @@ bool rebuild_vector_clip_chain(
             "ProGPU native retained clip raster bind group",
             temporary.uniforms,
             path_uniform_bytes);
-        if (!binary_leaf_a_uniforms.empty()) {
-            temporary.binary_leaf_a_bind_group = create_raster_bind_group(
-                "ProGPU native clip split XOR leaf A bind group",
-                temporary.binary_leaf_a_uniforms,
-                binary_leaf_a_uniform_bytes);
-        }
-        if (!binary_leaf_b_uniforms.empty()) {
-            temporary.binary_leaf_b_bind_group = create_raster_bind_group(
-                "ProGPU native clip split XOR leaf B bind group",
-                temporary.binary_leaf_b_uniforms,
-                binary_leaf_b_uniform_bytes);
-        }
-        if (!ternary_leaf_c_uniforms.empty()) {
-            temporary.ternary_leaf_c_bind_group =
-                create_raster_bind_group(
-                    "ProGPU native clip ternary XOR leaf C bind group",
-                    temporary.ternary_leaf_c_uniforms,
-                    ternary_leaf_c_uniform_bytes);
+        temporary.split_leaf_bind_groups.resize(
+            split_leaf_uniforms.size(),
+            nullptr);
+        bool split_bind_group_creation_failed = false;
+        for (std::size_t phase_index = 0U;
+             phase_index < split_leaf_uniforms.size();
+             ++phase_index) {
+            const std::uint64_t phase_bytes =
+                split_leaf_uniforms[phase_index].size() *
+                    sizeof(gpu_path_uniforms);
+            if (phase_bytes != 0U) {
+                temporary.split_leaf_bind_groups[phase_index] =
+                    create_raster_bind_group(
+                        "ProGPU native clip split XOR leaf bind group",
+                        temporary.split_leaf_uniforms[phase_index],
+                        phase_bytes);
+                split_bind_group_creation_failed |=
+                    temporary.split_leaf_bind_groups[phase_index] == nullptr;
+            }
         }
         if (temporary.bind_group == nullptr ||
-            (!binary_leaf_a_uniforms.empty() &&
-                temporary.binary_leaf_a_bind_group == nullptr) ||
-            (!binary_leaf_b_uniforms.empty() &&
-                temporary.binary_leaf_b_bind_group == nullptr) ||
-            (!ternary_leaf_c_uniforms.empty() &&
-                temporary.ternary_leaf_c_bind_group == nullptr)) {
+            split_bind_group_creation_failed) {
             return false;
         }
 
@@ -782,48 +751,29 @@ bool rebuild_vector_clip_chain(
         if (!encode_raster_pass(
                 "ProGPU native retained clip coverage pass",
                 temporary.bind_group,
-                path_uniforms.size()) ||
-            !encode_raster_pass(
-                "ProGPU native clip split XOR leaf A coverage pass",
-                temporary.binary_leaf_a_bind_group,
-                binary_leaf_a_uniforms.size())) {
+                path_uniforms.size())) {
             if (encoder != nullptr) {
                 wgpuCommandEncoderRelease(encoder);
             }
             return false;
         }
-        if (split_raster_submissions &&
-            !submit_raster_phase(
-                "ProGPU native clip raster phase A commands")) {
-            return false;
-        }
-        if (!encode_raster_pass(
-                "ProGPU native clip split XOR leaf B coverage pass",
-                temporary.binary_leaf_b_bind_group,
-                binary_leaf_b_uniforms.size())) {
-            if (encoder != nullptr) {
-                wgpuCommandEncoderRelease(encoder);
+        for (std::size_t phase_index = 0U;
+             phase_index < split_leaf_uniforms.size();
+             ++phase_index) {
+            if (!encode_raster_pass(
+                    "ProGPU native clip split XOR leaf coverage pass",
+                    temporary.split_leaf_bind_groups[phase_index],
+                    split_leaf_uniforms[phase_index].size())) {
+                if (encoder != nullptr) {
+                    wgpuCommandEncoderRelease(encoder);
+                }
+                return false;
             }
-            return false;
-        }
-        if (split_raster_submissions &&
-            !submit_raster_phase(
-                "ProGPU native clip raster phase B commands")) {
-            return false;
-        }
-        if (!encode_raster_pass(
-                "ProGPU native clip ternary XOR leaf C coverage pass",
-                temporary.ternary_leaf_c_bind_group,
-                ternary_leaf_c_uniforms.size())) {
-            if (encoder != nullptr) {
-                wgpuCommandEncoderRelease(encoder);
+            if (split_raster_submissions &&
+                !submit_raster_phase(
+                    "ProGPU native clip split XOR raster phase commands")) {
+                return false;
             }
-            return false;
-        }
-        if (!ternary_leaf_c_uniforms.empty() &&
-            !submit_raster_phase(
-                "ProGPU native clip raster phase C commands")) {
-            return false;
         }
         if (!coverage_combine_uniforms.empty()) {
             WGPUComputePassDescriptor combine_descriptor{};
@@ -994,16 +944,13 @@ bool rebuild_vector_clip_chain(
             static_cast<std::uint32_t>(rasters.size());
         engine.last_layer_metrics.clip_pass_count =
             static_cast<std::uint32_t>(!path_uniforms.empty()) +
-            static_cast<std::uint32_t>(!binary_leaf_a_uniforms.empty()) +
-            static_cast<std::uint32_t>(!binary_leaf_b_uniforms.empty()) +
-            static_cast<std::uint32_t>(!ternary_leaf_c_uniforms.empty()) +
+            static_cast<std::uint32_t>(split_leaf_uniforms.size()) +
             static_cast<std::uint32_t>(!coverage_combine_uniforms.empty()) +
             static_cast<std::uint32_t>(chain.path_count) * 2U;
         engine.last_layer_metrics.clip_path_upload_bytes =
-            path_uniform_bytes + binary_leaf_a_uniform_bytes +
-            binary_leaf_b_uniform_bytes + ternary_leaf_c_uniform_bytes +
-            path_record_bytes + path_segment_bytes + combine_uniform_bytes +
-            vertex_bytes + index_bytes + compose_bytes;
+            path_uniform_bytes + split_leaf_uniform_bytes + path_record_bytes +
+            path_segment_bytes + combine_uniform_bytes + vertex_bytes +
+            index_bytes + compose_bytes;
         engine.last_layer_metrics.clip_coverage_staging_bytes = output_offset;
         engine.last_layer_metrics.clip_texture_bytes =
             static_cast<std::uint64_t>(required_atlas_size) *

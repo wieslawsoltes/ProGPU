@@ -1,22 +1,20 @@
 #pragma once
 
+#include <vector>
+
 // Internal WebGPU handle ownership. Include only after the selected WebGPU C
 // header has declared WGPUBuffer and WGPUBindGroup.
 namespace progpu::native {
 
 struct path_raster_resources {
     WGPUBuffer uniforms = nullptr;
-    WGPUBuffer binary_leaf_a_uniforms = nullptr;
-    WGPUBuffer binary_leaf_b_uniforms = nullptr;
-    WGPUBuffer ternary_leaf_c_uniforms = nullptr;
+    std::vector<WGPUBuffer> split_leaf_uniforms;
     WGPUBuffer records = nullptr;
     WGPUBuffer segments = nullptr;
     WGPUBuffer coverage = nullptr;
     WGPUBuffer coverage_combine_uniforms = nullptr;
     WGPUBindGroup bind_group = nullptr;
-    WGPUBindGroup binary_leaf_a_bind_group = nullptr;
-    WGPUBindGroup binary_leaf_b_bind_group = nullptr;
-    WGPUBindGroup ternary_leaf_c_bind_group = nullptr;
+    std::vector<WGPUBindGroup> split_leaf_bind_groups;
 
     path_raster_resources() = default;
     path_raster_resources(const path_raster_resources&) = delete;
@@ -26,19 +24,15 @@ struct path_raster_resources {
         if (bind_group != nullptr) {
             wgpuBindGroupRelease(bind_group);
         }
-        if (binary_leaf_a_bind_group != nullptr) {
-            wgpuBindGroupRelease(binary_leaf_a_bind_group);
-        }
-        if (binary_leaf_b_bind_group != nullptr) {
-            wgpuBindGroupRelease(binary_leaf_b_bind_group);
-        }
-        if (ternary_leaf_c_bind_group != nullptr) {
-            wgpuBindGroupRelease(ternary_leaf_c_bind_group);
+        for (WGPUBindGroup bind_group : split_leaf_bind_groups) {
+            if (bind_group != nullptr) {
+                wgpuBindGroupRelease(bind_group);
+            }
         }
         release_buffer(uniforms);
-        release_buffer(binary_leaf_a_uniforms);
-        release_buffer(binary_leaf_b_uniforms);
-        release_buffer(ternary_leaf_c_uniforms);
+        for (WGPUBuffer buffer : split_leaf_uniforms) {
+            release_buffer(buffer);
+        }
         release_buffer(records);
         release_buffer(segments);
         release_buffer(coverage);
