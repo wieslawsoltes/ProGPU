@@ -10824,6 +10824,56 @@ bool retained_drawing_image_infers_line_path_bounds() {
     PROGPU_REQUIRE(state.apply(curved_update) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7007U, 2U, stream, nullptr) ==
+        status::success);
+    const auto curved_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    bool found_curve_mapping = false;
+    for (std::uint32_t index = 0U;
+         index < curved_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            curved_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            continue;
+        }
+        const auto scene_state = read_value<progpu_native_scene_state>(
+            stream, resource.payload_offset);
+        if (std::abs(scene_state.transform.m11 - 4.0F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m22 - 260.0F / 49.0F) < 0.0001F &&
+            std::abs(scene_state.transform.m31 + 2.0F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m32 + 324.0F / 49.0F) < 0.0001F) {
+            found_curve_mapping = true;
+        }
+    }
+    PROGPU_REQUIRE(found_curve_mapping);
+
+    constexpr std::uint32_t transform = 8U;
+    std::vector<std::byte> transformed_update;
+    append_create(transformed_update, transform, 66U);
+    append_command(
+        transformed_update,
+        command::matrix_transform,
+        transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        2.0,
+        0U);
+    append_path_geometry(
+        transformed_update,
+        geometry,
+        transform,
+        1U,
+        make_single_bezier_path_figures(3U, quadratic_points));
+    PROGPU_REQUIRE(state.apply(transformed_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7007U, 3U, stream, nullptr) ==
         status::unsupported_command);
     return true;
 }

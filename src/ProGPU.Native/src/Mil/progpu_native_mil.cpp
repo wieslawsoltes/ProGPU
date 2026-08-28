@@ -361,6 +361,184 @@ bool try_transform_bounds(
     return true;
 }
 
+bool try_get_path_segment_bounds(
+    std::span<const progpu_native_path_segment> segments,
+    progpu_native_image_rect& bounds) noexcept {
+    double left = std::numeric_limits<double>::infinity();
+    double top = std::numeric_limits<double>::infinity();
+    double right = -std::numeric_limits<double>::infinity();
+    double bottom = -std::numeric_limits<double>::infinity();
+    const auto include_point = [
+        &left,
+        &top,
+        &right,
+        &bottom](double x, double y) noexcept {
+        if (!std::isfinite(x) || !std::isfinite(y)) {
+            return false;
+        }
+        left = std::min(left, x);
+        top = std::min(top, y);
+        right = std::max(right, x);
+        bottom = std::max(bottom, y);
+        return true;
+    };
+    const auto include_quadratic = [
+        &include_point](
+        const progpu_native_path_segment& segment,
+        double t) noexcept {
+        if (t <= 0.0 || t >= 1.0) {
+            return true;
+        }
+        const double inverse = 1.0 - t;
+        return include_point(
+            inverse * inverse * segment.p0.x +
+                2.0 * inverse * t * segment.p1.x +
+                t * t * segment.p2.x,
+            inverse * inverse * segment.p0.y +
+                2.0 * inverse * t * segment.p1.y +
+                t * t * segment.p2.y);
+    };
+    const auto include_cubic = [
+        &include_point](
+        const progpu_native_path_segment& segment,
+        double t) noexcept {
+        if (t <= 0.0 || t >= 1.0) {
+            return true;
+        }
+        const double inverse = 1.0 - t;
+        return include_point(
+            inverse * inverse * inverse * segment.p0.x +
+                3.0 * inverse * inverse * t * segment.p1.x +
+                3.0 * inverse * t * t * segment.p2.x +
+                t * t * t * segment.p3.x,
+            inverse * inverse * inverse * segment.p0.y +
+                3.0 * inverse * inverse * t * segment.p1.y +
+                3.0 * inverse * t * t * segment.p2.y +
+                t * t * t * segment.p3.y);
+    };
+    const auto include_cubic_axis_extrema = [
+        &include_cubic](
+        const progpu_native_path_segment& segment,
+        double p0,
+        double p1,
+        double p2,
+        double p3) noexcept {
+        const double quadratic = 3.0 * (-p0 + 3.0 * p1 - 3.0 * p2 + p3);
+        const double linear = 6.0 * (p0 - 2.0 * p1 + p2);
+        const double constant = 3.0 * (p1 - p0);
+        if (quadratic == 0.0) {
+            return linear == 0.0 ||
+                include_cubic(segment, -constant / linear);
+        }
+        const double discriminant =
+            linear * linear - 4.0 * quadratic * constant;
+        if (discriminant < 0.0) {
+            return true;
+        }
+        const double root = std::sqrt(discriminant);
+        const double denominator = 2.0 * quadratic;
+        return include_cubic(segment, (-linear - root) / denominator) &&
+            include_cubic(segment, (-linear + root) / denominator);
+    };
+    for (const auto& segment : segments) {
+        if (!include_point(segment.p0.x, segment.p0.y)) {
+            return false;
+        }
+        if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_LINE) {
+            if (!include_point(segment.p1.x, segment.p1.y)) {
+                return false;
+            }
+        } else if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC) {
+            if (!include_point(segment.p2.x, segment.p2.y)) {
+                return false;
+            }
+            const double denominator_x = segment.p0.x -
+                2.0 * segment.p1.x + segment.p2.x;
+            const double denominator_y = segment.p0.y -
+                2.0 * segment.p1.y + segment.p2.y;
+            if ((denominator_x != 0.0 &&
+                 !include_quadratic(
+                     segment,
+                     (segment.p0.x - segment.p1.x) / denominator_x)) ||
+                (denominator_y != 0.0 &&
+                 !include_quadratic(
+                     segment,
+                     (segment.p0.y - segment.p1.y) / denominator_y))) {
+                return false;
+            }
+        } else if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_CUBIC) {
+            if (!include_point(segment.p3.x, segment.p3.y) ||
+                !include_cubic_axis_extrema(
+                    segment,
+                    segment.p0.x,
+                    segment.p1.x,
+                    segment.p2.x,
+                    segment.p3.x) ||
+                !include_cubic_axis_extrema(
+                    segment,
+                    segment.p0.y,
+                    segment.p1.y,
+                    segment.p2.y,
+                    segment.p3.y)) {
+                return false;
+            }
+        } else if (segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC) {
+            if (!include_point(segment.p1.x, segment.p1.y)) {
+                return false;
+            }
+            const float theta1 = std::bit_cast<float>(segment.pad0);
+            const float delta_theta = std::bit_cast<float>(segment.pad1);
+            const float rotation = std::bit_cast<float>(segment.pad2);
+            const float rotation_radians =
+                rotation * std::numbers::pi_v<float> / 180.0F;
+            const float cosine_rotation = std::cos(rotation_radians);
+            const float sine_rotation = std::sin(rotation_radians);
+            const float x_extrema = std::atan2(
+                -segment.p3.y * sine_rotation,
+                segment.p3.x * cosine_rotation);
+            const float y_extrema = std::atan2(
+                segment.p3.y * cosine_rotation,
+                segment.p3.x * sine_rotation);
+            const float extrema[4U]{
+                x_extrema,
+                x_extrema + std::numbers::pi_v<float>,
+                y_extrema,
+                y_extrema + std::numbers::pi_v<float>};
+            for (const float theta : extrema) {
+                if (!progpu::native::geometry::angle_within_sweep(
+                        theta, theta1, delta_theta)) {
+                    continue;
+                }
+                const auto point =
+                    progpu::native::geometry::evaluate_arc(
+                        {segment.p2.x, segment.p2.y},
+                        segment.p3.x,
+                        segment.p3.y,
+                        rotation,
+                        theta);
+                if (!include_point(point.x, point.y)) {
+                    return false;
+                }
+            }
+        } else {
+            return false;
+        }
+    }
+    const double width = right - left;
+    const double height = bottom - top;
+    if (!finite_double_as_float(left) || !finite_double_as_float(top) ||
+        !finite_double_as_float(width) || !finite_double_as_float(height) ||
+        width <= 0.0 || height <= 0.0) {
+        return false;
+    }
+    bounds = {
+        static_cast<float>(left),
+        static_cast<float>(top),
+        static_cast<float>(width),
+        static_cast<float>(height)};
+    return true;
+}
+
 bool try_transform_arc_segment(
     const progpu_native_path_segment& source,
     const affine_2d_double& transform,
@@ -8306,36 +8484,11 @@ struct channel::implementation {
                 drawing->second.geometry_handle);
             if (path != path_geometries.end()) {
                 if (path->second.transform_handle != 0U ||
-                    path->second.segments.empty()) {
+                    path->second.segments.empty() ||
+                    !try_get_path_segment_bounds(
+                        path->second.segments, bounds)) {
                     return status::unsupported_command;
                 }
-                float left = std::numeric_limits<float>::infinity();
-                float top = std::numeric_limits<float>::infinity();
-                float right = -std::numeric_limits<float>::infinity();
-                float bottom = -std::numeric_limits<float>::infinity();
-                const auto include_point = [
-                    &left,
-                    &top,
-                    &right,
-                    &bottom](progpu_native_point point) noexcept {
-                    left = std::min(left, point.x);
-                    top = std::min(top, point.y);
-                    right = std::max(right, point.x);
-                    bottom = std::max(bottom, point.y);
-                };
-                for (const auto& segment : path->second.segments) {
-                    if (segment.kind != PROGPU_NATIVE_PATH_SEGMENT_LINE) {
-                        return status::unsupported_command;
-                    }
-                    include_point(segment.p0);
-                    include_point(segment.p1);
-                }
-                if (!std::isfinite(left) || !std::isfinite(top) ||
-                    !std::isfinite(right) || !std::isfinite(bottom) ||
-                    right <= left || bottom <= top) {
-                    return status::unsupported_command;
-                }
-                bounds = {left, top, right - left, bottom - top};
                 return status::success;
             }
             if (!fixed_geometries.contains(
