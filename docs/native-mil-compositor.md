@@ -2067,12 +2067,13 @@ or singular path transforms still require the exact drawing-content-bounds
 sideband and fail closed when it is absent. The exact native lane also accepts
 single-child/nested-single-child `GeometryGroup` chains and composes every group
 and leaf transform; multi-child groups remain sideband-only until WPF fill-rule
-cancellation bounds have a qualified oracle. A fixed `LineGeometry` with a
-positive, non-dashed Pen now reuses the renderer's canonical live Pen resolver
-and cap-aware line-stroke bounds. Animated thickness changes the inferred
+cancellation bounds have a qualified oracle. Fixed lines and positive-area
+rectangles, rounded rectangles, and ellipses with a non-dashed Pen now reuse
+the renderer's canonical live Pen resolver, cap-aware line bounds, and shared
+positive-shape stroke-bounds helper. Animated thickness changes the inferred
 DrawingImage mapping without retransmitting the Pen or Drawing; only
 axis-preserving geometry transforms are accepted so transforming the local
-stroke AABB remains exact. Dashed, degenerate, non-line, and
+stroke AABB remains exact. Dashed, degenerate, path/group, and
 non-axis-preserving stroked cases remain sideband-only. No bitmap intermediate,
 pointer
 transport, reflection, or host raster fallback is introduced. Recursive
@@ -2086,7 +2087,8 @@ opacity mask, a guideline resource, aliased edges, nearest image sampling, and
 ClearType. The clip intersects only one of two separated children, so the test
 verifies the per-child clip-derived destination mapping while retaining a shear
 rejection oracle. Separate native coverage verifies exact square-cap mappings
-at two animated thickness values and rejects a sheared line update.
+at two animated thickness values, rounded-rectangle and ellipse mappings, and
+explicit sheared-transform and dashed-Pen rejections.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive

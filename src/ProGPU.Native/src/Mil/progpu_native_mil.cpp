@@ -361,6 +361,27 @@ bool try_transform_bounds(
     return true;
 }
 
+bool try_positive_fixed_shape_stroke_bounds(
+    double x,
+    double y,
+    double width,
+    double height,
+    double thickness,
+    const affine_2d_double& transform,
+    progpu_native_image_rect& bounds) noexcept {
+    if (width <= 0.0 || height <= 0.0 || thickness <= 0.0) {
+        return false;
+    }
+    const double half_thickness = thickness * 0.5;
+    return try_transform_bounds(
+        x - half_thickness,
+        y - half_thickness,
+        width + thickness,
+        height + thickness,
+        transform,
+        bounds);
+}
+
 bool try_get_path_segment_bounds(
     std::span<const progpu_native_path_segment> segments,
     progpu_native_image_rect& bounds) noexcept {
@@ -8165,11 +8186,12 @@ struct channel::implementation {
                 }
             }
             progpu_native_image_rect stroke_bounds{};
-            if (!try_transform_bounds(
-                    brush_use.x,
-                    brush_use.y,
-                    brush_use.width,
-                    brush_use.height,
+            if (!try_positive_fixed_shape_stroke_bounds(
+                    x,
+                    y,
+                    width,
+                    height,
+                    pen.thickness,
                     effective_transform,
                     stroke_bounds)) {
                 return status::invalid_graph;
@@ -8599,8 +8621,7 @@ struct channel::implementation {
                 if (pen_status != status::success) {
                     return pen_status;
                 }
-                if (geometry.kind != fixed_geometry_kind::line ||
-                    pen.brush_handle == 0U || pen.thickness <= 0.0 ||
+                if (pen.brush_handle == 0U || pen.thickness <= 0.0 ||
                     pen.dash_style_handle != 0U) {
                     return status::unsupported_command;
                 }
@@ -8615,6 +8636,34 @@ struct channel::implementation {
                         affine_has_zero_area(transform)) {
                         return status::unsupported_command;
                     }
+                }
+                if (geometry.kind != fixed_geometry_kind::line) {
+                    const bool is_ellipse =
+                        geometry.kind == fixed_geometry_kind::ellipse;
+                    const double shape_x = is_ellipse
+                        ? geometry.first - geometry.third
+                        : geometry.first;
+                    const double shape_y = is_ellipse
+                        ? geometry.second - geometry.fourth
+                        : geometry.second;
+                    const double shape_width = is_ellipse
+                        ? geometry.third * 2.0
+                        : geometry.third;
+                    const double shape_height = is_ellipse
+                        ? geometry.fourth * 2.0
+                        : geometry.fourth;
+                    if (!try_positive_fixed_shape_stroke_bounds(
+                            shape_x,
+                            shape_y,
+                            shape_width,
+                            shape_height,
+                            pen.thickness,
+                            transform,
+                            bounds) ||
+                        bounds.width <= 0.0F || bounds.height <= 0.0F) {
+                        return status::unsupported_command;
+                    }
+                    return status::success;
                 }
                 double stroke_x = 0.0;
                 double stroke_y = 0.0;

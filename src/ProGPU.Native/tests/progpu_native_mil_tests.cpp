@@ -11069,7 +11069,7 @@ bool retained_drawing_image_infers_line_path_bounds() {
     return true;
 }
 
-bool retained_drawing_image_infers_line_stroke_bounds() {
+bool retained_drawing_image_infers_fixed_stroke_bounds() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
     constexpr std::uint32_t target = 3U;
@@ -11080,6 +11080,9 @@ bool retained_drawing_image_infers_line_stroke_bounds() {
     constexpr std::uint32_t geometry_drawing = 8U;
     constexpr std::uint32_t drawing_image = 9U;
     constexpr std::uint32_t shear_transform = 10U;
+    constexpr std::uint32_t rectangle_geometry = 11U;
+    constexpr std::uint32_t ellipse_geometry = 12U;
+    constexpr std::uint32_t dash_style = 13U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -11091,6 +11094,9 @@ bool retained_drawing_image_infers_line_stroke_bounds() {
     append_create(batch, geometry, 68U);
     append_create(batch, geometry_drawing, 87U);
     append_create(batch, drawing_image, 59U);
+    append_create(batch, rectangle_geometry, 69U);
+    append_create(batch, ellipse_geometry, 70U);
+    append_create(batch, dash_style, 84U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -11132,6 +11138,34 @@ bool retained_drawing_image_infers_line_stroke_bounds() {
         0U,
         0U,
         0U);
+    append_command(
+        batch,
+        command::rectangle_geometry,
+        rectangle_geometry,
+        3.0,
+        4.0,
+        10.0,
+        20.0,
+        20.0,
+        10.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::ellipse_geometry,
+        ellipse_geometry,
+        10.0,
+        5.0,
+        20.0,
+        30.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    const std::array dash_intervals{1.0, 1.0};
+    append_dash_style(batch, dash_style, 0.0, 0U, dash_intervals);
     append_command(
         batch,
         command::geometry_drawing,
@@ -11217,6 +11251,42 @@ bool retained_drawing_image_infers_line_stroke_bounds() {
     PROGPU_REQUIRE(contains_mapping(
         10.0F / 7.0F, 2.5F, -46.0F / 7.0F, -36.0F));
 
+    std::vector<std::byte> rectangle_update;
+    append_command(
+        rectangle_update,
+        command::geometry_drawing,
+        geometry_drawing,
+        0U,
+        pen,
+        rectangle_geometry);
+    PROGPU_REQUIRE(state.apply(rectangle_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 3U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(contains_mapping(
+        10.0F / 7.0F,
+        10.0F / 9.0F,
+        -46.0F / 7.0F,
+        -124.0F / 9.0F));
+
+    std::vector<std::byte> ellipse_update;
+    append_command(
+        ellipse_update,
+        command::geometry_drawing,
+        geometry_drawing,
+        0U,
+        pen,
+        ellipse_geometry);
+    PROGPU_REQUIRE(state.apply(ellipse_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 4U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(contains_mapping(
+        10.0F / 7.0F,
+        10.0F / 9.0F,
+        -46.0F / 7.0F,
+        -58.0F / 3.0F));
+
     std::vector<std::byte> unsupported_update;
     append_create(unsupported_update, shear_transform, 66U);
     append_command(
@@ -11241,9 +11311,46 @@ bool retained_drawing_image_infers_line_stroke_bounds() {
         shear_transform,
         0U,
         0U);
+    append_command(
+        unsupported_update,
+        command::geometry_drawing,
+        geometry_drawing,
+        0U,
+        pen,
+        geometry);
     PROGPU_REQUIRE(state.apply(unsupported_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7008U, 3U, stream, nullptr) ==
+        state.build_scene(target, 7008U, 5U, stream, nullptr) ==
+        status::unsupported_command);
+
+    std::vector<std::byte> dashed_update;
+    append_command(
+        dashed_update,
+        command::line_geometry,
+        geometry,
+        10.0,
+        20.0,
+        30.0,
+        20.0,
+        0U,
+        0U,
+        0U);
+    append_command(
+        dashed_update,
+        command::pen,
+        pen,
+        2.0,
+        10.0,
+        brush,
+        thickness_animation,
+        PROGPU_NATIVE_STROKE_CAP_SQUARE,
+        PROGPU_NATIVE_STROKE_CAP_SQUARE,
+        PROGPU_NATIVE_STROKE_CAP_FLAT,
+        PROGPU_NATIVE_STROKE_JOIN_MITER,
+        dash_style);
+    PROGPU_REQUIRE(state.apply(dashed_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 6U, stream, nullptr) ==
         status::unsupported_command);
     return true;
 }
@@ -14528,7 +14635,7 @@ int main() {
     PROGPU_REQUIRE(
         retained_drawing_image_maps_vector_content_into_destination());
     PROGPU_REQUIRE(retained_drawing_image_infers_line_path_bounds());
-    PROGPU_REQUIRE(retained_drawing_image_infers_line_stroke_bounds());
+    PROGPU_REQUIRE(retained_drawing_image_infers_fixed_stroke_bounds());
     PROGPU_REQUIRE(retained_drawing_image_infers_drawing_group_bounds());
     PROGPU_REQUIRE(
         retained_glyph_run_drawing_uses_pointer_free_sfnt_sideband());
