@@ -8487,41 +8487,10 @@ struct channel::implementation {
                 double right = 0.0;
                 double bottom = 0.0;
                 bool has_bounds = false;
-                for (const std::uint32_t child : group.children) {
-                    progpu_native_image_rect child_bounds{};
-                    const status child_status = resolve_bounds(
-                        resolve_bounds,
-                        child,
-                        depth + 1U,
-                        child_bounds);
-                    if (child_status != status::success) {
-                        return child_status;
-                    }
-                    const double child_left = child_bounds.x;
-                    const double child_top = child_bounds.y;
-                    const double child_right = child_left +
-                        child_bounds.width;
-                    const double child_bottom = child_top +
-                        child_bounds.height;
-                    if (!has_bounds) {
-                        left = child_left;
-                        top = child_top;
-                        right = child_right;
-                        bottom = child_bottom;
-                        has_bounds = true;
-                    } else {
-                        left = std::min(left, child_left);
-                        top = std::min(top, child_top);
-                        right = std::max(right, child_right);
-                        bottom = std::max(bottom, child_bottom);
-                    }
-                }
-                if (!has_bounds || right <= left || bottom <= top) {
-                    return status::unsupported_command;
-                }
-                if (group.clip_geometry_handle != 0U) {
+                shallow_fill_leaf clip{};
+                const bool has_clip = group.clip_geometry_handle != 0U;
+                if (has_clip) {
                     drawing_image_bounds_segments.clear();
-                    shallow_fill_leaf clip{};
                     const status clip_status = geometry_groups.contains(
                             group.clip_geometry_handle)
                         ? append_group_fill_leaf(
@@ -8539,13 +8508,48 @@ struct channel::implementation {
                         clip.bottom <= clip.top) {
                         return status::unsupported_command;
                     }
-                    left = std::max(left, clip.left);
-                    top = std::max(top, clip.top);
-                    right = std::min(right, clip.right);
-                    bottom = std::min(bottom, clip.bottom);
-                    if (right <= left || bottom <= top) {
-                        return status::unsupported_command;
+                }
+                for (const std::uint32_t child : group.children) {
+                    progpu_native_image_rect child_bounds{};
+                    const status child_status = resolve_bounds(
+                        resolve_bounds,
+                        child,
+                        depth + 1U,
+                        child_bounds);
+                    if (child_status != status::success) {
+                        return child_status;
                     }
+                    double child_left = child_bounds.x;
+                    double child_top = child_bounds.y;
+                    double child_right = child_left +
+                        child_bounds.width;
+                    double child_bottom = child_top +
+                        child_bounds.height;
+                    if (has_clip) {
+                        child_left = std::max(child_left, clip.left);
+                        child_top = std::max(child_top, clip.top);
+                        child_right = std::min(child_right, clip.right);
+                        child_bottom = std::min(child_bottom, clip.bottom);
+                        if (child_right <= child_left ||
+                            child_bottom <= child_top) {
+                            continue;
+                        }
+                    }
+                    if (!has_bounds) {
+                        left = child_left;
+                        top = child_top;
+                        right = child_right;
+                        bottom = child_bottom;
+                        has_bounds = true;
+                    } else {
+                        left = std::min(left, child_left);
+                        top = std::min(top, child_top);
+                        right = std::max(right, child_right);
+                        bottom = std::max(bottom, child_bottom);
+                    }
+                }
+                if (!has_bounds || right <= left || bottom <= top) {
+                    return status::unsupported_command;
                 }
                 affine_2d_double transform{};
                 if (group.transform_handle != 0U) {
