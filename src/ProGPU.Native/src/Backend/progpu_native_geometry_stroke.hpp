@@ -1616,7 +1616,33 @@ inline std::size_t create_join_triangles(
                 radius * resolved_limit + 0.0001F;
         triangles[0] = {previous_outer, join_point, next_outer};
         if (!has_miter) {
-            return 1U;
+            // WPF's public Miter join clips the outer corner at the nominal
+            // miter-limit distance instead of falling back to a bevel.
+            const float dot = incoming.x * outgoing.x +
+                incoming.y * outgoing.y;
+            const float denominator = radius * std::sqrt(
+                std::max(0.0F, (1.0F - dot) * 0.5F));
+            const float numerator = radius * std::sqrt(
+                std::max(0.0F, (1.0F + dot) * 0.5F));
+            if (!std::isfinite(denominator) || denominator <= 0.0001F) {
+                return 1U;
+            }
+            const float ratio = std::max(
+                0.0F,
+                (resolved_limit * radius - numerator) / denominator);
+            const progpu_native_point first_clip{
+                previous_outer.x + incoming.x * radius * ratio,
+                previous_outer.y + incoming.y * radius * ratio};
+            const progpu_native_point second_clip{
+                next_outer.x - outgoing.x * radius * ratio,
+                next_outer.y - outgoing.y * radius * ratio};
+            if (!is_finite(first_clip) || !is_finite(second_clip)) {
+                return 1U;
+            }
+            triangles[0] = {join_point, previous_outer, first_clip};
+            triangles[1] = {join_point, first_clip, second_clip};
+            triangles[2] = {join_point, second_clip, next_outer};
+            return 3U;
         }
         triangles[1] = {previous_outer, miter, next_outer};
         return 2U;

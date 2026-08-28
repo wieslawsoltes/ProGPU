@@ -508,14 +508,34 @@ bool try_transformed_rectangle_stroke_bounds(
             if (!std::isfinite(miter[0U]) || !std::isfinite(miter[1U])) {
                 return false;
             }
-            if (std::hypot(
+            const double miter_distance = std::hypot(
                     miter[0U] - join[0U],
-                    miter[1U] - join[1U]) >
-                radius * resolved_limit + 0.0001) {
-                // WPF clips an over-limit miter instead of reducing it to
-                // the bevel triangle used by the current native tessellator.
-                // Fail closed until that clipped outline is shared here.
-                return false;
+                    miter[1U] - join[1U]);
+            if (miter_distance > radius * resolved_limit + 0.0001) {
+                const double dot = incoming[0U] * outgoing[0U] +
+                    incoming[1U] * outgoing[1U];
+                const double denominator = radius * std::sqrt(
+                    std::max(0.0, (1.0 - dot) * 0.5));
+                const double numerator = radius * std::sqrt(
+                    std::max(0.0, (1.0 + dot) * 0.5));
+                if (!std::isfinite(denominator) || denominator <= 0.0001) {
+                    return false;
+                }
+                const double ratio = std::max(
+                    0.0,
+                    (resolved_limit * radius - numerator) / denominator);
+                const point first_clip{
+                    previous_outer[0U] +
+                        incoming[0U] * radius * ratio,
+                    previous_outer[1U] +
+                        incoming[1U] * radius * ratio};
+                const point second_clip{
+                    next_outer[0U] - outgoing[0U] * radius * ratio,
+                    next_outer[1U] - outgoing[1U] * radius * ratio};
+                if (!include(first_clip) || !include(second_clip)) {
+                    return false;
+                }
+                continue;
             }
             if (!include(miter)) {
                 return false;

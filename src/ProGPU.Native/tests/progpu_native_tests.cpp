@@ -509,6 +509,34 @@ void fixed_stroke_topology_masks_match_reference_classification() {
             PROGPU_REQUIRE(actual_owned == expected_owned);
         }
     }
+
+    const std::size_t clipped_count =
+        progpu::native::create_join_triangles(
+            triangles,
+            PROGPU_NATIVE_STROKE_JOIN_MITER,
+            8.0F,
+            1.0F,
+            center,
+            {1.0F, 0.25F},
+            {0.5F, 1.0F});
+    PROGPU_REQUIRE(clipped_count == 3U);
+    for (std::size_t index = 0U; index < clipped_count; ++index) {
+        std::uint32_t expected_exterior = 0U;
+        std::uint32_t expected_owned = 0U;
+        std::uint32_t actual_exterior = 0U;
+        std::uint32_t actual_owned = 0U;
+        progpu::native::classify_triangle_edges(
+            triangles.data(), clipped_count, index, false, {}, {},
+            expected_exterior, expected_owned);
+        progpu::native::classify_join_triangle_edges(
+            PROGPU_NATIVE_STROKE_JOIN_MITER,
+            clipped_count,
+            index,
+            actual_exterior,
+            actual_owned);
+        PROGPU_REQUIRE(actual_exterior == expected_exterior);
+        PROGPU_REQUIRE(actual_owned == expected_owned);
+    }
 }
 
 void api_contract_is_versioned() {
