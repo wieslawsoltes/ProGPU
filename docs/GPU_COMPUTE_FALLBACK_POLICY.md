@@ -1,9 +1,10 @@
 # GPU-first compute fallback policy
 
 Status: glyph coverage is implemented across the macOS Metal, Windows D3D12,
-and Linux Vulkan/llvmpipe qualification lanes. GPU compute and raster routes
-have a bounded 3/255 antialiasing-tie contract; intrinsic-SIMD and scalar CPU
-routes remain byte exact. A physical Linux Vulkan adapter remains required
+and Linux Vulkan/llvmpipe qualification lanes. Intrinsic-SIMD and scalar CPU
+coverage remain byte exact against each other. The independently rendered
+native/managed GPU final frames have a bounded 3/255 antialiasing-tie contract
+for every coverage producer. A physical Linux Vulkan adapter remains required
 before making a hardware-wide Vulkan performance claim.
 
 ## Decision
@@ -95,13 +96,13 @@ Apple M3 Pro measurement are recorded in
 
 ## Validation gate
 
-Forced intrinsic-SIMD and scalar modes must produce exact final-frame pixel
-parity between the managed and C++ implementations. Automatic, forced native
-compute, and forced raster-shader modes permit only the tight GPU differential
-contract: at most 3/255 per channel, no pixel beyond that tolerance, and mean
-absolute difference at most 0.001 byte/channel. This accounts for independently
-evaluated floating-point antialiasing ties without weakening the exact CPU
-fallbacks. Run the retained positioned glyph-atlas gate with:
+Every final-frame mode permits only the tight GPU differential contract: at
+most 3/255 per channel, no pixel beyond that tolerance, and mean absolute
+difference at most 0.001 byte/channel. Even forced CPU coverage is subsequently
+sampled and drawn by independent native/managed GPU pipelines, so final-frame
+ties do not measure the CPU arithmetic. Dedicated intrinsic-SIMD/scalar
+coverage differential tests remain byte exact and fail on the first differing
+coverage byte. Run the retained positioned glyph-atlas gate with:
 
 ```bash
 dotnet build src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj \
@@ -129,13 +130,11 @@ The gate requires:
 
 - the diagnostic path expected for the requested mode;
 - no WebGPU validation or device errors;
-- exact pixels and identical managed/native FNV-1a hashes for forced
-  intrinsic-SIMD and scalar modes;
 - at most 3/255 per channel, zero pixels beyond that tolerance, and mean
-  absolute difference at most 0.001 byte/channel for automatic/native-compute
-  and forced raster-shader modes;
+  absolute difference at most 0.001 byte/channel for every final-frame mode;
 - zero native coverage staging bytes in raster mode; and
-- SIMD/scalar differential tests for line, quadratic, and cubic outlines.
+- byte-exact SIMD/scalar coverage differential tests for line, quadratic, and
+  cubic outlines, vector tails, signed winding, and normalization.
 
 The initial Apple M3 Pro Metal qualification produced the identical final hash
 `5B6EF4F70536C862` in native-compute, raster, intrinsic-SIMD, and scalar modes.
