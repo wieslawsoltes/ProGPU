@@ -283,6 +283,18 @@ public sealed partial class CadSnapshotCompiler
                         depth);
                     return;
                 }
+                if (entity is Dimension dimension)
+                {
+                    CompileDimension(
+                        dimension,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        depth);
+                    return;
+                }
 
                 int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
                 int styleIndex = InternStyle(
@@ -614,6 +626,98 @@ public sealed partial class CadSnapshotCompiler
                                 depth + 1);
                         }
                     }
+                }
+            }
+            finally
+            {
+                activeBlocks.Remove(block);
+            }
+        }
+
+        void CompileDimension(
+            Dimension dimension,
+            CadAffineTransform3D parentTransform,
+            bool parentHasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle resolvedStyle,
+            int depth)
+        {
+            if (depth >= options.MaxBlockNestingDepth)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"Dimension-picture nesting exceeds the configured depth of {options.MaxBlockNestingDepth}.");
+            }
+
+            BlockRecord block = dimension.Block ?? throw new ArgumentException(
+                "DIMENSION has no persisted picture block.");
+            if (block.Entities.Count == 0)
+            {
+                throw new CadUnsupportedEntityException(
+                    "DIMENSION persisted picture block is empty; layout regeneration is intentionally not performed during snapshot capture.");
+            }
+            if ((block.Flags & (BlockTypeFlags.XRef | BlockTypeFlags.XRefOverlay | BlockTypeFlags.XRefDependent)) != 0 ||
+                block.BlockEntity.IsUnloaded)
+            {
+                throw new CadUnsupportedEntityException(
+                    "External-reference dimension pictures require an explicit resolved XRef snapshot.");
+            }
+
+            if (block.EvaluationGraph is not null)
+            {
+                throw new CadUnsupportedEntityException(
+                    "Dynamic dimension pictures require evaluation-state lowering before expansion.");
+            }
+
+            if (!activeBlocks.Add(block))
+            {
+                throw new CadUnsupportedEntityException(
+                    $"Recursive dimension-picture block cycle detected at '{block.Name}'.");
+            }
+
+            try
+            {
+                // DIMENSION group 12 is persisted in the entity OCS but denotes the
+                // relative WCS displacement of its already-authored picture block.
+                // A generated picture uses zero displacement; definition point 10
+                // must not be reapplied to its absolute microspace geometry.
+                CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(
+                    ToPoint(dimension.Normal));
+                CadPoint3D displacement = basis.Transform(
+                    ToPoint(dimension.InsertionPoint));
+                EnsureFinite(displacement);
+                CadAffineTransform3D localTransform = displacement == CadPoint3D.Zero
+                    ? CadAffineTransform3D.Identity
+                    : new CadAffineTransform3D(
+                        CadAffineTransform3D.Identity.XAxis,
+                        CadAffineTransform3D.Identity.YAxis,
+                        CadAffineTransform3D.Identity.ZAxis,
+                        displacement);
+                CadAffineTransform3D pictureTransform = parentTransform.Compose(localTransform);
+                EnsureFinite(pictureTransform);
+                bool pictureHasTransform = parentHasTransform || displacement != CadPoint3D.Zero;
+
+                foreach (Entity child in block.Entities)
+                {
+                    // Anonymous dimension pictures persist definition/control
+                    // points as non-plotting POINT records. They are construction
+                    // metadata, not PDMODE glyphs belonging to the dimension picture.
+                    if (child is Point &&
+                        child.Layer.Name.Equals(
+                            Layer.DefpointsName,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    CompileEntityTree(
+                        child,
+                        pictureTransform,
+                        pictureHasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        depth + 1);
                 }
             }
             finally

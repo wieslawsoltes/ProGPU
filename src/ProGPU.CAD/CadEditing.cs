@@ -120,6 +120,263 @@ public abstract class CadEditCommand
         }
     }
 
+    /// <summary>
+    /// Applies a WCS translation while preserving a DIMENSION's persisted-picture
+    /// displacement contract.
+    /// </summary>
+    /// <remarks>
+    /// ACadSharp transforms the semantic dimension definition points but leaves
+    /// group 12 unchanged. AutoCAD stores that group in OCS and uses it as the
+    /// relative WCS displacement of the already-authored anonymous picture. Work
+    /// and storage are O(1), and no dimension layout regeneration is performed.
+    /// </remarks>
+    protected static void ApplyEntityTranslation(Entity entity, XYZ translation)
+    {
+        if (entity is not Dimension dimension)
+        {
+            entity.ApplyTranslation(translation);
+            return;
+        }
+
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(new CadPoint3D(
+            dimension.Normal.X,
+            dimension.Normal.Y,
+            dimension.Normal.Z));
+        var worldTranslation = new CadPoint3D(
+            translation.X,
+            translation.Y,
+            translation.Z);
+        var objectTranslation = new XYZ(
+            CadPoint3D.Dot(worldTranslation, basis.XAxis),
+            CadPoint3D.Dot(worldTranslation, basis.YAxis),
+            CadPoint3D.Dot(worldTranslation, basis.ZAxis));
+        XYZ previousInsertionPoint = dimension.InsertionPoint;
+        dimension.ApplyTranslation(translation);
+        dimension.InsertionPoint = previousInsertionPoint + objectTranslation;
+    }
+
+    /// <summary>
+    /// Rotates semantic dimension data and its persisted picture without invoking
+    /// dimension-layout generation.
+    /// </summary>
+    protected static void ApplyEntityRotation(Entity entity, XYZ axis, double radians) =>
+        ApplyEntityRotation(
+            entity,
+            axis,
+            radians,
+            new HashSet<BlockRecord>(ReferenceEqualityComparer.Instance),
+            0);
+
+    private static void ApplyEntityRotation(
+        Entity entity,
+        XYZ axis,
+        double radians,
+        HashSet<BlockRecord> activePictures,
+        int depth)
+    {
+        if (entity is not Dimension dimension)
+        {
+            entity.ApplyRotation(axis, radians);
+            return;
+        }
+
+        XYZ previousNormal = dimension.Normal;
+        XYZ previousInsertion = dimension.InsertionPoint;
+        CadPoint3D worldDisplacement = ObjectToWorldVector(
+            previousNormal,
+            previousInsertion);
+        BlockRecord? picture = dimension.Block;
+        if (picture is not null &&
+            (depth >= CadSnapshotOptions.DefaultMaxBlockNestingDepth ||
+             !activePictures.Add(picture)))
+        {
+            throw new InvalidOperationException(
+                "Dimension-picture editing encountered cyclic or excessive nesting.");
+        }
+
+        int transformedChildren = 0;
+        bool dimensionTransformed = false;
+        try
+        {
+            if (picture is not null)
+            {
+                for (; transformedChildren < picture.Entities.Count; transformedChildren++)
+                {
+                    ApplyEntityRotation(
+                        picture.Entities[transformedChildren],
+                        axis,
+                        radians,
+                        activePictures,
+                        depth + 1);
+                }
+            }
+
+            dimension.ApplyRotation(axis, radians);
+            dimensionTransformed = true;
+            Transform rotation = Transform.CreateRotation(axis, radians);
+            XYZ rotated = rotation.ApplyRotation(new XYZ(
+                worldDisplacement.X,
+                worldDisplacement.Y,
+                worldDisplacement.Z));
+            dimension.InsertionPoint = WorldToObjectVector(
+                dimension.Normal,
+                new CadPoint3D(rotated.X, rotated.Y, rotated.Z));
+        }
+        catch
+        {
+            if (dimensionTransformed)
+            {
+                dimension.ApplyRotation(axis, -radians);
+                dimension.InsertionPoint = previousInsertion;
+            }
+            if (picture is not null)
+            {
+                for (int i = transformedChildren - 1; i >= 0; i--)
+                {
+                    ApplyEntityRotation(
+                        picture.Entities[i],
+                        axis,
+                        -radians,
+                        activePictures,
+                        depth + 1);
+                }
+            }
+            throw;
+        }
+        finally
+        {
+            if (picture is not null)
+            {
+                activePictures.Remove(picture);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Scales semantic dimension data and its persisted picture without invoking
+    /// dimension-layout generation.
+    /// </summary>
+    protected static void ApplyEntityScaling(
+        Entity entity,
+        XYZ scale,
+        XYZ origin,
+        XYZ rollbackScale) =>
+        ApplyEntityScaling(
+            entity,
+            scale,
+            origin,
+            rollbackScale,
+            new HashSet<BlockRecord>(ReferenceEqualityComparer.Instance),
+            0);
+
+    private static void ApplyEntityScaling(
+        Entity entity,
+        XYZ scale,
+        XYZ origin,
+        XYZ rollbackScale,
+        HashSet<BlockRecord> activePictures,
+        int depth)
+    {
+        if (entity is not Dimension dimension)
+        {
+            entity.ApplyScaling(scale, origin);
+            return;
+        }
+
+        XYZ previousNormal = dimension.Normal;
+        XYZ previousInsertion = dimension.InsertionPoint;
+        CadPoint3D worldDisplacement = ObjectToWorldVector(
+            previousNormal,
+            previousInsertion);
+        BlockRecord? picture = dimension.Block;
+        if (picture is not null &&
+            (depth >= CadSnapshotOptions.DefaultMaxBlockNestingDepth ||
+             !activePictures.Add(picture)))
+        {
+            throw new InvalidOperationException(
+                "Dimension-picture editing encountered cyclic or excessive nesting.");
+        }
+
+        int transformedChildren = 0;
+        bool dimensionTransformed = false;
+        try
+        {
+            if (picture is not null)
+            {
+                for (; transformedChildren < picture.Entities.Count; transformedChildren++)
+                {
+                    ApplyEntityScaling(
+                        picture.Entities[transformedChildren],
+                        scale,
+                        origin,
+                        rollbackScale,
+                        activePictures,
+                        depth + 1);
+                }
+            }
+
+            dimension.ApplyScaling(scale, origin);
+            dimensionTransformed = true;
+            var scaledDisplacement = new CadPoint3D(
+                worldDisplacement.X * scale.X,
+                worldDisplacement.Y * scale.Y,
+                worldDisplacement.Z * scale.Z);
+            dimension.InsertionPoint = WorldToObjectVector(
+                dimension.Normal,
+                scaledDisplacement);
+        }
+        catch
+        {
+            if (dimensionTransformed)
+            {
+                dimension.ApplyScaling(rollbackScale, origin);
+                dimension.InsertionPoint = previousInsertion;
+            }
+            if (picture is not null)
+            {
+                for (int i = transformedChildren - 1; i >= 0; i--)
+                {
+                    ApplyEntityScaling(
+                        picture.Entities[i],
+                        rollbackScale,
+                        origin,
+                        scale,
+                        activePictures,
+                        depth + 1);
+                }
+            }
+            throw;
+        }
+        finally
+        {
+            if (picture is not null)
+            {
+                activePictures.Remove(picture);
+            }
+        }
+    }
+
+    private static CadPoint3D ObjectToWorldVector(XYZ normal, XYZ value)
+    {
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(new CadPoint3D(
+            normal.X,
+            normal.Y,
+            normal.Z));
+        return basis.Transform(new CadPoint3D(value.X, value.Y, value.Z));
+    }
+
+    private static XYZ WorldToObjectVector(XYZ normal, CadPoint3D value)
+    {
+        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(new CadPoint3D(
+            normal.X,
+            normal.Y,
+            normal.Z));
+        return new XYZ(
+            CadPoint3D.Dot(value, basis.XAxis),
+            CadPoint3D.Dot(value, basis.YAxis),
+            CadPoint3D.Dot(value, basis.ZAxis));
+    }
+
     protected static Layer[] ResolveLayers(
         CadDocument document,
         ReadOnlySpan<string> layerNames)
@@ -549,14 +806,14 @@ public sealed class CadTranslateEntitiesCommand : CadEditCommand
         {
             for (; applied < entities.Length; applied++)
             {
-                entities[applied].ApplyTranslation(translation);
+                ApplyEntityTranslation(entities[applied], translation);
             }
         }
         catch
         {
             for (int i = applied - 1; i >= 0; i--)
             {
-                entities[i].ApplyTranslation(rollbackTranslation);
+                ApplyEntityTranslation(entities[i], rollbackTranslation);
             }
 
             throw;
@@ -706,7 +963,7 @@ public sealed class CadRotateEntitiesCommand : CadEditCommand
     {
         if (!_hasPivot)
         {
-            entity.ApplyRotation(_axis, radians);
+            ApplyEntityRotation(entity, _axis, radians);
             return;
         }
 
@@ -714,22 +971,22 @@ public sealed class CadRotateEntitiesCommand : CadEditCommand
         bool rotated = false;
         try
         {
-            entity.ApplyTranslation(_inversePivot);
+            ApplyEntityTranslation(entity, _inversePivot);
             translatedToPivot = true;
-            entity.ApplyRotation(_axis, radians);
+            ApplyEntityRotation(entity, _axis, radians);
             rotated = true;
-            entity.ApplyTranslation(_pivot);
+            ApplyEntityTranslation(entity, _pivot);
             translatedToPivot = false;
         }
         catch
         {
             if (rotated)
             {
-                entity.ApplyRotation(_axis, -radians);
+                ApplyEntityRotation(entity, _axis, -radians);
             }
             if (translatedToPivot)
             {
-                entity.ApplyTranslation(_pivot);
+                ApplyEntityTranslation(entity, _pivot);
             }
             throw;
         }
@@ -830,14 +1087,22 @@ public sealed class CadScaleEntitiesCommand : CadEditCommand
         {
             for (; applied < entities.Length; applied++)
             {
-                entities[applied].ApplyScaling(scale, _origin);
+                ApplyEntityScaling(
+                    entities[applied],
+                    scale,
+                    _origin,
+                    rollbackScale);
             }
         }
         catch
         {
             for (int i = applied - 1; i >= 0; i--)
             {
-                entities[i].ApplyScaling(rollbackScale, _origin);
+                ApplyEntityScaling(
+                    entities[i],
+                    rollbackScale,
+                    _origin,
+                    scale);
             }
             throw;
         }
@@ -1965,7 +2230,7 @@ public sealed class CadDuplicateModelSpaceEntityCommand : CadEditCommand
             }
             if (_translation is XYZ translation && translation != XYZ.Zero)
             {
-                duplicate.ApplyTranslation(translation);
+                ApplyEntityTranslation(duplicate, translation);
             }
             _duplicate = duplicate;
         }

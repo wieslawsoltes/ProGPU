@@ -15,6 +15,7 @@ int mtextEntityCount = ReadNonNegativeInt("--mtext-entities", 0);
 int shxTextEntityCount = ReadNonNegativeInt("--shx-text-entities", 0);
 int shxMTextEntityCount = ReadNonNegativeInt("--shx-mtext-entities", 0);
 int attributeInsertCount = ReadNonNegativeInt("--attribute-inserts", 0);
+int dimensionEntityCount = ReadNonNegativeInt("--dimension-entities", 0);
 int solidHatchCount = ReadNonNegativeInt("--solid-hatches", 0);
 int patternHatchCount = ReadNonNegativeInt("--pattern-hatches", 0);
 bool complexPatternGrammar = HasFlag("--complex-pattern-grammar");
@@ -41,10 +42,11 @@ string? outputPath = ReadString("--output-json");
 
 if (entityCount == 0 && blockArrayColumnCount == 0 && textEntityCount == 0 &&
     mtextEntityCount == 0 && shxTextEntityCount == 0 && shxMTextEntityCount == 0 &&
-    attributeInsertCount == 0 && solidHatchCount == 0 && patternHatchCount == 0)
+    attributeInsertCount == 0 && dimensionEntityCount == 0 &&
+    solidHatchCount == 0 && patternHatchCount == 0)
 {
     throw new ArgumentException(
-        "At least one ordinary entity, block-array column, text entity, attributed INSERT, or HATCH is required.");
+        "At least one ordinary entity, block-array column, text entity, attributed INSERT, DIMENSION, or HATCH is required.");
 }
 
 if (blockArrayColumnCount > ushort.MaxValue)
@@ -58,6 +60,7 @@ if (measureSplineSelection &&
     (entityCount == 0 || blockArrayColumnCount != 0 ||
      textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
      shxMTextEntityCount != 0 || attributeInsertCount != 0 ||
+     dimensionEntityCount != 0 ||
      solidHatchCount != 0 || patternHatchCount != 0))
 {
     throw new ArgumentException(
@@ -65,7 +68,7 @@ if (measureSplineSelection &&
 }
 if (measureTextSelection &&
     (entityCount != 0 || blockArrayColumnCount != 0 || solidHatchCount != 0 ||
-     patternHatchCount != 0 ||
+     patternHatchCount != 0 || dimensionEntityCount != 0 ||
      new[]
      {
          textEntityCount,
@@ -83,7 +86,8 @@ if (measureHatchSelection &&
     ((solidHatchCount == 0) == (patternHatchCount == 0) ||
      entityCount != 0 || blockArrayColumnCount != 0 ||
      textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
-     shxMTextEntityCount != 0 || attributeInsertCount != 0))
+     shxMTextEntityCount != 0 || attributeInsertCount != 0 ||
+     dimensionEntityCount != 0))
 {
     throw new ArgumentException(
         "--hatch-selection requires exactly one positive --solid-hatches or --pattern-hatches count and no other fixtures.");
@@ -122,6 +126,7 @@ CadDocumentSession session = CreateDocument(
     shxTextEntityCount,
     shxMTextEntityCount,
     attributeInsertCount,
+    dimensionEntityCount,
     solidHatchCount,
     patternHatchCount,
     complexPatternGrammar,
@@ -163,7 +168,8 @@ if (shxTextEntityCount != 0 || shxMTextEntityCount != 0)
 CadSnapshotOptions snapshotOptions = new()
 {
     TextFontResolver = textEntityCount == 0 && mtextEntityCount == 0 &&
-        attributeInsertCount == 0 && !lowerComplexLineTypes
+        attributeInsertCount == 0 && dimensionEntityCount == 0 &&
+        !lowerComplexLineTypes
         ? null
         : new BenchmarkTextFontResolver(InterFontFamily.Regular),
     ShxFontResolver = shxTextEntityCount == 0 && shxMTextEntityCount == 0
@@ -261,6 +267,7 @@ var report = new CadBenchmarkReport(
     shxTextEntityCount,
     shxMTextEntityCount,
     attributeInsertCount,
+    dimensionEntityCount,
     solidHatchCount,
     patternHatchCount,
     complexPatternGrammar,
@@ -322,6 +329,7 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         shxTextEntityCount +
         shxMTextEntityCount +
         attributeInsertCount +
+        dimensionEntityCount +
         solidHatchCount +
         patternHatchCount);
     int expectedExpanded = checked(
@@ -332,6 +340,7 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         shxTextEntityCount +
         shxMTextEntityCount +
         (attributeInsertCount * 2) +
+        (dimensionEntityCount * 6) +
         solidHatchCount +
         patternHatchCount);
     if (source.Statistics.SourceEntityCount == expectedSource &&
@@ -362,6 +371,7 @@ CadDocumentSession CreateDocument(
     int shxTextCount,
     int shxMTextCount,
     int attributeCount,
+    int dimensionCount,
     int hatchCount,
     int patternedHatchCount,
     bool useComplexPatternGrammar,
@@ -637,6 +647,46 @@ CadDocumentSession CreateDocument(
             foreach (Insert insert in inserts)
             {
                 document.Entities.Add(insert);
+            }
+        }
+
+        if (dimensionCount > 0)
+        {
+            var textStyle = new TextStyle("INTER_DIMENSION") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            for (int i = 0; i < dimensionCount; i++)
+            {
+                double x = (i % 100) * 40.0;
+                double y = (i / 100) * 12.0;
+                var picture = new BlockRecord($"BENCHMARK_DIMENSION_{i}")
+                {
+                    IsAnonymous = true,
+                };
+                picture.Entities.Add(new Line(
+                    new XYZ(x, y, 0),
+                    new XYZ(x, y + 8, 0)));
+                picture.Entities.Add(new Line(
+                    new XYZ(x + 30, y, 0),
+                    new XYZ(x + 30, y + 8, 0)));
+                picture.Entities.Add(new Solid(
+                    new XYZ(x, y + 7, 0),
+                    new XYZ(x + 2, y + 6, 0),
+                    new XYZ(x + 2, y + 8, 0)));
+                picture.Entities.Add(new Solid(
+                    new XYZ(x + 30, y + 7, 0),
+                    new XYZ(x + 28, y + 6, 0),
+                    new XYZ(x + 28, y + 8, 0)));
+                picture.Entities.Add(new MText($"{i + 1}.00")
+                {
+                    Style = textStyle,
+                    InsertPoint = new XYZ(x + 15, y + 9, 0),
+                    Height = 2.5,
+                });
+                document.Entities.Add(new DimensionLinear
+                {
+                    Block = picture,
+                    DefinitionPoint = new XYZ(x + 30, y + 7, 0),
+                });
             }
         }
 
@@ -1251,6 +1301,7 @@ internal sealed record CadBenchmarkReport(
     int ShxTextEntityCount,
     int ShxMTextEntityCount,
     int AttributeInsertCount,
+    int DimensionEntityCount,
     int SolidHatchCount,
     int PatternHatchCount,
     bool ComplexPatternGrammar,

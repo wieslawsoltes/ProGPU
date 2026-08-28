@@ -1074,6 +1074,47 @@ attribute traversal therefore stays in the same measured complexity and
 latency class; its `8,112 B` snapshot difference is the retained INSERT/object
 graph overhead for the 100-reference workload, not per-frame state.
 
+## Persisted DIMENSION-picture lowering
+
+Every ACadSharp `Dimension` subtype lowers the anonymous block already persisted
+with the drawing. Snapshot compilation never calls `UpdateBlock` or otherwise
+regenerates associative geometry: doing so would mutate document authority,
+change save behavior, and make display depend on an incomplete evaluator. A
+missing or empty picture is diagnosed explicitly; XRef, unloaded, dynamic,
+cyclic, over-depth, and over-budget pictures follow the same bounded failure
+policy as static INSERT expansion. Definition-point `POINT` children on
+`Defpoints` are construction metadata and are not emitted as visible PDMODE
+glyphs.
+
+Picture entities are authored in block MCS. DXF group 12 is decoded in the
+dimension's OCS and applied as a relative WCS displacement before any ancestor
+INSERT transform; group 10 is not an implicit picture origin. Child layer `0`,
+ByBlock properties, plottable filtering, and the top semantic handle reuse the
+existing block rules. Each child then enters its ordinary analytic geometry or
+complete TEXT/MTEXT/SHX compiler. Exact point/Window/Crossing selection tests
+the individual expanded primitives and deduplicates successful hits to the one
+DIMENSION/ancestor handle. The retained scene, native-picture compiler, and
+print plan consume those same immutable primitives without a DIMENSION-specific
+wire record, shader, P/Invoke, or replay path.
+
+Translate updates semantic descriptors plus group 12 without rewriting the
+picture. Rotation and scaling transform both the semantic descriptors and
+persisted picture contents, preserve the group-12 WCS displacement across the
+new OCS, and use transactional rollback with active-picture cycle and depth
+guards. Duplicate relies on an independent cloned anonymous picture. Undo/Redo
+therefore rebuilds exactly one matching immutable generation and never invokes
+dimension layout generation. For `D` dimension roots and `E` visited picture
+entities, expansion and picture transforms are `O(D + E)` time with `O(E)`
+immutable output for compilation and at most the configured nesting depth of
+temporary traversal state; stable replay adds no dimension-specific CPU work or
+allocation.
+
+This slice supports persisted display geometry for linear, aligned, ordinate,
+radius, diameter, arc-length, two-line angular, and three-point angular
+dimensions. Associative constraint evaluation, DIMSTYLE-driven regeneration,
+annotative contexts, grip/measurement editing, and creating new dimension
+pictures remain separate required contracts.
+
 ## Retained TrueType TEXT lowering
 
 The snapshot compiler accepts an `ICadTextFontResolver`; hosts may use the
@@ -1686,6 +1727,7 @@ dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --shx-
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --solid-hatches 100 --hatch-selection --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --pattern-hatches 100 --hatch-selection --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --pattern-hatches 100 --complex-pattern-grammar --hatch-island-styles --hatch-selection --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --dimension-entities 1000 --warmup 3 --iterations 24 --queries 10000
 ```
 
 The initial 2026-08-27 Apple Silicon/.NET 10 baseline for 10,000 mixed analytic
@@ -1697,6 +1739,20 @@ respectively. These are transparent starting measurements, not an improvement or
 release-acceptance claim. Full representative viewer workloads, GPU counters,
 matched managed/native results, and required macOS Instruments traces remain
 open gates before performance acceptance.
+
+The 2026-08-29 persisted-DIMENSION feature-cost run used one final Apple
+Silicon/.NET 10.0.5 Release process, 1,000 DIMENSION roots, three warmups, 24
+construction iterations, and 10,000 spatial queries. Each picture retained two
+lines, two SOLIDs, and one MTEXT entity. The snapshot reported exactly 1,000
+source roots, 6,000 expanded records including those roots, 5,000 recorded
+entities/commands, and zero unsupported or invalid entities. Snapshot
+p50/p95/p99 was `16.2112/109.7964/115.1985 ms` at `12,353,946 B/op`; plan-scene
+recording was `5.4038/26.7515/28.4307 ms` at `8,192,984 B/op`; print planning
+was `8.9577/26.7981/32.4683 ms` at `9,625,156 B/op`; and spatial-query
+p50/p95/p99 was `5.5/9.0/11.1 us` with zero managed allocation. This is a
+transparent feature/cost baseline with visibly noisy construction tails, not
+an improvement or release-acceptance claim; matched viewer/GPU/native-image and
+required Instruments evidence remain open acceptance gates.
 
 The 2026-08-28 simple-linetype feature-cost baseline used one final Release
 binary in two sequential processes, 1,000 mixed analytic entities, five
@@ -1996,7 +2052,40 @@ dotnet run --project src/ProGPU.CAD.Sample.Browser -c Debug
 
 ## Primary research record
 
-Sources consulted on 2026-08-27 and 2026-08-28:
+Sources consulted on 2026-08-27 through 2026-08-29:
+
+- For persisted DIMENSION pictures, Autodesk's
+  [common DIMENSION DXF contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-EDD54EAC-A339-4EBA-AEA6-EC8066505E2B.htm),
+  [linear DIMENSION record](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-F0004556-493C-48D5-8619-61D6ADF05C04.htm),
+  [OCS contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-D99F1509-E4E4-47A3-8691-92EA07DC88F5.htm),
+  [`dimBlockPosition` behavior](https://help.autodesk.com/cloudhelp/2019/ENU/OARX-RefGuide/files/OREF-AcDbDimension__dimBlockPosition.html),
+  [dimension block-transform/layout methods](https://help.autodesk.com/cloudhelp/2019/ENU/OARX-RefGuide/files/OREF-__MEMBERTYPE_Methods_AcDbDimension.html),
+  [BLOCK record](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-66D32572-005A-4E23-8B8B-8726E8C14302.htm), and
+  [BLOCKS section](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DXF/files/GUID-9DDFC343-6C87-4AF8-B3B9-77E0AB5A3031.htm)
+  establish the persisted anonymous picture, coordinate spaces, relative group-
+  12 displacement, and explicit regeneration boundary. Adopted persisted
+  picture replay and OCS-to-WCS displacement; rejected snapshot-time layout
+  generation, using group 10 as picture translation, or treating Defpoints
+  construction points as visible geometry.
+  [Skia `SkPicture`](https://api.skia.org/classSkPicture.html),
+  [Direct2D command lists](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/nn-d2d1_1-id2d1commandlist),
+  [Win2D command lists](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm),
+  [WebRender's display-list/scene pipeline](https://searchfox.org/mozilla-central/source/gfx/docs/RenderingOverview.rst),
+  [Vello scene append](https://github.com/linebender/vello/blob/main/vello/src/scene.rs), and
+  [Vello's retained-fragment model](https://github.com/linebender/vello/blob/main/doc/vision.md)
+  informed bounded nested recorded-content replay, unbaked occurrence
+  transforms, culling, and reuse. ProGPU adapts those concepts to its own typed
+  immutable streams and copies no foreign source or structure. The existing
+  [SkParagraph stages](https://docs.skia.org/docs/dev/design/text_shaper/),
+  [DirectWrite architecture](https://learn.microsoft.com/en-us/windows/win32/directwrite/introducing-directwrite),
+  [Parley layout model](https://github.com/linebender/parley/blob/main/doc/concept.md), and
+  [HarfBuzz shape-plan model](https://harfbuzz.github.io/shaping-and-shape-plans.html)
+  remain authoritative for MTEXT children: persisted pictures reuse ProGPU's
+  existing full text stack and introduce no second shaping, fallback, glyph-
+  cache, DPI, subpixel, or device-loss path. Managed/native applicability was
+  audited explicitly: both renderers already consume the same lowered canonical
+  picture commands, while native C++ has no ACadSharp document compiler, so no
+  C++ implementation, C ABI, generated wire, shader, or crossing change applies.
 
 - For exact polynomial and positive-weight rational HATCH spline edges, Autodesk's
   [boundary-path spline record](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-DC5215D6-E73F-4DFF-8BE9-01CA9610FAEE.htm),
