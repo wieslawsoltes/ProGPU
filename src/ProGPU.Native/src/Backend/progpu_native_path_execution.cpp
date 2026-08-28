@@ -127,6 +127,8 @@ progpu_native_status render_paths(
 
     std::vector<gpu_path_uniforms> path_uniforms;
     std::vector<gpu_path_record> path_records;
+    std::vector<gpu_path_coverage_combine_uniforms>
+        coverage_combine_uniforms;
     if (!compiled_payload_hit) {
         engine->path_cache_valid = false;
         engine->path_gpu_cache_valid = false;
@@ -136,6 +138,7 @@ progpu_native_status render_paths(
             engine->path_brush_bytes.clear();
             engine->path_rasters.clear();
             path_uniforms.reserve(frame->path_count);
+            coverage_combine_uniforms.reserve(frame->path_count);
             path_records.reserve(
                 frame->path_count + boolean_node_count * 2U);
             engine->path_rasters.reserve(frame->path_count);
@@ -325,22 +328,74 @@ progpu_native_status render_paths(
                         path,
                         boolean_nodes,
                         path_records);
-                    path_uniforms.push_back({
-                        raster_min_x - subpixel_x,
-                        raster_min_y - subpixel_y,
-                        raster_scale,
-                        raster_scale,
-                        program.path_record_index,
-                        output_offset / 4U,
-                        output_bytes_per_row / 4U,
-                        width,
-                        height,
-                        path.sample_grid,
-                        program.program_index,
-                        program.operation_kind
-                    });
+                    if (program.split_binary_xor) {
+                        const std::uint64_t leaf_bytes =
+                            static_cast<std::uint64_t>(
+                                output_bytes_per_row) * height;
+                        const std::uint64_t source_a_offset =
+                            align_up(
+                                static_cast<std::uint32_t>(next_output),
+                                webgpu_copy_row_alignment);
+                        const std::uint64_t source_b_offset =
+                            source_a_offset + leaf_bytes;
+                        const std::uint64_t split_next_output =
+                            source_b_offset + leaf_bytes;
+                        if (split_next_output >
+                            std::numeric_limits<std::uint32_t>::max()) {
+                            return engine->fail(
+                                PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                                "The split path coverage staging batch exceeds 4 GiB.");
+                        }
+                        for (const auto record_index : std::array{
+                                 program.path_record_index,
+                                 program.program_index}) {
+                            const std::uint32_t leaf_output_offset =
+                                record_index == program.path_record_index
+                                ? static_cast<std::uint32_t>(source_a_offset)
+                                : static_cast<std::uint32_t>(source_b_offset);
+                            path_uniforms.push_back({
+                                raster_min_x - subpixel_x,
+                                raster_min_y - subpixel_y,
+                                raster_scale,
+                                raster_scale,
+                                record_index,
+                                leaf_output_offset / 4U,
+                                output_bytes_per_row / 4U,
+                                width,
+                                height,
+                                path.sample_grid,
+                                0U,
+                                0U});
+                        }
+                        coverage_combine_uniforms.push_back({
+                            static_cast<std::uint32_t>(source_a_offset) / 4U,
+                            static_cast<std::uint32_t>(source_b_offset) / 4U,
+                            output_offset / 4U,
+                            output_bytes_per_row / 4U,
+                            width,
+                            height,
+                            0U,
+                            0U});
+                        output_offset =
+                            static_cast<std::uint32_t>(split_next_output);
+                    } else {
+                        path_uniforms.push_back({
+                            raster_min_x - subpixel_x,
+                            raster_min_y - subpixel_y,
+                            raster_scale,
+                            raster_scale,
+                            program.path_record_index,
+                            output_offset / 4U,
+                            output_bytes_per_row / 4U,
+                            width,
+                            height,
+                            path.sample_grid,
+                            program.program_index,
+                            program.operation_kind
+                        });
+                        output_offset = static_cast<std::uint32_t>(next_output);
+                    }
                     retained_tiles.emplace(cache_key, raster_index);
-                    output_offset = static_cast<std::uint32_t>(next_output);
                     atlas_x += width + 2U;
                     row_height = std::max(row_height, height);
                 }
@@ -537,6 +592,8 @@ progpu_native_status render_paths(
     WGPUBuffer& path_record_buffer = temporary.records;
     WGPUBuffer& path_segment_buffer = temporary.segments;
     WGPUBuffer& coverage_buffer = temporary.coverage;
+    WGPUBuffer& coverage_combine_uniform_buffer =
+        temporary.coverage_combine_uniforms;
     WGPUBindGroup& raster_bind_group = temporary.bind_group;
     const auto create_buffer = [&](
         const char* label,
@@ -568,8 +625,15 @@ progpu_native_status render_paths(
             "ProGPU native path coverage staging",
             coverage_staging_bytes,
             WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc);
+        coverage_combine_uniform_buffer = create_buffer(
+            "ProGPU native path coverage combine uniforms",
+            std::max<std::size_t>(
+                coverage_combine_uniforms.size(),
+                1U) * sizeof(gpu_path_coverage_combine_uniforms),
+            WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
         if (path_uniform_buffer == nullptr || path_record_buffer == nullptr ||
-            path_segment_buffer == nullptr || coverage_buffer == nullptr) {
+            path_segment_buffer == nullptr || coverage_buffer == nullptr ||
+            coverage_combine_uniform_buffer == nullptr) {
             return engine->fail(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The native path raster staging buffers could not be allocated.");
@@ -586,9 +650,21 @@ progpu_native_status render_paths(
             path_records.data(), record_bytes);
         wgpuQueueWriteBuffer(engine->queue, path_segment_buffer, 0U,
             frame->segments, segment_bytes);
-        path_upload_bytes = uniform_bytes + record_bytes + segment_bytes;
+        const std::uint64_t combine_uniform_bytes =
+            coverage_combine_uniforms.size() *
+                sizeof(gpu_path_coverage_combine_uniforms);
+        if (combine_uniform_bytes != 0U) {
+            wgpuQueueWriteBuffer(
+                engine->queue,
+                coverage_combine_uniform_buffer,
+                0U,
+                coverage_combine_uniforms.data(),
+                combine_uniform_bytes);
+        }
+        path_upload_bytes = uniform_bytes + record_bytes + segment_bytes +
+            combine_uniform_bytes;
 
-        const std::array<WGPUBindGroupEntry, 4U> entries{{
+        const std::array<WGPUBindGroupEntry, 5U> entries{{
             {nullptr, 0U, path_uniform_buffer, 0U, uniform_bytes,
                 nullptr, nullptr},
             {nullptr, 1U, path_record_buffer, 0U, record_bytes,
@@ -596,6 +672,11 @@ progpu_native_status render_paths(
             {nullptr, 2U, path_segment_buffer, 0U, segment_bytes,
                 nullptr, nullptr},
             {nullptr, 3U, coverage_buffer, 0U, coverage_staging_bytes,
+                nullptr, nullptr},
+            {nullptr, 4U, coverage_combine_uniform_buffer, 0U,
+                std::max<std::uint64_t>(
+                    combine_uniform_bytes,
+                    sizeof(gpu_path_coverage_combine_uniforms)),
                 nullptr, nullptr}
         }};
         WGPUBindGroupDescriptor descriptor{};
@@ -664,9 +745,45 @@ progpu_native_status render_paths(
             compute_pass,
             workgroups_x,
             workgroups_y,
-            static_cast<std::uint32_t>(engine->path_rasters.size()));
+            static_cast<std::uint32_t>(path_uniforms.size()));
         wgpuComputePassEncoderEnd(compute_pass);
         wgpuComputePassEncoderRelease(compute_pass);
+
+        if (!coverage_combine_uniforms.empty()) {
+            WGPUComputePassDescriptor combine_descriptor{};
+            combine_descriptor.label =
+                progpu::native::webgpu::string_view(
+                    "ProGPU native path binary XOR coverage combine pass");
+            WGPUComputePassEncoder combine_pass =
+                wgpuCommandEncoderBeginComputePass(
+                    encoder,
+                    &combine_descriptor);
+            if (combine_pass == nullptr) {
+                if (owns_encoder) {
+                    wgpuCommandEncoderRelease(encoder);
+                }
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "The native path binary XOR combine pass could not be created.");
+            }
+            wgpuComputePassEncoderSetPipeline(
+                combine_pass,
+                engine->path_binary_xor_combine_pipeline);
+            wgpuComputePassEncoderSetBindGroup(
+                combine_pass,
+                0U,
+                raster_bind_group,
+                0U,
+                nullptr);
+            wgpuComputePassEncoderDispatchWorkgroups(
+                combine_pass,
+                workgroups_x,
+                workgroups_y,
+                static_cast<std::uint32_t>(
+                    coverage_combine_uniforms.size()));
+            wgpuComputePassEncoderEnd(combine_pass);
+            wgpuComputePassEncoderRelease(combine_pass);
+        }
 
         for (const auto& raster : engine->path_rasters) {
             progpu::native::webgpu::image_copy_buffer source{};

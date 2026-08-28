@@ -97,11 +97,13 @@ WGPUBindGroup create_text_atlas_bind_group(
 
 bool create_path_resources(progpu_native_engine& engine) {
     if (engine.path_raster_pipeline != nullptr &&
+        engine.path_binary_xor_combine_pipeline != nullptr &&
         engine.path_atlas_bind_group != nullptr) {
         return true;
     }
     if (engine.path_raster_shader != nullptr ||
         engine.path_raster_pipeline != nullptr ||
+        engine.path_binary_xor_combine_pipeline != nullptr ||
         engine.path_raster_layout != nullptr ||
         engine.path_raster_pipeline_layout != nullptr ||
         engine.path_atlas_sampler != nullptr ||
@@ -128,7 +130,7 @@ bool create_path_resources(progpu_native_engine& engine) {
         return false;
     }
 
-    std::array<WGPUBindGroupLayoutEntry, 4U> layout_entries{};
+    std::array<WGPUBindGroupLayoutEntry, 5U> layout_entries{};
     for (std::uint32_t index = 0U; index < layout_entries.size(); ++index) {
         layout_entries[index].binding = index;
         layout_entries[index].visibility = WGPUShaderStage_Compute;
@@ -141,6 +143,8 @@ bool create_path_resources(progpu_native_engine& engine) {
     layout_entries[1].buffer.minBindingSize = sizeof(gpu_path_record);
     layout_entries[2].buffer.minBindingSize = sizeof(progpu_native_path_segment);
     layout_entries[3].buffer.minBindingSize = sizeof(std::uint32_t);
+    layout_entries[4].buffer.minBindingSize =
+        sizeof(progpu::native::gpu_path_coverage_combine_uniforms);
     WGPUBindGroupLayoutDescriptor layout_descriptor{};
     layout_descriptor.label = progpu::native::webgpu::string_view("ProGPU native path raster bindings");
     layout_descriptor.entryCount = layout_entries.size();
@@ -172,6 +176,17 @@ bool create_path_resources(progpu_native_engine& engine) {
         engine.device,
         &pipeline_descriptor);
     if (engine.path_raster_pipeline == nullptr) {
+        return false;
+    }
+    pipeline_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native path binary XOR combine pipeline");
+    pipeline_descriptor.compute.entryPoint =
+        progpu::native::webgpu::string_view("cs_binary_xor_combine");
+    engine.path_binary_xor_combine_pipeline =
+        wgpuDeviceCreateComputePipeline(
+            engine.device,
+            &pipeline_descriptor);
+    if (engine.path_binary_xor_combine_pipeline == nullptr) {
         return false;
     }
 

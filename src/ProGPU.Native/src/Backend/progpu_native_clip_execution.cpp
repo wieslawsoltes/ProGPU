@@ -97,11 +97,14 @@ bool rebuild_vector_clip_chain(
 
         std::vector<gpu_path_uniforms> path_uniforms;
         std::vector<gpu_path_record> path_records;
+        std::vector<gpu_path_coverage_combine_uniforms>
+            coverage_combine_uniforms;
         std::vector<native_path_raster> rasters;
         std::vector<gpu_clip_vertex> vertices;
         std::vector<std::uint32_t> indices;
         std::vector<std::byte> compose_uniform_bytes;
         path_uniforms.reserve(chain.path_count);
+        coverage_combine_uniforms.reserve(chain.path_count);
         path_records.reserve(
             chain.path_count + chain.boolean_node_count * 2U);
         rasters.reserve(chain.path_count);
@@ -259,22 +262,71 @@ bool rebuild_vector_clip_chain(
                     path,
                     chain.boolean_nodes,
                     path_records);
-                path_uniforms.push_back({
-                    raster_min_x - subpixel_x,
-                    raster_min_y - subpixel_y,
-                    raster_scale,
-                    raster_scale,
-                    program.path_record_index,
-                    output_offset / 4U,
-                    output_bytes_per_row / 4U,
-                    raster_width_u,
-                    raster_height_u,
-                    path.sample_grid,
-                    program.program_index,
-                    program.operation_kind
-                });
+                if (program.split_binary_xor) {
+                    const std::uint64_t leaf_bytes =
+                        static_cast<std::uint64_t>(output_bytes_per_row) *
+                            raster_height_u;
+                    const std::uint64_t source_a_offset = align_up(
+                        static_cast<std::uint32_t>(next_output),
+                        webgpu_copy_row_alignment);
+                    const std::uint64_t source_b_offset =
+                        source_a_offset + leaf_bytes;
+                    const std::uint64_t split_next_output =
+                        source_b_offset + leaf_bytes;
+                    if (split_next_output >
+                        std::numeric_limits<std::uint32_t>::max()) {
+                        return false;
+                    }
+                    for (const auto record_index : std::array{
+                             program.path_record_index,
+                             program.program_index}) {
+                        const std::uint32_t leaf_output_offset =
+                            record_index == program.path_record_index
+                            ? static_cast<std::uint32_t>(source_a_offset)
+                            : static_cast<std::uint32_t>(source_b_offset);
+                        path_uniforms.push_back({
+                            raster_min_x - subpixel_x,
+                            raster_min_y - subpixel_y,
+                            raster_scale,
+                            raster_scale,
+                            record_index,
+                            leaf_output_offset / 4U,
+                            output_bytes_per_row / 4U,
+                            raster_width_u,
+                            raster_height_u,
+                            path.sample_grid,
+                            0U,
+                            0U});
+                    }
+                    coverage_combine_uniforms.push_back({
+                        static_cast<std::uint32_t>(source_a_offset) / 4U,
+                        static_cast<std::uint32_t>(source_b_offset) / 4U,
+                        output_offset / 4U,
+                        output_bytes_per_row / 4U,
+                        raster_width_u,
+                        raster_height_u,
+                        0U,
+                        0U});
+                    output_offset =
+                        static_cast<std::uint32_t>(split_next_output);
+                } else {
+                    path_uniforms.push_back({
+                        raster_min_x - subpixel_x,
+                        raster_min_y - subpixel_y,
+                        raster_scale,
+                        raster_scale,
+                        program.path_record_index,
+                        output_offset / 4U,
+                        output_bytes_per_row / 4U,
+                        raster_width_u,
+                        raster_height_u,
+                        path.sample_grid,
+                        program.program_index,
+                        program.operation_kind
+                    });
+                    output_offset = static_cast<std::uint32_t>(next_output);
+                }
                 retained_tiles.emplace(cache_key, raster_index);
-                output_offset = static_cast<std::uint32_t>(next_output);
                 atlas_x += raster_width_u + 2U;
                 row_height = std::max(row_height, raster_height_u);
             }
@@ -445,6 +497,9 @@ bool rebuild_vector_clip_chain(
             path_records.size() * sizeof(gpu_path_record);
         const std::uint64_t path_segment_bytes =
             chain.segment_count * sizeof(progpu_native_path_segment);
+        const std::uint64_t combine_uniform_bytes =
+            coverage_combine_uniforms.size() *
+                sizeof(gpu_path_coverage_combine_uniforms);
         temporary.uniforms = create_buffer(
             "ProGPU native clip path uniforms",
             path_uniform_bytes,
@@ -461,8 +516,15 @@ bool rebuild_vector_clip_chain(
             "ProGPU native clip coverage staging",
             output_offset,
             WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc);
+        temporary.coverage_combine_uniforms = create_buffer(
+            "ProGPU native clip coverage combine uniforms",
+            std::max<std::uint64_t>(
+                combine_uniform_bytes,
+                sizeof(gpu_path_coverage_combine_uniforms)),
+            WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
         if (temporary.uniforms == nullptr || temporary.records == nullptr ||
-            temporary.segments == nullptr || temporary.coverage == nullptr) {
+            temporary.segments == nullptr || temporary.coverage == nullptr ||
+            temporary.coverage_combine_uniforms == nullptr) {
             return false;
         }
         wgpuQueueWriteBuffer(engine.queue, temporary.uniforms, 0U,
@@ -471,7 +533,15 @@ bool rebuild_vector_clip_chain(
             path_records.data(), path_record_bytes);
         wgpuQueueWriteBuffer(engine.queue, temporary.segments, 0U,
             chain.segments, path_segment_bytes);
-        const std::array<WGPUBindGroupEntry, 4U> raster_entries{{
+        if (combine_uniform_bytes != 0U) {
+            wgpuQueueWriteBuffer(
+                engine.queue,
+                temporary.coverage_combine_uniforms,
+                0U,
+                coverage_combine_uniforms.data(),
+                combine_uniform_bytes);
+        }
+        const std::array<WGPUBindGroupEntry, 5U> raster_entries{{
             {nullptr, 0U, temporary.uniforms, 0U,
                 path_uniform_bytes, nullptr, nullptr},
             {nullptr, 1U, temporary.records, 0U,
@@ -479,7 +549,12 @@ bool rebuild_vector_clip_chain(
             {nullptr, 2U, temporary.segments, 0U,
                 path_segment_bytes, nullptr, nullptr},
             {nullptr, 3U, temporary.coverage, 0U,
-                output_offset, nullptr, nullptr}
+                output_offset, nullptr, nullptr},
+            {nullptr, 4U, temporary.coverage_combine_uniforms, 0U,
+                std::max<std::uint64_t>(
+                    combine_uniform_bytes,
+                    sizeof(gpu_path_coverage_combine_uniforms)),
+                nullptr, nullptr}
         }};
         WGPUBindGroupDescriptor raster_descriptor{};
         raster_descriptor.label = ::progpu::native::webgpu::string_view(
@@ -535,9 +610,40 @@ bool rebuild_vector_clip_chain(
             compute,
             workgroups_x,
             workgroups_y,
-            static_cast<std::uint32_t>(rasters.size()));
+            static_cast<std::uint32_t>(path_uniforms.size()));
         wgpuComputePassEncoderEnd(compute);
         wgpuComputePassEncoderRelease(compute);
+        if (!coverage_combine_uniforms.empty()) {
+            WGPUComputePassDescriptor combine_descriptor{};
+            combine_descriptor.label =
+                ::progpu::native::webgpu::string_view(
+                    "ProGPU native clip binary XOR coverage combine pass");
+            WGPUComputePassEncoder combine =
+                wgpuCommandEncoderBeginComputePass(
+                    encoder,
+                    &combine_descriptor);
+            if (combine == nullptr) {
+                wgpuCommandEncoderRelease(encoder);
+                return false;
+            }
+            wgpuComputePassEncoderSetPipeline(
+                combine,
+                engine.path_binary_xor_combine_pipeline);
+            wgpuComputePassEncoderSetBindGroup(
+                combine,
+                0U,
+                temporary.bind_group,
+                0U,
+                nullptr);
+            wgpuComputePassEncoderDispatchWorkgroups(
+                combine,
+                workgroups_x,
+                workgroups_y,
+                static_cast<std::uint32_t>(
+                    coverage_combine_uniforms.size()));
+            wgpuComputePassEncoderEnd(combine);
+            wgpuComputePassEncoderRelease(combine);
+        }
         for (const auto& raster : rasters) {
             ::progpu::native::webgpu::image_copy_buffer source{};
             source.buffer = temporary.coverage;
@@ -678,7 +784,8 @@ bool rebuild_vector_clip_chain(
             1U + static_cast<std::uint32_t>(chain.path_count) * 2U;
         engine.last_layer_metrics.clip_path_upload_bytes =
             path_uniform_bytes + path_record_bytes + path_segment_bytes +
-            vertex_bytes + index_bytes + compose_bytes;
+            combine_uniform_bytes + vertex_bytes + index_bytes +
+            compose_bytes;
         engine.last_layer_metrics.clip_coverage_staging_bytes = output_offset;
         engine.last_layer_metrics.clip_texture_bytes =
             static_cast<std::uint64_t>(required_atlas_size) *

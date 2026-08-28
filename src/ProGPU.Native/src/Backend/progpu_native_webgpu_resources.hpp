@@ -9,6 +9,7 @@ struct path_raster_resources {
     WGPUBuffer records = nullptr;
     WGPUBuffer segments = nullptr;
     WGPUBuffer coverage = nullptr;
+    WGPUBuffer coverage_combine_uniforms = nullptr;
     WGPUBindGroup bind_group = nullptr;
 
     path_raster_resources() = default;
@@ -23,6 +24,7 @@ struct path_raster_resources {
         release_buffer(records);
         release_buffer(segments);
         release_buffer(coverage);
+        release_buffer(coverage_combine_uniforms);
     }
 
 private:

@@ -14363,8 +14363,7 @@ bool retained_geometry_group_compiles_to_one_semantic_path() {
     PROGPU_REQUIRE(
         state.apply(overlapping_translation_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7003U, 9U, stream) ==
-        status::unsupported_command);
+        state.build_scene(target, 7003U, 9U, stream) == status::success);
 
     std::vector<std::byte> clip_update;
     append_path_geometry(

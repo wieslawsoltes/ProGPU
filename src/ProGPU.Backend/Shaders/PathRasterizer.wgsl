@@ -32,6 +32,17 @@ struct PathRecord {
     _pad1: u32,
 };
 
+struct CoverageCombineUniforms {
+    sourceAOffsetWords: u32,
+    sourceBOffsetWords: u32,
+    destinationOffsetWords: u32,
+    rowWords: u32,
+    width: u32,
+    height: u32,
+    _pad0: u32,
+    _pad1: u32,
+};
+
 struct Segment {
     p0: vec2<f32>,
     p1: vec2<f32>,
@@ -47,6 +58,7 @@ struct Segment {
 @group(0) @binding(1) var<storage, read> pathRecords: array<PathRecord>;
 @group(0) @binding(2) var<storage, read> segments: array<Segment>;
 @group(0) @binding(3) var<storage, read_write> coverageOutput: array<u32>;
+@group(0) @binding(4) var<storage, read> coverageCombineUniforms: array<CoverageCombineUniforms>;
 
 struct QuadraticRoots {
     values: vec2<f32>,
@@ -662,4 +674,19 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = packed;
+}
+
+@compute @workgroup_size(16, 16)
+fn cs_binary_xor_combine(
+    @builtin(global_invocation_id) global_id: vec3<u32>) {
+    let uniforms = coverageCombineUniforms[global_id.z];
+    let wordX = global_id.x;
+    let y = global_id.y;
+    if (wordX * 4u >= uniforms.width || y >= uniforms.height) {
+        return;
+    }
+    let rowOffset = y * uniforms.rowWords;
+    coverageOutput[uniforms.destinationOffsetWords + rowOffset + wordX] =
+        coverageOutput[uniforms.sourceAOffsetWords + rowOffset + wordX] ^
+        coverageOutput[uniforms.sourceBOffsetWords + rowOffset + wordX];
 }
