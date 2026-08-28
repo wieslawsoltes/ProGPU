@@ -339,57 +339,6 @@ fn row_coverage_mask(
                     }
                 }
             }
-        } else if (seg.segmentType == 2u) {
-            let A = seg.p0;
-            let B = seg.p1;
-            let C = seg.p2;
-            let D_pt = seg.p3;
-
-            let a = -A.y + 3.0 * B.y - 3.0 * C.y + D_pt.y;
-            let b = 3.0 * A.y - 6.0 * B.y + 3.0 * C.y;
-            let c = -3.0 * A.y + 3.0 * B.y;
-            let d = A.y - sampleY;
-
-            let roots = solve_cubic(a, b, c, d);
-
-            for (var r: u32 = 0u; r < roots.count; r = r + 1u) {
-                let t = cubic_root_at(roots, r);
-                if (t >= -0.01 && t <= 1.01) {
-                    let t_eval = clamp(t, 0.00001, 0.99999);
-                    let deriv_y = 3.0 * a * t_eval * t_eval + 2.0 * b * t_eval + c;
-
-                    var is_valid = false;
-                    if (t < 0.005) {
-                        if (deriv_y > 0.0) {
-                            is_valid = (sampleY >= A.y);
-                        } else if (deriv_y < 0.0) {
-                            is_valid = (sampleY < A.y);
-                        }
-                    } else if (t > 0.995) {
-                        if (deriv_y > 0.0) {
-                            is_valid = (sampleY < D_pt.y);
-                        } else if (deriv_y < 0.0) {
-                            is_valid = (sampleY >= D_pt.y);
-                        }
-                    } else {
-                        is_valid = true;
-                    }
-
-                    if (is_valid) {
-                        let tc = clamp(t, 0.0, 1.0);
-                        let omt = 1.0 - tc;
-                        let x_t = omt * omt * omt * A.x
-                                + 3.0 * omt * omt * tc * B.x
-                                + 3.0 * omt * tc * tc * C.x
-                                + tc * tc * tc * D_pt.x;
-                        if (deriv_y > 0.0) {
-                            add_crossing(&winding, samplePositionsX, x_t, 1);
-                        } else if (deriv_y < 0.0) {
-                            add_crossing(&winding, samplePositionsX, x_t, -1);
-                        }
-                    }
-                }
-            }
         } else if (seg.segmentType == 4u) {
             let A = seg.p0;
             let B = seg.p1;
@@ -466,16 +415,18 @@ fn row_coverage_mask(
                     }
                 }
             }
-        } else if (seg.segmentType == 5u) {
+        } else if (seg.segmentType == 2u || seg.segmentType == 5u) {
             let A = seg.p0;
             let B = seg.p1;
             let C = seg.p2;
             let D_pt = seg.p3;
-            let weight1 = bitcast<f32>(seg._pad0);
-            let weight2 = bitcast<f32>(seg._pad1);
+            let rational = seg.segmentType == 5u;
+            let weight1 = select(1.0, bitcast<f32>(seg._pad0), rational);
+            let weight2 = select(1.0, bitcast<f32>(seg._pad1), rational);
 
-            // Solve Ny(t)-sampleY*W(t) exactly as one cubic. ABI validation
-            // guarantees positive canonical weights, so W(t) stays positive.
+            // Polynomial cubics are the unit-weight case of this homogeneous
+            // equation. Sharing the branch keeps D3D12 shader compilation
+            // bounded while preserving the exact positive-weight curve.
             let ay = A.y - sampleY;
             let by = weight1 * (B.y - sampleY);
             let cy = weight2 * (C.y - sampleY);

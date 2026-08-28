@@ -309,6 +309,11 @@ The stable 48-byte path record uses kind 4 for the canonical rational quadratic:
 `p0..p2` hold its controls, `p3` is zero, `pad0` holds the positive finite float
 weight bits, and `pad1/pad2` are zero. Kind 5 retains a canonical rational cubic
 in `p0..p3`, with positive finite `v1/v2` bits in `pad0/pad1` and zero `pad2`.
+Polynomial and rational cubics deliberately share one homogeneous shader branch:
+kind 2 selects unit weights while kind 5 selects the retained positive weights.
+This is the same analytic equation, keeps output and complexity unchanged, and
+bounds canonical shader size and D3D12 shader-compilation pressure without a
+duplicated polynomial implementation.
 Every managed/native scene, clip,
 layer-mask, and execution validator enforces that form; glyph validation remains
 limited to its existing line/quadratic/cubic domain. The managed retained-HATCH
