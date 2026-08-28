@@ -54,12 +54,21 @@ public unsafe partial class GlyphAtlas
         {
             float inverseScale = 1f / scale;
             float glyphSampleStep = 0.125f * inverseScale;
-            Vector256<float> sampleOffsets256 =
-                s_simdLaneIndices256 * Vector256.Create(glyphSampleStep);
-            Vector128<float> sampleOffsetsLow128 =
-                s_simdLaneIndices128 * Vector128.Create(glyphSampleStep);
-            Vector128<float> sampleOffsetsHigh128 = sampleOffsetsLow128 +
-                Vector128.Create(4F * glyphSampleStep);
+            Vector256<float> sampleOffsets256 = default;
+            Vector128<float> sampleOffsetsLow128 = default;
+            Vector128<float> sampleOffsetsHigh128 = default;
+            if (Vector256.IsHardwareAccelerated)
+            {
+                sampleOffsets256 = s_simdLaneIndices256 *
+                    Vector256.Create(glyphSampleStep);
+            }
+            else
+            {
+                sampleOffsetsLow128 = s_simdLaneIndices128 *
+                    Vector128.Create(glyphSampleStep);
+                sampleOffsetsHigh128 = sampleOffsetsLow128 +
+                    Vector128.Create(4F * glyphSampleStep);
+            }
             Span<int> scanlineOffsets = stackalloc int[9];
             for (uint y = 0; y < height; y++)
             {
