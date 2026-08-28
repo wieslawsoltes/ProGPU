@@ -6402,6 +6402,130 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     }
     PROGPU_REQUIRE(found_dashed_degenerate_ellipse);
 
+    std::vector<std::byte> dashed_degenerate_rounded_batch;
+    std::vector<std::byte> dashed_degenerate_rounded;
+    append_command(
+        dashed_degenerate_rounded,
+        command::draw_rounded_rectangle,
+        20.0,
+        4.0,
+        0.0,
+        8.0,
+        2.0,
+        2.0,
+        0U,
+        pen);
+    append_command(
+        dashed_degenerate_rounded,
+        command::draw_rounded_rectangle,
+        24.0,
+        4.0,
+        8.0,
+        0.0,
+        2.0,
+        1.0,
+        0U,
+        pen);
+    append_command(
+        dashed_degenerate_rounded,
+        command::draw_rounded_rectangle,
+        36.0,
+        4.0,
+        0.0,
+        0.0,
+        2.0,
+        1.0,
+        0U,
+        pen);
+    append_command(
+        dashed_degenerate_rounded,
+        command::draw_rounded_rectangle,
+        40.0,
+        4.0,
+        0.0,
+        0.0,
+        2.0,
+        1.0,
+        0U,
+        point_gap_pen);
+    append_render_data(
+        dashed_degenerate_rounded_batch,
+        content,
+        dashed_degenerate_rounded);
+    PROGPU_REQUIRE(
+        state.apply(dashed_degenerate_rounded_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 55U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rounded_rectangle_count == 4U);
+    const auto dashed_degenerate_rounded_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t dashed_degenerate_rounded_cubic_count = 0U;
+    std::uint32_t dashed_degenerate_rounded_line_count = 0U;
+    std::uint32_t dashed_degenerate_rounded_point_cap_count = 0U;
+    for (std::uint32_t index = 0U;
+         index < dashed_degenerate_rounded_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            dashed_degenerate_rounded_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        PROGPU_REQUIRE(
+            record.kind != PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH);
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        const std::size_t primitive_count =
+            record.payload_size / sizeof(progpu_native_geometry_primitive);
+        for (std::size_t primitive_index = 0U;
+             primitive_index < primitive_count;
+             ++primitive_index) {
+            const auto primitive =
+                read_value<progpu_native_geometry_primitive>(
+                    stream,
+                    record.payload_offset +
+                        primitive_index *
+                            sizeof(progpu_native_geometry_primitive));
+            if (primitive.kind ==
+                PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER) {
+                ++dashed_degenerate_rounded_cubic_count;
+            } else if (primitive.kind == PROGPU_NATIVE_GEOMETRY_LINE) {
+                ++dashed_degenerate_rounded_line_count;
+            } else if (primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP &&
+                primitive.p0.x == 36.0F && primitive.p0.y == 4.0F) {
+                PROGPU_REQUIRE(
+                    (primitive.flags &
+                        PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) ==
+                    (PROGPU_NATIVE_STROKE_CAP_ROUND <<
+                        PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT));
+                ++dashed_degenerate_rounded_point_cap_count;
+            }
+            PROGPU_REQUIRE(
+                primitive.p0.x != 40.0F || primitive.p0.y != 4.0F);
+        }
+    }
+    PROGPU_REQUIRE(dashed_degenerate_rounded_cubic_count > 0U);
+    PROGPU_REQUIRE(dashed_degenerate_rounded_line_count > 0U);
+    PROGPU_REQUIRE(dashed_degenerate_rounded_point_cap_count == 2U);
+    bool found_dashed_degenerate_rounded_point_bounds = false;
+    for (std::uint32_t index = 0U;
+         index < dashed_degenerate_rounded_header.command_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            dashed_degenerate_rounded_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY ||
+            record.bounds_x != 80.0F) {
+            continue;
+        }
+        PROGPU_REQUIRE(record.bounds_y == 26.0F);
+        PROGPU_REQUIRE(record.bounds_width == 4.0F);
+        PROGPU_REQUIRE(record.bounds_height == 4.0F);
+        found_dashed_degenerate_rounded_point_bounds = true;
+    }
+    PROGPU_REQUIRE(found_dashed_degenerate_rounded_point_bounds);
+
     std::vector<std::byte> rounded_batch;
     std::vector<std::byte> rounded;
     append_command(

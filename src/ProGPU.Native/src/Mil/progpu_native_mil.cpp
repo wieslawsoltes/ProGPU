@@ -9315,6 +9315,104 @@ struct channel::implementation {
             geometry.stroke_contours.push_back(std::move(contour));
             return geometry;
         };
+        const auto make_wpf_rounded_rectangle_geometry = [](
+            double x,
+            double y,
+            double width,
+            double height,
+            double radius_x,
+            double radius_y) {
+            path_geometry_state geometry{};
+            geometry.left = x;
+            geometry.top = y;
+            geometry.right = x + width;
+            geometry.bottom = y + height;
+            geometry.fill_rule = 0U;
+            radius_x = std::clamp(radius_x, 0.0, width * 0.5);
+            radius_y = std::clamp(radius_y, 0.0, height * 0.5);
+            constexpr double arc_as_bezier =
+                0.5522847498307933984;
+            const double bezier_x =
+                (1.0 - arc_as_bezier) * radius_x;
+            const double bezier_y =
+                (1.0 - arc_as_bezier) * radius_y;
+            const double left = x;
+            const double top = y;
+            const double right = x + width;
+            const double bottom = y + height;
+            const std::array points{
+                progpu_native_point{static_cast<float>(left),
+                    static_cast<float>(top + radius_y)},
+                progpu_native_point{static_cast<float>(left),
+                    static_cast<float>(top + bezier_y)},
+                progpu_native_point{static_cast<float>(left + bezier_x),
+                    static_cast<float>(top)},
+                progpu_native_point{static_cast<float>(left + radius_x),
+                    static_cast<float>(top)},
+                progpu_native_point{static_cast<float>(right - radius_x),
+                    static_cast<float>(top)},
+                progpu_native_point{static_cast<float>(right - bezier_x),
+                    static_cast<float>(top)},
+                progpu_native_point{static_cast<float>(right),
+                    static_cast<float>(top + bezier_y)},
+                progpu_native_point{static_cast<float>(right),
+                    static_cast<float>(top + radius_y)},
+                progpu_native_point{static_cast<float>(right),
+                    static_cast<float>(bottom - radius_y)},
+                progpu_native_point{static_cast<float>(right),
+                    static_cast<float>(bottom - bezier_y)},
+                progpu_native_point{static_cast<float>(right - bezier_x),
+                    static_cast<float>(bottom)},
+                progpu_native_point{static_cast<float>(right - radius_x),
+                    static_cast<float>(bottom)},
+                progpu_native_point{static_cast<float>(left + radius_x),
+                    static_cast<float>(bottom)},
+                progpu_native_point{static_cast<float>(left + bezier_x),
+                    static_cast<float>(bottom)},
+                progpu_native_point{static_cast<float>(left),
+                    static_cast<float>(bottom - bezier_y)},
+                progpu_native_point{static_cast<float>(left),
+                    static_cast<float>(bottom - radius_y)},
+                progpu_native_point{static_cast<float>(left),
+                    static_cast<float>(top + radius_y)}};
+            geometry.segments.reserve(8U);
+            const auto append_cubic = [&geometry, &points](
+                std::size_t start) {
+                progpu_native_path_segment segment{};
+                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+                segment.p0 = points[start];
+                segment.p1 = points[start + 1U];
+                segment.p2 = points[start + 2U];
+                segment.p3 = points[start + 3U];
+                geometry.segments.push_back(segment);
+            };
+            const auto append_line = [&geometry, &points](
+                std::size_t start) {
+                progpu_native_path_segment segment{};
+                segment.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+                segment.p0 = points[start];
+                segment.p1 = points[start + 1U];
+                geometry.segments.push_back(segment);
+            };
+            append_cubic(0U);
+            append_line(3U);
+            append_cubic(4U);
+            append_line(7U);
+            append_cubic(8U);
+            append_line(11U);
+            append_cubic(12U);
+            append_line(15U);
+            path_stroke_contour_state contour{};
+            contour.closed = true;
+            contour.points.reserve(geometry.segments.size());
+            contour.segments = geometry.segments;
+            contour.smooth_joins.assign(geometry.segments.size(), 1U);
+            for (const auto& segment : geometry.segments) {
+                contour.points.push_back(segment.p0);
+            }
+            geometry.stroke_contours.push_back(std::move(contour));
+            return geometry;
+        };
         const auto make_ellipse_path_geometry = [](
             double center_x,
             double center_y,
@@ -9540,13 +9638,16 @@ struct channel::implementation {
             &resolve_brush_index,
             &append_polyline_stroke,
             &append_degenerate_cap_stroke,
+            &append_path_strokes,
+            &make_wpf_rounded_rectangle_geometry,
             &append_rounded_rectangle_path,
             &current](
             double x,
             double y,
             double width,
             double height,
-            double radius,
+            double radius_x,
+            double radius_y,
             const pen_state& pen,
             const affine_2d_double& local_transform,
             const affine_2d_double& effective_transform) noexcept {
@@ -9561,7 +9662,8 @@ struct channel::implementation {
                 }
                 has_nonempty_dash = !dash->second.intervals.empty();
             }
-            if (has_nonempty_dash && radius == 0.0 &&
+            if (has_nonempty_dash && radius_x == 0.0 &&
+                radius_y == 0.0 &&
                 width == 0.0 && height == 0.0) {
                 const double half_thickness = pen.thickness * 0.5;
                 const brush_use_state brush_use{
@@ -9590,9 +9692,24 @@ struct channel::implementation {
                     PROGPU_NATIVE_STROKE_CAP_ROUND,
                     emitted);
             }
-            if (has_nonempty_dash &&
-                (radius > 0.0 || (width == 0.0 && height == 0.0))) {
-                return status::unsupported_command;
+            if (has_nonempty_dash && radius_x > 0.0 &&
+                radius_y > 0.0) {
+                const auto geometry =
+                    make_wpf_rounded_rectangle_geometry(
+                        x,
+                        y,
+                        width,
+                        height,
+                        radius_x,
+                        radius_y);
+                pen_state smooth_pen = pen;
+                smooth_pen.miter_limit = 1.0;
+                return append_path_strokes(
+                    geometry,
+                    smooth_pen,
+                    local_transform,
+                    effective_transform,
+                    PROGPU_NATIVE_SCENE_NO_INDEX);
             }
             const double half_thickness = pen.thickness * 0.5;
             const double left = x - half_thickness;
@@ -9668,21 +9785,22 @@ struct channel::implementation {
                     static_cast<float>(x1), static_cast<float>(y1)};
                 segments.push_back(segment);
             };
-            if (radius > 0.0 ||
+            if ((radius_x > 0.0 && radius_y > 0.0) ||
                 pen.line_join == PROGPU_NATIVE_STROKE_JOIN_ROUND) {
-                const double outer_radius = radius + half_thickness;
-                const double radius_x = std::min(
-                    outer_radius, (right - left) * 0.5);
-                const double radius_y = std::min(
-                    outer_radius, (bottom - top) * 0.5);
+                const double outer_radius_x = radius_x + half_thickness;
+                const double outer_radius_y = radius_y + half_thickness;
+                const double clamped_radius_x = std::min(
+                    outer_radius_x, (right - left) * 0.5);
+                const double clamped_radius_y = std::min(
+                    outer_radius_y, (bottom - top) * 0.5);
                 append_rounded_rectangle_path(
                     segments,
                     left,
                     top,
                     right,
                     bottom,
-                    radius_x,
-                    radius_y);
+                    clamped_radius_x,
+                    clamped_radius_y);
             } else {
                 double bevel_offset = 0.0;
                 if (pen.line_join == PROGPU_NATIVE_STROKE_JOIN_BEVEL) {
@@ -12641,6 +12759,7 @@ struct channel::implementation {
                                   width,
                                   height,
                                   has_rounded_corners ? radius_x : 0.0,
+                                  has_rounded_corners ? radius_y : 0.0,
                                   pen,
                                   local_transform,
                                   effective_transform);
