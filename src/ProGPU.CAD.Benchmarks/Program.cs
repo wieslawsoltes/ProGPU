@@ -17,6 +17,8 @@ int shxMTextEntityCount = ReadNonNegativeInt("--shx-mtext-entities", 0);
 int attributeInsertCount = ReadNonNegativeInt("--attribute-inserts", 0);
 int dimensionEntityCount = ReadNonNegativeInt("--dimension-entities", 0);
 int meshEntityCount = ReadNonNegativeInt("--mesh-entities", 0);
+int polygonMeshEntityCount = ReadNonNegativeInt("--polygon-mesh-entities", 0);
+int polyfaceMeshEntityCount = ReadNonNegativeInt("--polyface-mesh-entities", 0);
 int solidHatchCount = ReadNonNegativeInt("--solid-hatches", 0);
 int patternHatchCount = ReadNonNegativeInt("--pattern-hatches", 0);
 bool complexPatternGrammar = HasFlag("--complex-pattern-grammar");
@@ -44,6 +46,7 @@ string? outputPath = ReadString("--output-json");
 if (entityCount == 0 && blockArrayColumnCount == 0 && textEntityCount == 0 &&
     mtextEntityCount == 0 && shxTextEntityCount == 0 && shxMTextEntityCount == 0 &&
     attributeInsertCount == 0 && dimensionEntityCount == 0 && meshEntityCount == 0 &&
+    polygonMeshEntityCount == 0 && polyfaceMeshEntityCount == 0 &&
     solidHatchCount == 0 && patternHatchCount == 0)
 {
     throw new ArgumentException(
@@ -62,6 +65,7 @@ if (measureSplineSelection &&
      textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
      shxMTextEntityCount != 0 || attributeInsertCount != 0 ||
      dimensionEntityCount != 0 || meshEntityCount != 0 ||
+     polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 ||
      solidHatchCount != 0 || patternHatchCount != 0))
 {
     throw new ArgumentException(
@@ -70,6 +74,7 @@ if (measureSplineSelection &&
 if (measureTextSelection &&
     (entityCount != 0 || blockArrayColumnCount != 0 || solidHatchCount != 0 ||
      patternHatchCount != 0 || dimensionEntityCount != 0 || meshEntityCount != 0 ||
+     polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 ||
      new[]
      {
          textEntityCount,
@@ -88,7 +93,8 @@ if (measureHatchSelection &&
      entityCount != 0 || blockArrayColumnCount != 0 ||
      textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
      shxMTextEntityCount != 0 || attributeInsertCount != 0 ||
-     dimensionEntityCount != 0 || meshEntityCount != 0))
+     dimensionEntityCount != 0 || meshEntityCount != 0 ||
+     polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0))
 {
     throw new ArgumentException(
         "--hatch-selection requires exactly one positive --solid-hatches or --pattern-hatches count and no other fixtures.");
@@ -129,6 +135,8 @@ CadDocumentSession session = CreateDocument(
     attributeInsertCount,
     dimensionEntityCount,
     meshEntityCount,
+    polygonMeshEntityCount,
+    polyfaceMeshEntityCount,
     solidHatchCount,
     patternHatchCount,
     complexPatternGrammar,
@@ -271,6 +279,8 @@ var report = new CadBenchmarkReport(
     attributeInsertCount,
     dimensionEntityCount,
     meshEntityCount,
+    polygonMeshEntityCount,
+    polyfaceMeshEntityCount,
     solidHatchCount,
     patternHatchCount,
     complexPatternGrammar,
@@ -334,6 +344,8 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         attributeInsertCount +
         dimensionEntityCount +
         meshEntityCount +
+        polygonMeshEntityCount +
+        polyfaceMeshEntityCount +
         solidHatchCount +
         patternHatchCount);
     int expectedExpanded = checked(
@@ -346,6 +358,8 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         (attributeInsertCount * 2) +
         (dimensionEntityCount * 6) +
         (meshEntityCount * 7) +
+        (polygonMeshEntityCount * 13) +
+        (polyfaceMeshEntityCount * 7) +
         solidHatchCount +
         patternHatchCount);
     if (source.Statistics.SourceEntityCount == expectedSource &&
@@ -378,6 +392,8 @@ CadDocumentSession CreateDocument(
     int attributeCount,
     int dimensionCount,
     int meshCount,
+    int polygonMeshCount,
+    int polyfaceMeshCount,
     int hatchCount,
     int patternedHatchCount,
     bool useComplexPatternGrammar,
@@ -709,6 +725,42 @@ CadDocumentSession CreateDocument(
             mesh.Faces.Add([0, 3, 1]);
             mesh.Faces.Add([1, 3, 2]);
             mesh.Faces.Add([2, 3, 0]);
+            document.Entities.Add(mesh);
+        }
+
+        for (int i = 0; i < polygonMeshCount; i++)
+        {
+            double x = (i % 100) * 12.0;
+            double y = (i / 100) * 12.0;
+            var mesh = new PolygonMesh
+            {
+                MVertexCount = 3,
+                NVertexCount = 3,
+            };
+            for (int m = 0; m < mesh.MVertexCount; m++)
+            {
+                for (int n = 0; n < mesh.NVertexCount; n++)
+                {
+                    mesh.Vertices.Add(new PolygonMeshVertex(
+                        new XYZ(x + (m * 4), y + (n * 4), m + n)));
+                }
+            }
+            document.Entities.Add(mesh);
+        }
+
+        for (int i = 0; i < polyfaceMeshCount; i++)
+        {
+            double x = (i % 100) * 12.0;
+            double y = (i / 100) * 12.0;
+            var mesh = new PolyfaceMesh();
+            mesh.Vertices.Add(new VertexFaceMesh(new XYZ(x, y, 0)));
+            mesh.Vertices.Add(new VertexFaceMesh(new XYZ(x + 8, y, 0)));
+            mesh.Vertices.Add(new VertexFaceMesh(new XYZ(x + 4, y + 8, 0)));
+            mesh.Vertices.Add(new VertexFaceMesh(new XYZ(x + 4, y + 3, 8)));
+            mesh.Faces.Add(new VertexFaceRecord { Index1 = 1, Index2 = 2, Index3 = 3 });
+            mesh.Faces.Add(new VertexFaceRecord { Index1 = 1, Index2 = 4, Index3 = 2 });
+            mesh.Faces.Add(new VertexFaceRecord { Index1 = 2, Index2 = 4, Index3 = 3 });
+            mesh.Faces.Add(new VertexFaceRecord { Index1 = 3, Index2 = 4, Index3 = 1 });
             document.Entities.Add(mesh);
         }
 
@@ -1325,6 +1377,8 @@ internal sealed record CadBenchmarkReport(
     int AttributeInsertCount,
     int DimensionEntityCount,
     int MeshEntityCount,
+    int PolygonMeshEntityCount,
+    int PolyfaceMeshEntityCount,
     int SolidHatchCount,
     int PatternHatchCount,
     bool ComplexPatternGrammar,

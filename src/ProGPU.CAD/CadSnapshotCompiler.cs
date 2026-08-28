@@ -309,6 +309,28 @@ public sealed partial class CadSnapshotCompiler
                         resolvedStyle);
                     return;
                 }
+                if (entity is PolygonMesh polygonMesh)
+                {
+                    CompilePolygonMesh(
+                        polygonMesh,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle);
+                    return;
+                }
+                if (entity is PolyfaceMesh polyfaceMesh)
+                {
+                    CompilePolyfaceMesh(
+                        polyfaceMesh,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle);
+                    return;
+                }
 
                 int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
                 int styleIndex = InternStyle(
@@ -881,6 +903,341 @@ public sealed partial class CadSnapshotCompiler
                     bounds));
                 documentBounds = documentBounds.Union(bounds);
             }
+        }
+
+        void CompilePolygonMesh(
+            PolygonMesh mesh,
+            CadAffineTransform3D transform,
+            bool hasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle resolvedStyle)
+        {
+            ValidateLegacyMeshHeader(mesh);
+            int mCount = mesh.MVertexCount;
+            int nCount = mesh.NVertexCount;
+            if (mCount < 2 || nCount < 2 ||
+                (long)mCount * nCount != mesh.Vertices.Count)
+            {
+                throw new ArgumentException(
+                    "A polygon MESH requires positive M/N dimensions whose product equals its vertex count.");
+            }
+            int topologyVisits = checked(mCount * nCount * 2);
+            ConsumeMeshTopology(topologyVisits);
+            bool closeM = (mesh.Flags & PolylineFlags.ClosedPolylineOrClosedPolygonMeshInM) != 0;
+            bool closeN = (mesh.Flags & PolylineFlags.ClosedPolygonMeshInN) != 0;
+            int edgeCount = checked(
+                ((mCount - 1) * nCount) +
+                ((closeM && mCount > 2) ? nCount : 0) +
+                (mCount * (nCount - 1)) +
+                ((closeN && nCount > 2) ? mCount : 0));
+            EnsureDerivedEdgeCapacity(edgeCount);
+
+            var worldVertices = new CadPoint3D[mesh.Vertices.Count];
+            for (int i = 0; i < mesh.Vertices.Count; i++)
+            {
+                PolygonMeshVertex vertex = mesh.Vertices[i];
+                if (vertex.StartWidth != 0.0 || vertex.EndWidth != 0.0 || vertex.Bulge != 0.0)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "Polygon MESH vertex width and bulge require a separate fitted-edge contract.");
+                }
+                worldVertices[i] = TransformPoint(
+                    transform,
+                    hasTransform,
+                    ToPoint(vertex.Location));
+                EnsureFinite(worldVertices[i]);
+            }
+
+            var uniqueEdges = new HashSet<ulong>(edgeCount);
+            var orderedEdges = new List<(int Start, int End)>(edgeCount);
+            for (int m = 0; m < mCount; m++)
+            {
+                for (int n = 0; n < nCount; n++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    int start = checked((m * nCount) + n);
+                    if (n + 1 < nCount || closeN)
+                    {
+                        AddLegacyEdge(start, (m * nCount) + ((n + 1) % nCount));
+                    }
+                    if (m + 1 < mCount || closeM)
+                    {
+                        AddLegacyEdge(start, (((m + 1) % mCount) * nCount) + n);
+                    }
+                }
+            }
+
+            EmitUniformEdges(orderedEdges, worldVertices, rootHandle, effectiveLayer, resolvedStyle);
+
+            void AddLegacyEdge(int start, int end)
+            {
+                if (start == end || worldVertices[start] == worldVertices[end])
+                {
+                    throw new ArgumentException(
+                        "A polygon MESH contains a collapsed topology edge.");
+                }
+                int lower = Math.Min(start, end);
+                int upper = Math.Max(start, end);
+                ulong key = ((ulong)(uint)lower << 32) | (uint)upper;
+                if (uniqueEdges.Add(key))
+                {
+                    orderedEdges.Add((start, end));
+                }
+            }
+        }
+
+        void CompilePolyfaceMesh(
+            PolyfaceMesh mesh,
+            CadAffineTransform3D transform,
+            bool hasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle resolvedStyle)
+        {
+            ValidateLegacyMeshHeader(mesh);
+            if (mesh.Vertices.Count < 2 || mesh.Faces.Count == 0)
+            {
+                throw new ArgumentException(
+                    "A polyface MESH requires at least two coordinate vertices and one face record.");
+            }
+
+            var worldVertices = new CadPoint3D[mesh.Vertices.Count];
+            for (int i = 0; i < mesh.Vertices.Count; i++)
+            {
+                VertexFaceMesh vertex = mesh.Vertices[i];
+                if (vertex.StartWidth != 0.0 || vertex.EndWidth != 0.0 || vertex.Bulge != 0.0)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "Polyface MESH coordinate-vertex width and bulge require a separate edge contract.");
+                }
+                worldVertices[i] = TransformPoint(
+                    transform,
+                    hasTransform,
+                    ToPoint(vertex.Location));
+                EnsureFinite(worldVertices[i]);
+            }
+
+            Span<int> raw = stackalloc int[4];
+            foreach (VertexFaceRecord face in mesh.Faces)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int count = ReadLegacyFace(face, raw);
+                ConsumeMeshTopology(raw.Length);
+                for (int i = 0; i < (count == 2 ? 1 : count); i++)
+                {
+                    int next = count == 2 ? 1 : (i + 1) % count;
+                    int start = Math.Abs(raw[i]) - 1;
+                    int end = Math.Abs(raw[next]) - 1;
+                    if ((uint)start >= (uint)worldVertices.Length ||
+                        (uint)end >= (uint)worldVertices.Length)
+                    {
+                        throw new ArgumentException(
+                            "A polyface MESH face references a coordinate vertex outside its 1-based array.");
+                    }
+                    if (raw[i] >= 0 &&
+                        (start == end || worldVertices[start] == worldVertices[end]))
+                    {
+                        throw new ArgumentException(
+                            "A polyface MESH face contains a collapsed visible edge.");
+                    }
+                }
+            }
+
+            var styledEdges = new HashSet<(ulong Edge, int Layer, int Style)>();
+            var orderedEdges = new List<(
+                CadPoint3D Start,
+                CadPoint3D End,
+                int Layer,
+                int Style)>();
+            foreach (VertexFaceRecord face in mesh.Faces)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int count = ReadLegacyFace(face, raw);
+
+                Layer faceLayer = IsLayerZero(face.Layer) ? effectiveLayer : face.Layer;
+                if (face.IsInvisible || !faceLayer.IsOn ||
+                    (!options.IncludeNonPlottableLayers && !faceLayer.PlotFlag))
+                {
+                    continue;
+                }
+                CadResolvedStyle faceStyle = ResolveStyle(
+                    face,
+                    faceLayer,
+                    resolvedStyle,
+                    options,
+                    globalLineTypeScale);
+                int layerIndex = InternLayer(faceLayer, layers, layerIndices);
+                int styleIndex = InternStyle(
+                    faceStyle,
+                    styles,
+                    styleIndices,
+                    lineTypePatterns,
+                    lineTypePatternIndices,
+                    lineTypeElements,
+                    lineTypeTextResources,
+                    lineTypeShapeResources,
+                    textGlyphRuns,
+                    textGlyphIndices,
+                    textGlyphPositions,
+                    textFonts,
+                    textFontIndices,
+                    shxGlyphInstances,
+                    shxFontResolver,
+                    options);
+
+                for (int i = 0; i < (count == 2 ? 1 : count); i++)
+                {
+                    int next = count == 2 ? 1 : (i + 1) % count;
+                    int start = Math.Abs(raw[i]) - 1;
+                    int end = Math.Abs(raw[next]) - 1;
+                    if (raw[i] < 0)
+                    {
+                        continue;
+                    }
+                    int lower = Math.Min(start, end);
+                    int upper = Math.Max(start, end);
+                    ulong edgeKey = ((ulong)(uint)lower << 32) | (uint)upper;
+                    if (!styledEdges.Add((edgeKey, layerIndex, styleIndex)))
+                    {
+                        continue;
+                    }
+                    if (orderedEdges.Count >= options.MaxExpandedEntities - expandedCount)
+                    {
+                        throw new CadSnapshotExpansionLimitException(
+                            $"Expanded entity count exceeds the configured limit of {options.MaxExpandedEntities}.");
+                    }
+                    orderedEdges.Add((
+                        worldVertices[start],
+                        worldVertices[end],
+                        layerIndex,
+                        styleIndex));
+                }
+            }
+
+            EnsureDerivedEdgeCapacity(orderedEdges.Count);
+            foreach ((CadPoint3D start, CadPoint3D end, int layer, int style) in orderedEdges)
+            {
+                EmitEdge(start, end, rootHandle, layer, style);
+            }
+        }
+
+        static int ReadLegacyFace(VertexFaceRecord face, Span<int> indices)
+        {
+            indices[0] = face.Index1;
+            indices[1] = face.Index2;
+            indices[2] = face.Index3;
+            indices[3] = face.Index4;
+            int count = indices.IndexOf(0);
+            if (count < 0)
+            {
+                count = indices.Length;
+            }
+            else if (indices[count..].IndexOfAnyExcept(0) >= 0)
+            {
+                throw new ArgumentException(
+                    "A polyface MESH face contains a nonzero index after its terminating zero.");
+            }
+            if (count < 2)
+            {
+                throw new CadUnsupportedEntityException(
+                    "One-vertex polyface records require retained POINT display semantics.");
+            }
+            return count;
+        }
+
+        void ValidateLegacyMeshHeader<TVertex>(Polyline<TVertex> mesh)
+            where TVertex : Entity, IVertex
+        {
+            if (mesh.SmoothSurface != SmoothSurfaceType.NoSmooth ||
+                (mesh.Flags & (PolylineFlags.CurveFit | PolylineFlags.SplineFit)) != 0)
+            {
+                throw new CadUnsupportedEntityException(
+                    "Fitted legacy MESH surfaces require exact quadratic/cubic/Bezier surface evaluation.");
+            }
+            if (mesh.StartWidth != 0.0 || mesh.EndWidth != 0.0 || mesh.Thickness != 0.0)
+            {
+                throw new CadUnsupportedEntityException(
+                    "Legacy MESH width and thickness require retained surface extrusion semantics.");
+            }
+        }
+
+        void ConsumeMeshTopology(int visits)
+        {
+            if (visits < 0 || visits > remainingMeshFaceIndices)
+            {
+                remainingMeshFaceIndices = 0;
+                throw new CadUnsupportedEntityException(
+                    $"MESH topology exceeds the configured {options.MaxMeshFaceIndices}-index document limit.");
+            }
+            remainingMeshFaceIndices -= visits;
+        }
+
+        void EmitUniformEdges(
+            List<(int Start, int End)> orderedEdges,
+            CadPoint3D[] worldVertices,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle resolvedStyle)
+        {
+            EnsureDerivedEdgeCapacity(orderedEdges.Count);
+            int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
+            int styleIndex = InternStyle(
+                resolvedStyle,
+                styles,
+                styleIndices,
+                lineTypePatterns,
+                lineTypePatternIndices,
+                lineTypeElements,
+                lineTypeTextResources,
+                lineTypeShapeResources,
+                textGlyphRuns,
+                textGlyphIndices,
+                textGlyphPositions,
+                textFonts,
+                textFontIndices,
+                shxGlyphInstances,
+                shxFontResolver,
+                options);
+            foreach ((int start, int end) in orderedEdges)
+            {
+                EmitEdge(worldVertices[start], worldVertices[end], rootHandle, layerIndex, styleIndex);
+            }
+        }
+
+        void EnsureDerivedEdgeCapacity(int count)
+        {
+            if (count < 0 || count > options.MaxExpandedEntities - expandedCount)
+            {
+                throw new CadSnapshotExpansionLimitException(
+                    $"Expanded entity count exceeds the configured limit of {options.MaxExpandedEntities}.");
+            }
+        }
+
+        void EmitEdge(
+            CadPoint3D start,
+            CadPoint3D end,
+            ulong rootHandle,
+            int layerIndex,
+            int styleIndex)
+        {
+            if (expandedCount >= options.MaxExpandedEntities)
+            {
+                throw new CadSnapshotExpansionLimitException(
+                    $"Expanded entity count exceeds the configured limit of {options.MaxExpandedEntities}.");
+            }
+            expandedCount++;
+            int primitiveIndex = lines.Count;
+            lines.Add(new CadLinePrimitive(start, end));
+            CadBounds3D bounds = CadBounds3D.FromPoint(start).Include(end);
+            entities.Add(new CadEntityHeader(
+                rootHandle,
+                CadEntityKind.Line,
+                layerIndex,
+                styleIndex,
+                primitiveIndex,
+                bounds));
+            documentBounds = documentBounds.Union(bounds);
         }
 
         CadEntityHeader CompileAttribute(

@@ -1144,6 +1144,39 @@ and orbit-aware culling remain the matched 3D renderer contract. This checkpoint
 therefore claims exact level-0 wireframe topology only, while preserving the
 source MESH object for editing and DXF/DWG saving.
 
+## Exact legacy polygon/polyface MESH wireframes
+
+Legacy `PolygonMesh` and `PolyfaceMesh` entities use their persisted WCS vertex
+topology rather than the modern `Mesh` face array. A polygon mesh validates the
+declared M and N counts against the complete vertex array, walks the rectangular
+grid in deterministic M-major order, and closes the M and N axes independently
+from their DXF flags. Canonical undirected vertex-pair keys remove only a
+topologically duplicated edge, including the two-vertex-axis closure case.
+Collapsed edges, vertex width/bulge, thickness, and fitted quadratic, cubic, or
+Bezier surfaces are rejected instead of being silently shown as a control cage.
+
+A polyface mesh first validates every signed, one-based face index in a complete
+transactional pass. The first zero terminates a two-, three-, or four-index
+record and all following values must also be zero. A negative index suppresses
+the edge beginning at that index; it does not erase another face's visible use
+of the same edge. Two-index records therefore retain their documented line
+semantics, while one-index records are diagnosed until POINT display semantics
+exist. A second pass resolves face layer/visibility/style and emits visible
+edges. Deduplication includes the canonical edge, resolved layer, and resolved
+style, preserving coincident edges whose face properties differ.
+
+For `V = M*N` polygon vertices, construction visits exactly `2V` candidate grid
+directions and uses `O(V + E)` temporary/output storage for `E` unique edges.
+For a polyface with `V` coordinate vertices and `F` face records, both validation
+and emission are `O(V + F)` because each record contains at most four indices,
+with `O(V + E)` temporary/output storage. Hash-table worst case is quadratic in
+the number of candidate edges. Both forms charge topology visits to
+`MaxMeshFaceIndices`, preflight the global expanded-entity budget, keep vertices
+in double-precision WCS through editing and ancestor INSERT transforms, and
+reuse the existing retained line, BVH, exact selection, native-picture, and
+print-plan paths. No C ABI, shader, upload, or renderer-specific contract was
+added; managed and native renderers consume the same canonical line commands.
+
 ## Retained TrueType TEXT lowering
 
 The snapshot compiler accepts an `ICadTextFontResolver`; hosts may use the
@@ -1758,6 +1791,7 @@ dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --patt
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --pattern-hatches 100 --complex-pattern-grammar --hatch-island-styles --hatch-selection --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --dimension-entities 1000 --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --mesh-entities 1000 --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --polygon-mesh-entities 1000 --polyface-mesh-entities 1000 --warmup 3 --iterations 24 --queries 10000
 ```
 
 The initial 2026-08-27 Apple Silicon/.NET 10 baseline for 10,000 mixed analytic
@@ -1799,6 +1833,21 @@ deliberately overlapping 3D-to-plan projection, not an improvement or release-
 acceptance claim. Indexed edge batches, representative orbit/depth workloads,
 GPU counters, managed/native images, and required Instruments traces remain
 open gates.
+
+The 2026-08-29 legacy-MESH feature-cost run used one final Apple
+Silicon/.NET 10.0.5 Release process, 1,000 open 3-by-3 polygon meshes, 1,000
+tetrahedral polyface meshes, three warmups, 24 construction iterations, and
+10,000 spatial queries. The snapshot reported exactly 2,000 source roots,
+20,000 expanded records including those roots, 18,000 retained commands, and
+zero unsupported or invalid entities. Snapshot p50/p95/p99 was
+`38.4807/84.0939/106.8618 ms` at `17,573,783 B/op`; plan-scene recording was
+`45.6892/86.0196/98.5248 ms` at `18,432,861 B/op`; print planning was
+`70.8539/120.4183/134.3322 ms` at `28,877,458 B/op`; and warm spatial-query
+p50/p95/p99 was `7.8/78.6/210.8 us` with zero managed allocation. This is a
+transparent feature/cost baseline with noisy tails and deliberately overlapping
+3D-to-plan projections, not an improvement or release-acceptance claim. Indexed
+edge batches, representative orbit/depth workloads, GPU counters,
+managed/native images, and required Instruments traces remain open gates.
 
 The 2026-08-28 simple-linetype feature-cost baseline used one final Release
 binary in two sequential processes, 1,000 mixed analytic entities, five
@@ -2099,6 +2148,33 @@ dotnet run --project src/ProGPU.CAD.Sample.Browser -c Debug
 ## Primary research record
 
 Sources consulted on 2026-08-27 through 2026-08-29:
+
+- For legacy polygon/polyface meshes, Autodesk's
+  [POLYLINE DXF contract](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-DXF/files/GUID-ABF6B778-BE20-4B49-9B58-A94E64CEFFF3.htm)
+  defines independent M/N closure flags, M/N counts, polygon/polyface type bits,
+  and fitted-surface kinds. The
+  [VERTEX DXF contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-0741E831-599E-4CBF-91E1-8ADBCFD6556D.htm)
+  establishes WCS storage for 3D vertices plus signed one-based face indices,
+  zero termination, and negative-index hidden edges; Autodesk's
+  [polyface-mesh guidance](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DXF/files/GUID-96B6288E-F413-46C0-968A-A314171C0AAE.htm),
+  [PFACE command contract](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Core/files/GUID-4B0667EF-D8E3-4BD2-A3EE-06CFF164A0A6.htm), and
+  [M-vertex count contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-ActiveX-Reference/files/GUID-BA12991B-6400-46A0-B761-A2D449E518A6.htm)
+  confirm face-specific properties, two-index line records, and grid dimensions.
+  Adopted exact persisted grid/face topology, WCS transforms, hidden-edge
+  direction, and face style identity; rejected fitted-control-cage display,
+  index repair, synthetic fill, and style-blind edge collapse.
+  [Skia triangle meshes](https://api.skia.org/classSkCanvas.html),
+  [Direct2D `ID2D1Mesh`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1mesh),
+  [Win2D cached geometry](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasCachedGeometry.htm),
+  [WebRender's retained pipeline](https://searchfox.org/mozilla-central/source/gfx/docs/RenderingOverview.rst),
+  [Vello's retained scene](https://github.com/linebender/vello/blob/main/vello/src/scene.rs), and
+  [WebGPU primitive topology](https://gpuweb.github.io/gpuweb/#enumdef-gpuprimitivetopology)
+  informed immutable topology retention, culling, device ownership, and the
+  future indexed-edge batching seam. Text-engine sources below—SkParagraph,
+  DirectWrite/Win2D text, Parley, and HarfBuzz—were rechecked and are not
+  applicable because this slice changes no shaping, layout, glyph/font cache,
+  DPI/subpixel, fallback, or text device-loss behavior. No foreign source text,
+  structure, or tables were used.
 
 - For exact level-0 MESH wireframes, Autodesk's
   [MESH DXF contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-4B9ADA67-87C8-4673-A579-6E4C76FF7025.htm)
