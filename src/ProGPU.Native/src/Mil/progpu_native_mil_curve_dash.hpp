@@ -27,13 +27,40 @@ inline constexpr std::size_t bezier_length_segment_count = 32U;
 inline constexpr std::size_t maximum_arc_length_segment_count = 64U;
 
 struct run {
-    std::vector<progpu_native_path_segment> segments;
-    // One entry for every join before segments[1..].
-    std::vector<std::uint8_t> smooth_joins;
+    std::size_t segment_offset{};
+    std::size_t segment_count{};
+    std::size_t smooth_join_offset{};
     bool closed{};
     bool starts_at_source_start{};
     bool ends_at_source_end{};
     bool closing_smooth_join{};
+};
+
+struct run_buffer {
+    std::vector<run> runs;
+    std::vector<progpu_native_path_segment> segments;
+    // Each run owns segment_count - 1 entries beginning at smooth_join_offset.
+    std::vector<std::uint8_t> smooth_joins;
+
+    void clear() noexcept {
+        runs.clear();
+        segments.clear();
+        smooth_joins.clear();
+    }
+
+    [[nodiscard]] std::span<const progpu_native_path_segment> segments_for(
+        const run& value) const noexcept {
+        return std::span<const progpu_native_path_segment>(segments).subspan(
+            value.segment_offset,
+            value.segment_count);
+    }
+
+    [[nodiscard]] std::span<const std::uint8_t> smooth_joins_for(
+        const run& value) const noexcept {
+        return std::span<const std::uint8_t>(smooth_joins).subspan(
+            value.smooth_join_offset,
+            value.segment_count - 1U);
+    }
 };
 
 enum class result { success, invalid, capacity_exceeded };
@@ -454,23 +481,100 @@ inline bool try_create_subsegment(
 }
 
 inline result append_segment(
-    std::vector<run>& runs,
+    run_buffer& output,
     std::size_t& active_run,
     const progpu_native_path_segment& segment,
     bool smooth_join) {
     constexpr std::size_t no_run = std::numeric_limits<std::size_t>::max();
     try {
-        if (active_run != no_run && active_run < runs.size() &&
-            !runs[active_run].segments.empty() &&
-            near(segment_end(runs[active_run].segments.back()), segment.p0)) {
-            runs[active_run].smooth_joins.push_back(smooth_join ? 1U : 0U);
-            runs[active_run].segments.push_back(segment);
-            return result::success;
+        if (active_run != no_run && active_run < output.runs.size()) {
+            auto& current = output.runs[active_run];
+            const std::size_t current_end =
+                current.segment_offset + current.segment_count;
+            if (current.segment_count != 0U &&
+                current_end == output.segments.size() &&
+                current.smooth_join_offset + current.segment_count - 1U ==
+                    output.smooth_joins.size() &&
+                near(segment_end(output.segments.back()), segment.p0)) {
+                output.smooth_joins.push_back(smooth_join ? 1U : 0U);
+                try {
+                    output.segments.push_back(segment);
+                } catch (...) {
+                    output.smooth_joins.pop_back();
+                    throw;
+                }
+                ++current.segment_count;
+                return result::success;
+            }
         }
-        run next{};
-        next.segments.push_back(segment);
-        runs.push_back(std::move(next));
-        active_run = runs.size() - 1U;
+        const std::size_t segment_offset = output.segments.size();
+        output.segments.push_back(segment);
+        try {
+            output.runs.push_back(run{
+                segment_offset,
+                1U,
+                output.smooth_joins.size()});
+        } catch (...) {
+            output.segments.pop_back();
+            throw;
+        }
+        active_run = output.runs.size() - 1U;
+        return result::success;
+    } catch (const std::bad_alloc&) {
+        return result::capacity_exceeded;
+    }
+}
+
+inline bool run_touches_start(
+    const run_buffer& output,
+    const run& value,
+    progpu_native_point source_start) noexcept {
+    return value.segment_count != 0U &&
+           near(output.segments[value.segment_offset].p0, source_start);
+}
+
+inline bool run_touches_end(
+    const run_buffer& output,
+    const run& value,
+    progpu_native_point source_end) noexcept {
+    return value.segment_count != 0U &&
+           near(segment_end(output.segments[
+                    value.segment_offset + value.segment_count - 1U]),
+               source_end);
+}
+
+inline result merge_closed_seam(
+    run_buffer& output,
+    bool closing_smooth_join) {
+    if (output.runs.size() < 2U) {
+        return result::invalid;
+    }
+    const run first = output.runs.front();
+    const std::size_t last_index = output.runs.size() - 1U;
+    const run last = output.runs[last_index];
+    if (first.segment_count == 0U || last.segment_count == 0U ||
+        last.segment_offset + last.segment_count != output.segments.size() ||
+        last.smooth_join_offset + last.segment_count - 1U !=
+            output.smooth_joins.size()) {
+        return result::invalid;
+    }
+    try {
+        output.segments.reserve(
+            output.segments.size() + first.segment_count);
+        output.smooth_joins.reserve(
+            output.smooth_joins.size() + first.segment_count);
+        for (std::size_t index = 0U; index < first.segment_count; ++index) {
+            output.segments.push_back(
+                output.segments[first.segment_offset + index]);
+        }
+        output.smooth_joins.push_back(closing_smooth_join ? 1U : 0U);
+        for (std::size_t index = 0U; index + 1U < first.segment_count;
+            ++index) {
+            output.smooth_joins.push_back(
+                output.smooth_joins[first.smooth_join_offset + index]);
+        }
+        output.runs[last_index].segment_count += first.segment_count;
+        output.runs.erase(output.runs.begin());
         return result::success;
     } catch (const std::bad_alloc&) {
         return result::capacity_exceeded;
@@ -486,8 +590,8 @@ inline result try_create_runs(
     std::span<const double> source_intervals,
     double offset,
     float thickness,
-    std::vector<run>& runs) {
-    runs.clear();
+    run_buffer& output) {
+    output.clear();
     if (segments.empty() || smooth_joins.size() != segments.size()) {
         return result::invalid;
     }
@@ -531,7 +635,7 @@ inline result try_create_runs(
                                          segment_index != 0U &&
                                          smooth_joins[segment_index - 1U] != 0U;
                 const result append_result = detail::append_segment(
-                    runs, active_run, dash_segment, smooth_join);
+                    output, active_run, dash_segment, smooth_join);
                 if (append_result != result::success) {
                     return append_result;
                 }
@@ -546,44 +650,44 @@ inline result try_create_runs(
             traveled += step;
         }
     }
-    if (runs.empty()) {
+    if (output.runs.empty()) {
         return result::success;
     }
     const auto source_start = segments.front().p0;
     const auto source_end = detail::segment_end(segments.back());
     if (!closed) {
-        runs.front().starts_at_source_start =
-            detail::near(runs.front().segments.front().p0, source_start);
-        runs.back().ends_at_source_end = detail::near(
-            detail::segment_end(runs.back().segments.back()), source_end);
+        output.runs.front().starts_at_source_start =
+            detail::run_touches_start(
+                output,
+                output.runs.front(),
+                source_start);
+        output.runs.back().ends_at_source_end = detail::run_touches_end(
+            output,
+            output.runs.back(),
+            source_end);
         return result::success;
     }
     const bool first_touches_seam =
-        detail::near(runs.front().segments.front().p0, source_start);
-    const bool last_touches_seam = detail::near(
-        detail::segment_end(runs.back().segments.back()), source_end);
+        detail::run_touches_start(
+            output,
+            output.runs.front(),
+            source_start);
+    const bool last_touches_seam = detail::run_touches_end(
+        output,
+        output.runs.back(),
+        source_end);
     if (!first_touches_seam || !last_touches_seam) {
         return result::success;
     }
-    if (runs.size() == 1U) {
-        runs.front().closed = true;
-        runs.front().closing_smooth_join = smooth_joins.back() != 0U;
+    if (output.runs.size() == 1U) {
+        output.runs.front().closed = true;
+        output.runs.front().closing_smooth_join =
+            smooth_joins.back() != 0U;
         return result::success;
     }
-    try {
-        auto& first = runs.front();
-        auto& last = runs.back();
-        last.smooth_joins.push_back(smooth_joins.back() != 0U ? 1U : 0U);
-        last.segments.insert(
-            last.segments.end(), first.segments.begin(), first.segments.end());
-        last.smooth_joins.insert(last.smooth_joins.end(),
-            first.smooth_joins.begin(),
-            first.smooth_joins.end());
-        runs.erase(runs.begin());
-    } catch (const std::bad_alloc&) {
-        return result::capacity_exceeded;
-    }
-    return result::success;
+    return detail::merge_closed_seam(
+        output,
+        smooth_joins.back() != 0U);
 }
 
 } // namespace progpu::native::mil::curve_dash

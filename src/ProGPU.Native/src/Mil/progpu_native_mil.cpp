@@ -6245,6 +6245,7 @@ struct channel::implementation {
         command_view view{};
         std::vector<render_scope_state> scope_states;
         std::vector<bool> scope_layers;
+        curve_dash::run_buffer curve_dash_scratch;
         const auto save_state = [&builder](
             const render_scope_state& source) noexcept {
             auto state = native::semantic_scene_builder::identity_state();
@@ -7198,6 +7199,7 @@ struct channel::implementation {
             &resolve_brush_index,
             &append_polyline_stroke,
             &append_degenerate_cap_stroke,
+            &curve_dash_scratch,
             &current](
             const path_geometry_state& geometry,
             const pen_state& pen,
@@ -7238,6 +7240,7 @@ struct channel::implementation {
                     return brush_status;
                 }
             }
+            auto& dashed_runs = curve_dash_scratch;
             for (const auto& contour : geometry.stroke_contours) {
                 const bool has_curves = std::ranges::any_of(
                     contour.segments,
@@ -7349,7 +7352,6 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
                 if (has_curves || has_smooth_joins) {
-                    std::vector<curve_dash::run> dashed_runs;
                     bool has_dashed_runs = false;
                     if (pen.dash_style_handle != 0U) {
                         const auto dash = dash_styles.find(
@@ -7684,7 +7686,7 @@ struct channel::implementation {
                             segments.back(), run_end_cap, false);
                     };
                     if (has_dashed_runs) {
-                        for (const auto& run : dashed_runs) {
+                        for (const auto& run : dashed_runs.runs) {
                             const std::uint32_t run_start_cap =
                                 run.starts_at_source_start
                                     ? start_cap
@@ -7694,8 +7696,8 @@ struct channel::implementation {
                                     ? end_cap
                                     : pen.dash_cap;
                             if (!append_run(
-                                    run.segments,
-                                    run.smooth_joins,
+                                    dashed_runs.segments_for(run),
+                                    dashed_runs.smooth_joins_for(run),
                                     run.closed,
                                     run.closing_smooth_join,
                                     run_start_cap,
