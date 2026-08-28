@@ -18,6 +18,7 @@ internal static class MediaPcm16ProcessedAccumulator
 {
     private const double MaximumConvertibleInt64 =
         9_223_372_036_854_774_784D;
+    private const int SingleExponentMask = 0x7F80_0000;
 
     internal static void AddMono(
         ReadOnlySpan<float> source,
@@ -148,14 +149,14 @@ internal static class MediaPcm16ProcessedAccumulator
     }
 
     private static bool AllFinite(Vector256<float> samples) =>
-        Vector256.EqualsAll(
-            Vector256.IsFinite(samples).AsInt32(),
-            Vector256<int>.AllBitsSet);
+        !Vector256.EqualsAny(
+            samples.AsInt32() & Vector256.Create(SingleExponentMask),
+            Vector256.Create(SingleExponentMask));
 
     private static bool AllFinite(Vector128<float> samples) =>
-        Vector128.EqualsAll(
-            Vector128.IsFinite(samples).AsInt32(),
-            Vector128<int>.AllBitsSet);
+        !Vector128.EqualsAny(
+            samples.AsInt32() & Vector128.Create(SingleExponentMask),
+            Vector128.Create(SingleExponentMask));
 
     private static void AddScaled(
         Vector256<double> scaled,

@@ -675,6 +675,24 @@ executable SHA-256 was
 This qualifies the emulated Windows x64 route without making a physical-x64
 performance claim.
 
+The follow-up finite-lane optimization checks the IEEE-754 single-precision
+exponent field directly and rejects a vector when any lane has the all-ones
+exponent used by infinity and NaN. This preserves the same fail-at-first-lane
+scalar continuation while avoiding the generic `Vector128.IsFinite` /
+`Vector256.IsFinite` mask materialization. The differential test now adds
+4,099 deterministic finite values created from random raw bit patterns,
+values immediately above and below positive and negative half boundaries,
+alternating Int64 saturation edges, and every supported level pair.
+
+Six paired, alternating Apple M3 Pro processes over 1,024 stereo frames, each
+with 100 warmups and 100 samples of 500 blocks, reduced median-of-run p50 from
+1.926 to 1.858 us/block (-3.5%) and median p95 from 18.348 to 17.033 us/block
+(-7.2%). Every run retained checksum `-68911` and zero bytes allocated per
+block. Two-vector unrolling was rejected after remaining neutral at p50 and
+worsening the upper tail; forcing the larger saturated-conversion helper to
+inline was also rejected after increasing register pressure and measured
+latency. The product path keeps only the smaller exponent-mask change.
+
 The typed-effect input side also uses one shared
 `MediaPcm16FloatConverter` instead of three whole-buffer scalar normalization
 loops. Windows Media Foundation, Linux, and Android pass their borrowed PCM16

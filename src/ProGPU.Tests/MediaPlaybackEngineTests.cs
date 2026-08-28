@@ -3168,6 +3168,56 @@ public sealed class MediaPlaybackEngineTests
             Assert.Equal(monoExpected, monoActual);
         }
 
+        var roundingSource = new float[4_099];
+        for (int index = 0; index < roundingSource.Length; index++)
+        {
+            float sample;
+            do
+            {
+                sample = BitConverter.Int32BitsToSingle(
+                    (int)random.NextInt64());
+            }
+            while (!float.IsFinite(sample));
+            roundingSource[index] = sample;
+        }
+        roundingSource[0] = BitConverter.Int32BitsToSingle(0x3EFFFFFF);
+        roundingSource[1] = BitConverter.Int32BitsToSingle(0x3F000001);
+        roundingSource[2] = BitConverter.Int32BitsToSingle(
+            unchecked((int)0xBEFFFFFF));
+        roundingSource[3] = BitConverter.Int32BitsToSingle(
+            unchecked((int)0xBF000001));
+        var roundingInitial = new long[roundingSource.Length];
+        for (int index = 0; index < roundingInitial.Length; index++)
+        {
+            roundingInitial[index] = (index % 4) switch
+            {
+                0 => long.MinValue,
+                1 => long.MaxValue,
+                2 => random.NextInt64(
+                    -1_000_000_000_000L,
+                    1_000_000_000_001L),
+                _ => 0
+            };
+        }
+        foreach ((int left, int right) in levels)
+        {
+            long[] expected = roundingInitial.ToArray();
+            AddPcm16ProcessedScalarOracle(
+                roundingSource,
+                left,
+                right,
+                expected,
+                "non-finite");
+            long[] actual = roundingInitial.ToArray();
+            MediaPcm16ProcessedAccumulator.AddStereo(
+                roundingSource,
+                left,
+                right,
+                actual,
+                "non-finite");
+            Assert.Equal(expected, actual);
+        }
+
         float[] invalid = new float[17];
         invalid.AsSpan().Fill(0.25F);
         invalid[10] = float.NaN;
