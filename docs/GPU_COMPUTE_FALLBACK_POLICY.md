@@ -1,14 +1,15 @@
 # GPU-first compute fallback policy
 
-Status: glyph coverage implemented and exact on the macOS Metal, Windows
-D3D12/Parallels, and Linux Vulkan/llvmpipe qualification lanes. A physical
-Linux Vulkan adapter remains required before making a hardware-wide Vulkan
-performance claim.
+Status: glyph coverage is implemented across the macOS Metal, Windows D3D12,
+and Linux Vulkan/llvmpipe qualification lanes. GPU compute and raster routes
+have a bounded 3/255 antialiasing-tie contract; intrinsic-SIMD and scalar CPU
+routes remain byte exact. A physical Linux Vulkan adapter remains required
+before making a hardware-wide Vulkan performance claim.
 
 ## Decision
 
 A failed or excluded compute shader does not imply a CPU fallback. ProGPU
-selects the fastest qualified exact implementation for each workload in this
+selects the fastest qualified implementation for each workload in this
 order:
 
 1. native WebGPU compute shader;
@@ -35,7 +36,7 @@ resources. The available values are:
 
 | Preference | Resolved path |
 | --- | --- |
-| `Fastest` | Adapter-qualified native compute or exact GPU-stage fallback |
+| `Fastest` | Adapter-qualified native compute or equivalent GPU-stage fallback |
 | `NativeCompute` | Native WebGPU compute only |
 | `RasterShader` | Equivalent render/fragment shader only |
 | `IntrinsicSimdCpu` | Hardware-vectorized CPU implementation and atlas upload |
@@ -94,8 +95,13 @@ Apple M3 Pro measurement are recorded in
 
 ## Validation gate
 
-All four modes must produce exact final-frame pixel parity between the managed
-and C++ implementations. Run the retained positioned glyph-atlas gate with:
+Forced intrinsic-SIMD and scalar modes must produce exact final-frame pixel
+parity between the managed and C++ implementations. Automatic, forced native
+compute, and forced raster-shader modes permit only the tight GPU differential
+contract: at most 3/255 per channel, no pixel beyond that tolerance, and mean
+absolute difference at most 0.001 byte/channel. This accounts for independently
+evaluated floating-point antialiasing ties without weakening the exact CPU
+fallbacks. Run the retained positioned glyph-atlas gate with:
 
 ```bash
 dotnet build src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj \
@@ -123,8 +129,11 @@ The gate requires:
 
 - the diagnostic path expected for the requested mode;
 - no WebGPU validation or device errors;
-- `MaximumChannelDifference == 0` and `PixelsOverTolerance == 0`;
-- identical managed/native FNV-1a hashes;
+- exact pixels and identical managed/native FNV-1a hashes for forced
+  intrinsic-SIMD and scalar modes;
+- at most 3/255 per channel, zero pixels beyond that tolerance, and mean
+  absolute difference at most 0.001 byte/channel for automatic/native-compute
+  and forced raster-shader modes;
 - zero native coverage staging bytes in raster mode; and
 - SIMD/scalar differential tests for line, quadratic, and cubic outlines.
 
