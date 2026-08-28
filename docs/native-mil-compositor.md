@@ -2054,12 +2054,16 @@ is reused across image commands in one render stream. Unfilled figures,
 control-point hulls, and packet bounds therefore cannot broaden the mapped
 content. Drawing groups, stroked drawings, and unsupported or singular path
 transforms still require the exact drawing-content-bounds sideband and fail
-closed when it is absent. No bitmap intermediate, pointer transport,
-reflection, or host raster fallback is introduced. Recursive image/drawing
-ownership is rejected as `invalid_graph`, and an empty DrawingImage remains a
-no-op. Native coverage locks down distinct retained, direct-static, and
-direct-animated destination mappings plus sideband-free fixed, polygonal,
-curved, arc, and independently transformed path replay.
+closed when it is absent. The exact native lane also accepts
+single-child/nested-single-child `GeometryGroup` chains and composes every group
+and leaf transform; multi-child groups remain sideband-only until WPF fill-rule
+cancellation bounds have a qualified oracle. No bitmap intermediate, pointer
+transport, reflection, or host raster fallback is introduced. Recursive
+image/drawing ownership is rejected as `invalid_graph`, and an empty
+DrawingImage remains a no-op. Native coverage locks down distinct retained,
+direct-static, and direct-animated destination mappings plus sideband-free
+fixed, polygonal, curved, arc, independently transformed path, and
+single-child group replay.
 
 `NativeMilRenderDataBuilder.DrawImage(...)` now exposes the same canonical
 static packet to typed hosts. It validates finite nonnegative destination
@@ -2155,9 +2159,9 @@ hosts bind drawing shapes that cannot yet be derived natively through
 in-process resource graph, those bounds are not present in the packet. The
 native compiler derives the exact live bounds of positive-area, fill-only
 fixed-geometry `GeometryDrawing` leaves and fillable `PathGeometry` leaves,
-including independently transformed curves, without that sideband. Missing or
-nonfinite bounds for every other shape fail closed, while a null Drawing
-remains a canonical no-op.
+including independently transformed curves, plus single-child geometry-group
+chains without that sideband. Missing or nonfinite bounds for every other shape
+fail closed, while a null Drawing remains a canonical no-op.
 
 Scene compilation recursively reuses retained GeometryDrawing,
 GlyphRunDrawing, ImageDrawing, and DrawingGroup lowering. It scales and

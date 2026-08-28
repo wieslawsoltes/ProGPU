@@ -8514,6 +8514,51 @@ struct channel::implementation {
                     static_cast<float>(leaf.bottom - leaf.top)};
                 return status::success;
             }
+            const auto group = geometry_groups.find(
+                drawing->second.geometry_handle);
+            if (group != geometry_groups.end()) {
+                std::uint32_t child_handle =
+                    drawing->second.geometry_handle;
+                for (std::uint32_t depth = 0U;
+                     depth < maximum_visual_depth;
+                     ++depth) {
+                    const auto child_group = geometry_groups.find(
+                        child_handle);
+                    if (child_group == geometry_groups.end()) {
+                        break;
+                    }
+                    if (child_group->second.children.size() != 1U) {
+                        return status::unsupported_command;
+                    }
+                    child_handle = child_group->second.children.front();
+                }
+                if (geometry_groups.contains(child_handle)) {
+                    return status::invalid_graph;
+                }
+                drawing_image_bounds_segments.clear();
+                shallow_fill_leaf leaf{};
+                const status group_status = append_group_fill_leaf(
+                    drawing->second.geometry_handle,
+                    drawing_image_bounds_segments,
+                    leaf);
+                if (group_status != status::success) {
+                    return group_status;
+                }
+                if (!leaf.has_bounds || leaf.right <= leaf.left ||
+                    leaf.bottom <= leaf.top ||
+                    !finite_double_as_float(leaf.left) ||
+                    !finite_double_as_float(leaf.top) ||
+                    !finite_double_as_float(leaf.right - leaf.left) ||
+                    !finite_double_as_float(leaf.bottom - leaf.top)) {
+                    return status::unsupported_command;
+                }
+                bounds = {
+                    static_cast<float>(leaf.left),
+                    static_cast<float>(leaf.top),
+                    static_cast<float>(leaf.right - leaf.left),
+                    static_cast<float>(leaf.bottom - leaf.top)};
+                return status::success;
+            }
             if (!fixed_geometries.contains(
                     drawing->second.geometry_handle)) {
                 return status::unsupported_command;

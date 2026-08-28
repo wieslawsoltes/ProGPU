@@ -10993,6 +10993,79 @@ bool retained_drawing_image_infers_line_path_bounds() {
         }
     }
     PROGPU_REQUIRE(found_transformed_mapping);
+
+    constexpr std::uint32_t group = 9U;
+    constexpr std::uint32_t group_transform = 10U;
+    std::vector<std::byte> group_update;
+    append_create(group_update, group, 71U);
+    append_create(group_update, group_transform, 66U);
+    append_command(
+        group_update,
+        command::matrix_transform,
+        group_transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        3.0,
+        4.0,
+        0U);
+    const std::array group_children{geometry};
+    append_geometry_group(
+        group_update,
+        group,
+        group_transform,
+        0U,
+        group_children);
+    append_command(
+        group_update,
+        command::geometry_drawing,
+        geometry_drawing,
+        brush,
+        0U,
+        group);
+    PROGPU_REQUIRE(state.apply(group_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7007U, 5U, stream, nullptr) ==
+        status::success);
+    const auto group_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    bool found_group_mapping = false;
+    for (std::uint32_t index = 0U;
+         index < group_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            group_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            continue;
+        }
+        const auto scene_state = read_value<progpu_native_scene_state>(
+            stream, resource.payload_offset);
+        if (std::abs(scene_state.transform.m11 - 4.0F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m22 - 260.0F / 49.0F) < 0.0001F &&
+            std::abs(scene_state.transform.m31 + 18.0F) < 0.0001F &&
+            std::abs(
+                scene_state.transform.m32 + 1'884.0F / 49.0F) < 0.0001F) {
+            found_group_mapping = true;
+        }
+    }
+    PROGPU_REQUIRE(found_group_mapping);
+
+    std::vector<std::byte> multi_child_update;
+    const std::array multi_children{geometry, geometry};
+    append_geometry_group(
+        multi_child_update,
+        group,
+        group_transform,
+        0U,
+        multi_children);
+    PROGPU_REQUIRE(state.apply(multi_child_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7007U, 6U, stream, nullptr) ==
+        status::unsupported_command);
     return true;
 }
 
