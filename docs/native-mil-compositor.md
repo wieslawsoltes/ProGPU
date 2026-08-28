@@ -2284,6 +2284,15 @@ CTest binaries passed in 1.39 seconds and direct executions returned zero.
 Host/guest source hashes matched (`8B71B473...77D4D` MIL and
 `691DAD8A...CE95` MIL test); guest MIL/internal executable hashes were
 `037D26AF...7BFBD` and `B5635F7D...6EE5`.
+Checkpoint `e4d1d2c8` closes the corresponding shared managed-renderer gap:
+`StrokeJoinGeometry` now emits the same WPF clipped-miter three-triangle
+fallback through both its allocation-free span writer and allocating
+compatibility API. This keeps C++ native, managed WebGPU, and downstream host
+renderers on one geometric rule instead of weakening the differential gate.
+The previously failing 96-polyline Apple Metal comparison is byte exact
+(`max=0`, zero differing pixels, identical `C67040E2A28F2507` frame hashes),
+with matching 3,408 vertices and 5,112 indices. The full managed suite passes
+3,880/3,880 and the Apple native suite passes 10/10.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive
