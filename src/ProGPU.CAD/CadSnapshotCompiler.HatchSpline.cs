@@ -264,13 +264,26 @@ public sealed partial class CadSnapshotCompiler
                     canonicalWeight));
                 return;
             case 3:
-                if (!HasUniformProjectiveWeights(controls))
+                (double canonicalWeight1, double canonicalWeight2) =
+                    GetCanonicalCubicWeights(controls);
+                double cubicCoordinateScale = 1.0;
+                for (int i = 0; i < 4; i++)
+                {
+                    cubicCoordinateScale = Math.Max(
+                        cubicCoordinateScale,
+                        Math.Max(Math.Abs(points[i].X), Math.Abs(points[i].Y)));
+                }
+                if (Math.Max(canonicalWeight1, canonicalWeight2) >
+                    float.MaxValue / (8.0 * cubicCoordinateScale))
                 {
                     throw new CadUnsupportedEntityException(
-                        "Non-uniform rational cubic HATCH spline spans require a shared rational cubic filled-path segment contract.");
+                        "A rational cubic HATCH span exceeds the shared-path weighted-coordinate range.");
                 }
                 destination.Add(new CadHatchSegment(
-                    CadHatchSegmentKind.CubicBezier,
+                    NearlyEqualHatchSplineWeight(canonicalWeight1, 1.0) &&
+                    NearlyEqualHatchSplineWeight(canonicalWeight2, 1.0)
+                        ? CadHatchSegmentKind.CubicBezier
+                        : CadHatchSegmentKind.RationalCubicBezier,
                     points[0].X,
                     points[0].Y,
                     points[3].X,
@@ -282,7 +295,9 @@ public sealed partial class CadSnapshotCompiler
                     0.0,
                     0.0,
                     0.0,
-                    0.0));
+                    0.0,
+                    canonicalWeight1,
+                    canonicalWeight2));
                 return;
             default:
                 throw new InvalidOperationException("Only Bezier degrees one through three are retained.");
@@ -305,18 +320,30 @@ public sealed partial class CadSnapshotCompiler
         return weight;
     }
 
-    private static bool HasUniformProjectiveWeights(
+    private static (double Weight1, double Weight2) GetCanonicalCubicWeights(
         ReadOnlySpan<CadHomogeneousPoint> controls)
     {
-        double reference = controls[0].W;
-        for (int i = 1; i < controls.Length; i++)
+        double logarithm0 = Math.Log(controls[0].W);
+        double logarithm3 = Math.Log(controls[3].W);
+        double weight1 = Math.Exp(
+            Math.Log(controls[1].W) -
+            ((2.0 / 3.0) * logarithm0) -
+            ((1.0 / 3.0) * logarithm3));
+        double weight2 = Math.Exp(
+            Math.Log(controls[2].W) -
+            ((1.0 / 3.0) * logarithm0) -
+            ((2.0 / 3.0) * logarithm3));
+        float retainedWeight1 = (float)weight1;
+        float retainedWeight2 = (float)weight2;
+        if (!double.IsFinite(weight1) || weight1 <= 0.0 ||
+            !double.IsFinite(weight2) || weight2 <= 0.0 ||
+            !float.IsFinite(retainedWeight1) || retainedWeight1 <= 0f ||
+            !float.IsFinite(retainedWeight2) || retainedWeight2 <= 0f)
         {
-            if (!NearlyEqualHatchSplineWeight(reference, controls[i].W))
-            {
-                return false;
-            }
+            throw new CadUnsupportedEntityException(
+                "A rational cubic HATCH span cannot be represented by finite positive shared-path weights.");
         }
-        return true;
+        return (weight1, weight2);
     }
 
     private static bool NearlyEqualHatchSplineWeight(double left, double right)

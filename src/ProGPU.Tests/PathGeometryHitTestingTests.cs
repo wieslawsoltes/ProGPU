@@ -125,6 +125,36 @@ public sealed class PathGeometryHitTestingTests
         Assert.False(outside);
     }
 
+    [Fact]
+    public void TryContainsFillEvaluatesPositiveWeightRationalCubic()
+    {
+        var geometry = new PathGeometry { FillRule = FillRule.Nonzero };
+        var figure = new PathFigure(Vector2.Zero, isClosed: true);
+        figure.Segments.Add(new RationalCubicBezierSegment(
+            new Vector2(0f, 10f),
+            new Vector2(10f, 10f),
+            new Vector2(10f, 0f),
+            0.5f,
+            1.5f));
+        figure.Segments.Add(new LineSegment(Vector2.Zero));
+        geometry.Figures.Add(figure);
+
+        Assert.True(PathGeometryHitTesting.TryContainsFill(
+            geometry,
+            new Vector2(6f, 3f),
+            tolerance: 0f,
+            relativeTolerance: false,
+            out bool inside));
+        Assert.True(inside);
+        Assert.True(PathGeometryHitTesting.TryContainsFill(
+            geometry,
+            new Vector2(6f, 9f),
+            tolerance: 0f,
+            relativeTolerance: false,
+            out bool outside));
+        Assert.False(outside);
+    }
+
     private static PathGeometry CreateRectangle(FillRule fillRule, bool reverseInner, bool includeInner)
     {
         var geometry = new PathGeometry

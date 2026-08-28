@@ -152,7 +152,7 @@ namespace ProGPU.Vector
         {
             pathA = ResolveDeferredOperand(pathA);
             pathB = ResolveDeferredOperand(pathB);
-            ThrowIfRationalQuadratic(pathA, pathB);
+            ThrowIfRationalSegments(pathA, pathB);
             if (TryCreateImmediateResult(pathA, pathB, op, out var result))
             {
                 return result;
@@ -178,7 +178,7 @@ namespace ProGPU.Vector
             {
                 pathA = ResolveDeferredOperand(pathA);
                 pathB = ResolveDeferredOperand(pathB);
-                ThrowIfRationalQuadratic(pathA, pathB);
+                ThrowIfRationalSegments(pathA, pathB);
                 if (TryCreateImmediateResult(pathA, pathB, op, out var result))
                 {
                     return Task.FromResult(result);
@@ -225,19 +225,19 @@ namespace ProGPU.Vector
             return path;
         }
 
-        private static void ThrowIfRationalQuadratic(
+        private static void ThrowIfRationalSegments(
             PathGeometry pathA,
             PathGeometry pathB)
         {
-            if (ContainsRationalQuadratic(pathA) ||
-                ContainsRationalQuadratic(pathB))
+            if (ContainsRationalSegment(pathA) ||
+                ContainsRationalSegment(pathB))
             {
                 throw new NotSupportedException(
-                    "Path boolean reconstruction does not yet support rational quadratic segments.");
+                    "Path boolean reconstruction does not yet support rational segments.");
             }
         }
 
-        private static bool ContainsRationalQuadratic(PathGeometry path)
+        private static bool ContainsRationalSegment(PathGeometry path)
         {
             var figures = path.Figures;
             for (int figureIndex = 0; figureIndex < figures.Count; figureIndex++)
@@ -245,7 +245,8 @@ namespace ProGPU.Vector
                 var segments = figures[figureIndex].Segments;
                 for (int segmentIndex = 0; segmentIndex < segments.Count; segmentIndex++)
                 {
-                    if (segments[segmentIndex] is RationalQuadraticBezierSegment)
+                    if (segments[segmentIndex] is RationalQuadraticBezierSegment or
+                        RationalCubicBezierSegment)
                     {
                         return true;
                     }

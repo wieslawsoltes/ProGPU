@@ -1,4 +1,4 @@
-// Algorithm: Transform hatch geometry, evaluate analytic line/polynomial-Bezier/positive-weight rational-quadratic winding, and evaluate brush, gradient, affine pattern-space hatch-family, and anti-aliased coverage functions.
+// Algorithm: Transform hatch geometry, evaluate analytic line/polynomial-Bezier/positive-weight rational-quadratic/rational-cubic winding, and evaluate brush, gradient, affine pattern-space hatch-family, and anti-aliased coverage functions.
 // Time complexity: O(S + F * 6) per hatch fragment for S retained boundary segments and F retained DXF/PAT families with the specified six-dash maximum; non-hatch brush paths are O(1).
 // Space complexity: O(1) local storage with bounded uniform/storage reads.
 struct Brush {
@@ -636,6 +636,108 @@ fn is_hatch_point_inside(p: vec2<f32>, record: GpuHatchRecord) -> bool {
                         let intersectX = (omt * omt * A.x
                             + 2.0 * weight * omt * tc * B.x
                             + tc * tc * C.x) / rational_denominator;
+                        if (p.x < intersectX) {
+                            if (deriv_y > 0.0) {
+                                winding = winding + 1;
+                            } else if (deriv_y < 0.0) {
+                                winding = winding - 1;
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (seg.segmentType == 5u) {
+            let A = seg.p0;
+            let B = seg.p1;
+            let C = seg.p2;
+            let D_pt = seg.p3;
+            let weight1 = bitcast<f32>(seg._pad0);
+            let weight2 = bitcast<f32>(seg._pad1);
+
+            // Solve Ny(t)-p.y*W(t) exactly as one cubic. ABI validation
+            // guarantees positive canonical weights, so W(t) stays positive.
+            let ay = A.y - p.y;
+            let by = weight1 * (B.y - p.y);
+            let cy = weight2 * (C.y - p.y);
+            let dy = D_pt.y - p.y;
+            let a = -ay + 3.0 * by - 3.0 * cy + dy;
+            let b = 3.0 * ay - 6.0 * by + 3.0 * cy;
+            let c = -3.0 * ay + 3.0 * by;
+            let d_coeff = ay;
+            let coefficient_scale = max(
+                max(abs(a), abs(b)),
+                max(abs(c), abs(d_coeff)));
+            var roots = array<f32, 3>(0.0, 0.0, 0.0);
+            var root_count: u32 = 0u;
+            solve_cubic(
+                a / max(coefficient_scale, 1.0e-30),
+                b / max(coefficient_scale, 1.0e-30),
+                c / max(coefficient_scale, 1.0e-30),
+                d_coeff / max(coefficient_scale, 1.0e-30),
+                &roots,
+                &root_count);
+
+            // A rational cubic contributes at most three roots. This bound is
+            // fixed and independent of path size, zoom, and control geometry.
+            for (var r: u32 = 0u; r < root_count; r = r + 1u) {
+                let t = roots[r];
+                if (t >= -0.01 && t <= 1.01) {
+                    let t_eval = clamp(t, 0.00001, 0.99999);
+                    let omt_eval = 1.0 - t_eval;
+                    let omt2_eval = omt_eval * omt_eval;
+                    let t2_eval = t_eval * t_eval;
+                    let numerator_y = omt2_eval * omt_eval * A.y
+                        + 3.0 * weight1 * omt2_eval * t_eval * B.y
+                        + 3.0 * weight2 * omt_eval * t2_eval * C.y
+                        + t2_eval * t_eval * D_pt.y;
+                    let denominator = omt2_eval * omt_eval
+                        + 3.0 * weight1 * omt2_eval * t_eval
+                        + 3.0 * weight2 * omt_eval * t2_eval
+                        + t2_eval * t_eval;
+                    let numerator_derivative_y = 3.0 * (
+                        omt2_eval * (weight1 * B.y - A.y)
+                        + 2.0 * omt_eval * t_eval *
+                            (weight2 * C.y - weight1 * B.y)
+                        + t2_eval * (D_pt.y - weight2 * C.y));
+                    let denominator_derivative = 3.0 * (
+                        omt2_eval * (weight1 - 1.0)
+                        + 2.0 * omt_eval * t_eval * (weight2 - weight1)
+                        + t2_eval * (1.0 - weight2));
+                    let deriv_y = numerator_derivative_y * denominator
+                        - numerator_y * denominator_derivative;
+
+                    // Preserve the direction-aware half-open intervals exactly:
+                    // upward [0,1), downward (0,1].
+                    var is_valid = false;
+                    if (t < 0.005) {
+                        if (deriv_y > 0.0) {
+                            is_valid = (p.y >= A.y);
+                        } else if (deriv_y < 0.0) {
+                            is_valid = (p.y < A.y);
+                        }
+                    } else if (t > 0.995) {
+                        if (deriv_y > 0.0) {
+                            is_valid = (p.y < D_pt.y);
+                        } else if (deriv_y < 0.0) {
+                            is_valid = (p.y >= D_pt.y);
+                        }
+                    } else {
+                        is_valid = true;
+                    }
+
+                    if (is_valid) {
+                        let tc = clamp(t, 0.0, 1.0);
+                        let omt = 1.0 - tc;
+                        let omt2 = omt * omt;
+                        let t2 = tc * tc;
+                        let rational_denominator = omt2 * omt
+                            + 3.0 * weight1 * omt2 * tc
+                            + 3.0 * weight2 * omt * t2
+                            + t2 * tc;
+                        let intersectX = (omt2 * omt * A.x
+                            + 3.0 * weight1 * omt2 * tc * B.x
+                            + 3.0 * weight2 * omt * t2 * C.x
+                            + t2 * tc * D_pt.x) / rational_denominator;
                         if (p.x < intersectX) {
                             if (deriv_y > 0.0) {
                                 winding = winding + 1;

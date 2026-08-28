@@ -86,7 +86,8 @@ internal static class CadHatchSelection
                 }
                 if (segment.Kind is CadHatchSegmentKind.QuadraticBezier or
                     CadHatchSegmentKind.CubicBezier or
-                    CadHatchSegmentKind.RationalQuadraticBezier)
+                    CadHatchSegmentKind.RationalQuadraticBezier or
+                    CadHatchSegmentKind.RationalCubicBezier)
                 {
                     int degree = FillWorldBezierControls(
                         hatch,
@@ -174,7 +175,8 @@ internal static class CadHatchSelection
                 }
                 else if (segment.Kind is CadHatchSegmentKind.QuadraticBezier or
                     CadHatchSegmentKind.CubicBezier or
-                    CadHatchSegmentKind.RationalQuadraticBezier)
+                    CadHatchSegmentKind.RationalQuadraticBezier or
+                    CadHatchSegmentKind.RationalCubicBezier)
                 {
                     int degree = FillWorldBezierControls(
                         hatch,
@@ -238,20 +240,24 @@ internal static class CadHatchSelection
         CadHatchSegment segment,
         Span<CadHomogeneousPoint> destination)
     {
-        int degree = segment.Kind == CadHatchSegmentKind.CubicBezier ? 3 : 2;
+        int degree = segment.Kind is CadHatchSegmentKind.CubicBezier or
+            CadHatchSegmentKind.RationalCubicBezier ? 3 : 2;
         destination[0] = CadHomogeneousPoint.FromCartesian(
             ToWorldPoint(hatch, segment.StartX, segment.StartY),
             1.0);
         destination[1] = CadHomogeneousPoint.FromCartesian(
             ToWorldPoint(hatch, segment.CenterX, segment.CenterY),
-            segment.Kind == CadHatchSegmentKind.RationalQuadraticBezier
+            segment.Kind is CadHatchSegmentKind.RationalQuadraticBezier or
+                CadHatchSegmentKind.RationalCubicBezier
                 ? segment.Weight
                 : 1.0);
         if (degree == 3)
         {
             destination[2] = CadHomogeneousPoint.FromCartesian(
                 ToWorldPoint(hatch, segment.CosineAxisX, segment.CosineAxisY),
-                1.0);
+                segment.Kind == CadHatchSegmentKind.RationalCubicBezier
+                    ? segment.Weight2
+                    : 1.0);
         }
         destination[degree] = CadHomogeneousPoint.FromCartesian(
             ToWorldPoint(hatch, segment.EndX, segment.EndY),

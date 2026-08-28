@@ -915,6 +915,17 @@ public sealed class CadPlanSceneCompiler
                 isStroked: false));
             return;
         }
+        if (segment.Kind == CadHatchSegmentKind.RationalCubicBezier)
+        {
+            figure.Segments.Add(new RationalCubicBezierSegment(
+                new Vector2(ToFloat(segment.CenterX), ToFloat(segment.CenterY)),
+                new Vector2(ToFloat(segment.CosineAxisX), ToFloat(segment.CosineAxisY)),
+                new Vector2(ToFloat(segment.EndX), ToFloat(segment.EndY)),
+                ToPositiveFiniteFloat(segment.Weight),
+                ToPositiveFiniteFloat(segment.Weight2),
+                isStroked: false));
+            return;
+        }
 
         double radiusX = new CadPoint3D(
             segment.CosineAxisX,

@@ -21,6 +21,7 @@ bool complexPatternGrammar = HasFlag("--complex-pattern-grammar");
 bool hatchIslandStyles = HasFlag("--hatch-island-styles");
 bool hatchSplineEdges = HasFlag("--hatch-spline-edges");
 bool rationalHatchSplineEdges = HasFlag("--rational-hatch-spline-edges");
+bool rationalCubicHatchSplineEdges = HasFlag("--rational-cubic-hatch-spline-edges");
 bool decorateText = HasFlag("--text-decorations");
 bool decorateShxText = HasFlag("--shx-decorations");
 bool lowerLineTypes = HasFlag("--linetypes");
@@ -102,6 +103,16 @@ if (rationalHatchSplineEdges && !hatchSplineEdges)
     throw new ArgumentException(
         "--rational-hatch-spline-edges requires --hatch-spline-edges.");
 }
+if (rationalCubicHatchSplineEdges && !hatchSplineEdges)
+{
+    throw new ArgumentException(
+        "--rational-cubic-hatch-spline-edges requires --hatch-spline-edges.");
+}
+if (rationalHatchSplineEdges && rationalCubicHatchSplineEdges)
+{
+    throw new ArgumentException(
+        "Only one rational HATCH spline-edge fixture may be selected.");
+}
 
 CadDocumentSession session = CreateDocument(
     entityCount,
@@ -117,6 +128,7 @@ CadDocumentSession session = CreateDocument(
     hatchIslandStyles,
     hatchSplineEdges,
     rationalHatchSplineEdges,
+    rationalCubicHatchSplineEdges,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -255,6 +267,7 @@ var report = new CadBenchmarkReport(
     hatchIslandStyles,
     hatchSplineEdges,
     rationalHatchSplineEdges,
+    rationalCubicHatchSplineEdges,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -355,6 +368,7 @@ CadDocumentSession CreateDocument(
     bool useHatchIslandStyles,
     bool useHatchSplineEdges,
     bool useRationalHatchSplineEdges,
+    bool useRationalCubicHatchSplineEdges,
     bool decorateTextRuns,
     bool decorateShxTextRuns,
     bool useLineTypes,
@@ -645,7 +659,8 @@ CadDocumentSession CreateDocument(
                 ? CreateHatchSplineCapLoop(
                     x,
                     y,
-                    rationalQuadratic: useRationalHatchSplineEdges)
+                    rationalQuadratic: useRationalHatchSplineEdges,
+                    rationalCubic: useRationalCubicHatchSplineEdges)
                 : CreateHatchLoop(
                     (x, y),
                     (x + 20, y),
@@ -704,7 +719,8 @@ CadDocumentSession CreateDocument(
                 ? CreateHatchSplineCapLoop(
                     x,
                     y,
-                    rationalQuadratic: useRationalHatchSplineEdges)
+                    rationalQuadratic: useRationalHatchSplineEdges,
+                    rationalCubic: useRationalCubicHatchSplineEdges)
                 : CreateHatchLoop(
                     (x, y),
                     (x + 20, y),
@@ -744,12 +760,13 @@ Hatch.BoundaryPath CreateHatchLoop(params (double X, double Y)[] vertices)
 Hatch.BoundaryPath CreateHatchSplineCapLoop(
     double x,
     double y,
-    bool rationalQuadratic)
+    bool rationalQuadratic,
+    bool rationalCubic)
 {
     var spline = new Hatch.BoundaryPath.Spline
     {
         Degree = rationalQuadratic ? 2 : 3,
-        IsRational = rationalQuadratic,
+        IsRational = rationalQuadratic || rationalCubic,
     };
     if (rationalQuadratic)
     {
@@ -759,6 +776,16 @@ Hatch.BoundaryPath CreateHatchSplineCapLoop(
             new XYZ(x + 20, y, 1.0),
         ]);
         spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+    }
+    else if (rationalCubic)
+    {
+        spline.ControlPoints.AddRange([
+            new XYZ(x, y, 8.0),
+            new XYZ(x, y + 20, 2.0),
+            new XYZ(x + 20, y + 20, 3.0),
+            new XYZ(x + 20, y, 1.0),
+        ]);
+        spline.Knots.AddRange([0, 0, 0, 0, 1, 1, 1, 1]);
     }
     else
     {
@@ -1230,6 +1257,7 @@ internal sealed record CadBenchmarkReport(
     bool HatchIslandStyles,
     bool HatchSplineEdges,
     bool RationalHatchSplineEdges,
+    bool RationalCubicHatchSplineEdges,
     bool DecoratedText,
     bool DecoratedShxText,
     bool LoweredLineTypes,

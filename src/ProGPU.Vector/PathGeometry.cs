@@ -89,6 +89,43 @@ class RationalQuadraticBezierSegment : PathSegment
     }
 }
 
+/// <summary>
+/// A canonical positive-weight rational cubic Bezier with unit endpoint
+/// weights. The retained GPU path contract supports this segment for fills and
+/// clips; stroke and geometric path-boolean reconstruction are not yet supported.
+/// </summary>
+#if PROGPU_VECTOR_INTERNAL
+internal
+#else
+public
+#endif
+class RationalCubicBezierSegment : PathSegment
+{
+    public Vector2 ControlPoint1 { get; set; }
+    public Vector2 ControlPoint2 { get; set; }
+    public Vector2 Point { get; set; }
+    public float Weight1 { get; set; }
+    public float Weight2 { get; set; }
+
+    public RationalCubicBezierSegment(
+        Vector2 controlPoint1,
+        Vector2 controlPoint2,
+        Vector2 point,
+        float weight1,
+        float weight2,
+        bool isSmoothJoin = false,
+        bool isStroked = false)
+    {
+        ControlPoint1 = controlPoint1;
+        ControlPoint2 = controlPoint2;
+        Point = point;
+        Weight1 = weight1;
+        Weight2 = weight2;
+        IsSmoothJoin = isSmoothJoin;
+        IsStroked = isStroked;
+    }
+}
+
 #if PROGPU_VECTOR_INTERNAL
 internal
 #else
@@ -413,6 +450,18 @@ class PathGeometry
                         sourceCurrentPoint = rationalQuadratic.Point;
                         break;
 
+                    case RationalCubicBezierSegment rationalCubic:
+                        transformedFigure.Segments.Add(new RationalCubicBezierSegment(
+                            Vector2.Transform(rationalCubic.ControlPoint1, transform),
+                            Vector2.Transform(rationalCubic.ControlPoint2, transform),
+                            Vector2.Transform(rationalCubic.Point, transform),
+                            rationalCubic.Weight1,
+                            rationalCubic.Weight2,
+                            rationalCubic.IsSmoothJoin,
+                            rationalCubic.IsStroked));
+                        sourceCurrentPoint = rationalCubic.Point;
+                        break;
+
                     case CubicBezierSegment cubic:
                         transformedFigure.Segments.Add(new CubicBezierSegment(
                             Vector2.Transform(cubic.ControlPoint1, transform),
@@ -503,6 +552,13 @@ class PathGeometry
                         Update(rationalQuadratic.ControlPoint);
                         Update(rationalQuadratic.Point);
                         currentPoint = rationalQuadratic.Point;
+                        break;
+
+                    case RationalCubicBezierSegment rationalCubic:
+                        Update(rationalCubic.ControlPoint1);
+                        Update(rationalCubic.ControlPoint2);
+                        Update(rationalCubic.Point);
+                        currentPoint = rationalCubic.Point;
                         break;
 
                     case CubicBezierSegment cubic:

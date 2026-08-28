@@ -7713,10 +7713,11 @@ SceneStateUploadComplete:
                         continue;
                     }
 
-                    if (segment is RationalQuadraticBezierSegment)
+                    if (segment is RationalQuadraticBezierSegment or
+                        RationalCubicBezierSegment)
                     {
                         throw new NotSupportedException(
-                            "Rational quadratic path segments currently support fill and clip rendering only.");
+                            "Rational path segments currently support fill and clip rendering only.");
                     }
 
                     if (segment is LineSegment)
@@ -10492,6 +10493,12 @@ SceneStateUploadComplete:
                     out direction,
                     rationalQuadratic.ControlPoint - segmentStart,
                     rationalQuadratic.Point - segmentStart);
+            case RationalCubicBezierSegment rationalCubic:
+                return TrySelectDirection(
+                    out direction,
+                    rationalCubic.ControlPoint1 - segmentStart,
+                    rationalCubic.ControlPoint2 - segmentStart,
+                    rationalCubic.Point - segmentStart);
             case CubicBezierSegment cubic:
                 return TrySelectDirection(
                     out direction,
@@ -10522,6 +10529,12 @@ SceneStateUploadComplete:
                     out direction,
                     rationalQuadratic.Point - rationalQuadratic.ControlPoint,
                     rationalQuadratic.Point - segmentStart);
+            case RationalCubicBezierSegment rationalCubic:
+                return TrySelectDirection(
+                    out direction,
+                    rationalCubic.Point - rationalCubic.ControlPoint2,
+                    rationalCubic.Point - rationalCubic.ControlPoint1,
+                    rationalCubic.Point - segmentStart);
             case CubicBezierSegment cubic:
                 return TrySelectDirection(
                     out direction,
@@ -10640,6 +10653,9 @@ SceneStateUploadComplete:
                 return true;
             case RationalQuadraticBezierSegment rationalQuadratic:
                 endPoint = rationalQuadratic.Point;
+                return true;
+            case RationalCubicBezierSegment rationalCubic:
+                endPoint = rationalCubic.Point;
                 return true;
             case CubicBezierSegment cubic:
                 endPoint = cubic.Point;
@@ -13636,6 +13652,17 @@ SceneStateUploadComplete:
                                 rationalQuadratic.Weight,
                                 rationalQuadratic.IsSmoothJoin,
                                 rationalQuadratic.IsStroked));
+                        break;
+                    case RationalCubicBezierSegment rationalCubic:
+                        transformedFigure.Segments.Add(
+                            new RationalCubicBezierSegment(
+                                TransformPoint(rationalCubic.ControlPoint1),
+                                TransformPoint(rationalCubic.ControlPoint2),
+                                TransformPoint(rationalCubic.Point),
+                                rationalCubic.Weight1,
+                                rationalCubic.Weight2,
+                                rationalCubic.IsSmoothJoin,
+                                rationalCubic.IsStroked));
                         break;
                     case CubicBezierSegment cubic:
                         transformedFigure.Segments.Add(new CubicBezierSegment(

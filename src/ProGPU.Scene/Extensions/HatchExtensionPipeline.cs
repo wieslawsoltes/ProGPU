@@ -228,6 +228,54 @@ namespace ProGPU.Scene.Extensions
                             UpdateBounds(rationalQuadratic.Point);
                             currentPoint = rationalQuadratic.Point;
                         }
+                        else if (segment is RationalCubicBezierSegment rationalCubic)
+                        {
+                            double coordinateScale = Math.Max(
+                                1.0,
+                                Math.Max(
+                                    Math.Max(
+                                        Math.Abs(currentPoint.X),
+                                        Math.Abs(currentPoint.Y)),
+                                    Math.Max(
+                                        Math.Max(
+                                            Math.Abs(rationalCubic.ControlPoint1.X),
+                                            Math.Abs(rationalCubic.ControlPoint1.Y)),
+                                        Math.Max(
+                                            Math.Max(
+                                                Math.Abs(rationalCubic.ControlPoint2.X),
+                                                Math.Abs(rationalCubic.ControlPoint2.Y)),
+                                            Math.Max(
+                                                Math.Abs(rationalCubic.Point.X),
+                                                Math.Abs(rationalCubic.Point.Y))))));
+                            double weightLimit = float.MaxValue /
+                                (8.0 * coordinateScale);
+                            if (!float.IsFinite(rationalCubic.Weight1) ||
+                                !float.IsFinite(rationalCubic.Weight2) ||
+                                rationalCubic.Weight1 <= 0f ||
+                                rationalCubic.Weight2 <= 0f ||
+                                rationalCubic.Weight1 > weightLimit ||
+                                rationalCubic.Weight2 > weightLimit)
+                            {
+                                throw new InvalidOperationException(
+                                    "Rational cubic hatch weights must be positive and keep weighted coordinates finite.");
+                            }
+                            segmentsList.Add(new GpuHatchSegment
+                            {
+                                P0 = currentPoint,
+                                P1 = rationalCubic.ControlPoint1,
+                                P2 = rationalCubic.ControlPoint2,
+                                P3 = rationalCubic.Point,
+                                SegmentType = 5,
+                                Pad0 = BitConverter.SingleToUInt32Bits(
+                                    rationalCubic.Weight1),
+                                Pad1 = BitConverter.SingleToUInt32Bits(
+                                    rationalCubic.Weight2)
+                            });
+                            UpdateBounds(rationalCubic.ControlPoint1);
+                            UpdateBounds(rationalCubic.ControlPoint2);
+                            UpdateBounds(rationalCubic.Point);
+                            currentPoint = rationalCubic.Point;
+                        }
                     }
 
                     if (figure.IsClosed && currentPoint != figure.StartPoint)

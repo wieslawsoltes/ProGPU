@@ -402,7 +402,8 @@ public sealed partial class CadSnapshotCompiler
         }
         if (segment.Kind is CadHatchSegmentKind.QuadraticBezier or
             CadHatchSegmentKind.CubicBezier or
-            CadHatchSegmentKind.RationalQuadraticBezier)
+            CadHatchSegmentKind.RationalQuadraticBezier or
+            CadHatchSegmentKind.RationalCubicBezier)
         {
             if (segment.Kind == CadHatchSegmentKind.RationalQuadraticBezier)
             {
@@ -411,6 +412,16 @@ public sealed partial class CadSnapshotCompiler
                     new CadPoint3D(segment.CenterX, segment.CenterY, 0.0),
                     end,
                     segment.Weight);
+            }
+            if (segment.Kind == CadHatchSegmentKind.RationalCubicBezier)
+            {
+                return GetRationalCubicBounds(
+                    start,
+                    new CadPoint3D(segment.CenterX, segment.CenterY, 0.0),
+                    new CadPoint3D(segment.CosineAxisX, segment.CosineAxisY, 0.0),
+                    end,
+                    segment.Weight,
+                    segment.Weight2);
             }
             return GetBezierBounds(
                 start,
@@ -456,7 +467,8 @@ public sealed partial class CadSnapshotCompiler
         }
         if (segment.Kind is CadHatchSegmentKind.QuadraticBezier or
             CadHatchSegmentKind.CubicBezier or
-            CadHatchSegmentKind.RationalQuadraticBezier)
+            CadHatchSegmentKind.RationalQuadraticBezier or
+            CadHatchSegmentKind.RationalCubicBezier)
         {
             EvaluateHatchBezier(segment, 0.5, out x, out y);
             return;
@@ -906,7 +918,8 @@ public sealed partial class CadSnapshotCompiler
                 ? segment.CenterY - originY
                 : 0.0,
         };
-        if (segment.Kind == CadHatchSegmentKind.CubicBezier)
+        if (segment.Kind is CadHatchSegmentKind.CubicBezier or
+            CadHatchSegmentKind.RationalCubicBezier)
         {
             shifted = shifted with
             {
@@ -938,7 +951,8 @@ public sealed partial class CadSnapshotCompiler
         }
         if (segment.Kind is CadHatchSegmentKind.QuadraticBezier or
             CadHatchSegmentKind.CubicBezier or
-            CadHatchSegmentKind.RationalQuadraticBezier)
+            CadHatchSegmentKind.RationalQuadraticBezier or
+            CadHatchSegmentKind.RationalCubicBezier)
         {
             CadPoint3D firstControl = ToHatchWorldPoint(
                 worldOrigin,
@@ -953,13 +967,24 @@ public sealed partial class CadSnapshotCompiler
                     end,
                     segment.Weight);
             }
-            CadPoint3D secondControl = segment.Kind == CadHatchSegmentKind.CubicBezier
+            CadPoint3D secondControl = segment.Kind is CadHatchSegmentKind.CubicBezier or
+                CadHatchSegmentKind.RationalCubicBezier
                 ? ToHatchWorldPoint(
                     worldOrigin,
                     coordinateSystem,
                     segment.CosineAxisX,
                     segment.CosineAxisY)
                 : end;
+            if (segment.Kind == CadHatchSegmentKind.RationalCubicBezier)
+            {
+                return GetRationalCubicBounds(
+                    start,
+                    firstControl,
+                    secondControl,
+                    end,
+                    segment.Weight,
+                    segment.Weight2);
+            }
             return GetBezierBounds(
                 start,
                 firstControl,
@@ -1099,6 +1124,29 @@ public sealed partial class CadSnapshotCompiler
         return bounds;
     }
 
+    private static CadBounds3D GetRationalCubicBounds(
+        CadPoint3D start,
+        CadPoint3D firstControl,
+        CadPoint3D secondControl,
+        CadPoint3D end,
+        double weight1,
+        double weight2)
+    {
+        Span<CadHomogeneousPoint> controls = stackalloc CadHomogeneousPoint[4]
+        {
+            CadHomogeneousPoint.FromCartesian(start, 1.0),
+            CadHomogeneousPoint.FromCartesian(firstControl, weight1),
+            CadHomogeneousPoint.FromCartesian(secondControl, weight2),
+            CadHomogeneousPoint.FromCartesian(end, 1.0),
+        };
+        if (!CadSplineSelection.TryGetBezierBounds(controls, out CadBounds3D bounds))
+        {
+            throw new ArgumentException(
+                "A rational cubic HATCH bound has numerically unresolved extrema.");
+        }
+        return bounds;
+    }
+
     private static void EvaluateHatchBezier(
         CadHatchSegment segment,
         double parameter,
@@ -1108,23 +1156,32 @@ public sealed partial class CadSnapshotCompiler
         var start = new CadPoint3D(segment.StartX, segment.StartY, 0.0);
         var control = new CadPoint3D(segment.CenterX, segment.CenterY, 0.0);
         var end = new CadPoint3D(segment.EndX, segment.EndY, 0.0);
-        CadPoint3D value = segment.Kind ==
-            CadHatchSegmentKind.RationalQuadraticBezier
-            ? EvaluateRationalQuadratic(
+        CadPoint3D value = segment.Kind switch
+        {
+            CadHatchSegmentKind.RationalQuadraticBezier => EvaluateRationalQuadratic(
                 start,
                 control,
                 end,
                 segment.Weight,
-                parameter)
-            : EvaluateBezier(
-            start,
-            control,
-            segment.Kind == CadHatchSegmentKind.CubicBezier
-                ? new CadPoint3D(segment.CosineAxisX, segment.CosineAxisY, 0.0)
-                : end,
-            end,
-            segment.Kind == CadHatchSegmentKind.QuadraticBezier ? 2 : 3,
-            parameter);
+                parameter),
+            CadHatchSegmentKind.RationalCubicBezier => EvaluateRationalCubic(
+                start,
+                control,
+                new CadPoint3D(segment.CosineAxisX, segment.CosineAxisY, 0.0),
+                end,
+                segment.Weight,
+                segment.Weight2,
+                parameter),
+            _ => EvaluateBezier(
+                start,
+                control,
+                segment.Kind == CadHatchSegmentKind.CubicBezier
+                    ? new CadPoint3D(segment.CosineAxisX, segment.CosineAxisY, 0.0)
+                    : end,
+                end,
+                segment.Kind == CadHatchSegmentKind.QuadraticBezier ? 2 : 3,
+                parameter),
+        };
         x = value.X;
         y = value.Y;
     }
@@ -1143,6 +1200,27 @@ public sealed partial class CadSnapshotCompiler
         return ((start * startBasis) + (control * controlBasis) +
             (end * endBasis)) /
             (startBasis + controlBasis + endBasis);
+    }
+
+    private static CadPoint3D EvaluateRationalCubic(
+        CadPoint3D start,
+        CadPoint3D firstControl,
+        CadPoint3D secondControl,
+        CadPoint3D end,
+        double weight1,
+        double weight2,
+        double parameter)
+    {
+        double inverse = 1.0 - parameter;
+        double inverseSquared = inverse * inverse;
+        double parameterSquared = parameter * parameter;
+        double startBasis = inverseSquared * inverse;
+        double firstBasis = 3.0 * weight1 * inverseSquared * parameter;
+        double secondBasis = 3.0 * weight2 * inverse * parameterSquared;
+        double endBasis = parameterSquared * parameter;
+        return ((start * startBasis) + (firstControl * firstBasis) +
+            (secondControl * secondBasis) + (end * endBasis)) /
+            (startBasis + firstBasis + secondBasis + endBasis);
     }
 
     private static CadPoint3D EvaluateBezier(

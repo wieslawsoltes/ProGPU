@@ -247,6 +247,7 @@ public enum CadHatchSegmentKind : byte
     QuadraticBezier = 2,
     CubicBezier = 3,
     RationalQuadraticBezier = 4,
+    RationalCubicBezier = 5,
 }
 
 /// <summary>
@@ -255,7 +256,9 @@ public enum CadHatchSegmentKind : byte
 /// Quadratic Beziers use CenterX/CenterY as their control point; cubic Beziers
 /// additionally use CosineAxisX/CosineAxisY as their second control point.
 /// Rational quadratics use the same quadratic control fields and a canonical
-/// positive middle Weight with unit endpoint weights.
+/// positive middle Weight with unit endpoint weights. Rational cubics use the
+/// cubic control fields and canonical positive Weight/Weight2 values with unit
+/// endpoint weights.
 /// </summary>
 public readonly record struct CadHatchSegment(
     CadHatchSegmentKind Kind,
@@ -271,7 +274,8 @@ public readonly record struct CadHatchSegment(
     double SineAxisY,
     double StartParameter,
     double SweepParameter,
-    double Weight = 1.0);
+    double Weight = 1.0,
+    double Weight2 = 1.0);
 
 public readonly record struct CadTextPrimitive(
     CadPoint3D Origin,

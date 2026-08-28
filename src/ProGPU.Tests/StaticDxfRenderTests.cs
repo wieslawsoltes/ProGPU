@@ -61,6 +61,23 @@ public sealed class StaticDxfRenderTests
     }
 
     [Fact]
+    public void RationalCubicHatchBoundaryRendersExactCoverage()
+    {
+        using var window = new HeadlessWindow(16, 12);
+        window.Content = new RationalCubicHatchVisual();
+
+        window.Render();
+
+        byte[] pixels = window.ReadPixels();
+        RgbaPixel inside = ReadPixel(pixels, window.Width, x: 6, y: 3);
+        RgbaPixel outside = ReadPixel(pixels, window.Width, x: 6, y: 9);
+        Assert.True(inside.R >= 180 && inside.B <= 80,
+            $"Expected rational-cubic HATCH interior coverage, found {inside}.");
+        Assert.True(outside.R <= 80 && outside.B >= 180,
+            $"Expected background above the rational-cubic HATCH boundary, found {outside}.");
+    }
+
+    [Fact]
     public void DrawStaticDxfHonorsActiveOpacityMask()
     {
         var window = HeadlessWindow.Shared;
@@ -601,6 +618,39 @@ public sealed class StaticDxfRenderTests
             context.DrawRectangle(_background, null, new Rect(0f, 0f, 64f, 32f));
             context.DrawRectangle(_pattern, null, new Rect(0f, 0f, 32f, 32f));
             context.DrawHatch(_pattern, _extensionPath);
+        }
+    }
+
+    private sealed class RationalCubicHatchVisual : FrameworkElement
+    {
+        private readonly SolidColorBrush _background =
+            new(new Vector4(0f, 0f, 1f, 1f));
+        private readonly HatchPatternBrush _pattern = new(
+            0f,
+            spacing: 1f,
+            thickness: 2f,
+            color: new Vector4(1f, 0f, 0f, 1f));
+        private readonly PathGeometry _path;
+
+        public RationalCubicHatchVisual()
+        {
+            Width = 16f;
+            Height = 12f;
+            _path = new PathGeometry();
+            var figure = new PathFigure(Vector2.Zero, isClosed: true);
+            figure.Segments.Add(new RationalCubicBezierSegment(
+                new Vector2(0f, 10f),
+                new Vector2(10f, 10f),
+                new Vector2(10f, 0f),
+                0.5f,
+                1.5f));
+            _path.Figures.Add(figure);
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(_background, null, new Rect(0f, 0f, 16f, 12f));
+            context.DrawHatch(_pattern, _path);
         }
     }
 

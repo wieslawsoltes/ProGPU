@@ -40,7 +40,8 @@ internal static class CadHatchContainment
             }
             if (segment.Kind is CadHatchSegmentKind.QuadraticBezier or
                 CadHatchSegmentKind.CubicBezier or
-                CadHatchSegmentKind.RationalQuadraticBezier)
+                CadHatchSegmentKind.RationalQuadraticBezier or
+                CadHatchSegmentKind.RationalCubicBezier)
             {
                 if (!TryAccumulateBezierCrossings(
                         segment,
@@ -129,7 +130,8 @@ internal static class CadHatchContainment
         ref bool parity,
         ref bool boundary)
     {
-        int degree = segment.Kind == CadHatchSegmentKind.CubicBezier ? 3 : 2;
+        int degree = segment.Kind is CadHatchSegmentKind.CubicBezier or
+            CadHatchSegmentKind.RationalCubicBezier ? 3 : 2;
         Span<CadHomogeneousPoint> controls = stackalloc CadHomogeneousPoint[4];
         FillBezierControls(segment, controls[..(degree + 1)]);
         double scale = Math.Max(
@@ -205,7 +207,8 @@ internal static class CadHatchContainment
         CadHatchSegment segment,
         Span<CadHomogeneousPoint> destination)
     {
-        int degree = segment.Kind == CadHatchSegmentKind.CubicBezier ? 3 : 2;
+        int degree = segment.Kind is CadHatchSegmentKind.CubicBezier or
+            CadHatchSegmentKind.RationalCubicBezier ? 3 : 2;
         if (destination.Length < degree + 1)
         {
             throw new ArgumentException(
@@ -217,14 +220,17 @@ internal static class CadHatchContainment
             1.0);
         destination[1] = CadHomogeneousPoint.FromCartesian(
             new CadPoint3D(segment.CenterX, segment.CenterY, 0.0),
-            segment.Kind == CadHatchSegmentKind.RationalQuadraticBezier
+            segment.Kind is CadHatchSegmentKind.RationalQuadraticBezier or
+                CadHatchSegmentKind.RationalCubicBezier
                 ? segment.Weight
                 : 1.0);
         if (degree == 3)
         {
             destination[2] = CadHomogeneousPoint.FromCartesian(
                 new CadPoint3D(segment.CosineAxisX, segment.CosineAxisY, 0.0),
-                1.0);
+                segment.Kind == CadHatchSegmentKind.RationalCubicBezier
+                    ? segment.Weight2
+                    : 1.0);
         }
         destination[degree] = CadHomogeneousPoint.FromCartesian(
             new CadPoint3D(segment.EndX, segment.EndY, 0.0),

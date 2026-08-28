@@ -425,6 +425,143 @@ internal static class CadSplineSelection
         return true;
     }
 
+    internal static bool TryGetBezierBounds(
+        ReadOnlySpan<CadHomogeneousPoint> points,
+        out CadBounds3D bounds)
+    {
+        bounds = default;
+        int degree = points.Length - 1;
+        if (degree < 1 || degree > MaximumSplineDegree)
+        {
+            return false;
+        }
+
+        double coordinateScale = 1.0;
+        double weightScale = 0.0;
+        Span<CadPoint3D> cartesian = stackalloc CadPoint3D[MaximumSplineDegree + 1];
+        for (int i = 0; i <= degree; i++)
+        {
+            if (!double.IsFinite(points[i].W) || !(points[i].W > 0.0))
+            {
+                return false;
+            }
+            cartesian[i] = points[i].Cartesian;
+            if (!AreFinite(cartesian[i]))
+            {
+                return false;
+            }
+            coordinateScale = Math.Max(
+                coordinateScale,
+                Math.Max(
+                    Math.Abs(cartesian[i].X),
+                    Math.Max(Math.Abs(cartesian[i].Y), Math.Abs(cartesian[i].Z))));
+            weightScale = Math.Max(weightScale, points[i].W);
+        }
+        if (!double.IsFinite(coordinateScale) || !(weightScale > 0.0))
+        {
+            return false;
+        }
+
+        Span<double> weights = stackalloc double[MaximumSplineDegree + 1];
+        Span<double> derivativeWeights = stackalloc double[MaximumSplineDegree];
+        for (int i = 0; i <= degree; i++)
+        {
+            weights[i] = points[i].W / weightScale;
+        }
+        for (int i = 0; i < degree; i++)
+        {
+            derivativeWeights[i] = degree * (weights[i + 1] - weights[i]);
+        }
+
+        bounds = CadBounds3D.FromPoint(cartesian[0]).Include(cartesian[degree]);
+        Span<double> axis = stackalloc double[MaximumSplineDegree + 1];
+        Span<double> derivativeAxis = stackalloc double[MaximumSplineDegree];
+        Span<double> firstProduct = stackalloc double[2 * MaximumSplineDegree];
+        Span<double> secondProduct = stackalloc double[2 * MaximumSplineDegree];
+        Span<double> derivativeNumerator = stackalloc double[2 * MaximumSplineDegree];
+        Span<double> reducedDerivative = stackalloc double[2 * MaximumSplineDegree];
+        Span<double> roots = stackalloc double[(2 * MaximumSplineDegree) - 1];
+        int elevatedDerivativeDegree = (2 * degree) - 1;
+        int derivativeDegree = elevatedDerivativeDegree - 1;
+        for (int component = 0; component < 3; component++)
+        {
+            for (int i = 0; i <= degree; i++)
+            {
+                axis[i] = (Component(cartesian[i], component) / coordinateScale) * weights[i];
+            }
+            for (int i = 0; i < degree; i++)
+            {
+                derivativeAxis[i] = degree * (axis[i + 1] - axis[i]);
+            }
+            if (!TryMultiplyBernstein(
+                    derivativeAxis[..degree],
+                    weights[..(degree + 1)],
+                    firstProduct[..(elevatedDerivativeDegree + 1)]) ||
+                !TryMultiplyBernstein(
+                    axis[..(degree + 1)],
+                    derivativeWeights[..degree],
+                    secondProduct[..(elevatedDerivativeDegree + 1)]))
+            {
+                bounds = default;
+                return false;
+            }
+            bool hasNonzeroDerivative = false;
+            for (int i = 0; i <= elevatedDerivativeDegree; i++)
+            {
+                derivativeNumerator[i] = firstProduct[i] - secondProduct[i];
+            }
+            // N'W-NW' has degree at most 2P-2. The two products arrive in
+            // degree 2P-1 Bernstein form, so reduce the mathematically
+            // cancelled leading degree before root isolation.
+            reducedDerivative[0] = derivativeNumerator[0];
+            hasNonzeroDerivative = reducedDerivative[0] != 0.0;
+            for (int i = 1; i <= derivativeDegree; i++)
+            {
+                reducedDerivative[i] =
+                    ((elevatedDerivativeDegree * derivativeNumerator[i]) -
+                     (i * reducedDerivative[i - 1])) /
+                    (elevatedDerivativeDegree - i);
+                hasNonzeroDerivative |= reducedDerivative[i] != 0.0;
+            }
+            if (!hasNonzeroDerivative)
+            {
+                continue;
+            }
+            if (!CadBernsteinPolynomial.TryCollectRoots(
+                    reducedDerivative[..(derivativeDegree + 1)],
+                    roots[..derivativeDegree],
+                    out int rootCount))
+            {
+                bounds = default;
+                return false;
+            }
+            for (int i = 0; i < rootCount; i++)
+            {
+                double parameter = roots[i];
+                if (parameter <= 0.0 || parameter >= 1.0)
+                {
+                    continue;
+                }
+                CadHomogeneousPoint value = CadRationalBezier.EvaluateHomogeneous(
+                    points,
+                    parameter);
+                if (!double.IsFinite(value.W) || !(value.W > 0.0))
+                {
+                    bounds = default;
+                    return false;
+                }
+                CadPoint3D point = value.Cartesian;
+                if (!AreFinite(point))
+                {
+                    bounds = default;
+                    return false;
+                }
+                bounds = bounds.Include(point);
+            }
+        }
+        return true;
+    }
+
     private static bool TryAddPlaneRoots(
         ReadOnlySpan<CadHomogeneousPoint> points,
         int axis,

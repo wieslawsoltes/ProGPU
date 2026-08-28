@@ -164,24 +164,29 @@ progpu_native_status render_paths(
                 const auto& segment = frame->segments[segment_index];
                 const bool is_arc =
                     segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC;
-                const bool is_rational = segment.kind ==
+                const bool is_rational_quadratic = segment.kind ==
                     PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_QUADRATIC;
-                const float rational_weight =
+                const bool is_rational_cubic = segment.kind ==
+                    PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_CUBIC;
+                const float rational_weight1 =
                     std::bit_cast<float>(segment.pad0);
+                const float rational_weight2 =
+                    std::bit_cast<float>(segment.pad1);
                 const double rational_scale = std::fmax(1.0, std::fmax(
+                    std::fmax(std::abs(segment.p0.x), std::abs(segment.p0.y)),
                     std::fmax(
-                        std::abs(segment.p0.x), std::abs(segment.p0.y)),
-                    std::fmax(
+                        std::fmax(std::abs(segment.p1.x), std::abs(segment.p1.y)),
                         std::fmax(
-                            std::abs(segment.p1.x), std::abs(segment.p1.y)),
-                        std::fmax(
-                            std::abs(segment.p2.x),
-                            std::abs(segment.p2.y)))));
-                const double rational_weight_limit =
+                            std::fmax(std::abs(segment.p2.x), std::abs(segment.p2.y)),
+                            std::fmax(std::abs(segment.p3.x), std::abs(segment.p3.y))))));
+                const double quadratic_weight_limit =
                     std::numeric_limits<float>::max() /
                     (4.0 * rational_scale);
+                const double cubic_weight_limit =
+                    std::numeric_limits<float>::max() /
+                    (8.0 * rational_scale);
                 if (segment.kind >
-                        PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_QUADRATIC ||
+                        PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_CUBIC ||
                     !progpu::native::is_finite(segment.p0) ||
                     !progpu::native::is_finite(segment.p1) ||
                     !progpu::native::is_finite(segment.p2) ||
@@ -191,13 +196,22 @@ progpu_native_status render_paths(
                          !std::isfinite(std::bit_cast<float>(segment.pad0)) ||
                          !std::isfinite(std::bit_cast<float>(segment.pad1)) ||
                          !std::isfinite(std::bit_cast<float>(segment.pad2)))) ||
-                    (is_rational &&
+                    (is_rational_quadratic &&
                         (segment.p3.x != 0.0F || segment.p3.y != 0.0F ||
-                         !std::isfinite(rational_weight) ||
-                         rational_weight <= 0.0F || segment.pad1 != 0U ||
-                         rational_weight > rational_weight_limit ||
+                         !std::isfinite(rational_weight1) ||
+                         rational_weight1 <= 0.0F || segment.pad1 != 0U ||
+                         rational_weight1 > quadratic_weight_limit ||
                          segment.pad2 != 0U)) ||
-                    (!is_arc && !is_rational &&
+                    (is_rational_cubic &&
+                        (!std::isfinite(rational_weight1) ||
+                         !std::isfinite(rational_weight2) ||
+                         rational_weight1 <= 0.0F ||
+                         rational_weight2 <= 0.0F ||
+                         rational_weight1 > cubic_weight_limit ||
+                         rational_weight2 > cubic_weight_limit ||
+                         segment.pad2 != 0U)) ||
+                    (!is_arc && !is_rational_quadratic &&
+                        !is_rational_cubic &&
                         (segment.pad0 != 0U || segment.pad1 != 0U ||
                          segment.pad2 != 0U))) {
                     return engine->fail(

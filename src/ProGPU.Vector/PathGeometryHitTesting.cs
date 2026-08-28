@@ -202,6 +202,56 @@ static class PathGeometryHitTesting
                     currentPoint = rationalQuadratic.Point;
                     break;
 
+                case RationalCubicBezierSegment rationalCubic:
+                    double cubicCoordinateScale = Math.Max(
+                        1.0,
+                        Math.Max(
+                            Math.Max(Math.Abs(currentPoint.X), Math.Abs(currentPoint.Y)),
+                            Math.Max(
+                                Math.Max(
+                                    Math.Abs(rationalCubic.ControlPoint1.X),
+                                    Math.Abs(rationalCubic.ControlPoint1.Y)),
+                                Math.Max(
+                                    Math.Max(
+                                        Math.Abs(rationalCubic.ControlPoint2.X),
+                                        Math.Abs(rationalCubic.ControlPoint2.Y)),
+                                    Math.Max(
+                                        Math.Abs(rationalCubic.Point.X),
+                                        Math.Abs(rationalCubic.Point.Y))))));
+                    double cubicWeightLimit = float.MaxValue /
+                        (8.0 * cubicCoordinateScale);
+                    if (!IsFinite(rationalCubic.ControlPoint1) ||
+                        !IsFinite(rationalCubic.ControlPoint2) ||
+                        !IsFinite(rationalCubic.Point) ||
+                        !float.IsFinite(rationalCubic.Weight1) ||
+                        !float.IsFinite(rationalCubic.Weight2) ||
+                        rationalCubic.Weight1 <= 0f ||
+                        rationalCubic.Weight2 <= 0f ||
+                        rationalCubic.Weight1 > cubicWeightLimit ||
+                        rationalCubic.Weight2 > cubicWeightLimit)
+                    {
+                        return false;
+                    }
+
+                    for (int i = 1; i <= CubicFlattenSegmentCount; i++)
+                    {
+                        float t = (float)i / CubicFlattenSegmentCount;
+                        if (!AddPoint(points, EvaluateRationalCubic(
+                                currentPoint,
+                                rationalCubic.ControlPoint1,
+                                rationalCubic.ControlPoint2,
+                                rationalCubic.Point,
+                                rationalCubic.Weight1,
+                                rationalCubic.Weight2,
+                                t)))
+                        {
+                            return false;
+                        }
+                    }
+
+                    currentPoint = rationalCubic.Point;
+                    break;
+
                 case CubicBezierSegment cubic:
                     if (!IsFinite(cubic.ControlPoint1) ||
                         !IsFinite(cubic.ControlPoint2) ||
@@ -254,6 +304,7 @@ static class PathGeometryHitTesting
                 LineSegment => 1,
                 QuadraticBezierSegment => QuadraticFlattenSegmentCount,
                 RationalQuadraticBezierSegment => QuadraticFlattenSegmentCount,
+                RationalCubicBezierSegment => CubicFlattenSegmentCount,
                 CubicBezierSegment => CubicFlattenSegmentCount,
                 ArcSegment => CubicFlattenSegmentCount,
                 _ => 1
@@ -394,6 +445,25 @@ static class PathGeometryHitTesting
         float endBasis = t * t;
         return ((startBasis * start) + (controlBasis * control) +
             (endBasis * end)) / (startBasis + controlBasis + endBasis);
+    }
+
+    private static Vector2 EvaluateRationalCubic(
+        Vector2 start,
+        Vector2 control1,
+        Vector2 control2,
+        Vector2 end,
+        float weight1,
+        float weight2,
+        float t)
+    {
+        float u = 1.0f - t;
+        float startBasis = u * u * u;
+        float control1Basis = 3.0f * weight1 * u * u * t;
+        float control2Basis = 3.0f * weight2 * u * t * t;
+        float endBasis = t * t * t;
+        return ((startBasis * start) + (control1Basis * control1) +
+            (control2Basis * control2) + (endBasis * end)) /
+            (startBasis + control1Basis + control2Basis + endBasis);
     }
 
     private static float Cross(Vector2 left, Vector2 right)

@@ -1787,7 +1787,8 @@ typedef enum progpu_native_path_segment_kind {
     PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC = 1,
     PROGPU_NATIVE_PATH_SEGMENT_CUBIC = 2,
     PROGPU_NATIVE_PATH_SEGMENT_ARC = 3,
-    PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_QUADRATIC = 4
+    PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_QUADRATIC = 4,
+    PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_CUBIC = 5
 } progpu_native_path_segment_kind;
 
 typedef enum progpu_native_fill_rule {
@@ -1801,7 +1802,9 @@ typedef enum progpu_native_fill_rule {
  * as float bit patterns in pad0..pad2. Canonical positive-weight rational
  * quadratics store endpoints/control in p0..p2, zero p3, the middle weight as
  * float bits in pad0, and zero pad1/pad2. Callers may therefore transfer arcs
- * and conics as compact immutable segments without flattening.
+ * and conics as compact immutable segments without flattening. Canonical
+ * positive-weight rational cubics store four controls in p0..p3, their two
+ * interior weights as float bits in pad0/pad1, and zero pad2.
  */
 typedef struct progpu_native_path_segment {
     progpu_native_point p0;

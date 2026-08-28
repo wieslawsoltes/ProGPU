@@ -121,7 +121,8 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   reported until complete 3D side-surface lowering is available.
 - Normal/Outer/Ignore solid and exact DXF/PAT patterned HATCH entities retain
   bounded packed loops and analytic line/circular-arc/elliptic-arc plus exact
-  degree-one-through-three polynomial and positive-weight rational-quadratic
+  degree-one-through-three polynomial and positive-weight rational-quadratic/
+  rational-cubic
   spline segments in one OCS-relative double-precision coordinate system. The
   plan compiler records
   one even-odd filled path per hatch with one affine OCS-to-plan transform;
@@ -131,8 +132,8 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   Normal keeps every loop, Outer keeps nesting levels zero and one, and Ignore
   keeps only level zero in the rendered path while all source loops remain in
   the immutable snapshot. It never samples a curve or emits a command per
-  edge/line. Non-uniform rational cubic and above-cubic spline edges, gradient,
-  annotative, paper-oriented, coincident, and malformed hatches remain explicit
+  edge/line. Above-cubic spline edges, gradient, annotative, paper-oriented,
+  coincident, and malformed hatches remain explicit
   diagnostics rather than approximated fills.
 - Single-line TrueType TEXT resolves through a typed host font service, shapes
   during immutable snapshot construction with the existing ProGPU Unicode/
@@ -254,25 +255,30 @@ analytic arc commands; polygonal and curved native-picture regressions cover
 that shared boundary. No canonical shader, C ABI, compositor, atlas, DPI,
 invalidation, or device-loss behavior changes.
 
-### Exact polynomial and rational-quadratic HATCH spline-edge contract
+### Exact polynomial and positive-weight rational HATCH spline-edge contract
 
 Autodesk's HATCH boundary record carries degree, rational and periodic flags,
 knots, weighted control points, and optional fit/tangent data. Snapshot
 construction validates all of that persisted input and retains the exact subset
 that the shared filled-path contract can represent: degree-one rational spans
-(whose locus is a line), polynomial quadratics/cubics, and positive-weight
-rational quadratics. A rational quadratic Bezier span with endpoint weights
+ (whose locus is a line), polynomial quadratics/cubics, and positive-weight
+rational quadratics/cubics. A rational quadratic Bezier span with endpoint weights
 `w0,w2` is reparameterized monotonically to unit endpoint weights and canonical
 middle weight `w1/sqrt(w0*w2)`; Cartesian control points and the oriented curve
-locus are unchanged. Non-uniform rational cubics and degrees four through ten
-remain typed unsupported until the shared path ABI gains genuine matching
-segments. They are never tessellated or made zoom-dependent.
+locus are unchanged. A rational cubic span with source weights `w0..w3` uses
+the exact positive projective reparameterization
+`v1 = exp(log(w1) - 2/3 log(w0) - 1/3 log(w3))` and
+`v2 = exp(log(w2) - 1/3 log(w0) - 2/3 log(w3))`, yielding canonical weights
+`[1,v1,v2,1]` without changing its Cartesian controls, oriented locus, or
+endpoints. Degrees four through ten remain typed unsupported until the shared
+path ABI gains genuine matching segments. They are never tessellated or made
+zoom-dependent.
 
 Ordinary, compact-periodic, and validated cyclically expanded knot records share
 `ICadCanonicalSpline` and the original ProGPU `CadRationalBezier` homogeneous
 knot-insertion implementation. Each non-empty knot span becomes one exact line,
 `QuadraticBezierSegment`, `RationalQuadraticBezierSegment`, or
-`CubicBezierSegment`. The shared extractor now keeps
+`CubicBezierSegment`/`RationalCubicBezierSegment`. The shared extractor now keeps
 the controls on both sides of an interior span; this fixes the previously latent
 periodic/interior-span discontinuity instead of hiding it in HATCH-specific code.
 The final periodic span owns the same homogeneous seam point as the first span.
@@ -299,16 +305,21 @@ provenance is `CadCanonicalSpline.cs`, `CadRationalBezier.cs`,
 `ProGPU.Vector/PathGeometry.cs`; ACadSharp supplies only its public persisted
 HATCH object model. The native C++ tree has no CAD document compiler, while the
 managed and native renderers consume the same canonical `PathRasterizer.wgsl`.
-The stable 48-byte path record adds kind 4 without changing size: `p0..p2` hold
-the canonical rational quadratic, `p3` is zero, `pad0` holds the positive finite
-float weight bits, and `pad1/pad2` are zero. Every managed/native scene, clip,
+The stable 48-byte path record uses kind 4 for the canonical rational quadratic:
+`p0..p2` hold its controls, `p3` is zero, `pad0` holds the positive finite float
+weight bits, and `pad1/pad2` are zero. Kind 5 retains a canonical rational cubic
+in `p0..p3`, with positive finite `v1/v2` bits in `pad0/pad1` and zero `pad2`.
+Every managed/native scene, clip,
 layer-mask, and execution validator enforces that form; glyph validation remains
 limited to its existing line/quadratic/cubic domain. The managed retained-HATCH
-shader applies the same analytic winding equation. Raster work remains `O(A*S)`
+fragment shader applies the same analytic winding equation because its direct
+procedural-brush pipeline has a different stage/interface from the canonical
+compute atlas shader; it does not define a different segment representation,
+root equation, winding rule, or complexity contract. Raster work remains `O(A*S)`
 for `A` samples and `S` segments with constant storage; CAD extraction remains
 `O(B*P^2)` and `O(B)` storage.
 
-Rational quadratic fills, clips, CPU/GPU hit queries, transforms, hashing,
+Rational quadratic and cubic fills, clips, CPU/GPU hit queries, transforms, hashing,
 native-picture replay, printing, periodic topology, exact CAD selection, and
 device rebuild from retained records are covered. Rational strokes and geometric
 path-boolean reconstruction return explicit unsupported failures because those
@@ -1773,6 +1784,26 @@ spread precludes a latency improvement or regression claim; this is bounded
 feature-cost evidence and does not replace GPU image-quality differentials or
 Instruments profiling for a future optimization claim.
 
+Two paired 2026-08-28 rational-cubic feature-cost runs used one final Release
+binary and the same 100 two-family patterned-HATCH corpus as the polynomial
+cubic lane, adding `--rational-cubic-hatch-spline-edges` only for the feature
+runs. Each run used three warmups, 24 construction iterations, and 10,000
+immutable-candidate queries. Polynomial snapshot p50/p95/p99 was
+1.7210/3.3844/7.1344 and 2.7752/6.9500/10.3589 ms; rational-cubic snapshot
+cost was 7.2749/13.7047/15.2495 and 9.0320/11.8265/11.9227 ms. Both allocated
+693,392 managed bytes per snapshot. Polynomial plan recording was
+0.2524/1.3638/1.3694 and 0.1532/0.5551/1.0765 ms with 175,888 bytes;
+rational-cubic recording was 0.2197/0.5055/1.4236 and
+0.1749/0.6341/2.1191 ms with 176,688 bytes. Polynomial point selection was
+16.7/109.2/246.0 and 16.6/102.0/204.6 microseconds; rational-cubic selection
+was 16.3/95.6/142.0 and 16.5/114.7/261.5 microseconds. Crossing/Window p50 was
+0.1 microseconds for both, and every warm query lane allocated zero managed
+bytes. Exact quartic Bernstein extrema isolation raises immutable snapshot
+construction cost without changing retained command count or query allocation;
+the run-to-run tails preclude a broader latency claim. These measurements do
+not replace managed/native GPU image-quality differentials or Instruments
+profiling for a future optimization claim.
+
 The first 2026-08-28 weighted periodic quadratic-NURBS linetype feature-cost
 run used one final Release binary, 1,000 four-span loops, three warmups, and 24
 iterations. It retained 4,083 exact rational spline commands through 8,083
@@ -1917,7 +1948,7 @@ dotnet run --project src/ProGPU.CAD.Sample.Browser -c Debug
 
 Sources consulted on 2026-08-27 and 2026-08-28:
 
-- For exact polynomial and rational-quadratic HATCH spline edges, Autodesk's
+- For exact polynomial and positive-weight rational HATCH spline edges, Autodesk's
   [boundary-path spline record](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-DC5215D6-E73F-4DFF-8BE9-01CA9610FAEE.htm),
   [HATCH entity contract](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-DXF/files/GUID-C6C71CED-CE0F-4184-82A5-07AD6241F15B.htm),
   and [ObjectARX NURBS-loop API](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-__OVERLOADED_appendLoop_AcDbHatch.html)
@@ -1925,6 +1956,10 @@ Sources consulted on 2026-08-27 and 2026-08-28:
   tangent fields and confirm that a HATCH loop may own a NURBS edge. Adopted
   strict persisted-record validation and exact homogeneous span extraction;
   rejected fixed-detail polygon conversion and silently discarding weights.
+  Autodesk's [NURBS-data contract](https://help.autodesk.com/cloudhelp/2019/ENU/OARX-RefGuide/files/OREF-AcDbSpline__setNurbsData_int_Adesk__Boolean_Adesk__Boolean_Adesk__Boolean_AcGePoint3dArray__AcGeDoubleArray__AcGeDoubleArray__double_double.html)
+  additionally requires positive rational weights and defines periodic knot
+  counts. ProGPU adopts positive homogeneous cubic spans, canonical endpoint
+  normalization, and bounded weighted-coordinate validation.
   [Skia's line/quad/conic/cubic path verbs](https://skia.googlesource.com/skia/%2B/refs/heads/main/include/core/SkPath.h),
   [Skia's conic contract](https://skia.googlesource.com/skia/%2B/2a8c48be4ff65d873d9d5ba65ecef989d82dd0be/site/user/api/SkPath_Reference.md),
   [Direct2D path geometries](https://learn.microsoft.com/en-us/windows/win32/direct2d/path-geometries-overview),
@@ -1934,10 +1969,16 @@ Sources consulted on 2026-08-27 and 2026-08-28:
   [WebRender's path-builder surface](https://searchfox.org/firefox-main/source/gfx/2d/2D.h),
   and the homogeneous normalization result in
   [Rational Bezier Guarding](https://onlinelibrary.wiley.com/doi/full/10.1111/cgf.14605)
-  support retaining an exact conic verb where available and keeping unavailable
-  rational cubic/general-degree segments explicit. Skia's conic-to-quad
-  approximation was rejected for CAD boundary fidelity; Direct2D/Win2D,
-  Vello, and WebRender expose no equivalent weighted verb. ProGPU adapts
+  show that those production path surfaces expose no weighted cubic verb.
+  ProGPU therefore adds an original shared rational-cubic retained segment
+  instead of translating to a backend-specific approximation. Skia's
+  conic-to-quad approximation was rejected for CAD boundary fidelity;
+  Direct2D/Win2D, Vello, and WebRender expose no equivalent weighted verb.
+  [Bernstein-form Bezier root isolation](https://doi.org/10.1016/j.cagd.2016.02.017),
+  the [rational Bezier derivative contract](https://www.sciencedirect.com/science/article/pii/016783969290014G),
+  and IBM's [Bernstein subdivision conditioning analysis](https://research.ibm.com/publications/on-the-numerical-condition-of-bernstein-bezier-subdivision-processes)
+  informed the bounded derivative-numerator extrema and ray-root evaluation;
+  no sampled bounds or iterative tessellation fallback was adopted. ProGPU adapts
   those public behavioral/architecture concepts to its own immutable packed
   streams and shares only original in-repository spline/path algorithms; no
   foreign implementation text or structure was used. The required text audit
