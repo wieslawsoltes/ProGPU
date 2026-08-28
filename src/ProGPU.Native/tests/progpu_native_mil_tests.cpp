@@ -6197,6 +6197,146 @@ bool solid_pen_line_compiles_to_geometry_scene() {
     }
     PROGPU_REQUIRE(found_dashed_degenerate_rectangle);
 
+    std::vector<std::byte> dashed_point_rectangle_batch;
+    std::vector<std::byte> dashed_point_rectangle;
+    append_command(
+        dashed_point_rectangle,
+        command::draw_rectangle,
+        3.0,
+        4.0,
+        0.0,
+        0.0,
+        0U,
+        pen);
+    append_render_data(
+        dashed_point_rectangle_batch,
+        content,
+        dashed_point_rectangle);
+    PROGPU_REQUIRE(
+        state.apply(dashed_point_rectangle_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 53U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 1U);
+    const auto dashed_point_rectangle_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t dashed_point_rectangle_cap_count = 0U;
+    for (std::uint32_t index = 0U;
+         index < dashed_point_rectangle_header.resource_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            dashed_point_rectangle_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        const std::size_t primitive_count =
+            record.payload_size / sizeof(progpu_native_geometry_primitive);
+        for (std::size_t primitive_index = 0U;
+             primitive_index < primitive_count;
+             ++primitive_index) {
+            const auto primitive =
+                read_value<progpu_native_geometry_primitive>(
+                    stream,
+                    record.payload_offset +
+                        primitive_index *
+                            sizeof(progpu_native_geometry_primitive));
+            if (primitive.kind != PROGPU_NATIVE_GEOMETRY_PATH_CAP) {
+                continue;
+            }
+            PROGPU_REQUIRE(primitive.p0.x == 3.0F);
+            PROGPU_REQUIRE(primitive.p0.y == 4.0F);
+            PROGPU_REQUIRE(
+                (primitive.flags &
+                    PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) ==
+                (PROGPU_NATIVE_STROKE_CAP_ROUND <<
+                    PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT));
+            ++dashed_point_rectangle_cap_count;
+        }
+    }
+    PROGPU_REQUIRE(dashed_point_rectangle_cap_count == 2U);
+    bool found_dashed_point_rectangle_bounds = false;
+    for (std::uint32_t index = 0U;
+         index < dashed_point_rectangle_header.command_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            dashed_point_rectangle_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY) {
+            continue;
+        }
+        PROGPU_REQUIRE(record.bounds_x == 14.0F);
+        PROGPU_REQUIRE(record.bounds_y == 26.0F);
+        PROGPU_REQUIRE(record.bounds_width == 4.0F);
+        PROGPU_REQUIRE(record.bounds_height == 4.0F);
+        found_dashed_point_rectangle_bounds = true;
+    }
+    PROGPU_REQUIRE(found_dashed_point_rectangle_bounds);
+
+    constexpr std::uint32_t point_gap_dash = 14U;
+    constexpr std::uint32_t point_gap_pen = 15U;
+    std::vector<std::byte> point_gap_pen_batch;
+    append_create(point_gap_pen_batch, point_gap_dash, 84U);
+    append_create(point_gap_pen_batch, point_gap_pen, 85U);
+    const std::array point_gap_intervals{1.0, 1.0};
+    append_dash_style(
+        point_gap_pen_batch,
+        point_gap_dash,
+        1.01,
+        0U,
+        point_gap_intervals);
+    append_command(
+        point_gap_pen_batch,
+        command::pen,
+        point_gap_pen,
+        2.0,
+        10.0,
+        brush,
+        0U,
+        0U,
+        0U,
+        3U,
+        1U,
+        point_gap_dash);
+    PROGPU_REQUIRE(state.apply(point_gap_pen_batch) == status::success);
+    std::vector<std::byte> point_gap_rectangle_batch;
+    std::vector<std::byte> point_gap_rectangle;
+    append_command(
+        point_gap_rectangle,
+        command::draw_rectangle,
+        3.0,
+        4.0,
+        0.0,
+        0.0,
+        0U,
+        point_gap_pen);
+    append_render_data(
+        point_gap_rectangle_batch,
+        content,
+        point_gap_rectangle);
+    PROGPU_REQUIRE(
+        state.apply(point_gap_rectangle_batch) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 54U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 1U);
+    const auto point_gap_rectangle_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    for (std::uint32_t index = 0U;
+         index < point_gap_rectangle_header.command_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            point_gap_rectangle_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        PROGPU_REQUIRE(
+            record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_GEOMETRY);
+        PROGPU_REQUIRE(
+            record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_STROKE_BATCH);
+    }
+
     std::vector<std::byte> dashed_degenerate_ellipse_batch;
     std::vector<std::byte> dashed_degenerate_ellipse;
     append_command(

@@ -9539,6 +9539,7 @@ struct channel::implementation {
             &builder,
             &resolve_brush_index,
             &append_polyline_stroke,
+            &append_degenerate_cap_stroke,
             &append_rounded_rectangle_path,
             &current](
             double x,
@@ -9559,6 +9560,35 @@ struct channel::implementation {
                     return status::invalid_handle;
                 }
                 has_nonempty_dash = !dash->second.intervals.empty();
+            }
+            if (has_nonempty_dash && radius == 0.0 &&
+                width == 0.0 && height == 0.0) {
+                const double half_thickness = pen.thickness * 0.5;
+                const brush_use_state brush_use{
+                    x - half_thickness,
+                    y - half_thickness,
+                    pen.thickness,
+                    pen.thickness,
+                    effective_transform};
+                std::uint32_t brush_index =
+                    PROGPU_NATIVE_SCENE_NO_INDEX;
+                const status brush_status = resolve_brush_index(
+                    pen.brush_handle,
+                    brush_index,
+                    &brush_use);
+                if (brush_status != status::success) {
+                    return brush_status;
+                }
+                bool emitted = false;
+                return append_degenerate_cap_stroke(
+                    pen,
+                    {static_cast<float>(x), static_cast<float>(y)},
+                    brush_index,
+                    local_transform,
+                    effective_transform,
+                    PROGPU_NATIVE_STROKE_CAP_ROUND,
+                    PROGPU_NATIVE_STROKE_CAP_ROUND,
+                    emitted);
             }
             if (has_nonempty_dash &&
                 (radius > 0.0 || (width == 0.0 && height == 0.0))) {
