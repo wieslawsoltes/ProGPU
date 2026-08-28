@@ -8469,8 +8469,85 @@ struct channel::implementation {
         const auto resolve_drawing_image_bounds = [
             this,
             &drawing_image_bounds_segments](
+            auto&& resolve_bounds,
             std::uint32_t drawing_handle,
+            std::uint32_t depth,
             progpu_native_image_rect& bounds) noexcept {
+            if (depth >= maximum_visual_depth) {
+                return status::invalid_graph;
+            }
+            const auto drawing_group = drawing_groups.find(drawing_handle);
+            if (drawing_group != drawing_groups.end()) {
+                const auto& group = drawing_group->second;
+                if (group.children.empty() || group.opacity != 1.0 ||
+                    group.clip_geometry_handle != 0U ||
+                    group.opacity_animation_handle != 0U ||
+                    group.opacity_mask_handle != 0U ||
+                    group.guideline_set_handle != 0U) {
+                    return status::unsupported_command;
+                }
+                double left = 0.0;
+                double top = 0.0;
+                double right = 0.0;
+                double bottom = 0.0;
+                bool has_bounds = false;
+                for (const std::uint32_t child : group.children) {
+                    progpu_native_image_rect child_bounds{};
+                    const status child_status = resolve_bounds(
+                        resolve_bounds,
+                        child,
+                        depth + 1U,
+                        child_bounds);
+                    if (child_status != status::success) {
+                        return child_status;
+                    }
+                    const double child_left = child_bounds.x;
+                    const double child_top = child_bounds.y;
+                    const double child_right = child_left +
+                        child_bounds.width;
+                    const double child_bottom = child_top +
+                        child_bounds.height;
+                    if (!has_bounds) {
+                        left = child_left;
+                        top = child_top;
+                        right = child_right;
+                        bottom = child_bottom;
+                        has_bounds = true;
+                    } else {
+                        left = std::min(left, child_left);
+                        top = std::min(top, child_top);
+                        right = std::max(right, child_right);
+                        bottom = std::max(bottom, child_bottom);
+                    }
+                }
+                if (!has_bounds || right <= left || bottom <= top) {
+                    return status::unsupported_command;
+                }
+                affine_2d_double transform{};
+                if (group.transform_handle != 0U) {
+                    const status transform_status = resolve_transform(
+                        group.transform_handle,
+                        transform);
+                    if (transform_status != status::success) {
+                        return transform_status;
+                    }
+                    if (!affine_preserves_axis_alignment(transform) ||
+                        affine_has_zero_area(transform)) {
+                        return status::unsupported_command;
+                    }
+                }
+                if (!try_transform_bounds(
+                        left,
+                        top,
+                        right - left,
+                        bottom - top,
+                        transform,
+                        bounds) ||
+                    bounds.width <= 0.0F || bounds.height <= 0.0F) {
+                    return status::unsupported_command;
+                }
+                return status::success;
+            }
             const auto drawing = geometry_drawings.find(drawing_handle);
             if (drawing == geometry_drawings.end() ||
                 drawing->second.brush_handle == 0U ||
@@ -8664,7 +8741,10 @@ struct channel::implementation {
             if (!source.has_bounds) {
                 progpu_native_image_rect inferred_bounds{};
                 const status bounds_status = resolve_drawing_image_bounds(
-                    source.drawing_handle, inferred_bounds);
+                    resolve_drawing_image_bounds,
+                    source.drawing_handle,
+                    0U,
+                    inferred_bounds);
                 if (bounds_status != status::success) {
                     return bounds_status;
                 }
