@@ -386,6 +386,11 @@ public static class CadSelectionHitTester
                 HitSolid(snapshot.Faces.Span[header.PrimitiveIndex], point, tolerance),
             CadEntityKind.Face3D =>
                 HitFaceEdges(snapshot.Faces.Span[header.PrimitiveIndex], point, tolerance),
+            CadEntityKind.Hatch => CadHatchSelection.HitTestPoint(
+                snapshot,
+                snapshot.Hatches.Span[header.PrimitiveIndex],
+                point,
+                tolerance),
             _ => new CadPointHitResult(
                 CadPointHitStatus.UnsupportedKind,
                 double.NaN),
@@ -474,6 +479,12 @@ public static class CadSelectionHitTester
                 mode),
             CadEntityKind.Face3D => HitFaceBounds(
                 snapshot.Faces.Span[header.PrimitiveIndex],
+                bounds,
+                mode),
+            CadEntityKind.Hatch => CadHatchSelection.HitTestBounds(
+                snapshot,
+                snapshot.Hatches.Span[header.PrimitiveIndex],
+                header.Bounds,
                 bounds,
                 mode),
             _ => new CadBoundsHitResult(CadBoundsHitStatus.UnsupportedKind),
@@ -1061,7 +1072,7 @@ public static class CadSelectionHitTester
         polyline.WorldOrigin + polyline.CoordinateSystem.Transform(
             new CadPoint3D(x, y, 0.0));
 
-    private static bool TryParametricArcIntersectsBounds(
+    internal static bool TryParametricArcIntersectsBounds(
         CadPoint3D center,
         CadPoint3D cosineAxis,
         CadPoint3D sineAxis,
@@ -1254,7 +1265,7 @@ public static class CadSelectionHitTester
         }
     }
 
-    private static bool SegmentIntersectsBounds(
+    internal static bool SegmentIntersectsBounds(
         CadPoint3D start,
         CadPoint3D end,
         CadBounds3D bounds)

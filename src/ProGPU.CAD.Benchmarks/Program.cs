@@ -15,6 +15,7 @@ int mtextEntityCount = ReadNonNegativeInt("--mtext-entities", 0);
 int shxTextEntityCount = ReadNonNegativeInt("--shx-text-entities", 0);
 int shxMTextEntityCount = ReadNonNegativeInt("--shx-mtext-entities", 0);
 int attributeInsertCount = ReadNonNegativeInt("--attribute-inserts", 0);
+int solidHatchCount = ReadNonNegativeInt("--solid-hatches", 0);
 bool decorateText = HasFlag("--text-decorations");
 bool decorateShxText = HasFlag("--shx-decorations");
 bool lowerLineTypes = HasFlag("--linetypes");
@@ -24,6 +25,7 @@ bool lowerNurbsSplineLineTypes = HasFlag("--nurbs-spline-linetypes");
 bool lowerPeriodicSplineLineTypes = HasFlag("--periodic-spline-linetypes");
 bool measureSplineSelection = HasFlag("--spline-selection");
 bool measureTextSelection = HasFlag("--text-selection");
+bool measureHatchSelection = HasFlag("--hatch-selection");
 int shxInterpretationCount = ReadNonNegativeInt("--shx-interpretations", 0);
 int shxLayoutCount = ReadNonNegativeInt("--shx-layouts", 0);
 int warmupCount = ReadNonNegativeInt("--warmup", 3);
@@ -33,10 +35,10 @@ string? outputPath = ReadString("--output-json");
 
 if (entityCount == 0 && blockArrayColumnCount == 0 && textEntityCount == 0 &&
     mtextEntityCount == 0 && shxTextEntityCount == 0 && shxMTextEntityCount == 0 &&
-    attributeInsertCount == 0)
+    attributeInsertCount == 0 && solidHatchCount == 0)
 {
     throw new ArgumentException(
-        "At least one ordinary entity, block-array column, text entity, or attributed INSERT is required.");
+        "At least one ordinary entity, block-array column, text entity, attributed INSERT, or solid HATCH is required.");
 }
 
 if (blockArrayColumnCount > ushort.MaxValue)
@@ -49,13 +51,13 @@ if (blockArrayColumnCount > ushort.MaxValue)
 if (measureSplineSelection &&
     (entityCount == 0 || blockArrayColumnCount != 0 ||
      textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
-     shxMTextEntityCount != 0 || attributeInsertCount != 0))
+     shxMTextEntityCount != 0 || attributeInsertCount != 0 || solidHatchCount != 0))
 {
     throw new ArgumentException(
         "--spline-selection requires a positive --entities count and no block-array or text fixtures.");
 }
 if (measureTextSelection &&
-    (entityCount != 0 || blockArrayColumnCount != 0 ||
+    (entityCount != 0 || blockArrayColumnCount != 0 || solidHatchCount != 0 ||
      new[]
      {
          textEntityCount,
@@ -69,6 +71,14 @@ if (measureTextSelection &&
     throw new ArgumentException(
         "--text-selection requires exactly one positive text or attributed-INSERT fixture count and no ordinary or block-array fixtures.");
 }
+if (measureHatchSelection &&
+    (solidHatchCount == 0 || entityCount != 0 || blockArrayColumnCount != 0 ||
+     textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
+     shxMTextEntityCount != 0 || attributeInsertCount != 0))
+{
+    throw new ArgumentException(
+        "--hatch-selection requires a positive --solid-hatches count and no other fixtures.");
+}
 
 CadDocumentSession session = CreateDocument(
     entityCount,
@@ -78,6 +88,7 @@ CadDocumentSession session = CreateDocument(
     shxTextEntityCount,
     shxMTextEntityCount,
     attributeInsertCount,
+    solidHatchCount,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -180,6 +191,12 @@ Measurement? textPointSelectionMeasurement = measureTextSelection
 Measurement? textBoundsSelectionMeasurement = measureTextSelection
     ? MeasureTextBoundsSelections(snapshot, queryCount)
     : null;
+Measurement? hatchPointSelectionMeasurement = measureHatchSelection
+    ? MeasureHatchPointSelections(snapshot, queryCount)
+    : null;
+Measurement? hatchBoundsSelectionMeasurement = measureHatchSelection
+    ? MeasureHatchBoundsSelections(snapshot, queryCount)
+    : null;
 Measurement? shxMeasurement = shxInterpretationCount == 0
     ? null
     : Measure(
@@ -204,6 +221,7 @@ var report = new CadBenchmarkReport(
     shxTextEntityCount,
     shxMTextEntityCount,
     attributeInsertCount,
+    solidHatchCount,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -214,6 +232,7 @@ var report = new CadBenchmarkReport(
     lowerPeriodicSplineLineTypes,
     measureSplineSelection,
     measureTextSelection,
+    measureHatchSelection,
     shxInterpretationCount,
     shxLayoutCount,
     warmupCount,
@@ -233,6 +252,8 @@ var report = new CadBenchmarkReport(
     splineBoundsSelectionMeasurement,
     textPointSelectionMeasurement,
     textBoundsSelectionMeasurement,
+    hatchPointSelectionMeasurement,
+    hatchBoundsSelectionMeasurement,
     shxMeasurement,
     shxLayoutMeasurement,
     Process.GetCurrentProcess().WorkingSet64);
@@ -254,7 +275,8 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         mtextEntityCount +
         shxTextEntityCount +
         shxMTextEntityCount +
-        attributeInsertCount);
+        attributeInsertCount +
+        solidHatchCount);
     int expectedExpanded = checked(
         entityCount +
         (blockArrayColumnCount == 0 ? 0 : blockArrayColumnCount + 1) +
@@ -262,7 +284,8 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         mtextEntityCount +
         shxTextEntityCount +
         shxMTextEntityCount +
-        (attributeInsertCount * 2));
+        (attributeInsertCount * 2) +
+        solidHatchCount);
     if (source.Statistics.SourceEntityCount == expectedSource &&
         source.Statistics.VisibleEntityCount == expectedSource &&
         source.Statistics.ExpandedEntityCount == expectedExpanded &&
@@ -291,6 +314,7 @@ CadDocumentSession CreateDocument(
     int shxTextCount,
     int shxMTextCount,
     int attributeCount,
+    int hatchCount,
     bool decorateTextRuns,
     bool decorateShxTextRuns,
     bool useLineTypes,
@@ -561,8 +585,44 @@ CadDocumentSession CreateDocument(
                 document.Entities.Add(insert);
             }
         }
+
+        for (int i = 0; i < hatchCount; i++)
+        {
+            double x = (i % 100) * 24.0;
+            double y = (i / 100) * 24.0;
+            var hatch = new Hatch
+            {
+                IsSolid = true,
+                Pattern = HatchPattern.Solid,
+                PatternType = HatchPatternType.SolidFill,
+                Style = HatchStyleType.Normal,
+            };
+            hatch.Paths.Add(CreateHatchLoop(
+                (x, y),
+                (x + 20, y),
+                (x + 20, y + 20),
+                (x, y + 20)));
+            hatch.Paths.Add(CreateHatchLoop(
+                (x + 7, y + 7),
+                (x + 13, y + 7),
+                (x + 13, y + 13),
+                (x + 7, y + 13)));
+            document.Entities.Add(hatch);
+        }
     });
     return result;
+}
+
+Hatch.BoundaryPath CreateHatchLoop(params (double X, double Y)[] vertices)
+{
+    var polyline = new Hatch.BoundaryPath.Polyline { IsClosed = true };
+    foreach ((double x, double y) in vertices)
+    {
+        polyline.Vertices.Add(new XYZ(x, y, 0));
+    }
+    var path = new Hatch.BoundaryPath();
+    path.Edges.Add(polyline);
+    return path;
 }
 
 CadShxFont CreateBenchmarkShxFont()
@@ -672,7 +732,10 @@ Measurement MeasureQueries(CadDocumentSnapshot source, int count)
 
 Measurement MeasureSplinePointSelections(CadDocumentSnapshot source, int count)
 {
-    CadSelectionCandidate[] candidates = CreateSelectionCandidates(source);
+    CadSelectionCandidate[] candidates = CreateSelectionCandidates(
+        source,
+        CadEntityKind.Spline,
+        "spline");
     var elapsed = new double[count];
     CadSelectionCandidate warmCandidate = candidates[0];
     _ = CadSelectionHitTester.HitTestPoint(
@@ -708,7 +771,10 @@ Measurement MeasureSplinePointSelections(CadDocumentSnapshot source, int count)
 
 Measurement MeasureSplineBoundsSelections(CadDocumentSnapshot source, int count)
 {
-    CadSelectionCandidate[] candidates = CreateSelectionCandidates(source);
+    CadSelectionCandidate[] candidates = CreateSelectionCandidates(
+        source,
+        CadEntityKind.Spline,
+        "spline");
     var elapsed = new double[count];
     CadSelectionCandidate warmCandidate = candidates[0];
     CadBounds3D warmBounds = CreateSelectionBounds(warmCandidate.Bounds.Center);
@@ -808,17 +874,93 @@ Measurement MeasureTextBoundsSelections(CadDocumentSnapshot source, int count)
     return Summarize("text-bounds-selection-ns", elapsed, allocated / count);
 }
 
-CadSelectionCandidate[] CreateSelectionCandidates(CadDocumentSnapshot source)
+Measurement MeasureHatchPointSelections(CadDocumentSnapshot source, int count)
+{
+    CadSelectionCandidate[] candidates = CreateSelectionCandidates(
+        source,
+        CadEntityKind.Hatch,
+        "HATCH");
+    var elapsed = new double[count];
+    CadSelectionCandidate warmCandidate = candidates[0];
+    CadPoint3D warmPoint = warmCandidate.Bounds.Min + new CadPoint3D(2, 2, 0);
+    _ = CadSelectionHitTester.HitTestPoint(source, warmCandidate, warmPoint, tolerance: 0.25);
+    _ = GC.GetAllocatedBytesForCurrentThread();
+    long allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+    int checksum = 0;
+    for (int i = 0; i < count; i++)
+    {
+        CadSelectionCandidate candidate = candidates[i % candidates.Length];
+        CadPoint3D point = candidate.Bounds.Min + new CadPoint3D(2, 2, 0);
+        long started = Stopwatch.GetTimestamp();
+        CadPointHitResult result = CadSelectionHitTester.HitTestPoint(
+            source,
+            candidate,
+            point,
+            tolerance: 0.25);
+        elapsed[i] = Stopwatch.GetElapsedTime(started).TotalNanoseconds;
+        checksum += (int)result.Status;
+    }
+
+    long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedStart;
+    GC.KeepAlive(checksum);
+    return Summarize("hatch-point-selection-ns", elapsed, allocated / count);
+}
+
+Measurement MeasureHatchBoundsSelections(CadDocumentSnapshot source, int count)
+{
+    CadSelectionCandidate[] candidates = CreateSelectionCandidates(
+        source,
+        CadEntityKind.Hatch,
+        "HATCH");
+    var elapsed = new double[count];
+    CadSelectionCandidate warmCandidate = candidates[0];
+    CadPoint3D warmCenter = warmCandidate.Bounds.Min + new CadPoint3D(2, 2, 0);
+    CadBounds3D warmBounds = CreateSelectionBounds(warmCenter);
+    _ = CadSelectionHitTester.HitTestBounds(
+        source,
+        warmCandidate,
+        warmBounds,
+        CadBoundsSelectionMode.Crossing);
+    _ = GC.GetAllocatedBytesForCurrentThread();
+    long allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+    int checksum = 0;
+    for (int i = 0; i < count; i++)
+    {
+        CadSelectionCandidate candidate = candidates[i % candidates.Length];
+        CadPoint3D center = candidate.Bounds.Min + new CadPoint3D(2, 2, 0);
+        CadBounds3D bounds = CreateSelectionBounds(center);
+        CadBoundsSelectionMode mode = (i & 1) == 0
+            ? CadBoundsSelectionMode.Crossing
+            : CadBoundsSelectionMode.Window;
+        long started = Stopwatch.GetTimestamp();
+        CadBoundsHitResult result = CadSelectionHitTester.HitTestBounds(
+            source,
+            candidate,
+            bounds,
+            mode);
+        elapsed[i] = Stopwatch.GetElapsedTime(started).TotalNanoseconds;
+        checksum += (int)result.Status;
+    }
+
+    long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedStart;
+    GC.KeepAlive(checksum);
+    return Summarize("hatch-bounds-selection-ns", elapsed, allocated / count);
+}
+
+CadSelectionCandidate[] CreateSelectionCandidates(
+    CadDocumentSnapshot source,
+    CadEntityKind expectedKind,
+    string fixtureName)
 {
     ReadOnlySpan<CadEntityHeader> entities = source.Entities.Span;
     var candidates = new CadSelectionCandidate[entities.Length];
     for (int i = 0; i < entities.Length; i++)
     {
         CadEntityHeader entity = entities[i];
-        if (entity.Kind != CadEntityKind.Spline)
+        if (entity.Kind != expectedKind)
         {
             throw new InvalidOperationException(
-                "The spline-selection benchmark requires an all-spline fixture.");
+                $"The {fixtureName}-selection benchmark requires a homogeneous fixture.");
         }
         candidates[i] = new CadSelectionCandidate(
             source.ContentGeneration,
@@ -927,6 +1069,7 @@ internal sealed record CadBenchmarkReport(
     int ShxTextEntityCount,
     int ShxMTextEntityCount,
     int AttributeInsertCount,
+    int SolidHatchCount,
     bool DecoratedText,
     bool DecoratedShxText,
     bool LoweredLineTypes,
@@ -936,6 +1079,7 @@ internal sealed record CadBenchmarkReport(
     bool LoweredPeriodicSplineLineTypes,
     bool MeasuredSplineSelection,
     bool MeasuredTextSelection,
+    bool MeasuredHatchSelection,
     int ShxInterpretationCount,
     int ShxLayoutCount,
     int WarmupCount,
@@ -955,6 +1099,8 @@ internal sealed record CadBenchmarkReport(
     Measurement? SplineBoundsSelectionNanoseconds,
     Measurement? TextPointSelectionNanoseconds,
     Measurement? TextBoundsSelectionNanoseconds,
+    Measurement? HatchPointSelectionNanoseconds,
+    Measurement? HatchBoundsSelectionNanoseconds,
     Measurement? ShxInterpretBatchMilliseconds,
     Measurement? ShxLayoutBatchMilliseconds,
     long WorkingSetBytes);

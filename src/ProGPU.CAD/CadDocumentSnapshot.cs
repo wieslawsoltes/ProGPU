@@ -19,6 +19,7 @@ public enum CadEntityKind : byte
     ShxText = 12,
     MText = 13,
     ShxMText = 14,
+    Hatch = 15,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -196,6 +197,44 @@ public readonly record struct CadPolyline3DPrimitive(
     int PointOffset,
     int PointCount,
     bool IsClosed);
+
+/// <summary>One immutable solid HATCH composed of closed boundary loops.</summary>
+public readonly record struct CadHatchPrimitive(
+    CadPoint3D WorldOrigin,
+    CadCoordinateSystem CoordinateSystem,
+    int LoopOffset,
+    int LoopCount,
+    bool HasCurvedSegments);
+
+/// <summary>A closed contour addressing the shared hatch-segment stream.</summary>
+public readonly record struct CadHatchLoop(
+    int SegmentOffset,
+    int SegmentCount);
+
+public enum CadHatchSegmentKind : byte
+{
+    Line = 0,
+    EllipticArc = 1,
+}
+
+/// <summary>
+/// One double-precision HATCH boundary segment in the owning primitive's local
+/// OCS plane. Elliptic arcs use center + cosine-axis*cos(t) + sine-axis*sin(t).
+/// </summary>
+public readonly record struct CadHatchSegment(
+    CadHatchSegmentKind Kind,
+    double StartX,
+    double StartY,
+    double EndX,
+    double EndY,
+    double CenterX,
+    double CenterY,
+    double CosineAxisX,
+    double CosineAxisY,
+    double SineAxisX,
+    double SineAxisY,
+    double StartParameter,
+    double SweepParameter);
 
 public readonly record struct CadTextPrimitive(
     CadPoint3D Origin,
@@ -380,6 +419,9 @@ public sealed class CadDocumentSnapshot
     private readonly CadSplinePrimitive[] _splines;
     private readonly CadPolylinePrimitive[] _polylines;
     private readonly CadPolyline3DPrimitive[] _polylines3D;
+    private readonly CadHatchPrimitive[] _hatches;
+    private readonly CadHatchLoop[] _hatchLoops;
+    private readonly CadHatchSegment[] _hatchSegments;
     private readonly CadTextPrimitive[] _texts;
     private readonly CadTextGlyphRun[] _textGlyphRuns;
     private readonly CadTextDecoration[] _textDecorations;
@@ -425,6 +467,9 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadSplinePrimitive> Splines => _splines;
     public ReadOnlyMemory<CadPolylinePrimitive> Polylines => _polylines;
     public ReadOnlyMemory<CadPolyline3DPrimitive> Polylines3D => _polylines3D;
+    public ReadOnlyMemory<CadHatchPrimitive> Hatches => _hatches;
+    public ReadOnlyMemory<CadHatchLoop> HatchLoops => _hatchLoops;
+    public ReadOnlyMemory<CadHatchSegment> HatchSegments => _hatchSegments;
     public ReadOnlyMemory<CadTextPrimitive> Texts => _texts;
     public ReadOnlyMemory<CadTextGlyphRun> TextGlyphRuns => _textGlyphRuns;
     public ReadOnlyMemory<CadTextDecoration> TextDecorations => _textDecorations;
@@ -471,6 +516,9 @@ public sealed class CadDocumentSnapshot
         CadSplinePrimitive[] splines,
         CadPolylinePrimitive[] polylines,
         CadPolyline3DPrimitive[] polylines3D,
+        CadHatchPrimitive[] hatches,
+        CadHatchLoop[] hatchLoops,
+        CadHatchSegment[] hatchSegments,
         CadTextPrimitive[] texts,
         CadTextGlyphRun[] textGlyphRuns,
         CadTextDecoration[] textDecorations,
@@ -514,6 +562,9 @@ public sealed class CadDocumentSnapshot
         _splines = splines;
         _polylines = polylines;
         _polylines3D = polylines3D;
+        _hatches = hatches;
+        _hatchLoops = hatchLoops;
+        _hatchSegments = hatchSegments;
         _texts = texts;
         _textGlyphRuns = textGlyphRuns;
         _textDecorations = textDecorations;

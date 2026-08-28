@@ -119,6 +119,13 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   wireframe records only visible edges while preserving the same face record
   for the later shaded/depth compiler. Nonzero ellipse/SOLID thickness is
   reported until complete 3D side-surface lowering is available.
+- Normal-style solid HATCH entities retain bounded packed loops and analytic
+  line/circular-arc/elliptic-arc segments in one OCS-relative double-precision
+  coordinate system. The plan compiler records one even-odd filled path per
+  hatch with one affine OCS-to-plan transform; it never samples a curve or emits
+  a command per edge. Patterned, gradient, Outer/Ignore-style, spline-edge,
+  annotative, paper-oriented, disconnected, and malformed hatches remain
+  explicit diagnostics rather than approximated fills.
 - Single-line TrueType TEXT resolves through a typed host font service, shapes
   during immutable snapshot construction with the existing ProGPU Unicode/
   OpenType pipeline, and stores packed glyph indices, positions, font runs, and
@@ -172,6 +179,52 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   and non-default/decorated vertical TEXT placement remain explicit gates. Ordered,
   bounded desktop discovery is host initialization work rather than a render-
   path filesystem dependency.
+
+### Retained Normal solid-HATCH contract
+
+Autodesk defines HATCH boundary coordinates in OCS and Normal island detection
+as odd parity. `CadSnapshotCompiler` therefore accepts only finite, closed,
+non-gradient solid hatches with `HatchStyleType.Normal`. It normalizes each
+polyline bulge or ordered line, circular-arc, and elliptic-arc edge into a
+`CadHatchSegment`; loops refer to contiguous segment ranges and the entity
+refers to a contiguous loop range. One world origin plus an orthonormal OCS is
+stored per hatch, so large WCS translations remain outside the local float
+geometry used for retained drawing. Signed polyline bulges and clockwise edge
+arcs remain analytic. Full turns are represented in the snapshot as one
+parametric segment and split into two half arcs only when recorded, matching the
+existing ProGPU path contract.
+
+Compilation is transactional and `O(L + S)` time/storage for `L` loops and `S`
+segments. Defaults bound one snapshot to 1,000,000 hatch loops and 5,000,000
+hatch segments. Failure cannot publish a partial entity or orphan its local
+loop/segment data. Exact double-precision arc extrema supply world bounds.
+Recording is `O(L + S)`, emits one `DrawPath` command and one transform per
+hatch, and delegates winding coverage and antialiasing to the existing canonical
+ProGPU analytic path pipeline. There is no hatch-specific shader, upload, cache,
+or managed/native crossing.
+
+Horizontal-WCS point selection uses the same Normal odd parity. Line and
+ellipse-ray crossings use direction-aware half-open endpoint ownership so a
+shared vertex is counted once, including clockwise full turns. Zero-tolerance
+queries and line-edge proximity are exact and allocation-free. Curved-edge
+proximity outside the fill with positive tolerance, and point/Crossing queries
+for a non-horizontal hatch plane, return typed unsupported results instead of a
+tessellation guess. Window selection is exact from the entity bounds; horizontal
+Crossing selection combines exact analytic boundary/box intersection with
+rectangle-corner fill containment. Query cost is `O(S)` time and `O(1)` storage.
+
+This is an original ProGPU.CAD implementation. The exact approved in-repository
+provenance inspected was `src/ProGPU.Dxf/DxfHatchRenderer.cs`, the generic path
+records in `src/ProGPU.Vector`, and the managed/native scene compilers. The old
+renderer's fixed 16-step arc flattening, per-pattern-line CPU construction, and
+mutable entity cache were specifically rejected; no implementation text,
+helper structure, or control flow was ported. ACadSharp's pinned public HATCH
+types were used only as the persisted object-model contract. The native C++ tree
+has no CAD document frontend, so a paired native snapshot compiler is not
+applicable. Both renderers consume the same existing retained filled path and
+analytic arc commands; polygonal and curved native-picture regressions cover
+that shared boundary. No canonical shader, C ABI, compositor, atlas, DPI,
+invalidation, or device-loss behavior changes.
 
 ### Retained simple-linetype contract
 
@@ -1419,6 +1472,7 @@ dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --text-decorations --warmup 3 --iterations 50 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --shx-text-entities 1000 --warmup 3 --iterations 24 --queries 1000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --shx-text-entities 1000 --shx-decorations --warmup 3 --iterations 24 --queries 1000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --solid-hatches 100 --hatch-selection --warmup 3 --iterations 24 --queries 10000
 ```
 
 The initial 2026-08-27 Apple Silicon/.NET 10 baseline for 10,000 mixed analytic
@@ -1477,6 +1531,18 @@ managed bytes. This short run validates the dedicated weighted multi-span lane
 and exposes feature cost only. It is not a comparison or performance claim and
 does not replace matched viewer/GPU, image-quality, managed/native, or
 Instruments evidence.
+
+The first 2026-08-28 Normal solid-HATCH feature-cost run used one final Release
+binary, 100 hatches with one square outer loop and one square island, three
+warmups, 24 construction iterations, and 10,000 direct immutable-candidate
+queries. It retained 100 commands for 100 entities with no unsupported or
+invalid input. Snapshot p50/p95/p99 was 0.746/2.290/3.836 ms with 611,608
+managed bytes; plan recording was 0.091/0.097/0.151 ms with 139,880 bytes.
+Point-selection p50/p95/p99 was 1.8/3.9/4.1 microseconds and alternating
+Crossing/Window selection was 2.1/4.9/5.2 microseconds, both with zero managed
+allocation per warm query. This is a standalone feature-cost baseline, not a
+before/after performance claim, and does not replace viewer/GPU, image-quality,
+managed/native differential, or required Instruments evidence.
 
 The first 2026-08-28 weighted periodic quadratic-NURBS linetype feature-cost
 run used one final Release binary, 1,000 four-span loops, three warmups, and 24
@@ -1621,6 +1687,46 @@ dotnet run --project src/ProGPU.CAD.Sample.Browser -c Debug
 ## Primary research record
 
 Sources consulted on 2026-08-27 and 2026-08-28:
+
+- For solid HATCH lowering, Autodesk's
+  [HATCH DXF contract](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DXF/files/GUID-C6C71CED-CE0F-4184-82A5-07AD6241F15B.htm),
+  [boundary-path data contract](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-DXF/files/GUID-DC5215D6-E73F-4DFF-8BE9-01CA9610FAEE.htm),
+  [HatchStyle contract](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-RefGuide/files/OREF-AcDbHatch__HatchStyle1.html),
+  [AcDbHatch architecture](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-RefGuide/files/OREF-AcDbHatch.html),
+  and [boundary overview](https://help.autodesk.com/cloudhelp/2018/CHT/AutoCAD-ActiveX/files/GUID-CC1986F6-9208-4A59-81EE-6E28A5BB2117.htm)
+  establish OCS boundary data, typed edges, and Normal odd-parity island
+  semantics. Adopted those public contracts; adapted them to bounded immutable
+  packed records, exact extrema, one retained multi-figure path, and typed
+  unsupported outcomes. Rejected serializing computed fill, unbounded malformed
+  traversal, and treating every loop as an independent filled command.
+  [Skia path fill types](https://api.skia.org/SkPathTypes_8h_source.html),
+  [Direct2D geometry groups](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1geometrygroup),
+  [Direct2D path geometries](https://learn.microsoft.com/en-us/windows/win32/direct2d/path-geometries-overview),
+  and [Win2D CanvasPathBuilder](https://microsoft.github.io/Win2D/WinUI2/html/Methods_T_Microsoft_Graphics_Canvas_Geometry_CanvasPathBuilder.htm)
+  support retained multi-figure analytic geometry with an explicit alternate/
+  even-odd fill rule. Adopted that separation and reuse; rejected per-loop
+  raster surfaces and fixed-detail polygon conversion.
+  [WebRender's retained renderer](https://github.com/servo/webrender),
+  [WebRender overview](https://github.com/servo/servo/wiki/Webrender-Overview),
+  [Vello's encoded paths](https://github.com/linebender/vello/blob/main/vello_encoding/src/path.rs),
+  and [Vello's retained-scene vision](https://github.com/linebender/vello/blob/main/doc/vision.md)
+  informed compact retained path data, early transforms, visibility work, and
+  explicit cache/upload counters; ProGPU retains its own scene, path, batching,
+  and culling architecture and copies no foreign implementation. Vello's dynamic
+  GPU memory and antialiasing tradeoffs were not introduced because this slice
+  reuses ProGPU's established bounded path pipeline.
+  The required text-engine audit rechecked
+  [SkParagraph shaping stages](https://docs.skia.org/docs/dev/design/text_shaper/),
+  [DirectWrite](https://learn.microsoft.com/en-us/windows/win32/directwrite/introducing-directwrite),
+  [Parley](https://github.com/linebender/parley), and
+  [HarfBuzz shape plans](https://harfbuzz.github.io/harfbuzz-hb-shape-plan.html).
+  They are not applicable to boundary filling: no Unicode analysis, shaping,
+  line layout, fallback font, variable-font, glyph cache, or subpixel text state
+  is touched. Startup remains lazy; immutable scene reuse, BVH visibility,
+  demand-driven path upload, worker-eligible snapshot preparation, GPU batching,
+  DPI transforms, cache eviction/generations, and device-loss invalidation all
+  remain with their existing typed ProGPU owners. No new resource initialization
+  or replay-time CPU preparation was added.
 
 - [ACadSharp repository and format support](https://github.com/DomCR/ACadSharp)
   [reader API](https://github.com/DomCR/ACadSharp/blob/master/docs/articles/samples/reading.md),

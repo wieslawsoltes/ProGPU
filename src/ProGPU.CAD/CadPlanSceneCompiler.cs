@@ -277,6 +277,13 @@ public sealed class CadPlanSceneCompiler
                 case CadEntityKind.Solid:
                     RecordSolid(context, pen.Brush, snapshot.Faces.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
                     break;
+                case CadEntityKind.Hatch:
+                    RecordHatch(
+                        context,
+                        pen.Brush,
+                        snapshot,
+                        snapshot.Hatches.Span[entity.PrimitiveIndex]);
+                    break;
                 case CadEntityKind.Face3D:
                     RecordFace3D(context, pen, snapshot.Faces.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
                     break;
@@ -701,6 +708,110 @@ public sealed class CadPlanSceneCompiler
 
         path.Figures.Add(figure);
         context.DrawPath(brush, null, path);
+    }
+
+    private static void RecordHatch(
+        DrawingContext context,
+        Brush brush,
+        CadDocumentSnapshot snapshot,
+        CadHatchPrimitive hatch)
+    {
+        var path = new PathGeometry { FillRule = FillRule.EvenOdd };
+        ReadOnlySpan<CadHatchLoop> loops = snapshot.HatchLoops.Span.Slice(
+            hatch.LoopOffset,
+            hatch.LoopCount);
+        ReadOnlySpan<CadHatchSegment> allSegments = snapshot.HatchSegments.Span;
+        for (int loopIndex = 0; loopIndex < loops.Length; loopIndex++)
+        {
+            CadHatchLoop loop = loops[loopIndex];
+            ReadOnlySpan<CadHatchSegment> segments = allSegments.Slice(
+                loop.SegmentOffset,
+                loop.SegmentCount);
+            var figure = new PathFigure(
+                new Vector2(ToFloat(segments[0].StartX), ToFloat(segments[0].StartY)),
+                isClosed: true);
+            for (int segmentIndex = 0; segmentIndex < segments.Length; segmentIndex++)
+            {
+                AddHatchPathSegment(figure, segments[segmentIndex]);
+            }
+            path.Figures.Add(figure);
+        }
+
+        Matrix4x4 transform = CreateProjectionTransform(
+            hatch.WorldOrigin,
+            hatch.CoordinateSystem,
+            snapshot.RebaseOrigin);
+        context.DrawPath(brush, null, path, transform);
+    }
+
+    private static void AddHatchPathSegment(
+        PathFigure figure,
+        CadHatchSegment segment)
+    {
+        if (segment.Kind == CadHatchSegmentKind.Line)
+        {
+            figure.Segments.Add(new LineSegment(
+                new Vector2(ToFloat(segment.EndX), ToFloat(segment.EndY))));
+            return;
+        }
+
+        double radiusX = new CadPoint3D(
+            segment.CosineAxisX,
+            segment.CosineAxisY,
+            0.0).Length;
+        double radiusY = new CadPoint3D(
+            segment.SineAxisX,
+            segment.SineAxisY,
+            0.0).Length;
+        float rotationDegrees = ToFloat(
+            Math.Atan2(segment.CosineAxisY, segment.CosineAxisX) * (180.0 / Math.PI));
+        SweepDirection direction = segment.SweepParameter >= 0.0
+            ? SweepDirection.Counterclockwise
+            : SweepDirection.Clockwise;
+        double sweep = Math.Abs(segment.SweepParameter);
+        if (sweep >= TwoPi - 1e-12)
+        {
+            double middleParameter = segment.StartParameter + (segment.SweepParameter * 0.5);
+            GetHatchEllipsePoint(segment, middleParameter, out float middleX, out float middleY);
+            figure.Segments.Add(new ArcSegment(
+                new Vector2(middleX, middleY),
+                new Vector2(ToFloat(radiusX), ToFloat(radiusY)),
+                rotationDegrees,
+                isLargeArc: false,
+                direction));
+            figure.Segments.Add(new ArcSegment(
+                new Vector2(ToFloat(segment.EndX), ToFloat(segment.EndY)),
+                new Vector2(ToFloat(radiusX), ToFloat(radiusY)),
+                rotationDegrees,
+                isLargeArc: false,
+                direction));
+            return;
+        }
+
+        figure.Segments.Add(new ArcSegment(
+            new Vector2(ToFloat(segment.EndX), ToFloat(segment.EndY)),
+            new Vector2(ToFloat(radiusX), ToFloat(radiusY)),
+            rotationDegrees,
+            isLargeArc: sweep > Math.PI,
+            direction));
+    }
+
+    private static void GetHatchEllipsePoint(
+        CadHatchSegment segment,
+        double parameter,
+        out float x,
+        out float y)
+    {
+        double cosine = Math.Cos(parameter);
+        double sine = Math.Sin(parameter);
+        x = ToFloat(
+            segment.CenterX +
+            (segment.CosineAxisX * cosine) +
+            (segment.SineAxisX * sine));
+        y = ToFloat(
+            segment.CenterY +
+            (segment.CosineAxisY * cosine) +
+            (segment.SineAxisY * sine));
     }
 
     private static void RecordFace3D(
@@ -1279,7 +1390,7 @@ public sealed class CadPlanSceneCompiler
     }
 
     private static bool UsesStroke(CadEntityKind kind) =>
-        kind is not (CadEntityKind.Solid or CadEntityKind.Text or CadEntityKind.ShxText or CadEntityKind.MText or CadEntityKind.ShxMText);
+        kind is not (CadEntityKind.Solid or CadEntityKind.Hatch or CadEntityKind.Text or CadEntityKind.ShxText or CadEntityKind.MText or CadEntityKind.ShxMText);
 
     private static void ValidateOptions(CadPlanSceneOptions options)
     {
