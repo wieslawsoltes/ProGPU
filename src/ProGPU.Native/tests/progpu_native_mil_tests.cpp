@@ -851,7 +851,7 @@ void append_dash_style(
 bool curve_dashes_match_managed_reference_contracts() {
     namespace curve_dash = progpu::native::mil::curve_dash;
     const std::array<std::uint8_t, 1U> one_join{};
-    std::vector<curve_dash::run> runs;
+    curve_dash::run_buffer runs;
 
     progpu_native_path_segment quadratic{};
     quadratic.kind = PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC;
@@ -867,13 +867,14 @@ bool curve_dashes_match_managed_reference_contracts() {
         0.0,
         1.0F,
         runs) == curve_dash::result::success);
-    PROGPU_REQUIRE(runs.size() == 2U);
-    PROGPU_REQUIRE(runs.front().starts_at_source_start);
+    PROGPU_REQUIRE(runs.runs.size() == 2U);
+    PROGPU_REQUIRE(runs.runs.front().starts_at_source_start);
+    const auto quadratic_segments = runs.segments_for(runs.runs.front());
     PROGPU_REQUIRE(
-        runs.front().segments.front().kind ==
+        quadratic_segments.front().kind ==
         PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC);
-    PROGPU_REQUIRE(runs.front().segments.front().p0.x == 0.0F);
-    PROGPU_REQUIRE(runs.front().segments.front().p0.y == 0.0F);
+    PROGPU_REQUIRE(quadratic_segments.front().p0.x == 0.0F);
+    PROGPU_REQUIRE(quadratic_segments.front().p0.y == 0.0F);
 
     progpu_native_path_segment cubic{};
     cubic.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
@@ -890,10 +891,10 @@ bool curve_dashes_match_managed_reference_contracts() {
         0.0,
         1.0F,
         runs) == curve_dash::result::success);
-    PROGPU_REQUIRE(runs.size() == 3U);
-    PROGPU_REQUIRE(runs.front().starts_at_source_start);
+    PROGPU_REQUIRE(runs.runs.size() == 3U);
+    PROGPU_REQUIRE(runs.runs.front().starts_at_source_start);
     PROGPU_REQUIRE(
-        runs.front().segments.front().kind ==
+        runs.segments_for(runs.runs.front()).front().kind ==
         PROGPU_NATIVE_PATH_SEGMENT_CUBIC);
 
     progpu_native_path_segment arc{};
@@ -915,15 +916,16 @@ bool curve_dashes_match_managed_reference_contracts() {
         0.0,
         1.0F,
         runs) == curve_dash::result::success);
-    PROGPU_REQUIRE(runs.size() == 2U);
-    PROGPU_REQUIRE(runs.front().starts_at_source_start);
+    PROGPU_REQUIRE(runs.runs.size() == 2U);
+    PROGPU_REQUIRE(runs.runs.front().starts_at_source_start);
+    const auto arc_segments = runs.segments_for(runs.runs.front());
     PROGPU_REQUIRE(
-        runs.front().segments.front().kind ==
+        arc_segments.front().kind ==
         PROGPU_NATIVE_PATH_SEGMENT_ARC);
     PROGPU_REQUIRE(std::bit_cast<float>(
-        runs.front().segments.front().pad1) > 0.9F);
+        arc_segments.front().pad1) > 0.9F);
     PROGPU_REQUIRE(std::bit_cast<float>(
-        runs.front().segments.front().pad1) < 1.1F);
+        arc_segments.front().pad1) < 1.1F);
 
     progpu_native_path_segment phased_line{};
     phased_line.kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
@@ -938,13 +940,17 @@ bool curve_dashes_match_managed_reference_contracts() {
         -1.5,
         2.0F,
         runs) == curve_dash::result::success);
-    PROGPU_REQUIRE(runs.size() == 3U);
-    PROGPU_REQUIRE(!runs.front().starts_at_source_start);
-    PROGPU_REQUIRE(runs.back().ends_at_source_end);
+    PROGPU_REQUIRE(runs.runs.size() == 3U);
+    PROGPU_REQUIRE(!runs.runs.front().starts_at_source_start);
+    PROGPU_REQUIRE(runs.runs.back().ends_at_source_end);
+    const auto first_phased_segments =
+        runs.segments_for(runs.runs.front());
+    const auto last_phased_segments =
+        runs.segments_for(runs.runs.back());
     PROGPU_REQUIRE(std::abs(
-        runs.front().segments.front().p0.x - 3.0F) < 0.001F);
+        first_phased_segments.front().p0.x - 3.0F) < 0.001F);
     PROGPU_REQUIRE(std::abs(
-        runs.back().segments.back().p1.x - 20.0F) < 0.001F);
+        last_phased_segments.back().p1.x - 20.0F) < 0.001F);
 
     std::array<progpu_native_path_segment, 4U> square{};
     const std::array square_points{
@@ -967,17 +973,65 @@ bool curve_dashes_match_managed_reference_contracts() {
         0.0,
         1.0F,
         runs) == curve_dash::result::success);
-    PROGPU_REQUIRE(runs.size() == 5U);
-    PROGPU_REQUIRE(!runs.back().closed);
-    PROGPU_REQUIRE(runs.back().segments.size() == 2U);
-    PROGPU_REQUIRE(runs.back().smooth_joins.size() == 1U);
-    PROGPU_REQUIRE(runs.back().smooth_joins.front() == 1U);
+    PROGPU_REQUIRE(runs.runs.size() == 5U);
+    PROGPU_REQUIRE(!runs.runs.back().closed);
+    const auto seam_segments = runs.segments_for(runs.runs.back());
+    const auto seam_joins = runs.smooth_joins_for(runs.runs.back());
+    PROGPU_REQUIRE(seam_segments.size() == 2U);
+    PROGPU_REQUIRE(seam_joins.size() == 1U);
+    PROGPU_REQUIRE(seam_joins.front() == 1U);
     PROGPU_REQUIRE(
-        runs.back().segments.front().p1.x == 0.0F &&
-        runs.back().segments.front().p1.y == 0.0F);
+        seam_segments.front().p1.x == 0.0F &&
+        seam_segments.front().p1.y == 0.0F);
     PROGPU_REQUIRE(
-        runs.back().segments.back().p0.x == 0.0F &&
-        runs.back().segments.back().p0.y == 0.0F);
+        seam_segments.back().p0.x == 0.0F &&
+        seam_segments.back().p0.y == 0.0F);
+
+    std::array<progpu_native_path_segment, 256U> dense_lines{};
+    std::array<std::uint8_t, 256U> dense_joins{};
+    for (std::size_t index = 0U; index < dense_lines.size(); ++index) {
+        dense_lines[index].kind = PROGPU_NATIVE_PATH_SEGMENT_LINE;
+        dense_lines[index].p0 = {static_cast<float>(index), 0.0F};
+        dense_lines[index].p1 = {static_cast<float>(index + 1U), 0.0F};
+        dense_joins[index] = 1U;
+    }
+    const std::array dense_pattern{3.0, 1.0};
+    PROGPU_REQUIRE(curve_dash::try_create_runs(
+        dense_lines,
+        dense_joins,
+        false,
+        dense_pattern,
+        0.0,
+        1.0F,
+        runs) == curve_dash::result::success);
+    PROGPU_REQUIRE(runs.runs.size() == 64U);
+    PROGPU_REQUIRE(runs.segments.size() == 192U);
+    PROGPU_REQUIRE(runs.smooth_joins.size() == 128U);
+    const auto* const run_storage = runs.runs.data();
+    const auto* const segment_storage = runs.segments.data();
+    const auto* const join_storage = runs.smooth_joins.data();
+    const std::size_t run_capacity = runs.runs.capacity();
+    const std::size_t segment_capacity = runs.segments.capacity();
+    const std::size_t join_capacity = runs.smooth_joins.capacity();
+    for (std::size_t iteration = 0U; iteration < 32U; ++iteration) {
+        PROGPU_REQUIRE(curve_dash::try_create_runs(
+            dense_lines,
+            dense_joins,
+            false,
+            dense_pattern,
+            0.0,
+            1.0F,
+            runs) == curve_dash::result::success);
+        PROGPU_REQUIRE(runs.runs.size() == 64U);
+        PROGPU_REQUIRE(runs.segments.size() == 192U);
+        PROGPU_REQUIRE(runs.smooth_joins.size() == 128U);
+        PROGPU_REQUIRE(runs.runs.data() == run_storage);
+        PROGPU_REQUIRE(runs.segments.data() == segment_storage);
+        PROGPU_REQUIRE(runs.smooth_joins.data() == join_storage);
+        PROGPU_REQUIRE(runs.runs.capacity() == run_capacity);
+        PROGPU_REQUIRE(runs.segments.capacity() == segment_capacity);
+        PROGPU_REQUIRE(runs.smooth_joins.capacity() == join_capacity);
+    }
     return true;
 }
 

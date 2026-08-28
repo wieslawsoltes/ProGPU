@@ -556,6 +556,19 @@ seam without coincident caps. Invalid patterns and allocation failure still
 fail closed. Unstroked curves remain valid topology gaps and do not prevent
 neighboring line runs from using the native path-pen lane.
 
+The native dash compiler stores run metadata, exact curve segments, and join
+flags in three flat reusable buffers. It no longer creates two child vectors
+for every visible run. One scratch arena is shared by all dashed path commands
+in a render stream, so capacity grows only to that stream's high-water mark and
+is then reused without touching the transactionally copied channel state. A
+dense 256-segment differential fixture produces 64 visible runs, 192 exact
+segments, and 128 joins; 32 subsequent compilations must retain identical data
+pointers and capacities for all three buffers. This is a structural
+steady-state no-allocation contract, not a timing-based speed claim. The
+distance tables remain bounded scalar prefix accumulations because each entry
+depends on the preceding cumulative chord length; final coverage remains in
+the shared GPU geometry path rather than a CPU pixel loop.
+
 This implementation is a C++ port of the ProGPU-owned managed algorithms in
 `BezierSegmentGeometry`, `ArcSegmentGeometry`, `DashPattern`, and
 `Compositor.TryCreateDashedStrokePath`; it does not copy third-party source.
