@@ -382,6 +382,250 @@ bool try_fixed_shape_stroke_bounds(
         bounds);
 }
 
+bool try_transformed_ellipse_stroke_bounds(
+    double center_x,
+    double center_y,
+    double radius_x,
+    double radius_y,
+    double thickness,
+    const affine_2d_double& geometry_transform,
+    const affine_2d_double& world_transform,
+    progpu_native_image_rect& bounds) noexcept {
+    if (radius_x <= 0.0 || radius_y <= 0.0 || thickness <= 0.0) {
+        return false;
+    }
+    using point = std::array<double, 2U>;
+    const auto map_point = [](
+        const point& source,
+        const affine_2d_double& transform,
+        point& destination) noexcept {
+        destination = {
+            source[0U] * transform.m11 +
+                source[1U] * transform.m21 + transform.m31,
+            source[0U] * transform.m12 +
+                source[1U] * transform.m22 + transform.m32};
+        return std::isfinite(destination[0U]) &&
+            std::isfinite(destination[1U]);
+    };
+    const float resolved_center_x = static_cast<float>(center_x);
+    const float resolved_center_y = static_cast<float>(center_y);
+    const float resolved_radius_x = std::abs(static_cast<float>(radius_x));
+    const float resolved_radius_y = std::abs(static_cast<float>(radius_y));
+    if (!std::isfinite(resolved_center_x) ||
+        !std::isfinite(resolved_center_y) ||
+        !std::isfinite(resolved_radius_x) ||
+        !std::isfinite(resolved_radius_y) ||
+        resolved_radius_x <= 0.0F || resolved_radius_y <= 0.0F) {
+        return false;
+    }
+    constexpr double arc_as_bezier = 0.5522847498307933984;
+    const float middle_x = static_cast<float>(
+        static_cast<double>(resolved_radius_x) * arc_as_bezier);
+    const float middle_y = static_cast<float>(
+        static_cast<double>(resolved_radius_y) * arc_as_bezier);
+    const float left = resolved_center_x - resolved_radius_x;
+    const float right = resolved_center_x + resolved_radius_x;
+    const float top = resolved_center_y - resolved_radius_y;
+    const float bottom = resolved_center_y + resolved_radius_y;
+    const std::array<std::array<point, 4U>, 4U> source_cubics{{
+        {{{right, resolved_center_y},
+          {right, resolved_center_y + middle_y},
+          {resolved_center_x + middle_x, bottom},
+          {resolved_center_x, bottom}}},
+        {{{resolved_center_x, bottom},
+          {resolved_center_x - middle_x, bottom},
+          {left, resolved_center_y + middle_y},
+          {left, resolved_center_y}}},
+        {{{left, resolved_center_y},
+          {left, resolved_center_y - middle_y},
+          {resolved_center_x - middle_x, top},
+          {resolved_center_x, top}}},
+        {{{resolved_center_x, top},
+          {resolved_center_x + middle_x, top},
+          {right, resolved_center_y - middle_y},
+          {right, resolved_center_y}}}}};
+    double minimum_x = std::numeric_limits<double>::infinity();
+    double minimum_y = std::numeric_limits<double>::infinity();
+    double maximum_x = -std::numeric_limits<double>::infinity();
+    double maximum_y = -std::numeric_limits<double>::infinity();
+    const double pen_radius = thickness * 0.5;
+    constexpr double default_tolerance = 0.25;
+    const double refinement_threshold = pen_radius < default_tolerance
+        ? -2.0
+        : 2.0 * (1.0 - default_tolerance / pen_radius) *
+                (1.0 - default_tolerance / pen_radius) -
+            1.0;
+    point previous_direction{};
+    bool has_previous_direction = false;
+    const auto include_widened_point = [
+        &map_point,
+        &world_transform,
+        pen_radius,
+        refinement_threshold,
+        &previous_direction,
+        &has_previous_direction,
+        &minimum_x,
+        &minimum_y,
+        &maximum_x,
+        &maximum_y](const point& position, const point& tangent) noexcept {
+        const double tangent_length = std::hypot(tangent[0U], tangent[1U]);
+        if (!std::isfinite(tangent_length) || tangent_length <= 0.000001) {
+            return false;
+        }
+        const point direction{
+            tangent[0U] / tangent_length,
+            tangent[1U] / tangent_length};
+        if (has_previous_direction) {
+            const double direction_dot =
+                previous_direction[0U] * direction[0U] +
+                previous_direction[1U] * direction[1U];
+            // WpfGfx CPen::AcceptCurvePoint adds separate RoundTo cubics when
+            // a thick stroke magnifies a flattening corner. Keep that profile
+            // fail-closed until the same refinement outline is shared here.
+            if (!std::isfinite(direction_dot) ||
+                direction_dot < refinement_threshold) {
+                return false;
+            }
+        }
+        previous_direction = direction;
+        has_previous_direction = true;
+        const point offset{
+            -direction[1U] * pen_radius,
+            direction[0U] * pen_radius};
+        const std::array widened{
+            point{position[0U] - offset[0U],
+                position[1U] - offset[1U]},
+            point{position[0U] + offset[0U],
+                position[1U] + offset[1U]}};
+        for (const auto& widened_point : widened) {
+            point mapped{};
+            if (!map_point(widened_point, world_transform, mapped)) {
+                return false;
+            }
+            minimum_x = std::min(minimum_x, mapped[0U]);
+            minimum_y = std::min(minimum_y, mapped[1U]);
+            maximum_x = std::max(maximum_x, mapped[0U]);
+            maximum_y = std::max(maximum_y, mapped[1U]);
+        }
+        return true;
+    };
+    constexpr double flattened_tolerance = default_tolerance * 6.0;
+    constexpr double quarter_tolerance = flattened_tolerance * 0.25;
+    constexpr double twice_minimum_step = 0.001;
+    for (const auto& source_cubic : source_cubics) {
+        std::array<point, 4U> cubic{};
+        for (std::size_t index = 0U; index < cubic.size(); ++index) {
+            if (!map_point(
+                    source_cubic[index],
+                    geometry_transform,
+                    cubic[index])) {
+                return false;
+            }
+        }
+        point e0 = cubic[0U];
+        point e1{
+            cubic[3U][0U] - cubic[0U][0U],
+            cubic[3U][1U] - cubic[0U][1U]};
+        point e2{
+            6.0 * (cubic[1U][0U] - 2.0 * cubic[2U][0U] +
+                cubic[3U][0U]),
+            6.0 * (cubic[1U][1U] - 2.0 * cubic[2U][1U] +
+                cubic[3U][1U])};
+        point e3{
+            6.0 * (cubic[0U][0U] - 2.0 * cubic[1U][0U] +
+                cubic[2U][0U]),
+            6.0 * (cubic[0U][1U] - 2.0 * cubic[1U][1U] +
+                cubic[2U][1U])};
+        const auto approximate_norm = [](const point& value) noexcept {
+            return std::max(std::abs(value[0U]), std::abs(value[1U]));
+        };
+        std::uint32_t step_count = 1U;
+        double step_size = 1.0;
+        const auto halve_step = [
+            &e1,
+            &e2,
+            &e3,
+            &step_count,
+            &step_size]() noexcept {
+            e2 = {(e2[0U] + e3[0U]) * 0.125,
+                (e2[1U] + e3[1U]) * 0.125};
+            e1 = {(e1[0U] - e2[0U]) * 0.5,
+                (e1[1U] - e2[1U]) * 0.5};
+            e3 = {e3[0U] * 0.25, e3[1U] * 0.25};
+            step_count *= 2U;
+            step_size *= 0.5;
+        };
+        while ((approximate_norm(e2) > flattened_tolerance ||
+                approximate_norm(e3) > flattened_tolerance) &&
+            step_size > twice_minimum_step) {
+            halve_step();
+        }
+        const point first_tangent{
+            cubic[1U][0U] - cubic[0U][0U],
+            cubic[1U][1U] - cubic[0U][1U]};
+        if (!include_widened_point(cubic[0U], first_tangent)) {
+            return false;
+        }
+        while (step_count > 1U) {
+            e0 = {e0[0U] + e1[0U], e0[1U] + e1[1U]};
+            const point previous_e2 = e2;
+            e1 = {e1[0U] + previous_e2[0U],
+                e1[1U] + previous_e2[1U]};
+            e2 = {2.0 * e2[0U] - e3[0U],
+                2.0 * e2[1U] - e3[1U]};
+            e3 = previous_e2;
+            const point tangent{
+                6.0 * e1[0U] - e2[0U] - 2.0 * e3[0U],
+                6.0 * e1[1U] - e2[1U] - 2.0 * e3[1U]};
+            if (!include_widened_point(e0, tangent)) {
+                return false;
+            }
+            --step_count;
+            if (approximate_norm(e2) > flattened_tolerance &&
+                step_size > twice_minimum_step) {
+                halve_step();
+                continue;
+            }
+            while ((step_count & 1U) == 0U) {
+                const point candidate{
+                    2.0 * e2[0U] - e3[0U],
+                    2.0 * e2[1U] - e3[1U]};
+                if (approximate_norm(e3) > quarter_tolerance ||
+                    approximate_norm(candidate) > quarter_tolerance) {
+                    break;
+                }
+                e1 = {2.0 * e1[0U] + e2[0U],
+                    2.0 * e1[1U] + e2[1U]};
+                e3 = {4.0 * e3[0U], 4.0 * e3[1U]};
+                e2 = {4.0 * candidate[0U], 4.0 * candidate[1U]};
+                step_count /= 2U;
+                step_size *= 2.0;
+            }
+        }
+        const point last_tangent{
+            cubic[3U][0U] - cubic[2U][0U],
+            cubic[3U][1U] - cubic[2U][1U]};
+        if (!include_widened_point(cubic[3U], last_tangent)) {
+            return false;
+        }
+    }
+    const double bounds_width = maximum_x - minimum_x;
+    const double bounds_height = maximum_y - minimum_y;
+    if (!finite_double_as_float(minimum_x) ||
+        !finite_double_as_float(minimum_y) ||
+        !finite_double_as_float(bounds_width) ||
+        !finite_double_as_float(bounds_height) ||
+        bounds_width <= 0.0 || bounds_height <= 0.0) {
+        return false;
+    }
+    bounds = {
+        static_cast<float>(minimum_x),
+        static_cast<float>(minimum_y),
+        static_cast<float>(bounds_width),
+        static_cast<float>(bounds_height)};
+    return true;
+}
+
 bool try_transformed_rectangle_stroke_bounds(
     double x,
     double y,
@@ -9302,6 +9546,22 @@ struct channel::implementation {
                     const bool has_rounded_corners =
                         geometry.kind == fixed_geometry_kind::rectangle &&
                         geometry.radius_x > 0.0 && geometry.radius_y > 0.0;
+                    if (is_ellipse && shape_width > 0.0 &&
+                        shape_height > 0.0) {
+                        if (!try_transformed_ellipse_stroke_bounds(
+                                geometry.first,
+                                geometry.second,
+                                geometry.third,
+                                geometry.fourth,
+                                pen.thickness,
+                                geometry_transform,
+                                current_transform,
+                                bounds) ||
+                            bounds.width <= 0.0F || bounds.height <= 0.0F) {
+                            return status::unsupported_command;
+                        }
+                        return finish_bounds();
+                    }
                     if (geometry.kind == fixed_geometry_kind::rectangle &&
                         !has_rounded_corners && shape_width > 0.0 &&
                         shape_height > 0.0) {

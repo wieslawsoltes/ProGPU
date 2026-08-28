@@ -11521,7 +11521,56 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         -18.402102F,
         -20.010311F));
 
+    std::vector<std::byte> affine_ellipse_update;
+    append_command(
+        affine_ellipse_update,
+        command::ellipse_geometry,
+        ellipse_geometry,
+        10.0,
+        5.0,
+        20.0,
+        30.0,
+        shear_transform,
+        0U,
+        0U,
+        0U);
+    append_command(
+        affine_ellipse_update,
+        command::geometry_drawing,
+        geometry_drawing,
+        0U,
+        pen,
+        ellipse_geometry);
+    PROGPU_REQUIRE(state.apply(affine_ellipse_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 105U, stream, &metrics) ==
+        status::success);
+    // Live Windows WPF EllipseGeometry.GetRenderBounds oracle:
+    // 20.719608306884766,25.423517227172852,
+    // 28.560783386230469,19.152963638305664.
+    PROGPU_REQUIRE(contains_mapping(
+        1.4005218F,
+        1.0442249F,
+        -27.018263F,
+        -22.547869F));
+
+    std::vector<std::byte> refined_ellipse_update;
+    append_command(
+        refined_ellipse_update,
+        command::double_resource,
+        thickness_animation,
+        64.0);
+    PROGPU_REQUIRE(state.apply(refined_ellipse_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 106U, stream, nullptr) ==
+        status::unsupported_command);
+
     std::vector<std::byte> triangle_cap_update;
+    append_command(
+        triangle_cap_update,
+        command::double_resource,
+        thickness_animation,
+        8.0);
     append_command(
         triangle_cap_update,
         command::pen,
@@ -11535,6 +11584,13 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         PROGPU_NATIVE_STROKE_CAP_FLAT,
         PROGPU_NATIVE_STROKE_JOIN_MITER,
         0U);
+    append_command(
+        triangle_cap_update,
+        command::geometry_drawing,
+        geometry_drawing,
+        0U,
+        pen,
+        geometry);
     PROGPU_REQUIRE(state.apply(triangle_cap_update) == status::success);
     PROGPU_REQUIRE(
         state.build_scene(target, 7008U, 9U, stream, &metrics) ==
@@ -11763,6 +11819,39 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         0.6504454F,
         -15.677977F,
         -3.0741916F));
+
+    std::vector<std::byte> group_ellipse_update;
+    append_command(
+        group_ellipse_update,
+        command::ellipse_geometry,
+        ellipse_geometry,
+        10.0,
+        5.0,
+        20.0,
+        30.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        group_ellipse_update,
+        command::geometry_drawing,
+        geometry_drawing,
+        0U,
+        pen,
+        ellipse_geometry);
+    PROGPU_REQUIRE(state.apply(group_ellipse_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 145U, stream, &metrics) ==
+        status::success);
+    // Live Windows WPF DrawingGroup.Bounds ellipse oracle:
+    // 20.239826202392578,25.299463272094727,
+    // 29.520347595214844,19.40107536315918.
+    PROGPU_REQUIRE(contains_mapping(
+        1.3549976F,
+        1.0308707F,
+        -25.424915F,
+        -22.080475F));
 
     std::vector<std::byte> group_line_update;
     append_command(
