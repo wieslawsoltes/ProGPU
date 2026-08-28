@@ -2185,6 +2185,27 @@ for `progpu_native_mil.cpp` and
 `554160BFEF4E6B8F5A4A2BF2B08A2CEA69DD45B916FFEBDDA671BBC6E983E08D`
 for its test. The guest executable SHA-256 was
 `02BB1A776DBDC7A019D12BC362944B8253324334C97EF2B5796FFEB48F0AD2EE`.
+Checkpoint `c16178cd` extends the same WPF transform ordering to positive-area,
+non-rounded rectangle strokes. It transforms the closed rectangular spine by
+`Geometry.Transform`, constructs normalized edge strips and exact outer miter
+intersections (or bevel vertices), and only then applies the current
+`DrawingGroup` transform. For rectangle `[20,10,30,15]`, thickness 8, and
+matrix `[1,.25,.5,1,0,0]`, live PresentationCore returned
+`17.532926559448242,9.0101261138916016,52.434144973754883,34.479745864868164`
+for `Geometry.Transform` and `19,10,49.5,32.5` for
+`DrawingGroup.Transform`; the native image mappings lock down both. The bevel
+oracle is also exact at
+`21.422290802001953,11.119429588317871,44.655414581298828,30.261139869689941`.
+WPF clips over-limit miters rather than reducing them to the current native
+bevel tessellation, so that case fails closed until a shared clipped-miter
+outline is implemented. Round joins, rounded rectangles, ellipses, and dashed
+fixed shapes remain separate parity lanes. The complete Apple native suite
+passes 10/10. A clean archive rebuilt all 136 target steps under Windows ARM64
+MSVC `19.44.35228.0`; `/W4 /WX` appeared on 161 Ninja flag lines, focused
+CTest passed in 0.96 seconds, and direct execution returned zero. Host/guest
+hashes matched (`D70BEB9B...267072` native, `83DB8A55...58449F` test,
+`C7CD2AD9...A3A5F` archive); the guest executable SHA-256 was
+`D7F63F0EAEE4574872B88D20DD2E6E75C2DE71706D7094D342CC607434211CC8`.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive
