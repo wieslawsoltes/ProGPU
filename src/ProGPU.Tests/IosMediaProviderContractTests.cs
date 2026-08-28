@@ -428,6 +428,14 @@ public sealed class IosMediaProviderContractTests
             graph,
             StringComparison.Ordinal);
         Assert.Contains(
+            "MediaFloatStereoLayoutConverter.Interleave(",
+            graph,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "MediaFloatStereoLayoutConverter.Deinterleave(",
+            graph,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "effect is IMediaAudioEffect",
             provider,
             StringComparison.Ordinal);
