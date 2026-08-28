@@ -5640,17 +5640,13 @@ struct channel::implementation {
                 transform.m11 == 1.0 && transform.m12 == 0.0 &&
                 transform.m21 == 0.0 && transform.m22 == 1.0 &&
                 transform.m31 == 0.0 && transform.m32 == 0.0;
+            const std::size_t original_size = segments.size();
             if (transform_is_identity) {
                 segments.insert(
                     segments.end(),
                     source_segments.begin(),
                     source_segments.end());
-                leaf.left = path->second.left;
-                leaf.top = path->second.top;
-                leaf.right = path->second.right;
-                leaf.bottom = path->second.bottom;
             } else {
-                const std::size_t original_size = segments.size();
                 const auto map_point = [&transform](
                     progpu_native_point& point) noexcept {
                     const double mapped_x =
@@ -5701,23 +5697,20 @@ struct channel::implementation {
                     }
                     segments.push_back(segment);
                 }
-                progpu_native_image_rect bounds{};
-                if (!try_transform_bounds(
-                        path->second.left,
-                        path->second.top,
-                        path->second.right - path->second.left,
-                        path->second.bottom - path->second.top,
-                        transform,
-                        bounds)) {
-                    segments.resize(original_size);
-                    return status::invalid_graph;
-                }
-                leaf.left = bounds.x;
-                leaf.top = bounds.y;
-                leaf.right = bounds.x + bounds.width;
-                leaf.bottom = bounds.y + bounds.height;
             }
-            leaf.segment_count = path->second.segments.size();
+            progpu_native_image_rect bounds{};
+            if (!try_get_path_segment_bounds(
+                    std::span<const progpu_native_path_segment>{segments}
+                        .subspan(original_size),
+                    bounds)) {
+                segments.resize(original_size);
+                return status::success;
+            }
+            leaf.left = bounds.x;
+            leaf.top = bounds.y;
+            leaf.right = bounds.x + bounds.width;
+            leaf.bottom = bounds.y + bounds.height;
+            leaf.segment_count = source_segments.size();
             leaf.fill_rule = path->second.fill_rule == 0U
                 ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
                 : PROGPU_NATIVE_FILL_RULE_NON_ZERO;
@@ -10496,17 +10489,20 @@ struct channel::implementation {
                                 .per_point_segments.empty()
                         ? path_geometry->second.per_point_segments
                         : path_geometry->second.segments;
+                    progpu_native_image_rect local_path_bounds{};
+                    const bool has_fill_bounds =
+                        !fill_segments.empty() &&
+                        try_get_path_segment_bounds(
+                            fill_segments, local_path_bounds);
                     if (brush_handle != 0U &&
-                        !fill_segments.empty()) {
+                        has_fill_bounds) {
                         std::uint32_t brush_index =
                             PROGPU_NATIVE_SCENE_NO_INDEX;
                         const brush_use_state brush_use{
-                            path_geometry->second.left,
-                            path_geometry->second.top,
-                            path_geometry->second.right -
-                                path_geometry->second.left,
-                            path_geometry->second.bottom -
-                                path_geometry->second.top,
+                            local_path_bounds.x,
+                            local_path_bounds.y,
+                            local_path_bounds.width,
+                            local_path_bounds.height,
                             effective_transform};
                         const status brush_status = resolve_brush_index(
                             brush_handle,
@@ -10517,12 +10513,10 @@ struct channel::implementation {
                         }
                         progpu_native_image_rect path_bounds{};
                         if (!try_transform_bounds(
-                                path_geometry->second.left,
-                                path_geometry->second.top,
-                                path_geometry->second.right -
-                                    path_geometry->second.left,
-                                path_geometry->second.bottom -
-                                    path_geometry->second.top,
+                                local_path_bounds.x,
+                                local_path_bounds.y,
+                                local_path_bounds.width,
+                                local_path_bounds.height,
                                 effective_transform,
                                 path_bounds)) {
                             return status::invalid_graph;
@@ -10539,10 +10533,10 @@ struct channel::implementation {
                                 fill_segments.size(),
                                 0U,
                                 0U,
-                                static_cast<float>(path_geometry->second.left),
-                                static_cast<float>(path_geometry->second.top),
-                                static_cast<float>(path_geometry->second.right),
-                                static_cast<float>(path_geometry->second.bottom),
+                                local_path_bounds.x,
+                                local_path_bounds.y,
+                                local_path_bounds.x + local_path_bounds.width,
+                                local_path_bounds.y + local_path_bounds.height,
                                 {1.0F, 1.0F, 1.0F, 1.0F},
                                 native_local_transform,
                                 static_cast<std::uint32_t>(

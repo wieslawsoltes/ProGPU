@@ -489,10 +489,14 @@ The native channel validates WPF's `MIL_PATHGEOMETRY`, `MIL_PATHFIGURE`, fixed
 line/quadratic/cubic/arc segments, and poly-line/poly-quadratic/poly-cubic
 record links and sizes before committing retained state. Filled contours lower to one
 backend-independent ProGPU semantic path batch with EvenOdd/Nonzero fill,
-geometry-local affine transforms, exact validated cached local bounds when
-present, conservative native bounds when WPF leaves `BoundsValid` clear, and
-WPF's implicit fill closure for open figures. Malformed back-links, sizes, padding,
-flags, counts, bounds, transforms, and handles roll back transactionally.
+geometry-local affine transforms, and WPF's implicit fill closure for open
+figures. Scene compilation now derives local fill and brush-mapping bounds from
+the emitted fill segment span: line endpoints, analytic quadratic/cubic
+extrema, and exact arc extrema. Packet bounds, unfilled figures, and Bezier
+control-point hulls cannot broaden direct or grouped retained fill bounds;
+zero-area fill spans become no-ops while their independently retained stroke
+topology remains available. Malformed back-links, sizes, padding, flags,
+counts, bounds, transforms, and handles roll back transactionally.
 Endpoint arcs reuse the neutral native arc resolver shared with SVG glyph
 paths, retain center/radii/sweep data in ProGPU's semantic arc record, and
 preserve the degenerate-to-line rule. Fill compilation remains independent of
@@ -586,8 +590,8 @@ their contours into one semantic path batch, so the group's EvenOdd/Nonzero
 rule is applied across child overlap exactly as WPF's `CShape` aggregation
 does. Affine-transformed line/quadratic/cubic path children are baked into that
 shared coordinate space exactly, including WPF's implicit closing fill edge;
-their cached local bounds are conservatively transformed once. Fixed rectangle
-and ellipse children join that same batch, including
+their baked segment spans are reduced to exact post-transform curve bounds.
+Fixed rectangle and ellipse children join that same batch, including
 geometry-local affine transforms and non-uniform rounded rectangles. Rectangle,
 rounded-corner, and ellipse contours use WPF's `CFigureData` point order,
 radius clamping, and `ARC_AS_BEZIER` cubic constant before applying the child
