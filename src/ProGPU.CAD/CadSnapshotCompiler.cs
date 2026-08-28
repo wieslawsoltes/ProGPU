@@ -134,7 +134,8 @@ public sealed partial class CadSnapshotCompiler
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (entity.IsInvisible || !entity.Layer.IsOn ||
-                (!options.IncludeNonPlottableLayers && !entity.Layer.PlotFlag))
+                (!options.IncludeNonPlottableLayers && !entity.Layer.PlotFlag) ||
+                IsHiddenAttribute(entity))
             {
                 continue;
             }
@@ -216,6 +217,10 @@ public sealed partial class CadSnapshotCompiler
             {
                 return;
             }
+            if (IsHiddenAttribute(entity))
+            {
+                return;
+            }
 
             try
             {
@@ -238,6 +243,7 @@ public sealed partial class CadSnapshotCompiler
                     CompileInsert(
                         insert,
                         transform,
+                        hasTransform,
                         rootHandle,
                         effectiveLayer,
                         resolvedStyle,
@@ -265,6 +271,15 @@ public sealed partial class CadSnapshotCompiler
                     options);
                 CadEntityHeader? header = entity switch
                 {
+                    AttributeBase attributeEntity => CompileAttribute(
+                        attributeEntity,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        resolvedStyle,
+                        effectiveLayer.Color),
                     Line line => CompileLine(line, rootHandle, transform, hasTransform, layerIndex, styleIndex, lines),
                     Arc arc => CompileArc(arc, rootHandle, transform, hasTransform, layerIndex, styleIndex, arcs),
                     Circle circle => CompileCircle(circle, rootHandle, transform, hasTransform, layerIndex, styleIndex, circles),
@@ -401,6 +416,7 @@ public sealed partial class CadSnapshotCompiler
         void CompileInsert(
             Insert insert,
             CadAffineTransform3D parentTransform,
+            bool parentHasTransform,
             ulong rootHandle,
             Layer effectiveLayer,
             CadResolvedStyle resolvedStyle,
@@ -486,6 +502,12 @@ public sealed partial class CadSnapshotCompiler
                             translation);
                         foreach (Entity child in block.Entities)
                         {
+                            if (child is AttributeDefinition definition &&
+                                !IsConstantAttribute(definition))
+                            {
+                                continue;
+                            }
+
                             CompileEntityTree(
                                 child,
                                 instanceTransform,
@@ -495,19 +517,43 @@ public sealed partial class CadSnapshotCompiler
                                 resolvedStyle,
                                 depth + 1);
                         }
-                    }
-                }
 
-                if (insert.Attributes.Count > 0)
-                {
-                    unsupportedCount = checked(unsupportedCount + insert.Attributes.Count);
-                    AddDiagnostic(
-                        diagnostics,
-                        options.DiagnosticLimit,
-                        new CadDiagnostic(
-                            CadDiagnosticSeverity.Information,
-                            "CADSNAP004",
-                            $"INSERT path {FormatEntityPath(rootHandle, insert.Handle)} contains {insert.Attributes.Count} attribute values; text lowering is not yet enabled."));
+                        if (insert.Attributes.Count == 0)
+                        {
+                            continue;
+                        }
+
+                        // ATTRIB geometry is persisted in the INSERT's containing
+                        // coordinate system after its own block transform is baked.
+                        // Only ancestor composition and this MINSERT cell offset
+                        // remain. Work is O(A) for A references in each array cell.
+                        CadPoint3D attributeTranslation = parentTransform.Translation +
+                            (rowStep * row) +
+                            (columnStep * column);
+                        EnsureFinite(attributeTranslation);
+                        var attributeTransform = new CadAffineTransform3D(
+                            parentTransform.XAxis,
+                            parentTransform.YAxis,
+                            parentTransform.ZAxis,
+                            attributeTranslation);
+                        bool attributeHasTransform = parentHasTransform || row != 0 || column != 0;
+                        foreach (AttributeEntity attribute in insert.Attributes)
+                        {
+                            if (IsConstantAttribute(attribute))
+                            {
+                                continue;
+                            }
+
+                            CompileEntityTree(
+                                attribute,
+                                attributeTransform,
+                                attributeHasTransform,
+                                rootHandle,
+                                effectiveLayer,
+                                resolvedStyle,
+                                depth + 1);
+                        }
+                    }
                 }
             }
             finally
@@ -515,7 +561,80 @@ public sealed partial class CadSnapshotCompiler
                 activeBlocks.Remove(block);
             }
         }
+
+        CadEntityHeader CompileAttribute(
+            AttributeBase attribute,
+            ulong handle,
+            CadAffineTransform3D transform,
+            bool hasTransform,
+            int layerIndex,
+            int styleIndex,
+            CadResolvedStyle entityStyle,
+            ACadSharp.Color layerColor)
+        {
+            return attribute.AttributeType switch
+            {
+                AttributeType.SingleLine => CompileText(
+                    attribute,
+                    handle,
+                    transform,
+                    hasTransform,
+                    layerIndex,
+                    styleIndex,
+                    options,
+                    diagnostics,
+                    texts,
+                    textGlyphRuns,
+                    textDecorations,
+                    textGlyphIndices,
+                    textGlyphPositions,
+                    textFonts,
+                    textFontIndices,
+                    shxTexts,
+                    shxGlyphInstances,
+                    shxDecorationSegments,
+                    shxFontResolver),
+                AttributeType.MultiLine or AttributeType.ConstantMultiLine
+                    when attribute.MText is not null => CompileMText(
+                        attribute.MText,
+                        handle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        entityStyle,
+                        layerColor,
+                        options,
+                        diagnostics,
+                        mtexts,
+                        mtextGlyphRuns,
+                        mtextBackgrounds,
+                        mtextDecorations,
+                        mtextStrokes,
+                        textGlyphIndices,
+                        textGlyphPositions,
+                        textFonts,
+                        textFontIndices,
+                        shxMTexts,
+                        shxMTextGlyphRuns,
+                        shxGlyphInstances,
+                        shxFontResolver),
+                AttributeType.MultiLine or AttributeType.ConstantMultiLine =>
+                    throw new CadUnsupportedEntityException(
+                        "Multiline attribute has no embedded MTEXT payload."),
+                _ => throw new CadUnsupportedEntityException(
+                    $"Attribute type {(int)attribute.AttributeType} is not supported."),
+            };
+        }
     }
+
+    private static bool IsConstantAttribute(AttributeBase attribute) =>
+        (attribute.Flags & AttributeFlags.Constant) != 0 ||
+        attribute.AttributeType == AttributeType.ConstantMultiLine;
+
+    private static bool IsHiddenAttribute(Entity entity) =>
+        entity is AttributeBase attribute &&
+        (attribute.Flags & AttributeFlags.Hidden) != 0;
 
     private static CadEntityHeader CompileLine(
         Line line,

@@ -1,4 +1,5 @@
 using ACadSharp;
+using ACadSharp.Blocks;
 using ACadSharp.Entities;
 using ACadSharp.Tables;
 using CSMath;
@@ -999,6 +1000,80 @@ public sealed class CadEditingTests
         Assert.True(history.TryRedo(out _));
         Assert.Equal((short)25, inherited.Transparency.Value);
         Assert.Equal((short)25, byBlock.Transparency.Value);
+    }
+
+    [Fact]
+    public void AttributeValueCommandUpdatesSnapshotAndRoundTripsUndoRedo()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("EDITABLE_ATTRIBUTE");
+        block.Entities.Add(new AttributeDefinition
+        {
+            Tag = "PART",
+            Value = "OLD",
+        });
+        var insert = new Insert(block);
+        AttributeEntity attribute = Assert.Single(insert.Attributes);
+        document.Entities.Add(insert);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        ulong applied = history.Execute(new CadSetAttributeValueCommand(
+            insert.Handle,
+            "part",
+            "NEW"));
+
+        Assert.Equal(1UL, applied);
+        Assert.Equal("NEW", attribute.Value);
+        Assert.True(history.TryUndo(out ulong undone));
+        Assert.Equal(2UL, undone);
+        Assert.Equal("OLD", attribute.Value);
+        Assert.True(history.TryRedo(out ulong redone));
+        Assert.Equal(3UL, redone);
+        Assert.Equal("NEW", attribute.Value);
+    }
+
+    [Fact]
+    public void AttributeValueCommandSynchronizesEmbeddedMTextAndRejectsInvalidTargets()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("MULTILINE_ATTRIBUTE");
+        block.Entities.Add(new AttributeDefinition
+        {
+            Tag = "NOTES",
+            Value = "OLD-SINGLE",
+            AttributeType = AttributeType.MultiLine,
+            MText = new MText("OLD-MULTILINE"),
+        });
+        block.Entities.Add(new AttributeDefinition
+        {
+            Tag = "FIXED",
+            Value = "CONSTANT",
+            Flags = AttributeFlags.Constant,
+        });
+        var insert = new Insert(block);
+        AttributeEntity notes = insert.Attributes.Single(attribute => attribute.Tag == "NOTES");
+        document.Entities.Add(insert);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetAttributeValueCommand(
+            insert.Handle,
+            "NOTES",
+            @"NEW\PVALUE"));
+
+        Assert.Equal(@"NEW\PVALUE", notes.Value);
+        Assert.Equal(@"NEW\PVALUE", notes.MText.Value);
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal("OLD-SINGLE", notes.Value);
+        Assert.Equal("OLD-MULTILINE", notes.MText.Value);
+
+        ulong generation = session.ContentGeneration;
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadSetAttributeValueCommand(insert.Handle, "MISSING", "VALUE")));
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadSetAttributeValueCommand(insert.Handle, "FIXED", "VALUE")));
+        Assert.Equal(generation, session.ContentGeneration);
     }
 
     private static void AssertPoint(XYZ expected, XYZ actual)

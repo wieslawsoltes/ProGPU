@@ -14,6 +14,7 @@ int textEntityCount = ReadNonNegativeInt("--text-entities", 0);
 int mtextEntityCount = ReadNonNegativeInt("--mtext-entities", 0);
 int shxTextEntityCount = ReadNonNegativeInt("--shx-text-entities", 0);
 int shxMTextEntityCount = ReadNonNegativeInt("--shx-mtext-entities", 0);
+int attributeInsertCount = ReadNonNegativeInt("--attribute-inserts", 0);
 bool decorateText = HasFlag("--text-decorations");
 bool decorateShxText = HasFlag("--shx-decorations");
 bool lowerLineTypes = HasFlag("--linetypes");
@@ -31,10 +32,11 @@ int queryCount = ReadPositiveInt("--queries", 10_000);
 string? outputPath = ReadString("--output-json");
 
 if (entityCount == 0 && blockArrayColumnCount == 0 && textEntityCount == 0 &&
-    mtextEntityCount == 0 && shxTextEntityCount == 0 && shxMTextEntityCount == 0)
+    mtextEntityCount == 0 && shxTextEntityCount == 0 && shxMTextEntityCount == 0 &&
+    attributeInsertCount == 0)
 {
     throw new ArgumentException(
-        "At least one ordinary entity, block-array column, or text entity is required.");
+        "At least one ordinary entity, block-array column, text entity, or attributed INSERT is required.");
 }
 
 if (blockArrayColumnCount > ushort.MaxValue)
@@ -47,18 +49,25 @@ if (blockArrayColumnCount > ushort.MaxValue)
 if (measureSplineSelection &&
     (entityCount == 0 || blockArrayColumnCount != 0 ||
      textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
-     shxMTextEntityCount != 0))
+     shxMTextEntityCount != 0 || attributeInsertCount != 0))
 {
     throw new ArgumentException(
         "--spline-selection requires a positive --entities count and no block-array or text fixtures.");
 }
 if (measureTextSelection &&
     (entityCount != 0 || blockArrayColumnCount != 0 ||
-     new[] { textEntityCount, mtextEntityCount, shxTextEntityCount, shxMTextEntityCount }
+     new[]
+     {
+         textEntityCount,
+         mtextEntityCount,
+         shxTextEntityCount,
+         shxMTextEntityCount,
+         attributeInsertCount,
+     }
          .Count(static count => count > 0) != 1))
 {
     throw new ArgumentException(
-        "--text-selection requires exactly one positive TrueType or SHX text fixture count and no ordinary or block-array fixtures.");
+        "--text-selection requires exactly one positive text or attributed-INSERT fixture count and no ordinary or block-array fixtures.");
 }
 
 CadDocumentSession session = CreateDocument(
@@ -68,6 +77,7 @@ CadDocumentSession session = CreateDocument(
     mtextEntityCount,
     shxTextEntityCount,
     shxMTextEntityCount,
+    attributeInsertCount,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -101,7 +111,8 @@ if (shxTextEntityCount != 0 || shxMTextEntityCount != 0)
 }
 CadSnapshotOptions snapshotOptions = new()
 {
-    TextFontResolver = textEntityCount == 0 && mtextEntityCount == 0 && !lowerComplexLineTypes
+    TextFontResolver = textEntityCount == 0 && mtextEntityCount == 0 &&
+        attributeInsertCount == 0 && !lowerComplexLineTypes
         ? null
         : new BenchmarkTextFontResolver(InterFontFamily.Regular),
     ShxFontResolver = shxTextEntityCount == 0 && shxMTextEntityCount == 0
@@ -192,6 +203,7 @@ var report = new CadBenchmarkReport(
     mtextEntityCount,
     shxTextEntityCount,
     shxMTextEntityCount,
+    attributeInsertCount,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -241,14 +253,16 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         textEntityCount +
         mtextEntityCount +
         shxTextEntityCount +
-        shxMTextEntityCount);
+        shxMTextEntityCount +
+        attributeInsertCount);
     int expectedExpanded = checked(
         entityCount +
         (blockArrayColumnCount == 0 ? 0 : blockArrayColumnCount + 1) +
         textEntityCount +
         mtextEntityCount +
         shxTextEntityCount +
-        shxMTextEntityCount);
+        shxMTextEntityCount +
+        (attributeInsertCount * 2));
     if (source.Statistics.SourceEntityCount == expectedSource &&
         source.Statistics.VisibleEntityCount == expectedSource &&
         source.Statistics.ExpandedEntityCount == expectedExpanded &&
@@ -276,6 +290,7 @@ CadDocumentSession CreateDocument(
     int mtextCount,
     int shxTextCount,
     int shxMTextCount,
+    int attributeCount,
     bool decorateTextRuns,
     bool decorateShxTextRuns,
     bool useLineTypes,
@@ -512,6 +527,38 @@ CadDocumentSession CreateDocument(
                 text.ColumnData.Gutter = 2.0;
                 text.ColumnData.AutoHeight = true;
                 document.Entities.Add(text);
+            }
+        }
+
+        if (attributeCount > 0)
+        {
+            var textStyle = new TextStyle("INTER_ATTRIBUTE") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            var block = new BlockRecord("BENCHMARK_ATTRIBUTE");
+            block.Entities.Add(new AttributeDefinition
+            {
+                Tag = "PART_NUMBER",
+                Value = "DEFAULT",
+                Style = textStyle,
+                Height = 2.5,
+            });
+            var inserts = new Insert[attributeCount];
+            for (int i = 0; i < attributeCount; i++)
+            {
+                double x = (i % 100) * 90.0;
+                double y = (i / 100) * 8.0;
+                var insert = new Insert(block)
+                {
+                    InsertPoint = new XYZ(x, y, 0),
+                };
+                AttributeEntity attribute = insert.Attributes.Single();
+                attribute.Value = $"ProGPU CAD {i:D10}";
+                attribute.InsertPoint = new XYZ(x, y, 0);
+                inserts[i] = insert;
+            }
+            foreach (Insert insert in inserts)
+            {
+                document.Entities.Add(insert);
             }
         }
     });
@@ -879,6 +926,7 @@ internal sealed record CadBenchmarkReport(
     int MTextEntityCount,
     int ShxTextEntityCount,
     int ShxMTextEntityCount,
+    int AttributeInsertCount,
     bool DecoratedText,
     bool DecoratedShxText,
     bool LoweredLineTypes,

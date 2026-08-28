@@ -1991,3 +1991,156 @@ public sealed class CadDuplicateModelSpaceEntityCommand : CadEditCommand
         }
     }
 }
+
+/// <summary>
+/// Replaces one variable block-attribute value selected by insert handle, tag,
+/// and zero-based duplicate-tag occurrence.
+/// </summary>
+public sealed class CadSetAttributeValueCommand : CadEditCommand
+{
+    private readonly ulong _insertHandle;
+    private Insert? _insert;
+    private AttributeEntity? _attribute;
+    private string? _previousValue;
+    private string? _previousMTextValue;
+
+    public ulong InsertHandle => _insertHandle;
+
+    public string Tag { get; }
+
+    public int Occurrence { get; }
+
+    public string Value { get; }
+
+    public CadSetAttributeValueCommand(
+        ulong insertHandle,
+        string tag,
+        string value,
+        int occurrence = 0,
+        string description = "Set attribute value")
+        : base(description)
+    {
+        if (insertHandle == 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(insertHandle),
+                "A non-zero model-space INSERT handle is required.");
+        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(tag);
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentOutOfRangeException.ThrowIfNegative(occurrence);
+
+        _insertHandle = insertHandle;
+        Tag = tag;
+        Value = value;
+        Occurrence = occurrence;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        AttributeEntity attribute;
+        if (isRedo)
+        {
+            attribute = GetRetainedAttribute(document);
+        }
+        else
+        {
+            Entity entity = ResolveModelSpaceEntity(document, _insertHandle);
+            Insert insert = entity as Insert ?? throw new InvalidOperationException(
+                $"Model-space entity handle {_insertHandle:X} is not an INSERT.");
+            attribute = ResolveAttribute(insert, Tag, Occurrence);
+            if ((attribute.Flags & AttributeFlags.Constant) != 0 ||
+                attribute.AttributeType == AttributeType.ConstantMultiLine)
+            {
+                throw new InvalidOperationException(
+                    $"Attribute '{Tag}' occurrence {Occurrence} is constant and definition-owned.");
+            }
+            if (attribute.AttributeType != AttributeType.SingleLine &&
+                attribute.MText is null)
+            {
+                throw new InvalidOperationException(
+                    $"Attribute '{Tag}' occurrence {Occurrence} has no embedded MTEXT payload.");
+            }
+
+            _insert = insert;
+            _attribute = attribute;
+            _previousValue = attribute.Value;
+            _previousMTextValue = attribute.MText?.Value;
+        }
+
+        SetValueTransactional(attribute, Value, Value);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        AttributeEntity attribute = GetRetainedAttribute(document);
+        string previous = _previousValue ?? throw new InvalidOperationException(
+            "The attribute-value command has not been applied.");
+        SetValueTransactional(attribute, previous, _previousMTextValue);
+    }
+
+    private AttributeEntity GetRetainedAttribute(CadDocument document)
+    {
+        Insert insert = _insert ?? throw new InvalidOperationException(
+            "The attribute-value command has not been applied.");
+        AttributeEntity attribute = _attribute ?? throw new InvalidOperationException(
+            "The attribute-value command has not been applied.");
+        ValidateModelSpaceEntity(document, insert);
+        AttributeEntity current = ResolveAttribute(insert, Tag, Occurrence);
+        if (!ReferenceEquals(current, attribute))
+        {
+            throw new InvalidOperationException(
+                $"Attribute '{Tag}' occurrence {Occurrence} is no longer the retained attribute.");
+        }
+        return attribute;
+    }
+
+    private static AttributeEntity ResolveAttribute(
+        Insert insert,
+        string tag,
+        int occurrence)
+    {
+        int currentOccurrence = 0;
+        foreach (AttributeEntity attribute in insert.Attributes)
+        {
+            if (!string.Equals(attribute.Tag, tag, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (currentOccurrence == occurrence)
+            {
+                return attribute;
+            }
+            currentOccurrence++;
+        }
+
+        throw new InvalidOperationException(
+            $"INSERT handle {insert.Handle:X} has no attribute '{tag}' occurrence {occurrence}.");
+    }
+
+    private static void SetValueTransactional(
+        AttributeEntity attribute,
+        string value,
+        string? mtextValue)
+    {
+        string rollbackValue = attribute.Value;
+        string? rollbackMTextValue = attribute.MText?.Value;
+        try
+        {
+            attribute.Value = value;
+            if (attribute.MText is MText mtext)
+            {
+                mtext.Value = mtextValue ?? value;
+            }
+        }
+        catch
+        {
+            attribute.Value = rollbackValue;
+            if (attribute.MText is MText mtext && rollbackMTextValue is not null)
+            {
+                mtext.Value = rollbackMTextValue;
+            }
+            throw;
+        }
+    }
+}

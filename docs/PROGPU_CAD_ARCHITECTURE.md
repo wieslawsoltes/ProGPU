@@ -791,10 +791,69 @@ the snapshot explicitly at the bound instead of returning a partially rendered
 drawing; depth and cycle failures diagnose only the affected INSERT. Expansion
 is `O(I + E)` before the `O(E log E)` BVH build for `I` block instances and `E`
 expanded visible entities; camera replay remains independent of both source and
-expanded entity counts. Dynamic evaluation graphs, XRefs, and attribute text
-are explicitly diagnosed rather than rendered approximately. Shared block-
+expanded entity counts. Dynamic evaluation graphs and XRefs are explicitly
+diagnosed rather than rendered approximately. Shared block-
 fragment/GPU instance reuse remains a later optimization after inherited-style
 variants and instance hit identity are fully specified.
+
+### Block attribute lowering
+
+ATTDEF and ATTRIB use the existing retained TEXT/MTEXT pipelines rather than a
+second attribute renderer. During INSERT expansion, a nonconstant ATTDEF is a
+template and emits no pixels; its matching ATTRIB owns the per-reference value.
+A constant ATTDEF remains definition-owned and is emitted once for every INSERT
+or MINSERT cell. A malformed constant ATTRIB is ignored so it cannot duplicate
+the definition-owned value. Standalone model-space ATTDEF entities remain
+ordinary visible default text. Invisible attribute flags suppress both display
+and print while leaving the mutable document data intact; Verify and Preset do
+not change rendering.
+
+AutoCAD attribute-reference geometry is already transformed from block space
+when the reference is created. ProGPU therefore applies only the containing
+ancestor transform to ATTRIB coordinates. An MINSERT cell adds its rotated,
+unscaled row/column offset, but never reapplies the referenced INSERT's scale,
+rotation, base-point shift, or normal. Nested INSERTs consequently transform
+the baked inner reference exactly once. Layer `0`, ByBlock style, root-handle
+identity, plottable-layer filtering, expansion limits, diagnostics, spatial
+selection, print replay, and native-picture compilation remain the same as for
+other expanded text descendants.
+
+Single-line values lower through `CompileText`. Multiline and constant-
+multiline values require the typed embedded `MText` payload and lower through
+the complete TrueType or standard-SHX `CompileMText` path, retaining columns,
+stacks, masks, decorations, glyph runs, paths, bounds, and exact selection.
+`CadSetAttributeValueCommand` resolves one model-space INSERT plus a
+case-insensitive tag and explicit duplicate-tag occurrence, updates the
+single-line and embedded-MTEXT values together, and retains exact prior values
+for generation-synchronized Undo/Redo. Constant values remain definition-owned
+and are rejected by that reference edit command.
+
+For `I` array cells, `B` non-attribute block children, `C` visible constant
+definitions, and `A` visible variable references, lowering is
+`O(I * (B + C + A))` time and immutable output storage, bounded by the existing
+array, nesting, expanded-entity, text-code-unit, and glyph limits. The traversal
+adds no per-frame work or native crossings; stable scene/print replay retains
+the same command and device-resource behavior. ATTDISP override state,
+annotative contexts, fields, dynamic-block evaluation, and a constant-definition
+editing command remain explicit future contracts.
+
+The 2026-08-28 matched macOS Release checkpoint used .NET 10.0.5, three
+warmups, 24 samples, 100 variable attributed INSERTs with 21-character Inter
+values, and 10,000 exact-selection queries. It produced exactly 100 source,
+200 expanded, and 100 recorded entities/commands with zero unsupported or
+invalid entities. Snapshot p50/p95/p99 was
+`9.9083/13.8461/16.5490 ms` at `484,144 B/op`; plan-scene compilation was
+`0.0254/0.0282/0.2904 ms` at `58,280 B/op`; exact point and bounds selection
+were `458.0/862.7/996.4 us` and `310.5/441.2/644.6 us`, both at zero managed
+bytes per operation. The same final binaries and equal-length ordinary TEXT
+control produced 100 source/expanded/recorded entities, snapshot
+`10.3279/14.5186/17.1422 ms` at `476,032 B/op`, plan scene
+`0.0247/0.0289/0.3796 ms` at `58,280 B/op`, point selection
+`439.8/757.9/1163.5 us`, and bounds selection
+`317.2/562.7/665.7 us`, again with zero selection allocation. The extra
+attribute traversal therefore stays in the same measured complexity and
+latency class; its `8,112 B` snapshot difference is the retained INSERT/object
+graph overhead for the 100-reference workload, not per-frame state.
 
 ## Retained TrueType TEXT lowering
 
@@ -1970,6 +2029,44 @@ Sources consulted on 2026-08-27 and 2026-08-28:
   glyph texture residency to emulate. Rejected GPU text layout, per-frame
   parsing/interpretation, backend-specific CAD glyph caches, retained uploads,
   and a native-only layout fork.
+- For block attributes, Autodesk's current
+  [attribute-definition/reference guide](https://help.autodesk.com/cloudhelp/2025/ENU/OARX-DevGuide-Managed/files/GUID-2107599E-9405-4D8B-A6DD-83D603B41568.htm),
+  [ATTDEF DXF contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-F0EA099B-6F88-4BCC-BEC7-247BA64838A4.htm),
+  [ATTRIB DXF contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-7DD8B495-C3F8-48CD-A766-14F9D7D0DD9B.htm),
+  [`SetAttributeFromBlock`](https://help.autodesk.com/cloudhelp/2024/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_AttributeReference_SetAttributeFromBlock_Matrix3d.html),
+  [constant-reference ownership](https://help.autodesk.com/cloudhelp/2022/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_AttributeReference_IsConstant.html),
+  [attribute modes](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-67A2DDAD-2217-412F-8AEF-D4495192F45B.htm),
+  and [MINSERT behavior](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-A780A2FA-4A2E-4574-950F-E788AB71F527.htm)
+  were treated as the public CAD contract. Adopted definition-owned constants,
+  reference-owned variable values, invisible display/plot suppression, embedded
+  multiline content, transform-baked reference geometry, and array-cell
+  replication. Rejected rendering replaceable defaults, duplicating malformed
+  constant references, and applying INSERT geometry twice.
+  [Skia's shaped-text stages](https://docs.skia.org/docs/dev/design/text_shaper/),
+  [DirectWrite/Direct2D separation and reusable layouts](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite),
+  [Win2D retained text layout](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm),
+  [WebRender's retained rendering pipeline](https://searchfox.org/mozilla-central/source/gfx/docs/RenderingOverview.rst),
+  [Vello's retained-scene vision](https://github.com/linebender/vello/blob/main/doc/vision.md),
+  [Parley's reusable layout model](https://github.com/linebender/parley/blob/main/doc/concept.md),
+  and [HarfBuzz shape plans](https://harfbuzz.github.io/shaping-and-shape-plans.html)
+  were rechecked for the required rendering/text gate. Startup remains lazy and
+  uses the existing font resolvers; shaping/layout results, scene culling,
+  glyph/path cache keys and eviction, visibility-driven upload, worker-eligible
+  snapshot preparation, GPU batching, physical DPI/subpixel transforms,
+  fallback/variable-font identity, and device-loss/atlas invalidation all remain
+  in their existing typed owners. The slice adds no new device resource or
+  backend cache and rejects a per-attribute renderer or replay-time shaping.
+  The exact approved in-repository implementation provenance is
+  `CadSnapshotCompiler.cs` (`CompileText` and INSERT traversal),
+  `CadSnapshotCompiler.MText.cs`, `CadSnapshotCompiler.ShxMText.cs`,
+  `CadSelection.cs`, `CadPlanSceneCompiler.cs`, and
+  `CadPrintPlan.cs`; these original ProGPU algorithms are directly reused.
+  ACadSharp's public object model and pinned fixtures were inspected only to
+  identify persisted contracts and independently observable placement; no
+  dependency implementation text or structure was copied. The native C++ tree
+  has no CAD document compiler, so a paired native ATTRIB frontend is not
+  applicable. The unchanged generic native-picture compiler consumes the same
+  retained TEXT/MTEXT commands and is covered by the matched regression.
 - [Skia shaped-text design](https://docs.skia.org/docs/dev/design/text_shaper/),
   [SkParagraph decoration declarations](https://skia.googlesource.com/skia/+/7a1bf999357aa755768f7b72265b91eea5c2758c/modules/skparagraph/include/TextStyle.h),
   and [Skia text guidance](https://skia.org/docs/user/tips/): adopted separation
