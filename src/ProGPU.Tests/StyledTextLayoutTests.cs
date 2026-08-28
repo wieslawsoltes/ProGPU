@@ -1,12 +1,54 @@
 using ProGPU.Fonts.Inter;
 using ProGPU.Text;
 using ProGPU.Text.Shaping;
+using ProGPU.Scene;
+using ProGPU.Vector;
+using System.Numerics;
 using Xunit;
 
 namespace ProGPU.Tests;
 
 public sealed class StyledTextLayoutTests
 {
+    [Fact]
+    public void TransformedGlyphRangeRetainsSharedArraysAndLocalFontTransform()
+    {
+        ushort[] indices = [1, 2, 3];
+        Vector2[] positions = [Vector2.Zero, Vector2.One, new Vector2(2, 2)];
+        var context = new DrawingContext();
+        var brush = new SolidColorBrush(new Vector4(1, 0, 0, 1));
+
+        context.DrawTransformedGlyphRunRange(
+            indices,
+            positions,
+            1,
+            1,
+            InterFontFamily.Regular,
+            12.0f,
+            brush,
+            Vector2.Zero,
+            fontScaleX: 1.25f,
+            fontSkewX: 0.2f);
+
+        RenderCommand command = Assert.Single(context.Commands.ToArray());
+        Assert.Same(indices, command.GlyphIndices);
+        Assert.Same(positions, command.GlyphPositions);
+        Assert.Equal(1, command.GlyphRangeStart);
+        Assert.Equal(1, command.GlyphRangeCount);
+        Assert.True(command.HasFontTransform);
+        Assert.Equal(new Vector2(1.25f, 0.2f), command.FontTransform);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            context.DrawTransformedGlyphRunRange(
+                indices,
+                positions,
+                3,
+                1,
+                InterFontFamily.Regular,
+                12.0f,
+                brush,
+                Vector2.Zero));
+    }
+
     [Fact]
     public void OneStyleMatchesAuthoritativeTextLayoutGlyphsAndPositions()
     {

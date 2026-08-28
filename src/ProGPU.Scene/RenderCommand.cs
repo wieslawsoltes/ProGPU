@@ -3991,6 +3991,62 @@ public class DrawingContext :
             fontSkewX);
     }
 
+    /// <summary>
+    /// Records a transformed range of an existing shaped glyph stream without
+    /// allocating sliced arrays. Glyph positions remain outside the local font
+    /// stretch and shear, matching <see cref="DrawTransformedGlyphRun"/>.
+    /// </summary>
+    public void DrawTransformedGlyphRunRange(
+        ushort[] glyphIndices,
+        Vector2[] glyphPositions,
+        int glyphRangeStart,
+        int glyphRangeCount,
+        TtfFont font,
+        float fontSize,
+        Brush brush,
+        Vector2 position,
+        Matrix4x4 transform = default,
+        bool isBold = false,
+        bool isItalic = false,
+        TextRenderingMode textRenderingMode = TextRenderingMode.Grayscale,
+        TextHintingMode textHintingMode = TextHintingMode.Auto,
+        bool useVectorGlyphRendering = false,
+        bool preferGlyphAtlas = false,
+        bool useLogicalGlyphAtlasResolution = false,
+        float fontScaleX = 1f,
+        float fontSkewX = 0f)
+    {
+        ArgumentNullException.ThrowIfNull(glyphIndices);
+        ArgumentNullException.ThrowIfNull(glyphPositions);
+        ArgumentOutOfRangeException.ThrowIfNegative(glyphRangeStart);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(glyphRangeCount);
+        if (glyphRangeStart > glyphIndices.Length - glyphRangeCount ||
+            glyphRangeStart > glyphPositions.Length - glyphRangeCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(glyphRangeCount));
+        }
+
+        AddGlyphRun(
+            glyphIndices,
+            glyphPositions,
+            glyphRangeStart,
+            glyphRangeCount,
+            font,
+            fontSize,
+            brush,
+            position,
+            transform,
+            isBold,
+            isItalic,
+            textRenderingMode,
+            textHintingMode,
+            useVectorGlyphRendering,
+            preferGlyphAtlas,
+            useLogicalGlyphAtlasResolution,
+            fontScaleX,
+            fontSkewX);
+    }
+
     private void AddGlyphRun(
         ushort[] glyphIndices,
         Vector2[] glyphPositions,

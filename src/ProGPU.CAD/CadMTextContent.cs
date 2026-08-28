@@ -95,7 +95,10 @@ public readonly record struct CadMTextRunStyle(
     CadMTextVerticalAlignment VerticalAlignment,
     CadMTextColor Color,
     CadMTextDecoration Decorations,
-    CadMTextParagraphFormat Paragraph)
+    CadMTextParagraphFormat Paragraph,
+    bool HasWidthFactorOverride = false,
+    bool HasTrackingFactorOverride = false,
+    bool HasObliqueOverride = false)
 {
     public static CadMTextRunStyle Default => new(
         default,
@@ -408,7 +411,11 @@ public static class CadMTextParser
                 {
                     ReadPayload(ref index, escapeOffset, out ReadOnlySpan<char> payload);
                     double factor = ParsePositiveDouble(payload, escapeOffset, "width factor");
-                    ChangeStyle(style with { WidthFactor = factor }, escapeOffset);
+                    ChangeStyle(style with
+                    {
+                        WidthFactor = factor,
+                        HasWidthFactorOverride = true,
+                    }, escapeOffset);
                     return;
                 }
                 case 'T':
@@ -416,7 +423,11 @@ public static class CadMTextParser
                 {
                     ReadPayload(ref index, escapeOffset, out ReadOnlySpan<char> payload);
                     double factor = ParsePositiveDouble(payload, escapeOffset, "tracking factor");
-                    ChangeStyle(style with { TrackingFactor = factor }, escapeOffset);
+                    ChangeStyle(style with
+                    {
+                        TrackingFactor = factor,
+                        HasTrackingFactorOverride = true,
+                    }, escapeOffset);
                     return;
                 }
                 case 'Q':
@@ -429,7 +440,11 @@ public static class CadMTextParser
                         throw Error("MTEXT oblique angle must be greater than -85 and less than 85 degrees", escapeOffset);
                     }
 
-                    ChangeStyle(style with { ObliqueDegrees = degrees }, escapeOffset);
+                    ChangeStyle(style with
+                    {
+                        ObliqueDegrees = degrees,
+                        HasObliqueOverride = true,
+                    }, escapeOffset);
                     return;
                 }
                 case 'p':

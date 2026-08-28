@@ -113,9 +113,14 @@ public sealed class CadPlanSceneCompiler
             entities.Length +
             Math.Max(0, snapshot.TextGlyphRuns.Length - snapshot.Texts.Length) +
             snapshot.TextDecorations.Length +
+            snapshot.MTextGlyphRuns.Length +
+            snapshot.MTextBackgrounds.Length +
+            snapshot.MTextDecorations.Length +
+            snapshot.MTextStrokes.Length +
             snapshot.ShxGlyphInstances.Length +
             snapshot.ShxDecorationSegments.Length));
         Pen[] pens = CreatePens(styles, options);
+        var mtextBrushes = new Dictionary<uint, Brush>();
         var diagnostics = new List<CadDiagnostic>();
         var warnedLineTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var warnedLineTypeSubstitutions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -292,6 +297,13 @@ public sealed class CadPlanSceneCompiler
                         pen.Brush,
                         snapshot,
                         snapshot.Texts.Span[entity.PrimitiveIndex]);
+                    break;
+                case CadEntityKind.MText:
+                    RecordMText(
+                        context,
+                        snapshot,
+                        snapshot.MTexts.Span[entity.PrimitiveIndex],
+                        mtextBrushes);
                     break;
                 case CadEntityKind.ShxText:
                     RecordShxText(
@@ -1000,6 +1012,114 @@ public sealed class CadPlanSceneCompiler
         }
     }
 
+    private static void RecordMText(
+        DrawingContext context,
+        CadDocumentSnapshot snapshot,
+        in CadMTextPrimitive text,
+        Dictionary<uint, Brush> brushes)
+    {
+        Matrix4x4 transform = CreateProjectionTransform(
+            text.Origin,
+            text.XAxis,
+            text.YAxis,
+            snapshot.RebaseOrigin);
+        ReadOnlySpan<CadMTextRectangle> backgrounds = snapshot.MTextBackgrounds.Span.Slice(
+            text.BackgroundOffset,
+            text.BackgroundCount);
+        for (int index = 0; index < backgrounds.Length; index++)
+        {
+            CadMTextRectangle rectangle = backgrounds[index];
+            context.DrawRectangle(
+                GetMTextBrush(brushes, rectangle.Red, rectangle.Green, rectangle.Blue, rectangle.Alpha),
+                null,
+                new Rect(rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height),
+                transform);
+        }
+
+        ReadOnlySpan<CadMTextGlyphRun> runs = snapshot.MTextGlyphRuns.Span.Slice(
+            text.RunOffset,
+            text.RunCount);
+        ReadOnlySpan<ProGPU.Text.TtfFont> fonts = snapshot.TextFonts.Span;
+        for (int index = 0; index < runs.Length; index++)
+        {
+            CadMTextGlyphRun run = runs[index];
+            context.DrawTransformedGlyphRunRange(
+                snapshot.TextGlyphIndexArray,
+                snapshot.TextGlyphPositionArray,
+                run.GlyphOffset,
+                run.GlyphCount,
+                fonts[run.FontIndex],
+                run.FontSize,
+                GetMTextBrush(brushes, run.Red, run.Green, run.Blue, run.Alpha),
+                Vector2.Zero,
+                transform,
+                useVectorGlyphRendering: true,
+                fontScaleX: run.WidthScale,
+                fontSkewX: run.SkewX);
+        }
+
+        ReadOnlySpan<CadMTextRectangle> decorations = snapshot.MTextDecorations.Span.Slice(
+            text.DecorationOffset,
+            text.DecorationCount);
+        for (int index = 0; index < decorations.Length; index++)
+        {
+            CadMTextRectangle rectangle = decorations[index];
+            context.DrawRectangle(
+                GetMTextBrush(brushes, rectangle.Red, rectangle.Green, rectangle.Blue, rectangle.Alpha),
+                null,
+                new Rect(rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height),
+                transform);
+        }
+
+        ReadOnlySpan<CadMTextStroke> strokes = snapshot.MTextStrokes.Span.Slice(
+            text.StrokeOffset,
+            text.StrokeCount);
+        for (int index = 0; index < strokes.Length; index++)
+        {
+            CadMTextStroke stroke = strokes[index];
+            double dx = stroke.EndX - stroke.StartX;
+            double dy = stroke.EndY - stroke.StartY;
+            double length = Math.Sqrt((dx * dx) + (dy * dy));
+            if (!(length > 0.0) || !double.IsFinite(length)) continue;
+            dx /= length;
+            dy /= length;
+            CadPoint3D strokeOrigin = text.Origin +
+                (text.XAxis * stroke.StartX) +
+                (text.YAxis * stroke.StartY);
+            CadPoint3D along = (text.XAxis * dx) + (text.YAxis * dy);
+            CadPoint3D across =
+                ((text.XAxis * -dy) + (text.YAxis * dx)) * stroke.Thickness;
+            Matrix4x4 strokeTransform = CreateProjectionTransform(
+                strokeOrigin,
+                along,
+                across,
+                snapshot.RebaseOrigin);
+            context.DrawRectangle(
+                GetMTextBrush(brushes, stroke.Red, stroke.Green, stroke.Blue, stroke.Alpha),
+                null,
+                new Rect(0.0f, -0.5f, ToFloat(length), 1.0f),
+                strokeTransform);
+        }
+    }
+
+    private static Brush GetMTextBrush(
+        Dictionary<uint, Brush> brushes,
+        byte red,
+        byte green,
+        byte blue,
+        byte alpha)
+    {
+        uint key = ((uint)red << 24) | ((uint)green << 16) | ((uint)blue << 8) | alpha;
+        if (brushes.TryGetValue(key, out Brush? brush)) return brush;
+        brush = new SolidColorBrush(new Vector4(
+            red / 255.0f,
+            green / 255.0f,
+            blue / 255.0f,
+            alpha / 255.0f));
+        brushes.Add(key, brush);
+        return brush;
+    }
+
     private static Matrix4x4 CreateProjectionTransform(
         CadPoint3D center,
         CadCoordinateSystem basis,
@@ -1039,7 +1159,7 @@ public sealed class CadPlanSceneCompiler
     }
 
     private static bool UsesStroke(CadEntityKind kind) =>
-        kind is not (CadEntityKind.Solid or CadEntityKind.Text or CadEntityKind.ShxText);
+        kind is not (CadEntityKind.Solid or CadEntityKind.Text or CadEntityKind.ShxText or CadEntityKind.MText);
 
     private static void ValidateOptions(CadPlanSceneOptions options)
     {

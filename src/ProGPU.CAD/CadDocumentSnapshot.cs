@@ -17,12 +17,19 @@ public enum CadEntityKind : byte
     Polyline3D = 10,
     Text = 11,
     ShxText = 12,
+    MText = 13,
 }
 
 public readonly record struct CadLayerSnapshot(
     string Name,
     bool IsVisible,
     bool IsPlottable);
+
+public readonly record struct CadColor32(
+    byte Red,
+    byte Green,
+    byte Blue,
+    byte Alpha = byte.MaxValue);
 
 public readonly record struct CadStrokeStyle(
     byte Red,
@@ -215,6 +222,67 @@ public readonly record struct CadTextDecoration(
     float Width,
     float Height);
 
+/// <summary>
+/// One retained MTEXT entity. Glyphs, colored runs, filled rectangles, and
+/// separator strokes address immutable snapshot-wide streams.
+/// </summary>
+public readonly record struct CadMTextPrimitive(
+    CadPoint3D Origin,
+    CadPoint3D XAxis,
+    CadPoint3D YAxis,
+    int GlyphOffset,
+    int GlyphCount,
+    int RunOffset,
+    int RunCount,
+    int BackgroundOffset,
+    int BackgroundCount,
+    int DecorationOffset,
+    int DecorationCount,
+    int StrokeOffset,
+    int StrokeCount,
+    int ColumnCount,
+    float ContentWidth,
+    float ContentHeight);
+
+/// <summary>
+/// A contiguous MTEXT glyph range sharing typeface, local font transform, and paint.
+/// Positions are already retained in the entity's local drawing coordinates.
+/// </summary>
+public readonly record struct CadMTextGlyphRun(
+    int GlyphOffset,
+    int GlyphCount,
+    int FontIndex,
+    float FontSize,
+    float WidthScale,
+    float SkewX,
+    byte Red,
+    byte Green,
+    byte Blue,
+    byte Alpha);
+
+/// <summary>A filled local MTEXT rectangle used by masks and decorations.</summary>
+public readonly record struct CadMTextRectangle(
+    float X,
+    float Y,
+    float Width,
+    float Height,
+    byte Red,
+    byte Green,
+    byte Blue,
+    byte Alpha);
+
+/// <summary>A local MTEXT separator stroke, primarily for stacked fractions.</summary>
+public readonly record struct CadMTextStroke(
+    float StartX,
+    float StartY,
+    float EndX,
+    float EndY,
+    float Thickness,
+    byte Red,
+    byte Green,
+    byte Blue,
+    byte Alpha);
+
 public readonly record struct CadShxTextPrimitive(
     CadPoint3D Origin,
     CadPoint3D XAxis,
@@ -276,6 +344,11 @@ public sealed class CadDocumentSnapshot
     private readonly CadTextPrimitive[] _texts;
     private readonly CadTextGlyphRun[] _textGlyphRuns;
     private readonly CadTextDecoration[] _textDecorations;
+    private readonly CadMTextPrimitive[] _mtexts;
+    private readonly CadMTextGlyphRun[] _mtextGlyphRuns;
+    private readonly CadMTextRectangle[] _mtextBackgrounds;
+    private readonly CadMTextRectangle[] _mtextDecorations;
+    private readonly CadMTextStroke[] _mtextStrokes;
     private readonly ushort[] _textGlyphIndices;
     private readonly Vector2[] _textGlyphPositions;
     private readonly TtfFont[] _textFonts;
@@ -314,6 +387,11 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadTextPrimitive> Texts => _texts;
     public ReadOnlyMemory<CadTextGlyphRun> TextGlyphRuns => _textGlyphRuns;
     public ReadOnlyMemory<CadTextDecoration> TextDecorations => _textDecorations;
+    public ReadOnlyMemory<CadMTextPrimitive> MTexts => _mtexts;
+    public ReadOnlyMemory<CadMTextGlyphRun> MTextGlyphRuns => _mtextGlyphRuns;
+    public ReadOnlyMemory<CadMTextRectangle> MTextBackgrounds => _mtextBackgrounds;
+    public ReadOnlyMemory<CadMTextRectangle> MTextDecorations => _mtextDecorations;
+    public ReadOnlyMemory<CadMTextStroke> MTextStrokes => _mtextStrokes;
     public ReadOnlyMemory<ushort> TextGlyphIndices => _textGlyphIndices;
     public ReadOnlyMemory<Vector2> TextGlyphPositions => _textGlyphPositions;
     public ReadOnlyMemory<TtfFont> TextFonts => _textFonts;
@@ -353,6 +431,11 @@ public sealed class CadDocumentSnapshot
         CadTextPrimitive[] texts,
         CadTextGlyphRun[] textGlyphRuns,
         CadTextDecoration[] textDecorations,
+        CadMTextPrimitive[] mtexts,
+        CadMTextGlyphRun[] mtextGlyphRuns,
+        CadMTextRectangle[] mtextBackgrounds,
+        CadMTextRectangle[] mtextDecorations,
+        CadMTextStroke[] mtextStrokes,
         ushort[] textGlyphIndices,
         Vector2[] textGlyphPositions,
         TtfFont[] textFonts,
@@ -389,6 +472,11 @@ public sealed class CadDocumentSnapshot
         _texts = texts;
         _textGlyphRuns = textGlyphRuns;
         _textDecorations = textDecorations;
+        _mtexts = mtexts;
+        _mtextGlyphRuns = mtextGlyphRuns;
+        _mtextBackgrounds = mtextBackgrounds;
+        _mtextDecorations = mtextDecorations;
+        _mtextStrokes = mtextStrokes;
         _textGlyphIndices = textGlyphIndices;
         _textGlyphPositions = textGlyphPositions;
         _textFonts = textFonts;

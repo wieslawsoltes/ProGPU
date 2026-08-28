@@ -367,6 +367,11 @@ public static class CadSelectionHitTester
                 snapshot.Texts.Span[header.PrimitiveIndex],
                 point,
                 tolerance),
+            CadEntityKind.MText => CadTextSelection.HitTestMTextPoint(
+                snapshot,
+                snapshot.MTexts.Span[header.PrimitiveIndex],
+                point,
+                tolerance),
             CadEntityKind.ShxText => CadTextSelection.HitTestShxPoint(
                 snapshot,
                 snapshot.ShxTexts.Span[header.PrimitiveIndex],
@@ -441,6 +446,11 @@ public static class CadSelectionHitTester
             CadEntityKind.Text => CadTextSelection.HitTestTextBounds(
                 snapshot,
                 snapshot.Texts.Span[header.PrimitiveIndex],
+                bounds,
+                mode),
+            CadEntityKind.MText => CadTextSelection.HitTestMTextBounds(
+                snapshot,
+                snapshot.MTexts.Span[header.PrimitiveIndex],
                 bounds,
                 mode),
             CadEntityKind.ShxText => CadTextSelection.HitTestShxBounds(

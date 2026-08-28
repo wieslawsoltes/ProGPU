@@ -34,6 +34,9 @@ public sealed class CadMTextTests
             CadMTextDecoration.StrikeThrough,
             runs[1].Style.Decorations);
         Assert.Equal(new CadMTextHeight(1.5, true), runs[1].Style.Height);
+        Assert.True(runs[1].Style.HasWidthFactorOverride);
+        Assert.True(runs[1].Style.HasTrackingFactorOverride);
+        Assert.True(runs[1].Style.HasObliqueOverride);
         Assert.Equal(0.8, runs[1].Style.WidthFactor);
         Assert.Equal(1.2, runs[1].Style.TrackingFactor);
         Assert.Equal(12.0, runs[1].Style.ObliqueDegrees);

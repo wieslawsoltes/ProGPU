@@ -1269,7 +1269,7 @@ public sealed class CadSnapshotAndSceneTests
     }
 
     [Fact]
-    public void VerticalStyleAndMTextAreExplicitFidelityGates()
+    public void VerticalStyleIsGatedWhileHorizontalMTextIsRetained()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
         session.Edit("Add unsupported text modes", document =>
@@ -1291,17 +1291,13 @@ public sealed class CadSnapshotAndSceneTests
                 TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
             });
 
-        Assert.Empty(snapshot.Entities.ToArray());
-        Assert.Equal(2, snapshot.Statistics.UnsupportedEntityCount);
-        Assert.All(
-            snapshot.Diagnostics.ToArray(),
-            diagnostic => Assert.Equal("CADSNAP003", diagnostic.Code));
+        CadEntityHeader entity = Assert.Single(snapshot.Entities.ToArray());
+        Assert.Equal(CadEntityKind.MText, entity.Kind);
+        Assert.Single(snapshot.MTexts.ToArray());
+        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Contains(
             snapshot.Diagnostics.ToArray(),
             diagnostic => diagnostic.Message.Contains("Vertical", StringComparison.Ordinal));
-        Assert.Contains(
-            snapshot.Diagnostics.ToArray(),
-            diagnostic => diagnostic.Message.Contains("MTEXT", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -1395,6 +1395,102 @@ public sealed class CadSelectionTests
     }
 
     [Fact]
+    public void MTextPointSelectionUsesInlineStretchShearAndExactGlyphOutline()
+    {
+        CadDocumentSnapshot snapshot = CompileMText(@"\W1.4;\Q12;A");
+        CadMTextPrimitive text = Assert.Single(snapshot.MTexts.ToArray());
+        CadMTextGlyphRun run = Assert.Single(snapshot.MTextGlyphRuns.ToArray());
+        TtfFont font = snapshot.TextFonts.Span[run.FontIndex];
+        Vector2 glyphPosition = snapshot.TextGlyphPositions.Span[run.GlyphOffset];
+        ushort glyphId = snapshot.TextGlyphIndices.Span[run.GlyphOffset];
+        PathGeometry outline = Assert.IsType<PathGeometry>(font.GetGlyphOutline(glyphId));
+        Vector2 outlinePoint = outline.Figures[0].StartPoint;
+        double scale = run.FontSize / font.UnitsPerEm;
+        double localX = glyphPosition.X +
+            ((outlinePoint.X * run.WidthScale) + (outlinePoint.Y * run.SkewX)) * scale;
+        double localY = glyphPosition.Y - (outlinePoint.Y * scale);
+        CadPoint3D world = text.Origin +
+            (text.XAxis * localX) +
+            (text.YAxis * localY);
+
+        CadPointHitResult result = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            SingleCandidate(snapshot),
+            world,
+            1e-7);
+
+        Assert.Equal(CadPointHitStatus.Hit, result.Status);
+        Assert.InRange(result.Distance, 0.0, 1e-7);
+    }
+
+    [Fact]
+    public void MTextSelectionIncludesMasksDecorationsAndStackSeparators()
+    {
+        CadDocumentSnapshot snapshot = CompileMText(
+            @"\Lunder\l\S1/2;",
+            configure: text =>
+            {
+                text.RectangleWidth = 80;
+                text.BackgroundColor = new ACadSharp.Color(20, 30, 40);
+                text.BackgroundFillFlags = BackgroundFillFlags.UseBackgroundFillColor;
+            });
+        CadMTextPrimitive text = Assert.Single(snapshot.MTexts.ToArray());
+        CadSelectionCandidate candidate = SingleCandidate(snapshot);
+        CadMTextRectangle mask = Assert.Single(snapshot.MTextBackgrounds.ToArray());
+        CadMTextRectangle decoration = Assert.Single(snapshot.MTextDecorations.ToArray());
+        CadMTextStroke stroke = Assert.Single(snapshot.MTextStrokes.ToArray());
+
+        AssertPointHit(mask.X + (mask.Width * 0.5), mask.Y + (mask.Height * 0.5));
+        AssertPointHit(
+            decoration.X + (decoration.Width * 0.5),
+            decoration.Y + (decoration.Height * 0.5));
+        AssertPointHit(
+            (stroke.StartX + stroke.EndX) * 0.5,
+            (stroke.StartY + stroke.EndY) * 0.5);
+        CadBoundsHitResult window = CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            candidate,
+            snapshot.Entities.Span[0].Bounds,
+            CadBoundsSelectionMode.Window);
+        Assert.Equal(CadBoundsHitStatus.Hit, window.Status);
+
+        void AssertPointHit(double x, double y)
+        {
+            CadPoint3D world = text.Origin + (text.XAxis * x) + (text.YAxis * y);
+            Assert.Equal(
+                CadPointHitStatus.Hit,
+                CadSelectionHitTester.HitTestPoint(snapshot, candidate, world, 1e-9).Status);
+        }
+    }
+
+    [Fact]
+    public void WarmMTextSelectionAllocatesNoManagedMemory()
+    {
+        CadDocumentSnapshot snapshot = CompileMText("CAD");
+        CadSelectionCandidate candidate = SingleCandidate(snapshot);
+        CadBounds3D bounds = snapshot.Entities.Span[0].Bounds;
+        CadPoint3D point = bounds.Center;
+        _ = CadSelectionHitTester.HitTestPoint(snapshot, candidate, point, 10.0);
+        _ = CadSelectionHitTester.HitTestBounds(
+            snapshot, candidate, bounds, CadBoundsSelectionMode.Window);
+        _ = GC.GetAllocatedBytesForCurrentThread();
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int checksum = 0;
+        for (int index = 0; index < 1_000; index++)
+        {
+            checksum += CadSelectionHitTester.HitTestPoint(
+                snapshot, candidate, point, 10.0).IsSupported ? 1 : 0;
+            checksum += CadSelectionHitTester.HitTestBounds(
+                snapshot, candidate, bounds, CadBoundsSelectionMode.Window).IsHit ? 1 : 0;
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(2_000, checksum);
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
     public void ExactBoundsQueryIncludesTrueTypeAndShxTextWithoutUnsupportedFallbacks()
     {
         CadShxGlyphCache cache = CreateSelectionShxCache();
@@ -1595,6 +1691,29 @@ public sealed class CadSelectionTests
             Style = style,
             Height = height,
         });
+        return new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document),
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new SelectionTextFontResolver(InterFontFamily.Regular),
+            });
+    }
+
+    private static CadDocumentSnapshot CompileMText(
+        string value,
+        Action<MText>? configure = null)
+    {
+        var document = new CadDocument();
+        var style = new TextStyle("INTER") { Filename = "Inter.ttf" };
+        document.TextStyles.Add(style);
+        var text = new MText
+        {
+            Style = style,
+            Value = value,
+            Height = 10.0,
+        };
+        configure?.Invoke(text);
+        document.Entities.Add(text);
         return new CadSnapshotCompiler().Compile(
             new CadDocumentSession(document),
             new CadSnapshotOptions

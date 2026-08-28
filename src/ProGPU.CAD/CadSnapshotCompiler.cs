@@ -32,10 +32,11 @@ public sealed class CadSnapshotOptions
     public bool IncludeNonPlottableLayers { get; init; } = true;
     public ICadTextFontResolver? TextFontResolver { get; init; }
     public ICadShxFontResolver? ShxFontResolver { get; init; }
+    public CadColor32 DrawingBackgroundColor { get; init; } = new(0, 0, 0);
 }
 
 /// <summary>Compiles the mutable ACadSharp graph into immutable ProGPU CAD streams.</summary>
-public sealed class CadSnapshotCompiler
+public sealed partial class CadSnapshotCompiler
 {
     private const double TwoPi = Math.PI * 2.0;
 
@@ -95,6 +96,11 @@ public sealed class CadSnapshotCompiler
         var texts = new List<CadTextPrimitive>();
         var textGlyphRuns = new List<CadTextGlyphRun>();
         var textDecorations = new List<CadTextDecoration>();
+        var mtexts = new List<CadMTextPrimitive>();
+        var mtextGlyphRuns = new List<CadMTextGlyphRun>();
+        var mtextBackgrounds = new List<CadMTextRectangle>();
+        var mtextDecorations = new List<CadMTextRectangle>();
+        var mtextStrokes = new List<CadMTextStroke>();
         var textGlyphIndices = new List<ushort>();
         var textGlyphPositions = new List<Vector2>();
         var textFonts = new List<TtfFont>();
@@ -170,6 +176,11 @@ public sealed class CadSnapshotCompiler
             texts.ToArray(),
             textGlyphRuns.ToArray(),
             textDecorations.ToArray(),
+            mtexts.ToArray(),
+            mtextGlyphRuns.ToArray(),
+            mtextBackgrounds.ToArray(),
+            mtextDecorations.ToArray(),
+            mtextStrokes.ToArray(),
             textGlyphIndices.ToArray(),
             textGlyphPositions.ToArray(),
             textFonts.ToArray(),
@@ -314,8 +325,27 @@ public sealed class CadSnapshotCompiler
                         shxGlyphInstances,
                         shxDecorationSegments,
                         shxFontResolver),
-                    MText => throw new CadUnsupportedEntityException(
-                        "MTEXT requires inline-format, paragraph, column, background, and attachment lowering."),
+                    MText mtext => CompileMText(
+                        mtext,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        resolvedStyle,
+                        effectiveLayer.Color,
+                        options,
+                        diagnostics,
+                        mtexts,
+                        mtextGlyphRuns,
+                        mtextBackgrounds,
+                        mtextDecorations,
+                        mtextStrokes,
+                        textGlyphIndices,
+                        textGlyphPositions,
+                        textFonts,
+                        textFontIndices,
+                        shxGlyphInstances.Count),
                     _ => null,
                 };
 
@@ -347,7 +377,7 @@ public sealed class CadSnapshotCompiler
                         $"Entity path {FormatEntityPath(rootHandle, entity.Handle)} ({entity.ObjectName}) is not yet supported: {exception.Message}"));
             }
             catch (Exception exception) when (
-                (exception is ArgumentException or ArithmeticException or InvalidOperationException) &&
+                (exception is ArgumentException or ArithmeticException or InvalidOperationException or FormatException) &&
                 exception is not CadSnapshotExpansionLimitException)
             {
                 invalidCount++;

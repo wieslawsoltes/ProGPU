@@ -130,7 +130,7 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   zoom; it never expands ordinary text into per-glyph path commands. Font
   substitution is an explicit diagnostic. Overline, underline, and strike-
   through toggles retain bounded filled decoration rectangles in the same
-  affine basis. Extrusion and MTEXT remain diagnosed fidelity gates. Documented
+  affine basis. Extrusion remains a diagnosed fidelity gate. Documented
   decimal-character, degree, plus/minus, diameter, percent, and DXF Unicode
   escapes are decoded before shaping.
 - Model-space lineweights are recorded as fixed device-space strokes; explicit
@@ -849,7 +849,7 @@ therefore adopts retained metric-driven rectangles and cluster-safe range
 mapping, while rejecting per-glyph decoration expansion, re-shaping around a
 toggle, or putting decoration state into cached glyph identities.
 
-Snapshot work is `O(C + G)` for `C` input/decoded UTF-16 code units and `G`
+Single-line snapshot work is `O(C + G)` for `C` input/decoded UTF-16 code units and `G`
 shaped glyphs, with bounded output storage `O(C + G + R + F + D)` while
 decorations are present, for fallback runs `R`, interned faces `F`, and merged
 visual decoration runs `D <= G`. Configurable per-entity UTF-16 and document-
@@ -857,10 +857,10 @@ wide glyph limits reject oversized input atomically before it can enter retained
 streams. Plan recording is `O(R + D)` commands. Stable replay uses the existing
 ProGPU retained glyph cache,
 DPI/subpixel policy, fallback, color-font, variable-
-font, and vector-text coverage contracts. MTEXT still requires bounded inline-
-format, paragraph, column, background, and attachment lowering. It remains
-explicit instead of inheriting the older `ProGPU.Dxf` renderer's estimated
-bounds, per-character width loop, or formatting-stripping approximation.
+font, and vector-text coverage contracts. MTEXT uses the styled layout and
+immutable stream contract below instead of inheriting the older `ProGPU.Dxf`
+renderer's estimated bounds, per-character width loop, or formatting-stripping
+approximation.
 
 This is a managed ACadSharp snapshot/resource adapter. It changes no shader,
 stable C ABI, native renderer, or compositor algorithm. Both compositors already
@@ -891,11 +891,67 @@ bounded before retained snapshot streams change.
 
 Parsing is `O(C + R)` time and `O(D + R)` storage for `C` source code units,
 `D` decoded code units, and `R` semantic inlines. It performs no font lookup,
-shaping, GPU work, reflection, or ACadSharp mutation. The next stage consumes
-this typed stream to produce positioned ProGPU glyph runs, decorations,
-columns, and per-column background masks; until that stage is connected,
-snapshot compilation continues diagnosing MTEXT instead of painting parsed
-content approximately.
+shaping, GPU work, reflection, or ACadSharp mutation.
+
+## Retained MTEXT layout, replay, and selection
+
+`CadSnapshotCompiler` consumes the typed content once. `StyledTextLayout` is an
+original generalization of the authoritative in-repository
+`TextLayout.GenerateShapedLayout` pipeline: paragraph-wide UAX #9 resolution,
+fallback-aware OpenType shaping with pre/post context, cluster-safe wrapping,
+visual reordering, variable metrics, width/tracking, baseline shifts,
+justification, and inline boxes. A single-style differential test matches the
+existing layout's glyph identities, clusters, and positions. Layout is
+`O(T + G + B)` average time and storage for UTF-16 units `T`, glyphs `G`, and
+inline boxes `B`; adversarial platform fallback discovery retains the existing
+font-manager cost.
+
+The MTEXT compiler maps semantic paragraph and column breaks without stripping
+them. It applies the documented 3-on-5 line-spacing basis, distinguishes Exact
+from AtLeast spacing, keeps static/dynamic persisted column heights bounded,
+honors explicit column breaks and reverse flow, excludes gutters from each
+background mask, and resolves all nine attachment points before composing the
+entity's WCS normal/direction basis with any nested block affine transform.
+Horizontal, diagonal, and tolerance stacks remain inline objects; their upper
+and lower operands are independently shaped at a bounded relative size and
+their separators are retained filled geometry. Unsupported fields, paragraph
+indentation/tab payloads, vertical flow, SHX/Big Font content, invalid numeric
+state, and content exceeding persisted column capacity remain explicit typed
+diagnostics rather than degraded output.
+
+The immutable snapshot owns global glyph indices/positions and font identities,
+plus MTEXT-specific contiguous runs carrying font size, stretch, shear, and
+RGBA paint. Separate packed streams retain masks/frames, decorations, and stack
+separators. Snapshot publication is transactional: parsing, shaping, column
+placement, bounds, and budgets complete in temporary storage before any shared
+stream changes. Plan recording is `O(R + M + D + S)` commands for runs `R`, mask
+rectangles `M`, decoration rectangles `D`, and separators `S`; replay never
+reparses or reshapes content. `DrawTransformedGlyphRunRange` combines the
+existing ProGPU-owned range and local-font-transform contracts while preserving
+shared arrays and unsheared positions.
+
+Point and Window/Crossing selection traverse the same cached analytic glyph
+outlines with the retained stretch/shear, plus the exact filled mask,
+decoration, and separator geometry. Warm selection allocates zero managed
+memory. The print compiler reuses the identical retained commands. The managed
+compositor and native picture compiler already consume this shared glyph/shape
+contract; a native-picture regression covers formatted MTEXT, so no separate
+native CAD scene compiler applies to this slice. Matched pixel and Release
+latency/throughput evidence remains required before making a performance claim.
+
+A 2026-08-28 macOS arm64 Release smoke run of the checked-in benchmark fixture
+(`100` formatted MTEXT entities, one warmup, five measured iterations, `10,000`
+exact-selection queries) recorded snapshot p50/p95/p99 of
+`37.2231/39.8837/39.8837 ms`, plan-scene
+`0.2485/0.5205/0.5205 ms`, point selection
+`505.2/600.5/843.2 us`, and bounds selection
+`192.1/262.4/331.7 us`. Warm exact selection reported zero managed allocation;
+snapshot construction allocated `3,454,976` bytes and plan recording `864,920`
+bytes per 100-entity operation. This is a bounded feature smoke measurement,
+not a before/after performance or quality claim. The reproducible command uses
+`--entities 0 --mtext-entities 100 --text-selection --warmup 1 --iterations 5
+--queries 10000`; integration performance claims still require longer matched
+runs and the repository's platform/GPU profiling gates.
 
 ## Bounded standard SHX source
 
@@ -1524,10 +1580,11 @@ Sources consulted on 2026-08-27 and 2026-08-28:
   Align/Fit scaling, generation flags, decimal/symbol/decoration controls,
   OpenType decoration metrics, font metadata, and MTEXT attachment/flow/column scope; adapted
   supported TrueType TEXT into normalized retained font and decoration runs with
-  conservative affine bounds and the MTEXT source language into bounded typed
-  immutable inlines; rejected guessed text rectangles, stripped MTEXT
-  formatting, silent SHX substitution, and claiming rendered MTEXT support
-  before its retained layout contract lands.
+  conservative affine bounds and MTEXT into bounded typed inlines, styled
+  paragraph layout, packed colored glyph/decorative streams, exact affine
+  selection, and retained replay; rejected guessed text rectangles, stripped
+  MTEXT formatting, silent SHX substitution, and approximating unsupported
+  vertical/SHX/field/tab contracts.
 - [Autodesk MTEXT object contract](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-ActiveX-Reference/files/GUID-2532B20E-413D-4F59-9E88-B40E8AABB9FF.htm),
   [formatted MTEXT ranges](https://help.autodesk.com/view/OARX/2024/ITA/?caas=caas%2Fdocumentation%2FCIV3D%2F2014%2FITA%2FfilesACD%2FGUID-ECEEF65E-C327-44B8-AFB9-C0ACA2CAEF55-htm.html),
   [column behavior](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-MAC-Core/files/GUID-6DF5368A-5F2F-44BE-8B80-F35FFEF80204.htm),

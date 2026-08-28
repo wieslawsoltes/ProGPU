@@ -11,6 +11,7 @@ using ProGPU.Text;
 int entityCount = ReadNonNegativeInt("--entities", 10_000);
 int blockArrayColumnCount = ReadNonNegativeInt("--block-array-columns", 0);
 int textEntityCount = ReadNonNegativeInt("--text-entities", 0);
+int mtextEntityCount = ReadNonNegativeInt("--mtext-entities", 0);
 int shxTextEntityCount = ReadNonNegativeInt("--shx-text-entities", 0);
 bool decorateText = HasFlag("--text-decorations");
 bool decorateShxText = HasFlag("--shx-decorations");
@@ -29,7 +30,7 @@ int queryCount = ReadPositiveInt("--queries", 10_000);
 string? outputPath = ReadString("--output-json");
 
 if (entityCount == 0 && blockArrayColumnCount == 0 && textEntityCount == 0 &&
-    shxTextEntityCount == 0)
+    mtextEntityCount == 0 && shxTextEntityCount == 0)
 {
     throw new ArgumentException(
         "At least one ordinary entity, block-array column, or text entity is required.");
@@ -44,14 +45,14 @@ if (blockArrayColumnCount > ushort.MaxValue)
 
 if (measureSplineSelection &&
     (entityCount == 0 || blockArrayColumnCount != 0 ||
-     textEntityCount != 0 || shxTextEntityCount != 0))
+     textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0))
 {
     throw new ArgumentException(
         "--spline-selection requires a positive --entities count and no block-array or text fixtures.");
 }
 if (measureTextSelection &&
     (entityCount != 0 || blockArrayColumnCount != 0 ||
-     (textEntityCount == 0) == (shxTextEntityCount == 0)))
+     new[] { textEntityCount, mtextEntityCount, shxTextEntityCount }.Count(static count => count > 0) != 1))
 {
     throw new ArgumentException(
         "--text-selection requires exactly one positive TrueType or SHX text fixture count and no ordinary or block-array fixtures.");
@@ -61,6 +62,7 @@ CadDocumentSession session = CreateDocument(
     entityCount,
     blockArrayColumnCount,
     textEntityCount,
+    mtextEntityCount,
     shxTextEntityCount,
     decorateText,
     decorateShxText,
@@ -94,7 +96,7 @@ if (shxTextEntityCount != 0)
 }
 CadSnapshotOptions snapshotOptions = new()
 {
-    TextFontResolver = textEntityCount == 0 && !lowerComplexLineTypes
+    TextFontResolver = textEntityCount == 0 && mtextEntityCount == 0 && !lowerComplexLineTypes
         ? null
         : new BenchmarkTextFontResolver(InterFontFamily.Regular),
     ShxFontResolver = shxTextEntityCount == 0
@@ -182,6 +184,7 @@ var report = new CadBenchmarkReport(
     entityCount,
     blockArrayColumnCount,
     textEntityCount,
+    mtextEntityCount,
     shxTextEntityCount,
     decorateText,
     decorateShxText,
@@ -230,11 +233,13 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         entityCount +
         (blockArrayColumnCount == 0 ? 0 : 1) +
         textEntityCount +
+        mtextEntityCount +
         shxTextEntityCount);
     int expectedExpanded = checked(
         entityCount +
         (blockArrayColumnCount == 0 ? 0 : blockArrayColumnCount + 1) +
         textEntityCount +
+        mtextEntityCount +
         shxTextEntityCount);
     if (source.Statistics.SourceEntityCount == expectedSource &&
         source.Statistics.VisibleEntityCount == expectedSource &&
@@ -260,6 +265,7 @@ CadDocumentSession CreateDocument(
     int count,
     int arrayColumns,
     int textCount,
+    int mtextCount,
     int shxTextCount,
     bool decorateTextRuns,
     bool decorateShxTextRuns,
@@ -434,6 +440,23 @@ CadDocumentSession CreateDocument(
                     Height = 2.5,
                     WidthFactor = 0.9,
                     ObliqueAngle = (i & 1) == 0 ? 0.0 : 0.08,
+                });
+            }
+        }
+
+        if (mtextCount > 0)
+        {
+            var textStyle = new TextStyle("INTER_MTEXT") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            for (int i = 0; i < mtextCount; i++)
+            {
+                document.Entities.Add(new MText
+                {
+                    Style = textStyle,
+                    Value = @"{\C1;\LProGPU\l} CAD\PUnicode مرحبا \S1/2; 0123456789",
+                    InsertPoint = new XYZ((i % 100) * 90.0, (i / 100) * 18.0, 0),
+                    Height = 2.5,
+                    RectangleWidth = 80.0,
                 });
             }
         }
@@ -733,10 +756,10 @@ CadSelectionCandidate[] CreateTextSelectionCandidates(CadDocumentSnapshot source
     for (int i = 0; i < entities.Length; i++)
     {
         CadEntityHeader entity = entities[i];
-        if (entity.Kind is not (CadEntityKind.Text or CadEntityKind.ShxText))
+        if (entity.Kind is not (CadEntityKind.Text or CadEntityKind.ShxText or CadEntityKind.MText))
         {
             throw new InvalidOperationException(
-                "The text-selection benchmark requires an all-TEXT fixture.");
+                "The text-selection benchmark requires an all-TEXT/MTEXT fixture.");
         }
         candidates[i] = new CadSelectionCandidate(
             source.ContentGeneration,
@@ -815,6 +838,7 @@ internal sealed record CadBenchmarkReport(
     int EntityCount,
     int BlockArrayColumnCount,
     int TextEntityCount,
+    int MTextEntityCount,
     int ShxTextEntityCount,
     bool DecoratedText,
     bool DecoratedShxText,
