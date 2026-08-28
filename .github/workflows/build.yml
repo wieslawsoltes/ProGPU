@@ -16,6 +16,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  PROGPU_QUALIFIED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+
 jobs:
   native-cpp-browser:
     name: Native C++ browser WebGPU
@@ -25,6 +28,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
 
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v16
@@ -75,6 +80,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
           submodules: recursive
 
       - name: Setup .NET
@@ -208,6 +214,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
 
       - name: Download platform oracle frames
         uses: actions/download-artifact@v8
@@ -257,6 +265,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
           submodules: recursive
 
       - name: Setup .NET
@@ -320,6 +329,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -391,6 +402,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -504,6 +517,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
           submodules: recursive
 
       - name: Setup .NET
@@ -524,6 +538,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
           submodules: recursive
 
       - name: Setup .NET
@@ -551,6 +566,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
           submodules: recursive
 
       - name: Setup .NET
@@ -789,6 +805,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
           submodules: recursive
 
       - name: Install Linux WebGPU dependencies
@@ -969,6 +986,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
           submodules: recursive
 
       - name: Setup .NET
@@ -1007,6 +1025,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.PROGPU_QUALIFIED_COMMIT }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
