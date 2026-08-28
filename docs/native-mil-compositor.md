@@ -3978,6 +3978,29 @@ Detailed current-user diagnostics for the native-MIL external-image test report
 480 ms. This is direct ARM64 D3D12 correctness evidence for the ownership and
 lowering seam, not physical-adapter performance evidence.
 
+## Processed PCM16 intrinsic-SIMD checkpoint
+
+Checkpoint `e6236472` removes the remaining whole-buffer scalar loop from the
+typed-effect PCM16 export path. Windows, Linux, and Android now delegate float
+effect output to one `MediaPcm16ProcessedAccumulator` kernel. It widens valid
+float lanes to double, applies alternating Q15 levels, preserves
+away-from-zero rounding, clamps contributions, and saturates Int64 additions.
+Non-finite input falls back at the containing vector so the exact invalid lane,
+exception message, and earlier writes remain compatible. The independent
+scalar oracle covers vector tails, float extrema and subnormals, midpoint
+rounding, Int64 overflow, and NaN partial writes; the focused Windows/Android
+consumer tests and allocation gate pass.
+
+Four alternating 1,024-frame Apple M3 Pro runs measured median p50 3.705 us
+for `Vector128` versus 8.064 us scalar (2.18x). The self-contained x64 binary
+then ran in the Windows 11 ARM64 Parallels guest with `Vector256=True` and
+measured median p50 28.571 versus 38.003 us (1.33x). Median p95 improved on
+both platforms, Windows median p99 was effectively equal, all output matched,
+both paths allocated zero bytes per block, and the guest executable SHA-256
+was `4FA9ECCA268E4F7D51D860CEFC5D4138A3544A8CBE67BE35858FD838D81A9F5B`.
+These are Apple ARM64 and emulated Windows x64 qualifications, not a
+physical-x64 performance claim.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
