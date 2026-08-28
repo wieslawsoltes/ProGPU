@@ -4001,6 +4001,28 @@ was `4FA9ECCA268E4F7D51D860CEFC5D4138A3544A8CBE67BE35858FD838D81A9F5B`.
 These are Apple ARM64 and emulated Windows x64 qualifications, not a
 physical-x64 performance claim.
 
+## PCM16 float-normalization intrinsic-SIMD checkpoint
+
+The next media CPU checkpoint removes the duplicated scalar PCM16-to-float
+loops before typed effect processing. Windows Media Foundation, Linux, and
+Android now use one allocation-free `MediaPcm16FloatConverter`. Its two-vector
+unrolled `Vector256`/`Vector128` lanes widen Int16 to Int32 and normalize with
+the exact power-of-two scale; only a bounded tail remains scalar. Every result
+bit matches the independent `sample / 32768f` oracle across seeded full-range
+input, signed extrema, vector boundaries, and tails. Destination bounds and
+1,000 repeated allocation-free calls are also gated, all three platform source
+contracts require the shared kernel, and the full managed suite passes
+3,877/3,877.
+
+Three fresh 48,000-frame Apple M3 Pro runs measured median p50 10.451 us for
+the unrolled `Vector128` implementation versus 33.191 us scalar (3.18x).
+Four fresh 1,024-frame runs of the same self-contained source in the Windows 11
+ARM64 Parallels guest measured median p50 1.492 us for `Vector256` versus
+14.874 us scalar (9.97x). Both environments produced identical checksums and
+zero allocation; the guest executable SHA-256 was
+`95ECEAE96594EAE211491850692CD76FBDDC908800D69CCD1E59779A2E3B557F`.
+The Windows evidence qualifies the emulated x64 route, not physical x64.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
