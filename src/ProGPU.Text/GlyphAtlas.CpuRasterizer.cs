@@ -45,43 +45,88 @@ public unsafe partial class GlyphAtlas
             return coverage;
         }
 
-        int maximumCrossings = checked((int)record.SegmentCount * 3);
+        int maximumCrossingsPerScanline =
+            checked((int)record.SegmentCount * 3);
+        int maximumCrossings = checked(maximumCrossingsPerScanline * 8);
         CpuCrossing[] crossingArray =
             ArrayPool<CpuCrossing>.Shared.Rent(Math.Max(maximumCrossings, 1));
         try
         {
             float inverseScale = 1f / scale;
             float glyphSampleStep = 0.125f * inverseScale;
+            Vector256<float> sampleOffsets256 =
+                s_simdLaneIndices256 * Vector256.Create(glyphSampleStep);
+            Vector128<float> sampleOffsetsLow128 =
+                s_simdLaneIndices128 * Vector128.Create(glyphSampleStep);
+            Vector128<float> sampleOffsetsHigh128 = sampleOffsetsLow128 +
+                Vector128.Create(4F * glyphSampleStep);
+            Span<int> scanlineOffsets = stackalloc int[9];
             for (uint y = 0; y < height; y++)
             {
                 float pixelY = yStart + y;
                 Span<byte> coveredRow = coverage.AsSpan(
                     checked((int)(y * width)),
                     checked((int)width));
+                int crossingCount = 0;
                 for (uint sampleY = 0; sampleY < 8; sampleY++)
                 {
+                    scanlineOffsets[checked((int)sampleY)] = crossingCount;
                     float glyphY = -(
                         pixelY + 0.0625f + sampleY * 0.125f) * inverseScale;
-                    int crossingCount = CollectGlyphCrossingsCpu(
+                    crossingCount += CollectGlyphCrossingsCpu(
                         glyphY,
                         record,
                         segments,
-                        crossingArray);
-                    ReadOnlySpan<CpuCrossing> crossings =
-                        crossingArray.AsSpan(0, crossingCount);
-                    for (uint x = 0; x < width; x++)
-                    {
-                        float firstGlyphX = (
-                            xStart + x + 0.0625f - subpixelX) * inverseScale;
-                        coveredRow[checked((int)x)] += (byte)
-                            CountCoveredSamplesSimd(
-                                firstGlyphX,
-                                glyphSampleStep,
-                                crossings);
-                    }
+                        crossingArray.AsSpan(crossingCount));
                 }
+                scanlineOffsets[8] = crossingCount;
 
-                NormalizeCoverageRow(coveredRow);
+                for (uint x = 0; x < width; x++)
+                {
+                    float firstGlyphX = (
+                        xStart + x + 0.0625f - subpixelX) * inverseScale;
+                    uint coveredSamples = 0;
+                    if (Vector256.IsHardwareAccelerated)
+                    {
+                        Vector256<float> sampleXs =
+                            Vector256.Create(firstGlyphX) + sampleOffsets256;
+                        for (int sampleY = 0; sampleY < 8; sampleY++)
+                        {
+                            ReadOnlySpan<CpuCrossing> crossings =
+                                crossingArray.AsSpan(
+                                    scanlineOffsets[sampleY],
+                                    scanlineOffsets[sampleY + 1] -
+                                        scanlineOffsets[sampleY]);
+                            coveredSamples += CountCoveredSamplesSimd256(
+                                sampleXs,
+                                crossings);
+                        }
+                    }
+                    else
+                    {
+                        Vector128<float> firstSample =
+                            Vector128.Create(firstGlyphX);
+                        Vector128<float> samplesLow =
+                            firstSample + sampleOffsetsLow128;
+                        Vector128<float> samplesHigh =
+                            firstSample + sampleOffsetsHigh128;
+                        for (int sampleY = 0; sampleY < 8; sampleY++)
+                        {
+                            ReadOnlySpan<CpuCrossing> crossings =
+                                crossingArray.AsSpan(
+                                    scanlineOffsets[sampleY],
+                                    scanlineOffsets[sampleY + 1] -
+                                        scanlineOffsets[sampleY]);
+                            coveredSamples += CountCoveredSamplesSimd128(
+                                samplesLow,
+                                samplesHigh,
+                                crossings);
+                        }
+                    }
+
+                    coveredRow[checked((int)x)] = CoverageFromSampleCount(
+                        checked((byte)coveredSamples));
+                }
             }
         }
         finally
@@ -92,37 +137,31 @@ public unsafe partial class GlyphAtlas
         return coverage;
     }
 
-    private static uint CountCoveredSamplesSimd(
-        float firstSampleX,
-        float sampleStep,
+    private static uint CountCoveredSamplesSimd256(
+        Vector256<float> sampleXs,
         ReadOnlySpan<CpuCrossing> crossings)
     {
-        if (Vector256.IsHardwareAccelerated)
+        Vector256<int> windings = Vector256<int>.Zero;
+        foreach (CpuCrossing crossing in crossings)
         {
-            Vector256<float> sampleXs =
-                Vector256.Create(firstSampleX) +
-                s_simdLaneIndices256 * Vector256.Create(sampleStep);
-            Vector256<int> windings = Vector256<int>.Zero;
-            foreach (CpuCrossing crossing in crossings)
-            {
-                Vector256<int> mask = Vector256.LessThan(
-                    sampleXs,
-                    Vector256.Create(crossing.X)).AsInt32();
-                windings = crossing.Direction > 0
-                    ? windings - mask
-                    : windings + mask;
-            }
-
-            uint zeroMask = Vector256.ExtractMostSignificantBits(
-                Vector256.Equals(windings, Vector256<int>.Zero));
-            return 8U - (uint)BitOperations.PopCount(zeroMask);
+            Vector256<int> mask = Vector256.LessThan(
+                sampleXs,
+                Vector256.Create(crossing.X)).AsInt32();
+            windings = crossing.Direction > 0
+                ? windings - mask
+                : windings + mask;
         }
 
-        Vector128<float> samplesLow =
-            Vector128.Create(firstSampleX) +
-            s_simdLaneIndices128 * Vector128.Create(sampleStep);
-        Vector128<float> samplesHigh = samplesLow +
-            Vector128.Create(4F * sampleStep);
+        uint zeroMask = Vector256.ExtractMostSignificantBits(
+            Vector256.Equals(windings, Vector256<int>.Zero));
+        return 8U - (uint)BitOperations.PopCount(zeroMask);
+    }
+
+    private static uint CountCoveredSamplesSimd128(
+        Vector128<float> samplesLow,
+        Vector128<float> samplesHigh,
+        ReadOnlySpan<CpuCrossing> crossings)
+    {
         Vector128<int> windingsLow = Vector128<int>.Zero;
         Vector128<int> windingsHigh = Vector128<int>.Zero;
         foreach (CpuCrossing crossing in crossings)
@@ -159,35 +198,6 @@ public unsafe partial class GlyphAtlas
         // Positive round-away-from-zero for coveredSamples * 255 / 64.
         // The integer form is bit-identical for the bounded [0, 64] domain.
         return (byte)((coveredSamples * 255U + 32U) >> 6);
-    }
-
-    private static void NormalizeCoverageRow(Span<byte> coveredRow)
-    {
-        int index = 0;
-        if (Vector128.IsHardwareAccelerated)
-        {
-            ref byte start = ref System.Runtime.InteropServices.MemoryMarshal
-                .GetReference(coveredRow);
-            Vector128<ushort> multiplier = Vector128.Create((ushort)255);
-            Vector128<ushort> rounding = Vector128.Create((ushort)32);
-            for (; index <= coveredRow.Length - Vector128<byte>.Count;
-                 index += Vector128<byte>.Count)
-            {
-                (Vector128<ushort> low, Vector128<ushort> high) =
-                    Vector128.Widen(
-                        Vector128.LoadUnsafe(ref start, (nuint)index));
-                low = (low * multiplier + rounding) >> 6;
-                high = (high * multiplier + rounding) >> 6;
-                Vector128.Narrow(low, high).StoreUnsafe(
-                    ref start,
-                    (nuint)index);
-            }
-        }
-
-        for (; index < coveredRow.Length; index++)
-        {
-            coveredRow[index] = CoverageFromSampleCount(coveredRow[index]);
-        }
     }
 
     private static int CollectGlyphCrossingsCpu(
