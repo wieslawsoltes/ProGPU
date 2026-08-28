@@ -1215,7 +1215,12 @@ combined path is a direct port of the managed `PathAtlas` postfix contract:
 leaf contours reference the shared segment arena and empty/difference/
 intersection/union/xor/reverse-difference instructions execute inside the
 canonical `PathRasterizer.wgsl` pass. No CPU boolean flattening or shader fork
-is introduced. Non-finite/non-invertible transforms, malformed or unowned
+is introduced. When translated-equivalent leaves overlap, the renderer keeps
+all 64 leaf supersamples in two packed words per pixel and evaluates the same
+postfix program in a phased GPU combine pass before one final R8 average. Safe
+non-overlapping mixed programs retain the ordinary single dispatch. Pure
+left-fold XOR and detected overlapping mixed programs batch all work by leaf
+ordinal; they do not read back, repack, or submit per path. Non-finite/non-invertible transforms, malformed or unowned
 program ranges, a program above 63 instructions or 16 stack entries, and a
 clip depth above 64 fail with a typed compile or validation result. The native atlas
 stores pixel-space UV bounds during packing and normalizes all vertices only

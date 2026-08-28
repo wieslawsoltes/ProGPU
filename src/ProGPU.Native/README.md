@@ -159,6 +159,14 @@ Pro Metal gate executes and reads back the same five-node Difference/XOR
 program in its retained vector-mask fixture. The standard cross-platform
 hardware sample includes the same isolated boolean tile and asserts its three
 pixels alongside the existing gradient oracle for Metal, D3D12, and Vulkan.
+Overlapping translated-equivalent leaves, including mixed postfix programs,
+use the shared phased GPU-mask route: every leaf preserves its 64 supersamples
+in two packed words, the original Difference/Intersect/Union/XOR/
+ReverseDifference program combines those words, and coverage is quantized once.
+Non-overlapping mixed programs retain the single-dispatch fast path. Neither
+route performs CPU mask construction, readback, repacking, or per-item
+submission. Exact implementation and Windows qualification evidence is in
+[`native-mil-compositor.md`](../../docs/native-mil-compositor.md#general-mixed-boolean-gpu-mask-checkpoint).
 `progpu_native_semantic_identity.cpp` computes allocation-free typed content
 identities once per accepted update. Brush, text-style, analytic, path, glyph,
 and image pages are therefore retained independently across scene generations;

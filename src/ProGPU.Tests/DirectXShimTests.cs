@@ -686,6 +686,30 @@ fn fs_main() -> @location(0) vec4<f32> {
     }
 
     [Fact]
+    public void NativeCompatibilityPlannerKeepsDirect2DAndWin2DOnTypedWindowsInterop()
+    {
+        var d2d = ProGpuDirectXNativeCompatibilityPlanner.Classify("d2d1.dll");
+        var dwrite = ProGpuDirectXNativeCompatibilityPlanner.Classify("DWrite.dll");
+        var wic = ProGpuDirectXNativeCompatibilityPlanner.Classify("windowscodecs.dll");
+        var win2d = ProGpuDirectXNativeCompatibilityPlanner.Classify("Microsoft.Graphics.Canvas.dll");
+
+        Assert.Equal(ProGpuDirectXNativeModuleKind.Direct2D, d2d.Kind);
+        Assert.Equal(ProGpuDirectXNativeModuleKind.DirectWrite, dwrite.Kind);
+        Assert.Equal(ProGpuDirectXNativeModuleKind.WindowsImagingComponent, wic.Kind);
+        Assert.Equal(ProGpuDirectXNativeModuleKind.Win2D, win2d.Kind);
+        Assert.All(
+            new[] { d2d, dwrite, wic, win2d },
+            static module => Assert.Equal(
+                ProGpuDirectXNativeCompatibilityAction.UseWindowsNativeGraphicsInterop,
+                module.Action));
+
+        var plan = new ProGpuDirectXNativeCompatibilityPlan([d2d, dwrite, wic, win2d]);
+        Assert.True(plan.RequiresWindowsNativeGraphicsInterop);
+        Assert.False(plan.RequiresProGpuNativeFacade);
+        Assert.Contains("Windows native graphics interop:", plan.DescribeRequiredActions(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void NativeAbiPlannerReportsExportsAndDynamicModuleHints()
     {
         var report = CreateNativeDependencyFixtureReport();
