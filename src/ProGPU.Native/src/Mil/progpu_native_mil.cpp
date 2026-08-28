@@ -7202,7 +7202,8 @@ struct channel::implementation {
             const path_geometry_state& geometry,
             const pen_state& pen,
             const affine_2d_double& local_transform,
-            const affine_2d_double& effective_transform) noexcept {
+            const affine_2d_double& effective_transform,
+            std::uint32_t supplied_brush_index) noexcept {
             if (pen.brush_handle == 0U || pen.thickness == 0.0) {
                 return status::success;
             }
@@ -7227,13 +7228,15 @@ struct channel::implementation {
                 geometry.right - geometry.left + expansion * 2.0,
                 geometry.bottom - geometry.top + expansion * 2.0,
                 effective_transform};
-            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-            const status brush_status = resolve_brush_index(
-                pen.brush_handle,
-                brush_index,
-                &brush_use);
-            if (brush_status != status::success) {
-                return brush_status;
+            std::uint32_t brush_index = supplied_brush_index;
+            if (brush_index == PROGPU_NATIVE_SCENE_NO_INDEX) {
+                const status brush_status = resolve_brush_index(
+                    pen.brush_handle,
+                    brush_index,
+                    &brush_use);
+                if (brush_status != status::success) {
+                    return brush_status;
+                }
             }
             for (const auto& contour : geometry.stroke_contours) {
                 const bool has_curves = std::ranges::any_of(
@@ -9697,7 +9700,8 @@ struct channel::implementation {
                             path_geometry->second,
                             pen,
                             local_transform,
-                            effective_transform);
+                            effective_transform,
+                            PROGPU_NATIVE_SCENE_NO_INDEX);
                         if (stroke_status != status::success) {
                             return stroke_status;
                         }
@@ -10148,7 +10152,8 @@ struct channel::implementation {
                                         ellipse_geometry,
                                         pen,
                                         local_transform,
-                                        effective_transform);
+                                        effective_transform,
+                                        pen_brush_index);
                                 if (stroke_status != status::success) {
                                     return stroke_status;
                                 }
@@ -10194,7 +10199,8 @@ struct channel::implementation {
                                         rounded_geometry,
                                         pen,
                                         local_transform,
-                                        effective_transform);
+                                        effective_transform,
+                                        pen_brush_index);
                                 if (stroke_status != status::success) {
                                     return stroke_status;
                                 }
