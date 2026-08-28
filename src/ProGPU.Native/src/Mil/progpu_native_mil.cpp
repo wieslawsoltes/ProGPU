@@ -6869,8 +6869,7 @@ struct channel::implementation {
             emitted = true;
             return status::success;
         };
-        const auto append_line_stroke = [
-            this,
+        const auto append_resolved_line_stroke = [
             &builder,
             &resolve_brush_index,
             &append_polyline_stroke,
@@ -6881,17 +6880,10 @@ struct channel::implementation {
             double y0,
             double x1,
             double y1,
-            std::uint32_t pen_handle,
+            const pen_state& pen,
             const affine_2d_double& local_transform,
-            const affine_2d_double& effective_transform) noexcept {
-            if (pen_handle == 0U) {
-                return status::success;
-            }
-            pen_state pen{};
-            const status pen_status = resolve_pen(pen_handle, pen);
-            if (pen_status != status::success) {
-                return pen_status;
-            }
+            const affine_2d_double& effective_transform,
+            std::uint32_t supplied_brush_index) noexcept {
             if (pen.brush_handle == 0U || pen.thickness == 0.0) {
                 return status::success;
             }
@@ -6921,19 +6913,21 @@ struct channel::implementation {
                         local_height)) {
                     return status::invalid_graph;
                 }
-                std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+                std::uint32_t brush_index = supplied_brush_index;
                 const brush_use_state brush_use{
                     local_x,
                     local_y,
                     local_width,
                     local_height,
                     effective_transform};
-                const status brush_status = resolve_brush_index(
-                    pen.brush_handle,
-                    brush_index,
-                    &brush_use);
-                if (brush_status != status::success) {
-                    return brush_status;
+                if (brush_index == PROGPU_NATIVE_SCENE_NO_INDEX) {
+                    const status brush_status = resolve_brush_index(
+                        pen.brush_handle,
+                        brush_index,
+                        &brush_use);
+                    if (brush_status != status::success) {
+                        return brush_status;
+                    }
                 }
                 bool emitted = false;
                 const status cap_status = append_degenerate_cap_stroke(
@@ -6968,19 +6962,21 @@ struct channel::implementation {
                     local_height)) {
                 return status::invalid_graph;
             }
-            std::uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            std::uint32_t brush_index = supplied_brush_index;
             const brush_use_state brush_use{
                 local_x,
                 local_y,
                 local_width,
                 local_height,
                 effective_transform};
-            const status brush_status = resolve_brush_index(
-                pen.brush_handle,
-                brush_index,
-                &brush_use);
-            if (brush_status != status::success) {
-                return brush_status;
+            if (brush_index == PROGPU_NATIVE_SCENE_NO_INDEX) {
+                const status brush_status = resolve_brush_index(
+                    pen.brush_handle,
+                    brush_index,
+                    &brush_use);
+                if (brush_status != status::success) {
+                    return brush_status;
+                }
             }
             progpu_native_image_rect transformed_bounds{};
             if (!try_transform_bounds(
@@ -7050,6 +7046,34 @@ struct channel::implementation {
             }
             ++metrics.line_count;
             return status::success;
+        };
+        const auto append_line_stroke = [
+            this,
+            &append_resolved_line_stroke](
+            double x0,
+            double y0,
+            double x1,
+            double y1,
+            std::uint32_t pen_handle,
+            const affine_2d_double& local_transform,
+            const affine_2d_double& effective_transform) noexcept {
+            if (pen_handle == 0U) {
+                return status::success;
+            }
+            pen_state pen{};
+            const status pen_status = resolve_pen(pen_handle, pen);
+            if (pen_status != status::success) {
+                return pen_status;
+            }
+            return append_resolved_line_stroke(
+                x0,
+                y0,
+                x1,
+                y1,
+                pen,
+                local_transform,
+                effective_transform,
+                PROGPU_NATIVE_SCENE_NO_INDEX);
         };
         const auto append_degenerate_ellipse_stroke = [
             this,
@@ -9269,14 +9293,56 @@ struct channel::implementation {
                                  geometry_group->second.children) {
                                 const auto child =
                                     path_geometries.find(child_handle);
-                                if (child == path_geometries.end()) {
-                                    return status::unsupported_command;
+                                double child_left = 0.0;
+                                double child_top = 0.0;
+                                double child_right = 0.0;
+                                double child_bottom = 0.0;
+                                std::uint32_t child_transform_handle = 0U;
+                                if (child != path_geometries.end()) {
+                                    child_left = child->second.left;
+                                    child_top = child->second.top;
+                                    child_right = child->second.right;
+                                    child_bottom = child->second.bottom;
+                                    child_transform_handle =
+                                        child->second.transform_handle;
+                                } else {
+                                    const auto fixed =
+                                        fixed_geometries.find(child_handle);
+                                    if (fixed == fixed_geometries.end()) {
+                                        return status::unsupported_command;
+                                    }
+                                    fixed_geometry_state resolved_fixed{};
+                                    const status fixed_status =
+                                        resolve_fixed_geometry(
+                                            child_handle,
+                                            resolved_fixed);
+                                    if (fixed_status != status::success) {
+                                        return fixed_status;
+                                    }
+                                    if (resolved_fixed.kind !=
+                                        fixed_geometry_kind::line) {
+                                        return status::unsupported_command;
+                                    }
+                                    child_left = std::min(
+                                        resolved_fixed.first,
+                                        resolved_fixed.third);
+                                    child_top = std::min(
+                                        resolved_fixed.second,
+                                        resolved_fixed.fourth);
+                                    child_right = std::max(
+                                        resolved_fixed.first,
+                                        resolved_fixed.third);
+                                    child_bottom = std::max(
+                                        resolved_fixed.second,
+                                        resolved_fixed.fourth);
+                                    child_transform_handle =
+                                        resolved_fixed.transform_handle;
                                 }
                                 affine_2d_double child_transform{};
-                                if (child->second.transform_handle != 0U) {
+                                if (child_transform_handle != 0U) {
                                     const status transform_status =
                                         resolve_transform(
-                                            child->second.transform_handle,
+                                            child_transform_handle,
                                             child_transform);
                                     if (transform_status != status::success) {
                                         return transform_status;
@@ -9289,25 +9355,25 @@ struct channel::implementation {
                                 }
                                 progpu_native_image_rect child_bounds{};
                                 if (!try_transform_bounds(
-                                        child->second.left,
-                                        child->second.top,
-                                        child->second.right -
-                                            child->second.left,
-                                        child->second.bottom -
-                                            child->second.top,
+                                        child_left,
+                                        child_top,
+                                        child_right - child_left,
+                                        child_bottom - child_top,
                                         child_transform,
                                         child_bounds)) {
                                     return status::invalid_graph;
                                 }
-                                const double child_right =
+                                const double transformed_child_right =
                                     child_bounds.x + child_bounds.width;
-                                const double child_bottom =
+                                const double transformed_child_bottom =
                                     child_bounds.y + child_bounds.height;
                                 if (!has_group_stroke_bounds) {
                                     group_stroke_left = child_bounds.x;
                                     group_stroke_top = child_bounds.y;
-                                    group_stroke_right = child_right;
-                                    group_stroke_bottom = child_bottom;
+                                    group_stroke_right =
+                                        transformed_child_right;
+                                    group_stroke_bottom =
+                                        transformed_child_bottom;
                                     has_group_stroke_bounds = true;
                                 } else {
                                     group_stroke_left = std::min(
@@ -9318,10 +9384,10 @@ struct channel::implementation {
                                         double{child_bounds.y});
                                     group_stroke_right = std::max(
                                         group_stroke_right,
-                                        child_right);
+                                        transformed_child_right);
                                     group_stroke_bottom = std::max(
                                         group_stroke_bottom,
-                                        child_bottom);
+                                        transformed_child_bottom);
                                 }
                             }
                         }
@@ -9562,19 +9628,40 @@ struct channel::implementation {
                         }
                         for (const std::uint32_t child_handle :
                              geometry_group->second.children) {
-                            const auto& child =
-                                path_geometries.at(child_handle);
-                            if (current.per_point_guidelines &&
-                                !child.per_point_segments_supported) {
-                                return status::unsupported_command;
+                            const auto child =
+                                path_geometries.find(child_handle);
+                            fixed_geometry_state resolved_line{};
+                            std::uint32_t child_transform_handle = 0U;
+                            if (child != path_geometries.end()) {
+                                if (current.per_point_guidelines &&
+                                    !child->second
+                                         .per_point_segments_supported) {
+                                    return status::unsupported_command;
+                                }
+                                child_transform_handle =
+                                    child->second.transform_handle;
+                            } else {
+                                const status line_status =
+                                    resolve_fixed_geometry(
+                                        child_handle,
+                                        resolved_line);
+                                if (line_status != status::success) {
+                                    return line_status;
+                                }
+                                if (resolved_line.kind !=
+                                    fixed_geometry_kind::line) {
+                                    return status::unsupported_command;
+                                }
+                                child_transform_handle =
+                                    resolved_line.transform_handle;
                             }
                             affine_2d_double child_local_transform =
                                 local_transform;
-                            if (child.transform_handle != 0U) {
+                            if (child_transform_handle != 0U) {
                                 affine_2d_double child_transform{};
                                 const status transform_status =
                                     resolve_transform(
-                                        child.transform_handle,
+                                        child_transform_handle,
                                         child_transform);
                                 if (transform_status != status::success) {
                                     return transform_status;
@@ -9591,12 +9678,23 @@ struct channel::implementation {
                                     child_effective_transform)) {
                                 continue;
                             }
-                            const status stroke_status = append_path_strokes(
-                                child,
-                                group_pen,
-                                child_local_transform,
-                                child_effective_transform,
-                                stroke_brush_index);
+                            const status stroke_status =
+                                child != path_geometries.end()
+                                ? append_path_strokes(
+                                      child->second,
+                                      group_pen,
+                                      child_local_transform,
+                                      child_effective_transform,
+                                      stroke_brush_index)
+                                : append_resolved_line_stroke(
+                                      resolved_line.first,
+                                      resolved_line.second,
+                                      resolved_line.third,
+                                      resolved_line.fourth,
+                                      group_pen,
+                                      child_local_transform,
+                                      child_effective_transform,
+                                      stroke_brush_index);
                             if (stroke_status != status::success) {
                                 return stroke_status;
                             }
