@@ -203,6 +203,15 @@ internal static class CadLineTypeLowerer
                 maxFigures,
                 maxPatternSteps,
                 maxPlacements),
+            CadEntityKind.Spline => LowerLinearSpline(
+                snapshot,
+                snapshot.Splines.Span[entity.PrimitiveIndex],
+                elements,
+                pattern.PatternLength,
+                style.LineTypeScale,
+                maxFigures,
+                maxPatternSteps,
+                maxPlacements),
             CadEntityKind.Polyline3D => LowerPolyline3D(
                 snapshot,
                 snapshot.Polylines3D.Span[entity.PrimitiveIndex],
@@ -241,6 +250,9 @@ internal static class CadLineTypeLowerer
                 CadEntityKind.Ellipse => 1,
             CadEntityKind.LightweightPolyline or CadEntityKind.Polyline2D =>
                 GetPolylineSegmentCount(snapshot.Polylines.Span[entity.PrimitiveIndex]),
+            CadEntityKind.Spline => GetLinearSplineSegmentCount(
+                snapshot,
+                snapshot.Splines.Span[entity.PrimitiveIndex]),
             CadEntityKind.Polyline3D =>
                 GetPolylineSegmentCount(snapshot.Polylines3D.Span[entity.PrimitiveIndex]),
             CadEntityKind.Face3D => CountVisibleFaceEdges(
@@ -253,6 +265,13 @@ internal static class CadLineTypeLowerer
 
     private static int GetPolylineSegmentCount(in CadPolyline3DPrimitive polyline) =>
         polyline.IsClosed ? polyline.PointCount : Math.Max(0, polyline.PointCount - 1);
+
+    private static int GetLinearSplineSegmentCount(
+        CadDocumentSnapshot snapshot,
+        in CadSplinePrimitive spline) =>
+        IsSupportedLinearSpline(snapshot, spline)
+            ? spline.ControlPointCount - 1
+            : 0;
 
     private static int CountPolylineArcMaps(
         CadDocumentSnapshot snapshot,
@@ -630,6 +649,108 @@ internal static class CadLineTypeLowerer
                 ArrayPool<MeasuredSegment>.Shared.Return(rented);
             }
         }
+    }
+
+    private static CadLineTypeLoweringResult LowerLinearSpline(
+        CadDocumentSnapshot snapshot,
+        in CadSplinePrimitive spline,
+        ReadOnlySpan<CadLineTypeElement> elements,
+        double patternLength,
+        double scale,
+        int maxFigures,
+        int maxPatternSteps,
+        int maxPlacements)
+    {
+        if (!IsSupportedLinearSpline(snapshot, spline))
+        {
+            return new CadLineTypeLoweringResult(
+                CadLineTypeLoweringStatus.UnsupportedEntity,
+                null,
+                Matrix4x4.Identity,
+                0,
+                0,
+                0);
+        }
+
+        ReadOnlySpan<CadPoint3D> points = snapshot.SplineControlPoints.Span.Slice(
+            spline.ControlPointOffset,
+            spline.ControlPointCount);
+        int segmentCount = points.Length - 1;
+        MeasuredSegment[]? rented = null;
+        Span<MeasuredSegment> segments = segmentCount <= 256
+            ? stackalloc MeasuredSegment[segmentCount]
+            : (rented = ArrayPool<MeasuredSegment>.Shared.Rent(segmentCount))
+                .AsSpan(0, segmentCount);
+        try
+        {
+            double pathOffset = 0.0;
+            for (int i = 0; i < segmentCount; i++)
+            {
+                CadPoint3D start = points[i];
+                CadPoint3D end = points[i + 1];
+                MeasuredSegment measured = MeasuredSegment.Line(
+                    Project(start, snapshot.RebaseOrigin),
+                    Project(end, snapshot.RebaseOrigin),
+                    (end - start).Length);
+                segments[i] = measured with { PathOffset = pathOffset };
+                pathOffset += measured.Length;
+            }
+
+            return LowerMeasuredPath(
+                segments,
+                ReadOnlySpan<double>.Empty,
+                isClosed: false,
+                resetAtEverySegment: false,
+                elements,
+                patternLength,
+                scale,
+                maxFigures,
+                maxPatternSteps,
+                maxPlacements,
+                Matrix4x4.Identity);
+        }
+        finally
+        {
+            if (rented is not null)
+            {
+                ArrayPool<MeasuredSegment>.Shared.Return(rented);
+            }
+        }
+    }
+
+    private static bool IsSupportedLinearSpline(
+        CadDocumentSnapshot snapshot,
+        in CadSplinePrimitive spline)
+    {
+        if (spline.Degree != 1 || spline.IsClosed || spline.ControlPointCount < 2 ||
+            spline.KnotCount != spline.ControlPointCount + 2)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<double> knots = snapshot.SplineKnots.Span.Slice(
+            spline.KnotOffset,
+            spline.KnotCount);
+        for (int i = 1; i < knots.Length; i++)
+        {
+            if (knots[i] < knots[i - 1])
+            {
+                return false;
+            }
+        }
+
+        // For degree one, each positive active knot span is exactly the line
+        // between consecutive control points. Repeated active knots can encode
+        // a discontinuity, which is not a single uninterrupted path contract.
+        for (int i = 1; i < spline.ControlPointCount; i++)
+        {
+            if (!(knots[i + 1] > knots[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static CadLineTypeLoweringResult LowerFace(

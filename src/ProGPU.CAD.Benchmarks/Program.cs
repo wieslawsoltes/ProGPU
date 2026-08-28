@@ -16,6 +16,7 @@ bool decorateText = HasFlag("--text-decorations");
 bool decorateShxText = HasFlag("--shx-decorations");
 bool lowerLineTypes = HasFlag("--linetypes");
 bool lowerComplexLineTypes = HasFlag("--complex-linetypes");
+bool lowerLinearSplineLineTypes = HasFlag("--linear-spline-linetypes");
 int shxInterpretationCount = ReadNonNegativeInt("--shx-interpretations", 0);
 int shxLayoutCount = ReadNonNegativeInt("--shx-layouts", 0);
 int warmupCount = ReadNonNegativeInt("--warmup", 3);
@@ -44,8 +45,9 @@ CadDocumentSession session = CreateDocument(
     shxTextEntityCount,
     decorateText,
     decorateShxText,
-    lowerLineTypes || lowerComplexLineTypes,
-    lowerComplexLineTypes);
+    lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes,
+    lowerComplexLineTypes,
+    lowerLinearSplineLineTypes);
 var snapshotCompiler = new CadSnapshotCompiler();
 var pageSetupCompiler = new CadPageSetupCatalogCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
@@ -148,8 +150,9 @@ var report = new CadBenchmarkReport(
     shxTextEntityCount,
     decorateText,
     decorateShxText,
-    lowerLineTypes || lowerComplexLineTypes,
+    lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes,
     lowerComplexLineTypes,
+    lowerLinearSplineLineTypes,
     shxInterpretationCount,
     shxLayoutCount,
     warmupCount,
@@ -217,7 +220,8 @@ CadDocumentSession CreateDocument(
     bool decorateTextRuns,
     bool decorateShxTextRuns,
     bool useLineTypes,
-    bool useComplexLineTypes)
+    bool useComplexLineTypes,
+    bool useLinearSplineLineTypes)
 {
     CadDocumentSession result = CadDocumentSession.CreateNew();
     result.Edit("Build benchmark document", document =>
@@ -255,6 +259,24 @@ CadDocumentSession CreateDocument(
         {
             double x = (i % 1_000) * 12.0;
             double y = (i / 1_000) * 12.0;
+            if (useLinearSplineLineTypes)
+            {
+                var spline = new Spline
+                {
+                    Degree = 1,
+                    LineType = benchmarkLineType ?? document.LineTypes.Continuous,
+                };
+                spline.ControlPoints.AddRange([
+                    new XYZ(x, y, i % 17),
+                    new XYZ(x + 5, y + 8, (i % 17) + 1),
+                    new XYZ(x + 10, y, (i % 17) + 2),
+                ]);
+                spline.Knots.AddRange([0, 0, 1, 2, 2]);
+                spline.Weights.AddRange([1, 2, 1]);
+                document.Entities.Add(spline);
+                continue;
+            }
+
             switch (i & 3)
             {
                 case 0:
@@ -525,6 +547,7 @@ internal sealed record CadBenchmarkReport(
     bool DecoratedShxText,
     bool LoweredLineTypes,
     bool LoweredComplexLineTypes,
+    bool LoweredLinearSplineLineTypes,
     int ShxInterpretationCount,
     int ShxLayoutCount,
     int WarmupCount,

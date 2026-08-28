@@ -143,11 +143,13 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   one `DrawPath` command per entity. Circular, bulge, and elliptical pieces
   remain analytic arcs, and the resulting path still uses fixed-device CAD
   lineweight. Entity PLINEGEN state selects uninterrupted 2D-polyline traversal
-  or endpoint alignment at every segment. Persisted relative/absolute complex
-  text and SHX-shape descriptors share definition-owned payloads and retain
-  tangent-aware placements. LIN-only upright rotation, nonzero complex advances,
-  decorated linetype text, spline splitting, and non-A alignment remain explicit
-  diagnostics rather than unbounded or silently approximate expansion.
+  or endpoint alignment at every segment. Open degree-one rational SPLINEs use
+  one uninterrupted exact control-chain traversal. Persisted relative/absolute
+  complex text and SHX-shape descriptors share definition-owned payloads and
+  retain tangent-aware placements. LIN-only upright rotation, nonzero complex advances,
+  decorated linetype text, higher-degree or closed/periodic spline splitting,
+  and non-A alignment remain explicit diagnostics rather than unbounded or
+  silently approximate expansion.
 - `CadShxFont` provides the first bounded SHX source layer. It parses the
   standard compiled `AutoCAD-86 shapes 1.0` container into one immutable owned
   byte store, retains each shape program as a packed slice, validates the
@@ -214,6 +216,26 @@ figures, compilation is `O(S + Q + F log S)` time and `O(F)` retained storage,
 with `Q` explicitly bounded by the descriptor-step option in each pass.
 Camera replay, lineweight, and upload contracts do not depend on entity count or
 zoom after that retained picture is published.
+
+### Exact linear-spline linetype contract
+
+An open degree-one B-spline or NURBS with a canonical nondecreasing knot vector
+and strictly positive active knot spans is geometrically the ordered chain of
+its control points. Positive rational weights change parameter speed but not
+that locus. The linetype lowerer therefore measures the original WCS 3D control
+edges, applies one uninterrupted A-aligned simple or complex pattern across the
+whole spline, and emits exact retained line segments plus tangent-aware complex
+placements. It neither samples the spline nor uses the renderer's viewport-
+dependent spline tessellation as CAD pattern geometry. Source-segment,
+figure, placement, and descriptor budgets are preflighted through the same
+transactional path as other supported entities. For N control points this adds
+`O(N)` time and scratch storage before the existing bounded pattern traversal.
+
+Higher-degree curves require bounded arc-length inversion plus exact rational
+subcurve extraction; closed/periodic curves additionally require independently
+validated seam and endpoint-pattern behavior. Those forms remain explicit
+whole-entity fallbacks. Repeated active knots that can encode a discontinuity
+also remain unresolved instead of inventing a connecting stroke.
 
 ### Retained complex-linetype contract
 
@@ -1076,6 +1098,7 @@ recording, retained physical print-plan construction in both zero- and
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --linetypes --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --complex-linetypes --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --linear-spline-linetypes --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --block-array-columns 10000 --warmup 5 --iterations 100 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --warmup 5 --iterations 50 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --text-decorations --warmup 3 --iterations 50 --queries 10000
@@ -1117,6 +1140,17 @@ was 6.281/16.293/16.293 ms with 807,640 managed bytes; plan-scene recording was
 the benchmark lane and exposes feature cost only. It is not a comparative
 performance claim and does not replace matched viewer/GPU, image-quality,
 managed/native, or Instruments evidence.
+
+The first 2026-08-28 open linear-SPLINE linetype feature-cost run used one
+Release binary, 1,000 rational degree-one splines with two control edges each,
+two warmups, and eight iterations. It retained 1,000 commands and 7,000 figures
+through 11,000 descriptor visits and 2,000 source segments with no unsupported
+entities or linetypes. Snapshot p50/p95/p99 was 4.550/10.419/10.419 ms with
+1,121,304 managed bytes; plan-scene recording was 3.407/14.998/14.998 ms with
+2,168,602 managed bytes. This short run validates the exact-subset benchmark
+lane and exposes feature cost only. It is not a comparison or performance claim
+and does not replace viewer/GPU, image-quality, managed/native, or Instruments
+evidence.
 
 The first two fresh 24-iteration Release runs of the 10,000-entity physical
 print-plan path measured p50/p95/p99 at 16.320/49.488/58.868 ms and
@@ -1316,7 +1350,26 @@ Sources consulted on 2026-08-27:
   transactional limits, scalar endpoint planning, and analytic path splitting.
   Autodesk does not publish the exact residual distribution for dot-first or
   closed patterns, so their deterministic integral-period fit is documented as
-  provisional and covered separately; splines remain an explicit gate.
+  provisional and covered separately; higher-degree and closed/periodic
+  splines remain explicit gates.
+- [Autodesk SPLINE DXF records](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-DXF/files/GUID-E1F884F8-AA90-4864-A215-3182D47A9C74.htm):
+  adopted typed degree/control/knot/weight and closed/periodic distinctions.
+  Adapted the mathematically exact open degree-one subset to one uninterrupted
+  control-chain pattern traversal. Rejected viewport sampling for CAD pattern
+  placement, repeated active knots with discontinuous semantics, and any claim
+  that the same shortcut applies to higher degree or a closed seam.
+- [Skia `SkPathMeasure`](https://api.skia.org/classSkPathMeasure.html),
+  [Direct2D `ComputeLength`/`ComputePointAtLength`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1geometry),
+  [Win2D path measurement](https://microsoft.github.io/Win2D/WinUI3/html/Overload_Microsoft_Graphics_Canvas_Geometry_CanvasGeometry_ComputePathLength.htm),
+  and [Vello's inverse-arc-length dash design](https://github.com/linebender/vello/issues/303)
+  confirm that general curved-pattern placement requires an explicit path-
+  length/point/tangent contract. They informed the higher-degree gate; their
+  flattened or tolerance-driven measurements were rejected for the exact
+  degree-one subset and are not being presented as an Autodesk conformance
+  algorithm. WebRender retains renderer-owned display lists but exposes no CAD
+  NURBS linetype contract. SkParagraph, DirectWrite text layout, Parley, and
+  HarfBuzz remain applicable only to the already shared complex-text payload,
+  not spline measurement.
 - [Autodesk text in custom linetypes](https://help.autodesk.com/view/ACD/2026/ENU/?caas=caas%2Fdocumentation%2FACDLT%2F2014%2FENU%2Ffiles%2FGUID-FEDCE7EB-4919-43AE-A54E-F3A293DD60CA-htm.html),
   [shapes in custom linetypes](https://help.autodesk.com/view/ACDLT/2026/ENU/?caas=caas%2Fdocumentation%2FACD%2F2014%2FENU%2Ffiles%2FGUID-AF0613E6-5C8B-47F0-800C-8B2524BF2015-htm.html),
   and the [DXF LTYPE record](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-DXF/files/GUID-F57A316C-94A2-416C-8280-191E34B182AC.htm):

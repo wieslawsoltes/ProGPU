@@ -522,6 +522,140 @@ public sealed class CadLineTypeTests
     }
 
     [Fact]
+    public void OpenLinearRationalSplineRetainsUninterruptedComplexPattern()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add patterned linear spline", document =>
+        {
+            var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+            document.TextStyles.Add(textStyle);
+            var complex = new LineType("SPLINE_GAS");
+            complex.AddSegment(new LineType.Segment { Length = 4.0 });
+            complex.AddSegment(new LineType.Segment { Length = -2.0 });
+            complex.AddSegment(new LineType.Segment
+            {
+                Text = "X",
+                Style = textStyle,
+                Flags = LineTypeShapeFlags.Text,
+            });
+            complex.AddSegment(new LineType.Segment { Length = -2.0 });
+            document.LineTypes.Add(complex);
+
+            var spline = new Spline { Degree = 1, LineType = complex };
+            spline.ControlPoints.AddRange([
+                new XYZ(0, 0, 0),
+                new XYZ(8, 0, 0),
+                new XYZ(8, 8, 0),
+            ]);
+            spline.Knots.AddRange([0, 0, 1, 2, 2]);
+            spline.Weights.AddRange([1, 2, 1]);
+            document.Entities.Add(spline);
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
+            });
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        Assert.Equal(1, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(3, scene.Statistics.LoweredLineTypeFigureCount);
+        Assert.Equal(2, scene.Statistics.LoweredLineTypePlacementCount);
+        Assert.Equal(2, scene.Statistics.LineTypeSourceSegmentCount);
+        Assert.Empty(scene.Diagnostics.ToArray());
+        RenderCommand[] commands = scene.DrawingContext.Commands.ToArray();
+        Assert.Equal(3, commands.Length);
+        Assert.Equal(RenderCommandType.DrawPath, commands[0].Type);
+        PathGeometry path = Assert.IsType<PathGeometry>(commands[0].Path);
+        Assert.Equal(3, path.Figures.Count);
+        Assert.Equal(2, path.Figures[1].Segments.Count);
+        Assert.Equal(0.0f, commands[1].Transform.M41, 5);
+        Assert.Equal(-4.0f, commands[1].Transform.M42, 5);
+        Assert.Equal(1.0f, commands[1].Transform.M11, 5);
+        Assert.Equal(0.0f, commands[1].Transform.M12, 5);
+        Assert.Equal(4.0f, commands[2].Transform.M41, 5);
+        Assert.Equal(0.0f, commands[2].Transform.M42, 5);
+        Assert.Equal(0.0f, commands[2].Transform.M11, 5);
+        Assert.Equal(1.0f, commands[2].Transform.M12, 5);
+
+        using GpuPicture picture = scene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            93U,
+            scene.ContentGeneration,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.True(compiled.GeometryPrimitiveCount >= 3);
+    }
+
+    [Fact]
+    public void LinearSplineSourceSegmentLimitFallsBackTransactionally()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add limited linear spline", document =>
+        {
+            LineType dashed = AddSimpleLineType(
+                document,
+                "LINEAR_SPLINE_LIMIT",
+                3.0,
+                -1.0,
+                0.0,
+                -1.0);
+            var spline = new Spline { Degree = 1, LineType = dashed };
+            spline.ControlPoints.AddRange([XYZ.Zero, new XYZ(5, 0, 0), new XYZ(10, 0, 0)]);
+            spline.Knots.AddRange([0, 0, 1, 2, 2]);
+            document.Entities.Add(spline);
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+            snapshot,
+            new CadPlanSceneOptions { MaxLineTypeSourceSegments = 1 });
+
+        Assert.Equal(0, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(RenderCommandType.DrawExtension, Assert.Single(scene.DrawingContext.Commands).Type);
+        CadDiagnostic diagnostic = Assert.Single(scene.Diagnostics.ToArray());
+        Assert.Equal("CADSCENE002", diagnostic.Code);
+        Assert.Contains("segment", diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HigherDegreeSplinePatternDoesNotUsePolylineApproximation()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add curved patterned spline", document =>
+        {
+            LineType dashed = AddSimpleLineType(
+                document,
+                "CURVED_SPLINE_GATE",
+                3.0,
+                -1.0,
+                0.0,
+                -1.0);
+            var spline = new Spline { Degree = 2, LineType = dashed };
+            spline.ControlPoints.AddRange([
+                XYZ.Zero,
+                new XYZ(5, 10, 0),
+                new XYZ(10, 0, 0),
+            ]);
+            spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+            document.Entities.Add(spline);
+        });
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+            new CadSnapshotCompiler().Compile(session));
+
+        Assert.Equal(0, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(RenderCommandType.DrawExtension, Assert.Single(scene.DrawingContext.Commands).Type);
+        CadDiagnostic diagnostic = Assert.Single(scene.Diagnostics.ToArray());
+        Assert.Equal("CADSCENE002", diagnostic.Code);
+        Assert.Contains("no exact analytic linetype splitter", diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ComplexShapePatternUsesNonFontShxAndRelativeTangent()
     {
         CadShxGlyphCache cache = CreateShapeCache();
