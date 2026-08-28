@@ -514,16 +514,18 @@ bool try_transformed_rectangle_stroke_bounds(
             if (miter_distance > radius * resolved_limit + 0.0001) {
                 const double dot = incoming[0U] * outgoing[0U] +
                     incoming[1U] * outgoing[1U];
-                const double denominator = radius * std::sqrt(
+                const double clip_denominator = radius * std::sqrt(
                     std::max(0.0, (1.0 - dot) * 0.5));
-                const double numerator = radius * std::sqrt(
+                const double clip_numerator = radius * std::sqrt(
                     std::max(0.0, (1.0 + dot) * 0.5));
-                if (!std::isfinite(denominator) || denominator <= 0.0001) {
+                if (!std::isfinite(clip_denominator) ||
+                    clip_denominator <= 0.0001) {
                     return false;
                 }
                 const double ratio = std::max(
                     0.0,
-                    (resolved_limit * radius - numerator) / denominator);
+                    (resolved_limit * radius - clip_numerator) /
+                        clip_denominator);
                 const point first_clip{
                     previous_outer[0U] +
                         incoming[0U] * radius * ratio,
