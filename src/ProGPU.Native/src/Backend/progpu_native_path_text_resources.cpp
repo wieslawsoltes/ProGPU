@@ -97,13 +97,15 @@ WGPUBindGroup create_text_atlas_bind_group(
 
 bool create_path_resources(progpu_native_engine& engine) {
     if (engine.path_raster_pipeline != nullptr &&
-        engine.path_split_xor_combine_pipeline != nullptr &&
+        engine.path_split_leaf_pipeline != nullptr &&
+        engine.path_split_boolean_combine_pipeline != nullptr &&
         engine.path_atlas_bind_group != nullptr) {
         return true;
     }
     if (engine.path_raster_shader != nullptr ||
         engine.path_raster_pipeline != nullptr ||
-        engine.path_split_xor_combine_pipeline != nullptr ||
+        engine.path_split_leaf_pipeline != nullptr ||
+        engine.path_split_boolean_combine_pipeline != nullptr ||
         engine.path_raster_layout != nullptr ||
         engine.path_raster_pipeline_layout != nullptr ||
         engine.path_atlas_sampler != nullptr ||
@@ -179,14 +181,25 @@ bool create_path_resources(progpu_native_engine& engine) {
         return false;
     }
     pipeline_descriptor.label = progpu::native::webgpu::string_view(
-        "ProGPU native path split XOR combine pipeline");
+        "ProGPU native path split leaf pipeline");
     pipeline_descriptor.compute.entryPoint =
-        progpu::native::webgpu::string_view("cs_split_xor_combine");
-    engine.path_split_xor_combine_pipeline =
+        progpu::native::webgpu::string_view("cs_split_leaf");
+    engine.path_split_leaf_pipeline =
         wgpuDeviceCreateComputePipeline(
             engine.device,
             &pipeline_descriptor);
-    if (engine.path_split_xor_combine_pipeline == nullptr) {
+    if (engine.path_split_leaf_pipeline == nullptr) {
+        return false;
+    }
+    pipeline_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native path split boolean combine pipeline");
+    pipeline_descriptor.compute.entryPoint =
+        progpu::native::webgpu::string_view("cs_split_boolean_combine");
+    engine.path_split_boolean_combine_pipeline =
+        wgpuDeviceCreateComputePipeline(
+            engine.device,
+            &pipeline_descriptor);
+    if (engine.path_split_boolean_combine_pipeline == nullptr) {
         return false;
     }
 

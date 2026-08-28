@@ -14597,6 +14597,7 @@ bool retained_even_odd_group_accepts_combined_fill_and_clip_children() {
     constexpr std::uint32_t rectangle_c = 36U;
     constexpr std::uint32_t combined = 37U;
     constexpr std::uint32_t group = 38U;
+    constexpr std::uint32_t rectangle_d = 40U;
 
     std::vector<std::byte> batch;
     append_create(batch, visual, 39U);
@@ -14606,6 +14607,7 @@ bool retained_even_odd_group_accepts_combined_fill_and_clip_children() {
     append_create(batch, rectangle_a, 69U);
     append_create(batch, rectangle_b, 69U);
     append_create(batch, rectangle_c, 69U);
+    append_create(batch, rectangle_d, 69U);
     append_create(batch, combined, 72U);
     append_create(batch, group, 71U);
     append_command(batch, command::visual_create, visual);
@@ -14644,6 +14646,7 @@ bool retained_even_odd_group_accepts_combined_fill_and_clip_children() {
     append_rectangle(rectangle_a, 10.0, 10.0, 20.0, 20.0);
     append_rectangle(rectangle_b, 20.0, 10.0, 20.0, 20.0);
     append_rectangle(rectangle_c, 0.0, 0.0, 8.0, 8.0);
+    append_rectangle(rectangle_d, 2.0, 0.0, 8.0, 8.0);
     append_command(
         batch,
         command::combined_geometry,
@@ -14652,7 +14655,7 @@ bool retained_even_odd_group_accepts_combined_fill_and_clip_children() {
         3U,
         rectangle_a,
         rectangle_b);
-    const std::array children{combined, rectangle_c};
+    const std::array children{combined, rectangle_c, rectangle_d};
     append_geometry_group(batch, group, 0U, 0U, children);
     std::vector<std::byte> nested;
     append_command(
@@ -14712,12 +14715,22 @@ bool retained_even_odd_group_accepts_combined_fill_and_clip_children() {
             progpu_native_scene_path_boolean_node>(
                 stream,
                 node_offset + 4U * sizeof(first));
+        const auto fourth = read_value<
+            progpu_native_scene_path_boolean_node>(
+                stream,
+                node_offset + 5U * sizeof(first));
+        const auto final_xor = read_value<
+            progpu_native_scene_path_boolean_node>(
+                stream,
+                node_offset + 6U * sizeof(first));
         PROGPU_REQUIRE(first.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF);
         PROGPU_REQUIRE(second.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF);
         PROGPU_REQUIRE(
             difference.kind == PROGPU_NATIVE_PATH_BOOLEAN_DIFFERENCE);
         PROGPU_REQUIRE(third.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF);
         PROGPU_REQUIRE(group_xor.kind == PROGPU_NATIVE_PATH_BOOLEAN_XOR);
+        PROGPU_REQUIRE(fourth.kind == PROGPU_NATIVE_PATH_BOOLEAN_LEAF);
+        PROGPU_REQUIRE(final_xor.kind == PROGPU_NATIVE_PATH_BOOLEAN_XOR);
         return true;
     };
     for (std::uint32_t index = 0U; index < header.resource_count; ++index) {
@@ -14729,15 +14742,15 @@ bool retained_even_odd_group_accepts_combined_fill_and_clip_children() {
             const auto path = read_value<progpu_native_scene_path_fill>(
                 stream,
                 resource.payload_offset);
-            if (path.segment_count != 12U ||
-                path.boolean_node_count != 5U) {
+            if (path.segment_count != 16U ||
+                path.boolean_node_count != 7U) {
                 continue;
             }
             PROGPU_REQUIRE(path.min_x == 0.0F && path.min_y == 0.0F);
             PROGPU_REQUIRE(path.max_x == 40.0F && path.max_y == 30.0F);
             PROGPU_REQUIRE(require_program(
                 resource.auxiliary_offset +
-                12U * sizeof(progpu_native_path_segment)));
+                16U * sizeof(progpu_native_path_segment)));
             found_fill = true;
         } else if (resource.kind ==
             PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK) {
@@ -14747,19 +14760,19 @@ bool retained_even_odd_group_accepts_combined_fill_and_clip_children() {
                     resource.payload_offset);
             if (mask.kind !=
                     PROGPU_NATIVE_SCENE_LAYER_MASK_VECTOR_CLIP_CHAIN ||
-                mask.path_count != 1U || mask.segment_count != 12U ||
-                mask.boolean_node_count != 5U) {
+                mask.path_count != 1U || mask.segment_count != 16U ||
+                mask.boolean_node_count != 7U) {
                 continue;
             }
             const auto path = read_value<progpu_native_scene_clip_path>(
                 stream,
                 resource.auxiliary_offset);
-            PROGPU_REQUIRE(path.segment_count == 12U);
-            PROGPU_REQUIRE(path.boolean_node_count == 5U);
+            PROGPU_REQUIRE(path.segment_count == 16U);
+            PROGPU_REQUIRE(path.boolean_node_count == 7U);
             PROGPU_REQUIRE(require_program(
                 resource.auxiliary_offset +
                 sizeof(progpu_native_scene_clip_path) +
-                12U * sizeof(progpu_native_path_segment)));
+                16U * sizeof(progpu_native_path_segment)));
             found_clip = true;
         }
     }

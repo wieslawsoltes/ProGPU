@@ -335,9 +335,17 @@ progpu_native_status render_paths(
                     const std::uint32_t output_bytes_per_row = align_up(
                         width,
                         webgpu_copy_row_alignment);
-                    output_offset = align_up(
+                    const std::uint64_t aligned_output_offset = align_up_u64(
                         output_offset,
                         webgpu_copy_row_alignment);
+                    if (aligned_output_offset >
+                        std::numeric_limits<std::uint32_t>::max()) {
+                        return engine->fail(
+                            PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
+                            "The aligned path coverage staging batch exceeds 4 GiB.");
+                    }
+                    output_offset =
+                        static_cast<std::uint32_t>(aligned_output_offset);
                     const std::uint64_t next_output =
                         static_cast<std::uint64_t>(output_offset) +
                         static_cast<std::uint64_t>(output_bytes_per_row) * height;
@@ -365,18 +373,22 @@ progpu_native_status render_paths(
                     const auto program = path_boolean::append_gpu_records(
                         path,
                         boolean_nodes,
-                        path_records);
-                    if (program.split_xor_leaf_count != 0U) {
+                        path_records,
+                        std::span<const progpu_native_path_segment>(
+                            frame->segments,
+                            frame->segment_count));
+                    if (program.split_leaf_count != 0U) {
+                        const std::uint64_t leaf_words_per_row =
+                            static_cast<std::uint64_t>(width) * 2U;
                         const std::uint64_t leaf_bytes =
-                            static_cast<std::uint64_t>(
-                                output_bytes_per_row) * height;
-                        const std::uint64_t source_offset =
-                            align_up(
-                                static_cast<std::uint32_t>(next_output),
-                                webgpu_copy_row_alignment);
+                            leaf_words_per_row * sizeof(std::uint32_t) *
+                            height;
+                        const std::uint64_t source_offset = align_up_u64(
+                            next_output,
+                            webgpu_copy_row_alignment);
                         const std::uint64_t split_next_output =
                             source_offset + leaf_bytes *
-                                program.split_xor_leaf_count;
+                                program.split_leaf_count;
                         if (split_next_output >
                             std::numeric_limits<std::uint32_t>::max()) {
                             return engine->fail(
@@ -389,7 +401,7 @@ progpu_native_status render_paths(
                             subpixel_x,
                             subpixel_y,
                             raster_scale,
-                            output_bytes_per_row,
+                            leaf_words_per_row,
                             width,
                             height,
                             &path](
@@ -403,7 +415,8 @@ progpu_native_status render_paths(
                                 raster_scale,
                                 record_index,
                                 leaf_output_offset / 4U,
-                                output_bytes_per_row / 4U,
+                                static_cast<std::uint32_t>(
+                                    leaf_words_per_row),
                                 width,
                                 height,
                                 path.sample_grid,
@@ -411,9 +424,9 @@ progpu_native_status render_paths(
                                 0U});
                         };
                         split_leaf_uniforms.resize(
-                            program.split_xor_leaf_count);
+                            program.split_leaf_count);
                         for (std::uint32_t leaf_index = 0U;
-                             leaf_index < program.split_xor_leaf_count;
+                             leaf_index < program.split_leaf_count;
                              ++leaf_index) {
                             const std::uint64_t leaf_output_offset =
                                 source_offset + leaf_bytes * leaf_index;
@@ -426,12 +439,15 @@ progpu_native_status render_paths(
                         coverage_combine_uniforms.push_back({
                             static_cast<std::uint32_t>(source_offset) / 4U,
                             static_cast<std::uint32_t>(leaf_bytes) / 4U,
-                            program.split_xor_leaf_count,
+                            program.split_leaf_count,
+                            program.program_index,
+                            program.operation_kind &
+                                ~path_boolean::gpu_program_flag,
                             output_offset / 4U,
                             output_bytes_per_row / 4U,
                             width,
                             height,
-                            0U});
+                            path.sample_grid});
                         output_offset =
                             static_cast<std::uint32_t>(split_next_output);
                     } else {
@@ -680,7 +696,7 @@ progpu_native_status render_paths(
              ++phase_index) {
             if (!split_leaf_uniforms[phase_index].empty()) {
                 split_leaf_uniform_buffers[phase_index] = create_buffer(
-                    "ProGPU native split XOR leaf uniforms",
+                    "ProGPU native split boolean leaf uniforms",
                     split_leaf_uniforms[phase_index].size() *
                         sizeof(gpu_path_uniforms),
                     WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
@@ -818,7 +834,7 @@ progpu_native_status render_paths(
             if (phase_bytes != 0U) {
                 split_leaf_bind_groups[phase_index] =
                     create_raster_bind_group(
-                        "ProGPU native split XOR leaf bind group",
+                        "ProGPU native split boolean leaf bind group",
                         split_leaf_uniform_buffers[phase_index],
                         phase_bytes);
                 split_bind_group_creation_failed |=
@@ -891,11 +907,15 @@ progpu_native_status render_paths(
 
     if (raster_bind_group != nullptr) {
         std::uint32_t workgroups_x = 0U;
+        std::uint32_t split_workgroups_x = 0U;
         std::uint32_t workgroups_y = 0U;
         for (const auto& raster : engine->path_rasters) {
             workgroups_x = std::max(
                 workgroups_x,
                 (raster.width + 63U) / 64U);
+            split_workgroups_x = std::max(
+                split_workgroups_x,
+                (raster.width + 15U) / 16U);
             workgroups_y = std::max(
                 workgroups_y,
                 (raster.height + 15U) / 16U);
@@ -903,7 +923,9 @@ progpu_native_status render_paths(
         const auto encode_raster_pass = [&](
             const char* label,
             WGPUBindGroup bind_group,
-            std::size_t uniform_count) {
+            std::size_t uniform_count,
+            WGPUComputePipeline pipeline,
+            std::uint32_t dispatch_x) {
             if (uniform_count == 0U) {
                 return true;
             }
@@ -919,7 +941,7 @@ progpu_native_status render_paths(
             }
             wgpuComputePassEncoderSetPipeline(
                 compute_pass,
-                engine->path_raster_pipeline);
+                pipeline);
             wgpuComputePassEncoderSetBindGroup(
                 compute_pass,
                 0U,
@@ -928,7 +950,7 @@ progpu_native_status render_paths(
                 nullptr);
             wgpuComputePassEncoderDispatchWorkgroups(
                 compute_pass,
-                workgroups_x,
+                dispatch_x,
                 workgroups_y,
                 static_cast<std::uint32_t>(uniform_count));
             wgpuComputePassEncoderEnd(compute_pass);
@@ -938,7 +960,9 @@ progpu_native_status render_paths(
         if (!encode_raster_pass(
                 "ProGPU native path coverage pass",
                 raster_bind_group,
-                path_uniforms.size())) {
+                path_uniforms.size(),
+                engine->path_raster_pipeline,
+                workgroups_x)) {
             if (owns_encoder && encoder != nullptr) {
                 wgpuCommandEncoderRelease(encoder);
             }
@@ -950,22 +974,24 @@ progpu_native_status render_paths(
              phase_index < split_leaf_uniforms.size();
              ++phase_index) {
             if (!encode_raster_pass(
-                    "ProGPU native path split XOR leaf coverage pass",
+                    "ProGPU native path split boolean leaf coverage pass",
                     split_leaf_bind_groups[phase_index],
-                    split_leaf_uniforms[phase_index].size())) {
+                    split_leaf_uniforms[phase_index].size(),
+                    engine->path_split_leaf_pipeline,
+                    split_workgroups_x)) {
                 if (owns_encoder && encoder != nullptr) {
                     wgpuCommandEncoderRelease(encoder);
                 }
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                    "A native path split XOR compute pass could not be created.");
+                    "A native path split boolean compute pass could not be created.");
             }
             if (split_raster_submissions &&
                 !submit_raster_phase(
-                    "ProGPU native path split XOR raster phase commands")) {
+                    "ProGPU native path split boolean raster phase commands")) {
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                    "A native path split XOR raster phase could not be submitted.");
+                    "A native path split boolean raster phase could not be submitted.");
             }
         }
 
@@ -973,7 +999,7 @@ progpu_native_status render_paths(
             WGPUComputePassDescriptor combine_descriptor{};
             combine_descriptor.label =
                 progpu::native::webgpu::string_view(
-                    "ProGPU native path split XOR coverage combine pass");
+                    "ProGPU native path split boolean coverage combine pass");
             WGPUComputePassEncoder combine_pass =
                 wgpuCommandEncoderBeginComputePass(
                     encoder,
@@ -984,11 +1010,11 @@ progpu_native_status render_paths(
                 }
                 return engine->fail(
                     PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
-                    "The native path split XOR combine pass could not be created.");
+                    "The native path split boolean combine pass could not be created.");
             }
             wgpuComputePassEncoderSetPipeline(
                 combine_pass,
-                engine->path_split_xor_combine_pipeline);
+                engine->path_split_boolean_combine_pipeline);
             wgpuComputePassEncoderSetBindGroup(
                 combine_pass,
                 0U,
