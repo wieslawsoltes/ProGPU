@@ -9248,23 +9248,88 @@ struct channel::implementation {
                 if (geometry_group != geometry_groups.end()) {
                     const bool has_zero_area =
                         affine_has_zero_area(effective_transform);
+                    pen_state group_pen{};
+                    bool has_group_stroke = false;
+                    bool has_group_stroke_bounds = false;
+                    double group_stroke_left = 0.0;
+                    double group_stroke_top = 0.0;
+                    double group_stroke_right = 0.0;
+                    double group_stroke_bottom = 0.0;
                     if (pen_handle != 0U) {
-                        pen_state pen{};
                         const status pen_status = resolve_pen(
-                            pen_handle, pen);
+                            pen_handle, group_pen);
                         if (pen_status != status::success) {
                             return pen_status;
                         }
-                        if (!has_zero_area &&
-                            pen.brush_handle != 0U &&
-                            pen.thickness > 0.0) {
-                            return status::unsupported_command;
+                        has_group_stroke = !has_zero_area &&
+                            group_pen.brush_handle != 0U &&
+                            group_pen.thickness > 0.0;
+                        if (has_group_stroke) {
+                            for (const std::uint32_t child_handle :
+                                 geometry_group->second.children) {
+                                const auto child =
+                                    path_geometries.find(child_handle);
+                                if (child == path_geometries.end()) {
+                                    return status::unsupported_command;
+                                }
+                                affine_2d_double child_transform{};
+                                if (child->second.transform_handle != 0U) {
+                                    const status transform_status =
+                                        resolve_transform(
+                                            child->second.transform_handle,
+                                            child_transform);
+                                    if (transform_status != status::success) {
+                                        return transform_status;
+                                    }
+                                }
+                                if (affine_has_zero_area(compose_affine(
+                                        child_transform,
+                                        effective_transform))) {
+                                    continue;
+                                }
+                                progpu_native_image_rect child_bounds{};
+                                if (!try_transform_bounds(
+                                        child->second.left,
+                                        child->second.top,
+                                        child->second.right -
+                                            child->second.left,
+                                        child->second.bottom -
+                                            child->second.top,
+                                        child_transform,
+                                        child_bounds)) {
+                                    return status::invalid_graph;
+                                }
+                                const double child_right =
+                                    child_bounds.x + child_bounds.width;
+                                const double child_bottom =
+                                    child_bounds.y + child_bounds.height;
+                                if (!has_group_stroke_bounds) {
+                                    group_stroke_left = child_bounds.x;
+                                    group_stroke_top = child_bounds.y;
+                                    group_stroke_right = child_right;
+                                    group_stroke_bottom = child_bottom;
+                                    has_group_stroke_bounds = true;
+                                } else {
+                                    group_stroke_left = std::min(
+                                        group_stroke_left,
+                                        double{child_bounds.x});
+                                    group_stroke_top = std::min(
+                                        group_stroke_top,
+                                        double{child_bounds.y});
+                                    group_stroke_right = std::max(
+                                        group_stroke_right,
+                                        child_right);
+                                    group_stroke_bottom = std::max(
+                                        group_stroke_bottom,
+                                        child_bottom);
+                                }
+                            }
                         }
                     }
                     if (has_zero_area) {
                         continue;
                     }
-                    if (brush_handle == 0U ||
+                    if ((brush_handle == 0U && !has_group_stroke) ||
                         geometry_group->second.children.empty()) {
                         continue;
                     }
@@ -9389,7 +9454,10 @@ struct channel::implementation {
                             ++appended_boolean_child_count;
                         }
                     }
-                    if (group_segments.empty() || !has_group_bounds) {
+                    const bool has_group_fill = brush_handle != 0U &&
+                        !group_segments.empty() && has_group_bounds;
+                    if (!has_group_fill &&
+                        (!has_group_stroke || !has_group_stroke_bounds)) {
                         continue;
                     }
                     if (use_even_odd_leaf_program &&
@@ -9398,7 +9466,7 @@ struct channel::implementation {
                             PROGPU_NATIVE_PATH_BOOLEAN_LEAF) {
                         group_boolean_nodes.clear();
                     }
-                    if (use_even_odd_leaf_program) {
+                    if (use_even_odd_leaf_program && has_group_fill) {
                         if (has_overlapping_translated_equivalent_leaves(
                                 group_segments,
                                 group_leaves)) {
@@ -9408,63 +9476,131 @@ struct channel::implementation {
                             return status::unsupported_command;
                         }
                     }
-                    std::uint32_t brush_index =
-                        PROGPU_NATIVE_SCENE_NO_INDEX;
-                    const brush_use_state brush_use{
-                        group_left,
-                        group_top,
-                        group_right - group_left,
-                        group_bottom - group_top,
-                        effective_transform};
-                    const status brush_status = resolve_brush_index(
-                        brush_handle,
-                        brush_index,
-                        &brush_use);
-                    if (brush_status != status::success) {
-                        return brush_status;
-                    }
-                    progpu_native_image_rect path_bounds{};
-                    if (!try_transform_bounds(
+                    if (has_group_fill) {
+                        const brush_use_state brush_use{
                             group_left,
                             group_top,
                             group_right - group_left,
                             group_bottom - group_top,
-                            effective_transform,
-                            path_bounds)) {
-                        return status::invalid_graph;
+                            effective_transform};
+                        std::uint32_t brush_index =
+                            PROGPU_NATIVE_SCENE_NO_INDEX;
+                        const status brush_status = resolve_brush_index(
+                            brush_handle,
+                            brush_index,
+                            &brush_use);
+                        if (brush_status != status::success) {
+                            return brush_status;
+                        }
+                        progpu_native_image_rect path_bounds{};
+                        if (!try_transform_bounds(
+                                group_left,
+                                group_top,
+                                group_right - group_left,
+                                group_bottom - group_top,
+                                effective_transform,
+                                path_bounds)) {
+                            return status::invalid_graph;
+                        }
+                        progpu_native_affine_2d native_local_transform{};
+                        if (!try_to_native_affine(
+                                local_transform,
+                                native_local_transform)) {
+                            return status::invalid_graph;
+                        }
+                        const std::array paths{
+                            progpu_native_scene_path_fill{
+                                0U,
+                                group_segments.size(),
+                                0U,
+                                group_boolean_nodes.size(),
+                                static_cast<float>(group_left),
+                                static_cast<float>(group_top),
+                                static_cast<float>(group_right),
+                                static_cast<float>(group_bottom),
+                                {1.0F, 1.0F, 1.0F, 1.0F},
+                                native_local_transform,
+                                static_cast<std::uint32_t>(
+                                    geometry_group->second.fill_rule == 0U
+                                        ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                                        : PROGPU_NATIVE_FILL_RULE_NON_ZERO),
+                                current.edge_aliased ? 1U : 8U}};
+                        const std::array brushes{brush_index};
+                        if (!builder.draw_paths(
+                                paths,
+                                group_segments,
+                                brushes,
+                                path_bounds,
+                                PROGPU_NATIVE_SCENE_NO_INDEX,
+                                group_boolean_nodes)) {
+                            return status::invalid_graph;
+                        }
                     }
-                    progpu_native_affine_2d native_local_transform{};
-                    if (!try_to_native_affine(
-                            local_transform,
-                            native_local_transform)) {
-                        return status::invalid_graph;
-                    }
-                    const std::array paths{
-                        progpu_native_scene_path_fill{
-                            0U,
-                            group_segments.size(),
-                            0U,
-                            group_boolean_nodes.size(),
-                            static_cast<float>(group_left),
-                            static_cast<float>(group_top),
-                            static_cast<float>(group_right),
-                            static_cast<float>(group_bottom),
-                            {1.0F, 1.0F, 1.0F, 1.0F},
-                            native_local_transform,
-                            static_cast<std::uint32_t>(
-                                geometry_group->second.fill_rule == 0U
-                                    ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
-                                    : PROGPU_NATIVE_FILL_RULE_NON_ZERO),
-                            current.edge_aliased ? 1U : 8U}};
-                    const std::array brushes{brush_index};
-                    if (!builder.draw_paths(
-                            paths,
-                            group_segments,
-                            brushes,
-                            path_bounds,
-                            PROGPU_NATIVE_SCENE_NO_INDEX,
-                            group_boolean_nodes)) {
-                        return status::invalid_graph;
+                    if (has_group_stroke) {
+                        const double expansion =
+                            group_pen.thickness * 0.5 *
+                            std::max(1.0, group_pen.miter_limit);
+                        if (!finite_double_as_float(expansion)) {
+                            return status::invalid_graph;
+                        }
+                        const brush_use_state stroke_brush_use{
+                            group_stroke_left - expansion,
+                            group_stroke_top - expansion,
+                            group_stroke_right - group_stroke_left +
+                                expansion * 2.0,
+                            group_stroke_bottom - group_stroke_top +
+                                expansion * 2.0,
+                            effective_transform};
+                        std::uint32_t stroke_brush_index =
+                            PROGPU_NATIVE_SCENE_NO_INDEX;
+                        const status brush_status = resolve_brush_index(
+                            group_pen.brush_handle,
+                            stroke_brush_index,
+                            &stroke_brush_use);
+                        if (brush_status != status::success) {
+                            return brush_status;
+                        }
+                        for (const std::uint32_t child_handle :
+                             geometry_group->second.children) {
+                            const auto& child =
+                                path_geometries.at(child_handle);
+                            if (current.per_point_guidelines &&
+                                !child.per_point_segments_supported) {
+                                return status::unsupported_command;
+                            }
+                            affine_2d_double child_local_transform =
+                                local_transform;
+                            if (child.transform_handle != 0U) {
+                                affine_2d_double child_transform{};
+                                const status transform_status =
+                                    resolve_transform(
+                                        child.transform_handle,
+                                        child_transform);
+                                if (transform_status != status::success) {
+                                    return transform_status;
+                                }
+                                child_local_transform = compose_affine(
+                                    child_transform,
+                                    local_transform);
+                            }
+                            const affine_2d_double child_effective_transform =
+                                compose_affine(
+                                    child_local_transform,
+                                    current.transform);
+                            if (affine_has_zero_area(
+                                    child_effective_transform)) {
+                                continue;
+                            }
+                            const status stroke_status = append_path_strokes(
+                                child,
+                                group_pen,
+                                child_local_transform,
+                                child_effective_transform,
+                                stroke_brush_index);
+                            if (stroke_status != status::success) {
+                                return stroke_status;
+                            }
+                        }
                     }
                     continue;
                 }

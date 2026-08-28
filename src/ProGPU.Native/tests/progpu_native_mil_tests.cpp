@@ -7475,6 +7475,9 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     constexpr std::uint32_t dash = 6U;
     constexpr std::uint32_t transform = 7U;
     constexpr std::uint32_t geometry = 8U;
+    constexpr std::uint32_t grouped_geometry = 9U;
+    constexpr std::uint32_t group = 10U;
+    constexpr std::uint32_t child_transform = 11U;
     constexpr std::uint32_t line_size = 32U;
     constexpr std::uint32_t figure_size = 40U + 3U * line_size;
     constexpr std::uint32_t figures_size = 48U + 2U * figure_size;
@@ -7540,6 +7543,9 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
     append_create(batch, dash, 84U);
     append_create(batch, transform, 66U);
     append_create(batch, geometry, 73U);
+    append_create(batch, grouped_geometry, 73U);
+    append_create(batch, group, 71U);
+    append_create(batch, child_transform, 66U);
     append_command(batch, command::visual_create, visual);
     append_command(batch, command::visual_set_content, visual, content);
     append_command(
@@ -7577,6 +7583,17 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         1.5,
         2.0,
         3.0,
+        0U);
+    append_command(
+        batch,
+        command::matrix_transform,
+        child_transform,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        30.0,
+        0.0,
         0U);
     append_path_geometry(batch, geometry, transform, 0U, figures);
     std::vector<std::byte> nested;
@@ -8375,6 +8392,192 @@ bool retained_line_path_stroke_preserves_closure_gaps_and_pen_state() {
         PROGPU_REQUIRE(
             record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH);
     }
+
+    std::vector<std::byte> group_stroke_update;
+    append_command(
+        group_stroke_update,
+        command::pen,
+        pen,
+        2.0,
+        4.0,
+        brush,
+        0U,
+        1U,
+        2U,
+        3U,
+        1U,
+        0U);
+    const auto grouped_figures = make_curve_path_figures();
+    auto unfilled_grouped_figures = grouped_figures;
+    const std::uint32_t unfilled_closed_curve_figure = 0x06U;
+    std::memcpy(
+        unfilled_grouped_figures.data() + 52U,
+        &unfilled_closed_curve_figure,
+        sizeof(unfilled_closed_curve_figure));
+    append_path_geometry(
+        group_stroke_update,
+        geometry,
+        transform,
+        0U,
+        grouped_figures);
+    append_path_geometry(
+        group_stroke_update,
+        grouped_geometry,
+        child_transform,
+        0U,
+        unfilled_grouped_figures);
+    const std::array group_children{geometry, grouped_geometry};
+    append_geometry_group(
+        group_stroke_update,
+        group,
+        0U,
+        0U,
+        group_children);
+    std::vector<std::byte> group_stroke_commands;
+    append_command(
+        group_stroke_commands,
+        command::draw_geometry,
+        brush,
+        pen,
+        group,
+        0U);
+    append_render_data(
+        group_stroke_update,
+        content,
+        group_stroke_commands);
+    PROGPU_REQUIRE(state.apply(group_stroke_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 14U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.brush_count == 1U);
+    const auto group_stroke_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t group_fill_count = 0U;
+    std::uint32_t first_child_body_count = 0U;
+    std::uint32_t second_child_body_count = 0U;
+    for (std::uint32_t resource_index = 0U;
+         resource_index < group_stroke_header.resource_count;
+         ++resource_index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            group_stroke_header.resource_offset +
+                resource_index * sizeof(progpu_native_scene_resource));
+        if (record.kind == PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            const auto path = read_value<progpu_native_scene_path_fill>(
+                stream,
+                record.payload_offset);
+            if (path.segment_count == 4U) {
+                PROGPU_REQUIRE(path.transform.m11 == 1.0F);
+                PROGPU_REQUIRE(path.transform.m22 == 1.0F);
+                ++group_fill_count;
+            }
+            continue;
+        }
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        std::uint32_t primitive_offset = 0U;
+        for (;
+             primitive_offset + primitive_stride <= record.payload_size;
+             primitive_offset += primitive_stride) {
+            const auto primitive =
+                read_value<progpu_native_geometry_primitive>(
+                    stream,
+                    record.payload_offset + primitive_offset);
+            if (primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_JOIN ||
+                primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP) {
+                continue;
+            }
+            if (primitive.transform.m11 == 1.5F &&
+                primitive.transform.m22 == 1.5F &&
+                primitive.transform.m31 == 2.0F &&
+                primitive.transform.m32 == 3.0F) {
+                ++first_child_body_count;
+            } else if (
+                primitive.transform.m11 == 1.0F &&
+                primitive.transform.m22 == 1.0F &&
+                primitive.transform.m31 == 30.0F &&
+                primitive.transform.m32 == 0.0F) {
+                ++second_child_body_count;
+            }
+        }
+        PROGPU_REQUIRE(primitive_offset == record.payload_size);
+    }
+    PROGPU_REQUIRE(group_fill_count == 1U);
+    PROGPU_REQUIRE(first_child_body_count == 4U);
+    PROGPU_REQUIRE(second_child_body_count == 4U);
+
+    std::vector<std::byte> dashed_group_update;
+    append_dash_style(
+        dashed_group_update,
+        dash,
+        0.0,
+        0U,
+        short_dash_intervals);
+    append_command(
+        dashed_group_update,
+        command::pen,
+        pen,
+        2.0,
+        4.0,
+        brush,
+        0U,
+        1U,
+        2U,
+        3U,
+        1U,
+        dash);
+    PROGPU_REQUIRE(state.apply(dashed_group_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7002U, 15U, stream, &metrics) ==
+        status::success);
+    const auto dashed_group_header =
+        read_value<progpu_native_scene_header>(stream, 0U);
+    std::uint32_t dashed_group_cap_count = 0U;
+    bool found_first_dashed_child = false;
+    bool found_second_dashed_child = false;
+    for (std::uint32_t resource_index = 0U;
+         resource_index < dashed_group_header.resource_count;
+         ++resource_index) {
+        const auto record = read_value<progpu_native_scene_resource>(
+            stream,
+            dashed_group_header.resource_offset +
+                resource_index * sizeof(progpu_native_scene_resource));
+        if (record.kind != PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
+            continue;
+        }
+        std::uint32_t primitive_offset = 0U;
+        for (;
+             primitive_offset + primitive_stride <= record.payload_size;
+             primitive_offset += primitive_stride) {
+            const auto primitive =
+                read_value<progpu_native_geometry_primitive>(
+                    stream,
+                    record.payload_offset + primitive_offset);
+            if (primitive.kind == PROGPU_NATIVE_GEOMETRY_PATH_CAP) {
+                const std::uint32_t cap =
+                    (primitive.flags &
+                        PROGPU_NATIVE_PRIMITIVE_START_CAP_MASK) >>
+                    PROGPU_NATIVE_PRIMITIVE_START_CAP_SHIFT;
+                PROGPU_REQUIRE(cap == PROGPU_NATIVE_STROKE_CAP_TRIANGLE);
+                ++dashed_group_cap_count;
+            }
+            found_first_dashed_child = found_first_dashed_child ||
+                (primitive.transform.m11 == 1.5F &&
+                 primitive.transform.m22 == 1.5F &&
+                 primitive.transform.m31 == 2.0F &&
+                 primitive.transform.m32 == 3.0F);
+            found_second_dashed_child = found_second_dashed_child ||
+                (primitive.transform.m11 == 1.0F &&
+                 primitive.transform.m22 == 1.0F &&
+                 primitive.transform.m31 == 30.0F &&
+                 primitive.transform.m32 == 0.0F);
+        }
+        PROGPU_REQUIRE(primitive_offset == record.payload_size);
+    }
+    PROGPU_REQUIRE(dashed_group_cap_count >= 4U);
+    PROGPU_REQUIRE(found_first_dashed_child);
+    PROGPU_REQUIRE(found_second_dashed_child);
     return true;
 }
 
