@@ -2860,6 +2860,87 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void SemanticSceneBuilderValidatesCanonicalRationalQuadraticSegments()
+    {
+        Assert.Equal(4U, (uint)NativePathSegmentKind.RationalQuadratic);
+        Span<byte> destination = stackalloc byte[1024];
+        Span<NativeScenePathFill> paths = stackalloc NativeScenePathFill[1]
+        {
+            new(
+                0U,
+                1U,
+                Vector2.Zero,
+                new Vector2(12f),
+                Vector4.One,
+                Matrix3x2.Identity)
+        };
+        Span<NativePathSegment> segments = stackalloc NativePathSegment[1]
+        {
+            new(
+                NativePathSegmentKind.RationalQuadratic,
+                Vector2.Zero,
+                new Vector2(6f, 12f),
+                new Vector2(12f, 0f),
+                pad0: BitConverter.SingleToUInt32Bits(0.5f))
+        };
+
+        var builder = new NativeSceneStreamBuilder(
+            destination,
+            101U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        Assert.True(builder.TryAddPathResource(
+            1U, 1U, paths, segments, out _));
+
+        segments[0] = new NativePathSegment(
+            NativePathSegmentKind.RationalQuadratic,
+            Vector2.Zero,
+            new Vector2(6f, 12f),
+            new Vector2(12f, 0f),
+            p3: Vector2.One,
+            pad0: BitConverter.SingleToUInt32Bits(0.5f));
+        builder = new NativeSceneStreamBuilder(
+            destination,
+            102U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        Assert.False(builder.TryAddPathResource(
+            1U, 1U, paths, segments, out _));
+
+        segments[0] = new NativePathSegment(
+            NativePathSegmentKind.RationalQuadratic,
+            Vector2.Zero,
+            new Vector2(6f, 12f),
+            new Vector2(12f, 0f),
+            pad0: BitConverter.SingleToUInt32Bits(0f));
+        builder = new NativeSceneStreamBuilder(
+            destination,
+            103U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        Assert.False(builder.TryAddPathResource(
+            1U, 1U, paths, segments, out _));
+
+        segments[0] = new NativePathSegment(
+            NativePathSegmentKind.RationalQuadratic,
+            Vector2.Zero,
+            new Vector2(6f, 12f),
+            new Vector2(12f, 0f),
+            pad0: BitConverter.SingleToUInt32Bits(float.MaxValue));
+        builder = new NativeSceneStreamBuilder(
+            destination,
+            104U,
+            1U,
+            commandCapacity: 1,
+            resourceCapacity: 1);
+        Assert.False(builder.TryAddPathResource(
+            1U, 1U, paths, segments, out _));
+    }
+
+    [Fact]
     public void SemanticSceneBuilderWritesTypedMixedPayloadsWithoutAllocation()
     {
         Span<byte> destination = stackalloc byte[4096];

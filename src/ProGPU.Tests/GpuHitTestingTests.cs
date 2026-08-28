@@ -626,6 +626,34 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void RenderCommandCachePreservesRationalQuadraticPathWeight()
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(Vector2.Zero, isClosed: true);
+        figure.Segments.Add(new RationalQuadraticBezierSegment(
+            new Vector2(6f, 12f),
+            new Vector2(12f, 0f),
+            0.5f));
+        path.Figures.Add(figure);
+        var builder = new GpuRenderCommandHitTestCacheBuilder();
+        builder.AddCommand(new RenderCommand
+        {
+            Type = RenderCommandType.DrawPath,
+            HitTestId = 771,
+            Path = path,
+            Brush = new SolidColorBrush(Vector4.One)
+        }, Matrix4x4.Identity);
+
+        var index = builder.BuildIndex(maxDepth: 2, maxPrimitivesPerNode: 1);
+
+        Assert.Equal(2, index.PathSegments.Count);
+        Assert.Equal(4u, index.PathSegments[0].SegmentType);
+        Assert.Equal(
+            0.5f,
+            BitConverter.UInt32BitsToSingle(index.PathSegments[0].Pad0));
+    }
+
+    [Fact]
     public void RenderCommandCacheUsesSharedPathCompilationForGpuHitTesting()
     {
         var compiler = new CountingPathHitTestCompilationCache();

@@ -906,6 +906,15 @@ public sealed class CadPlanSceneCompiler
                 new Vector2(ToFloat(segment.EndX), ToFloat(segment.EndY))));
             return;
         }
+        if (segment.Kind == CadHatchSegmentKind.RationalQuadraticBezier)
+        {
+            figure.Segments.Add(new RationalQuadraticBezierSegment(
+                new Vector2(ToFloat(segment.CenterX), ToFloat(segment.CenterY)),
+                new Vector2(ToFloat(segment.EndX), ToFloat(segment.EndY)),
+                ToPositiveFiniteFloat(segment.Weight),
+                isStroked: false));
+            return;
+        }
 
         double radiusX = new CadPoint3D(
             segment.CosineAxisX,
@@ -946,6 +955,17 @@ public sealed class CadPlanSceneCompiler
             rotationDegrees,
             isLargeArc: sweep > Math.PI,
             direction));
+    }
+
+    private static float ToPositiveFiniteFloat(double value)
+    {
+        float result = ToFloat(value);
+        if (result <= 0f)
+        {
+            throw new InvalidOperationException(
+                "A retained rational quadratic weight is outside the positive finite float domain.");
+        }
+        return result;
     }
 
     private static void GetHatchEllipsePoint(

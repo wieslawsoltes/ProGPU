@@ -4052,6 +4052,9 @@ public static partial class GpuPictureNativeSceneCompiler
             case QuadraticBezierSegment quadratic:
                 endPoint = quadratic.Point;
                 return true;
+            case RationalQuadraticBezierSegment rationalQuadratic:
+                endPoint = rationalQuadratic.Point;
+                return true;
             case CubicBezierSegment cubic:
                 endPoint = cubic.Point;
                 return true;
@@ -4085,6 +4088,16 @@ public static partial class GpuPictureNativeSceneCompiler
                         out direction,
                         quadratic.Point - quadratic.ControlPoint,
                         quadratic.Point - start);
+            case RationalQuadraticBezierSegment rationalQuadratic:
+                return atStart
+                    ? TrySelectNativeDirection(
+                        out direction,
+                        rationalQuadratic.ControlPoint - start,
+                        rationalQuadratic.Point - start)
+                    : TrySelectNativeDirection(
+                        out direction,
+                        rationalQuadratic.Point - rationalQuadratic.ControlPoint,
+                        rationalQuadratic.Point - start);
             case CubicBezierSegment cubic:
                 return atStart
                     ? TrySelectNativeDirection(

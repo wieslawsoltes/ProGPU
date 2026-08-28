@@ -98,21 +98,36 @@ bool is_valid_semantic_segment(
     const progpu_native_path_segment& segment,
     bool allow_arc) noexcept {
     const bool is_arc = segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC;
+    const bool is_rational = segment.kind ==
+        PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_QUADRATIC;
     const std::uint32_t maximum_kind = static_cast<std::uint32_t>(allow_arc
-        ? PROGPU_NATIVE_PATH_SEGMENT_ARC
+        ? PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_QUADRATIC
         : PROGPU_NATIVE_PATH_SEGMENT_CUBIC);
+    const float rational_weight = std::bit_cast<float>(segment.pad0);
+    const double rational_scale = std::fmax(1.0, std::fmax(
+        std::fmax(std::abs(segment.p0.x), std::abs(segment.p0.y)),
+        std::fmax(
+            std::fmax(std::abs(segment.p1.x), std::abs(segment.p1.y)),
+            std::fmax(std::abs(segment.p2.x), std::abs(segment.p2.y)))));
+    const double rational_weight_limit =
+        std::numeric_limits<float>::max() / (4.0 * rational_scale);
     return segment.kind <= maximum_kind &&
         is_finite(segment.p0) &&
         is_finite(segment.p1) &&
         is_finite(segment.p2) &&
         is_finite(segment.p3) &&
-        ((!is_arc && segment.pad0 == 0U && segment.pad1 == 0U &&
-             segment.pad2 == 0U) ||
+        ((!is_arc && !is_rational && segment.pad0 == 0U &&
+             segment.pad1 == 0U && segment.pad2 == 0U) ||
          (allow_arc && is_arc && segment.p3.x > 0.0F &&
              segment.p3.y > 0.0F &&
              std::isfinite(std::bit_cast<float>(segment.pad0)) &&
              std::isfinite(std::bit_cast<float>(segment.pad1)) &&
-             std::isfinite(std::bit_cast<float>(segment.pad2))));
+             std::isfinite(std::bit_cast<float>(segment.pad2))) ||
+         (allow_arc && is_rational && segment.p3.x == 0.0F &&
+             segment.p3.y == 0.0F && std::isfinite(rational_weight) &&
+             rational_weight > 0.0F &&
+             rational_weight <= rational_weight_limit && segment.pad1 == 0U &&
+             segment.pad2 == 0U));
 }
 
 bool is_valid_semantic_path(

@@ -737,6 +737,16 @@ public unsafe class PathAtlas : IDisposable
                     hash.Add(cubic.Point.X);
                     hash.Add(cubic.Point.Y);
                 }
+                else if (segment is RationalQuadraticBezierSegment rationalQuadratic)
+                {
+                    hash.Add(4); // Segment type: Rational quadratic
+                    hash.Add(rationalQuadratic.IsStroked);
+                    hash.Add(rationalQuadratic.ControlPoint.X);
+                    hash.Add(rationalQuadratic.ControlPoint.Y);
+                    hash.Add(rationalQuadratic.Point.X);
+                    hash.Add(rationalQuadratic.Point.Y);
+                    hash.Add(rationalQuadratic.Weight);
+                }
                 else if (segment is ArcSegment arc)
                 {
                     hash.Add(3); // Segment type: Arc
@@ -910,6 +920,43 @@ public unsafe class PathAtlas : IDisposable
                     UpdateBounds(cubic.ControlPoint2);
                     UpdateBounds(cubic.Point);
                     currentPoint = cubic.Point;
+                }
+                else if (segment is RationalQuadraticBezierSegment rationalQuadratic)
+                {
+                    double coordinateScale = Math.Max(
+                        1.0,
+                        Math.Max(
+                            Math.Max(
+                                Math.Abs(currentPoint.X),
+                                Math.Abs(currentPoint.Y)),
+                            Math.Max(
+                                Math.Max(
+                                    Math.Abs(rationalQuadratic.ControlPoint.X),
+                                    Math.Abs(rationalQuadratic.ControlPoint.Y)),
+                                Math.Max(
+                                    Math.Abs(rationalQuadratic.Point.X),
+                                    Math.Abs(rationalQuadratic.Point.Y)))));
+                    if (!float.IsFinite(rationalQuadratic.Weight) ||
+                        rationalQuadratic.Weight <= 0f ||
+                        rationalQuadratic.Weight >
+                            float.MaxValue / (4.0 * coordinateScale))
+                    {
+                        throw new InvalidOperationException(
+                            "Rational quadratic path weights must be positive and keep weighted coordinates finite.");
+                    }
+
+                    segments.Add(new GpuPathSegment
+                    {
+                        P0 = currentPoint,
+                        P1 = rationalQuadratic.ControlPoint,
+                        P2 = rationalQuadratic.Point,
+                        SegmentType = 4,
+                        Pad0 = BitConverter.SingleToUInt32Bits(
+                            rationalQuadratic.Weight)
+                    });
+                    UpdateBounds(rationalQuadratic.ControlPoint);
+                    UpdateBounds(rationalQuadratic.Point);
+                    currentPoint = rationalQuadratic.Point;
                 }
                 else if (segment is ArcSegment arc)
                 {
@@ -3732,6 +3779,8 @@ public unsafe class PathAtlas : IDisposable
                     LineSegment line => line.Point,
                     QuadraticBezierSegment quadratic =>
                         quadratic.Point,
+                    RationalQuadraticBezierSegment rationalQuadratic =>
+                        rationalQuadratic.Point,
                     CubicBezierSegment cubic => cubic.Point,
                     ArcSegment arc => arc.Point,
                     _ => null

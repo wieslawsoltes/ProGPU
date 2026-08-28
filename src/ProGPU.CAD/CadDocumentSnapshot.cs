@@ -246,6 +246,7 @@ public enum CadHatchSegmentKind : byte
     EllipticArc = 1,
     QuadraticBezier = 2,
     CubicBezier = 3,
+    RationalQuadraticBezier = 4,
 }
 
 /// <summary>
@@ -253,6 +254,8 @@ public enum CadHatchSegmentKind : byte
 /// OCS plane. Elliptic arcs use center + cosine-axis*cos(t) + sine-axis*sin(t).
 /// Quadratic Beziers use CenterX/CenterY as their control point; cubic Beziers
 /// additionally use CosineAxisX/CosineAxisY as their second control point.
+/// Rational quadratics use the same quadratic control fields and a canonical
+/// positive middle Weight with unit endpoint weights.
 /// </summary>
 public readonly record struct CadHatchSegment(
     CadHatchSegmentKind Kind,
@@ -267,7 +270,8 @@ public readonly record struct CadHatchSegment(
     double SineAxisX,
     double SineAxisY,
     double StartParameter,
-    double SweepParameter);
+    double SweepParameter,
+    double Weight = 1.0);
 
 public readonly record struct CadTextPrimitive(
     CadPoint3D Origin,

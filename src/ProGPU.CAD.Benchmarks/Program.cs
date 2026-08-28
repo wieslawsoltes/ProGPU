@@ -20,6 +20,7 @@ int patternHatchCount = ReadNonNegativeInt("--pattern-hatches", 0);
 bool complexPatternGrammar = HasFlag("--complex-pattern-grammar");
 bool hatchIslandStyles = HasFlag("--hatch-island-styles");
 bool hatchSplineEdges = HasFlag("--hatch-spline-edges");
+bool rationalHatchSplineEdges = HasFlag("--rational-hatch-spline-edges");
 bool decorateText = HasFlag("--text-decorations");
 bool decorateShxText = HasFlag("--shx-decorations");
 bool lowerLineTypes = HasFlag("--linetypes");
@@ -96,6 +97,11 @@ if (hatchSplineEdges && solidHatchCount == 0 && patternHatchCount == 0)
     throw new ArgumentException(
         "--hatch-spline-edges requires a positive solid or patterned HATCH count.");
 }
+if (rationalHatchSplineEdges && !hatchSplineEdges)
+{
+    throw new ArgumentException(
+        "--rational-hatch-spline-edges requires --hatch-spline-edges.");
+}
 
 CadDocumentSession session = CreateDocument(
     entityCount,
@@ -110,6 +116,7 @@ CadDocumentSession session = CreateDocument(
     complexPatternGrammar,
     hatchIslandStyles,
     hatchSplineEdges,
+    rationalHatchSplineEdges,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -247,6 +254,7 @@ var report = new CadBenchmarkReport(
     complexPatternGrammar,
     hatchIslandStyles,
     hatchSplineEdges,
+    rationalHatchSplineEdges,
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
@@ -346,6 +354,7 @@ CadDocumentSession CreateDocument(
     bool useComplexPatternGrammar,
     bool useHatchIslandStyles,
     bool useHatchSplineEdges,
+    bool useRationalHatchSplineEdges,
     bool decorateTextRuns,
     bool decorateShxTextRuns,
     bool useLineTypes,
@@ -633,7 +642,10 @@ CadDocumentSession CreateDocument(
                     : HatchStyleType.Normal,
             };
             hatch.Paths.Add(useHatchSplineEdges
-                ? CreateHatchSplineCapLoop(x, y)
+                ? CreateHatchSplineCapLoop(
+                    x,
+                    y,
+                    rationalQuadratic: useRationalHatchSplineEdges)
                 : CreateHatchLoop(
                     (x, y),
                     (x + 20, y),
@@ -689,7 +701,10 @@ CadDocumentSession CreateDocument(
                 });
             }
             hatch.Paths.Add(useHatchSplineEdges
-                ? CreateHatchSplineCapLoop(x, y)
+                ? CreateHatchSplineCapLoop(
+                    x,
+                    y,
+                    rationalQuadratic: useRationalHatchSplineEdges)
                 : CreateHatchLoop(
                     (x, y),
                     (x + 20, y),
@@ -726,16 +741,35 @@ Hatch.BoundaryPath CreateHatchLoop(params (double X, double Y)[] vertices)
     return path;
 }
 
-Hatch.BoundaryPath CreateHatchSplineCapLoop(double x, double y)
+Hatch.BoundaryPath CreateHatchSplineCapLoop(
+    double x,
+    double y,
+    bool rationalQuadratic)
 {
-    var spline = new Hatch.BoundaryPath.Spline { Degree = 3 };
-    spline.ControlPoints.AddRange([
-        new XYZ(x, y, 0),
-        new XYZ(x, y + 20, 0),
-        new XYZ(x + 20, y + 20, 0),
-        new XYZ(x + 20, y, 0),
-    ]);
-    spline.Knots.AddRange([0, 0, 0, 0, 1, 1, 1, 1]);
+    var spline = new Hatch.BoundaryPath.Spline
+    {
+        Degree = rationalQuadratic ? 2 : 3,
+        IsRational = rationalQuadratic,
+    };
+    if (rationalQuadratic)
+    {
+        spline.ControlPoints.AddRange([
+            new XYZ(x, y, 1.0),
+            new XYZ(x + 10, y + 20, 0.5),
+            new XYZ(x + 20, y, 1.0),
+        ]);
+        spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+    }
+    else
+    {
+        spline.ControlPoints.AddRange([
+            new XYZ(x, y, 0),
+            new XYZ(x, y + 20, 0),
+            new XYZ(x + 20, y + 20, 0),
+            new XYZ(x + 20, y, 0),
+        ]);
+        spline.Knots.AddRange([0, 0, 0, 0, 1, 1, 1, 1]);
+    }
     var path = new Hatch.BoundaryPath();
     path.Edges.Add(spline);
     path.Edges.Add(new Hatch.BoundaryPath.Line
@@ -1195,6 +1229,7 @@ internal sealed record CadBenchmarkReport(
     bool ComplexPatternGrammar,
     bool HatchIslandStyles,
     bool HatchSplineEdges,
+    bool RationalHatchSplineEdges,
     bool DecoratedText,
     bool DecoratedShxText,
     bool LoweredLineTypes,

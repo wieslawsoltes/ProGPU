@@ -691,6 +691,49 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
         Assert.Equal((byte)255, pixels[GetPathAtlasPixelOffset(wide, 8, 1, 256)]);
     }
 
+    [Fact]
+    public void PathAtlasRasterizesAndRetainsPositiveWeightRationalQuadratic()
+    {
+        using var atlas = new PathAtlas(
+            HeadlessWindow.Shared.Context,
+            atlasSize: 256);
+        var path = new PathGeometry();
+        var figure = new PathFigure(Vector2.Zero, isClosed: true);
+        figure.Segments.Add(new RationalQuadraticBezierSegment(
+            new Vector2(5f, 10f),
+            new Vector2(10f, 0f),
+            0.5f));
+        path.Figures.Add(figure);
+        PathAtlas.PathInfo first = atlas.GetOrCreatePath(
+            path,
+            scale: 1f,
+            sampleGrid: PathAtlas.HighPrecisionCoverageSampleGrid);
+
+        atlas.RasterizePendingPaths();
+
+        byte[] pixels = atlas.AtlasTexture.ReadPixels();
+        Assert.InRange(
+            pixels[GetPathAtlasPixelOffset(first, 5, 2, 256)],
+            (byte)252,
+            byte.MaxValue);
+        Assert.InRange(
+            pixels[GetPathAtlasPixelOffset(first, 5, 5, 256)],
+            byte.MinValue,
+            (byte)3);
+        ulong generation = atlas.Generation;
+
+        atlas.CleanupFrame(anticipatedWidth: 1920, anticipatedHeight: 1080);
+        PathAtlas.PathInfo replayed = atlas.GetOrCreatePath(
+            path,
+            scale: 1f,
+            sampleGrid: PathAtlas.HighPrecisionCoverageSampleGrid);
+
+        Assert.Equal(generation, atlas.Generation);
+        Assert.Equal(first.X, replayed.X);
+        Assert.Equal(first.Y, replayed.Y);
+        Assert.Equal(1, atlas.CachedPathCount);
+    }
+
     [Theory]
     [InlineData(0, true, false, false)]
     [InlineData(1, false, true, false)]

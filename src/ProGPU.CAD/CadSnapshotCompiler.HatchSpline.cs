@@ -99,7 +99,7 @@ public sealed partial class CadSnapshotCompiler
                 throw new ArgumentException(
                     "A HATCH spline edge has invalid knot multiplicity or cannot isolate an exact Bezier span.");
             }
-            AddPolynomialBezierSpan(span, canonical.Degree, destination);
+            AddBezierSpan(span, canonical.Degree, destination);
             emitted++;
         }
 
@@ -141,7 +141,6 @@ public sealed partial class CadSnapshotCompiler
                 "A HATCH spline edge knot count does not match its degree, controls, and periodic flag.");
         }
 
-        double uniformWeight = 1.0;
         for (int i = 0; i < controlCount; i++)
         {
             XYZ point = spline.ControlPoints[i];
@@ -154,15 +153,6 @@ public sealed partial class CadSnapshotCompiler
             {
                 throw new ArgumentException(
                     "Rational HATCH spline weights must be finite and positive.");
-            }
-            if (i == 0)
-            {
-                uniformWeight = point.Z;
-            }
-            else if (point.Z != uniformWeight)
-            {
-                throw new CadUnsupportedEntityException(
-                    "Non-uniform rational HATCH spline weights require a shared rational filled-path segment contract.");
             }
         }
 
@@ -218,7 +208,7 @@ public sealed partial class CadSnapshotCompiler
         }
     }
 
-    private static void AddPolynomialBezierSpan(
+    private static void AddBezierSpan(
         ReadOnlySpan<CadHomogeneousPoint> controls,
         int degree,
         List<CadHatchSegment> destination)
@@ -241,8 +231,24 @@ public sealed partial class CadSnapshotCompiler
                     destination);
                 return;
             case 2:
+                double canonicalWeight = GetCanonicalQuadraticWeight(controls);
+                double coordinateScale = 1.0;
+                for (int i = 0; i < 3; i++)
+                {
+                    coordinateScale = Math.Max(
+                        coordinateScale,
+                        Math.Max(Math.Abs(points[i].X), Math.Abs(points[i].Y)));
+                }
+                if (canonicalWeight >
+                    float.MaxValue / (4.0 * coordinateScale))
+                {
+                    throw new CadUnsupportedEntityException(
+                        "A rational quadratic HATCH span exceeds the shared-path weighted-coordinate range.");
+                }
                 destination.Add(new CadHatchSegment(
-                    CadHatchSegmentKind.QuadraticBezier,
+                    NearlyEqualHatchSplineWeight(canonicalWeight, 1.0)
+                        ? CadHatchSegmentKind.QuadraticBezier
+                        : CadHatchSegmentKind.RationalQuadraticBezier,
                     points[0].X,
                     points[0].Y,
                     points[2].X,
@@ -254,9 +260,15 @@ public sealed partial class CadSnapshotCompiler
                     0.0,
                     0.0,
                     0.0,
-                    0.0));
+                    0.0,
+                    canonicalWeight));
                 return;
             case 3:
+                if (!HasUniformProjectiveWeights(controls))
+                {
+                    throw new CadUnsupportedEntityException(
+                        "Non-uniform rational cubic HATCH spline spans require a shared rational cubic filled-path segment contract.");
+                }
                 destination.Add(new CadHatchSegment(
                     CadHatchSegmentKind.CubicBezier,
                     points[0].X,
@@ -273,8 +285,44 @@ public sealed partial class CadSnapshotCompiler
                     0.0));
                 return;
             default:
-                throw new InvalidOperationException("Only polynomial Bezier degrees one through three are retained.");
+                throw new InvalidOperationException("Only Bezier degrees one through three are retained.");
         }
+    }
+
+    private static double GetCanonicalQuadraticWeight(
+        ReadOnlySpan<CadHomogeneousPoint> controls)
+    {
+        double logarithm = Math.Log(controls[1].W) -
+            (0.5 * (Math.Log(controls[0].W) + Math.Log(controls[2].W)));
+        double weight = Math.Exp(logarithm);
+        float retainedWeight = (float)weight;
+        if (!double.IsFinite(weight) || weight <= 0.0 ||
+            !float.IsFinite(retainedWeight) || retainedWeight <= 0f)
+        {
+            throw new CadUnsupportedEntityException(
+                "A rational quadratic HATCH span cannot be represented by a finite positive shared-path weight.");
+        }
+        return weight;
+    }
+
+    private static bool HasUniformProjectiveWeights(
+        ReadOnlySpan<CadHomogeneousPoint> controls)
+    {
+        double reference = controls[0].W;
+        for (int i = 1; i < controls.Length; i++)
+        {
+            if (!NearlyEqualHatchSplineWeight(reference, controls[i].W))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool NearlyEqualHatchSplineWeight(double left, double right)
+    {
+        double scale = Math.Max(Math.Abs(left), Math.Abs(right));
+        return Math.Abs(left - right) <= scale * 1e-13;
     }
 
     private static bool NearlyEqualHatchSplineKnot(double left, double right)

@@ -1,4 +1,4 @@
-// Algorithm: Rasterize ordinary, binary-boolean, or bounded postfix path-expression coverage by supersampling each atlas texel, applying analytic winding tests, and combining per-sample membership before coverage averaging.
+// Algorithm: Rasterize ordinary, binary-boolean, or bounded postfix path-expression coverage by supersampling each atlas texel, applying analytic line, polynomial Bezier, positive-weight rational-quadratic, and elliptic-arc winding tests, and combining per-sample membership before coverage averaging.
 // Time complexity: O(A*(S+N)) per expression texel for A anti-aliasing samples, total leaf segment visits S, and N postfix instructions; ordinary paths are O(A*S).
 // Space complexity: O(D) private mask storage for expression stack depth D<=16 plus O(S+N) read-only record/segment bandwidth and one packed u32 output write per four R8 texels.
 const BOOLEAN_PROGRAM_FLAG: u32 = 0x80000000u;
@@ -301,6 +301,8 @@ fn row_coverage_mask(
 
             let roots = solve_quadratic(a, b, c);
 
+            // A quadratic contributes at most two roots, so this loop is fixed
+            // and does not depend on path size or zoom.
             for (var r: u32 = 0u; r < roots.count; r = r + 1u) {
                 let t = quadratic_root_at(roots, r);
                 if (t >= -0.01 && t <= 1.01) {
@@ -380,6 +382,82 @@ fn row_coverage_mask(
                                 + 3.0 * omt * omt * tc * B.x
                                 + 3.0 * omt * tc * tc * C.x
                                 + tc * tc * tc * D_pt.x;
+                        if (deriv_y > 0.0) {
+                            add_crossing(&winding, samplePositionsX, x_t, 1);
+                        } else if (deriv_y < 0.0) {
+                            add_crossing(&winding, samplePositionsX, x_t, -1);
+                        }
+                    }
+                }
+            }
+        } else if (seg.segmentType == 4u) {
+            let A = seg.p0;
+            let B = seg.p1;
+            let C = seg.p2;
+            let weight = bitcast<f32>(seg._pad0);
+
+            // Solve Ny(t) - sampleY*W(t) in the power basis. Positive
+            // weights keep W(t) positive throughout the segment.
+            let ay = A.y - sampleY;
+            let by = B.y - sampleY;
+            let cy = C.y - sampleY;
+            let a = ay - 2.0 * weight * by + cy;
+            let b = 2.0 * (weight * by - ay);
+            let c = ay;
+            let coefficient_scale = max(max(abs(a), abs(b)), abs(c));
+            let roots = solve_quadratic(
+                a / max(coefficient_scale, 1.0e-30),
+                b / max(coefficient_scale, 1.0e-30),
+                c / max(coefficient_scale, 1.0e-30));
+
+            for (var r: u32 = 0u; r < roots.count; r = r + 1u) {
+                let t = quadratic_root_at(roots, r);
+                if (t >= -0.01 && t <= 1.01) {
+                    let t_eval = clamp(t, 0.00001, 0.99999);
+                    let omt_eval = 1.0 - t_eval;
+                    let numerator_y = omt_eval * omt_eval * A.y
+                        + 2.0 * weight * omt_eval * t_eval * B.y
+                        + t_eval * t_eval * C.y;
+                    let denominator = omt_eval * omt_eval
+                        + 2.0 * weight * omt_eval * t_eval
+                        + t_eval * t_eval;
+                    let numerator_derivative_y =
+                        2.0 * omt_eval * (weight * B.y - A.y)
+                        + 2.0 * t_eval * (C.y - weight * B.y);
+                    let denominator_derivative =
+                        2.0 * omt_eval * (weight - 1.0)
+                        + 2.0 * t_eval * (1.0 - weight);
+                    let deriv_y = numerator_derivative_y * denominator
+                        - numerator_y * denominator_derivative;
+
+                    // Preserve the direction-aware half-open intervals exactly:
+                    // upward [0,1), downward (0,1].
+                    var is_valid = false;
+                    if (t < 0.005) {
+                        if (deriv_y > 0.0) {
+                            is_valid = (sampleY >= A.y);
+                        } else if (deriv_y < 0.0) {
+                            is_valid = (sampleY < A.y);
+                        }
+                    } else if (t > 0.995) {
+                        if (deriv_y > 0.0) {
+                            is_valid = (sampleY < C.y);
+                        } else if (deriv_y < 0.0) {
+                            is_valid = (sampleY >= C.y);
+                        }
+                    } else {
+                        is_valid = true;
+                    }
+
+                    if (is_valid) {
+                        let tc = clamp(t, 0.0, 1.0);
+                        let omt = 1.0 - tc;
+                        let rational_denominator = omt * omt
+                            + 2.0 * weight * omt * tc
+                            + tc * tc;
+                        let x_t = (omt * omt * A.x
+                            + 2.0 * weight * omt * tc * B.x
+                            + tc * tc * C.x) / rational_denominator;
                         if (deriv_y > 0.0) {
                             add_crossing(&winding, samplePositionsX, x_t, 1);
                         } else if (deriv_y < 0.0) {

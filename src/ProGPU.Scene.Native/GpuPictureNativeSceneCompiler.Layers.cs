@@ -466,7 +466,19 @@ public static partial class GpuPictureNativeSceneCompiler
         in GpuPathSegment source)
     {
         bool arc = source.SegmentType == (uint)NativePathSegmentKind.Arc;
-        return source.SegmentType <= (uint)NativePathSegmentKind.Arc &&
+        bool rational = source.SegmentType ==
+            (uint)NativePathSegmentKind.RationalQuadratic;
+        float rationalWeight = BitConverter.Int32BitsToSingle(
+            unchecked((int)source.Pad0));
+        double rationalScale = Math.Max(
+            1.0,
+            Math.Max(
+                Math.Max(Math.Abs(source.P0.X), Math.Abs(source.P0.Y)),
+                Math.Max(
+                    Math.Max(Math.Abs(source.P1.X), Math.Abs(source.P1.Y)),
+                    Math.Max(Math.Abs(source.P2.X), Math.Abs(source.P2.Y)))));
+        return source.SegmentType <=
+                (uint)NativePathSegmentKind.RationalQuadratic &&
             IsFinite(source.P0) && IsFinite(source.P1) &&
             IsFinite(source.P2) && IsFinite(source.P3) &&
             (arc
@@ -477,8 +489,15 @@ public static partial class GpuPictureNativeSceneCompiler
                         unchecked((int)source.Pad1))) &&
                     float.IsFinite(BitConverter.Int32BitsToSingle(
                         unchecked((int)source.Pad2)))
-                : source.Pad0 == 0U && source.Pad1 == 0U &&
-                    source.Pad2 == 0U);
+                : rational
+                    ? source.P3 == Vector2.Zero &&
+                        float.IsFinite(rationalWeight) &&
+                        rationalWeight > 0f && rationalWeight <=
+                            float.MaxValue / (4.0 * rationalScale) &&
+                        source.Pad1 == 0U &&
+                        source.Pad2 == 0U
+                    : source.Pad0 == 0U && source.Pad1 == 0U &&
+                        source.Pad2 == 0U);
     }
 
     private static bool TryGetOpacityMaskState(

@@ -219,7 +219,8 @@ public enum NativePathSegmentKind : uint
     Line = 0,
     Quadratic = 1,
     Cubic = 2,
-    Arc = 3
+    Arc = 3,
+    RationalQuadratic = 4
 }
 
 public enum NativeFillRule : uint
@@ -3374,12 +3375,24 @@ public sealed unsafe class NativeClipChain
         for (int index = 0; index < segments.Length; index++)
         {
             NativePathSegment segment = segments[index];
-            if (segment.Kind > NativePathSegmentKind.Arc ||
+            bool arc = segment.Kind == NativePathSegmentKind.Arc;
+            bool rational = segment.Kind ==
+                NativePathSegmentKind.RationalQuadratic;
+            float rationalWeight = BitConverter.Int32BitsToSingle(
+                unchecked((int)segment.Pad0));
+            double rationalScale = Math.Max(
+                1.0,
+                Math.Max(
+                    Math.Max(Math.Abs(segment.P0.X), Math.Abs(segment.P0.Y)),
+                    Math.Max(
+                        Math.Max(Math.Abs(segment.P1.X), Math.Abs(segment.P1.Y)),
+                        Math.Max(Math.Abs(segment.P2.X), Math.Abs(segment.P2.Y)))));
+            if (segment.Kind > NativePathSegmentKind.RationalQuadratic ||
                 !IsFinite(segment.P0) ||
                 !IsFinite(segment.P1) ||
                 !IsFinite(segment.P2) ||
                 !IsFinite(segment.P3) ||
-                (segment.Kind == NativePathSegmentKind.Arc &&
+                (arc &&
                  (segment.P3.X <= 0f || segment.P3.Y <= 0f ||
                   !float.IsFinite(BitConverter.Int32BitsToSingle(
                       unchecked((int)segment.Pad0))) ||
@@ -3387,7 +3400,12 @@ public sealed unsafe class NativeClipChain
                       unchecked((int)segment.Pad1))) ||
                   !float.IsFinite(BitConverter.Int32BitsToSingle(
                       unchecked((int)segment.Pad2))))) ||
-                (segment.Kind != NativePathSegmentKind.Arc &&
+                (rational &&
+                 (segment.P3 != Vector2.Zero ||
+                  !float.IsFinite(rationalWeight) || rationalWeight <= 0f ||
+                  rationalWeight > float.MaxValue / (4.0 * rationalScale) ||
+                  segment.Pad1 != 0U || segment.Pad2 != 0U)) ||
+                (!arc && !rational &&
                  (segment.Pad0 != 0U || segment.Pad1 != 0U ||
                   segment.Pad2 != 0U)))
             {

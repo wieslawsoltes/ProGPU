@@ -39,7 +39,8 @@ internal static class CadHatchContainment
                 continue;
             }
             if (segment.Kind is CadHatchSegmentKind.QuadraticBezier or
-                CadHatchSegmentKind.CubicBezier)
+                CadHatchSegmentKind.CubicBezier or
+                CadHatchSegmentKind.RationalQuadraticBezier)
             {
                 if (!TryAccumulateBezierCrossings(
                         segment,
@@ -128,7 +129,7 @@ internal static class CadHatchContainment
         ref bool parity,
         ref bool boundary)
     {
-        int degree = segment.Kind == CadHatchSegmentKind.QuadraticBezier ? 2 : 3;
+        int degree = segment.Kind == CadHatchSegmentKind.CubicBezier ? 3 : 2;
         Span<CadHomogeneousPoint> controls = stackalloc CadHomogeneousPoint[4];
         FillBezierControls(segment, controls[..(degree + 1)]);
         double scale = Math.Max(
@@ -141,7 +142,7 @@ internal static class CadHatchContainment
         double coefficientScale = 0.0;
         for (int i = 0; i <= degree; i++)
         {
-            coefficients[i] = controls[i].Y - queryY;
+            coefficients[i] = controls[i].Y - (queryY * controls[i].W);
             coefficientScale = Math.Max(coefficientScale, Math.Abs(coefficients[i]));
         }
         if (coefficientScale <= tolerance)
@@ -204,7 +205,7 @@ internal static class CadHatchContainment
         CadHatchSegment segment,
         Span<CadHomogeneousPoint> destination)
     {
-        int degree = segment.Kind == CadHatchSegmentKind.QuadraticBezier ? 2 : 3;
+        int degree = segment.Kind == CadHatchSegmentKind.CubicBezier ? 3 : 2;
         if (destination.Length < degree + 1)
         {
             throw new ArgumentException(
@@ -216,7 +217,9 @@ internal static class CadHatchContainment
             1.0);
         destination[1] = CadHomogeneousPoint.FromCartesian(
             new CadPoint3D(segment.CenterX, segment.CenterY, 0.0),
-            1.0);
+            segment.Kind == CadHatchSegmentKind.RationalQuadraticBezier
+                ? segment.Weight
+                : 1.0);
         if (degree == 3)
         {
             destination[2] = CadHomogeneousPoint.FromCartesian(
@@ -234,19 +237,36 @@ internal static class CadHatchContainment
     {
         int degree = controls.Length - 1;
         double inverse = 1.0 - parameter;
+        CadHomogeneousPoint value = CadRationalBezier.EvaluateHomogeneous(
+            controls,
+            parameter);
+        double derivativeY;
+        double derivativeW;
         if (degree == 2)
         {
-            return 2.0 *
+            derivativeY = 2.0 *
                 ((inverse * (controls[1].Y - controls[0].Y)) +
                  (parameter * (controls[2].Y - controls[1].Y)));
+            derivativeW = 2.0 *
+                ((inverse * (controls[1].W - controls[0].W)) +
+                 (parameter * (controls[2].W - controls[1].W)));
+            return (derivativeY * value.W) - (value.Y * derivativeW);
         }
         double first = controls[1].Y - controls[0].Y;
         double second = controls[2].Y - controls[1].Y;
         double third = controls[3].Y - controls[2].Y;
-        return 3.0 *
+        derivativeY = 3.0 *
             ((inverse * inverse * first) +
              (2.0 * inverse * parameter * second) +
              (parameter * parameter * third));
+        double firstWeight = controls[1].W - controls[0].W;
+        double secondWeight = controls[2].W - controls[1].W;
+        double thirdWeight = controls[3].W - controls[2].W;
+        derivativeW = 3.0 *
+            ((inverse * inverse * firstWeight) +
+             (2.0 * inverse * parameter * secondWeight) +
+             (parameter * parameter * thirdWeight));
+        return (derivativeY * value.W) - (value.Y * derivativeW);
     }
 
     private static double MaxBezierCoordinateMagnitude(

@@ -1783,6 +1783,10 @@ public class NativePictureCompilerTests
         firstFigure.Segments.Add(new QuadraticBezierSegment(
             new Vector2(36f, 18f),
             new Vector2(24f, 30f)));
+        firstFigure.Segments.Add(new RationalQuadraticBezierSegment(
+            new Vector2(20f, 34f),
+            new Vector2(16f, 32f),
+            0.75f));
         firstFigure.Segments.Add(new CubicBezierSegment(
             new Vector2(18f, 34f),
             new Vector2(8f, 28f),
@@ -1832,7 +1836,7 @@ public class NativePictureCompilerTests
         Assert.Equal(1, compiled.NativeCommandCount);
         Assert.Equal(1, compiled.NativeDrawCount);
         Assert.Equal(2, compiled.PathCount);
-        Assert.Equal(7, compiled.PathSegmentCount);
+        Assert.Equal(8, compiled.PathSegmentCount);
         Assert.Equal(0, compiled.VertexMeshCount);
 
         var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
@@ -1846,11 +1850,11 @@ public class NativePictureCompilerTests
                     checked((int)resource.PayloadSize)));
         Assert.Equal(2, paths.Length);
         Assert.Equal(0UL, paths[0].SegmentOffset);
-        Assert.Equal(4UL, paths[0].SegmentCount);
+        Assert.Equal(5UL, paths[0].SegmentCount);
         Assert.Equal(new Vector2(2f, 3f), new Vector2(
             paths[0].Transform.M31,
             paths[0].Transform.M32));
-        Assert.Equal(4UL, paths[1].SegmentOffset);
+        Assert.Equal(5UL, paths[1].SegmentOffset);
         Assert.Equal(3UL, paths[1].SegmentCount);
         Assert.Equal(NativeFillRule.EvenOdd, paths[1].FillRule);
         Assert.Equal(4U, paths[1].SampleGrid);
@@ -1862,10 +1866,13 @@ public class NativePictureCompilerTests
                     checked((int)resource.AuxiliarySize)));
         Assert.Equal(NativePathSegmentKind.Line, segments[0].Kind);
         Assert.Equal(NativePathSegmentKind.Quadratic, segments[1].Kind);
-        Assert.Equal(NativePathSegmentKind.Cubic, segments[2].Kind);
-        Assert.Equal(new Vector2(4f, 5f), segments[3].P1);
-        Assert.Equal(NativePathSegmentKind.Arc, segments[5].Kind);
-        Assert.True(segments[5].P3.X > 0f && segments[5].P3.Y > 0f);
+        Assert.Equal(NativePathSegmentKind.RationalQuadratic, segments[2].Kind);
+        Assert.Equal(0.75f, BitConverter.UInt32BitsToSingle(segments[2].Pad0));
+        Assert.Equal(Vector2.Zero, segments[2].P3);
+        Assert.Equal(NativePathSegmentKind.Cubic, segments[3].Kind);
+        Assert.Equal(new Vector2(4f, 5f), segments[4].P1);
+        Assert.Equal(NativePathSegmentKind.Arc, segments[6].Kind);
+        Assert.True(segments[6].P3.X > 0f && segments[6].P3.Y > 0f);
     }
 
     [Fact]

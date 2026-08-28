@@ -3116,7 +3116,17 @@ public ref struct NativeSceneStreamBuilder
     private static bool IsValidPathSegment(in NativePathSegment segment)
     {
         bool arc = segment.Kind == NativePathSegmentKind.Arc;
-        return segment.Kind <= NativePathSegmentKind.Arc &&
+        bool rational = segment.Kind == NativePathSegmentKind.RationalQuadratic;
+        float rationalWeight = BitConverter.Int32BitsToSingle(
+            unchecked((int)segment.Pad0));
+        double rationalScale = Math.Max(
+            1.0,
+            Math.Max(
+                Math.Max(Math.Abs(segment.P0.X), Math.Abs(segment.P0.Y)),
+                Math.Max(
+                    Math.Max(Math.Abs(segment.P1.X), Math.Abs(segment.P1.Y)),
+                    Math.Max(Math.Abs(segment.P2.X), Math.Abs(segment.P2.Y)))));
+        return segment.Kind <= NativePathSegmentKind.RationalQuadratic &&
             IsFinite(segment.P0) && IsFinite(segment.P1) &&
             IsFinite(segment.P2) && IsFinite(segment.P3) &&
             (arc
@@ -3127,8 +3137,15 @@ public ref struct NativeSceneStreamBuilder
                         unchecked((int)segment.Pad1))) &&
                     float.IsFinite(BitConverter.Int32BitsToSingle(
                         unchecked((int)segment.Pad2)))
-                : segment.Pad0 == 0U && segment.Pad1 == 0U &&
-                    segment.Pad2 == 0U);
+                : rational
+                    ? segment.P3 == Vector2.Zero &&
+                        float.IsFinite(rationalWeight) &&
+                        rationalWeight > 0f && rationalWeight <=
+                            float.MaxValue / (4.0 * rationalScale) &&
+                        segment.Pad1 == 0U &&
+                        segment.Pad2 == 0U
+                    : segment.Pad0 == 0U && segment.Pad1 == 0U &&
+                        segment.Pad2 == 0U);
     }
 
     private static bool IsValidHitTestPrimitive(

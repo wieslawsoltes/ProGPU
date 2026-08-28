@@ -962,6 +962,10 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                     count++;
                     currentPoint = quadratic.Point;
                     break;
+                case RationalQuadraticBezierSegment rationalQuadratic:
+                    count++;
+                    currentPoint = rationalQuadratic.Point;
+                    break;
                 case CubicBezierSegment cubic:
                     count++;
                     currentPoint = cubic.Point;
@@ -1033,6 +1037,11 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                     Update(quadratic.ControlPoint);
                     Update(quadratic.Point);
                     currentPoint = quadratic.Point;
+                    break;
+                case RationalQuadraticBezierSegment rationalQuadratic:
+                    Update(rationalQuadratic.ControlPoint);
+                    Update(rationalQuadratic.Point);
+                    currentPoint = rationalQuadratic.Point;
                     break;
                 case CubicBezierSegment cubic:
                     Update(cubic.ControlPoint1);

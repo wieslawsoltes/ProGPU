@@ -1786,7 +1786,8 @@ typedef enum progpu_native_path_segment_kind {
     PROGPU_NATIVE_PATH_SEGMENT_LINE = 0,
     PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC = 1,
     PROGPU_NATIVE_PATH_SEGMENT_CUBIC = 2,
-    PROGPU_NATIVE_PATH_SEGMENT_ARC = 3
+    PROGPU_NATIVE_PATH_SEGMENT_ARC = 3,
+    PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_QUADRATIC = 4
 } progpu_native_path_segment_kind;
 
 typedef enum progpu_native_fill_rule {
@@ -1797,8 +1798,10 @@ typedef enum progpu_native_fill_rule {
 /*
  * Exact storage layout consumed by PathRasterizer.wgsl. Arc records store the
  * resolved center in p2, radii in p3, and theta1/delta-theta/rotation radians
- * as float bit patterns in pad0..pad2. Callers may therefore resolve SVG arcs
- * once and transfer a compact immutable segment stream without flattening.
+ * as float bit patterns in pad0..pad2. Canonical positive-weight rational
+ * quadratics store endpoints/control in p0..p2, zero p3, the middle weight as
+ * float bits in pad0, and zero pad1/pad2. Callers may therefore transfer arcs
+ * and conics as compact immutable segments without flattening.
  */
 typedef struct progpu_native_path_segment {
     progpu_native_point p0;

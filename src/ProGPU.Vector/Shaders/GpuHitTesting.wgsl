@@ -87,6 +87,7 @@ const SEGMENT_LINE: u32 = 0u;
 const SEGMENT_QUADRATIC: u32 = 1u;
 const SEGMENT_CUBIC: u32 = 2u;
 const SEGMENT_ARC: u32 = 3u;
+const SEGMENT_RATIONAL_QUADRATIC: u32 = 4u;
 const PATH_QUADRATIC_STEPS: u32 = 16u;
 const PATH_CUBIC_STEPS: u32 = 24u;
 const PATH_ARC_STEPS: u32 = 24u;
@@ -1047,6 +1048,19 @@ fn evaluate_quadratic(start: vec2<f32>, control: vec2<f32>, end: vec2<f32>, t: f
     return (u * u * start) + (2.0 * u * t * control) + (t * t * end);
 }
 
+fn evaluate_quadratic_segment(segment: PathSegment, t: f32) -> vec2<f32> {
+    if (segment.segment_type == SEGMENT_RATIONAL_QUADRATIC) {
+        let u = 1.0 - t;
+        let weight = bitcast<f32>(segment.pad0);
+        let denominator = (u * u) + (2.0 * weight * u * t) + (t * t);
+        return ((u * u * segment.p0) +
+            (2.0 * weight * u * t * segment.p1) +
+            (t * t * segment.p2)) / denominator;
+    }
+
+    return evaluate_quadratic(segment.p0, segment.p1, segment.p2, t);
+}
+
 fn evaluate_cubic(start: vec2<f32>, control0: vec2<f32>, control1: vec2<f32>, end: vec2<f32>, t: f32) -> vec2<f32> {
     let u = 1.0 - t;
     let tt = t * t;
@@ -1150,7 +1164,8 @@ fn contains_path_fill_segments(point: vec2<f32>, start_segment: u32, segment_cou
         let segment = path_segments[segment_index];
         if (segment.segment_type == SEGMENT_LINE) {
             state = accumulate_path_fill_edge(point, segment.p0, segment.p1, 0.0001, fill_rule, state);
-        } else if (segment.segment_type == SEGMENT_QUADRATIC) {
+        } else if (segment.segment_type == SEGMENT_QUADRATIC ||
+            segment.segment_type == SEGMENT_RATIONAL_QUADRATIC) {
             var previous = segment.p0;
             var step = 1u;
             loop {
@@ -1158,7 +1173,7 @@ fn contains_path_fill_segments(point: vec2<f32>, start_segment: u32, segment_cou
                     break;
                 }
 
-                let next_point = evaluate_quadratic(segment.p0, segment.p1, segment.p2, f32(step) / f32(PATH_QUADRATIC_STEPS));
+                let next_point = evaluate_quadratic_segment(segment, f32(step) / f32(PATH_QUADRATIC_STEPS));
                 state = accumulate_path_fill_edge(point, previous, next_point, 0.0001, fill_rule, state);
                 previous = next_point;
                 step = step + 1u;
@@ -1229,7 +1244,8 @@ fn path_fill_segments_intersect_rect_range(rect_min: vec2<f32>, rect_max: vec2<f
             if (segment_intersects_rect(segment.p0, segment.p1, rect_min, rect_max)) {
                 return true;
             }
-        } else if (segment.segment_type == SEGMENT_QUADRATIC) {
+        } else if (segment.segment_type == SEGMENT_QUADRATIC ||
+            segment.segment_type == SEGMENT_RATIONAL_QUADRATIC) {
             var previous = segment.p0;
             var step = 1u;
             loop {
@@ -1237,7 +1253,7 @@ fn path_fill_segments_intersect_rect_range(rect_min: vec2<f32>, rect_max: vec2<f
                     break;
                 }
 
-                let next_point = evaluate_quadratic(segment.p0, segment.p1, segment.p2, f32(step) / f32(PATH_QUADRATIC_STEPS));
+                let next_point = evaluate_quadratic_segment(segment, f32(step) / f32(PATH_QUADRATIC_STEPS));
                 if (segment_intersects_rect(previous, next_point, rect_min, rect_max)) {
                     return true;
                 }
@@ -1308,7 +1324,8 @@ fn path_fill_segments_intersect_ellipse_region_range(query_center: vec2<f32>, qu
             if (segment_intersects_ellipse_region(segment.p0, segment.p1, query_center, query_inverse_radii)) {
                 return true;
             }
-        } else if (segment.segment_type == SEGMENT_QUADRATIC) {
+        } else if (segment.segment_type == SEGMENT_QUADRATIC ||
+            segment.segment_type == SEGMENT_RATIONAL_QUADRATIC) {
             var previous = segment.p0;
             var step = 1u;
             loop {
@@ -1316,7 +1333,7 @@ fn path_fill_segments_intersect_ellipse_region_range(query_center: vec2<f32>, qu
                     break;
                 }
 
-                let next_point = evaluate_quadratic(segment.p0, segment.p1, segment.p2, f32(step) / f32(PATH_QUADRATIC_STEPS));
+                let next_point = evaluate_quadratic_segment(segment, f32(step) / f32(PATH_QUADRATIC_STEPS));
                 if (segment_intersects_ellipse_region(previous, next_point, query_center, query_inverse_radii)) {
                     return true;
                 }
@@ -1469,7 +1486,8 @@ fn path_stroke_line_hit(
 }
 
 fn path_segment_end_point(segment: PathSegment) -> vec2<f32> {
-    if (segment.segment_type == SEGMENT_QUADRATIC) {
+    if (segment.segment_type == SEGMENT_QUADRATIC ||
+        segment.segment_type == SEGMENT_RATIONAL_QUADRATIC) {
         return segment.p2;
     }
 
@@ -1500,7 +1518,8 @@ fn path_segment_start_tangent(segment: PathSegment) -> vec2<f32> {
         return segment.p1 - segment.p0;
     }
 
-    if (segment.segment_type == SEGMENT_QUADRATIC) {
+    if (segment.segment_type == SEGMENT_QUADRATIC ||
+        segment.segment_type == SEGMENT_RATIONAL_QUADRATIC) {
         let first = segment.p1 - segment.p0;
         return select(segment.p2 - segment.p0, first, dot(first, first) > 0.000000000001);
     }
@@ -1524,7 +1543,8 @@ fn path_segment_end_tangent(segment: PathSegment) -> vec2<f32> {
         return segment.p1 - segment.p0;
     }
 
-    if (segment.segment_type == SEGMENT_QUADRATIC) {
+    if (segment.segment_type == SEGMENT_QUADRATIC ||
+        segment.segment_type == SEGMENT_RATIONAL_QUADRATIC) {
         let last = segment.p2 - segment.p1;
         return select(segment.p2 - segment.p0, last, dot(last, last) > 0.000000000001);
     }
@@ -1641,7 +1661,8 @@ fn contains_path_stroke(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
                     segment_index + 1u == end_segment)) {
                 return true;
             }
-        } else if (segment.segment_type == SEGMENT_QUADRATIC) {
+        } else if (segment.segment_type == SEGMENT_QUADRATIC ||
+            segment.segment_type == SEGMENT_RATIONAL_QUADRATIC) {
             var previous = segment.p0;
             var step = 1u;
             loop {
@@ -1649,7 +1670,7 @@ fn contains_path_stroke(point: vec2<f32>, primitive: HitTestPrimitive) -> bool {
                     break;
                 }
 
-                let next_point = evaluate_quadratic(segment.p0, segment.p1, segment.p2, f32(step) / f32(PATH_QUADRATIC_STEPS));
+                let next_point = evaluate_quadratic_segment(segment, f32(step) / f32(PATH_QUADRATIC_STEPS));
                 if (path_stroke_line_hit(
                         point,
                         previous,
@@ -1773,7 +1794,8 @@ fn path_stroke_intersects_rect(rect_min: vec2<f32>, rect_max: vec2<f32>, primiti
                     rect_max)) {
                 return true;
             }
-        } else if (segment.segment_type == SEGMENT_QUADRATIC) {
+        } else if (segment.segment_type == SEGMENT_QUADRATIC ||
+            segment.segment_type == SEGMENT_RATIONAL_QUADRATIC) {
             var previous = segment.p0;
             var step = 1u;
             loop {
@@ -1781,7 +1803,7 @@ fn path_stroke_intersects_rect(rect_min: vec2<f32>, rect_max: vec2<f32>, primiti
                     break;
                 }
 
-                let next_point = evaluate_quadratic(segment.p0, segment.p1, segment.p2, f32(step) / f32(PATH_QUADRATIC_STEPS));
+                let next_point = evaluate_quadratic_segment(segment, f32(step) / f32(PATH_QUADRATIC_STEPS));
                 if (path_stroke_piece_intersects_rect(
                         previous,
                         next_point,
@@ -1908,7 +1930,8 @@ fn path_stroke_intersects_ellipse_region(query_center: vec2<f32>, query_inverse_
                     query_inverse_radii)) {
                 return true;
             }
-        } else if (segment.segment_type == SEGMENT_QUADRATIC) {
+        } else if (segment.segment_type == SEGMENT_QUADRATIC ||
+            segment.segment_type == SEGMENT_RATIONAL_QUADRATIC) {
             var previous = segment.p0;
             var step = 1u;
             loop {
@@ -1916,7 +1939,7 @@ fn path_stroke_intersects_ellipse_region(query_center: vec2<f32>, query_inverse_
                     break;
                 }
 
-                let next_point = evaluate_quadratic(segment.p0, segment.p1, segment.p2, f32(step) / f32(PATH_QUADRATIC_STEPS));
+                let next_point = evaluate_quadratic_segment(segment, f32(step) / f32(PATH_QUADRATIC_STEPS));
                 if (path_stroke_piece_intersects_ellipse_region(
                         previous,
                         next_point,

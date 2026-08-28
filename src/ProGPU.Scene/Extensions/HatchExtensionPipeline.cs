@@ -192,6 +192,42 @@ namespace ProGPU.Scene.Extensions
                             UpdateBounds(cubic.Point);
                             currentPoint = cubic.Point;
                         }
+                        else if (segment is RationalQuadraticBezierSegment rationalQuadratic)
+                        {
+                            double coordinateScale = Math.Max(
+                                1.0,
+                                Math.Max(
+                                    Math.Max(
+                                        Math.Abs(currentPoint.X),
+                                        Math.Abs(currentPoint.Y)),
+                                    Math.Max(
+                                        Math.Max(
+                                            Math.Abs(rationalQuadratic.ControlPoint.X),
+                                            Math.Abs(rationalQuadratic.ControlPoint.Y)),
+                                        Math.Max(
+                                            Math.Abs(rationalQuadratic.Point.X),
+                                            Math.Abs(rationalQuadratic.Point.Y)))));
+                            if (!float.IsFinite(rationalQuadratic.Weight) ||
+                                rationalQuadratic.Weight <= 0f ||
+                                rationalQuadratic.Weight >
+                                    float.MaxValue / (4.0 * coordinateScale))
+                            {
+                                throw new InvalidOperationException(
+                                    "Rational quadratic hatch weights must be positive and keep weighted coordinates finite.");
+                            }
+                            segmentsList.Add(new GpuHatchSegment
+                            {
+                                P0 = currentPoint,
+                                P1 = rationalQuadratic.ControlPoint,
+                                P2 = rationalQuadratic.Point,
+                                SegmentType = 4,
+                                Pad0 = BitConverter.SingleToUInt32Bits(
+                                    rationalQuadratic.Weight)
+                            });
+                            UpdateBounds(rationalQuadratic.ControlPoint);
+                            UpdateBounds(rationalQuadratic.Point);
+                            currentPoint = rationalQuadratic.Point;
+                        }
                     }
 
                     if (figure.IsClosed && currentPoint != figure.StartPoint)

@@ -152,6 +152,7 @@ namespace ProGPU.Vector
         {
             pathA = ResolveDeferredOperand(pathA);
             pathB = ResolveDeferredOperand(pathB);
+            ThrowIfRationalQuadratic(pathA, pathB);
             if (TryCreateImmediateResult(pathA, pathB, op, out var result))
             {
                 return result;
@@ -177,6 +178,7 @@ namespace ProGPU.Vector
             {
                 pathA = ResolveDeferredOperand(pathA);
                 pathB = ResolveDeferredOperand(pathB);
+                ThrowIfRationalQuadratic(pathA, pathB);
                 if (TryCreateImmediateResult(pathA, pathB, op, out var result))
                 {
                     return Task.FromResult(result);
@@ -221,6 +223,36 @@ namespace ProGPU.Vector
             }
 
             return path;
+        }
+
+        private static void ThrowIfRationalQuadratic(
+            PathGeometry pathA,
+            PathGeometry pathB)
+        {
+            if (ContainsRationalQuadratic(pathA) ||
+                ContainsRationalQuadratic(pathB))
+            {
+                throw new NotSupportedException(
+                    "Path boolean reconstruction does not yet support rational quadratic segments.");
+            }
+        }
+
+        private static bool ContainsRationalQuadratic(PathGeometry path)
+        {
+            var figures = path.Figures;
+            for (int figureIndex = 0; figureIndex < figures.Count; figureIndex++)
+            {
+                var segments = figures[figureIndex].Segments;
+                for (int segmentIndex = 0; segmentIndex < segments.Count; segmentIndex++)
+                {
+                    if (segments[segmentIndex] is RationalQuadraticBezierSegment)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         internal static PathGeometry CreateDeferred(

@@ -150,7 +150,17 @@ bool valid_chain(const progpu_native_scene_layer_mask_chain& chain) noexcept {
 bool valid_vector_segment(
     const progpu_native_path_segment& segment) noexcept {
     const bool arc = segment.kind == PROGPU_NATIVE_PATH_SEGMENT_ARC;
-    return segment.kind <= PROGPU_NATIVE_PATH_SEGMENT_ARC &&
+    const bool rational = segment.kind ==
+        PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_QUADRATIC;
+    const float rational_weight = std::bit_cast<float>(segment.pad0);
+    const double rational_scale = std::fmax(1.0, std::fmax(
+        std::fmax(std::abs(segment.p0.x), std::abs(segment.p0.y)),
+        std::fmax(
+            std::fmax(std::abs(segment.p1.x), std::abs(segment.p1.y)),
+            std::fmax(std::abs(segment.p2.x), std::abs(segment.p2.y)))));
+    const double rational_weight_limit =
+        std::numeric_limits<float>::max() / (4.0 * rational_scale);
+    return segment.kind <= PROGPU_NATIVE_PATH_SEGMENT_RATIONAL_QUADRATIC &&
         std::isfinite(segment.p0.x) && std::isfinite(segment.p0.y) &&
         std::isfinite(segment.p1.x) && std::isfinite(segment.p1.y) &&
         std::isfinite(segment.p2.x) && std::isfinite(segment.p2.y) &&
@@ -160,8 +170,15 @@ bool valid_vector_segment(
                 std::isfinite(std::bit_cast<float>(segment.pad0)) &&
                 std::isfinite(std::bit_cast<float>(segment.pad1)) &&
                 std::isfinite(std::bit_cast<float>(segment.pad2))
-            : segment.pad0 == 0U && segment.pad1 == 0U &&
-                segment.pad2 == 0U);
+            : rational
+                ? segment.p3.x == 0.0F && segment.p3.y == 0.0F &&
+                    std::isfinite(rational_weight) &&
+                    rational_weight > 0.0F &&
+                    rational_weight <= rational_weight_limit &&
+                    segment.pad1 == 0U &&
+                    segment.pad2 == 0U
+                : segment.pad0 == 0U && segment.pad1 == 0U &&
+                    segment.pad2 == 0U);
 }
 
 bool valid_vector_path(

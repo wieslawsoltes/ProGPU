@@ -85,7 +85,8 @@ internal static class CadHatchSelection
                     continue;
                 }
                 if (segment.Kind is CadHatchSegmentKind.QuadraticBezier or
-                    CadHatchSegmentKind.CubicBezier)
+                    CadHatchSegmentKind.CubicBezier or
+                    CadHatchSegmentKind.RationalQuadraticBezier)
                 {
                     int degree = FillWorldBezierControls(
                         hatch,
@@ -172,7 +173,8 @@ internal static class CadHatchSelection
                         selectionBounds);
                 }
                 else if (segment.Kind is CadHatchSegmentKind.QuadraticBezier or
-                    CadHatchSegmentKind.CubicBezier)
+                    CadHatchSegmentKind.CubicBezier or
+                    CadHatchSegmentKind.RationalQuadraticBezier)
                 {
                     int degree = FillWorldBezierControls(
                         hatch,
@@ -236,13 +238,15 @@ internal static class CadHatchSelection
         CadHatchSegment segment,
         Span<CadHomogeneousPoint> destination)
     {
-        int degree = segment.Kind == CadHatchSegmentKind.QuadraticBezier ? 2 : 3;
+        int degree = segment.Kind == CadHatchSegmentKind.CubicBezier ? 3 : 2;
         destination[0] = CadHomogeneousPoint.FromCartesian(
             ToWorldPoint(hatch, segment.StartX, segment.StartY),
             1.0);
         destination[1] = CadHomogeneousPoint.FromCartesian(
             ToWorldPoint(hatch, segment.CenterX, segment.CenterY),
-            1.0);
+            segment.Kind == CadHatchSegmentKind.RationalQuadraticBezier
+                ? segment.Weight
+                : 1.0);
         if (degree == 3)
         {
             destination[2] = CadHomogeneousPoint.FromCartesian(

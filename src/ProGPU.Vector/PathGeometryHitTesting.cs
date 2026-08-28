@@ -161,6 +161,47 @@ static class PathGeometryHitTesting
                     currentPoint = quadratic.Point;
                     break;
 
+                case RationalQuadraticBezierSegment rationalQuadratic:
+                    double coordinateScale = Math.Max(
+                        1.0,
+                        Math.Max(
+                            Math.Max(
+                                Math.Abs(currentPoint.X),
+                                Math.Abs(currentPoint.Y)),
+                            Math.Max(
+                                Math.Max(
+                                    Math.Abs(rationalQuadratic.ControlPoint.X),
+                                    Math.Abs(rationalQuadratic.ControlPoint.Y)),
+                                Math.Max(
+                                    Math.Abs(rationalQuadratic.Point.X),
+                                    Math.Abs(rationalQuadratic.Point.Y)))));
+                    if (!IsFinite(rationalQuadratic.ControlPoint) ||
+                        !IsFinite(rationalQuadratic.Point) ||
+                        !float.IsFinite(rationalQuadratic.Weight) ||
+                        rationalQuadratic.Weight <= 0f ||
+                        rationalQuadratic.Weight >
+                            float.MaxValue / (4.0 * coordinateScale))
+                    {
+                        return false;
+                    }
+
+                    for (int i = 1; i <= QuadraticFlattenSegmentCount; i++)
+                    {
+                        float t = (float)i / QuadraticFlattenSegmentCount;
+                        if (!AddPoint(points, EvaluateRationalQuadratic(
+                                currentPoint,
+                                rationalQuadratic.ControlPoint,
+                                rationalQuadratic.Point,
+                                rationalQuadratic.Weight,
+                                t)))
+                        {
+                            return false;
+                        }
+                    }
+
+                    currentPoint = rationalQuadratic.Point;
+                    break;
+
                 case CubicBezierSegment cubic:
                     if (!IsFinite(cubic.ControlPoint1) ||
                         !IsFinite(cubic.ControlPoint2) ||
@@ -212,6 +253,7 @@ static class PathGeometryHitTesting
             {
                 LineSegment => 1,
                 QuadraticBezierSegment => QuadraticFlattenSegmentCount,
+                RationalQuadraticBezierSegment => QuadraticFlattenSegmentCount,
                 CubicBezierSegment => CubicFlattenSegmentCount,
                 ArcSegment => CubicFlattenSegmentCount,
                 _ => 1
@@ -337,6 +379,21 @@ static class PathGeometryHitTesting
                (3.0f * uu * t * control1) +
                (3.0f * u * tt * control2) +
                (tt * t * end);
+    }
+
+    private static Vector2 EvaluateRationalQuadratic(
+        Vector2 start,
+        Vector2 control,
+        Vector2 end,
+        float weight,
+        float t)
+    {
+        float u = 1.0f - t;
+        float startBasis = u * u;
+        float controlBasis = 2.0f * weight * u * t;
+        float endBasis = t * t;
+        return ((startBasis * start) + (controlBasis * control) +
+            (endBasis * end)) / (startBasis + controlBasis + endBasis);
     }
 
     private static float Cross(Vector2 left, Vector2 right)

@@ -44,6 +44,68 @@ public class PathAtlasFillCompilerTests
     }
 
     [Fact]
+    public void RationalQuadraticFillPreservesCanonicalWeightWithoutFlattening()
+    {
+        var path = new PathGeometry();
+        var figure = new PathFigure(new Vector2(0f, 0f), isClosed: true);
+        figure.Segments.Add(new RationalQuadraticBezierSegment(
+            new Vector2(5f, 10f),
+            new Vector2(10f, 0f),
+            0.5f));
+        path.Figures.Add(figure);
+
+        var (records, segments) = PathAtlas.CompileFillPath(
+            path,
+            out float minX,
+            out float minY,
+            out float maxX,
+            out float maxY);
+
+        Assert.Equal(2u, Assert.Single(records).SegmentCount);
+        Assert.Equal(2, segments.Length);
+        Assert.Equal(4u, segments[0].SegmentType);
+        Assert.Equal(new Vector2(0f, 0f), segments[0].P0);
+        Assert.Equal(new Vector2(5f, 10f), segments[0].P1);
+        Assert.Equal(new Vector2(10f, 0f), segments[0].P2);
+        Assert.Equal(Vector2.Zero, segments[0].P3);
+        Assert.Equal(0.5f, BitConverter.UInt32BitsToSingle(segments[0].Pad0));
+        Assert.Equal(0u, segments[0].Pad1);
+        Assert.Equal(0u, segments[0].Pad2);
+        Assert.Equal((0f, 0f, 10f, 10f), (minX, minY, maxX, maxY));
+    }
+
+    [Fact]
+    public void RationalQuadraticFillRejectsInvalidWeightAndBooleanReconstruction()
+    {
+        var invalid = new PathGeometry();
+        var invalidFigure = new PathFigure(Vector2.Zero, isClosed: true);
+        invalidFigure.Segments.Add(new RationalQuadraticBezierSegment(
+            Vector2.One,
+            Vector2.UnitX,
+            0f));
+        invalid.Figures.Add(invalidFigure);
+        Assert.Throws<InvalidOperationException>(() =>
+            PathAtlas.CompileFillPath(invalid, out _, out _, out _, out _));
+
+        invalidFigure.Segments[0] = new RationalQuadraticBezierSegment(
+            Vector2.One,
+            Vector2.UnitX,
+            float.MaxValue);
+        Assert.Throws<InvalidOperationException>(() =>
+            PathAtlas.CompileFillPath(invalid, out _, out _, out _, out _));
+
+        var conic = new PathGeometry();
+        var conicFigure = new PathFigure(Vector2.Zero, isClosed: true);
+        conicFigure.Segments.Add(new RationalQuadraticBezierSegment(
+            Vector2.One,
+            Vector2.UnitX,
+            0.75f));
+        conic.Figures.Add(conicFigure);
+        Assert.Throws<NotSupportedException>(() =>
+            PathOpGeometrySolver.Combine(conic, CreateOpenRectangle(), op: 2));
+    }
+
+    [Fact]
     public void TransitionMaskedIconPreservesAllContoursAndImplicitFillClosures()
     {
         PathGeometry path = PathGeometry.Parse(

@@ -1,5 +1,5 @@
-// Algorithm: Transform hatch geometry and evaluate analytic brush, gradient, affine pattern-space hatch-family, and anti-aliased coverage functions.
-// Time complexity: O(F * 6) per fragment for a multi-family DXF/PAT hatch with F retained families and the specified six-dash maximum; other brush paths are O(1).
+// Algorithm: Transform hatch geometry, evaluate analytic line/polynomial-Bezier/positive-weight rational-quadratic winding, and evaluate brush, gradient, affine pattern-space hatch-family, and anti-aliased coverage functions.
+// Time complexity: O(S + F * 6) per hatch fragment for S retained boundary segments and F retained DXF/PAT families with the specified six-dash maximum; non-hatch brush paths are O(1).
 // Space complexity: O(1) local storage with bounded uniform/storage reads.
 struct Brush {
     brushType: u32,
@@ -558,6 +558,84 @@ fn is_hatch_point_inside(p: vec2<f32>, record: GpuHatchRecord) -> bool {
                         let tc = clamp(t, 0.0, 1.0);
                         let omt = 1.0 - tc;
                         let intersectX = omt * omt * A.x + 2.0 * omt * tc * B.x + tc * tc * C.x;
+                        if (p.x < intersectX) {
+                            if (deriv_y > 0.0) {
+                                winding = winding + 1;
+                            } else if (deriv_y < 0.0) {
+                                winding = winding - 1;
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (seg.segmentType == 4u) {
+            let A = seg.p0;
+            let B = seg.p1;
+            let C = seg.p2;
+            let weight = bitcast<f32>(seg._pad0);
+            // ABI validation guarantees a positive weight, so W(t) stays
+            // positive. The quadratic has at most two roots; this loop is
+            // fixed and independent of path size and zoom.
+            let ay = A.y - p.y;
+            let by = B.y - p.y;
+            let cy = C.y - p.y;
+            let a = ay - 2.0 * weight * by + cy;
+            let b = 2.0 * (weight * by - ay);
+            let c = ay;
+            let coefficient_scale = max(max(abs(a), abs(b)), abs(c));
+            var roots = array<f32, 2>(0.0, 0.0);
+            var root_count: u32 = 0u;
+            solve_quadratic(
+                a / max(coefficient_scale, 1.0e-30),
+                b / max(coefficient_scale, 1.0e-30),
+                c / max(coefficient_scale, 1.0e-30),
+                &roots,
+                &root_count);
+
+            for (var r: u32 = 0u; r < root_count; r = r + 1u) {
+                let t = roots[r];
+                if (t >= -0.01 && t <= 1.01) {
+                    let t_eval = clamp(t, 0.00001, 0.99999);
+                    let omt_eval = 1.0 - t_eval;
+                    let numerator_y = omt_eval * omt_eval * A.y
+                        + 2.0 * weight * omt_eval * t_eval * B.y
+                        + t_eval * t_eval * C.y;
+                    let denominator = omt_eval * omt_eval
+                        + 2.0 * weight * omt_eval * t_eval
+                        + t_eval * t_eval;
+                    let numerator_derivative_y =
+                        2.0 * omt_eval * (weight * B.y - A.y)
+                        + 2.0 * t_eval * (C.y - weight * B.y);
+                    let denominator_derivative =
+                        2.0 * omt_eval * (weight - 1.0)
+                        + 2.0 * t_eval * (1.0 - weight);
+                    let deriv_y = numerator_derivative_y * denominator
+                        - numerator_y * denominator_derivative;
+                    var is_valid = false;
+                    if (t < 0.005) {
+                        if (deriv_y > 0.0) {
+                            is_valid = (p.y >= A.y);
+                        } else if (deriv_y < 0.0) {
+                            is_valid = (p.y < A.y);
+                        }
+                    } else if (t > 0.995) {
+                        if (deriv_y > 0.0) {
+                            is_valid = (p.y < C.y);
+                        } else if (deriv_y < 0.0) {
+                            is_valid = (p.y >= C.y);
+                        }
+                    } else {
+                        is_valid = true;
+                    }
+                    if (is_valid) {
+                        let tc = clamp(t, 0.0, 1.0);
+                        let omt = 1.0 - tc;
+                        let rational_denominator = omt * omt
+                            + 2.0 * weight * omt * tc
+                            + tc * tc;
+                        let intersectX = (omt * omt * A.x
+                            + 2.0 * weight * omt * tc * B.x
+                            + tc * tc * C.x) / rational_denominator;
                         if (p.x < intersectX) {
                             if (deriv_y > 0.0) {
                                 winding = winding + 1;
