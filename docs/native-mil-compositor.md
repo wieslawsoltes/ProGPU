@@ -2130,6 +2130,24 @@ for `progpu_native_mil.cpp` and
 `0B239F7E78D98642A27BC09D5B0C60636034E0B967FA6B76A2ADEC824B7D11C8`
 for its test. The guest executable SHA-256 was
 `08C83E4E428AD441321281AC701D05B28CF62B4D65B815B7F5ADA999E932BAAB`.
+Checkpoint `14e870f5` adds `GlyphRunDrawing` as another exact bounds leaf.
+Canonical WPF `MilCmdGlyphRunCreate.ManagedBounds` already contains
+`ComputeInkBoundingBox()` offset by `BaselineOrigin`, exactly the rectangle
+consumed by `BoundsDrawingContextWalker.DrawGlyphRun`; ProGPU therefore uses
+that typed packet field directly and does not reconstruct metrics or inspect
+font outlines for bounds. A null foreground brush or empty managed ink box is
+a valid empty draw. Coverage renders the pointer-free SFNT glyph both directly
+and through a sheared DrawingGroup/DrawingImage, checks the full affine mapping,
+destination clip, and transformed glyph command bounds, and retains the
+existing grayscale/ClearType/aliased text gates. Apple native tests pass 8/8.
+A clean archive rebuilt all 136 focused target steps under Windows ARM64 MSVC
+`19.44.35228.0` with `/W4 /WX`; focused CTest passed in 0.84 seconds and direct
+execution returned zero. Host and guest hashes matched at
+`FA158FC69DB80D9885CA00B1AFCC909836F0DAF0A81388587D2BDE37852BF398`
+for `progpu_native_mil.cpp` and
+`B2F34697CDC24C4C2DE6E133860754A0BCBC71653ACEED91F68C7EE26B87CA6E`
+for its test. The guest executable SHA-256 was
+`48153630050BEDA01C79EDF0D9B4F7FE4EF5CBE881B89DD577820352D5E93604`.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive
