@@ -666,6 +666,10 @@ public sealed class AndroidMediaProviderContractTests
             timelineMixer,
             StringComparison.Ordinal);
         Assert.Contains(
+            "MediaPcm16FloatConverter",
+            timelineMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "overlay.AudioEnabled",
             audio,
             StringComparison.Ordinal);

@@ -3169,6 +3169,10 @@ public sealed class LinuxMediaProviderContractTests
             audioMixer,
             StringComparison.Ordinal);
         Assert.Contains(
+            "MediaPcm16FloatConverter",
+            audioMixer,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "AccumulateProcessed(",
             audioMixKernel,
             StringComparison.Ordinal);
