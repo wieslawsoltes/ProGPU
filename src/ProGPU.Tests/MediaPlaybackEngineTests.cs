@@ -2990,6 +2990,101 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void SharedFloatStereoLayoutConverterMatchesScalarOracleAcrossVectorTails()
+    {
+        int[] frames = [0, 1, 3, 4, 5, 7, 8, 9, 15, 16, 17, 257];
+        var random = new Random(0x53_54_52);
+
+        foreach (int frameCount in frames)
+        {
+            var left = new float[frameCount];
+            var right = new float[frameCount];
+            for (int frame = 0; frame < frameCount; frame++)
+            {
+                left[frame] = (float)(random.NextDouble() * 8D - 4D);
+                right[frame] = (float)(random.NextDouble() * 8D - 4D);
+            }
+
+            var expected = new float[frameCount * 2];
+            for (int frame = 0; frame < frameCount; frame++)
+            {
+                expected[frame * 2] = left[frame];
+                expected[frame * 2 + 1] = right[frame];
+            }
+            var actual = new float[expected.Length + 1];
+            actual[^1] = float.NaN;
+            MediaFloatStereoLayoutConverter.Interleave(
+                left,
+                right,
+                actual);
+
+            Assert.True(
+                expected.AsSpan().SequenceEqual(
+                    actual.AsSpan(0, expected.Length)));
+            Assert.True(float.IsNaN(actual[^1]));
+
+            var actualLeft = new float[frameCount + 1];
+            var actualRight = new float[frameCount + 1];
+            actualLeft[^1] = float.NaN;
+            actualRight[^1] = float.NaN;
+            MediaFloatStereoLayoutConverter.Deinterleave(
+                expected,
+                actualLeft.AsSpan(0, frameCount),
+                actualRight.AsSpan(0, frameCount));
+
+            Assert.True(left.AsSpan().SequenceEqual(
+                actualLeft.AsSpan(0, frameCount)));
+            Assert.True(right.AsSpan().SequenceEqual(
+                actualRight.AsSpan(0, frameCount)));
+            Assert.True(float.IsNaN(actualLeft[^1]));
+            Assert.True(float.IsNaN(actualRight[^1]));
+        }
+
+        Assert.Throws<ArgumentException>(() =>
+            MediaFloatStereoLayoutConverter.Interleave(
+                new float[4],
+                new float[3],
+                new float[8]));
+        Assert.Throws<ArgumentException>(() =>
+            MediaFloatStereoLayoutConverter.Interleave(
+                new float[4],
+                new float[4],
+                new float[7]));
+        Assert.Throws<ArgumentException>(() =>
+            MediaFloatStereoLayoutConverter.Deinterleave(
+                new float[7],
+                new float[4],
+                new float[4]));
+
+        float[] allocationLeft = new float[2_048];
+        float[] allocationRight = new float[2_048];
+        float[] allocationInterleaved = new float[4_096];
+        MediaFloatStereoLayoutConverter.Interleave(
+            allocationLeft,
+            allocationRight,
+            allocationInterleaved);
+        MediaFloatStereoLayoutConverter.Deinterleave(
+            allocationInterleaved,
+            allocationLeft,
+            allocationRight);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 1_000; iteration++)
+        {
+            MediaFloatStereoLayoutConverter.Interleave(
+                allocationLeft,
+                allocationRight,
+                allocationInterleaved);
+            MediaFloatStereoLayoutConverter.Deinterleave(
+                allocationInterleaved,
+                allocationLeft,
+                allocationRight);
+        }
+        Assert.Equal(
+            before,
+            GC.GetAllocatedBytesForCurrentThread());
+    }
+
+    [Fact]
     public void SharedPcm16ProcessedAccumulatorMatchesScalarOracleAcrossVectorTails()
     {
         int[] lengths = [1, 3, 4, 7, 8, 9, 15, 16, 17, 33, 257];

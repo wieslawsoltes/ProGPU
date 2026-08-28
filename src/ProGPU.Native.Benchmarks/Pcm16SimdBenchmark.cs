@@ -9,6 +9,162 @@ internal static class Pcm16SimdBenchmark
     private static readonly MediaAudioStereoLevels Levels =
         new(0.625F, 1.75F);
 
+    internal static void RunLayout(string[] args)
+    {
+        int frames = ReadPositive(args, "--frames", 1_024);
+        int warmupCount = ReadNonNegative(args, "--warmup", 60);
+        int sampleCount = ReadPositive(args, "--samples", 80);
+        int iterationsPerSample = ReadPositive(args, "--iterations", 200);
+        bool measureScalar = Array.Exists(
+            args,
+            static value => string.Equals(
+                value,
+                "--scalar",
+                StringComparison.OrdinalIgnoreCase));
+        float[] left = CreateProcessedSource(frames);
+        float[] right = CreateProcessedSource(frames);
+        Array.Reverse(right);
+        float[] expectedInterleaved = new float[checked(frames * 2)];
+        float[] actualInterleaved = new float[expectedInterleaved.Length];
+        float[] expectedLeft = new float[frames];
+        float[] expectedRight = new float[frames];
+        float[] actualLeft = new float[frames];
+        float[] actualRight = new float[frames];
+        InterleaveScalar(left, right, expectedInterleaved);
+        MediaFloatStereoLayoutConverter.Interleave(
+            left,
+            right,
+            actualInterleaved);
+        DeinterleaveScalar(
+            expectedInterleaved,
+            expectedLeft,
+            expectedRight);
+        MediaFloatStereoLayoutConverter.Deinterleave(
+            actualInterleaved,
+            actualLeft,
+            actualRight);
+        if (!expectedInterleaved.AsSpan().SequenceEqual(actualInterleaved) ||
+            !expectedLeft.AsSpan().SequenceEqual(actualLeft) ||
+            !expectedRight.AsSpan().SequenceEqual(actualRight))
+        {
+            throw new InvalidOperationException(
+                "Intrinsic-SIMD float stereo layout conversion differs from the scalar oracle.");
+        }
+
+        for (int index = 0; index < warmupCount; index++)
+        {
+            ApplyLayoutMeasured(
+                left,
+                right,
+                actualInterleaved,
+                actualLeft,
+                actualRight,
+                measureScalar);
+        }
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        var samples = new double[sampleCount];
+        int checksum = 0;
+        long allocationStart = GC.GetAllocatedBytesForCurrentThread();
+        for (int sample = 0; sample < sampleCount; sample++)
+        {
+            double elapsedMicroseconds = 0D;
+            for (int iteration = 0;
+                 iteration < iterationsPerSample;
+                 iteration++)
+            {
+                long start = Stopwatch.GetTimestamp();
+                ApplyLayoutMeasured(
+                    left,
+                    right,
+                    actualInterleaved,
+                    actualLeft,
+                    actualRight,
+                    measureScalar);
+                elapsedMicroseconds +=
+                    Stopwatch.GetElapsedTime(start).TotalMicroseconds;
+                int index = (sample + iteration) % frames;
+                checksum ^= BitConverter.SingleToInt32Bits(
+                    actualLeft[index]);
+                checksum ^= BitConverter.SingleToInt32Bits(
+                    actualRight[index]);
+            }
+
+            samples[sample] =
+                elapsedMicroseconds / iterationsPerSample;
+        }
+
+        long allocatedBytes =
+            GC.GetAllocatedBytesForCurrentThread() - allocationStart;
+        Array.Sort(samples);
+        int measuredBlocks = checked(
+            sampleCount * iterationsPerSample);
+        string path = measureScalar
+            ? "Scalar oracle"
+            : "Intrinsic-SIMD";
+        FormattableString environment = $"Float stereo layout benchmark: runtime={RuntimeInformation.FrameworkDescription}, os={RuntimeInformation.OSDescription}, arch={RuntimeInformation.ProcessArchitecture}, advsimd-arm64={System.Runtime.Intrinsics.Arm.AdvSimd.Arm64.IsSupported}, sse={System.Runtime.Intrinsics.X86.Sse.IsSupported}.";
+        FormattableString workload = $"Workload: {frames} stereo float frames/block, planar-to-interleaved plus interleaved-to-planar callback round trip, {warmupCount} warmups, {sampleCount} samples x {iterationsPerSample} blocks.";
+        FormattableString summary = $"{path}: p50={Percentile(samples, 0.50):F3} us/block, p95={Percentile(samples, 0.95):F3} us/block, p99={Percentile(samples, 0.99):F3} us/block, allocated={(double)allocatedBytes / measuredBlocks:F1} B/block, checksum={checksum}.";
+        Console.WriteLine(FormattableString.Invariant(environment));
+        Console.WriteLine(FormattableString.Invariant(workload));
+        Console.WriteLine(FormattableString.Invariant(summary));
+    }
+
+    private static void ApplyLayoutMeasured(
+        ReadOnlySpan<float> left,
+        ReadOnlySpan<float> right,
+        Span<float> interleaved,
+        Span<float> destinationLeft,
+        Span<float> destinationRight,
+        bool scalar)
+    {
+        if (scalar)
+        {
+            InterleaveScalar(left, right, interleaved);
+            DeinterleaveScalar(
+                interleaved,
+                destinationLeft,
+                destinationRight);
+            return;
+        }
+
+        MediaFloatStereoLayoutConverter.Interleave(
+            left,
+            right,
+            interleaved);
+        MediaFloatStereoLayoutConverter.Deinterleave(
+            interleaved,
+            destinationLeft,
+            destinationRight);
+    }
+
+    private static void InterleaveScalar(
+        ReadOnlySpan<float> left,
+        ReadOnlySpan<float> right,
+        Span<float> destination)
+    {
+        for (int frame = 0; frame < left.Length; frame++)
+        {
+            destination[frame * 2] = left[frame];
+            destination[frame * 2 + 1] = right[frame];
+        }
+    }
+
+    private static void DeinterleaveScalar(
+        ReadOnlySpan<float> source,
+        Span<float> left,
+        Span<float> right)
+    {
+        for (int frame = 0; frame < left.Length; frame++)
+        {
+            left[frame] = source[frame * 2];
+            right[frame] = source[frame * 2 + 1];
+        }
+    }
+
     internal static void Run(string[] args)
     {
         if (Array.Exists(

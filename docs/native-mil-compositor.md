@@ -4023,6 +4023,36 @@ zero allocation; the guest executable SHA-256 was
 `95ECEAE96594EAE211491850692CD76FBDDC908800D69CCD1E59779A2E3B557F`.
 The Windows evidence qualifies the emulated x64 route, not physical x64.
 
+## Apple float-stereo layout intrinsic-SIMD checkpoint
+
+The Apple AVFoundation real-time mix tap no longer performs two whole-buffer
+scalar stereo transposes around every typed audio-effect callback. The shared
+`MediaFloatStereoLayoutConverter` interleaves and deinterleaves four float
+frames per lane. ARM64 uses the architecture's paired `ST2`/`LD2` zip/unzip
+memory operations; x86/x64 uses SSE unpack/shuffle operations; both retain a
+bounded scalar tail and allocate nothing. Mono remains a direct span copy.
+Channel counts above two retain the dependency-strided scalar transpose because
+their lanes are not the independent stereo pattern implemented by this kernel.
+The differential oracle covers empty input, vector boundaries and tails,
+sentinel preservation, length rejection, exact round trips, and 1,000 repeated
+allocation-free conversions. Apple source-contract coverage requires both
+shared calls, the macOS Apple-media project builds with zero warnings, and the
+complete managed suite passes 3,878/3,878.
+
+The first explicit ARM ZIP/UZP experiment was rejected because its four-frame
+managed load/shuffle/store loop measured slower than the scalar oracle. Using
+the native interleaved-memory operations instead produced three fresh Apple M3
+Pro 1,024-frame callback-round-trip runs with median p50 `0.269` versus `1.241
+us/block` (4.61x), median p95 `0.603` versus `20.251`, and median p99 `0.649`
+versus `23.248 us/block`. Four alternating runs of the self-contained `win-x64`
+binary in the Windows 11 ARM64 Parallels guest retained the cold-host outlier
+and measured median p50 `0.934` versus `1.369 us/block` (1.47x), p95 `6.477`
+versus `38.155`, and p99 `7.581` versus `39.467 us/block`. Both environments
+were exact and allocation free. The guest executable SHA-256 was
+`E38F889B495687BDFFBE61747FAA51ED3C60446092613B28DA8CEC5E0E56EDD8`;
+the Windows result qualifies emulated x64 correctness and relative performance,
+not physical-x64 performance.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.
