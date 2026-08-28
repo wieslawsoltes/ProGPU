@@ -8672,6 +8672,35 @@ struct channel::implementation {
                 }
                 return finish_bounds();
             }
+            const auto glyph_drawing = glyph_run_drawings.find(
+                drawing_handle);
+            if (glyph_drawing != glyph_run_drawings.end()) {
+                if (glyph_drawing->second.foreground_brush_handle == 0U ||
+                    glyph_drawing->second.glyph_run_handle == 0U) {
+                    bounds = {};
+                    return status::success;
+                }
+                const auto glyph_run = glyph_runs.find(
+                    glyph_drawing->second.glyph_run_handle);
+                if (glyph_run == glyph_runs.end()) {
+                    return status::invalid_handle;
+                }
+                if (glyph_run->second.bounds_width <= 0.0 ||
+                    glyph_run->second.bounds_height <= 0.0) {
+                    bounds = {};
+                    return status::success;
+                }
+                if (!try_transform_bounds(
+                        glyph_run->second.bounds_x,
+                        glyph_run->second.bounds_y,
+                        glyph_run->second.bounds_width,
+                        glyph_run->second.bounds_height,
+                        current_transform,
+                        bounds)) {
+                    return status::unsupported_command;
+                }
+                return finish_bounds();
+            }
             const auto drawing = geometry_drawings.find(drawing_handle);
             if (drawing == geometry_drawings.end() ||
                 drawing->second.geometry_handle == 0U) {
