@@ -7252,14 +7252,16 @@ struct channel::implementation {
                             static_cast<float>(child.top),
                             static_cast<float>(child.right),
                             static_cast<float>(child.bottom),
-                            root_fill_rule ==
-                                    PROGPU_NATIVE_FILL_RULE_EVEN_ODD
-                                ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
-                                : PROGPU_NATIVE_FILL_RULE_NON_ZERO,
-                            root_fill_rule ==
-                                    PROGPU_NATIVE_FILL_RULE_EVEN_ODD
-                                ? PROGPU_NATIVE_PATH_BOOLEAN_LEAF
-                                : PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF,
+                            static_cast<std::uint32_t>(
+                                root_fill_rule ==
+                                        PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                                    ? PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                                    : PROGPU_NATIVE_FILL_RULE_NON_ZERO),
+                            static_cast<std::uint32_t>(
+                                root_fill_rule ==
+                                        PROGPU_NATIVE_FILL_RULE_EVEN_ODD
+                                    ? PROGPU_NATIVE_PATH_BOOLEAN_LEAF
+                                    : PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF),
                             0U,
                             0U});
                     }
