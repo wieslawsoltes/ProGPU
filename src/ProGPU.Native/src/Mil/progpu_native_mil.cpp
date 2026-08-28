@@ -8596,9 +8596,9 @@ struct channel::implementation {
             if (group != geometry_groups.end()) {
                 std::uint32_t child_handle =
                     drawing->second.geometry_handle;
-                for (std::uint32_t depth = 0U;
-                     depth < maximum_visual_depth;
-                     ++depth) {
+                for (std::uint32_t geometry_depth = 0U;
+                     geometry_depth < maximum_visual_depth;
+                     ++geometry_depth) {
                     const auto child_group = geometry_groups.find(
                         child_handle);
                     if (child_group == geometry_groups.end()) {
