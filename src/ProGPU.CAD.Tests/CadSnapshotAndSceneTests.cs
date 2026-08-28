@@ -6,6 +6,7 @@ using System.Numerics;
 using System.Text;
 using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
+using ProGPU.Scene.Native;
 using ProGPU.Text;
 using ProGPU.Vector;
 using Xunit;
@@ -348,6 +349,95 @@ public sealed class CadSnapshotAndSceneTests
         Assert.Equal(3, command.PointBufferCount);
         Assert.Equal(6, command.DoubleBufferCount);
         Assert.Equal(3, command.WeightBufferCount);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PeriodicSplineExpandsCyclicRecordWithoutSyntheticSeam(bool expandedKnots)
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add periodic spline", document =>
+        {
+            var spline = new Spline
+            {
+                Degree = 2,
+                IsClosed = true,
+                IsPeriodic = true,
+            };
+            spline.ControlPoints.AddRange([
+                new XYZ(0, 0, 0),
+                new XYZ(10, 0, 0),
+                new XYZ(10, 10, 0),
+                new XYZ(0, 10, 0),
+            ]);
+            spline.Knots.AddRange(expandedKnots
+                ? [-2, -1, 0, 1, 2, 3, 4, 5, 6]
+                : [0, 1, 2, 3, 4]);
+            spline.Weights.AddRange([1, 2, 1, 2]);
+            document.Entities.Add(spline);
+        });
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        CadSplinePrimitive spline = Assert.Single(snapshot.Splines.ToArray());
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        Assert.True(spline.IsClosed);
+        Assert.True(spline.IsPeriodic);
+        Assert.Equal(4, spline.ControlPointCount);
+        Assert.Equal(expandedKnots ? 9 : 5, spline.KnotCount);
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands);
+        Assert.Equal(6, command.PointBufferCount);
+        Assert.Equal(9, command.DoubleBufferCount);
+        Assert.Equal(6, command.WeightBufferCount);
+        Assert.False(command.IsClosed);
+        Assert.Equal(
+            new double[] { -2, -1, 0, 1, 2, 3, 4, 5, 6 },
+            scene.DrawingContext.DoubleBuffer
+                .Skip(command.DoubleBufferOffset)
+                .Take(command.DoubleBufferCount));
+        Assert.Equal(
+            new double[] { 1, 2, 1, 2, 1, 2 },
+            scene.DrawingContext.DoubleBuffer
+                .Skip(command.WeightBufferOffset)
+                .Take(command.WeightBufferCount));
+        Vector2[] points = scene.DrawingContext.PointBuffer
+            .Skip(command.PointBufferOffset)
+            .Take(command.PointBufferCount)
+            .ToArray();
+        Assert.Equal(points[0], points[4]);
+        Assert.Equal(points[1], points[5]);
+        double[] knots = scene.DrawingContext.DoubleBuffer
+            .Skip(command.DoubleBufferOffset)
+            .Take(command.DoubleBufferCount)
+            .ToArray();
+        double[] weights = scene.DrawingContext.DoubleBuffer
+            .Skip(command.WeightBufferOffset)
+            .Take(command.WeightBufferCount)
+            .ToArray();
+        PathGeometry path = RenderCommandGeometryCache.CreateSplinePath(
+            points,
+            knots,
+            weights,
+            command.SplineDegree,
+            command.IsClosed);
+        PathFigure figure = Assert.Single(path.Figures);
+        Vector2 end = Assert.IsType<LineSegment>(figure.Segments[^1]).Point;
+        Assert.Equal(figure.StartPoint.X, end.X, 5);
+        Assert.Equal(figure.StartPoint.Y, end.Y, 5);
+
+        using GpuPicture picture = scene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            96U,
+            scene.ContentGeneration,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.StrokeCount);
+        Assert.Equal(6, compiled.StrokePointCount);
+        Assert.Equal(15, compiled.StrokeDoubleCount);
     }
 
     [Theory]

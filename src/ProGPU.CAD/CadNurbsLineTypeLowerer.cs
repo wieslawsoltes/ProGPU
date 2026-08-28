@@ -3,7 +3,7 @@ using System.Numerics;
 namespace ProGPU.CAD;
 
 /// <summary>
-/// Measures open rational B-splines in WCS and emits exact rational Bezier
+/// Measures rational B-spline paths in WCS and emits exact rational Bezier
 /// subcurves for visible A-aligned linetype spans.
 /// </summary>
 /// <remarks>
@@ -15,8 +15,9 @@ namespace ProGPU.CAD;
 /// O(B * P + 128 * B + E * P). The fixed 128-bin, eight-point Gauss-Legendre
 /// maps affect only distance-to-parameter inversion; emitted curve geometry is
 /// obtained by homogeneous de Casteljau subdivision and is not flattened.
-/// Closed and periodic splines remain outside this contract because their seam
-/// alignment cannot be inferred from the retained snapshot's closed flag.
+/// Compact periodic records are expanded through <see cref="CadCanonicalSpline"/>.
+/// Closed nonperiodic records add one degree-elevated linear Bezier seam. Both
+/// forms use the same closed-path pattern planner as other CAD loop geometry.
 /// </remarks>
 internal static class CadNurbsLineTypeLowerer
 {
@@ -37,32 +38,14 @@ internal static class CadNurbsLineTypeLowerer
         out int spanCount)
     {
         spanCount = 0;
-        int degree = spline.Degree;
-        int controlPointCount = spline.ControlPointCount;
-        if (spline.IsClosed || spline.IsPeriodic || degree < 1 || degree > 10 ||
-            controlPointCount < degree + 1 ||
-            spline.KnotCount != controlPointCount + degree + 1 ||
-            (spline.WeightCount != 0 && spline.WeightCount != controlPointCount))
+        if (!CadSplineCanonicalizer.TryCreate(snapshot, spline, out CadCanonicalSpline canonical))
         {
             return false;
         }
 
-        ReadOnlySpan<double> knots = snapshot.SplineKnots.Span.Slice(
-            spline.KnotOffset,
-            spline.KnotCount);
-        for (int i = 0; i < knots.Length; i++)
-        {
-            if (!double.IsFinite(knots[i]) || (i != 0 && knots[i] < knots[i - 1]))
-            {
-                return false;
-            }
-        }
-
+        int degree = canonical.Degree;
+        int controlPointCount = canonical.ControlPointCount;
         int domainEndIndex = controlPointCount;
-        if (!(knots[domainEndIndex] > knots[degree]))
-        {
-            return false;
-        }
 
         // An internal multiplicity greater than the degree is a geometric
         // discontinuity, not one uninterrupted linetype path.
@@ -70,7 +53,8 @@ internal static class CadNurbsLineTypeLowerer
         while (runStart < domainEndIndex)
         {
             int runEnd = runStart + 1;
-            while (runEnd < domainEndIndex && knots[runEnd] == knots[runStart])
+            while (runEnd < domainEndIndex &&
+                canonical.GetKnot(runEnd) == canonical.GetKnot(runStart))
             {
                 runEnd++;
             }
@@ -83,26 +67,17 @@ internal static class CadNurbsLineTypeLowerer
             runStart = runEnd;
         }
 
-        if (spline.WeightCount != 0)
-        {
-            ReadOnlySpan<double> weights = snapshot.SplineWeights.Span.Slice(
-                spline.WeightOffset,
-                spline.WeightCount);
-            for (int i = 0; i < weights.Length; i++)
-            {
-                if (!double.IsFinite(weights[i]) || weights[i] <= 0.0)
-                {
-                    return false;
-                }
-            }
-        }
-
         for (int i = degree; i < controlPointCount; i++)
         {
-            if (knots[i + 1] > knots[i])
+            if (canonical.GetKnot(i + 1) > canonical.GetKnot(i))
             {
                 spanCount++;
             }
+        }
+
+        if (canonical.HasClosingEdge)
+        {
+            spanCount++;
         }
 
         return spanCount != 0;
@@ -138,7 +113,8 @@ internal static class CadNurbsLineTypeLowerer
         int degree = spline.Degree;
         var bezierPoints = new HomogeneousPoint[checked(spanCount * (degree + 1))];
         var spans = new BezierSpan[spanCount];
-        if (!TryExtractBezierSpans(snapshot, spline, bezierPoints, spans))
+        if (!CadSplineCanonicalizer.TryCreate(snapshot, spline, out CadCanonicalSpline canonical) ||
+            !TryExtractBezierSpans(canonical, bezierPoints, spans))
         {
             return Unsupported();
         }
@@ -192,6 +168,7 @@ internal static class CadNurbsLineTypeLowerer
             elements,
             patternLength,
             scale,
+            canonical.IsLoop,
             maxFigures,
             maxPatternSteps,
             maxPlacements,
@@ -234,7 +211,8 @@ internal static class CadNurbsLineTypeLowerer
             measuredSpans,
             elements,
             patternLength,
-            scale);
+            scale,
+            canonical.IsLoop);
         int controlPointCount = checked((pieceCount * degree) + figureCount);
         int knotCount = checked(controlPointCount + (figureCount * (degree + 1)));
         var fragments = new CadLineTypeSplineFragment[figureCount];
@@ -252,6 +230,7 @@ internal static class CadNurbsLineTypeLowerer
             elements,
             patternLength,
             scale,
+            canonical.IsLoop,
             fragments,
             outputPoints,
             outputKnots,
@@ -287,6 +266,7 @@ internal static class CadNurbsLineTypeLowerer
         ReadOnlySpan<CadLineTypeElement> elements,
         double patternLength,
         double scale,
+        bool isClosed,
         int figureLimit,
         int patternStepLimit,
         int placementLimit,
@@ -298,7 +278,7 @@ internal static class CadNurbsLineTypeLowerer
         placementCount = 0;
         var patternSpans = new CadLineTypeLowerer.PatternSpanEnumerator(
             pathLength,
-            isClosed: false,
+            isClosed,
             elements,
             patternLength,
             scale,
@@ -331,12 +311,13 @@ internal static class CadNurbsLineTypeLowerer
         ReadOnlySpan<BezierSpan> spans,
         ReadOnlySpan<CadLineTypeElement> elements,
         double patternLength,
-        double scale)
+        double scale,
+        bool isClosed)
     {
         int count = 0;
         var patternSpans = new CadLineTypeLowerer.PatternSpanEnumerator(
             pathLength,
-            isClosed: false,
+            isClosed,
             elements,
             patternLength,
             scale,
@@ -373,6 +354,7 @@ internal static class CadNurbsLineTypeLowerer
         ReadOnlySpan<CadLineTypeElement> elements,
         double patternLength,
         double scale,
+        bool isClosed,
         Span<CadLineTypeSplineFragment> fragments,
         Span<Vector2> outputPoints,
         Span<double> outputKnots,
@@ -386,7 +368,7 @@ internal static class CadNurbsLineTypeLowerer
         int placementIndex = 0;
         var patternSpans = new CadLineTypeLowerer.PatternSpanEnumerator(
             pathLength,
-            isClosed: false,
+            isClosed,
             elements,
             patternLength,
             scale,
@@ -488,32 +470,22 @@ internal static class CadNurbsLineTypeLowerer
     }
 
     private static bool TryExtractBezierSpans(
-        CadDocumentSnapshot snapshot,
-        in CadSplinePrimitive spline,
+        in CadCanonicalSpline canonical,
         Span<HomogeneousPoint> destination,
         Span<BezierSpan> spans)
     {
-        int degree = spline.Degree;
+        int degree = canonical.Degree;
         int maxControlPointCount = (degree * 3) + 3;
         int maxKnotCount = (degree * 4) + 4;
         var pointsA = new HomogeneousPoint[maxControlPointCount];
         var pointsB = new HomogeneousPoint[maxControlPointCount];
         var knotsA = new double[maxKnotCount];
         var knotsB = new double[maxKnotCount];
-        ReadOnlySpan<CadPoint3D> sourcePoints = snapshot.SplineControlPoints.Span.Slice(
-            spline.ControlPointOffset,
-            spline.ControlPointCount);
-        ReadOnlySpan<double> sourceKnots = snapshot.SplineKnots.Span.Slice(
-            spline.KnotOffset,
-            spline.KnotCount);
-        ReadOnlySpan<double> sourceWeights = spline.WeightCount == 0
-            ? default
-            : snapshot.SplineWeights.Span.Slice(spline.WeightOffset, spline.WeightCount);
         int outputSpanIndex = 0;
-        for (int sourceSpan = degree; sourceSpan < spline.ControlPointCount; sourceSpan++)
+        for (int sourceSpan = degree; sourceSpan < canonical.ControlPointCount; sourceSpan++)
         {
-            double start = sourceKnots[sourceSpan];
-            double end = sourceKnots[sourceSpan + 1];
+            double start = canonical.GetKnot(sourceSpan);
+            double end = canonical.GetKnot(sourceSpan + 1);
             if (!(end > start))
             {
                 continue;
@@ -524,10 +496,15 @@ internal static class CadNurbsLineTypeLowerer
             for (int i = 0; i <= degree; i++)
             {
                 int sourceIndex = sourceSpan - degree + i;
-                double weight = sourceWeights.IsEmpty ? 1.0 : sourceWeights[sourceIndex];
-                pointsA[i] = HomogeneousPoint.FromCartesian(sourcePoints[sourceIndex], weight);
+                double weight = canonical.GetWeight(sourceIndex);
+                pointsA[i] = HomogeneousPoint.FromCartesian(
+                    canonical.GetControlPoint(sourceIndex),
+                    weight);
             }
-            sourceKnots.Slice(sourceSpan - degree, knotCount).CopyTo(knotsA);
+            for (int i = 0; i < knotCount; i++)
+            {
+                knotsA[i] = canonical.GetKnot(sourceSpan - degree + i);
+            }
 
             HomogeneousPoint[] currentPoints = pointsA;
             HomogeneousPoint[] nextPoints = pointsB;
@@ -589,6 +566,29 @@ internal static class CadNurbsLineTypeLowerer
                 destinationOffset,
                 start,
                 end,
+                0.0,
+                0.0,
+                outputSpanIndex * ArcLengthMapSize);
+            outputSpanIndex++;
+        }
+
+        if (canonical.HasClosingEdge && outputSpanIndex != 0)
+        {
+            CadPoint3D start = destination[0].Cartesian;
+            CadPoint3D end = destination[(outputSpanIndex * (degree + 1)) - 1].Cartesian;
+            int destinationOffset = outputSpanIndex * (degree + 1);
+            for (int i = 0; i <= degree; i++)
+            {
+                double amount = (double)i / degree;
+                destination[destinationOffset + i] = HomogeneousPoint.FromCartesian(
+                    end + ((start - end) * amount),
+                    1.0);
+            }
+
+            spans[outputSpanIndex] = new BezierSpan(
+                destinationOffset,
+                0.0,
+                1.0,
                 0.0,
                 0.0,
                 outputSpanIndex * ArcLengthMapSize);

@@ -854,16 +854,19 @@ public sealed class CadLineTypeTests
         Assert.Equal(0.0f, Vector2.Dot(radial, tangent), 4);
     }
 
-    [Fact]
-    public void PeriodicSplinePatternRemainsAnExplicitSeamGate()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PeriodicSplinePatternRetainsExactCyclicSeamTopology(bool expandedKnots)
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
         session.Edit("Add periodic spline", document =>
         {
-            LineType dashed = AddSimpleLineType(document, "PERIODIC_GATE", 1.0, -1.0);
+            LineType dashed = AddSimpleLineType(document, "PERIODIC_SPLINE", 100.0, -1.0);
             var spline = new Spline
             {
                 Degree = 2,
+                IsClosed = true,
                 IsPeriodic = true,
                 LineType = dashed,
             };
@@ -872,19 +875,157 @@ public sealed class CadLineTypeTests
                 new XYZ(2, 3, 0),
                 new XYZ(4, 0, 0),
                 new XYZ(2, -3, 0),
-                new XYZ(0, 0, 0),
             ]);
-            spline.Knots.AddRange([0, 0, 0, 1, 2, 3, 3, 3]);
+            spline.Knots.AddRange(expandedKnots
+                ? [-2, -1, 0, 1, 2, 3, 4, 5, 6]
+                : [0, 1, 2, 3, 4]);
+            spline.Weights.AddRange([1, 2, 1, 2]);
             document.Entities.Add(spline);
         });
 
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
-        Assert.True(Assert.Single(snapshot.Splines.ToArray()).IsPeriodic);
+        CadSplinePrimitive spline = Assert.Single(snapshot.Splines.ToArray());
+        Assert.True(spline.IsClosed);
+        Assert.True(spline.IsPeriodic);
         CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
 
+        Assert.Equal(1, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(1, scene.Statistics.LoweredLineTypeFigureCount);
+        Assert.Equal(4, scene.Statistics.LineTypeSourceSegmentCount);
+        Assert.Empty(scene.Diagnostics.ToArray());
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands);
+        Assert.Equal(CompositorBuiltInExtensions.Spline, command.ExtensionId);
+        Assert.Equal(2, command.SplineDegree);
+        Assert.Equal(9, command.PointBufferCount);
+        Assert.Equal(12, command.DoubleBufferCount);
+        Assert.Equal(9, command.WeightBufferCount);
+
+        using GpuPicture picture = scene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            97U,
+            scene.ContentGeneration,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.StrokeCount);
+        Assert.Equal(9, compiled.StrokePointCount);
+        Assert.Equal(21, compiled.StrokeDoubleCount);
+    }
+
+    [Fact]
+    public void ClosedNonperiodicSplinePatternIncludesExactElevatedClosingEdge()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add legacy closed spline", document =>
+        {
+            LineType dashed = AddSimpleLineType(document, "CLOSED_SPLINE", 100.0, -1.0);
+            var spline = new Spline
+            {
+                Degree = 2,
+                IsClosed = true,
+                LineType = dashed,
+            };
+            spline.ControlPoints.AddRange([
+                new XYZ(0, 0, 0),
+                new XYZ(2, 4, 0),
+                new XYZ(4, 0, 0),
+            ]);
+            spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+            document.Entities.Add(spline);
+        });
+
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+            new CadSnapshotCompiler().Compile(session));
+
+        Assert.Equal(1, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(1, scene.Statistics.LoweredLineTypeFigureCount);
+        Assert.Equal(2, scene.Statistics.LineTypeSourceSegmentCount);
+        Assert.Empty(scene.Diagnostics.ToArray());
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands);
+        Assert.Equal(CompositorBuiltInExtensions.Spline, command.ExtensionId);
+        Assert.Equal(5, command.PointBufferCount);
+        Assert.Equal(8, command.DoubleBufferCount);
+        Assert.Equal(5, command.WeightBufferCount);
+        ReadOnlySpan<Vector2> points = CollectionsMarshal.AsSpan(
+            scene.DrawingContext.PointBuffer).Slice(
+            command.PointBufferOffset,
+            command.PointBufferCount);
+        Assert.True(Vector2.Distance(points[0], points[^1]) > 0.0f);
+        Vector2 closingMidpoint = (points[2] + points[4]) * 0.5f;
+        Assert.Equal(closingMidpoint.X, points[3].X, 5);
+        Assert.Equal(closingMidpoint.Y, points[3].Y, 5);
+    }
+
+    [Fact]
+    public void PeriodicSplineArcMapLimitFallsBackBeforeProportionalOutput()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add map-limited periodic spline", document =>
+        {
+            LineType dashed = AddSimpleLineType(document, "PERIODIC_MAP_LIMIT", 1.0, -1.0);
+            var spline = new Spline
+            {
+                Degree = 2,
+                IsClosed = true,
+                IsPeriodic = true,
+                LineType = dashed,
+            };
+            spline.ControlPoints.AddRange([
+                new XYZ(0, 0, 0),
+                new XYZ(2, 3, 0),
+                new XYZ(4, 0, 0),
+                new XYZ(2, -3, 0),
+            ]);
+            spline.Knots.AddRange([-2, -1, 0, 1, 2, 3, 4, 5, 6]);
+            document.Entities.Add(spline);
+        });
+
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+            new CadSnapshotCompiler().Compile(session),
+            new CadPlanSceneOptions { MaxLineTypeArcMapsPerEntity = 3 });
+
         Assert.Equal(0, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(4, scene.Statistics.LineTypeSourceSegmentCount);
         Assert.Equal(RenderCommandType.DrawExtension, Assert.Single(scene.DrawingContext.Commands).Type);
         CadDiagnostic diagnostic = Assert.Single(scene.Diagnostics.ToArray());
+        Assert.Equal("CADSCENE002", diagnostic.Code);
+        Assert.Contains("arc per-entity map limit", diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PeriodicSplineRejectsInconsistentExpandedKnotIntervals()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add malformed periodic spline", document =>
+        {
+            LineType dashed = AddSimpleLineType(document, "PERIODIC_INVALID", 1.0, -1.0);
+            var spline = new Spline
+            {
+                Degree = 2,
+                IsClosed = true,
+                IsPeriodic = true,
+                LineType = dashed,
+            };
+            spline.ControlPoints.AddRange([
+                new XYZ(0, 0, 0),
+                new XYZ(2, 3, 0),
+                new XYZ(4, 0, 0),
+                new XYZ(2, -3, 0),
+            ]);
+            spline.Knots.AddRange([-2, -0.5, 0, 1, 2, 3, 4, 5, 6]);
+            document.Entities.Add(spline);
+        });
+
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+            new CadSnapshotCompiler().Compile(session));
+
+        Assert.Equal(0, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(0, scene.Statistics.LineTypeSourceSegmentCount);
+        Assert.Equal(RenderCommandType.DrawExtension, Assert.Single(scene.DrawingContext.Commands).Type);
+        CadDiagnostic diagnostic = Assert.Single(scene.Diagnostics.ToArray());
+        Assert.Equal("CADSCENE002", diagnostic.Code);
         Assert.Contains("no exact analytic linetype splitter", diagnostic.Message, StringComparison.Ordinal);
     }
 

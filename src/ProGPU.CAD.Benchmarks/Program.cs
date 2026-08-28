@@ -18,6 +18,7 @@ bool lowerLineTypes = HasFlag("--linetypes");
 bool lowerComplexLineTypes = HasFlag("--complex-linetypes");
 bool lowerLinearSplineLineTypes = HasFlag("--linear-spline-linetypes");
 bool lowerNurbsSplineLineTypes = HasFlag("--nurbs-spline-linetypes");
+bool lowerPeriodicSplineLineTypes = HasFlag("--periodic-spline-linetypes");
 int shxInterpretationCount = ReadNonNegativeInt("--shx-interpretations", 0);
 int shxLayoutCount = ReadNonNegativeInt("--shx-layouts", 0);
 int warmupCount = ReadNonNegativeInt("--warmup", 3);
@@ -47,10 +48,11 @@ CadDocumentSession session = CreateDocument(
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
-        lowerNurbsSplineLineTypes,
+        lowerNurbsSplineLineTypes || lowerPeriodicSplineLineTypes,
     lowerComplexLineTypes,
     lowerLinearSplineLineTypes,
-    lowerNurbsSplineLineTypes);
+    lowerNurbsSplineLineTypes,
+    lowerPeriodicSplineLineTypes);
 var snapshotCompiler = new CadSnapshotCompiler();
 var pageSetupCompiler = new CadPageSetupCatalogCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
@@ -154,10 +156,11 @@ var report = new CadBenchmarkReport(
     decorateText,
     decorateShxText,
     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
-        lowerNurbsSplineLineTypes,
+        lowerNurbsSplineLineTypes || lowerPeriodicSplineLineTypes,
     lowerComplexLineTypes,
     lowerLinearSplineLineTypes,
     lowerNurbsSplineLineTypes,
+    lowerPeriodicSplineLineTypes,
     shxInterpretationCount,
     shxLayoutCount,
     warmupCount,
@@ -227,7 +230,8 @@ CadDocumentSession CreateDocument(
     bool useLineTypes,
     bool useComplexLineTypes,
     bool useLinearSplineLineTypes,
-    bool useNurbsSplineLineTypes)
+    bool useNurbsSplineLineTypes,
+    bool usePeriodicSplineLineTypes)
 {
     CadDocumentSession result = CadDocumentSession.CreateNew();
     result.Edit("Build benchmark document", document =>
@@ -265,6 +269,26 @@ CadDocumentSession CreateDocument(
         {
             double x = (i % 1_000) * 12.0;
             double y = (i / 1_000) * 12.0;
+            if (usePeriodicSplineLineTypes)
+            {
+                var spline = new Spline
+                {
+                    Degree = 2,
+                    IsClosed = true,
+                    IsPeriodic = true,
+                    LineType = benchmarkLineType ?? document.LineTypes.Continuous,
+                };
+                spline.ControlPoints.AddRange([
+                    new XYZ(x, y, i % 17),
+                    new XYZ(x + 4, y + 6, (i % 17) + 1),
+                    new XYZ(x + 8, y, (i % 17) + 2),
+                    new XYZ(x + 4, y - 6, (i % 17) + 1),
+                ]);
+                spline.Knots.AddRange([-2, -1, 0, 1, 2, 3, 4, 5, 6]);
+                spline.Weights.AddRange([1, 2, 1, 2]);
+                document.Entities.Add(spline);
+                continue;
+            }
             if (useNurbsSplineLineTypes)
             {
                 var spline = new Spline
@@ -574,6 +598,7 @@ internal sealed record CadBenchmarkReport(
     bool LoweredComplexLineTypes,
     bool LoweredLinearSplineLineTypes,
     bool LoweredNurbsSplineLineTypes,
+    bool LoweredPeriodicSplineLineTypes,
     int ShxInterpretationCount,
     int ShxLayoutCount,
     int WarmupCount,

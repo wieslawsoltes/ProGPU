@@ -726,6 +726,13 @@ public sealed class CadPlanSceneCompiler
         CadDocumentSnapshot snapshot,
         CadSplinePrimitive spline)
     {
+        if (spline.IsPeriodic &&
+            CadSplineCanonicalizer.TryCreate(snapshot, spline, out CadCanonicalSpline canonical))
+        {
+            RecordPeriodicSpline(context, pen, snapshot.RebaseOrigin, canonical);
+            return;
+        }
+
         ReadOnlySpan<CadPoint3D> sourcePoints = snapshot.SplineControlPoints.Span.Slice(
             spline.ControlPointOffset,
             spline.ControlPointCount);
@@ -754,6 +761,69 @@ public sealed class CadPlanSceneCompiler
             if (rented is not null)
             {
                 ArrayPool<Vector2>.Shared.Return(rented);
+            }
+        }
+    }
+
+    private static void RecordPeriodicSpline(
+        DrawingContext context,
+        Pen pen,
+        CadPoint3D rebaseOrigin,
+        in CadCanonicalSpline spline)
+    {
+        int controlPointCount = spline.ControlPointCount;
+        int knotCount = spline.KnotCount;
+        Vector2[]? rentedPoints = null;
+        double[]? rentedKnots = null;
+        double[]? rentedWeights = null;
+        Span<Vector2> points = controlPointCount <= 256
+            ? stackalloc Vector2[controlPointCount]
+            : (rentedPoints = ArrayPool<Vector2>.Shared.Rent(controlPointCount))
+                .AsSpan(0, controlPointCount);
+        Span<double> knots = knotCount <= 256
+            ? stackalloc double[knotCount]
+            : (rentedKnots = ArrayPool<double>.Shared.Rent(knotCount))
+                .AsSpan(0, knotCount);
+        Span<double> weights = default;
+        if (spline.HasWeights)
+        {
+            rentedWeights = ArrayPool<double>.Shared.Rent(controlPointCount);
+            weights = rentedWeights.AsSpan(0, controlPointCount);
+        }
+
+        try
+        {
+            for (int i = 0; i < controlPointCount; i++)
+            {
+                points[i] = Project(spline.GetControlPoint(i), rebaseOrigin);
+                if (!weights.IsEmpty)
+                {
+                    weights[i] = spline.GetWeight(i);
+                }
+            }
+            for (int i = 0; i < knotCount; i++)
+            {
+                knots[i] = spline.GetKnot(i);
+            }
+
+            // The expanded periodic NURBS already meets itself with its cyclic
+            // basis. Asking DrawSpline to add another closing edge would alter
+            // the source topology and can introduce a seam cap/join.
+            context.DrawSpline(pen, points, knots, weights, spline.Degree, isClosed: false);
+        }
+        finally
+        {
+            if (rentedPoints is not null)
+            {
+                ArrayPool<Vector2>.Shared.Return(rentedPoints);
+            }
+            if (rentedKnots is not null)
+            {
+                ArrayPool<double>.Shared.Return(rentedKnots);
+            }
+            if (rentedWeights is not null)
+            {
+                ArrayPool<double>.Shared.Return(rentedWeights);
             }
         }
     }

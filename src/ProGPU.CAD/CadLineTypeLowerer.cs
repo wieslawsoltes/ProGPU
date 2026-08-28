@@ -758,7 +758,7 @@ internal static class CadLineTypeLowerer
         int maxArcMapsPerEntity,
         int maxPlacements)
     {
-        if (spline.Degree == 1)
+        if (spline.Degree == 1 && !spline.IsClosed && !spline.IsPeriodic)
         {
             return LowerLinearSpline(
                 snapshot,

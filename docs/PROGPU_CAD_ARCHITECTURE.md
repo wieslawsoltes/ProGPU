@@ -143,13 +143,15 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   one `DrawPath` command per entity. Circular, bulge, and elliptical pieces
   remain analytic arcs, and the resulting path still uses fixed-device CAD
   lineweight. Entity PLINEGEN state selects uninterrupted 2D-polyline traversal
-  or endpoint alignment at every segment. Open rational SPLINEs through degree
-  ten use one uninterrupted WCS arc-length traversal and exact retained
-  rational subcurves. Persisted relative/absolute
+  or endpoint alignment at every segment. Open, closed, and periodic rational
+  SPLINEs through degree ten use one uninterrupted WCS arc-length traversal and
+  exact retained rational subcurves; compact periodic records and already
+  cyclically extended knot vectors normalize to one standard evaluator form,
+  while a nonperiodic closure is an exact degree-elevated line span. Persisted relative/absolute
   complex text and SHX-shape descriptors share definition-owned payloads and
   retain tangent-aware placements. LIN-only upright rotation, nonzero complex advances,
-  decorated linetype text, closed/periodic spline seam splitting,
-  and non-A alignment remain explicit diagnostics rather than unbounded or
+  decorated linetype text, independently observed AutoCAD dot-first/closed-
+  pattern residual distribution, and non-A alignment remain explicit diagnostics rather than unbounded or
   silently approximate expansion.
 - `CadShxFont` provides the first bounded SHX source layer. It parses the
   standard compiled `AutoCAD-86 shapes 1.0` container into one immutable owned
@@ -219,7 +221,7 @@ with `Q` explicitly bounded by the descriptor-step option in each pass.
 Camera replay, lineweight, and upload contracts do not depend on entity count or
 zoom after that retained picture is published.
 
-### Exact open rational-spline linetype contract
+### Exact rational-spline and cyclic-seam linetype contract
 
 An open degree-one B-spline or NURBS with a canonical nondecreasing knot vector
 and strictly positive active knot spans is geometrically the ordered chain of
@@ -247,16 +249,31 @@ internal multiplicity `P`, preserving one connected stroke and its caps/joins.
 Constant geometric spans consume no pattern distance or output piece while
 remaining charged to the source/map preflight.
 
+Periodic SPLINE records use one typed cyclic topology rather than a sampled or
+synthetic closing edge. Autodesk's managed constructor contract stores `N`
+control points and `N+1` fundamental knots for degree `P`; `CadCanonicalSpline`
+appends the first `P` controls and extends the first/last `P` knot intervals by
+one period, exposing the standard `N+P` control and `N+2P+1` knot relation to
+the shared retained evaluator. Dependency snapshots that already carry the
+extended knot vector are accepted only when both outer interval sets agree
+with that same fundamental period. The resulting domain has exactly `N`
+cyclic source spans, matching endpoints without setting the retained command's
+synthetic-close bit. A closed but nonperiodic record retains its ordinary NURBS
+and appends one straight closing span degree-elevated to `P`, so a dash can
+cross the curve/line seam inside one exact rational command. Both loop forms
+use the existing deterministic integral-period closed-path planner; Autodesk's
+unpublished residual distribution remains a separately documented conformance
+gate.
+
 For `B` non-empty knot spans, `Q` visited descriptors, `F` figures, and `E`
 emitted Bezier pieces, conversion and measurement are `O(B*P^2 + 128*B*P)`,
 pattern traversal is `O(Q)`, extraction is `O(E*P^2)`, and retained/scratch
 storage is `O(B*P + 128*B + E*P)`. Figure, placement, descriptor, source-span,
-and map limits are checked before proportional output publication. Closed and
-periodic curves still require independently validated seam and endpoint-pattern
-behavior and remain explicit whole-entity fallbacks. Periodicity is retained as
-a distinct snapshot bit rather than inferred from closure. Internal knot
-multiplicity greater than the degree remains unresolved instead of inventing a
-connecting stroke across a discontinuity.
+and map limits are checked before proportional output publication. Periodicity
+remains a distinct snapshot bit rather than being inferred from closure.
+Malformed cyclic extensions and internal knot multiplicity greater than the
+degree remain unresolved instead of inventing a connecting stroke across a
+discontinuity.
 
 ### Retained complex-linetype contract
 
@@ -315,6 +332,16 @@ native spline stroke batches through `GpuPictureNativeSceneCompiler`. No shader,
 C ABI, native spline evaluator, cache, atlas, or device-loss contract changed;
 the managed/native applicability finding is therefore shared retained input and
 matched compilation coverage, not a one-sided backend algorithm.
+
+Closed/periodic support extends the same original ProGPU-owned
+`CadNurbsLineTypeLowerer` and existing `DrawingContext.DrawSpline` path through
+the new indexed `CadCanonicalSpline` view. It consumes only ACadSharp's public
+degree, flag, control, knot, and weight collections. Compact-period expansion,
+cyclic-interval validation, and the degree-elevated closing span are derived
+from Autodesk's published constructor/entity contracts and standard rational
+B-spline mathematics; no dependency geometry helper or third-party renderer
+implementation informed their code structure. Compact/extended ordinary-scene
+and linetype regressions both compile through the same native picture boundary.
 
 This slice changes no shader, native C ABI, or backend descriptor. Managed and
 native picture compilers consume the identical existing `DrawPath`, analytic
@@ -1129,6 +1156,7 @@ dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --complex-linetypes --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --linear-spline-linetypes --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --nurbs-spline-linetypes --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --periodic-spline-linetypes --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --block-array-columns 10000 --warmup 5 --iterations 100 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --warmup 5 --iterations 50 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --text-entities 1000 --text-decorations --warmup 3 --iterations 50 --queries 10000
@@ -1192,6 +1220,18 @@ managed bytes. This short run validates the dedicated weighted multi-span lane
 and exposes feature cost only. It is not a comparison or performance claim and
 does not replace matched viewer/GPU, image-quality, managed/native, or
 Instruments evidence.
+
+The first 2026-08-28 weighted periodic quadratic-NURBS linetype feature-cost
+run used one final Release binary, 1,000 four-span loops, three warmups, and 24
+iterations. It retained 4,083 exact rational spline commands through 8,083
+bounded descriptor visits and 4,000 source spans with no unsupported entities
+or linetypes. Snapshot p50/p95/p99 was 0.548/9.266/11.819 ms with 1,226,744
+managed bytes; plan-scene recording was 133.575/142.936/174.639 ms with
+11,005,545 managed bytes. This run validates compact/expanded cyclic lowering,
+closed-pattern traversal, and the dedicated resource-accounting lane; it is a
+feature-cost result only, not a comparison or performance claim, and does not
+replace matched viewer/GPU, image-quality, managed/native, or Instruments
+evidence.
 
 The first two fresh 24-iteration Release runs of the 10,000-entity physical
 print-plan path measured p50/p95/p99 at 16.320/49.488/58.868 ms and
@@ -1391,16 +1431,21 @@ Sources consulted on 2026-08-27 and 2026-08-28:
   transactional limits, scalar endpoint planning, and analytic path splitting.
   Autodesk does not publish the exact residual distribution for dot-first or
   closed patterns, so their deterministic integral-period fit is documented as
-  provisional and covered separately; closed/periodic spline seams remain an
-  explicit gate.
-- [Autodesk SPLINE DXF records](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-DXF/files/GUID-E1F884F8-AA90-4864-A215-3182D47A9C74.htm):
+  provisional and covered separately; the exact spline seam topology no longer
+  depends on that residual-distribution choice.
+- [Autodesk SPLINE DXF records](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-DXF/files/GUID-E1F884F8-AA90-4864-A215-3182D47A9C74.htm),
+  [managed NURBS constructor contract](https://help.autodesk.com/cloudhelp/2019/ENU/OARX-ManagedRefGuide/files/OREFNET-Autodesk_AutoCAD_DatabaseServices_Spline_Spline_int__MarshalAsUnmanagedType_U1__bool__MarshalAsUnmanagedType_U1__bool__MarshalAsUnmanagedType_U1__bool_Point3dCollection_DoubleCollecti.html),
+  and [SPLPERIODIC seam policy](https://help.autodesk.com/view/ACD/2026/ENU/?caas=caas%2Fdocumentation%2FACDLT%2F2014%2FENU%2Ffiles%2FGUID-60D7953C-E22D-4CF3-B779-F776592A5F23-htm.html):
   adopted typed degree/control/knot/weight and closed/periodic distinctions.
-  Adapted open curves through the documented maximum degree ten to one
-  uninterrupted WCS path. Degree one uses its exact control chain; higher
-  degrees use bounded numerical arc-length inversion and exact rational
-  subcurve extraction. Rejected viewport sampling for CAD pattern placement,
-  internal multiplicity greater than the degree, and any inferred closed or
-  periodic seam rule.
+  Adapted curves through the documented maximum degree ten to one uninterrupted
+  WCS path. Degree one uses exact linear spans; higher degrees use bounded
+  numerical arc-length inversion and exact rational subcurve extraction. The
+  published periodic `N` control/`N+1` knot form is normalized to a standard
+  cyclic evaluator form, while already extended dependency records must prove
+  the same period. Legacy nonperiodic closure is a separate exact line span.
+  Rejected viewport sampling for CAD pattern placement, duplicated seam edges,
+  malformed cyclic intervals, and internal multiplicity greater than the
+  degree.
 - [Michigan Tech's NURBS knot-insertion notes](https://pages.mtu.edu/~shene/COURSES/cs3621/NOTES/spline/NURBS/NURBS-knot-insert.html)
   document the standard homogeneous knot-insertion result: inserting a knot
   changes the representation without changing the curve. ProGPU adopts that
