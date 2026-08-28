@@ -2052,19 +2052,22 @@ reduction for lines, analytic derivative roots for quadratic and cubic Beziers,
 and canonical ellipse extrema for arcs. The transformed-segment scratch buffer
 is reused across image commands in one render stream. Unfilled figures,
 control-point hulls, and packet bounds therefore cannot broaden the mapped
-content. `DrawingGroup` trees now union their separately drawn child bounds and
-apply nested axis-preserving group transforms exactly; multiple children are
-safe here because they are independent draws rather than one fill-rule contour.
-Static fixed, path, and geometry-group clip bounds intersect every local child
-bound before the child results are unioned and the group transform is applied,
-matching WPF's `BoundsDrawingContextWalker` ordering without filling gaps
-between separately drawn children. Group opacity, animated opacity, opacity
+content. `DrawingGroup` trees now compose each nested affine group transform
+into the leaf geometry before calculating bounds, then union the separately
+drawn, transformed child bounds. Rotation and shear are therefore exact for
+supported fill leaves; multiple children are safe here because they are
+independent draws rather than one fill-rule contour. Static fixed, path, and
+geometry-group clip bounds are transformed into the same world space and
+intersect every transformed child before child results are unioned, matching
+WPF's `BoundsDrawingContextWalker` ordering without transforming an already
+broadened union or filling gaps between separately drawn children. Empty and
+singular groups are valid empty draws. Group opacity, animated opacity, opacity
 masks, guidelines, edge
 mode, bitmap sampling, and ClearType state deliberately do not participate in
-bounds, also matching the WPF walker. Unsupported clip geometry,
-non-axis-preserving group transforms, other stroked drawings, and unsupported
-or singular path transforms still require the exact drawing-content-bounds
-sideband and fail closed when it is absent. The exact native lane also accepts
+bounds, also matching the WPF walker. Unsupported clip geometry, stroked
+drawings under a non-axis-preserving effective transform, and unsupported leaf
+transforms still require the exact drawing-content-bounds sideband and fail
+closed when it is absent. The exact native lane also accepts
 single-child/nested-single-child `GeometryGroup` chains and composes every group
 and leaf transform; multi-child groups remain sideband-only until WPF fill-rule
 cancellation bounds have a qualified oracle. Fixed lines plus rectangles,
@@ -2094,6 +2097,20 @@ zero-width rectangle, collapsed-axis ellipse, and point-ellipse mappings, plus
 explicit sheared-transform and nonempty-dashed-Pen rejections. The same Pen
 then succeeds after its DashStyle resource updates to empty intervals without
 retransmitting the Pen or Drawing.
+Checkpoint `30fcf084` extends that same sideband-free lane to general affine
+`DrawingGroup` transforms by carrying the composed transform and active clip
+down to each supported leaf. Native coverage verifies the original nested
+axis-aligned mapping, an exact sheared mapping, destination clipping, and valid
+empty results for singular and childless groups. The complete Apple native
+suite passes 8/8. A clean commit archive then rebuilt all 136 focused target
+steps in the Windows 11 ARM64 Parallels guest with MSVC `19.44.35228.0` under
+`/W4 /WX`; the focused CTest passed in 0.79 seconds. Host and guest source
+SHA-256 values matched at
+`AB4E6081F6C40332A3F776D3AB417E67D3CB9DF292C5685AED39848B84DFEE08`
+for `progpu_native_mil.cpp` and
+`61622AB8BA666678074B5298B53062BA55C70C90E97FB047763FC461F2B23767`
+for its test. The guest executable SHA-256 was
+`DBDA27CD933D4D4A17B4FE70D55204A6481A16B9AA29DC8BF886974C3C82C6A4`.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive
