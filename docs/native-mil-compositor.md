@@ -4239,6 +4239,29 @@ Detailed current-user diagnostics for the native-MIL external-image test report
 480 ms. This is direct ARM64 D3D12 correctness evidence for the ownership and
 lowering seam, not physical-adapter performance evidence.
 
+## Managed glyph row-reuse SIMD checkpoint
+
+Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
+intrinsic glyph fallback to the native row traversal already used by the C++
+MIL renderer. The managed rasterizer collects all eight Y-subscanline crossing
+spans before visiting X, builds each pixel's Vector256 or Vector128 horizontal
+sample vectors once, applies every span without scalar lane extraction, and
+writes the exact integer-quantized coverage byte directly. It retains one
+pooled crossing arena, stack-resident offsets, the independent scalar oracle,
+and the existing output allocation. Unsupported 256-bit setup is not executed
+on Vector128-only runtimes.
+
+All 19 focused managed differential tests pass. Eight alternating Apple M3 Pro
+processes improved median p50/p95 from 218.649/227.590 to
+205.471/212.347 us/glyph (6.0%/6.7%) with checksum 175 and 4,120 B/glyph on
+every run. The immutable final archive rebuilt with zero warnings under .NET
+SDK 10.0.400 in Windows 11 ARM64 Parallels; three .NET 10.0.11 Vector128 runs
+retained the checksum and allocation. Source and archive SHA-256 matched
+between host and guest (`45BA556F...CD3FE0C` and
+`C6A295B3...E1E242F`). The local Windows and Rosetta x64 runtimes both report
+`Vector256=False`; actual Vector256 execution remains a required x64 CI or
+hardware qualification rather than an inferred claim.
+
 ## Processed PCM16 intrinsic-SIMD checkpoint
 
 Checkpoint `e6236472` removes the remaining whole-buffer scalar loop from the

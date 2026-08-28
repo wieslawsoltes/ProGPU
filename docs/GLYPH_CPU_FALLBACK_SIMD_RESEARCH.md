@@ -48,6 +48,17 @@ two pixels (16 samples) per iteration, applies directions directly to masks,
 performs intrinsic reduction, and has a dedicated odd-pixel tail. No native
 source change is applicable for this managed-specific gap.
 
+Checkpoint `2960fb39`, refined by `ffb285af`, removes the next managed-only
+traversal gap. The rasterizer now collects the eight Y-subscanline crossing
+spans for a row before visiting X, creates each pixel's horizontal sample
+vectors once, applies all eight independent winding spans to those vectors,
+and writes the final quantized byte directly. The crossing arena is still one
+pooled allocation sized from the typed segment bound, the nine span offsets
+remain stack-resident, and the output allocation is unchanged. Vector setup is
+qualified by `Vector256.IsHardwareAccelerated`; a Vector128-only machine does
+not execute unsupported 256-bit setup work. The scalar implementation remains
+structurally independent.
+
 ## Differential and performance evidence
 
 The focused Release suite passed 19/19 tests on .NET 10.0.5 ARM64. It compares
@@ -89,3 +100,23 @@ dotnet run -c Release --no-build \
 Release qualification still requires x64 hardware coverage and the existing
 native, Metal, D3D12, and Vulkan execution-policy lanes. This local checkpoint
 does not establish those pending results.
+
+## Eight-subscanline managed traversal follow-up
+
+The final `ffb285af` implementation passed all 19 focused execution-policy and
+SIMD/scalar differential tests. Eight alternating processes on Apple M3 Pro,
+macOS 26.6, and .NET 10.0.5 used 300 warmups followed by 60 samples of 50
+glyphs. Median-of-process p50 improved from 218.649 to 205.471 us/glyph
+(6.0%); median p95 improved from 227.590 to 212.347 us/glyph (6.7%). Every
+process retained checksum 175 and 4,120 B/glyph, so the change neither alters
+coverage nor adds allocation.
+
+The exact commit archive then built with zero warnings under .NET SDK 10.0.400
+in the Windows 11 ARM64 Parallels guest. Three fresh Vector128 runs under .NET
+10.0.11 retained checksum 175 and 4,120 B/glyph, with p50 values 247.424,
+235.354, and 228.988 us/glyph. Host and guest source SHA-256 matched at
+`45BA556F...CD3FE0C`; the archive matched at
+`C6A295B3...E1E242F`. This is exact Windows correctness evidence, not a VM
+performance comparison. The guest and the Rosetta x64 runtime both reported
+`Vector256=False`; actual Vector256 runtime qualification therefore remains an
+x64 CI/hardware gate rather than an inferred local result.
