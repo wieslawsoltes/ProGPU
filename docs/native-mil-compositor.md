@@ -2293,6 +2293,26 @@ The previously failing 96-polyline Apple Metal comparison is byte exact
 (`max=0`, zero differing pixels, identical `C67040E2A28F2507` frame hashes),
 with matching 3,408 vertices and 5,112 indices. The full managed suite passes
 3,880/3,880 and the Apple native suite passes 10/10.
+Checkpoint `5a47e701` extends the same exact bounds lane to affine rounded
+rectangles. The shared fixed-array contour walker now accepts WPF's alternating
+smooth cubic/line topology, keeps Geometry.Transform widening separate from
+DrawingGroup/world mapping, tests HFD flatness in device space, and scales the
+pen refinement threshold by the world transform's maximum singular value.
+That last rule preserves the `RoundTo` cubic extrema which are intentionally
+absent when a pre-widened local polyline is merely transformed afterward. For
+rectangle `[20,10,30,15]`, radii `(5,3)`, thickness 8, and matrix
+`[1,.25,.5,1,0,0]`, live PresentationCore returned
+`22.42738151550293,11.999236106872559,42.645235061645508,28.501526832580566`
+for `Geometry.Transform` and
+`21.880094528198242,11.876118659973145,43.739809036254883,28.747763633728027`
+for `DrawingGroup.Transform`; native mappings lock down both. Apple native
+tests pass 10/10 and the MIL-only configuration passes 8/8. The immutable
+archive rebuilt 153 steps under Windows ARM64 MSVC `19.44.35228.0`; 161 Ninja
+flag lines carry `/W4 /WX`, both focused tests passed in 2.57 seconds, and
+direct executions returned zero. Host/guest hashes matched (`21C131E2...D8C4D`
+archive, `3D67CDD5...2B43C` MIL source, `45ABD421...F6D0E` MIL test); guest
+MIL/internal executable hashes were `F7E4E8F7...626C1` and
+`62A9AE08...F175`.
 The exact `18e72815` sources also rebuilt the changed library and test target
 under Windows ARM64 MSVC 19.44 with `/W4 /WX`; the focused native MIL test
 passed in 1.67 seconds. The first Windows pass caught and removed one recursive
