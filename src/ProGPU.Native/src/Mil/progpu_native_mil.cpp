@@ -455,19 +455,211 @@ bool try_transformed_ellipse_stroke_bounds(
         : 2.0 * (1.0 - default_tolerance / pen_radius) *
                 (1.0 - default_tolerance / pen_radius) -
             1.0;
-    point previous_direction{};
-    bool has_previous_direction = false;
-    const auto include_widened_point = [
-        &map_point,
-        &world_transform,
-        pen_radius,
-        refinement_threshold,
-        &previous_direction,
-        &has_previous_direction,
+    const auto include_mapped = [
         &minimum_x,
         &minimum_y,
         &maximum_x,
-        &maximum_y](const point& position, const point& tangent) noexcept {
+        &maximum_y](const point& mapped) noexcept {
+        if (!std::isfinite(mapped[0U]) || !std::isfinite(mapped[1U])) {
+            return false;
+        }
+        minimum_x = std::min(minimum_x, mapped[0U]);
+        minimum_y = std::min(minimum_y, mapped[1U]);
+        maximum_x = std::max(maximum_x, mapped[0U]);
+        maximum_y = std::max(maximum_y, mapped[1U]);
+        return true;
+    };
+    const auto include_world = [
+        &map_point,
+        &world_transform,
+        &include_mapped](const point& source) noexcept {
+        point mapped{};
+        return map_point(source, world_transform, mapped) &&
+            include_mapped(mapped);
+    };
+    const auto include_cubic = [
+        &map_point,
+        &world_transform,
+        &include_mapped](
+        const point& p0,
+        const point& p1,
+        const point& p2,
+        const point& p3) noexcept {
+        std::array<point, 4U> mapped{};
+        if (!map_point(p0, world_transform, mapped[0U]) ||
+            !map_point(p1, world_transform, mapped[1U]) ||
+            !map_point(p2, world_transform, mapped[2U]) ||
+            !map_point(p3, world_transform, mapped[3U])) {
+            return false;
+        }
+        const auto include_parameter = [
+            &mapped,
+            &include_mapped](double t) noexcept {
+            if (t <= 0.0 || t >= 1.0) {
+                return true;
+            }
+            const double inverse = 1.0 - t;
+            return include_mapped({
+                inverse * inverse * inverse * mapped[0U][0U] +
+                    3.0 * inverse * inverse * t * mapped[1U][0U] +
+                    3.0 * inverse * t * t * mapped[2U][0U] +
+                    t * t * t * mapped[3U][0U],
+                inverse * inverse * inverse * mapped[0U][1U] +
+                    3.0 * inverse * inverse * t * mapped[1U][1U] +
+                    3.0 * inverse * t * t * mapped[2U][1U] +
+                    t * t * t * mapped[3U][1U]});
+        };
+        const auto include_axis_extrema = [
+            &mapped,
+            &include_parameter](std::size_t axis) noexcept {
+            const double p0_axis = mapped[0U][axis];
+            const double p1_axis = mapped[1U][axis];
+            const double p2_axis = mapped[2U][axis];
+            const double p3_axis = mapped[3U][axis];
+            const double quadratic = 3.0 *
+                (-p0_axis + 3.0 * p1_axis - 3.0 * p2_axis + p3_axis);
+            const double linear = 6.0 *
+                (p0_axis - 2.0 * p1_axis + p2_axis);
+            const double constant = 3.0 * (p1_axis - p0_axis);
+            if (quadratic == 0.0) {
+                return linear == 0.0 ||
+                    include_parameter(-constant / linear);
+            }
+            const double discriminant = linear * linear -
+                4.0 * quadratic * constant;
+            if (discriminant < 0.0) {
+                return true;
+            }
+            const double root = std::sqrt(discriminant);
+            const double denominator = 2.0 * quadratic;
+            return include_parameter((-linear - root) / denominator) &&
+                include_parameter((-linear + root) / denominator);
+        };
+        return include_mapped(mapped[0U]) &&
+            include_mapped(mapped[3U]) &&
+            include_axis_extrema(0U) && include_axis_extrema(1U);
+    };
+    const auto bezier_distance = [pen_radius](double dot) noexcept {
+        const double radius_squared = pen_radius * pen_radius;
+        const double a = std::max(0.0, 0.5 * (radius_squared + dot));
+        const double denominator_squared = radius_squared - a;
+        if (denominator_squared <= 0.0) {
+            return 0.0;
+        }
+        const double denominator = std::sqrt(denominator_squared);
+        const double numerator = (4.0 / 3.0) *
+            (pen_radius - std::sqrt(a));
+        return numerator <= denominator * 0.000001
+            ? 0.0
+            : numerator / denominator;
+    };
+    const auto include_round_to = [
+        pen_radius,
+        refinement_threshold,
+        &bezier_distance,
+        &include_world,
+        &include_cubic](
+        const point& center,
+        const point& incoming,
+        const point& outgoing) noexcept {
+        const double turn = incoming[0U] * outgoing[1U] -
+            incoming[1U] * outgoing[0U];
+        const double direction_dot = incoming[0U] * outgoing[0U] +
+            incoming[1U] * outgoing[1U];
+        if (!std::isfinite(turn) || !std::isfinite(direction_dot) ||
+            std::abs(turn) <= 0.0001) {
+            return direction_dot > 0.0;
+        }
+        const double side_sign = turn > 0.0 ? -1.0 : 1.0;
+        const point start{
+            center[0U] - incoming[1U] * side_sign * pen_radius,
+            center[1U] + incoming[0U] * side_sign * pen_radius};
+        const point end{
+            center[0U] - outgoing[1U] * side_sign * pen_radius,
+            center[1U] + outgoing[0U] * side_sign * pen_radius};
+        if (direction_dot > refinement_threshold) {
+            return include_world(end);
+        }
+        if (direction_dot >= 0.0) {
+            const double distance = bezier_distance(
+                direction_dot * pen_radius * pen_radius);
+            return include_cubic(
+                start,
+                {start[0U] + incoming[0U] * pen_radius * distance,
+                    start[1U] + incoming[1U] * pen_radius * distance},
+                {end[0U] - outgoing[0U] * pen_radius * distance,
+                    end[1U] - outgoing[1U] * pen_radius * distance},
+                end);
+        }
+        const point tangent_sum{
+            incoming[0U] + outgoing[0U],
+            incoming[1U] + outgoing[1U]};
+        const double tangent_sum_length = std::hypot(
+            tangent_sum[0U], tangent_sum[1U]);
+        const point radial_sum{
+            start[0U] + end[0U] - 2.0 * center[0U],
+            start[1U] + end[1U] - 2.0 * center[1U]};
+        const double radial_sum_length = std::hypot(
+            radial_sum[0U], radial_sum[1U]);
+        if (!std::isfinite(tangent_sum_length) ||
+            !std::isfinite(radial_sum_length) ||
+            tangent_sum_length <= 0.0001 || radial_sum_length <= 0.0001) {
+            return false;
+        }
+        const point middle_tangent{
+            tangent_sum[0U] / tangent_sum_length,
+            tangent_sum[1U] / tangent_sum_length};
+        const point middle{
+            center[0U] + radial_sum[0U] / radial_sum_length * pen_radius,
+            center[1U] + radial_sum[1U] / radial_sum_length * pen_radius};
+        const double half_dot = std::abs(
+            outgoing[0U] * middle_tangent[0U] +
+            outgoing[1U] * middle_tangent[1U]);
+        const double distance = bezier_distance(
+            half_dot * pen_radius * pen_radius);
+        return include_cubic(
+                   start,
+                   {start[0U] + incoming[0U] * pen_radius * distance,
+                       start[1U] + incoming[1U] * pen_radius * distance},
+                   {middle[0U] -
+                           middle_tangent[0U] * pen_radius * distance,
+                       middle[1U] -
+                           middle_tangent[1U] * pen_radius * distance},
+                   middle) &&
+            include_cubic(
+                middle,
+                {middle[0U] +
+                        middle_tangent[0U] * pen_radius * distance,
+                    middle[1U] +
+                        middle_tangent[1U] * pen_radius * distance},
+                {end[0U] - outgoing[0U] * pen_radius * distance,
+                    end[1U] - outgoing[1U] * pen_radius * distance},
+                end);
+    };
+    const auto include_offset_pair = [
+        pen_radius,
+        &include_world](const point& position, const point& direction) noexcept {
+        const point offset{
+            -direction[1U] * pen_radius,
+            direction[0U] * pen_radius};
+        return include_world({position[0U] - offset[0U],
+                   position[1U] - offset[1U]}) &&
+            include_world({position[0U] + offset[0U],
+                position[1U] + offset[1U]});
+    };
+    point previous_direction{};
+    point previous_position{};
+    bool has_previous_point = false;
+    const auto include_curve_point = [
+        refinement_threshold,
+        &previous_direction,
+        &previous_position,
+        &has_previous_point,
+        &include_round_to,
+        &include_offset_pair](
+        const point& position,
+        const point& tangent,
+        bool is_last) noexcept {
         const double tangent_length = std::hypot(tangent[0U], tangent[1U]);
         if (!std::isfinite(tangent_length) || tangent_length <= 0.000001) {
             return false;
@@ -475,38 +667,46 @@ bool try_transformed_ellipse_stroke_bounds(
         const point direction{
             tangent[0U] / tangent_length,
             tangent[1U] / tangent_length};
-        if (has_previous_direction) {
-            const double direction_dot =
-                previous_direction[0U] * direction[0U] +
-                previous_direction[1U] * direction[1U];
-            // WpfGfx CPen::AcceptCurvePoint adds separate RoundTo cubics when
-            // a thick stroke magnifies a flattening corner. Keep that profile
-            // fail-closed until the same refinement outline is shared here.
-            if (!std::isfinite(direction_dot) ||
-                direction_dot < refinement_threshold) {
+        if (!has_previous_point) {
+            previous_position = position;
+            previous_direction = direction;
+            has_previous_point = true;
+            return include_offset_pair(position, direction);
+        }
+        const double direction_dot =
+            previous_direction[0U] * direction[0U] +
+            previous_direction[1U] * direction[1U];
+        if (!std::isfinite(direction_dot)) {
+            return false;
+        }
+        if (direction_dot < refinement_threshold) {
+            const point chord{
+                position[0U] - previous_position[0U],
+                position[1U] - previous_position[1U]};
+            const double chord_length = std::hypot(chord[0U], chord[1U]);
+            if (!std::isfinite(chord_length) || chord_length <= 0.000001) {
                 return false;
             }
+            const point chord_direction{
+                chord[0U] / chord_length,
+                chord[1U] / chord_length};
+            if (!include_round_to(
+                    previous_position,
+                    previous_direction,
+                    chord_direction) ||
+                !include_offset_pair(position, chord_direction) ||
+                !include_round_to(
+                    position,
+                    chord_direction,
+                    direction) ||
+                (is_last && !include_offset_pair(position, direction))) {
+                return false;
+            }
+        } else if (!include_offset_pair(position, direction)) {
+            return false;
         }
+        previous_position = position;
         previous_direction = direction;
-        has_previous_direction = true;
-        const point offset{
-            -direction[1U] * pen_radius,
-            direction[0U] * pen_radius};
-        const std::array widened{
-            point{position[0U] - offset[0U],
-                position[1U] - offset[1U]},
-            point{position[0U] + offset[0U],
-                position[1U] + offset[1U]}};
-        for (const auto& widened_point : widened) {
-            point mapped{};
-            if (!map_point(widened_point, world_transform, mapped)) {
-                return false;
-            }
-            minimum_x = std::min(minimum_x, mapped[0U]);
-            minimum_y = std::min(minimum_y, mapped[1U]);
-            maximum_x = std::max(maximum_x, mapped[0U]);
-            maximum_y = std::max(maximum_y, mapped[1U]);
-        }
         return true;
     };
     constexpr double flattened_tolerance = default_tolerance * 6.0;
@@ -563,7 +763,7 @@ bool try_transformed_ellipse_stroke_bounds(
         const point first_tangent{
             cubic[1U][0U] - cubic[0U][0U],
             cubic[1U][1U] - cubic[0U][1U]};
-        if (!include_widened_point(cubic[0U], first_tangent)) {
+        if (!include_curve_point(cubic[0U], first_tangent, false)) {
             return false;
         }
         while (step_count > 1U) {
@@ -577,7 +777,7 @@ bool try_transformed_ellipse_stroke_bounds(
             const point tangent{
                 6.0 * e1[0U] - e2[0U] - 2.0 * e3[0U],
                 6.0 * e1[1U] - e2[1U] - 2.0 * e3[1U]};
-            if (!include_widened_point(e0, tangent)) {
+            if (!include_curve_point(e0, tangent, false)) {
                 return false;
             }
             --step_count;
@@ -605,7 +805,7 @@ bool try_transformed_ellipse_stroke_bounds(
         const point last_tangent{
             cubic[3U][0U] - cubic[2U][0U],
             cubic[3U][1U] - cubic[2U][1U]};
-        if (!include_widened_point(cubic[3U], last_tangent)) {
+        if (!include_curve_point(cubic[3U], last_tangent, true)) {
             return false;
         }
     }

@@ -11562,8 +11562,16 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         64.0);
     PROGPU_REQUIRE(state.apply(refined_ellipse_update) == status::success);
     PROGPU_REQUIRE(
-        state.build_scene(target, 7008U, 106U, stream, nullptr) ==
-        status::unsupported_command);
+        state.build_scene(target, 7008U, 106U, stream, &metrics) ==
+        status::success);
+    // Live WPF thick-stroke RoundTo refinement oracle:
+    // -7.13843107223511,-2.55054593086243,
+    // 84.2768588066101,75.101090669632.
+    PROGPU_REQUIRE(contains_mapping(
+        0.47462615F,
+        0.2663077F,
+        5.388086F,
+        4.67923F));
 
     std::vector<std::byte> triangle_cap_update;
     append_command(
@@ -11853,7 +11861,32 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         -25.424915F,
         -22.080475F));
 
+    std::vector<std::byte> refined_group_ellipse_update;
+    append_command(
+        refined_group_ellipse_update,
+        command::double_resource,
+        thickness_animation,
+        64.0);
+    PROGPU_REQUIRE(
+        state.apply(refined_group_ellipse_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 146U, stream, &metrics) ==
+        status::success);
+    // Live WPF DrawingGroup thick-stroke refinement oracle:
+    // -10.9766893386841,-3.54298257827759,
+    // 91.9533739089966,77.0859665870667.
+    PROGPU_REQUIRE(contains_mapping(
+        0.43500307F,
+        0.2594506F,
+        6.7748938F,
+        4.919229F));
+
     std::vector<std::byte> group_line_update;
+    append_command(
+        group_line_update,
+        command::double_resource,
+        thickness_animation,
+        8.0);
     append_command(
         group_line_update,
         command::line_geometry,
