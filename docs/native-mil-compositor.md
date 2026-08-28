@@ -620,18 +620,20 @@ shape. Nonzero groups keep that shared contour batch because cross-child winding
 cancellation is significant. EvenOdd groups compile the same child leaves into
 an exact postfix XOR program; XOR of the child-inside predicates is the outer
 EvenOdd result and bounds each raster operation to its own leaf without changing
-WPF parity semantics. The canonical two-leaf and exact three-leaf left-fold XOR
-cases now execute through a typed split-GPU program when their overlapping
-leaves are translated-equivalent: the compiler emits ordinary records for each
-leaf, the backend rasterizes all leaf-A, leaf-B, and optional leaf-C work in
-separately submitted GPU phases, and a final packed-coverage compute phase XORs
+WPF parity semantics. Every pure left-fold XOR program from two leaves through
+the existing 32-child MIL ceiling now executes through a typed split-GPU
+program when its overlapping leaves are translated-equivalent: the compiler
+emits one ordinary record per leaf, the backend rasterizes the same ordinal
+leaf across all split programs in one submitted GPU phase, and a final packed-
+coverage compute phase loops over the program's bounded source range and XORs
 the masks before the atlas copy. Pending semantic work is flushed once before
 those phases and a fresh semantic encoder is restored afterwards. The split is
-fixed by phase, not by item; phase C resources exist only for ternary programs,
-and ordinary paths retain the original single-submission fast path. Programs
-with four or more leaves, or mixed postfix operations, that contain this
-driver-sensitive overlap remain guarded before scene submission; boolean
-operand leaves are not conflated with sibling group contours. Nonsingular
+fixed by phase, not by item; split buffers and bind groups grow only to the
+largest qualified leaf count in the batch, while ordinary paths retain the
+original single-submission fast path and do not reserve split-program vectors.
+Mixed postfix operations that contain this driver-sensitive overlap remain
+guarded before scene submission; boolean operand leaves are not conflated with
+sibling group contours. Nonsingular
 affine transforms on native arc records are
 baked without flattening: ProGPU transforms the arc's two ellipse basis vectors,
 factors the resulting `T*T^T` metric into orthogonal output axes/radii, projects
@@ -706,9 +708,9 @@ This extension changes no public ABI, backend selection, or CPU raster
 fallback. The native compiler performs one bounded, order-dependent `O(S + N)`
 walk over segments `S` and postfix nodes `N`; the dependency chain is not an
 independent-lane SIMD candidate. Pixel coverage remains on the shared GPU path
-rasterizer on Metal, D3D12, Vulkan, and browser WebGPU. The split binary form
-adds one packed-u32 XOR compute entry point and bounded phase submissions, with
-no CPU readback, repacking, or per-child/per-item submission.
+rasterizer on Metal, D3D12, Vulkan, and browser WebGPU. The split form adds one
+packed-u32 XOR compute entry point and bounded phase submissions, with no CPU
+readback, repacking, or per-child/per-item submission.
 
 The provider-resolved Metal hardware gate now uses the same five-node
 `leaf leaf difference leaf xor` program in its retained vector-mask fixture.
@@ -1030,8 +1032,8 @@ minimum clamps remain defense in depth for already-validated streams, not an
 API policy that silently converts invalid lighting state. Native C++ coverage
 checks all three rejection boundaries alongside the existing face-flag guard.
 
-- Implement the remaining 2D/3D resource execution, four-or-more-leaf and mixed
-  translated-equivalent EvenOdd postfix programs, remaining pen/image/media
+- Implement the remaining 2D/3D resource execution and mixed translated-
+  equivalent EvenOdd postfix programs, remaining pen/image/media
   paths, dynamic guidelines, caches, effects, and render-data commands.
 - Lower every supported update to stable semantic resource identities and
   generation numbers; unchanged resources must not be rebuilt.
@@ -1595,9 +1597,9 @@ failure; all approximation experiments remain removed and analytic 8x8
 rasterization retained. The guard compares typed segment kinds, arc metadata,
 translated control/end/center points, invariant radii, and positive overlapping
 bounds. Non-overlapping equivalents and non-equivalent mixed leaves keep the
-normal GPU path. The canonical two-leaf and exact three-leaf left-fold forms are
-resolved by the phased GPU execution checkpoints below; programs with four or
-more leaves and mixed programs retain this deterministic fail-closed contract.
+normal GPU path. Pure left-fold XOR forms through the existing 32-leaf MIL
+ceiling are resolved by the phased GPU execution checkpoints below; mixed
+programs retain this deterministic fail-closed contract.
 
 The isolated curved-stroke implementation at `e0a9d15f`, with the MSVC
 portability correction at `42e05f29`, first passed the focused Windows ARM64
@@ -4519,8 +4521,10 @@ prior resource paths. Path fills and retained vector clips use the same typed
 record builder and shader. No CPU readback, CPU repacking, per-item submission,
 managed fallback, or public ABI change was introduced.
 
-The MIL compiler test accepts three translated-equivalent EvenOdd leaves and
-explicitly proves that the equivalent four-leaf program remains fail closed.
+At this exact checkpoint, the MIL compiler test accepted three translated-
+equivalent EvenOdd leaves and explicitly proved that the equivalent four-leaf
+program remained fail closed; the generalized checkpoint below supersedes that
+temporary ceiling.
 Internal tests assert the three contiguous GPU records. The permanent native
 sample covers the five non-overlap/overlap regions and requires cyan, black,
 cyan, black, cyan. Apple M3 Pro Metal rebuilt the backend, passed all 10 CTests,
@@ -4548,6 +4552,61 @@ Final staged binary SHA-256 values are
 for `progpu_native.dll` and
 `AE1B4271CB9D16296539170BA3C0191D45A149847A14E4B51C66F4B47A530A07`
 for `progpu_native_dawn.dll`.
+
+## General pure left-fold EvenOdd XOR GPU checkpoint
+
+Exact implementation checkpoint `402ecfb9` generalizes the fixed A/B/C split
+to every pure `leaf leaf xor ... leaf xor` program through the existing
+32-child MIL ceiling. Portability checkpoint `c5fb5244` renames a resource
+handle that shadowed an MSVC declaration; it changes no algorithm or ABI. The
+32-byte combine record now carries a source base, stride, and count. Path and
+clip execution retain one phase-batched source buffer and bind group per leaf
+ordinal, and the shared WGSL combine kernel loops over each program's bounded
+source range. The result is exact ordered XOR parity without CPU readback,
+CPU repacking, managed fallback, public ABI change, or per-item submission.
+Ordinary scenes keep their single-submission path and do not reserve the outer
+split-program vectors. Mixed boolean postfix programs remain typed fail closed.
+
+Native tests cover binary, ternary, quaternary, mixed-program rejection, and
+the full 32-leaf record boundary. The permanent native sample adds a four-leaf
+vector clip and requires seven alternating regions. Apple M3 Pro Metal rebuilt
+the backend, passed all 10 configured CTests, and read the quaternary regions
+as cyan/black/cyan/black/cyan/black/cyan. The complete sample executed thirteen
+draws from twenty-one retained commands and uploaded 13,408 vertex bytes.
+
+The immutable full source archive
+`ProGPU-native-general-xor-c5fb5244.zip` has SHA-256
+`D68DE4BDB753A1FCB3E7E2C6DF3DBF9C55D9BEE68FAD6F57BFD8FF43BDF2574E`.
+It remains the provenance artifact. After the Parallels shared-folder full-
+archive extraction stalled, the ten changed files were also transferred in the
+exact delta archive `ProGPU-native-general-xor-delta-retry-c5fb5244.zip`,
+SHA-256
+`224E41DA07D2531FC93C5AD5DAF866FAC4F31A4DBFC3D54FC60E03FF61D2B538`.
+Every delta source and destination hash was checked before rebuilding the
+previously qualified source tree.
+
+Strict Windows ARM64 MSVC/Ninja rebuilt both providers, all 11 CTests passed,
+and `Parallels Display Adapter (WDDM)` executed the sample through D3D12 with
+the same binary, ternary, and quaternary pixel sequences. The complete bounded
+integration matrix passed managed/native readback, automatic and forced raster
+shader, forced intrinsic-SIMD CPU, forced scalar-reference CPU, typed fail-
+closed native compute, retained masks/effects/3D/text/images/cache, vector
+clips, box blur, effect chains, Overlay, and ColorDodge. ColorDodge was pixel-
+exact with matching native/managed FNV-1a
+`41DAE69420EE7C25`. HelloTriangle and HelloTexture retained SHA-256 values
+`AE1BC0A9B0623BACAB15BE1706FFA3E7FC15E33676A66F05C969C1B86A66FEA3`
+and `591CC311F35E3C2612F529C3D4D7061FC93751A9B8614BF588A73599B0AA2790`.
+Final binary SHA-256 values are
+`07CB46633DE7AB2D872475CF2682D8AAA493D2CACDC707924948F625F0DDBA39`
+for `progpu_native.dll`,
+`E29F579504B66A974BD14786E4A6D9D4AACDDC1E30C07B9DA814196C6BBE7598`
+for `progpu_native_dawn.dll`,
+`372174B1FD90D370AB333301EAD0B0CC72895BE172E7AAAABD4D0C7C8BA3B5A6`
+for `progpu_native_sample.exe`,
+`C9920BE3B258F55D9101F23B4EC610666D1D2D5E606D6E5B9A8E1F911D71D6EB`
+for `progpu_native_mil_tests.exe`, and
+`EF4FDFB21F49F9BAD8A078E03D219C60BF40A843A8CDFB529CD724AF18BD44FD`
+for `progpu_native_internal_tests.exe`.
 
 ## DirectX retained-texture boundary
 
