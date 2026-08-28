@@ -61,6 +61,8 @@ internal readonly record struct LinuxPcm16MixLevels(
 internal static class LinuxPcm16Mixer
 {
     internal const int FramesPerBlock = 1_024;
+    private const string NonFiniteProcessedSampleMessage =
+        "A typed Linux composition audio effect emitted a non-finite sample.";
 
     internal static void Accumulate(
         ReadOnlySpan<short> source,
@@ -176,34 +178,24 @@ internal static class LinuxPcm16Mixer
                 Math.Max(
                     levels.Left,
                     levels.Right);
-            for (int index = 0;
-                 index < source.Length;
-                 index++)
-            {
-                AccumulateProcessedSample(
-                    ref accumulator[
-                        firstSample + index],
-                    source[index],
-                    monoLevel);
-            }
+            MediaPcm16ProcessedAccumulator.AddMono(
+                source,
+                monoLevel,
+                accumulator.Slice(
+                    firstSample,
+                    source.Length),
+                NonFiniteProcessedSampleMessage);
             return;
         }
 
-        for (int index = 0;
-             index < source.Length;
-             index += 2)
-        {
-            AccumulateProcessedSample(
-                ref accumulator[
-                    firstSample + index],
-                source[index],
-                levels.Left);
-            AccumulateProcessedSample(
-                ref accumulator[
-                    firstSample + index + 1],
-                source[index + 1],
-                levels.Right);
-        }
+        MediaPcm16ProcessedAccumulator.AddStereo(
+            source,
+            levels.Left,
+            levels.Right,
+            accumulator.Slice(
+                firstSample,
+                source.Length),
+            NonFiniteProcessedSampleMessage);
     }
 
     internal static void Saturate(
@@ -222,43 +214,4 @@ internal static class LinuxPcm16Mixer
             destination);
     }
 
-    private static void AccumulateProcessedSample(
-        ref long accumulator,
-        float sample,
-        int level)
-    {
-        if (!float.IsFinite(sample))
-        {
-            throw new InvalidDataException(
-                "A typed Linux composition audio effect emitted a non-finite sample.");
-        }
-
-        double scaled = (double)sample * level;
-        long contribution =
-            scaled >= long.MaxValue
-                ? long.MaxValue
-                : scaled <= long.MinValue
-                    ? long.MinValue
-                    : checked(
-                        (long)Math.Round(
-                            scaled,
-                            MidpointRounding
-                                .AwayFromZero));
-        if (contribution > 0 &&
-            accumulator >
-                long.MaxValue - contribution)
-        {
-            accumulator = long.MaxValue;
-        }
-        else if (contribution < 0 &&
-                 accumulator <
-                    long.MinValue - contribution)
-        {
-            accumulator = long.MinValue;
-        }
-        else
-        {
-            accumulator += contribution;
-        }
-    }
 }

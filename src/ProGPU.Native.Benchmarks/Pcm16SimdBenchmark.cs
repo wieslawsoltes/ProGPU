@@ -15,6 +15,17 @@ internal static class Pcm16SimdBenchmark
                 args,
                 static value => string.Equals(
                     value,
+                    "--processed",
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            RunProcessed(args);
+            return;
+        }
+
+        if (Array.Exists(
+                args,
+                static value => string.Equals(
+                    value,
                     "--wide",
                     StringComparison.OrdinalIgnoreCase)))
         {
@@ -107,6 +118,177 @@ internal static class Pcm16SimdBenchmark
         Console.WriteLine(FormattableString.Invariant(environment));
         Console.WriteLine(FormattableString.Invariant(workload));
         Console.WriteLine(FormattableString.Invariant(summary));
+    }
+
+    private static void RunProcessed(string[] args)
+    {
+        const int leftLevel = 20_480;
+        const int rightLevel = 57_344;
+        const string nonFiniteMessage = "non-finite benchmark sample";
+        int frames = ReadPositive(args, "--frames", 1_024);
+        int warmupCount = ReadNonNegative(args, "--warmup", 60);
+        int sampleCount = ReadPositive(args, "--samples", 80);
+        int iterationsPerSample = ReadPositive(args, "--iterations", 200);
+        bool measureScalar = Array.Exists(
+            args,
+            static value => string.Equals(
+                value,
+                "--scalar",
+                StringComparison.OrdinalIgnoreCase));
+        float[] source = CreateProcessedSource(checked(frames * 2));
+        long[] initial = CreateAccumulator(source.Length);
+        long[] expected = initial.ToArray();
+        long[] actual = initial.ToArray();
+        AddProcessedScalar(
+            source,
+            leftLevel,
+            rightLevel,
+            expected,
+            nonFiniteMessage);
+        MediaPcm16ProcessedAccumulator.AddStereo(
+            source,
+            leftLevel,
+            rightLevel,
+            actual,
+            nonFiniteMessage);
+        if (!expected.AsSpan().SequenceEqual(actual))
+        {
+            throw new InvalidOperationException(
+                "Intrinsic-SIMD processed PCM16 accumulation differs from the scalar oracle.");
+        }
+
+        long[] accumulator = new long[source.Length];
+        for (int index = 0; index < warmupCount; index++)
+        {
+            initial.CopyTo(accumulator, 0);
+            ApplyProcessedMeasured(
+                source,
+                accumulator,
+                leftLevel,
+                rightLevel,
+                measureScalar,
+                nonFiniteMessage);
+        }
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        var samples = new double[sampleCount];
+        long checksum = 0;
+        long allocationStart = GC.GetAllocatedBytesForCurrentThread();
+        for (int sample = 0; sample < sampleCount; sample++)
+        {
+            double elapsedMicroseconds = 0D;
+            for (int iteration = 0;
+                 iteration < iterationsPerSample;
+                 iteration++)
+            {
+                initial.CopyTo(accumulator, 0);
+                long start = Stopwatch.GetTimestamp();
+                ApplyProcessedMeasured(
+                    source,
+                    accumulator,
+                    leftLevel,
+                    rightLevel,
+                    measureScalar,
+                    nonFiniteMessage);
+                elapsedMicroseconds +=
+                    Stopwatch.GetElapsedTime(start).TotalMicroseconds;
+                checksum ^= accumulator[
+                    (sample + iteration) % accumulator.Length];
+            }
+
+            samples[sample] =
+                elapsedMicroseconds / iterationsPerSample;
+        }
+
+        long allocatedBytes =
+            GC.GetAllocatedBytesForCurrentThread() - allocationStart;
+        Array.Sort(samples);
+        int measuredBlocks = checked(
+            sampleCount * iterationsPerSample);
+        string path = measureScalar
+            ? "Scalar oracle"
+            : "Intrinsic-SIMD";
+        FormattableString environment = $"Processed PCM16 CPU benchmark: runtime={RuntimeInformation.FrameworkDescription}, os={RuntimeInformation.OSDescription}, arch={RuntimeInformation.ProcessArchitecture}, vector128={Vector128.IsHardwareAccelerated}, vector256={Vector256.IsHardwareAccelerated}, vector512={Vector512.IsHardwareAccelerated}.";
+        FormattableString workload = $"Workload: {frames} stereo float frames/block, Q15 levels=({leftLevel}, {rightLevel}), saturating Int64 accumulate, {warmupCount} warmups, {sampleCount} samples x {iterationsPerSample} blocks.";
+        FormattableString summary = $"{path}: p50={Percentile(samples, 0.50):F3} us/block, p95={Percentile(samples, 0.95):F3} us/block, p99={Percentile(samples, 0.99):F3} us/block, allocated={(double)allocatedBytes / measuredBlocks:F1} B/block, checksum={checksum}.";
+        Console.WriteLine(FormattableString.Invariant(environment));
+        Console.WriteLine(FormattableString.Invariant(workload));
+        Console.WriteLine(FormattableString.Invariant(summary));
+    }
+
+    private static void ApplyProcessedMeasured(
+        ReadOnlySpan<float> source,
+        Span<long> accumulator,
+        int leftLevel,
+        int rightLevel,
+        bool scalar,
+        string nonFiniteMessage)
+    {
+        if (scalar)
+        {
+            AddProcessedScalar(
+                source,
+                leftLevel,
+                rightLevel,
+                accumulator,
+                nonFiniteMessage);
+            return;
+        }
+
+        MediaPcm16ProcessedAccumulator.AddStereo(
+            source,
+            leftLevel,
+            rightLevel,
+            accumulator,
+            nonFiniteMessage);
+    }
+
+    private static void AddProcessedScalar(
+        ReadOnlySpan<float> source,
+        int leftLevel,
+        int rightLevel,
+        Span<long> accumulator,
+        string nonFiniteMessage)
+    {
+        for (int index = 0; index < source.Length; index++)
+        {
+            float sample = source[index];
+            if (!float.IsFinite(sample))
+            {
+                throw new InvalidDataException(nonFiniteMessage);
+            }
+
+            int level = (index & 1) == 0
+                ? leftLevel
+                : rightLevel;
+            double scaled = (double)sample * level;
+            long contribution =
+                scaled >= long.MaxValue
+                    ? long.MaxValue
+                    : scaled <= long.MinValue
+                        ? long.MinValue
+                        : checked((long)Math.Round(
+                            scaled,
+                            MidpointRounding.AwayFromZero));
+            long current = accumulator[index];
+            if (contribution > 0 &&
+                current > long.MaxValue - contribution)
+            {
+                accumulator[index] = long.MaxValue;
+            }
+            else if (contribution < 0 &&
+                     current < long.MinValue - contribution)
+            {
+                accumulator[index] = long.MinValue;
+            }
+            else
+            {
+                accumulator[index] = current + contribution;
+            }
+        }
     }
 
     private static void RunWide(string[] args)
@@ -325,6 +507,20 @@ internal static class Pcm16SimdBenchmark
         random.NextBytes(MemoryMarshal.AsBytes(source.AsSpan()));
         source[0] = short.MinValue;
         source[^1] = short.MaxValue;
+        return source;
+    }
+
+    private static float[] CreateProcessedSource(int sampleCount)
+    {
+        var source = new float[sampleCount];
+        var random = new Random(0x50_52_43);
+        for (int index = 0; index < source.Length; index++)
+        {
+            source[index] =
+                (float)(random.NextDouble() * 4D - 2D);
+        }
+        source[0] = 0.5F / 20_480F;
+        source[^1] = -0.5F / 57_344F;
         return source;
     }
 

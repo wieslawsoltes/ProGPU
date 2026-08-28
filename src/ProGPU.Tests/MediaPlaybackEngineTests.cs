@@ -2917,6 +2917,186 @@ public sealed class MediaPlaybackEngineTests
     }
 
     [Fact]
+    public void SharedPcm16ProcessedAccumulatorMatchesScalarOracleAcrossVectorTails()
+    {
+        int[] lengths = [1, 3, 4, 7, 8, 9, 15, 16, 17, 33, 257];
+        (int Left, int Right)[] levels =
+        [
+            (0, 0),
+            (1, 65_536),
+            (16_384, 49_152),
+            (32_768, 32_768),
+            (65_536, 4_096)
+        ];
+        var random = new Random(0x46_58_41);
+
+        foreach (int length in lengths)
+        {
+            var source = new float[length];
+            for (int index = 0; index < source.Length; index++)
+            {
+                source[index] =
+                    (float)(random.NextDouble() * 8D - 4D);
+            }
+            source[0] = float.MaxValue;
+            source[^1] = -float.MaxValue;
+            if (length > 2)
+            {
+                source[1] = 0.5F / 32_768F;
+                source[2] = -0.5F / 32_768F;
+            }
+            if (length > 6)
+            {
+                source[3] = float.Epsilon;
+                source[4] = -float.Epsilon;
+                source[5] = 0F;
+                source[6] = -0F;
+            }
+
+            var initial = new long[length];
+            for (int index = 0; index < initial.Length; index++)
+            {
+                initial[index] = random.NextInt64(
+                    -1_000_000_000L,
+                    1_000_000_001L);
+            }
+            initial[0] = 1;
+            initial[^1] = -1;
+
+            foreach ((int left, int right) in levels)
+            {
+                long[] expected = initial.ToArray();
+                AddPcm16ProcessedScalarOracle(
+                    source,
+                    left,
+                    right,
+                    expected,
+                    "non-finite");
+                long[] actual = initial.ToArray();
+
+                MediaPcm16ProcessedAccumulator.AddStereo(
+                    source,
+                    left,
+                    right,
+                    actual,
+                    "non-finite");
+
+                Assert.Equal(expected, actual);
+            }
+
+            long[] monoExpected = initial.ToArray();
+            AddPcm16ProcessedScalarOracle(
+                source,
+                49_152,
+                49_152,
+                monoExpected,
+                "non-finite");
+            long[] monoActual = initial.ToArray();
+            MediaPcm16ProcessedAccumulator.AddMono(
+                source,
+                49_152,
+                monoActual,
+                "non-finite");
+            Assert.Equal(monoExpected, monoActual);
+        }
+
+        float[] invalid = new float[17];
+        invalid.AsSpan().Fill(0.25F);
+        invalid[10] = float.NaN;
+        long[] invalidExpected = new long[invalid.Length];
+        long[] invalidActual = new long[invalid.Length];
+        Assert.Throws<InvalidDataException>(() =>
+            AddPcm16ProcessedScalarOracle(
+                invalid,
+                32_768,
+                16_384,
+                invalidExpected,
+                "expected non-finite"));
+        InvalidDataException exception = Assert.Throws<InvalidDataException>(() =>
+            MediaPcm16ProcessedAccumulator.AddStereo(
+                invalid,
+                32_768,
+                16_384,
+                invalidActual,
+                "expected non-finite"));
+        Assert.Equal("expected non-finite", exception.Message);
+        Assert.Equal(invalidExpected, invalidActual);
+
+        float[] allocationSource = new float[2_048];
+        allocationSource.AsSpan().Fill(0.25F);
+        long[] allocationDestination = new long[allocationSource.Length];
+        MediaPcm16ProcessedAccumulator.AddStereo(
+            allocationSource,
+            32_768,
+            49_152,
+            allocationDestination,
+            "non-finite");
+        allocationDestination.AsSpan().Clear();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 1_000; iteration++)
+        {
+            MediaPcm16ProcessedAccumulator.AddStereo(
+                allocationSource,
+                32_768,
+                49_152,
+                allocationDestination,
+                "non-finite");
+            allocationDestination.AsSpan().Clear();
+        }
+        Assert.Equal(
+            before,
+            GC.GetAllocatedBytesForCurrentThread());
+    }
+
+    private static void AddPcm16ProcessedScalarOracle(
+        ReadOnlySpan<float> source,
+        int left,
+        int right,
+        Span<long> destination,
+        string nonFiniteMessage)
+    {
+        if (left == 0 && right == 0)
+        {
+            return;
+        }
+
+        for (int index = 0; index < source.Length; index++)
+        {
+            float sample = source[index];
+            if (!float.IsFinite(sample))
+            {
+                throw new InvalidDataException(nonFiniteMessage);
+            }
+
+            int level = (index & 1) == 0 ? left : right;
+            double scaled = (double)sample * level;
+            long contribution =
+                scaled >= long.MaxValue
+                    ? long.MaxValue
+                    : scaled <= long.MinValue
+                        ? long.MinValue
+                        : checked((long)Math.Round(
+                            scaled,
+                            MidpointRounding.AwayFromZero));
+            long accumulator = destination[index];
+            if (contribution > 0 &&
+                accumulator > long.MaxValue - contribution)
+            {
+                destination[index] = long.MaxValue;
+            }
+            else if (contribution < 0 &&
+                     accumulator < long.MinValue - contribution)
+            {
+                destination[index] = long.MinValue;
+            }
+            else
+            {
+                destination[index] = accumulator + contribution;
+            }
+        }
+    }
+
+    [Fact]
     public void SharedPcmTimelineMathUsesHalfOpenFrameBoundaries()
     {
         const uint sampleRate = 48_000;
