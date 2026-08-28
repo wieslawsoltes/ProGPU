@@ -11742,6 +11742,55 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         -16.461477F,
         -3.2129357F));
 
+    std::vector<std::byte> affine_rounded_rectangle_update;
+    append_command(
+        affine_rounded_rectangle_update,
+        command::pen,
+        pen,
+        2.0,
+        10.0,
+        brush,
+        thickness_animation,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        PROGPU_NATIVE_STROKE_CAP_FLAT,
+        PROGPU_NATIVE_STROKE_JOIN_MITER,
+        0U);
+    append_command(
+        affine_rounded_rectangle_update,
+        command::rectangle_geometry,
+        rectangle_geometry,
+        5.0,
+        3.0,
+        20.0,
+        10.0,
+        30.0,
+        15.0,
+        shear_transform,
+        0U,
+        0U,
+        0U);
+    append_command(
+        affine_rounded_rectangle_update,
+        command::geometry_drawing,
+        geometry_drawing,
+        0U,
+        pen,
+        rectangle_geometry);
+    PROGPU_REQUIRE(
+        state.apply(affine_rounded_rectangle_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 131U, stream, &metrics) ==
+        status::success);
+    // Live Windows WPF rounded RectangleGeometry.GetRenderBounds oracle:
+    // 22.42738151550293,11.999236106872559,
+    // 42.645235061645508,28.501526832580566.
+    PROGPU_REQUIRE(contains_mapping(
+        0.93797115F,
+        0.7017168F,
+        -19.036236F,
+        -4.4200654F));
+
     std::vector<std::byte> group_transform_update;
     append_create(group_transform_update, transformed_group, 91U);
     append_command(
@@ -11827,6 +11876,54 @@ bool retained_drawing_image_infers_fixed_stroke_bounds() {
         0.6504454F,
         -15.677977F,
         -3.0741916F));
+
+    std::vector<std::byte> rounded_group_update;
+    append_command(
+        rounded_group_update,
+        command::pen,
+        pen,
+        2.0,
+        10.0,
+        brush,
+        thickness_animation,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        PROGPU_NATIVE_STROKE_CAP_ROUND,
+        PROGPU_NATIVE_STROKE_CAP_FLAT,
+        PROGPU_NATIVE_STROKE_JOIN_MITER,
+        0U);
+    append_command(
+        rounded_group_update,
+        command::rectangle_geometry,
+        rectangle_geometry,
+        5.0,
+        3.0,
+        20.0,
+        10.0,
+        30.0,
+        15.0,
+        0U,
+        0U,
+        0U,
+        0U);
+    append_command(
+        rounded_group_update,
+        command::geometry_drawing,
+        geometry_drawing,
+        0U,
+        pen,
+        rectangle_geometry);
+    PROGPU_REQUIRE(state.apply(rounded_group_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7008U, 141U, stream, &metrics) ==
+        status::success);
+    // Live Windows WPF rounded-rectangle DrawingGroup.Bounds oracle:
+    // 21.880094528198242,11.876118659973145,
+    // 43.739809036254883,28.747763633728027.
+    PROGPU_REQUIRE(contains_mapping(
+        0.91449875F,
+        0.6957063F,
+        -18.00932F,
+        -4.2622905F));
 
     std::vector<std::byte> group_ellipse_update;
     append_command(
