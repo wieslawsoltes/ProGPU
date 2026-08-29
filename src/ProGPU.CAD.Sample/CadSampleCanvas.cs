@@ -447,6 +447,43 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Moves the complete semantic selection to the front or back of persisted
+    /// model-space draw order as one reversible edit.
+    /// </summary>
+    public bool SetSelectionDrawOrder(CadDrawOrderPlacement placement)
+    {
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+        if (placement is not
+            (CadDrawOrderPlacement.BringToFront or
+             CadDrawOrderPlacement.SendToBack))
+        {
+            throw new ArgumentOutOfRangeException(nameof(placement));
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        string action = placement == CadDrawOrderPlacement.BringToFront
+            ? "Bring"
+            : "Send";
+        string destination = placement == CadDrawOrderPlacement.BringToFront
+            ? "front"
+            : "back";
+        history.Execute(new CadSetModelSpaceDrawOrderCommand(
+            new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
+            placement,
+            description: _selectedHandleCount == 1
+                ? $"{action} selected entity to {destination}"
+                : $"{action} {_selectedHandleCount} selected entities to {destination}"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>
     /// Deletes all selected semantic model-space roots as one reversible edit.
     /// The selection is cleared because ACadSharp assigns new handles when Undo
     /// restores detached objects.

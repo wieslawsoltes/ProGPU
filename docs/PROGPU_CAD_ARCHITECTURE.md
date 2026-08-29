@@ -738,6 +738,26 @@ whether active overrides were present, and whether its order is plot-compatible;
 silently producing the wrong plot. Callers compile a plotting snapshot when the
 document deliberately disables plot sorting.
 
+`CadSetModelSpaceDrawOrderCommand` is the reversible authoring seam for Bring to
+Front, Send to Back, Bring Above, and Send Under. It resolves the complete
+current back-to-front order before mutation, preserves the relative order of
+both the selected and remaining subsequences, and inserts Above after the
+frontmost reference or Under before the backmost reference. Selected and
+reference handles must be disjoint members of the same model space. The default
+bounds retain at most 65,536 selected/reference handles and visit at most
+5,000,000 model-space entities.
+
+Each successful edit replaces the persistence object with a canonical complete
+permutation using unique compact ascending keys, avoiding sparse-key overflow,
+ties, and selection-order reversal. Undo restores the exact prior sparse
+entity/key pairs or removes a table created by the command; replacement carries
+an internal rollback snapshot, and failed resolution, validation, or limit
+checks publish no generation or history entry. The command deliberately
+preserves the drawing's existing `SORTENTS` Plotting policy. The shared sample
+exposes selection-preserving To front/To back actions; the typed Above/Under API
+is ready for a later reference-object interaction without weakening the core
+transaction.
+
 Resolution costs O(E + S + E log E) time and O(E) bounded snapshot storage for
 E entities and S sparse entries in each distinct visited block. Cached child
 orders are reused across every MINSERT cell and repeated INSERT, avoiding both
@@ -2053,6 +2073,7 @@ recording, retained physical print-plan construction in both zero- and
 ```bash
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 20000 --draw-order --warmup 3 --iterations 12 --queries 100
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 20000 --draw-order-edit-entities 100 --warmup 3 --iterations 12 --queries 100
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --linetypes --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --complex-linetypes --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --linear-spline-linetypes --warmup 3 --iterations 24 --queries 10000
@@ -2100,6 +2121,17 @@ complete reverse-order table measured `23.9463/70.6382/70.6382 ms` at
 bounded to snapshot resolution and stable replay does not inherit ordering
 work. The noisy construction tails and absent Instruments/GPU trace make this a
 transparent cost baseline, not a release-performance claim.
+
+The 2026-08-29 draw-order authoring baseline used the same Apple
+Silicon/macOS 26.6/.NET 10.0.5 Release binary with 20,000 model-space entities,
+a stable 100-entity selection, three warmups, and 12 iterations. One measured
+operation includes canonical Bring to Front plus exact sparse/absent-state Undo,
+therefore two locked generations and two table replacements. It measured
+p50/p95/p99 `6.8600/56.2667/56.2667 ms` at `2,781,896 B/op`. Every iteration
+restored the original no-table state; the fixture still compiled exactly 20,000
+source/visible/expanded entities with zero unsupported or invalid content. The
+short run has a noisy tail and no Instruments/GPU trace, so this is a transparent
+feature-cost baseline rather than a performance-acceptance claim.
 
 The 2026-08-29 persisted-DIMENSION feature-cost run used one final Apple
 Silicon/.NET 10.0.5 Release process, 1,000 DIMENSION roots, three warmups, 24
@@ -2598,6 +2630,15 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   does not alter startup/font discovery, shaping/layout reuse, visibility policy,
   glyph/path/texture keys or eviction, demand upload, worker preparation, DPI or
   subpixel behavior, fallback/variable-font state, or device-loss invalidation.
+  Autodesk's older but still explicit
+  [DRAWORDER multi-selection contract](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-MAC-Core/files/GUID-3DC76D6E-8F81-4803-8D0A-AA7541D6357E.htm)
+  requires the relative draw order of multiple selected objects to remain
+  unchanged, while the current
+  [overlap-order workflow](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Core/files/GUID-D3009A24-3357-49E4-96BB-066D5A2CC25F.htm)
+  places a selection immediately above or under its reference objects and limits
+  ordering to one model/paper space. ProGPU adopts those observable semantics as
+  an original stable partition/insertion algorithm and a canonical transactional
+  persistence rewrite; it does not copy ACadSharp convenience-move control flow.
 
 - For atomic selected-object deletion, Autodesk's
   [ERASE command contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-MAC-Core/files/GUID-6FC4AA9A-A3DC-49D0-A22B-CC0ED48C1310.htm),

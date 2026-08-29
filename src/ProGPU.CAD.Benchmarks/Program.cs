@@ -12,6 +12,9 @@ using ProGPU.Text;
 
 int entityCount = ReadNonNegativeInt("--entities", 10_000);
 bool resolveDrawOrder = HasFlag("--draw-order");
+int drawOrderEditEntityCount = ReadNonNegativeInt(
+    "--draw-order-edit-entities",
+    0);
 int blockArrayColumnCount = ReadNonNegativeInt("--block-array-columns", 0);
 int textEntityCount = ReadNonNegativeInt("--text-entities", 0);
 int mtextEntityCount = ReadNonNegativeInt("--mtext-entities", 0);
@@ -237,6 +240,20 @@ CadSnapshotOptions snapshotOptions = new()
 
 CadDocumentSnapshot validationSnapshot = snapshotCompiler.Compile(session, snapshotOptions);
 ValidateRequestedEntities(validationSnapshot);
+ulong[] drawOrderEditHandles = drawOrderEditEntityCount == 0
+    ? []
+    : session.Read(document =>
+    {
+        if (drawOrderEditEntityCount > document.Entities.Count)
+        {
+            throw new ArgumentException(
+                "--draw-order-edit-entities cannot exceed the model-space entity count.");
+        }
+        return document.Entities
+            .Take(drawOrderEditEntityCount)
+            .Select(static entity => entity.Handle)
+            .ToArray();
+    });
 
 for (int i = 0; i < warmupCount; i++)
 {
@@ -344,6 +361,13 @@ Measurement? shxLayoutMeasurement = shxCache is null || shxLayoutCount == 0
         "shx-layout-batch",
         iterationCount,
         () => LayoutShxBatch(shxCache, shxLayoutCount));
+Measurement? drawOrderEditMeasurement = drawOrderEditHandles.Length == 0
+    ? null
+    : MeasureDrawOrderEdits(
+        session,
+        drawOrderEditHandles,
+        warmupCount,
+        iterationCount);
 
 var report = new CadBenchmarkReport(
     DateTimeOffset.UtcNow,
@@ -351,6 +375,7 @@ var report = new CadBenchmarkReport(
     System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
     entityCount,
     resolveDrawOrder,
+    drawOrderEditEntityCount,
     blockArrayColumnCount,
     textEntityCount,
     mtextEntityCount,
@@ -414,6 +439,7 @@ var report = new CadBenchmarkReport(
     hatchBoundsSelectionMeasurement,
     shxMeasurement,
     shxLayoutMeasurement,
+    drawOrderEditMeasurement,
     Process.GetCurrentProcess().WorkingSet64);
 
 var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
@@ -1180,6 +1206,53 @@ Measurement Measure(string name, int count, Func<object> action)
     return Summarize(name, elapsed, allocated / count);
 }
 
+Measurement MeasureDrawOrderEdits(
+    CadDocumentSession source,
+    ulong[] handles,
+    int warmups,
+    int count)
+{
+    var history = new CadDocumentHistory(source);
+    for (int i = 0; i < warmups; i++)
+    {
+        history.Execute(new CadSetModelSpaceDrawOrderCommand(
+            handles,
+            CadDrawOrderPlacement.BringToFront,
+            maximumSelectionCount: handles.Length));
+        if (!history.TryUndo(out _))
+        {
+            throw new InvalidOperationException(
+                "Draw-order benchmark warmup could not restore its source order.");
+        }
+    }
+
+    var elapsed = new double[count];
+    long allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+    ulong checksum = 0;
+    for (int i = 0; i < count; i++)
+    {
+        long started = Stopwatch.GetTimestamp();
+        checksum ^= history.Execute(new CadSetModelSpaceDrawOrderCommand(
+            handles,
+            CadDrawOrderPlacement.BringToFront,
+            maximumSelectionCount: handles.Length));
+        if (!history.TryUndo(out ulong undoGeneration))
+        {
+            throw new InvalidOperationException(
+                "Draw-order benchmark iteration could not restore its source order.");
+        }
+        checksum ^= undoGeneration;
+        elapsed[i] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+    }
+
+    long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedStart;
+    GC.KeepAlive(checksum);
+    return Summarize(
+        "draw-order-edit-and-undo",
+        elapsed,
+        allocated / count);
+}
+
 Measurement MeasureQueries(CadDocumentSnapshot source, int count)
 {
     var elapsed = new double[count];
@@ -1580,6 +1653,7 @@ internal sealed record CadBenchmarkReport(
     string Runtime,
     int EntityCount,
     bool ResolvedDrawOrder,
+    int DrawOrderEditEntityCount,
     int BlockArrayColumnCount,
     int TextEntityCount,
     int MTextEntityCount,
@@ -1642,6 +1716,7 @@ internal sealed record CadBenchmarkReport(
     Measurement? HatchBoundsSelectionNanoseconds,
     Measurement? ShxInterpretBatchMilliseconds,
     Measurement? ShxLayoutBatchMilliseconds,
+    Measurement? DrawOrderEditAndUndoMilliseconds,
     long WorkingSetBytes);
 
 internal sealed class BenchmarkTextFontResolver(TtfFont font) : ICadTextFontResolver

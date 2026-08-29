@@ -554,6 +554,56 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void SharedViewDrawOrderButtonsPreserveSelectionAndUseHistory()
+    {
+        var document = new CadDocument();
+        var first = new Line(new XYZ(-10, 0, 0), new XYZ(-6, 0, 0));
+        var second = new Line(new XYZ(6, 0, 0), new XYZ(10, 0, 0));
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            Button toBack = FindButton(view, "To back");
+            Button toFront = FindButton(view, "To front");
+            Assert.False(toBack.IsEnabled);
+            Assert.False(toFront.IsEnabled);
+
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            Click(
+                view.Canvas,
+                view.Canvas.CurrentViewport.WorldToScreen(
+                    new CadPoint3D(-8, 0, 0)));
+
+            Assert.Equal(first.Handle, view.Canvas.SelectedHandles.Span[0]);
+            Assert.True(toBack.IsEnabled);
+            Assert.True(toFront.IsEnabled);
+            PressEnter(toFront);
+
+            Assert.Equal(new double[] { 6, -10 },
+                view.Canvas.CurrentSnapshot!.Lines.ToArray().Select(line => line.Start.X));
+            Assert.Equal(first.Handle, view.Canvas.SelectedHandles.Span[0]);
+            Assert.Equal(1, view.Canvas.UndoCount);
+
+            PressEnter(toBack);
+
+            Assert.Equal(new double[] { -10, 6 },
+                view.Canvas.CurrentSnapshot.Lines.ToArray().Select(line => line.Start.X));
+            Assert.Equal(first.Handle, view.Canvas.SelectedHandles.Span[0]);
+            Assert.Equal(2, view.Canvas.UndoCount);
+            Assert.True(view.Canvas.TryUndo());
+            Assert.Equal(new double[] { 6, -10 },
+                view.Canvas.CurrentSnapshot.Lines.ToArray().Select(line => line.Start.X));
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewRotateAndScaleControlsValidateAndExecuteTransforms()
     {
         var document = new CadDocument();

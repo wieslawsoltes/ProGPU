@@ -26,6 +26,7 @@ public sealed class CadSampleView : Grid
     private readonly Button _undoButton;
     private readonly Button _redoButton;
     private readonly Button _deleteButton;
+    private readonly Button[] _drawOrderButtons;
     private readonly Button[] _moveButtons;
     private readonly Button[] _rotateButtons;
     private readonly Button[] _scaleButtons;
@@ -121,12 +122,19 @@ public sealed class CadSampleView : Grid
         _undoButton = CreateButton("Undo", font, 68, 30);
         _redoButton = CreateButton("Redo", font, 68, 30);
         _deleteButton = CreateButton("Delete", font, 76, 30);
+        Button sendToBack = CreateButton("To back", font, 76, 30);
+        Button bringToFront = CreateButton("To front", font, 76, 30);
         _undoButton.Margin = new Thickness(0, 0, 8, 0);
         _redoButton.Margin = new Thickness(0, 0, 8, 0);
-        _deleteButton.Margin = new Thickness(0, 0, 12, 0);
+        _deleteButton.Margin = new Thickness(0, 0, 8, 0);
+        sendToBack.Margin = new Thickness(0, 0, 4, 0);
+        bringToFront.Margin = new Thickness(0, 0, 12, 0);
+        _drawOrderButtons = [sendToBack, bringToFront];
         editActions.AddChild(_undoButton);
         editActions.AddChild(_redoButton);
         editActions.AddChild(_deleteButton);
+        editActions.AddChild(sendToBack);
+        editActions.AddChild(bringToFront);
         editActions.AddChild(new TextBlock
         {
             Text = "Move step (WCS)",
@@ -247,6 +255,10 @@ public sealed class CadSampleView : Grid
         _undoButton.Click += (_, _) => PerformUndo();
         _redoButton.Click += (_, _) => PerformRedo();
         _deleteButton.Click += (_, _) => PerformDelete();
+        sendToBack.Click += (_, _) =>
+            SetSelectionDrawOrder(CadDrawOrderPlacement.SendToBack);
+        bringToFront.Click += (_, _) =>
+            SetSelectionDrawOrder(CadDrawOrderPlacement.BringToFront);
         moveNegativeX.Click += (_, _) => MoveSelection(-1, 0);
         movePositiveX.Click += (_, _) => MoveSelection(1, 0);
         moveNegativeY.Click += (_, _) => MoveSelection(0, -1);
@@ -530,6 +542,33 @@ public sealed class CadSampleView : Grid
         }
     }
 
+    private void SetSelectionDrawOrder(CadDrawOrderPlacement placement)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+        try
+        {
+            if (!_canvas.SetSelectionDrawOrder(placement))
+            {
+                SetStatus("Draw order requires at least one selected entity.");
+                return;
+            }
+            SetStatus(placement == CadDrawOrderPlacement.BringToFront
+                ? "Moved the selection to the front."
+                : "Moved the selection to the back.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Draw order failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
     private void PerformUndo()
     {
         if (_isBusy)
@@ -783,6 +822,10 @@ public sealed class CadSampleView : Grid
         _moveStepInput.IsEnabled = !_isBusy;
         _rotationStepInput.IsEnabled = !_isBusy;
         _scaleFactorInput.IsEnabled = !_isBusy;
+        foreach (Button drawOrderButton in _drawOrderButtons)
+        {
+            drawOrderButton.IsEnabled = canTransform;
+        }
         foreach (Button moveButton in _moveButtons)
         {
             moveButton.IsEnabled = canTransform;
