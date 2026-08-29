@@ -853,8 +853,9 @@ session clean.
 The hosts remain an executable engine-integration baseline, not yet the complete
 CAD editor shell. They now share plan, Flat 3D, and retained print-preview modes
 with generation-safe layout/named-page-setup selection plus an explicit A4
-model-extents fallback; properties/layer panels, arbitrary-camera projected
-selection, broader editing tools, page-setup editing/import, printer/export
+model-extents fallback and reversible creation/application of named page setups
+from Model; properties/layer panels, arbitrary-camera projected selection,
+broader editing tools, page-setup editing/import, printer/export
 adapters, and round-trip-certified output remain tracked application phases.
 
 The Release browser AOT publish succeeds. Its linker audit currently reports
@@ -2073,6 +2074,28 @@ storage. The shared shell applies to the displayed Model layout, publishes one
 new content generation, rebuilds the catalog while preserving the named
 selection, and exposes the edit through the existing synchronized Undo/Redo
 history. DXF and DWG save/reload regressions cover the applied settings.
+
+`CadCreateNamedPageSetupCommand` implements the inverse authoring workflow. It
+resolves one source layout and the case-insensitive `ACAD_PLOTSETTINGS`
+dictionary before mutation, rejects duplicate or over-budget names, constructs
+one detached `PlotSettings`, copies only the shared fixed plot contract, and
+sets both its dictionary identity and page-setup name to the requested value.
+The source layout and its block, geometry, tab, UCS, and viewport state are
+never changed or retained by the new object. Undo removes the exact retained
+dictionary object and detaches its document ownership; Redo restores that same
+object identity through ACadSharp's collection ownership events. Construction
+is O(N) time/storage for bounded source/new names, while Apply, Undo, and Redo
+are O(1) over the fixed plot record and one dictionary entry. The shared
+desktop/browser row saves the current Model settings, selects the new catalog
+entry after the synchronous generation replacement, disables case-insensitive
+duplicates, and uses the existing history. Matched ownership, duplicate,
+selection, Undo/Redo, DXF, and DWG regressions cover the contract.
+
+This slice changes document metadata and the shared host only. It changes no
+scene compiler, shader, render command, cache, GPU resource, native ABI, or
+managed/native renderer behavior, so a paired native rendering implementation
+is not applicable; both renderers continue consuming the same immutable scene
+and print-plan contracts.
 
 That persistence gate exposed an ACadSharp DXF reader defect: overlapping group
 codes from `AcDbPlotSettings` and `AcDbLayout` were always offered to the layout
@@ -3480,7 +3503,13 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   a named `PlotSettings` object to a derived `Layout` with `CopyFrom`; ProGPU
   adopts the observable fixed plot-field copy while replacing database/runtime
   transaction assumptions with its own typed session generation, bounded value
-  snapshot, target-space validation, and Undo/Redo command.
+  snapshot, target-space validation, and Undo/Redo command. For creation, the
+  same Autodesk contract constructs a `PlotSettings` for the source layout's
+  model/paper target, copies the layout's plot fields, assigns a distinct setup
+  name, and inserts it into the drawing's plot-settings dictionary. ProGPU
+  adopts those observable semantics with an original fixed-field copy,
+  case-insensitive duplicate preflight, bounded ownership, exact retained-object
+  Undo/Redo, and no foreign transaction or helper structure.
 - [Skia PDF pages](https://skia.org/docs/user/sample/pdf/),
   [Skia canvas backends](https://skia.org/docs/user/api/skcanvas_creation/),
   [Skia canvas transforms and clips](https://skia.org/docs/user/api/skcanvas_overview/),

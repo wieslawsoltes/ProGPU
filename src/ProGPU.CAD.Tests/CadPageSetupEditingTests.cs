@@ -23,6 +23,201 @@ public sealed class CadPageSetupEditingTests
             new CadApplyNamedPageSetupCommand(
                 "Model",
                 new string('P', CadApplyNamedPageSetupCommand.MaximumNameCodeUnits + 1)));
+        Assert.Throws<ArgumentException>(() =>
+            new CadCreateNamedPageSetupCommand(string.Empty, "Named"));
+        Assert.Throws<ArgumentException>(() =>
+            new CadCreateNamedPageSetupCommand("Model", " "));
+        Assert.Throws<ArgumentException>(() =>
+            new CadCreateNamedPageSetupCommand(
+                new string('L', CadCreateNamedPageSetupCommand.MaximumNameCodeUnits + 1),
+                "Named"));
+        Assert.Throws<ArgumentException>(() =>
+            new CadCreateNamedPageSetupCommand(
+                "Model",
+                new string('P', CadCreateNamedPageSetupCommand.MaximumNameCodeUnits + 1)));
+    }
+
+    [Fact]
+    public void CreateNamedPageSetupCopiesPlotContractAndRetainsIdentityAcrossUndoRedo()
+    {
+        var document = new CadDocument();
+        ACadLayout model = document.Layouts[ACadLayout.ModelLayoutName];
+        Configure(
+            model,
+            pageName: "Live Model settings",
+            width: 420,
+            height: 297,
+            rotation: PlotRotation.Degrees180,
+            modelType: true);
+        model.SystemPrinterName = "ProGPU PDF";
+        model.PaperSize = "ISO_A3";
+        model.PlotOriginX = 7;
+        model.PlotOriginY = 9;
+        model.PaperImageOrigin = new XY(3, 4);
+        model.PaperImageOriginX = 5;
+        model.PaperImageOriginY = 6;
+        model.PlotViewName = "Output view";
+        model.StyleSheet = "monochrome.ctb";
+        model.WindowLowerLeftX = 11;
+        model.WindowLowerLeftY = 12;
+        model.WindowUpperLeftX = 90;
+        model.WindowUpperLeftY = 91;
+        model.ShadePlotIDHandle = 0x1234;
+        PlotState original = PlotState.Capture(model);
+        ACadSharp.Tables.BlockRecord block = model.AssociatedBlock;
+        CadDictionary dictionary = document.RootDictionary
+            .GetEntry<CadDictionary>(CadDictionary.AcadPlotSettings);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadCreateNamedPageSetupCommand(
+            ACadLayout.ModelLayoutName,
+            "Archived Model output");
+
+        ulong createdGeneration = history.Execute(command);
+
+        Assert.Equal(1UL, createdGeneration);
+        Assert.True(dictionary.TryGetEntry(
+            "Archived Model output",
+            out PlotSettings created));
+        Assert.Same(command.CreatedPageSetup, created);
+        Assert.Same(dictionary, created.Owner);
+        Assert.NotEqual(0UL, created.Handle);
+        Assert.Equal("Archived Model output", created.Name);
+        Assert.Equal("Archived Model output", created.PageName);
+        Assert.Equal(
+            original with { PageName = "Archived Model output" },
+            PlotState.Capture(created));
+        Assert.Equal(original, PlotState.Capture(model));
+        Assert.Same(block, model.AssociatedBlock);
+
+        Assert.True(history.TryUndo(out ulong undoGeneration));
+
+        Assert.Equal(2UL, undoGeneration);
+        Assert.False(dictionary.ContainsKey("Archived Model output"));
+        Assert.Null(created.Owner);
+        Assert.Equal(0UL, created.Handle);
+        Assert.Equal(0, history.UndoCount);
+        Assert.Equal(1, history.RedoCount);
+
+        Assert.True(history.TryRedo(out ulong redoGeneration));
+
+        Assert.Equal(3UL, redoGeneration);
+        Assert.True(dictionary.TryGetEntry(
+            "Archived Model output",
+            out PlotSettings restored));
+        Assert.Same(created, restored);
+        Assert.Same(dictionary, restored.Owner);
+        Assert.NotEqual(0UL, restored.Handle);
+        Assert.Equal(original, PlotState.Capture(model));
+        Assert.Same(block, model.AssociatedBlock);
+        Assert.Equal(1, history.UndoCount);
+        Assert.Equal(0, history.RedoCount);
+    }
+
+    [Fact]
+    public void CreateNamedPageSetupRejectsDuplicateAndMissingLayoutTransactionally()
+    {
+        var document = new CadDocument();
+        CadDictionary dictionary = document.RootDictionary
+            .GetEntry<CadDictionary>(CadDictionary.AcadPlotSettings);
+        dictionary.Add(new PlotSettings("Existing output"));
+        int originalCount = dictionary.Count();
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        InvalidOperationException duplicate = Assert.Throws<InvalidOperationException>(
+            () => history.Execute(new CadCreateNamedPageSetupCommand(
+                ACadLayout.ModelLayoutName,
+                "EXISTING OUTPUT")));
+        InvalidOperationException missing = Assert.Throws<InvalidOperationException>(
+            () => history.Execute(new CadCreateNamedPageSetupCommand(
+                "Missing layout",
+                "New output")));
+
+        Assert.Contains("already exists", duplicate.Message, StringComparison.Ordinal);
+        Assert.Contains("does not exist", missing.Message, StringComparison.Ordinal);
+        Assert.Equal(originalCount, dictionary.Count());
+        Assert.False(dictionary.ContainsKey("New output"));
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(0, history.UndoCount);
+        Assert.Equal(0, history.RedoCount);
+    }
+
+    [Fact]
+    public void CreateNamedPageSetupDerivesPaperTargetFromLayoutIdentity()
+    {
+        var document = new CadDocument();
+        ACadLayout paper = document.Layouts[ACadLayout.PaperLayoutName];
+        Configure(
+            paper,
+            pageName: "Paper source",
+            width: 297,
+            height: 210,
+            rotation: PlotRotation.NoRotation,
+            modelType: true);
+        var session = new CadDocumentSession(document);
+
+        new CadDocumentHistory(session).Execute(
+            new CadCreateNamedPageSetupCommand(
+                ACadLayout.PaperLayoutName,
+                "Paper output"));
+
+        CadPageSetupSnapshot created = new CadPageSetupCatalogCompiler()
+            .Compile(session)
+            .FindNamedOverride("Paper output")!;
+        Assert.Equal(CadPageTargetSpace.Paper, created.TargetSpace);
+        Assert.Equal("Paper output", created.PageSetupName);
+        Assert.Equal(297, created.PaperWidthMillimeters);
+        Assert.Equal(210, created.PaperHeightMillimeters);
+    }
+
+    [Theory]
+    [InlineData(CadDocumentFormat.Dxf)]
+    [InlineData(CadDocumentFormat.Dwg)]
+    public async Task CreatedNamedPageSetupSurvivesDxfAndDwgRoundTrip(
+        CadDocumentFormat format)
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        ACadLayout model = document.Layouts[ACadLayout.ModelLayoutName];
+        Configure(
+            model,
+            pageName: "Source settings",
+            width: 420,
+            height: 297,
+            rotation: PlotRotation.Degrees270,
+            modelType: true);
+        model.SystemPrinterName = "ProGPU PDF";
+        model.PaperSize = "ISO_A3";
+        var session = new CadDocumentSession(document);
+        new CadDocumentHistory(session).Execute(
+            new CadCreateNamedPageSetupCommand(
+                ACadLayout.ModelLayoutName,
+                "Persisted Model output"));
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+
+        await store.SaveAsync(
+            session,
+            stream,
+            format,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            format,
+            sourceName: $"created-page-setup.{format.ToString().ToLowerInvariant()}");
+        CadPageSetupSnapshot setup = new CadPageSetupCatalogCompiler()
+            .Compile(loaded.Session)
+            .FindNamedOverride("Persisted Model output")!;
+
+        Assert.Equal("Persisted Model output", setup.Name);
+        Assert.Equal("Persisted Model output", setup.PageSetupName);
+        Assert.Equal(CadPageTargetSpace.Model, setup.TargetSpace);
+        Assert.Equal(420, setup.PaperWidthMillimeters);
+        Assert.Equal(297, setup.PaperHeightMillimeters);
+        Assert.Equal(CadPageRotation.CounterClockwise270, setup.Rotation);
+        Assert.Equal("ProGPU PDF", setup.DeviceName);
+        Assert.Equal("ISO_A3", setup.MediaName);
     }
 
     [Fact]

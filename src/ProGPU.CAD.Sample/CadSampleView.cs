@@ -27,6 +27,8 @@ public sealed class CadSampleView : Grid
     private readonly TextBlock _printPreviewText;
     private readonly ComboBox _pageSetupSelector;
     private readonly Button _applyPageSetupButton;
+    private readonly TextBox _pageSetupNameInput;
+    private readonly Button _createPageSetupButton;
     private readonly TextBlock _status;
     private readonly Button _openButton;
     private readonly Button _saveButton;
@@ -58,6 +60,8 @@ public sealed class CadSampleView : Grid
 
     public ComboBox PageSetupSelector => _pageSetupSelector;
 
+    public TextBox PageSetupNameInput => _pageSetupNameInput;
+
     /// <summary>
     /// Ordered fully-qualified desktop support directories probed after the
     /// opened drawing's directory. Browser hosts should register bundled SHX
@@ -86,7 +90,7 @@ public sealed class CadSampleView : Grid
             Visibility = Visibility.Collapsed,
         };
         TtfFont font = InterFontFamily.Regular;
-        RowDefinitions.Add(new GridLength(158, GridUnitType.Absolute));
+        RowDefinitions.Add(new GridLength(192, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));
         RowDefinitions.Add(new GridLength(30, GridUnitType.Absolute));
 
@@ -122,10 +126,16 @@ public sealed class CadSampleView : Grid
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
+        var pageSetupCreateActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
         toolbarRows.AddChild(actions);
         toolbarRows.AddChild(editActions);
         toolbarRows.AddChild(transformActions);
         toolbarRows.AddChild(printActions);
+        toolbarRows.AddChild(pageSetupCreateActions);
         toolbar.Child = toolbarRows;
 
         _openButton = CreateButton("Open DXF/DWG", font, 132);
@@ -278,6 +288,27 @@ public sealed class CadSampleView : Grid
         printActions.AddChild(_applyPageSetupButton);
         printActions.AddChild(_printPreviewButton);
 
+        pageSetupCreateActions.AddChild(new TextBlock
+        {
+            Text = "New setup from Model",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _pageSetupNameInput = new TextBox
+        {
+            Text = "Model output",
+            Font = font,
+            WidthConstraint = 220,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        _createPageSetupButton = CreateButton("Save named setup", font, 132, 30);
+        pageSetupCreateActions.AddChild(_pageSetupNameInput);
+        pageSetupCreateActions.AddChild(_createPageSetupButton);
+
         _status = new TextBlock
         {
             Font = font,
@@ -314,6 +345,9 @@ public sealed class CadSampleView : Grid
             OnPageSetupSelectionChanged();
         _applyPageSetupButton.Click += (_, _) =>
             ApplySelectedPageSetupToModel();
+        _pageSetupNameInput.TextChanged += (_, _) => UpdateEditControls();
+        _createPageSetupButton.Click += (_, _) =>
+            CreateNamedPageSetupFromModel();
         _clearSelectionButton.Click += (_, _) => _canvas.ClearSelection();
         _undoButton.Click += (_, _) => PerformUndo();
         _redoButton.Click += (_, _) => PerformRedo();
@@ -501,6 +535,36 @@ public sealed class CadSampleView : Grid
         }
     }
 
+    private void CreateNamedPageSetupFromModel()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        string name = _pageSetupNameInput.Text;
+        try
+        {
+            _canvas.CreateNamedPageSetupFromLayout(
+                ACadLayout.ModelLayoutName,
+                name);
+            SelectPageSetup(new PageSetupKey(
+                false,
+                CadPageSetupSourceKind.NamedOverride,
+                name));
+            SetStatus(
+                $"Saved Model plot settings as named page setup '{name}' in one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Create page setup failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
     private void ShowSelectedPrintPreview()
     {
         var item = _pageSetupSelector.SelectedItem as ComboBoxItem;
@@ -641,6 +705,18 @@ public sealed class CadSampleView : Grid
             },
         };
         return item;
+    }
+
+    private void SelectPageSetup(PageSetupKey key)
+    {
+        ComboBoxItem? item = _pageSetupSelector.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(candidate =>
+                candidate.Tag is PageSetupChoice choice && choice.Key == key);
+        if (item is not null)
+        {
+            _pageSetupSelector.SelectedItem = item;
+        }
     }
 
     private void ShowPlanView(bool clearPreview)
@@ -1266,6 +1342,9 @@ public sealed class CadSampleView : Grid
             canUsePlanTools &&
             (_pageSetupSelector.SelectedItem as ComboBoxItem)?.Tag is
                 PageSetupChoice { CanApplyToModel: true };
+        _pageSetupNameInput.IsEnabled = canUsePlanTools;
+        _createPageSetupButton.IsEnabled =
+            canUsePlanTools && CanCreateNamedPageSetup(_pageSetupNameInput.Text);
         _undoButton.IsEnabled =
             canUsePlanTools && _canvas.UndoCount > 0;
         _redoButton.IsEnabled =
@@ -1294,6 +1373,27 @@ public sealed class CadSampleView : Grid
         {
             scaleButton.IsEnabled = canTransform;
         }
+    }
+
+    private bool CanCreateNamedPageSetup(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) ||
+            name.Length > CadCreateNamedPageSetupCommand.MaximumNameCodeUnits)
+        {
+            return false;
+        }
+        return !_pageSetupSelector.Items
+            .OfType<ComboBoxItem>()
+            .Any(item => item.Tag is PageSetupChoice
+            {
+                PageSetup:
+                {
+                    SourceKind: CadPageSetupSourceKind.NamedOverride,
+                } pageSetup,
+            } && string.Equals(
+                pageSetup.Name,
+                name,
+                StringComparison.OrdinalIgnoreCase));
     }
 
     private string DescribeCurrentDocument(string name, int diagnosticCount = 0)

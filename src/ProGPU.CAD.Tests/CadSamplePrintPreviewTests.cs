@@ -468,6 +468,77 @@ public sealed class CadSamplePrintPreviewTests
         }
     }
 
+    [Fact]
+    public void SharedViewCreatesNamedPageSetupFromModelWithUndoRedo()
+    {
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_000, 800));
+            ComboBox selector = view.PageSetupSelector;
+            TextBox nameInput = view.PageSetupNameInput;
+            Button create = FindButton(view, "Save named setup");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+            CadPageSetupSnapshot model = view.Canvas.CreatePageSetupCatalog()
+                .FindLayout(ACadLayout.ModelLayoutName)!;
+            int originalCount = selector.Items.Count;
+            ulong originalGeneration = view.Canvas.CurrentSession!.ContentGeneration;
+            nameInput.Text = "Archived Model output";
+
+            Assert.True(create.IsEnabled);
+            PressEnter(create);
+
+            Assert.Equal(originalCount + 1, selector.Items.Count);
+            Assert.Equal(
+                checked(originalGeneration + 1),
+                view.Canvas.CurrentSession.ContentGeneration);
+            CadPageSetupSnapshot created = view.Canvas.CreatePageSetupCatalog()
+                .FindNamedOverride("Archived Model output")!;
+            Assert.Equal(model.PaperWidthMillimeters, created.PaperWidthMillimeters);
+            Assert.Equal(model.PaperHeightMillimeters, created.PaperHeightMillimeters);
+            Assert.Equal(model.Rotation, created.Rotation);
+            Assert.Equal("Archived Model output", created.PageSetupName);
+            Assert.StartsWith(
+                "Named: Archived Model output",
+                Assert.IsType<ComboBoxItem>(selector.SelectedItem).Text,
+                StringComparison.Ordinal);
+            Assert.False(create.IsEnabled);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Saved Model plot settings as named page setup 'Archived Model output'",
+                    StringComparison.Ordinal));
+
+            PressEnter(undo);
+
+            Assert.Equal(originalCount, selector.Items.Count);
+            Assert.Null(view.Canvas.CreatePageSetupCatalog()
+                .FindNamedOverride("Archived Model output"));
+            Assert.StartsWith(
+                "Layout: Model",
+                Assert.IsType<ComboBoxItem>(selector.SelectedItem).Text,
+                StringComparison.Ordinal);
+            Assert.True(create.IsEnabled);
+
+            PressEnter(redo);
+
+            Assert.Equal(originalCount + 1, selector.Items.Count);
+            Assert.NotNull(view.Canvas.CreatePageSetupCatalog()
+                .FindNamedOverride("Archived Model output"));
+            Assert.StartsWith(
+                "Layout: Model",
+                Assert.IsType<ComboBoxItem>(selector.SelectedItem).Text,
+                StringComparison.Ordinal);
+            Assert.False(create.IsEnabled);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
     private static Button FindButton(Visual root, string label) =>
         DescendantsAndSelf(root)
             .OfType<Button>()
