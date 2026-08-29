@@ -6,6 +6,9 @@
       "LICENSE.txt": "c3ba493105fa52657c4c60d9b1680da7c01b188a8665d7a823c2a187fd259808",
       "README.md": "62955242058f92464ca6cf77d364bc6b15331eee12ae82064f6df2088fdcbb7d",
       "winrt/lib/drawing/CanvasDevice.abi.idl": "42e4094446dc6188f9e801c87dbc288857ce5cd6f3d24f2e3716ae20de04e5c5",
+      "winrt/lib/brushes/CanvasBrush.abi.idl": "62eb416edc7733e40721f425fddd17a4c4432801981f0be774548ce6ab1b3b7e",
+      "winrt/lib/brushes/CanvasBrush.cpp": "7b779effc834b85e32dbacb73660186a8a8dac77789f55060d981a3ee4cb5eb6",
+      "winrt/lib/brushes/Gradients.h": "688ff307fd43002db32b42efb0d5d443cf22b978b994eafdaf0d5906ff0488c2",
       "winrt/docsrc/Interop.aml": "5ce8c606788345ba1762ecf3a9904f8a7b2ee26883e50bb6b622e9b055b39f23"
     }
   },

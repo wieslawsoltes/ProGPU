@@ -1,4 +1,5 @@
 using System.Numerics;
+using Microsoft.Graphics.Canvas.Brushes;
 using Microsoft.Graphics.Canvas.Geometry;
 using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
@@ -7,6 +8,7 @@ using Windows.Foundation;
 using Windows.UI;
 using Color = Windows.UI.Color;
 using Rect = ProGPU.Scene.Rect;
+using NativeBrush = ProGPU.Vector.Brush;
 
 namespace Microsoft.Graphics.Canvas;
 
@@ -22,6 +24,7 @@ public sealed class CanvasDrawingSession :
     private readonly Rect _bounds;
     private readonly Dictionary<uint, SolidColorBrush> _brushes = new();
     private readonly Dictionary<PenKey, Pen> _pens = new();
+    private readonly Dictionary<BrushPenKey, Pen> _brushPens = new();
     private DrawingContext _context;
     private Matrix3x2 _transform = Matrix3x2.Identity;
     private Vector4 _clearColor;
@@ -32,6 +35,9 @@ public sealed class CanvasDrawingSession :
     private int _nextLayerToken;
 
     private readonly record struct PenKey(uint Color, int WidthBits);
+    private readonly record struct BrushPenKey(
+        NativeBrush Brush,
+        int WidthBits);
     private readonly record struct LayerState(
         int Token,
         bool HasRectangleClip,
@@ -279,6 +285,19 @@ public sealed class CanvasDrawingSession :
         DrawLine(point0.X, point0.Y, point1.X, point1.Y, color, strokeWidth);
 
     public void DrawLine(
+        Vector2 point0,
+        Vector2 point1,
+        ICanvasBrush brush,
+        float strokeWidth = 1f) =>
+        DrawLine(
+            point0.X,
+            point0.Y,
+            point1.X,
+            point1.Y,
+            brush,
+            strokeWidth);
+
+    public void DrawLine(
         float x0,
         float y0,
         float x1,
@@ -288,6 +307,24 @@ public sealed class CanvasDrawingSession :
     {
         ValidateFinite(x0, y0, x1, y1);
         Pen pen = GetPen(color, strokeWidth);
+        _context.DrawLine(
+            pen,
+            new Vector2(x0, y0),
+            new Vector2(x1, y1),
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void DrawLine(
+        float x0,
+        float y0,
+        float x1,
+        float y1,
+        ICanvasBrush brush,
+        float strokeWidth = 1f)
+    {
+        ValidateFinite(x0, y0, x1, y1);
+        Pen pen = GetPen(GetBrush(brush), strokeWidth);
         _context.DrawLine(
             pen,
             new Vector2(x0, y0),
@@ -309,6 +346,18 @@ public sealed class CanvasDrawingSession :
             strokeWidth);
 
     public void DrawRectangle(
+        Windows.Foundation.Rect rectangle,
+        ICanvasBrush brush,
+        float strokeWidth = 1f) =>
+        DrawRectangle(
+            (float)rectangle.X,
+            (float)rectangle.Y,
+            (float)rectangle.Width,
+            (float)rectangle.Height,
+            brush,
+            strokeWidth);
+
+    public void DrawRectangle(
         float x,
         float y,
         float width,
@@ -325,6 +374,23 @@ public sealed class CanvasDrawingSession :
         _hasCommands = true;
     }
 
+    public void DrawRectangle(
+        float x,
+        float y,
+        float width,
+        float height,
+        ICanvasBrush brush,
+        float strokeWidth = 1f)
+    {
+        Rect rect = ValidateRect(x, y, width, height);
+        _context.DrawRectangle(
+            null,
+            GetPen(GetBrush(brush), strokeWidth),
+            rect,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
     public void FillRectangle(
         Windows.Foundation.Rect rectangle,
         Color color) =>
@@ -336,6 +402,16 @@ public sealed class CanvasDrawingSession :
             color);
 
     public void FillRectangle(
+        Windows.Foundation.Rect rectangle,
+        ICanvasBrush brush) =>
+        FillRectangle(
+            (float)rectangle.X,
+            (float)rectangle.Y,
+            (float)rectangle.Width,
+            (float)rectangle.Height,
+            brush);
+
+    public void FillRectangle(
         float x,
         float y,
         float width,
@@ -345,6 +421,22 @@ public sealed class CanvasDrawingSession :
         Rect rect = ValidateRect(x, y, width, height);
         _context.DrawRectangle(
             GetBrush(color),
+            null,
+            rect,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void FillRectangle(
+        float x,
+        float y,
+        float width,
+        float height,
+        ICanvasBrush brush)
+    {
+        Rect rect = ValidateRect(x, y, width, height);
+        _context.DrawRectangle(
+            GetBrush(brush),
             null,
             rect,
             ToMatrix4x4(_transform));
@@ -368,6 +460,22 @@ public sealed class CanvasDrawingSession :
             strokeWidth);
 
     public void DrawRoundedRectangle(
+        Windows.Foundation.Rect rectangle,
+        float radiusX,
+        float radiusY,
+        ICanvasBrush brush,
+        float strokeWidth = 1f) =>
+        DrawRoundedRectangle(
+            (float)rectangle.X,
+            (float)rectangle.Y,
+            (float)rectangle.Width,
+            (float)rectangle.Height,
+            radiusX,
+            radiusY,
+            brush,
+            strokeWidth);
+
+    public void DrawRoundedRectangle(
         float x,
         float y,
         float width,
@@ -382,6 +490,28 @@ public sealed class CanvasDrawingSession :
         _context.DrawRoundedRectangle(
             null,
             GetPen(color, strokeWidth),
+            rect,
+            radiusX,
+            radiusY,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void DrawRoundedRectangle(
+        float x,
+        float y,
+        float width,
+        float height,
+        float radiusX,
+        float radiusY,
+        ICanvasBrush brush,
+        float strokeWidth = 1f)
+    {
+        Rect rect = ValidateRect(x, y, width, height);
+        ValidateRadii(radiusX, radiusY);
+        _context.DrawRoundedRectangle(
+            null,
+            GetPen(GetBrush(brush), strokeWidth),
             rect,
             radiusX,
             radiusY,
@@ -404,6 +534,20 @@ public sealed class CanvasDrawingSession :
             color);
 
     public void FillRoundedRectangle(
+        Windows.Foundation.Rect rectangle,
+        float radiusX,
+        float radiusY,
+        ICanvasBrush brush) =>
+        FillRoundedRectangle(
+            (float)rectangle.X,
+            (float)rectangle.Y,
+            (float)rectangle.Width,
+            (float)rectangle.Height,
+            radiusX,
+            radiusY,
+            brush);
+
+    public void FillRoundedRectangle(
         float x,
         float y,
         float width,
@@ -416,6 +560,27 @@ public sealed class CanvasDrawingSession :
         ValidateRadii(radiusX, radiusY);
         _context.DrawRoundedRectangle(
             GetBrush(color),
+            null,
+            rect,
+            radiusX,
+            radiusY,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void FillRoundedRectangle(
+        float x,
+        float y,
+        float width,
+        float height,
+        float radiusX,
+        float radiusY,
+        ICanvasBrush brush)
+    {
+        Rect rect = ValidateRect(x, y, width, height);
+        ValidateRadii(radiusX, radiusY);
+        _context.DrawRoundedRectangle(
+            GetBrush(brush),
             null,
             rect,
             radiusX,
@@ -439,6 +604,20 @@ public sealed class CanvasDrawingSession :
             strokeWidth);
 
     public void DrawEllipse(
+        Vector2 centerPoint,
+        float radiusX,
+        float radiusY,
+        ICanvasBrush brush,
+        float strokeWidth = 1f) =>
+        DrawEllipse(
+            centerPoint.X,
+            centerPoint.Y,
+            radiusX,
+            radiusY,
+            brush,
+            strokeWidth);
+
+    public void DrawEllipse(
         float x,
         float y,
         float radiusX,
@@ -458,12 +637,44 @@ public sealed class CanvasDrawingSession :
         _hasCommands = true;
     }
 
+    public void DrawEllipse(
+        float x,
+        float y,
+        float radiusX,
+        float radiusY,
+        ICanvasBrush brush,
+        float strokeWidth = 1f)
+    {
+        ValidateFinite(x, y);
+        ValidateRadii(radiusX, radiusY);
+        _context.DrawEllipse(
+            null,
+            GetPen(GetBrush(brush), strokeWidth),
+            new Vector2(x, y),
+            radiusX,
+            radiusY,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
     public void FillEllipse(
         Vector2 centerPoint,
         float radiusX,
         float radiusY,
         Color color) =>
         FillEllipse(centerPoint.X, centerPoint.Y, radiusX, radiusY, color);
+
+    public void FillEllipse(
+        Vector2 centerPoint,
+        float radiusX,
+        float radiusY,
+        ICanvasBrush brush) =>
+        FillEllipse(
+            centerPoint.X,
+            centerPoint.Y,
+            radiusX,
+            radiusY,
+            brush);
 
     public void FillEllipse(
         float x,
@@ -484,12 +695,38 @@ public sealed class CanvasDrawingSession :
         _hasCommands = true;
     }
 
+    public void FillEllipse(
+        float x,
+        float y,
+        float radiusX,
+        float radiusY,
+        ICanvasBrush brush)
+    {
+        ValidateFinite(x, y);
+        ValidateRadii(radiusX, radiusY);
+        _context.DrawEllipse(
+            GetBrush(brush),
+            null,
+            new Vector2(x, y),
+            radiusX,
+            radiusY,
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
     public void DrawCircle(
         Vector2 centerPoint,
         float radius,
         Color color,
         float strokeWidth = 1f) =>
         DrawCircle(centerPoint.X, centerPoint.Y, radius, color, strokeWidth);
+
+    public void DrawCircle(
+        Vector2 centerPoint,
+        float radius,
+        ICanvasBrush brush,
+        float strokeWidth = 1f) =>
+        DrawCircle(centerPoint.X, centerPoint.Y, radius, brush, strokeWidth);
 
     public void DrawCircle(
         float x,
@@ -499,11 +736,25 @@ public sealed class CanvasDrawingSession :
         float strokeWidth = 1f) =>
         DrawEllipse(x, y, radius, radius, color, strokeWidth);
 
+    public void DrawCircle(
+        float x,
+        float y,
+        float radius,
+        ICanvasBrush brush,
+        float strokeWidth = 1f) =>
+        DrawEllipse(x, y, radius, radius, brush, strokeWidth);
+
     public void DrawGeometry(
         CanvasGeometry geometry,
         Color color,
         float strokeWidth = 1f) =>
         DrawGeometry(geometry, 0f, 0f, color, strokeWidth);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        ICanvasBrush brush,
+        float strokeWidth = 1f) =>
+        DrawGeometry(geometry, 0f, 0f, brush, strokeWidth);
 
     public void DrawGeometry(
         CanvasGeometry geometry,
@@ -515,6 +766,19 @@ public sealed class CanvasDrawingSession :
             0f,
             0f,
             color,
+            strokeWidth,
+            strokeStyle);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        ICanvasBrush brush,
+        float strokeWidth,
+        CanvasStrokeStyle strokeStyle) =>
+        DrawGeometry(
+            geometry,
+            0f,
+            0f,
+            brush,
             strokeWidth,
             strokeStyle);
 
@@ -533,6 +797,18 @@ public sealed class CanvasDrawingSession :
     public void DrawGeometry(
         CanvasGeometry geometry,
         Vector2 offset,
+        ICanvasBrush brush,
+        float strokeWidth = 1f) =>
+        DrawGeometry(
+            geometry,
+            offset.X,
+            offset.Y,
+            brush,
+            strokeWidth);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        Vector2 offset,
         Color color,
         float strokeWidth,
         CanvasStrokeStyle strokeStyle) =>
@@ -541,6 +817,20 @@ public sealed class CanvasDrawingSession :
             offset.X,
             offset.Y,
             color,
+            strokeWidth,
+            strokeStyle);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        Vector2 offset,
+        ICanvasBrush brush,
+        float strokeWidth,
+        CanvasStrokeStyle strokeStyle) =>
+        DrawGeometry(
+            geometry,
+            offset.X,
+            offset.Y,
+            brush,
             strokeWidth,
             strokeStyle);
 
@@ -558,6 +848,25 @@ public sealed class CanvasDrawingSession :
         _context.DrawPath(
             null,
             GetPen(color, strokeWidth),
+            path,
+            transform);
+        _hasCommands = true;
+    }
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        float x,
+        float y,
+        ICanvasBrush brush,
+        float strokeWidth = 1f)
+    {
+        PathGeometry path = GetGeometryPath(geometry);
+        ValidateFinite(x, y);
+        Matrix4x4 transform = Matrix4x4.CreateTranslation(x, y, 0f) *
+            ToMatrix4x4(_transform);
+        _context.DrawPath(
+            null,
+            GetPen(GetBrush(brush), strokeWidth),
             path,
             transform);
         _hasCommands = true;
@@ -584,14 +893,46 @@ public sealed class CanvasDrawingSession :
         _hasCommands = true;
     }
 
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        float x,
+        float y,
+        ICanvasBrush brush,
+        float strokeWidth,
+        CanvasStrokeStyle strokeStyle)
+    {
+        PathGeometry path = GetGeometryPath(geometry);
+        ValidateFinite(x, y);
+        ArgumentNullException.ThrowIfNull(strokeStyle);
+        Matrix4x4 transform = Matrix4x4.CreateTranslation(x, y, 0f) *
+            ToMatrix4x4(_transform);
+        _context.DrawPath(
+            null,
+            strokeStyle.GetOrCreatePen(GetBrush(brush), strokeWidth),
+            path,
+            transform);
+        _hasCommands = true;
+    }
+
     public void FillGeometry(CanvasGeometry geometry, Color color) =>
         FillGeometry(geometry, 0f, 0f, color);
+
+    public void FillGeometry(
+        CanvasGeometry geometry,
+        ICanvasBrush brush) =>
+        FillGeometry(geometry, 0f, 0f, brush);
 
     public void FillGeometry(
         CanvasGeometry geometry,
         Vector2 offset,
         Color color) =>
         FillGeometry(geometry, offset.X, offset.Y, color);
+
+    public void FillGeometry(
+        CanvasGeometry geometry,
+        Vector2 offset,
+        ICanvasBrush brush) =>
+        FillGeometry(geometry, offset.X, offset.Y, brush);
 
     public void FillGeometry(
         CanvasGeometry geometry,
@@ -605,6 +946,24 @@ public sealed class CanvasDrawingSession :
             ToMatrix4x4(_transform);
         _context.DrawPath(
             GetBrush(color),
+            null,
+            path,
+            transform);
+        _hasCommands = true;
+    }
+
+    public void FillGeometry(
+        CanvasGeometry geometry,
+        float x,
+        float y,
+        ICanvasBrush brush)
+    {
+        PathGeometry path = GetGeometryPath(geometry);
+        ValidateFinite(x, y);
+        Matrix4x4 transform = Matrix4x4.CreateTranslation(x, y, 0f) *
+            ToMatrix4x4(_transform);
+        _context.DrawPath(
+            GetBrush(brush),
             null,
             path,
             transform);
@@ -645,17 +1004,36 @@ public sealed class CanvasDrawingSession :
         FillCircle(centerPoint.X, centerPoint.Y, radius, color);
 
     public void FillCircle(
+        Vector2 centerPoint,
+        float radius,
+        ICanvasBrush brush) =>
+        FillCircle(centerPoint.X, centerPoint.Y, radius, brush);
+
+    public void FillCircle(
         float x,
         float y,
         float radius,
         Color color) =>
         FillEllipse(x, y, radius, radius, color);
 
+    public void FillCircle(
+        float x,
+        float y,
+        float radius,
+        ICanvasBrush brush) =>
+        FillEllipse(x, y, radius, radius, brush);
+
     public void DrawText(
         string text,
         Vector2 point,
         Color color) =>
         DrawText(text, point.X, point.Y, color);
+
+    public void DrawText(
+        string text,
+        Vector2 point,
+        ICanvasBrush brush) =>
+        DrawText(text, point.X, point.Y, brush);
 
     public void DrawText(
         string text,
@@ -676,6 +1054,30 @@ public sealed class CanvasDrawingSession :
             InterFontFamily.Regular,
             20f,
             GetBrush(color),
+            new Vector2(x, y),
+            ToMatrix4x4(_transform));
+        _hasCommands = true;
+    }
+
+    public void DrawText(
+        string text,
+        float x,
+        float y,
+        ICanvasBrush brush)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(text);
+        ValidateFinite(x, y);
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        _context.DrawText(
+            text,
+            InterFontFamily.Regular,
+            20f,
+            GetBrush(brush),
             new Vector2(x, y),
             ToMatrix4x4(_transform));
         _hasCommands = true;
@@ -739,6 +1141,20 @@ public sealed class CanvasDrawingSession :
         return brush;
     }
 
+    private NativeBrush GetBrush(ICanvasBrush brush)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(brush);
+        if (brush is not ICanvasBrushInternal source)
+        {
+            throw new ArgumentException(
+                "The Canvas brush does not publish the typed ProGPU resource contract.",
+                nameof(brush));
+        }
+
+        return source.GetNativeBrush(Device);
+    }
+
     private Pen GetPen(Color color, float width)
     {
         ThrowIfDisposed();
@@ -752,6 +1168,26 @@ public sealed class CanvasDrawingSession :
         {
             pen = new Pen(GetBrush(color), width);
             _pens.Add(key, pen);
+        }
+
+        return pen;
+    }
+
+    private Pen GetPen(NativeBrush brush, float width)
+    {
+        ThrowIfDisposed();
+        if (!float.IsFinite(width) || width <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+
+        var key = new BrushPenKey(
+            brush,
+            BitConverter.SingleToInt32Bits(width));
+        if (!_brushPens.TryGetValue(key, out Pen? pen))
+        {
+            pen = new Pen(brush, width);
+            _brushPens.Add(key, pen);
         }
 
         return pen;

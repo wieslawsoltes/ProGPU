@@ -52,7 +52,7 @@ public sealed class CanvasStrokeStyle : IDisposable
     private float[] _customDashStyle = [];
     private CanvasStrokeTransformBehavior _transformBehavior =
         CanvasStrokeTransformBehavior.Normal;
-    private SolidColorBrush? _cachedBrush;
+    private Brush? _cachedBrush;
     private Pen? _cachedPen;
     private int _cachedWidthBits;
     private int _version;
@@ -177,7 +177,7 @@ public sealed class CanvasStrokeStyle : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    internal Pen GetOrCreatePen(SolidColorBrush brush, float strokeWidth)
+    internal Pen GetOrCreatePen(Brush brush, float strokeWidth)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(brush);

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Brushes;
 using Microsoft.Graphics.Canvas.Geometry;
 using ProGPU.Backend;
 using Windows.UI;
@@ -165,6 +166,29 @@ internal static class Win2DCanvasQualification
                     difference,
                     Color.FromArgb(255, 160, 32, 192));
             }
+            using (var linear = new CanvasLinearGradientBrush(
+                       device,
+                       Color.FromArgb(255, 255, 0, 0),
+                       Color.FromArgb(255, 0, 0, 255))
+                   {
+                       StartPoint = new System.Numerics.Vector2(240, 8),
+                       EndPoint = new System.Numerics.Vector2(312, 8)
+                   })
+            {
+                drawingSession.FillRectangle(240, 8, 72, 32, linear);
+            }
+            using (var radial = new CanvasRadialGradientBrush(
+                       device,
+                       Color.FromArgb(255, 0, 255, 0),
+                       Color.FromArgb(255, 0, 0, 255))
+                   {
+                       Center = new System.Numerics.Vector2(276, 72),
+                       RadiusX = 28,
+                       RadiusY = 24
+                   })
+            {
+                drawingSession.FillEllipse(276, 72, 28, 24, radial);
+            }
             // Win2D executes DrawImage eagerly. ProGPU records until session
             // close, so its typed texture lease must preserve the source
             // without a staging readback after the public resource is closed.
@@ -216,6 +240,13 @@ internal static class Win2DCanvasQualification
         RequirePixel(pixels, 260, 220, 255, 255, 0, 255);
         RequirePixel(pixels, 246, 180, 192, 32, 160, 255);
         RequirePixel(pixels, 264, 180, 0, 0, 0, 0);
+        RequireOpaqueRedBlueInRange(
+            pixels,
+            276,
+            24,
+            minimum: 124,
+            maximum: 131);
+        RequireOpaqueGreenCenter(pixels, 276, 72);
         Require(
             CountYellowPixels(pixels, 90, 90, 230, 140) > 20,
             "The pinned Win2D text draw did not produce a visible yellow glyph run.");
@@ -223,7 +254,7 @@ internal static class Win2DCanvasQualification
             first.ExecutionPath == ProGpuCanvasExecutionPath.NativeCppWebGpu &&
             second.ExecutionPath == ProGpuCanvasExecutionPath.NativeCppWebGpu &&
             first.SubmissionCount > 0 && second.SubmissionCount > 0 &&
-            first.NativeDrawCount >= 12 && second.NativeDrawCount >= 1,
+            first.NativeDrawCount >= 13 && second.NativeDrawCount >= 1,
             $"Unexpected native Canvas metrics: first={first}, second={second}.");
 
         string? outputDirectory = ReadOptionalArgument(
@@ -347,6 +378,42 @@ internal static class Win2DCanvasQualification
             green == 0 && alpha >= minimum && alpha <= maximum,
             $"Pixel ({x},{y}) was BGRA {blue},{green},{red},{alpha}; " +
             $"expected selected channels in [{minimum},{maximum}].");
+    }
+
+    private static void RequireOpaqueRedBlueInRange(
+        ReadOnlySpan<byte> pixels,
+        int x,
+        int y,
+        byte minimum,
+        byte maximum)
+    {
+        int index = (y * Width + x) * 4;
+        byte blue = pixels[index];
+        byte green = pixels[index + 1];
+        byte red = pixels[index + 2];
+        byte alpha = pixels[index + 3];
+        Require(
+            blue >= minimum && blue <= maximum &&
+            red >= minimum && red <= maximum &&
+            green == 0 && alpha == byte.MaxValue,
+            $"Pixel ({x},{y}) was BGRA {blue},{green},{red},{alpha}; " +
+            $"expected opaque red/blue channels in [{minimum},{maximum}].");
+    }
+
+    private static void RequireOpaqueGreenCenter(
+        ReadOnlySpan<byte> pixels,
+        int x,
+        int y)
+    {
+        int index = (y * Width + x) * 4;
+        byte blue = pixels[index];
+        byte green = pixels[index + 1];
+        byte red = pixels[index + 2];
+        byte alpha = pixels[index + 3];
+        Require(
+            blue <= 15 && green >= 240 && red == 0 && alpha == byte.MaxValue,
+            $"Pixel ({x},{y}) was BGRA {blue},{green},{red},{alpha}; " +
+            "expected the opaque radial-gradient green center.");
     }
 
     private static string? ReadOptionalArgument(

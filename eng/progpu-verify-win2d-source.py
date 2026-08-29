@@ -100,6 +100,28 @@ def main() -> int:
         "Win2D stroke-style defaults",
     )
     require_text(
+        arguments.implementation / "winrt/lib/brushes/CanvasBrush.abi.idl",
+        (
+            "interface ICanvasBrush",
+            "HRESULT Opacity",
+            "HRESULT Transform",
+            "runtimeclass CanvasSolidColorBrush",
+            "runtimeclass CanvasLinearGradientBrush",
+            "runtimeclass CanvasRadialGradientBrush",
+            "Defaults to clamp edge behavior, premultiplied alpha",
+        ),
+        "Win2D brush contract",
+    )
+    require_text(
+        arguments.implementation / "winrt/lib/brushes/Gradients.h",
+        (
+            "CanvasColorSpace::Srgb",
+            "CanvasBufferPrecision::Precision8UIntNormalized",
+            "CanvasAlphaMode::Premultiplied",
+        ),
+        "Win2D gradient defaults",
+    )
+    require_text(
         arguments.samples / "ExampleGallery/ArcOptions.xaml.cs",
         (
             "new CanvasPathBuilder(sender)",
