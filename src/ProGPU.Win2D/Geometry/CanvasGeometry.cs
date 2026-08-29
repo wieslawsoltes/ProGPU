@@ -4,6 +4,14 @@ using Windows.Foundation;
 
 namespace Microsoft.Graphics.Canvas.Geometry;
 
+public enum CanvasGeometryCombine
+{
+    Union = 0,
+    Intersect = 1,
+    Xor = 2,
+    Exclude = 3
+}
+
 public sealed class CanvasGeometry : IDisposable
 {
     private bool _isDisposed;
@@ -162,6 +170,110 @@ public sealed class CanvasGeometry : IDisposable
         return new CanvasGeometry(device, path);
     }
 
+    public static CanvasGeometry CreateGroup(
+        ICanvasResourceCreator resourceCreator,
+        CanvasGeometry[] geometries) =>
+        CreateGroup(
+            resourceCreator,
+            geometries,
+            CanvasFilledRegionDetermination.Alternate);
+
+    public static CanvasGeometry CreateGroup(
+        ICanvasResourceCreator resourceCreator,
+        CanvasGeometry[] geometries,
+        CanvasFilledRegionDetermination filledRegionDetermination)
+    {
+        ArgumentNullException.ThrowIfNull(geometries);
+        CanvasDevice device = GetDevice(resourceCreator);
+        var path = new PathGeometry
+        {
+            FillRule = filledRegionDetermination switch
+            {
+                CanvasFilledRegionDetermination.Alternate => FillRule.EvenOdd,
+                CanvasFilledRegionDetermination.Winding => FillRule.Nonzero,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(filledRegionDetermination))
+            }
+        };
+        for (int geometryIndex = 0;
+             geometryIndex < geometries.Length;
+             geometryIndex++)
+        {
+            CanvasGeometry geometry = geometries[geometryIndex] ??
+                throw new ArgumentException(
+                    "Canvas geometry groups cannot contain null entries.",
+                    nameof(geometries));
+            geometry.ValidateDevice(device);
+            PathGeometry addition = ClonePath(geometry.Path);
+            for (int figureIndex = 0;
+                 figureIndex < addition.Figures.Count;
+                 figureIndex++)
+            {
+                path.Figures.Add(addition.Figures[figureIndex]);
+            }
+        }
+        return new CanvasGeometry(device, path);
+    }
+
+    public CanvasGeometry CombineWith(
+        CanvasGeometry otherGeometry,
+        Matrix3x2 otherGeometryTransform,
+        CanvasGeometryCombine combine) =>
+        CombineWith(
+            otherGeometry,
+            otherGeometryTransform,
+            combine,
+            DefaultFlatteningTolerance);
+
+    public CanvasGeometry CombineWith(
+        CanvasGeometry otherGeometry,
+        Matrix3x2 otherGeometryTransform,
+        CanvasGeometryCombine combine,
+        float flatteningTolerance)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(otherGeometry);
+        otherGeometry.ValidateDevice(Device);
+        ValidateMatrix(otherGeometryTransform);
+        if (!float.IsFinite(flatteningTolerance) || flatteningTolerance <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(flatteningTolerance));
+        }
+
+        int operation = combine switch
+        {
+            CanvasGeometryCombine.Exclude => 0,
+            CanvasGeometryCombine.Intersect => 1,
+            CanvasGeometryCombine.Union => 2,
+            CanvasGeometryCombine.Xor => 3,
+            _ => throw new ArgumentOutOfRangeException(nameof(combine))
+        };
+        PathGeometry left = ClonePath(Path);
+        PathGeometry right = ClonePath(otherGeometry.Path).CreateTransformed(
+            ToMatrix4x4(otherGeometryTransform));
+        var combined = new PathGeometry
+        {
+            IsCombined = true,
+            PathA = left,
+            PathB = right,
+            Op = operation,
+            FillRule = left.FillRule == FillRule.EvenOdd ||
+                right.FillRule == FillRule.EvenOdd
+                ? FillRule.EvenOdd
+                : left.FillRule
+        };
+        return new CanvasGeometry(Device, combined);
+    }
+
+    public CanvasGeometry Transform(Matrix3x2 transform)
+    {
+        ThrowIfDisposed();
+        ValidateMatrix(transform);
+        return new CanvasGeometry(
+            Device,
+            Path.CreateTransformed(ToMatrix4x4(transform)));
+    }
+
     public void Dispose()
     {
         _isDisposed = true;
@@ -275,6 +387,23 @@ public sealed class CanvasGeometry : IDisposable
             throw new ArgumentOutOfRangeException(nameof(first));
         }
     }
+
+    private static void ValidateMatrix(in Matrix3x2 value)
+    {
+        if (!float.IsFinite(value.M11) || !float.IsFinite(value.M12) ||
+            !float.IsFinite(value.M21) || !float.IsFinite(value.M22) ||
+            !float.IsFinite(value.M31) || !float.IsFinite(value.M32))
+        {
+            throw new ArgumentOutOfRangeException(nameof(value));
+        }
+    }
+
+    private static Matrix4x4 ToMatrix4x4(in Matrix3x2 value) =>
+        new(
+            value.M11, value.M12, 0f, 0f,
+            value.M21, value.M22, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            value.M31, value.M32, 0f, 1f);
 
     private void ThrowIfDisposed()
     {
