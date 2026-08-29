@@ -4878,7 +4878,7 @@ boundary, not a fake `d2d1.dll` or a partial COM vtable implementation. COM
 pointers remain confined to the Windows header and process. The portable MIL
 packet retains zero pointers and zero event handles.
 
-ABI v4 and package `ProGPU.Direct2D` bind that producer lifecycle to Dawn's
+ABI v5 and package `ProGPU.Direct2D` bind that producer lifecycle to Dawn's
 same-adapter shared-texture import. `ProGpuDirect2DSurface` owns the native
 surface through Dawn, implements `IProGpuContextTextureLeaseSource`, and
 publishes `TextureChanged` only after one transactional native
@@ -4897,9 +4897,13 @@ The native owner also creates a genuine WinRT `IDirect3DDevice` from its exact
 `IDXGIDevice` via `CreateDirect3D11DeviceFromDXGIDevice`. The regression
 unwraps it through `IDirect3DDxgiInterfaceAccess` and requires the original
 `ID3D11Device` identity, establishing Win2D `CanvasDevice` activation without
-a second device or adapter-crossing copy. The optional activation export now
-uses the registered `Microsoft.Graphics.Canvas.CanvasDevice` WinRT factory and
-returns a caller-owned real CanvasDevice over that exact input. It never owns
+a second device or adapter-crossing copy. The registered CanvasDevice factory's
+official `ICanvasFactoryNative::GetOrCreate` now wraps the provider's exact
+`ID2D1Device1` as a real CanvasDevice and its exact target `ID2D1Bitmap1` as a
+real CanvasRenderTarget. The managed outer producer scope transfers the keyed
+mutex from Dawn to Win2D without beginning a competing native Direct2D context,
+then restores Dawn ownership and invalidates the shared image after the caller
+disposes its CanvasDrawingSession. It never owns
 the caller's apartment initialization and never searches for or loads the
 Win2D DLL; missing package registration and missing WinRT initialization are
 separate typed failures.
@@ -4921,12 +4925,12 @@ are present. SHA-256 is
 `f115ea21f43c218444a2d9fd9ebb622e073a5b3cafb52ec1745990e7984e498c`
 for `progpu_native_direct2d.dll` and
 `cab7f76311cd5115a0f8f84ee680115eb6481c6842eb45a85eea0633c08292fc`
-for `progpu_native_direct2d_tests.exe`. ABI v4 extends the native test with
+for `progpu_native_direct2d_tests.exe`. ABI v5 extends the native test with
 nested/unmatched draw rejection, the zero-key Dawn handoff, and generic
 GUID-based COM `QueryInterface` success plus `E_NOINTERFACE` failure, and
-optional registered Win2D CanvasDevice activation. The Windows build entry
-point now verifies all 13 exports and stages `progpu_native_direct2d.dll` for
-both Windows RIDs. ABI v4 is now independently compiled and executed in the
+optional registered Win2D CanvasDevice and CanvasRenderTarget wrapping. The
+Windows build entry point now verifies all 14 exports and stages
+`progpu_native_direct2d.dll` for both Windows RIDs. The preceding ABI v4 checkpoint was independently compiled and executed in the
 Windows 11 ARM64 Parallels VM with MSVC 19.44 and Windows SDK 26100. The
 regression exits zero and the exact 13-export audit passes. SHA-256 is
 `df5c0b8540fe6f25ac6fbe7691ad300f69aa3cca0fd0ef8aa901e85c0e3a7372`

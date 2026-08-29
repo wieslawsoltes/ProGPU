@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 4U;
+    internal const uint AbiVersion = 5U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -132,6 +132,33 @@ internal static unsafe partial class ProGpuDirect2DNative
             nint surface,
             nint* value,
             int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_try_get_win2d_canvas_render_target")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceTryGetWin2DCanvasRenderTarget(
+            nint surface,
+            nint* value,
+            int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_acquire")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceAcquire(
+        nint surface,
+        ulong acquireKey,
+        uint timeoutMilliseconds);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_release")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceRelease(
+        nint surface,
+        ulong releaseKey);
 
     [LibraryImport(
         LibraryName,

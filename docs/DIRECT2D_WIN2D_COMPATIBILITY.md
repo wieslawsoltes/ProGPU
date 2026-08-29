@@ -34,7 +34,7 @@ binary.
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
 | Direct2D `ID2D1*` API | Foundation implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine `ID2D1Factory1/2`, `ID2D1Device/1`, `ID2D1DeviceContext/1`, and `ID2D1Bitmap/1` objects over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` |
-| Native Win2D binary interop | Activation implemented | The real COM device/context/bitmap resource domain, WinRT `IDirect3DDevice` over the same `IDXGIDevice`, optional registered `CanvasDevice` activation, transactional drawing session, and zero-copy Dawn import are implemented; general `ICanvasFactoryNative` resource wrapping and full device-loss recreation remain gated work |
+| Native Win2D binary interop | Device/target wrapping implemented | The registered factory's official `ICanvasFactoryNative::GetOrCreate` wraps the exact provider `ID2D1Device1` as `CanvasDevice` and exact target `ID2D1Bitmap1` as `CanvasRenderTarget`; typed exclusive producer ownership and zero-copy Dawn import are implemented, while broader resource wrapping and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
 | Arbitrary Win2D native-resource wrapping (`GetOrCreate(IUnknown*)`) off Windows | Unsupported by design | Fail closed; there is no portable COM object identity to preserve |
@@ -98,7 +98,7 @@ is the device argument required by Win2D's
 `CanvasDevice.CreateFromDirect3D11Device`; it avoids a second adapter/resource
 domain and establishes the activation input for the next Canvas factory lane.
 
-ABI v4 includes the managed ownership half as package `ProGPU.Direct2D`.
+ABI v5 includes the managed ownership half as package `ProGPU.Direct2D`.
 `ProGpuDirect2DSurface.Create(...)` validates a live Dawn D3D12 context, exact
 adapter LUID when requested, BGRA8-unorm premultiplied format, dimensions, DPI,
 NT-handle and keyed-mutex flags before importing the allocation through
@@ -145,10 +145,22 @@ delegate synthesis, COM-vtable reimplementation, pixel readback, repack, or
 CPU synchronization loop is used.
 
 `TryAcquireMicrosoftWin2DCanvasDevice(...)` activates the registered
-`Microsoft.Graphics.Canvas.CanvasDevice` factory and calls its typed
-`CreateFromDirect3D11Device` ABI with the exact WinRT device described above.
-Success returns one caller-owned genuine Win2D `CanvasDevice` reference, cached
-by the native surface so repeated queries stay in one resource domain. Missing
+`Microsoft.Graphics.Canvas.CanvasDevice` factory, queries its official typed
+`ICanvasFactoryNative` interface, and calls `GetOrCreate(...)` with the exact
+provider-owned `ID2D1Device1`. Success returns one caller-owned genuine Win2D
+`CanvasDevice` reference, cached by the native surface so repeated queries stay
+in the exact Direct2D resource domain. The same factory wraps the exact target
+`ID2D1Bitmap1` as a genuine `CanvasRenderTarget`.
+
+`TryBeginMicrosoftWin2DProducerAccess(...)` ends Dawn ownership, acquires the
+keyed mutex without beginning a second native Direct2D drawing context, and
+returns the CanvasRenderTarget. The caller creates, uses, and disposes its real
+Win2D `CanvasDrawingSession` before disposing this outer scope. Outer disposal
+releases producer ownership, resumes Dawn access, advances `ContentVersion`,
+and publishes `TextureChanged`. Active Direct2D/Win2D producer scopes and
+deferred ProGPU texture leases reject overlap.
+
+Missing
 Win2D package registration returns `false` plus the activation HRESULT; an
 uninitialized Windows Runtime apartment and an incompatible factory remain
 distinct typed failures. ProGPU deliberately does not call `RoInitialize` or
@@ -158,11 +170,10 @@ the calling thread, and it does not search for or load
 thread that activates or uses the returned WinRT object and must make the Win2D
 package available through their normal package/dependency graph.
 
-This activation seam is not yet the complete native Win2D bridge. The next
-interop boundary is the official `ICanvasFactoryNative::GetOrCreate(...)` and
-`ICanvasResourceWrapperNative::GetNativeResource(...)` contract for wrapping
-the provider's `ID2D1Device1`, `ID2D1DeviceContext1`, and `ID2D1Bitmap1`, plus
-device-loss recreation of the entire cached resource domain.
+This is not yet the complete native Win2D bridge. The next interop boundary is
+`ICanvasResourceWrapperNative::GetNativeResource(...)` identity verification,
+additional supported resource families, and device-loss recreation of the
+entire cached resource domain.
 
 This shape follows Microsoft's documented device-context construction and
 resource-domain model: Direct2D is created from the D3D11 `IDXGIDevice`, the
@@ -379,14 +390,15 @@ for `progpu_native_direct2d.dll` and
 `cab7f76311cd5115a0f8f84ee680115eb6481c6842eb45a85eea0633c08292fc`
 for `progpu_native_direct2d_tests.exe`.
 
-The current ABI v4 gate includes transactional `BeginDraw`/`EndDraw`, safe COM
+The current ABI v5 gate includes transactional `BeginDraw`/`EndDraw`, safe COM
 release, nested/unmatched draw rejection, zero-key Dawn ownership, and a
 generic GUID-based `QueryInterface` export. The latter returns a caller-owned
 reference to any later Direct2D interface supported by the installed Windows
 runtime and reports `E_NOINTERFACE` explicitly; it does not emulate the
-interface or depend on managed COM reflection. ABI v4 additionally gates the
-optional registered Win2D `CanvasDevice` activation seam and its typed
-runtime-unavailable behavior. The gate enforces an exact 13-export allowlist.
+interface or depend on managed COM reflection. ABI v5 additionally gates exact
+`ICanvasFactoryNative` CanvasDevice/CanvasRenderTarget wrapping, the exclusive
+Win2D producer scope, and typed runtime-unavailable behavior. The gate enforces
+an exact 14-export allowlist.
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
@@ -395,11 +407,11 @@ export drift against `eng/progpu-native-direct2d-exports.txt`.
 of reflection/dynamic native loading and CPU copies, lock-order boundary, and
 typed lease contract on every portable managed test host.
 
-ABI v4 is qualified in the Windows 11 ARM64 Parallels VM with MSVC 19.44 and
+The preceding ABI v4 checkpoint is qualified in the Windows 11 ARM64 Parallels VM with MSVC 19.44 and
 Windows SDK 10.0.26100.0. The isolated provider and regression compile and
 link with `/W4 /WX`; the executable exits zero, including the registered-Win2D
 optional-runtime fail-closed branch because that VM has no Canvas/Win2D AppX
-registration, and `dumpbin` reports exactly the 13 allowed exports. SHA-256 is
+registration, and `dumpbin` reports exactly its 13 allowed exports. SHA-256 is
 `df5c0b8540fe6f25ac6fbe7691ad300f69aa3cca0fd0ef8aa901e85c0e3a7372`
 for `progpu_native_direct2d.dll` and
 `a2ba7e30efbe4fa320de92afaf3a27c418f6843caed71acde5a57325dec3d683`

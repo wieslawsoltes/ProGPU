@@ -14,13 +14,20 @@ public sealed unsafe class ProGpuDirect2DSurface :
     IProGpuInvalidatingTextureSource,
     IDisposable
 {
+    private enum ProducerKind
+    {
+        None,
+        Direct2D,
+        MicrosoftWin2D
+    }
+
     private const uint DefaultMutexTimeoutMilliseconds = 5_000U;
 
     private readonly object _gate = new();
     private readonly DawnGpuContext _dawn;
     private readonly DawnExplicitSharedTextureAccess _access;
     private nint _nativeSurface;
-    private bool _drawing;
+    private ProducerKind _producer;
     private bool _disposeRequested;
     private bool _resourcesDisposed;
     private int _leaseCount;
@@ -158,10 +165,10 @@ public sealed unsafe class ProGpuDirect2DSurface :
     }
 
     /// <summary>
-    /// Tries to create a genuine Microsoft Win2D CanvasDevice over this
-    /// surface's exact WinRT IDirect3DDevice. The installed Win2D component
-    /// must be registered in the process package graph, and the calling thread
-    /// must already be initialized for Windows Runtime use.
+    /// Tries to acquire a genuine Microsoft Win2D CanvasDevice wrapping this
+    /// surface's exact ID2D1Device1 through ICanvasFactoryNative. The installed
+    /// Win2D component must be registered in the process package graph, and the
+    /// calling thread must already be initialized for Windows Runtime use.
     /// </summary>
     public bool TryAcquireMicrosoftWin2DCanvasDevice(
         out ProGpuDirect2DComReference? canvasDevice,
@@ -206,10 +213,10 @@ public sealed unsafe class ProGpuDirect2DSurface :
         lock (_gate)
         {
             ThrowIfUnavailable();
-            if (_drawing)
+            if (_producer != ProducerKind.None)
             {
                 throw new InvalidOperationException(
-                    "A Direct2D drawing session is already active.");
+                    "A Direct2D or Win2D producer session is already active.");
             }
             if (_leaseCount != 0)
             {
@@ -219,7 +226,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
 
             context = AcquireInterface(
                 ProGpuDirect2DInterfaceKind.D2D1DeviceContext1);
-            _drawing = true;
+            _producer = ProducerKind.Direct2D;
         }
 
         DawnExplicitSharedTextureAccess? accessToDispose = null;
@@ -248,7 +255,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
         {
             lock (_gate)
             {
-                _drawing = false;
+                _producer = ProducerKind.None;
                 if (dawnAccessEnded)
                 {
                     _disposeRequested = true;
@@ -256,6 +263,102 @@ public sealed unsafe class ProGpuDirect2DSurface :
                 accessToDispose = TryTakeResourcesForDisposal();
             }
             context.Dispose();
+            accessToDispose?.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Tries to acquire exclusive producer ownership and a genuine Microsoft
+    /// Win2D CanvasRenderTarget wrapping this surface's exact ID2D1Bitmap1.
+    /// The caller must create, use, and dispose its Win2D CanvasDrawingSession
+    /// before disposing the returned outer producer scope.
+    /// </summary>
+    public bool TryBeginMicrosoftWin2DProducerAccess(
+        out ProGpuMicrosoftWin2DProducerAccess? producerAccess,
+        out int nativeHResult,
+        uint timeoutMilliseconds = DefaultMutexTimeoutMilliseconds)
+    {
+        ProGpuDirect2DComReference renderTarget;
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            if (_producer != ProducerKind.None)
+            {
+                throw new InvalidOperationException(
+                    "A Direct2D or Win2D producer session is already active.");
+            }
+            if (_leaseCount != 0)
+            {
+                throw new InvalidOperationException(
+                    "Win2D cannot acquire the allocation while deferred ProGPU texture leases are active.");
+            }
+
+            nint value = 0;
+            int resultHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceTryGetWin2DCanvasRenderTarget(
+                    _nativeSurface,
+                    &value,
+                    &resultHResult);
+            nativeHResult = resultHResult;
+            if (status == ProGpuDirect2DStatus.Win2DRuntimeUnavailable)
+            {
+                producerAccess = null;
+                return false;
+            }
+            ThrowIfFailed(
+                "Microsoft Win2D CanvasRenderTarget wrapping",
+                status,
+                nativeHResult);
+            if (value == 0)
+            {
+                throw new InvalidOperationException(
+                    "Win2D wrapping succeeded without returning a CanvasRenderTarget.");
+            }
+            renderTarget = new ProGpuDirect2DComReference(
+                value,
+                ProGpuDirect2DInterfaceKind.Win2DCanvasRenderTarget);
+            _producer = ProducerKind.MicrosoftWin2D;
+        }
+
+        DawnExplicitSharedTextureAccess? accessToDispose = null;
+        bool dawnAccessEnded = true;
+        try
+        {
+            _access.EndAccess();
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceAcquire(
+                    _nativeSurface,
+                    Descriptor.InitialAcquireKey,
+                    timeoutMilliseconds);
+            if (status != ProGpuDirect2DStatus.Success)
+            {
+                _access.BeginAccess(_contentVersion != 0U);
+                dawnAccessEnded = false;
+                ThrowIfFailed(
+                    "Microsoft Win2D producer acquisition",
+                    status,
+                    ProGpuDirect2DNative.SurfaceGetLastHResult(
+                        _nativeSurface));
+            }
+            producerAccess = new ProGpuMicrosoftWin2DProducerAccess(
+                this,
+                renderTarget);
+            return true;
+        }
+        catch
+        {
+            lock (_gate)
+            {
+                _producer = ProducerKind.None;
+                if (dawnAccessEnded)
+                {
+                    _disposeRequested = true;
+                }
+                accessToDispose = TryTakeResourcesForDisposal();
+            }
+            renderTarget.Dispose();
             accessToDispose?.Dispose();
             throw;
         }
@@ -271,7 +374,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
         ArgumentNullException.ThrowIfNull(requiredContext);
         lock (_gate)
         {
-            if (_disposeRequested || _resourcesDisposed || _drawing ||
+            if (_disposeRequested || _resourcesDisposed ||
+                _producer != ProducerKind.None ||
                 !ReferenceEquals(requiredContext, _dawn.Context))
             {
                 texture = null!;
@@ -293,7 +397,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
         ArgumentNullException.ThrowIfNull(requiredContext);
         lock (_gate)
         {
-            if (_disposeRequested || _resourcesDisposed || _drawing ||
+            if (_disposeRequested || _resourcesDisposed ||
+                _producer != ProducerKind.None ||
                 !ReferenceEquals(requiredContext, _dawn.Context))
             {
                 lease = null!;
@@ -323,7 +428,13 @@ public sealed unsafe class ProGpuDirect2DSurface :
         access?.Dispose();
     }
 
-    internal void CompleteDrawing()
+    internal void CompleteDirect2DDrawing() =>
+        CompleteProducerAccess(ProducerKind.Direct2D);
+
+    internal void CompleteMicrosoftWin2DProducerAccess() =>
+        CompleteProducerAccess(ProducerKind.MicrosoftWin2D);
+
+    private void CompleteProducerAccess(ProducerKind expectedProducer)
     {
         EventHandler? changed = null;
         DawnExplicitSharedTextureAccess? accessToDispose = null;
@@ -331,7 +442,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
         nint nativeSurface;
         lock (_gate)
         {
-            if (!_drawing || _resourcesDisposed)
+            if (_producer != expectedProducer || _resourcesDisposed)
             {
                 return;
             }
@@ -345,12 +456,23 @@ public sealed unsafe class ProGpuDirect2DSurface :
             ProGpuDirect2DStatus.InvalidArgument;
         try
         {
-            status = ProGpuDirect2DNative.SurfaceEndDraw(
-                nativeSurface,
-                Descriptor.InitialReleaseKey,
-                &tag1,
-                &tag2,
-                &nativeHResult);
+            if (expectedProducer == ProducerKind.Direct2D)
+            {
+                status = ProGpuDirect2DNative.SurfaceEndDraw(
+                    nativeSurface,
+                    Descriptor.InitialReleaseKey,
+                    &tag1,
+                    &tag2,
+                    &nativeHResult);
+            }
+            else
+            {
+                status = ProGpuDirect2DNative.SurfaceRelease(
+                    nativeSurface,
+                    Descriptor.InitialReleaseKey);
+                nativeHResult =
+                    ProGpuDirect2DNative.SurfaceGetLastHResult(nativeSurface);
+            }
         }
         catch (Exception exception)
         {
@@ -372,15 +494,18 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
         else if (failure is null)
         {
+            string operation = expectedProducer == ProducerKind.Direct2D
+                ? $"EndDraw (tags {tag1}/{tag2})"
+                : "Microsoft Win2D producer release";
             failure = new ProGpuDirect2DException(
-                $"EndDraw (tags {tag1}/{tag2})",
+                operation,
                 status,
                 nativeHResult);
         }
 
         lock (_gate)
         {
-            _drawing = false;
+            _producer = ProducerKind.None;
             if (failure is null)
             {
                 Descriptor = descriptor;
@@ -421,7 +546,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
 
     private DawnExplicitSharedTextureAccess? TryTakeResourcesForDisposal()
     {
-        if (!_disposeRequested || _resourcesDisposed || _drawing ||
+        if (!_disposeRequested || _resourcesDisposed ||
+            _producer != ProducerKind.None ||
             _leaseCount != 0)
         {
             return null;
@@ -633,11 +759,48 @@ public sealed class ProGpuDirect2DDrawingSession : IDisposable
         }
         try
         {
-            owner.CompleteDrawing();
+            owner.CompleteDirect2DDrawing();
         }
         finally
         {
             DeviceContext.Dispose();
+        }
+    }
+}
+
+/// <summary>
+/// Owns exclusive cross-API producer access while Microsoft Win2D draws into
+/// the returned genuine CanvasRenderTarget COM object.
+/// </summary>
+public sealed class ProGpuMicrosoftWin2DProducerAccess : IDisposable
+{
+    private ProGpuDirect2DSurface? _owner;
+
+    internal ProGpuMicrosoftWin2DProducerAccess(
+        ProGpuDirect2DSurface owner,
+        ProGpuDirect2DComReference canvasRenderTarget)
+    {
+        _owner = owner;
+        CanvasRenderTarget = canvasRenderTarget;
+    }
+
+    public ProGpuDirect2DComReference CanvasRenderTarget { get; }
+
+    public void Dispose()
+    {
+        ProGpuDirect2DSurface? owner =
+            Interlocked.Exchange(ref _owner, null);
+        if (owner is null)
+        {
+            return;
+        }
+        try
+        {
+            owner.CompleteMicrosoftWin2DProducerAccess();
+        }
+        finally
+        {
+            CanvasRenderTarget.Dispose();
         }
     }
 }

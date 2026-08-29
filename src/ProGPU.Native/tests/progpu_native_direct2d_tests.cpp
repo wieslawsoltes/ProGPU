@@ -217,6 +217,43 @@ int main()
             "optional Win2D activation did not fail closed");
     }
 
+    void* win2d_render_target_value = nullptr;
+    native_hresult = E_FAIL;
+    progpu_native_direct2d_status win2d_render_target_status =
+        progpu_native_direct2d_surface_try_get_win2d_canvas_render_target(
+            surface,
+            &win2d_render_target_value,
+            &native_hresult);
+    if (win2d_status == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS) {
+        require(
+            win2d_render_target_status ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                win2d_render_target_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D CanvasRenderTarget wrapping failed");
+        ComPtr<IInspectable> win2d_render_target;
+        win2d_render_target.Attach(
+            static_cast<IInspectable*>(win2d_render_target_value));
+        constexpr GUID canvas_render_target_interface_id = {
+            0x2D4C7349,
+            0x9A32,
+            0x41B9,
+            {0xB3, 0xCC, 0xCA, 0xF1, 0xB7, 0xE1, 0x09, 0x9B}
+        };
+        ComPtr<IUnknown> canvas_render_target_interface;
+        require(SUCCEEDED(win2d_render_target->QueryInterface(
+                    canvas_render_target_interface_id,
+                    &canvas_render_target_interface)),
+            "wrapped Win2D object omitted ICanvasRenderTarget");
+    } else {
+        require(
+            win2d_render_target_status ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_WIN2D_RUNTIME_UNAVAILABLE &&
+                win2d_render_target_value == nullptr &&
+                FAILED(native_hresult),
+            "optional Win2D render-target wrapping did not fail closed");
+    }
+
     progpu_native_direct2d_guid context1_id =
         to_portable_guid(__uuidof(ID2D1DeviceContext1));
     void* queried_context_value = nullptr;
