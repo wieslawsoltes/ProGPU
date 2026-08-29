@@ -715,13 +715,25 @@ CPU raster fallback are unchanged. The native compiler performs one bounded,
 order-dependent `O(S + N)` walk over segments `S` and postfix nodes `N`; the
 dependency chain is not an independent-lane SIMD candidate. Pixel coverage
 remains on the shared GPU path rasterizer on Metal, D3D12, Vulkan, and browser
-WebGPU. Signed programs retain one private eight-lane winding value per bounded
-stack entry and do not enter the phased mask-only route. The split form for
+WebGPU. Exact signed programs use three bounded GPU stages: vectorized raw
+winding per leaf, eight-lane postfix evaluation per supersample row, and R8
+coverage packing. They retain 64 signed words per leaf texel plus one two-word
+predicate mask, without CPU readback or repacking. The shared path/clip/glyph atlas staging
+keeps 256-byte row pitch and separately aligns every copy source offset to 512
+bytes for D3D12 placed-texture-footprint parity. The split form for
 ordinary boolean programs still adds one packed-u32 compute entry point and
 bounded phase submissions, with no CPU readback, repacking, or per-child/per-
 item submission. See
 [`NATIVE_MIL_NONZERO_BOOLEAN_WINDING.md`](NATIVE_MIL_NONZERO_BOOLEAN_WINDING.md)
 for the WPF oracle, transform proof, ABI encoding, and gates.
+
+The focused exact-winding hardware gate passed on Apple M3 Pro Metal and the
+Windows 11 ARM64 Parallels WDDM D3D12 adapter with identical dark `5/6/10` and
+cyan `51/209/242` probes for mask cancellation/islands, direct-fill
+cancellation/islands, and Nonzero-versus-EvenOdd double contours. The Windows
+reduction also proved that byte offset 72,960 failed only at the buffer-to-R8
+copy while the 512-aligned offset 73,216 completed; the portable allocator now
+enforces that placement rule for paths, clips, and glyphs.
 
 The provider-resolved Metal hardware gate now uses the same five-node
 `leaf leaf difference leaf xor` program in its retained vector-mask fixture.

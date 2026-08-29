@@ -84,17 +84,55 @@ fail closed when a bound or typed invariant is not satisfied.
 
 Mask-only programs retain the existing compact `array<u32,16>` evaluator and
 the phased two-word sample-mask route for translated-equivalent leaves. Signed
-programs are marked in the GPU program descriptor and use
-`array<WindingRow,16>`, where each `WindingRow` is two `vec4<i32>` values for
-the eight horizontal supersamples. Segment roots are still solved once per
-eight-sample row; the implementation does not regress to eight scalar segment
-walks.
+programs are marked in the GPU program descriptor and execute as three typed
+GPU stages:
 
-Signed programs remain one compute dispatch and never use the phased mask
-buffer, CPU readback, CPU repacking, per-child submission, or managed fallback.
-For `S` visited segments, `N` instructions, sample-grid width `G<=8`, and stack
-bound `D<=16`, raster work is `O(G*(S+N))` per pixel row and private storage is
-`O(D*G)` with fixed compile-time bounds.
+1. `PathSignedWindingLeaf.wgsl` writes each leaf's raw signed winding for all
+   active supersamples. Its analytic segment walker evaluates eight horizontal
+   samples at once through two `vec4<i32>` values, so roots are still solved
+   once per supersample row rather than once per scalar sample.
+2. `PathSignedWindingEvaluate.wgsl` evaluates the bounded postfix program once
+   per supersample row, carrying all eight horizontal lanes in two
+   `vec4<i32>` values, and writes two normalized predicate-mask words per
+   texel.
+3. `PathSignedWindingCoverage.wgsl` counts those masks and packs four
+   adjacent R8 texels into the buffer layout consumed by the atlas copy.
+
+`PathRasterizerCommon.wgsl` owns the shared analytic segment and winding
+algorithms used by the ordinary and signed-leaf modules. CMake composes that
+source fragment into each complete shader at build time; the runtime does not
+concatenate or specialize shader text.
+
+The existing managed `PathAtlas` composes the same common fragment with
+`PathRasterizer.wgsl` and retains its bounded inline signed evaluator. This
+keeps the portable managed implementation behavior-compatible while the native
+C++ backend selects the staged pipelines before dispatch.
+
+The staged route never performs CPU readback, CPU repacking, per-item GPU
+submission, or managed fallback. Leaf ordinal phases are batched across paths;
+the evaluator and pack stages are each one dispatch with the path index in the
+third dispatch dimension. For `S` visited segments, `N` instructions,
+sample-grid width `G<=8`, and stack bound `D<=16`, leaf work is `O(G*S)` per
+pixel, postfix work is `O(G*N)` eight-lane vector operations, and pack work is
+`O(1)`. Staging uses 64 32-bit words per leaf texel plus one two-word predicate
+mask per signed path, with fixed public program and stack bounds. Compared with
+the scalar-per-supersample staging prototype, this uses one eighth as many
+evaluator invocations and one thirty-second as much result storage.
+
+### Portable buffer-to-texture placement
+
+R8 atlas rows use WebGPU's 256-byte `bytesPerRow` alignment. Each path, clip,
+and glyph tile's source offset is independently aligned to 512 bytes, which is
+the stricter D3D12 placed-texture-footprint offset requirement. The row-pitch
+and placement constraints are deliberately separate constants and have a
+permanent layout invariant test.
+
+This distinction was found through a bounded Parallels D3D12 reduction: the
+same signed leaf/evaluate/pack dispatches and path draw remained valid, and the
+device was lost only when an R8 copy began at byte offset 72,960 (256-aligned
+but not 512-aligned). Moving that tile to byte offset 73,216 resolved the loss.
+The implementation therefore fixes the shared path, retained-clip, and glyph
+atlas allocators rather than adding a D3D-only special case.
 
 The work also corrects the shared WGSL interpretation of the already-public
 fill-rule ABI: `NonZero=0` and `EvenOdd=1`. Both `PathRasterizer.wgsl` and
@@ -106,8 +144,8 @@ cancellation.
 
 Native compiler tests require the exact postfix sequence for fill and clip,
 including winding leaves/additions and reflection negation. Backend unit tests
-cover validator rejection, signed GPU program tagging, and the rule that signed
-programs never select the mask-only split route. Managed interop tests preserve
+cover validator rejection, signed GPU program tagging, portable row/offset
+alignment, and exact signed staging non-overlap. Managed interop tests preserve
 the appended enum values and validate public signed clip programs.
 
 The permanent native sample checks these pixels on the real GPU:
@@ -120,7 +158,9 @@ The permanent native sample checks these pixels on the real GPU:
 - the same contours with EvenOdd: dark background.
 
 Apple M3 Pro Metal passed the live readback with exact dark `5,6,10` and cyan
-`51,209,242` values, all 10 configured native CTests passed, and the focused
-managed native-interop suite passed 90/90 with zero build warnings. The exact
-Windows D3D12 archive gate is recorded in the parent native-MIL evidence log
-after qualification of the committed checkpoint.
+`51,209,242` values, and all 10 configured native CTests passed. Windows 11
+ARM64 in Parallels selected `Parallels Display Adapter (WDDM)` through D3D12
+and produced the same six decisive pixels: cancelled mask/path cases and the
+EvenOdd double contour were `5,6,10`; both positive islands and the Nonzero
+double contour were `51,209,242`. That run completed 22 draw calls from 35
+retained commands with 16,096 uploaded vertex bytes and no device loss.

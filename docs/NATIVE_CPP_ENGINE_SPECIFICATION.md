@@ -1220,7 +1220,15 @@ leaf, winding-add, and winding-negate instructions without changing the
 existing enum values or 48-byte node layout. Boolean results are normalized to
 `+1`; only a negative-determinant containing group negates that contribution,
 matching the native WPF contour oracle. Signed programs use the same analytic
-segment walker and a bounded eight-lane winding stack in one GPU dispatch.
+segment walker in a staged GPU pipeline: a vectorized leaf pass records raw
+winding for all supersamples, a bounded postfix pass evaluates eight horizontal
+samples in two `vec4<i32>` lanes per supersample row, and a coverage pass counts
+the resulting masks and packs R8 texels. The stages are
+separate build-time WGSL modules sharing `PathRasterizerCommon.wgsl`; they add
+no runtime shader concatenation, CPU readback, or CPU repacking. Signed staging
+retains 64 words per leaf texel plus a two-word predicate mask. Atlas rows use
+256-byte pitch, while each path, retained-clip, and glyph buffer-copy source is
+independently aligned to 512 bytes for D3D12 placed-footprint compatibility.
 When translated-equivalent mask-only leaves overlap, the renderer keeps
 all 64 leaf supersamples in two packed words per pixel and evaluates the same
 postfix program in a phased GPU combine pass before one final R8 average. Safe
