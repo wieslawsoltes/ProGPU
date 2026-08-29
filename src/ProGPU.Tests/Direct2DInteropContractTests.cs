@@ -42,7 +42,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 4U;",
+            "internal const uint AbiVersion = 5U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -51,6 +51,18 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "progpu_native_direct2d_surface_try_get_win2d_canvas_device",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_try_get_win2d_canvas_render_target",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_acquire",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_release",
             native,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -108,7 +120,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 4U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 5U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -141,6 +153,22 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "RoGetActivationFactory(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IProGpuWin2DCanvasFactoryNative",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "surface.win2d_factory->GetOrCreate(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "surface.d2d_device.Get()",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "surface.d2d_bitmap.Get()",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -222,11 +250,31 @@ public sealed class Direct2DInteropContractTests
             surface,
             StringComparison.Ordinal);
         Assert.Contains(
-            "_drawing = true;\n        }\n\n        DawnExplicitSharedTextureAccess?",
+            "_producer = ProducerKind.Direct2D;\n        }\n\n        DawnExplicitSharedTextureAccess?",
             surface,
             StringComparison.Ordinal);
         Assert.Contains(
             "nativeSurface = _nativeSurface;\n        }\n\n        ulong tag1",
+            surface,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TryBeginMicrosoftWin2DProducerAccess(",
+            surface,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SurfaceTryGetWin2DCanvasRenderTarget(",
+            surface,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SurfaceAcquire(",
+            surface,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SurfaceRelease(",
+            surface,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGpuMicrosoftWin2DProducerAccess",
             surface,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -257,6 +305,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Equal(640U, options.Width);
         Assert.Equal(480U, options.Height);
         Assert.Equal(ProGpuDirect2DInterfaceKind.D2D1DeviceContext1, (ProGpuDirect2DInterfaceKind)13);
+        Assert.Equal(ProGpuDirect2DInterfaceKind.Win2DCanvasRenderTarget, (ProGpuDirect2DInterfaceKind)18);
         Assert.Equal(ProGpuDirect2DStatus.DrawFailed, (ProGpuDirect2DStatus)12);
 
         if (!OperatingSystem.IsWindows())
