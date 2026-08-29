@@ -113,6 +113,13 @@ public sealed class Win2DCanvasCompatibilityTests
             typeof(CanvasBitmap)));
         Assert.True(typeof(IProGpuTextureLeaseSource).IsAssignableFrom(
             typeof(CanvasBitmap)));
+        Assert.True(typeof(ICanvasImage).IsAssignableFrom(
+            typeof(CanvasCommandList)));
+        Assert.NotNull(typeof(CanvasCommandList).GetConstructor(
+            [typeof(ICanvasResourceCreator)]));
+        Assert.NotNull(typeof(CanvasCommandList).GetMethod(
+            nameof(CanvasCommandList.CreateDrawingSession),
+            Type.EmptyTypes));
     }
 
     private static void DrawPinnedSimpleSample(CanvasDrawingSession drawingSession)
