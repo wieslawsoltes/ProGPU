@@ -39,6 +39,55 @@ void require(bool condition) {
     }
 }
 
+void native_texture_copy_staging_uses_portable_d3d12_alignment() {
+    using progpu::native::align_up;
+    using progpu::native::align_up_u64;
+    using progpu::native::path_maximum_sample_count;
+    using progpu::native::path_sample_mask_word_count;
+    using progpu::native::webgpu_copy_offset_alignment;
+    using progpu::native::webgpu_copy_row_alignment;
+
+    require(webgpu_copy_row_alignment == 256U);
+    require(webgpu_copy_offset_alignment == 512U);
+    require(webgpu_copy_offset_alignment % webgpu_copy_row_alignment == 0U);
+    require(path_maximum_sample_count == 64U);
+    require(path_sample_mask_word_count == 2U);
+
+    constexpr std::uint32_t width = 57U;
+    constexpr std::uint32_t height = 19U;
+    constexpr std::uint32_t leaf_count = 3U;
+    const std::uint64_t row_bytes = align_up(
+        width,
+        webgpu_copy_row_alignment);
+    const std::uint64_t first_output_offset = align_up_u64(
+        0U,
+        webgpu_copy_offset_alignment);
+    const std::uint64_t first_output_end =
+        first_output_offset + row_bytes * height;
+    const std::uint64_t signed_source_offset = align_up_u64(
+        first_output_end,
+        webgpu_copy_row_alignment);
+    const std::uint64_t signed_leaf_bytes =
+        static_cast<std::uint64_t>(width) * height *
+        path_maximum_sample_count * sizeof(std::uint32_t);
+    const std::uint64_t signed_result_offset =
+        signed_source_offset + signed_leaf_bytes * leaf_count;
+    const std::uint64_t signed_result_bytes =
+        static_cast<std::uint64_t>(width) * height *
+        path_sample_mask_word_count * sizeof(std::uint32_t);
+    const std::uint64_t next_output_offset = align_up_u64(
+        signed_result_offset + signed_result_bytes,
+        webgpu_copy_offset_alignment);
+
+    require(row_bytes % webgpu_copy_row_alignment == 0U);
+    require(first_output_offset % webgpu_copy_offset_alignment == 0U);
+    require(signed_source_offset >= first_output_end);
+    require(signed_result_offset ==
+        signed_source_offset + signed_leaf_bytes * leaf_count);
+    require(next_output_offset >= signed_result_offset + signed_result_bytes);
+    require(next_output_offset % webgpu_copy_offset_alignment == 0U);
+}
+
 void translated_boolean_programs_split_into_independent_gpu_records() {
     progpu_native_scene_path_fill path{};
     path.boolean_node_count = 3U;
@@ -223,12 +272,15 @@ void translated_boolean_programs_split_into_independent_gpu_records() {
             winding_nodes.data(),
             records,
             translated_segments);
-    require(winding_program.split_leaf_count == 0U);
+    require(winding_program.split_leaf_count == 3U);
     require((winding_program.operation_kind &
         progpu::native::path_boolean::gpu_program_flag) != 0U);
     require((winding_program.operation_kind &
         progpu::native::path_boolean::gpu_signed_winding_program_flag) != 0U);
     require(records.size() == 9U);
+    require(records[0U].pad1 == 0U);
+    require(records[1U].pad1 == 0U);
+    require(records[2U].pad1 == 1U);
     require(records[7U].start_segment ==
         (progpu::native::path_boolean::gpu_winding_leaf_token_flag | 2U));
 
@@ -1316,6 +1368,7 @@ void draw_state_resolution_is_cpu_only_and_bounded() {
 } // namespace
 
 int main() {
+    native_texture_copy_staging_uses_portable_d3d12_alignment();
     translated_boolean_programs_split_into_independent_gpu_records();
     clipped_miter_join_uses_the_wpf_three_triangle_wedge();
     reversal_joins_match_wpf_collapsed_contours();

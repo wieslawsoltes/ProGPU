@@ -1065,7 +1065,7 @@ progpu_native_status render_glyphs(
                     webgpu_copy_row_alignment);
                 output_offset = align_up(
                     output_offset,
-                    webgpu_copy_row_alignment);
+                    webgpu_copy_offset_alignment);
                 const std::uint64_t next_output =
                     static_cast<std::uint64_t>(output_offset) +
                     static_cast<std::uint64_t>(output_bytes_per_row) * height;

@@ -12,7 +12,10 @@ public static class Shaders
 
     public static readonly string GlyphRasterizerShader = ShaderResource.Load(typeof(Shaders), "GlyphRasterizer.wgsl");
 
-    public static readonly string PathRasterizerShader = ShaderResource.Load(typeof(Shaders), "PathRasterizer.wgsl");
+    public static readonly string PathRasterizerShader = string.Concat(
+        ShaderResource.Load(typeof(Shaders), "PathRasterizerCommon.wgsl"),
+        "\n",
+        ShaderResource.Load(typeof(Shaders), "PathRasterizer.wgsl"));
 
     public static readonly string ChartLineShader = ShaderResource.Load(typeof(Shaders), "ChartLine.wgsl");
 
