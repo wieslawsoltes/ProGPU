@@ -1319,6 +1319,109 @@ public sealed class CadSetEntityVisibilityCommand : CadEditCommand
 
 }
 
+/// <summary>Sets signed extrusion thickness for a stable set of SOLID entities.</summary>
+public sealed class CadSetSolidThicknessCommand : CadEditCommand
+{
+    public const int MaximumEntityCount = 65_536;
+
+    private readonly ulong[] _handles;
+    private Solid[]? _solids;
+    private double[]? _previousValues;
+
+    public ReadOnlyMemory<ulong> Handles => _handles;
+
+    public double Thickness { get; }
+
+    public CadSetSolidThicknessCommand(
+        IEnumerable<ulong> handles,
+        double thickness,
+        string description = "Set SOLID thickness")
+        : base(description)
+    {
+        ArgumentNullException.ThrowIfNull(handles);
+        if (!double.IsFinite(thickness))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(thickness),
+                "SOLID thickness must be finite.");
+        }
+
+        _handles = handles
+            .Distinct()
+            .Take(MaximumEntityCount + 1)
+            .ToArray();
+        if (_handles.Length == 0 || _handles.Any(static handle => handle == 0))
+        {
+            throw new ArgumentException(
+                "At least one non-zero entity handle is required.",
+                nameof(handles));
+        }
+        if (_handles.Length > MaximumEntityCount)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(handles),
+                $"At most {MaximumEntityCount:N0} distinct SOLID handles are supported.");
+        }
+
+        Thickness = thickness;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Solid[] solids;
+        if (isRedo)
+        {
+            solids = GetRetainedSolids(document);
+        }
+        else
+        {
+            Entity[] entities = ResolveModelSpaceEntities(document, _handles);
+            solids = new Solid[entities.Length];
+            for (int i = 0; i < entities.Length; i++)
+            {
+                solids[i] = entities[i] as Solid ??
+                    throw new InvalidOperationException(
+                        $"Model-space entity handle {_handles[i]:X} is not a SOLID.");
+            }
+            _solids = solids;
+            _previousValues = CaptureValues(
+                solids,
+                static solid => solid.Thickness);
+        }
+
+        SetValuesTransactional(
+            solids,
+            Thickness,
+            static solid => solid.Thickness,
+            static (solid, value) => solid.Thickness = value);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Solid[] solids = GetRetainedSolids(document);
+        double[] previous = _previousValues ??
+            throw new InvalidOperationException(
+                "The SOLID-thickness command has not been applied.");
+        SetValuesTransactional(
+            solids,
+            previous,
+            static solid => solid.Thickness,
+            static (solid, value) => solid.Thickness = value);
+    }
+
+    private Solid[] GetRetainedSolids(CadDocument document)
+    {
+        Solid[] solids = _solids ??
+            throw new InvalidOperationException(
+                "The SOLID-thickness command has not been applied.");
+        foreach (Solid solid in solids)
+        {
+            ValidateModelSpaceEntity(document, solid);
+        }
+        return solids;
+    }
+}
+
 /// <summary>Assigns one existing layer to a stable set of model-space entities.</summary>
 public sealed class CadSetEntityLayerCommand : CadEditCommand
 {

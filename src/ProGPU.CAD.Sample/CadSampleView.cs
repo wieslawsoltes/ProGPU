@@ -55,10 +55,14 @@ public sealed class CadSampleView : Grid
     private readonly ComboBox _selectionLineTypeSelector;
     private readonly TextBox _selectionLineTypeScaleInput;
     private readonly TextBox _selectionTransparencyInput;
+    private readonly ComboBox _selectionVisibilitySelector;
+    private readonly TextBox _selectionSolidThicknessInput;
     private readonly Button _setSelectionLayerButton;
     private readonly Button _setSelectionLineTypeButton;
     private readonly Button _setSelectionLineTypeScaleButton;
     private readonly Button _setSelectionTransparencyButton;
+    private readonly Button _setSelectionVisibilityButton;
+    private readonly Button _setSelectionSolidThicknessButton;
     private readonly TextBox _moveStepInput;
     private readonly TextBox _rotationStepInput;
     private readonly TextBox _scaleFactorInput;
@@ -70,6 +74,7 @@ public sealed class CadSampleView : Grid
     private bool _isPrintPreview;
     private bool _isRefreshingPageSetups;
     private bool _isRefreshingSelectionProperties;
+    private bool _isSolidThicknessSelection;
     private CadDocumentSession? _selectionPropertyCatalogSession;
     private ulong _selectionPropertyCatalogGeneration = ulong.MaxValue;
 
@@ -97,6 +102,12 @@ public sealed class CadSampleView : Grid
 
     public TextBox SelectionTransparencyInput =>
         _selectionTransparencyInput;
+
+    public ComboBox SelectionVisibilitySelector =>
+        _selectionVisibilitySelector;
+
+    public TextBox SelectionSolidThicknessInput =>
+        _selectionSolidThicknessInput;
 
     /// <summary>
     /// Ordered fully-qualified desktop support directories probed after the
@@ -126,7 +137,7 @@ public sealed class CadSampleView : Grid
             Visibility = Visibility.Collapsed,
         };
         TtfFont font = InterFontFamily.Regular;
-        RowDefinitions.Add(new GridLength(260, GridUnitType.Absolute));
+        RowDefinitions.Add(new GridLength(294, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));
         RowDefinitions.Add(new GridLength(30, GridUnitType.Absolute));
 
@@ -162,6 +173,11 @@ public sealed class CadSampleView : Grid
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
+        var selectionEntityActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
         var selectionStyleActions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -181,6 +197,7 @@ public sealed class CadSampleView : Grid
         toolbarRows.AddChild(editActions);
         toolbarRows.AddChild(transformActions);
         toolbarRows.AddChild(selectionPropertyActions);
+        toolbarRows.AddChild(selectionEntityActions);
         toolbarRows.AddChild(selectionStyleActions);
         toolbarRows.AddChild(printActions);
         toolbarRows.AddChild(pageSetupCreateActions);
@@ -396,6 +413,62 @@ public sealed class CadSampleView : Grid
             30);
         selectionPropertyActions.AddChild(_selectionLineWeightSelector);
         selectionPropertyActions.AddChild(_setSelectionLineWeightButton);
+        selectionEntityActions.AddChild(new TextBlock
+        {
+            Text = "Entity state",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        selectionEntityActions.AddChild(new TextBlock
+        {
+            Text = "Visibility",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _selectionVisibilitySelector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = 100,
+            HeightConstraint = 30,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        PopulateVisibilityChoices(_selectionVisibilitySelector);
+        _setSelectionVisibilityButton = CreateButton(
+            "Set visibility",
+            font,
+            104,
+            30);
+        _setSelectionVisibilityButton.Margin = new Thickness(0, 0, 12, 0);
+        selectionEntityActions.AddChild(_selectionVisibilitySelector);
+        selectionEntityActions.AddChild(_setSelectionVisibilityButton);
+        selectionEntityActions.AddChild(new TextBlock
+        {
+            Text = "SOLID thickness",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _selectionSolidThicknessInput = new TextBox
+        {
+            Font = font,
+            WidthConstraint = 90,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        _setSelectionSolidThicknessButton = CreateButton(
+            "Set thickness",
+            font,
+            104,
+            30);
+        selectionEntityActions.AddChild(_selectionSolidThicknessInput);
+        selectionEntityActions.AddChild(_setSelectionSolidThicknessButton);
 
         selectionStyleActions.AddChild(new TextBlock
         {
@@ -613,6 +686,20 @@ public sealed class CadSampleView : Grid
                 UpdateEditControls();
             }
         };
+        _selectionVisibilitySelector.SelectionChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
+        _selectionSolidThicknessInput.TextChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
         _setSelectionColorButton.Click += (_, _) => SetSelectionColor();
         _setSelectionLineWeightButton.Click += (_, _) =>
             SetSelectionLineWeight();
@@ -622,6 +709,10 @@ public sealed class CadSampleView : Grid
             SetSelectionLineTypeScale();
         _setSelectionTransparencyButton.Click += (_, _) =>
             SetSelectionTransparency();
+        _setSelectionVisibilityButton.Click += (_, _) =>
+            SetSelectionVisibility();
+        _setSelectionSolidThicknessButton.Click += (_, _) =>
+            SetSelectionSolidThickness();
         _createPageSetupButton.Click += (_, _) =>
             CreateNamedPageSetupFromModel();
         _updatePageSetupButton.Click += (_, _) =>
@@ -1275,6 +1366,32 @@ public sealed class CadSampleView : Grid
                 : properties.CommonTransparency is ACadSharp.Transparency transparency
                     ? FormatTransparency(transparency)
                     : "*VARIES*";
+            if (properties.SelectionCount == 0)
+            {
+                _selectionVisibilitySelector.SelectedIndex = 0;
+            }
+            else if (properties.CommonIsInvisible is null)
+            {
+                _selectionVisibilitySelector.SelectedIndex = 1;
+            }
+            else
+            {
+                bool isVisible = !properties.CommonIsInvisible.Value;
+                _selectionVisibilitySelector.SelectedItem =
+                    _selectionVisibilitySelector.Items
+                        .OfType<ComboBoxItem>()
+                        .First(item => item.Tag is bool value && value == isVisible);
+            }
+            _isSolidThicknessSelection =
+                properties.SelectionCount > 0 &&
+                properties.AllSelectedEntitiesAreSolids;
+            _selectionSolidThicknessInput.Text = properties.SelectionCount == 0
+                ? string.Empty
+                : !_isSolidThicknessSelection
+                    ? "N/A"
+                    : properties.CommonSolidThickness is double thickness
+                        ? thickness.ToString("G17", CultureInfo.InvariantCulture)
+                        : "*VARIES*";
         }
         finally
         {
@@ -1512,6 +1629,73 @@ public sealed class CadSampleView : Grid
         catch (Exception exception)
         {
             SetStatus($"Set transparency failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetSelectionVisibility()
+    {
+        if (_isBusy ||
+            (_selectionVisibilitySelector.SelectedItem as ComboBoxItem)?.Tag is not
+                bool isVisible)
+        {
+            return;
+        }
+
+        int selectedCount = _canvas.SelectedHandleCount;
+        try
+        {
+            if (!_canvas.SetSelectionVisibility(isVisible))
+            {
+                SetStatus(
+                    "Setting visibility requires at least one selected entity.");
+                return;
+            }
+            SetStatus(
+                $"Set visibility {(isVisible ? "Visible" : "Hidden")} on " +
+                $"{selectedCount:N0} selected entity(s) as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set visibility failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetSelectionSolidThickness()
+    {
+        if (_isBusy ||
+            !_isSolidThicknessSelection ||
+            !TryParseFiniteInvariantDouble(
+                _selectionSolidThicknessInput.Text,
+                out double thickness))
+        {
+            return;
+        }
+
+        int selectedCount = _canvas.SelectedHandleCount;
+        try
+        {
+            if (!_canvas.SetSelectionSolidThickness(thickness))
+            {
+                SetStatus(
+                    "Setting SOLID thickness requires an all-SOLID selection.");
+                return;
+            }
+            SetStatus(
+                $"Set SOLID thickness " +
+                $"{thickness.ToString("G17", CultureInfo.InvariantCulture)} on " +
+                $"{selectedCount:N0} selected entity(s) as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set SOLID thickness failed: {exception.Message}");
         }
         finally
         {
@@ -2184,6 +2368,9 @@ public sealed class CadSampleView : Grid
         _selectionLineTypeSelector.IsEnabled = canTransform;
         _selectionLineTypeScaleInput.IsEnabled = canTransform;
         _selectionTransparencyInput.IsEnabled = canTransform;
+        _selectionVisibilitySelector.IsEnabled = canTransform;
+        _selectionSolidThicknessInput.IsEnabled =
+            canTransform && _isSolidThicknessSelection;
         _setSelectionColorButton.IsEnabled =
             canTransform &&
             TryParseSelectionColor(
@@ -2208,6 +2395,15 @@ public sealed class CadSampleView : Grid
             canTransform &&
             TryParseTransparency(
                 _selectionTransparencyInput.Text,
+                out _);
+        _setSelectionVisibilityButton.IsEnabled =
+            canTransform &&
+            (_selectionVisibilitySelector.SelectedItem as ComboBoxItem)?.Tag is bool;
+        _setSelectionSolidThicknessButton.IsEnabled =
+            canTransform &&
+            _isSolidThicknessSelection &&
+            TryParseFiniteInvariantDouble(
+                _selectionSolidThicknessInput.Text,
                 out _);
         _moveStepInput.IsEnabled = canUsePlanTools;
         _rotationStepInput.IsEnabled = canUsePlanTools;
@@ -2484,6 +2680,15 @@ public sealed class CadSampleView : Grid
         selector.SelectedIndex = 0;
     }
 
+    private static void PopulateVisibilityChoices(ComboBox selector)
+    {
+        selector.Items.Add(new ComboBoxItem { Text = "—" });
+        selector.Items.Add(new ComboBoxItem { Text = "*VARIES*" });
+        selector.Items.Add(new ComboBoxItem { Text = "Visible", Tag = true });
+        selector.Items.Add(new ComboBoxItem { Text = "Hidden", Tag = false });
+        selector.SelectedIndex = 0;
+    }
+
     private static void AddLineWeightChoice(
         ComboBox selector,
         ACadSharp.LineWeightType value) =>
@@ -2542,6 +2747,16 @@ public sealed class CadSampleView : Grid
             out value) &&
         double.IsFinite(value) &&
         value > 0.0;
+
+    private static bool TryParseFiniteInvariantDouble(
+        string source,
+        out double value) =>
+        double.TryParse(
+            source,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out value) &&
+        double.IsFinite(value);
 
     private static bool TryParseTransparency(
         string source,

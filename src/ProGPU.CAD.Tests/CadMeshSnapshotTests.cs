@@ -678,6 +678,46 @@ public sealed class CadMeshSnapshotTests
             .TriangleCount);
     }
 
+    [Theory]
+    [InlineData(CadDocumentFormat.Dxf)]
+    [InlineData(CadDocumentFormat.Dwg)]
+    public async Task HiddenSolidStateRoundTripsThroughAdvertisedFormats(
+        CadDocumentFormat format)
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        document.Entities.Add(new Solid(
+            new XYZ(0, 0, 0),
+            new XYZ(4, 0, 0),
+            new XYZ(0, 3, 0),
+            new XYZ(4, 3, 0))
+        {
+            IsInvisible = true,
+            Thickness = -2.5,
+        });
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+
+        await store.SaveAsync(
+            new CadDocumentSession(document),
+            stream,
+            format,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            format,
+            sourceName: $"hidden-solid.{format.ToString().ToLowerInvariant()}");
+
+        Solid restored = loaded.Session.Read(source =>
+            Assert.IsType<Solid>(Assert.Single(source.Entities)));
+        Assert.True(restored.IsInvisible);
+        Assert.Equal(-2.5, restored.Thickness, 12);
+        Assert.Empty(new CadSnapshotCompiler()
+            .Compile(loaded.Session)
+            .Entities
+            .ToArray());
+    }
+
     [Fact]
     public void MeshTransformsAndDuplicateRoundTripThroughHistory()
     {

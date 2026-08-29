@@ -3,6 +3,8 @@ using ACadSharp.Blocks;
 using ACadSharp.Entities;
 using ACadSharp.Tables;
 using CSMath;
+using ProGPU.Backend.Native;
+using ProGPU.CAD.Native;
 using ProGPU.Scene;
 using ProGPU.Scene.Native;
 using Xunit;
@@ -285,6 +287,99 @@ public sealed class CadEditingTests
         Assert.False(first.IsInvisible);
         Assert.True(second.IsInvisible);
         Assert.Single(new CadSnapshotCompiler().Compile(session).Entities.ToArray());
+    }
+
+    [Fact]
+    public void SolidThicknessCommandPreflightsTypeAndRestoresSignedValues()
+    {
+        var document = new CadDocument();
+        var first = new Solid(
+            new XYZ(0, 0, 0),
+            new XYZ(4, 0, 0),
+            new XYZ(0, 3, 0),
+            new XYZ(4, 3, 0))
+        {
+            Thickness = 0.0,
+        };
+        var second = new Solid(
+            new XYZ(10, 0, 0),
+            new XYZ(14, 0, 0),
+            new XYZ(10, 3, 0),
+            new XYZ(14, 3, 0))
+        {
+            Thickness = -2.0,
+        };
+        var line = new Line(XYZ.Zero, XYZ.AxisX);
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetSolidThicknessCommand(
+            [first.Handle, second.Handle],
+            3.25));
+
+        Assert.Equal(3.25, first.Thickness, 12);
+        Assert.Equal(3.25, second.Thickness, 12);
+        CadDocumentSnapshot applied = new CadSnapshotCompiler().Compile(session);
+        Assert.Equal(2, applied.Faces.Length);
+        Assert.All(
+            applied.Faces.ToArray(),
+            face => Assert.Equal(3.25, face.Extrusion.Z, 12));
+        Assert.Equal(
+            24,
+            new CadMesh3DSceneCompiler().Compile(applied).Statistics.TriangleCount);
+        CadRecordedMesh3DScene managed =
+            new CadMesh3DSceneCompiler().Compile(applied);
+        var camera = new CadNativeMesh3DCamera(
+            System.Numerics.Matrix4x4.Identity,
+            System.Numerics.Matrix4x4.Identity,
+            new System.Numerics.Vector3(0, 0, 5),
+            new NativeImageRect(0, 0, 640, 480));
+        CadNativeMesh3DScene native = new CadNativeMesh3DSceneCompiler().Compile(
+            managed,
+            camera,
+            sceneId: 93U);
+        Assert.Equal(2, native.DrawBatchCount);
+        Assert.Equal(72, native.VertexCount);
+        Assert.Equal(72, native.IndexCount);
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(0.0, first.Thickness, 12);
+        Assert.Equal(-2.0, second.Thickness, 12);
+        Assert.True(history.TryRedo(out _));
+        Assert.Equal(3.25, first.Thickness, 12);
+
+        ulong generation = session.ContentGeneration;
+        Assert.Throws<InvalidOperationException>(() =>
+            history.Execute(new CadSetSolidThicknessCommand(
+                [first.Handle, line.Handle],
+                -4.0)));
+        Assert.Equal(generation, session.ContentGeneration);
+        Assert.Equal(3.25, first.Thickness, 12);
+        Assert.Equal(3.25, second.Thickness, 12);
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void SolidThicknessCommandRejectsNonFiniteValues(double thickness)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadSetSolidThicknessCommand([1UL], thickness));
+    }
+
+    [Fact]
+    public void SolidThicknessCommandBoundsDistinctEntityCount()
+    {
+        IEnumerable<ulong> handles = Enumerable
+            .Range(1, CadSetSolidThicknessCommand.MaximumEntityCount + 1)
+            .Select(static value => (ulong)value);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadSetSolidThicknessCommand(handles, 1.0));
     }
 
     [Fact]

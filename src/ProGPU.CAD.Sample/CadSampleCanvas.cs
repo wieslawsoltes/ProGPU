@@ -15,7 +15,8 @@ namespace ProGPU.CAD.Sample;
 
 /// <summary>
 /// Common general properties for the current semantic model-space selection.
-/// A null property means selected entities have different persisted values.
+/// A null common property means selected entities have different persisted values;
+/// SOLID thickness also carries an explicit family-applicability flag.
 /// </summary>
 public readonly record struct CadSelectionGeneralProperties(
     int SelectionCount,
@@ -24,7 +25,10 @@ public readonly record struct CadSelectionGeneralProperties(
     string? CommonLayerName,
     string? CommonLineTypeName,
     double? CommonLineTypeScale,
-    Transparency? CommonTransparency);
+    Transparency? CommonTransparency,
+    bool? CommonIsInvisible,
+    bool AllSelectedEntitiesAreSolids,
+    double? CommonSolidThickness);
 
 /// <summary>
 /// Generation-tagged names that can be assigned by the shared property shell.
@@ -217,10 +221,13 @@ public sealed class CadSampleCanvas : FrameworkElement
             _selectionHandleScratch.Length >= requiredHandleScratch
             ? _selectionHandleScratch
             : new int[requiredHandleScratch];
+        int requiredSelectedHandleCapacity = resetViewSelectionAndHistory
+            ? selectionCapacity
+            : Math.Max(selectionCapacity, _selectedHandleCount);
         ulong[] selectedHandles = !resetViewSelectionAndHistory &&
-            _selectedHandles.Length >= selectionCapacity
+            _selectedHandles.Length >= requiredSelectedHandleCapacity
             ? _selectedHandles
-            : new ulong[selectionCapacity];
+            : new ulong[requiredSelectedHandleCapacity];
         ulong[] drawOrderReferenceHandles = !resetViewSelectionAndHistory &&
             _drawOrderReferenceHandles.Length >= selectionCapacity
             ? _drawOrderReferenceHandles
@@ -864,6 +871,9 @@ public sealed class CadSampleCanvas : FrameworkElement
             string? commonLineTypeName = null;
             double? commonLineTypeScale = null;
             Transparency? commonTransparency = null;
+            bool? commonIsInvisible = null;
+            bool allSelectedEntitiesAreSolids = true;
+            double? commonSolidThickness = null;
             for (int i = 0; i < _selectedHandleCount; i++)
             {
                 ulong handle = _selectedHandles[i];
@@ -883,6 +893,15 @@ public sealed class CadSampleCanvas : FrameworkElement
                     commonLineTypeName = entity.LineType.Name;
                     commonLineTypeScale = entity.LineTypeScale;
                     commonTransparency = entity.Transparency;
+                    commonIsInvisible = entity.IsInvisible;
+                    if (entity is Solid firstSolid)
+                    {
+                        commonSolidThickness = firstSolid.Thickness;
+                    }
+                    else
+                    {
+                        allSelectedEntitiesAreSolids = false;
+                    }
                     continue;
                 }
                 if (commonColor is ACadSharp.Color color &&
@@ -919,6 +938,21 @@ public sealed class CadSampleCanvas : FrameworkElement
                 {
                     commonTransparency = null;
                 }
+                if (commonIsInvisible is bool isInvisible &&
+                    isInvisible != entity.IsInvisible)
+                {
+                    commonIsInvisible = null;
+                }
+                if (entity is not Solid solid)
+                {
+                    allSelectedEntitiesAreSolids = false;
+                    commonSolidThickness = null;
+                }
+                else if (commonSolidThickness is double thickness &&
+                    thickness != solid.Thickness)
+                {
+                    commonSolidThickness = null;
+                }
             }
             return new CadSelectionGeneralProperties(
                 _selectedHandleCount,
@@ -927,7 +961,10 @@ public sealed class CadSampleCanvas : FrameworkElement
                 commonLayerName,
                 commonLineTypeName,
                 commonLineTypeScale,
-                commonTransparency);
+                commonTransparency,
+                commonIsInvisible,
+                allSelectedEntitiesAreSolids,
+                allSelectedEntitiesAreSolids ? commonSolidThickness : null);
         });
     }
 
@@ -1092,6 +1129,52 @@ public sealed class CadSampleCanvas : FrameworkElement
             _selectedHandleCount == 1
                 ? "Set selected entity transparency"
                 : $"Set {_selectedHandleCount} selected entity transparencies"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>Sets persisted visibility on the complete selection.</summary>
+    public bool SetSelectionVisibility(bool isVisible)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetEntityVisibilityCommand(
+            new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
+            isInvisible: !isVisible,
+            _selectedHandleCount == 1
+                ? "Set selected entity visibility"
+                : $"Set {_selectedHandleCount} selected entity visibilities"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>Sets one finite signed thickness on an all-SOLID selection.</summary>
+    public bool SetSelectionSolidThickness(double thickness)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetSolidThicknessCommand(
+            new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
+            thickness,
+            _selectedHandleCount == 1
+                ? "Set selected SOLID thickness"
+                : $"Set {_selectedHandleCount} selected SOLID thicknesses"));
         RecompileAfterEdit(session);
         return true;
     }

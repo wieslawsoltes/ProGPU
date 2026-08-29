@@ -765,6 +765,150 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void SharedViewEditsVisibilityAndSignedSolidThicknessWithTypedState()
+    {
+        var document = new CadDocument();
+        var first = new Solid(
+            new XYZ(-10, -2, 0),
+            new XYZ(-6, -2, 0),
+            new XYZ(-10, 2, 0),
+            new XYZ(-6, 2, 0))
+        {
+            Thickness = 1.0,
+        };
+        var second = new Solid(
+            new XYZ(6, -2, 0),
+            new XYZ(10, -2, 0),
+            new XYZ(6, 2, 0),
+            new XYZ(10, 2, 0))
+        {
+            Thickness = -1.0,
+        };
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_360, 900));
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 1_360, 610));
+            CadPlanViewport viewport = view.Canvas.CurrentViewport;
+            Drag(
+                view.Canvas,
+                viewport.WorldToScreen(new CadPoint3D(-12, 4, 0)),
+                viewport.WorldToScreen(new CadPoint3D(12, -4, 0)));
+            Button setVisibility = FindButton(view, "Set visibility");
+            Button setThickness = FindButton(view, "Set thickness");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+
+            CadSelectionGeneralProperties mixed =
+                view.Canvas.CaptureSelectionGeneralProperties();
+            Assert.Equal(2, mixed.SelectionCount);
+            Assert.False(mixed.CommonIsInvisible);
+            Assert.True(mixed.AllSelectedEntitiesAreSolids);
+            Assert.Null(mixed.CommonSolidThickness);
+            Assert.Equal("Visible", SelectedPropertyText(
+                view.SelectionVisibilitySelector));
+            Assert.Equal("*VARIES*", view.SelectionSolidThicknessInput.Text);
+            Assert.False(setThickness.IsEnabled);
+
+            second.IsInvisible = true;
+            Assert.Null(view.Canvas
+                .CaptureSelectionGeneralProperties()
+                .CommonIsInvisible);
+            second.IsInvisible = false;
+
+            view.SelectionVisibilitySelector.SelectedItem =
+                view.SelectionVisibilitySelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Tag is false);
+            Assert.True(setVisibility.IsEnabled);
+            PressEnter(setVisibility);
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.True(first.IsInvisible);
+            Assert.True(second.IsInvisible);
+            Assert.Empty(view.Canvas.CurrentSnapshot!.Entities.ToArray());
+            Assert.Equal(2, view.Canvas.SelectedHandleCount);
+            Assert.Equal("Hidden", SelectedPropertyText(
+                view.SelectionVisibilitySelector));
+
+            PressEnter(undo);
+            Assert.False(first.IsInvisible);
+            Assert.False(second.IsInvisible);
+            Assert.Equal(2, view.Canvas.CurrentSnapshot!.Entities.Length);
+            Assert.Equal(2, view.Canvas.SelectedHandleCount);
+
+            view.SelectionSolidThicknessInput.Text = "-2.5";
+            Assert.True(setThickness.IsEnabled);
+            PressEnter(setThickness);
+
+            Assert.Equal(3UL, session.ContentGeneration);
+            Assert.Equal(-2.5, first.Thickness, 12);
+            Assert.Equal(-2.5, second.Thickness, 12);
+            Assert.Equal("-2.5", view.SelectionSolidThicknessInput.Text);
+            Assert.Equal(
+                24,
+                new CadMesh3DSceneCompiler()
+                    .Compile(view.Canvas.CurrentSnapshot!)
+                    .Statistics
+                    .TriangleCount);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Set SOLID thickness -2.5 on 2 selected entity(s)",
+                    StringComparison.Ordinal));
+
+            PressEnter(undo);
+            Assert.Equal("*VARIES*", view.SelectionSolidThicknessInput.Text);
+            Assert.Equal(1.0, first.Thickness, 12);
+            Assert.Equal(-1.0, second.Thickness, 12);
+            PressEnter(redo);
+            Assert.Equal("-2.5", view.SelectionSolidThicknessInput.Text);
+
+            foreach (string invalid in new[]
+            {
+                string.Empty,
+                "*VARIES*",
+                "NaN",
+                "Infinity",
+            })
+            {
+                view.SelectionSolidThicknessInput.Text = invalid;
+                Assert.False(setThickness.IsEnabled);
+            }
+            foreach (string valid in new[] { "0", "4.25", "-4.25" })
+            {
+                view.SelectionSolidThicknessInput.Text = valid;
+                Assert.True(setThickness.IsEnabled);
+            }
+
+            var lineDocument = new CadDocument();
+            lineDocument.Entities.Add(new Line(
+                new XYZ(-5, 0, 0),
+                new XYZ(5, 0, 0)));
+            view.Canvas.Load(new CadDocumentSession(lineDocument));
+            view.Canvas.Arrange(new Rect(0, 0, 1_360, 610));
+            Click(view.Canvas, view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
+
+            CadSelectionGeneralProperties inapplicable =
+                view.Canvas.CaptureSelectionGeneralProperties();
+            Assert.False(inapplicable.AllSelectedEntitiesAreSolids);
+            Assert.Null(inapplicable.CommonSolidThickness);
+            Assert.Equal("N/A", view.SelectionSolidThicknessInput.Text);
+            Assert.False(view.SelectionSolidThicknessInput.IsEnabled);
+            Assert.False(setThickness.IsEnabled);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewRefreshesPropertyCatalogAcrossEqualGenerationDocuments()
     {
         var firstDocument = new CadDocument();

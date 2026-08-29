@@ -886,7 +886,7 @@ an interactive browser picker/download smoke remains open.
   abstract mutation methods are internal so consumers cannot inject an
   unvalidated arbitrary command behind the history contract.
 - The first commands translate, rotate, uniformly scale, or copy a deduplicated
-  stable handle set, set entity visibility, assign an existing layer, and add or
+  stable handle set, set entity visibility or SOLID thickness, assign an existing layer, and add or
   remove one model-space entity, or atomically remove a bounded semantic handle set.
   They resolve every model-space handle before mutation,
   preserve the original visibility vector, apply the inverse transform for
@@ -983,8 +983,24 @@ an interactive browser picker/download smoke remains open.
   entity/table identity, and reverses an already-applied setter prefix on
   failure. Snapshot coverage verifies the existing integer-to-alpha rendering
   contract after the edit.
+- Persisted entity visibility uses the common ACadSharp `IsInvisible` flag and
+  retains the complete prior Boolean vector. An invisible edit is consumed by
+  the existing immutable-snapshot filter before both managed and native replay.
+  The shared canvas now preserves selected semantic handles when every selected
+  object becomes invisible, even though the rebuilt snapshot has no selectable
+  records, so Show and Undo remain available without inventing a hidden-object
+  render proxy.
+- Signed thickness editing is deliberately typed to `SOLID`. The bounded
+  `CadSetSolidThicknessCommand` accepts at most 65,536 distinct model-space
+  handles, resolves and verifies the complete set as `Solid` before mutation,
+  rejects non-finite targets, and retains each exact prior signed value. Apply,
+  Undo, and Redo are O(S) time and O(S) retained storage for S selected SOLIDs,
+  publish one generation, and feed the already-shared exact closed-shell
+  snapshot, managed Mesh3D, and native Mesh3D paths. A mixed entity-family set
+  fails before any thickness changes.
 - The shared desktop/browser shell exposes common Color, Lineweight, Layer,
-  Linetype, Linetype Scale, and Transparency values for the complete
+  Linetype, Linetype Scale, Transparency, persisted Visibility, and all-SOLID
+  signed Thickness values for the complete
   semantic-root selection. A synchronous session read resolves each selected
   handle to an exact model-space entity, returns `null` for a mixed common
   value, and allocates no per-call collection. Capture is O(S) time and O(1)
@@ -1002,12 +1018,29 @@ an interactive browser picker/download smoke remains open.
   and every Autodesk standard physical width. Layer and linetype choices are
   limited to loaded document definitions. Linetype scale accepts only a finite
   positive invariant value. Transparency accepts `ByLayer`, `ByBlock`, or an
-  integer from 0 through 90. One Set action applies one typed command to all
+  integer from 0 through 90. Visibility offers persisted Visible/Hidden states.
+  SOLID thickness accepts any finite invariant signed value, including zero;
+  the field displays `N/A` and remains disabled unless every selected semantic
+  root is a SOLID. One Set action applies one typed command to all
   selected roots, publishes one generation, preserves selection, recompiles
   the retained picture transactionally, and enters the existing Undo/Redo
   history. Mixed/common UI state, catalog replacement, rendered color,
-  lineweight, linetype scale, and alpha, selection retention, Undo/Redo, and
-  DXF/DWG persistence have matched regressions.
+  lineweight, linetype scale, alpha, visibility filtering, signed shell
+  extrusion, selection retention across a fully hidden rebuild, managed/native
+  scene acceptance, Undo/Redo, and DXF/DWG persistence have matched regressions.
+- The clean-room behavior sources for these two additions are Autodesk's public
+  [common DXF entity group codes](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-3610039E-27D1-4E23-B6D3-7E60B22BB5BD.htm),
+  where group 60 is the persisted entity visibility flag, and the
+  [managed SOLID thickness contract](https://help.autodesk.com/cloudhelp/2022/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Solid_Thickness.html),
+  where group 39 is a read/write double along the entity normal. ProGPU adopts
+  those authored properties and the existing ACadSharp persistence model. It
+  rejects treating temporary `HIDEOBJECTS` isolation as persisted visibility,
+  exposing thickness for entity families whose snapshot lowering still reports
+  nonzero thickness as unsupported, or presenting Material/Plot Style controls
+  before a ProGPU renderer/plot-policy consumer exists. This slice changes no
+  shaders, native ABI, C++ topology, cache key, upload policy, text system, or
+  managed/native rendering algorithm: both implementations consume the same
+  rebuilt immutable snapshot and existing SOLID shell stream.
 - The shared shell also exposes `Copy −X`, `Copy +X`, `Copy −Y`, and `Copy +Y`
   against the same finite positive invariant WCS step used by Move. One action
   copies the complete semantic-root selection through one bounded command and
