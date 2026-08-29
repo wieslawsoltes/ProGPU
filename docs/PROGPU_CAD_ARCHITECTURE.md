@@ -974,35 +974,50 @@ an interactive browser picker/download smoke remains open.
   entity/table identity, and reverses an already-applied setter prefix on
   failure. Snapshot coverage verifies the existing integer-to-alpha rendering
   contract after the edit.
-- The shared desktop/browser shell exposes common Color and Lineweight values
-  for the complete semantic-root selection. A synchronous session read resolves
-  each selected handle to an exact model-space entity, returns `null` for a
-  mixed common value, and allocates no per-call collection. Capture is O(S) time
-  and O(1) auxiliary storage for S selected handles. The UI displays
-  `*VARIES*`, disables the controls for an empty selection, retains unsupported
-  `ByDIPs` as a diagnostic-only display value, and uses only dynamic theme
-  brushes. Color input accepts `ByLayer`, `ByBlock`, ACI 1–255, or exact
-  `#RRGGBB`; lineweight offers `ByLayer`, `ByBlock`, `Default`, and every
-  Autodesk standard physical width. One Set action applies one typed command to
-  all selected roots, publishes one generation, preserves selection, recompiles
+- The shared desktop/browser shell exposes common Color, Lineweight, Layer,
+  Linetype, Linetype Scale, and Transparency values for the complete
+  semantic-root selection. A synchronous session read resolves each selected
+  handle to an exact model-space entity, returns `null` for a mixed common
+  value, and allocates no per-call collection. Capture is O(S) time and O(1)
+  auxiliary storage for S selected handles. Layer and linetype choices are
+  detached, generation-tagged, case-insensitively sorted snapshots of the
+  definitions already loaded in the document. Each catalog family is bounded
+  to 65,536 entries and 1,048,576 UTF-16 characters; capture is
+  O(L log L + T log T) time and O(L + T + C) owned storage for L layers, T
+  linetypes, and C characters, and the shell rebuilds it only when the document
+  identity or generation changes.
+- The UI displays `*VARIES*`, disables the controls for an empty selection,
+  retains unsupported `ByDIPs` as a diagnostic-only display value, and uses
+  only dynamic theme brushes. Color input accepts `ByLayer`, `ByBlock`, ACI
+  1–255, or exact `#RRGGBB`; lineweight offers `ByLayer`, `ByBlock`, `Default`,
+  and every Autodesk standard physical width. Layer and linetype choices are
+  limited to loaded document definitions. Linetype scale accepts only a finite
+  positive invariant value. Transparency accepts `ByLayer`, `ByBlock`, or an
+  integer from 0 through 90. One Set action applies one typed command to all
+  selected roots, publishes one generation, preserves selection, recompiles
   the retained picture transactionally, and enters the existing Undo/Redo
-  history. Mixed/common UI state, rendered true-color/physical-width style,
-  selection retention, Undo/Redo, and DXF/DWG persistence have matched
-  regressions.
+  history. Mixed/common UI state, catalog replacement, rendered color,
+  lineweight, linetype scale, and alpha, selection retention, Undo/Redo, and
+  DXF/DWG persistence have matched regressions.
 - The clean-room behavior source for this workflow is Autodesk's public
   [Properties palette](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DidYouKnow/files/GUID-94C065AB-FF9E-4752-B778-23D2FBB87E18.htm),
   [object-property tools](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-81585857-F1B1-44F4-B7D0-B707386CA721.htm),
   [color contract](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Core/files/GUID-14BC039D-238D-4D9E-921B-F4015F96CB54.htm),
   [CHPROP contract](https://help.autodesk.com/view/ACD/2026/ENU/?caas=caas%2Fdocumentation%2FACDLT%2F2014%2FENU%2Ffiles%2FGUID-05074362-FC4B-4582-A7A4-B3F6170BB4A7-htm.html),
+  [general-property contract](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-99AFB412-CEE2-4C12-B7AD-E11E9389BBF9.htm),
+  [linetype and scale contract](https://help.autodesk.com/view/ACD/2026/ENU/?guid=GUID-20B4D4B3-1220-426A-847B-5BBE36EC6FDF),
   and [standard lineweight list](https://help.autodesk.com/cloudhelp/2024/CHS/AutoCAD-ActiveX-Reference/files/GUID-DE1AC635-BCEA-428F-A47D-80E35EFE55D3.htm).
   ProGPU adopts common-property application to every selected object and the
-  visible mixed-value state. It adapts the palette to bounded explicit Set
-  actions and disables empty-selection defaults; color books are rejected
-  because the pinned document contract does not expose them. No foreign source
-  text or implementation structure was used. This is an application surface
-  over the existing property commands and immutable style compiler, not a
-  renderer, shader, native ABI, or resource-lifetime change; the existing
-  shared retained scene remains the managed/native parity boundary.
+  visible mixed-value state, and lists only drawing-resident layer and linetype
+  definitions. It adapts the palette to bounded explicit Set actions and
+  disables empty-selection defaults. Automatic `.lin` loading is rejected at
+  this seam because loading external definitions requires a separate typed,
+  bounded file workflow; color books are rejected because the pinned document
+  contract does not expose them. No foreign source text or implementation
+  structure was used. This is an application surface over the existing
+  property commands and immutable style compiler, not a renderer, shader,
+  native ABI, or resource-lifetime change; the existing shared retained scene
+  remains the managed/native parity boundary.
 - A direct session edit from another owner invalidates both history branches.
   The expected generation is checked again under the document lock so a race
   cannot apply an undo to the wrong document state. Failed resolution or command

@@ -20,11 +20,43 @@ namespace ProGPU.CAD.Sample;
 public readonly record struct CadSelectionGeneralProperties(
     int SelectionCount,
     ACadSharp.Color? CommonColor,
-    LineWeightType? CommonLineWeight);
+    LineWeightType? CommonLineWeight,
+    string? CommonLayerName,
+    string? CommonLineTypeName,
+    double? CommonLineTypeScale,
+    Transparency? CommonTransparency);
+
+/// <summary>
+/// Generation-tagged names that can be assigned by the shared property shell.
+/// The catalog owns no mutable ACadSharp objects.
+/// </summary>
+public sealed class CadSelectionPropertyCatalog
+{
+    private readonly string[] _layerNames;
+    private readonly string[] _lineTypeNames;
+
+    public ulong ContentGeneration { get; }
+
+    public ReadOnlyMemory<string> LayerNames => _layerNames;
+
+    public ReadOnlyMemory<string> LineTypeNames => _lineTypeNames;
+
+    internal CadSelectionPropertyCatalog(
+        ulong contentGeneration,
+        string[] layerNames,
+        string[] lineTypeNames)
+    {
+        ContentGeneration = contentGeneration;
+        _layerNames = layerNames;
+        _lineTypeNames = lineTypeNames;
+    }
+}
 
 /// <summary>Shared interactive retained CAD surface used by desktop and browser hosts.</summary>
 public sealed class CadSampleCanvas : FrameworkElement
 {
+    private const int MaxSelectionPropertyCatalogEntries = 65_536;
+    private const int MaxSelectionPropertyCatalogCharacters = 1_048_576;
     private readonly Brush _background = new ThemeResourceBrush("CardBackground");
     private readonly Pen _border = new(
         new ThemeResourceBrush("ControlBorder"),
@@ -786,8 +818,8 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
-    /// Captures the common persisted color and lineweight of the semantic
-    /// selection without retaining ACadSharp objects.
+    /// Captures common persisted general properties of the semantic selection
+    /// without retaining ACadSharp objects.
     /// </summary>
     public CadSelectionGeneralProperties CaptureSelectionGeneralProperties()
     {
@@ -802,6 +834,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             ACadSharp.Color? commonColor = null;
             LineWeightType? commonLineWeight = null;
+            string? commonLayerName = null;
+            string? commonLineTypeName = null;
+            double? commonLineTypeScale = null;
+            Transparency? commonTransparency = null;
             for (int i = 0; i < _selectedHandleCount; i++)
             {
                 ulong handle = _selectedHandles[i];
@@ -817,6 +853,10 @@ public sealed class CadSampleCanvas : FrameworkElement
                 {
                     commonColor = entity.Color;
                     commonLineWeight = entity.LineWeight;
+                    commonLayerName = entity.Layer.Name;
+                    commonLineTypeName = entity.LineType.Name;
+                    commonLineTypeScale = entity.LineTypeScale;
+                    commonTransparency = entity.Transparency;
                     continue;
                 }
                 if (commonColor is ACadSharp.Color color &&
@@ -829,11 +869,66 @@ public sealed class CadSampleCanvas : FrameworkElement
                 {
                     commonLineWeight = null;
                 }
+                if (commonLayerName is not null &&
+                    !commonLayerName.Equals(
+                        entity.Layer.Name,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    commonLayerName = null;
+                }
+                if (commonLineTypeName is not null &&
+                    !commonLineTypeName.Equals(
+                        entity.LineType.Name,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    commonLineTypeName = null;
+                }
+                if (commonLineTypeScale is double lineTypeScale &&
+                    lineTypeScale != entity.LineTypeScale)
+                {
+                    commonLineTypeScale = null;
+                }
+                if (commonTransparency is Transparency transparency &&
+                    transparency.Value != entity.Transparency.Value)
+                {
+                    commonTransparency = null;
+                }
             }
             return new CadSelectionGeneralProperties(
                 _selectedHandleCount,
                 commonColor,
-                commonLineWeight);
+                commonLineWeight,
+                commonLayerName,
+                commonLineTypeName,
+                commonLineTypeScale,
+                commonTransparency);
+        });
+    }
+
+    /// <summary>
+    /// Captures bounded, deterministically ordered layer and linetype names
+    /// without retaining their mutable table entries.
+    /// </summary>
+    public CadSelectionPropertyCatalog CaptureSelectionPropertyCatalog()
+    {
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        return session.Capture((document, generation) =>
+        {
+            string[] layers = document.Layers
+                .Select(static layer => layer.Name)
+                .ToArray();
+            string[] lineTypes = document.LineTypes
+                .Select(static lineType => lineType.Name)
+                .ToArray();
+            ValidateSelectionPropertyCatalog(layers, "layer");
+            ValidateSelectionPropertyCatalog(lineTypes, "linetype");
+            Array.Sort(layers, StringComparer.OrdinalIgnoreCase);
+            Array.Sort(lineTypes, StringComparer.OrdinalIgnoreCase);
+            return new CadSelectionPropertyCatalog(
+                generation,
+                layers,
+                lineTypes);
         });
     }
 
@@ -881,6 +976,122 @@ public sealed class CadSampleCanvas : FrameworkElement
                 : $"Set {_selectedHandleCount} selected entity lineweights"));
         RecompileAfterEdit(session);
         return true;
+    }
+
+    /// <summary>Assigns one existing layer to the complete selection.</summary>
+    public bool SetSelectionLayer(string layerName)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetEntityLayerCommand(
+            new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
+            layerName,
+            _selectedHandleCount == 1
+                ? "Set selected entity layer"
+                : $"Set {_selectedHandleCount} selected entity layers"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>Assigns one loaded linetype to the complete selection.</summary>
+    public bool SetSelectionLineType(string lineTypeName)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetEntityLineTypeCommand(
+            new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
+            lineTypeName,
+            _selectedHandleCount == 1
+                ? "Set selected entity linetype"
+                : $"Set {_selectedHandleCount} selected entity linetypes"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>Sets one positive linetype scale on the complete selection.</summary>
+    public bool SetSelectionLineTypeScale(double lineTypeScale)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetEntityLineTypeScaleCommand(
+            new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
+            lineTypeScale,
+            _selectedHandleCount == 1
+                ? "Set selected entity linetype scale"
+                : $"Set {_selectedHandleCount} selected entity linetype scales"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>Sets one authored transparency on the complete selection.</summary>
+    public bool SetSelectionTransparency(Transparency transparency)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetEntityTransparencyCommand(
+            new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
+            transparency,
+            _selectedHandleCount == 1
+                ? "Set selected entity transparency"
+                : $"Set {_selectedHandleCount} selected entity transparencies"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    private static void ValidateSelectionPropertyCatalog(
+        string[] names,
+        string kind)
+    {
+        if (names.Length > MaxSelectionPropertyCatalogEntries)
+        {
+            throw new InvalidOperationException(
+                $"The CAD {kind} catalog exceeds the supported " +
+                $"{MaxSelectionPropertyCatalogEntries:N0}-entry limit.");
+        }
+
+        int characters = 0;
+        foreach (string name in names)
+        {
+            if (name.Length > MaxSelectionPropertyCatalogCharacters - characters)
+            {
+                throw new InvalidOperationException(
+                    $"The CAD {kind} catalog exceeds the supported " +
+                    $"{MaxSelectionPropertyCatalogCharacters:N0}-character limit.");
+            }
+            characters += name.Length;
+        }
     }
 
     /// <summary>

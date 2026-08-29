@@ -50,6 +50,14 @@ public sealed class CadSampleView : Grid
     private readonly ComboBox _selectionLineWeightSelector;
     private readonly Button _setSelectionColorButton;
     private readonly Button _setSelectionLineWeightButton;
+    private readonly ComboBox _selectionLayerSelector;
+    private readonly ComboBox _selectionLineTypeSelector;
+    private readonly TextBox _selectionLineTypeScaleInput;
+    private readonly TextBox _selectionTransparencyInput;
+    private readonly Button _setSelectionLayerButton;
+    private readonly Button _setSelectionLineTypeButton;
+    private readonly Button _setSelectionLineTypeScaleButton;
+    private readonly Button _setSelectionTransparencyButton;
     private readonly TextBox _moveStepInput;
     private readonly TextBox _rotationStepInput;
     private readonly TextBox _scaleFactorInput;
@@ -61,6 +69,8 @@ public sealed class CadSampleView : Grid
     private bool _isPrintPreview;
     private bool _isRefreshingPageSetups;
     private bool _isRefreshingSelectionProperties;
+    private CadDocumentSession? _selectionPropertyCatalogSession;
+    private ulong _selectionPropertyCatalogGeneration = ulong.MaxValue;
 
     public CadShxFontCatalog ShxFonts => _canvas.ShxFonts;
 
@@ -76,6 +86,16 @@ public sealed class CadSampleView : Grid
 
     public ComboBox SelectionLineWeightSelector =>
         _selectionLineWeightSelector;
+
+    public ComboBox SelectionLayerSelector => _selectionLayerSelector;
+
+    public ComboBox SelectionLineTypeSelector => _selectionLineTypeSelector;
+
+    public TextBox SelectionLineTypeScaleInput =>
+        _selectionLineTypeScaleInput;
+
+    public TextBox SelectionTransparencyInput =>
+        _selectionTransparencyInput;
 
     /// <summary>
     /// Ordered fully-qualified desktop support directories probed after the
@@ -105,7 +125,7 @@ public sealed class CadSampleView : Grid
             Visibility = Visibility.Collapsed,
         };
         TtfFont font = InterFontFamily.Regular;
-        RowDefinitions.Add(new GridLength(226, GridUnitType.Absolute));
+        RowDefinitions.Add(new GridLength(260, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));
         RowDefinitions.Add(new GridLength(30, GridUnitType.Absolute));
 
@@ -141,6 +161,11 @@ public sealed class CadSampleView : Grid
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
+        var selectionStyleActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
         var printActions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -155,6 +180,7 @@ public sealed class CadSampleView : Grid
         toolbarRows.AddChild(editActions);
         toolbarRows.AddChild(transformActions);
         toolbarRows.AddChild(selectionPropertyActions);
+        toolbarRows.AddChild(selectionStyleActions);
         toolbarRows.AddChild(printActions);
         toolbarRows.AddChild(pageSetupCreateActions);
         toolbar.Child = toolbarRows;
@@ -345,6 +371,84 @@ public sealed class CadSampleView : Grid
         selectionPropertyActions.AddChild(_selectionLineWeightSelector);
         selectionPropertyActions.AddChild(_setSelectionLineWeightButton);
 
+        selectionStyleActions.AddChild(new TextBlock
+        {
+            Text = "Layer",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _selectionLayerSelector = CreatePropertySelector(font, 150);
+        _setSelectionLayerButton = CreateButton("Set layer", font, 84, 30);
+        _setSelectionLayerButton.Margin = new Thickness(0, 0, 12, 0);
+        selectionStyleActions.AddChild(_selectionLayerSelector);
+        selectionStyleActions.AddChild(_setSelectionLayerButton);
+        selectionStyleActions.AddChild(new TextBlock
+        {
+            Text = "Linetype",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _selectionLineTypeSelector = CreatePropertySelector(font, 150);
+        _setSelectionLineTypeButton = CreateButton(
+            "Set linetype",
+            font,
+            100,
+            30);
+        _setSelectionLineTypeButton.Margin = new Thickness(0, 0, 12, 0);
+        selectionStyleActions.AddChild(_selectionLineTypeSelector);
+        selectionStyleActions.AddChild(_setSelectionLineTypeButton);
+        selectionStyleActions.AddChild(new TextBlock
+        {
+            Text = "LT scale",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _selectionLineTypeScaleInput = new TextBox
+        {
+            Font = font,
+            WidthConstraint = 90,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        _setSelectionLineTypeScaleButton = CreateButton(
+            "Set scale",
+            font,
+            88,
+            30);
+        _setSelectionLineTypeScaleButton.Margin = new Thickness(0, 0, 12, 0);
+        selectionStyleActions.AddChild(_selectionLineTypeScaleInput);
+        selectionStyleActions.AddChild(_setSelectionLineTypeScaleButton);
+        selectionStyleActions.AddChild(new TextBlock
+        {
+            Text = "Transparency",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _selectionTransparencyInput = new TextBox
+        {
+            Font = font,
+            WidthConstraint = 90,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        _setSelectionTransparencyButton = CreateButton(
+            "Set transparency",
+            font,
+            128,
+            30);
+        selectionStyleActions.AddChild(_selectionTransparencyInput);
+        selectionStyleActions.AddChild(_setSelectionTransparencyButton);
+
         printActions.AddChild(new TextBlock
         {
             Text = "Page setup",
@@ -455,9 +559,43 @@ public sealed class CadSampleView : Grid
                 UpdateEditControls();
             }
         };
+        _selectionLayerSelector.SelectionChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
+        _selectionLineTypeSelector.SelectionChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
+        _selectionLineTypeScaleInput.TextChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
+        _selectionTransparencyInput.TextChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
         _setSelectionColorButton.Click += (_, _) => SetSelectionColor();
         _setSelectionLineWeightButton.Click += (_, _) =>
             SetSelectionLineWeight();
+        _setSelectionLayerButton.Click += (_, _) => SetSelectionLayer();
+        _setSelectionLineTypeButton.Click += (_, _) => SetSelectionLineType();
+        _setSelectionLineTypeScaleButton.Click += (_, _) =>
+            SetSelectionLineTypeScale();
+        _setSelectionTransparencyButton.Click += (_, _) =>
+            SetSelectionTransparency();
         _createPageSetupButton.Click += (_, _) =>
             CreateNamedPageSetupFromModel();
         _updatePageSetupButton.Click += (_, _) =>
@@ -514,6 +652,7 @@ public sealed class CadSampleView : Grid
                 ShowPlanView(clearPreview: true);
             }
             RefreshPageSetups(preserveSelection: true);
+            RefreshSelectionPropertyControls();
         };
         RebuildMesh3DView();
         RefreshPageSetups(preserveSelection: false);
@@ -1059,6 +1198,7 @@ public sealed class CadSampleView : Grid
         _isRefreshingSelectionProperties = true;
         try
         {
+            RefreshSelectionPropertyCatalog();
             CadSelectionGeneralProperties properties =
                 _canvas.CaptureSelectionGeneralProperties();
             _selectionColorInput.Text = properties.SelectionCount == 0
@@ -1087,11 +1227,74 @@ public sealed class CadSampleView : Grid
                         .First(item => item.Tag is ACadSharp.LineWeightType value &&
                             value == properties.CommonLineWeight.Value);
             }
+            SelectNamedPropertyChoice(
+                _selectionLayerSelector,
+                properties.SelectionCount,
+                properties.CommonLayerName);
+            SelectNamedPropertyChoice(
+                _selectionLineTypeSelector,
+                properties.SelectionCount,
+                properties.CommonLineTypeName);
+            _selectionLineTypeScaleInput.Text = properties.SelectionCount == 0
+                ? string.Empty
+                : properties.CommonLineTypeScale is double lineTypeScale
+                    ? lineTypeScale.ToString("G17", CultureInfo.InvariantCulture)
+                    : "*VARIES*";
+            _selectionTransparencyInput.Text = properties.SelectionCount == 0
+                ? string.Empty
+                : properties.CommonTransparency is ACadSharp.Transparency transparency
+                    ? FormatTransparency(transparency)
+                    : "*VARIES*";
         }
         finally
         {
             _isRefreshingSelectionProperties = false;
         }
+    }
+
+    private void RefreshSelectionPropertyCatalog()
+    {
+        CadDocumentSnapshot? snapshot = _canvas.CurrentSnapshot;
+        CadDocumentSession? session = _canvas.CurrentSession;
+        if (snapshot is null || session is null ||
+            (ReferenceEquals(session, _selectionPropertyCatalogSession) &&
+                snapshot.ContentGeneration == _selectionPropertyCatalogGeneration))
+        {
+            return;
+        }
+
+        CadSelectionPropertyCatalog catalog =
+            _canvas.CaptureSelectionPropertyCatalog();
+        PopulateNamedPropertyChoices(
+            _selectionLayerSelector,
+            catalog.LayerNames.Span);
+        PopulateNamedPropertyChoices(
+            _selectionLineTypeSelector,
+            catalog.LineTypeNames.Span);
+        _selectionPropertyCatalogSession = session;
+        _selectionPropertyCatalogGeneration = catalog.ContentGeneration;
+    }
+
+    private static void SelectNamedPropertyChoice(
+        ComboBox selector,
+        int selectionCount,
+        string? commonName)
+    {
+        if (selectionCount == 0)
+        {
+            selector.SelectedIndex = 0;
+            return;
+        }
+        if (commonName is null)
+        {
+            selector.SelectedIndex = 1;
+            return;
+        }
+
+        selector.SelectedItem = selector.Items
+            .OfType<ComboBoxItem>()
+            .First(item => item.Tag is string name &&
+                name.Equals(commonName, StringComparison.OrdinalIgnoreCase));
     }
 
     private void SetSelectionColor()
@@ -1150,6 +1353,135 @@ public sealed class CadSampleView : Grid
         catch (Exception exception)
         {
             SetStatus($"Set lineweight failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetSelectionLayer()
+    {
+        if (_isBusy ||
+            (_selectionLayerSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                string layerName)
+        {
+            return;
+        }
+
+        int selectedCount = _canvas.SelectedHandleCount;
+        try
+        {
+            if (!_canvas.SetSelectionLayer(layerName))
+            {
+                SetStatus("Setting layer requires at least one selected entity.");
+                return;
+            }
+            SetStatus(
+                $"Set layer {layerName} on {selectedCount:N0} " +
+                "selected entity(s) as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set layer failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetSelectionLineType()
+    {
+        if (_isBusy ||
+            (_selectionLineTypeSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                string lineTypeName)
+        {
+            return;
+        }
+
+        int selectedCount = _canvas.SelectedHandleCount;
+        try
+        {
+            if (!_canvas.SetSelectionLineType(lineTypeName))
+            {
+                SetStatus("Setting linetype requires at least one selected entity.");
+                return;
+            }
+            SetStatus(
+                $"Set linetype {lineTypeName} on {selectedCount:N0} " +
+                "selected entity(s) as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set linetype failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetSelectionLineTypeScale()
+    {
+        if (_isBusy ||
+            !TryParsePositiveInvariantDouble(
+                _selectionLineTypeScaleInput.Text,
+                out double lineTypeScale))
+        {
+            return;
+        }
+
+        int selectedCount = _canvas.SelectedHandleCount;
+        try
+        {
+            if (!_canvas.SetSelectionLineTypeScale(lineTypeScale))
+            {
+                SetStatus(
+                    "Setting linetype scale requires at least one selected entity.");
+                return;
+            }
+            SetStatus(
+                $"Set linetype scale " +
+                $"{lineTypeScale.ToString("G17", CultureInfo.InvariantCulture)} " +
+                $"on {selectedCount:N0} selected entity(s) as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set linetype scale failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetSelectionTransparency()
+    {
+        if (_isBusy ||
+            !TryParseTransparency(
+                _selectionTransparencyInput.Text,
+                out ACadSharp.Transparency transparency))
+        {
+            return;
+        }
+
+        int selectedCount = _canvas.SelectedHandleCount;
+        try
+        {
+            if (!_canvas.SetSelectionTransparency(transparency))
+            {
+                SetStatus(
+                    "Setting transparency requires at least one selected entity.");
+                return;
+            }
+            SetStatus(
+                $"Set transparency {FormatTransparency(transparency)} on " +
+                $"{selectedCount:N0} selected entity(s) as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set transparency failed: {exception.Message}");
         }
         finally
         {
@@ -1775,6 +2107,10 @@ public sealed class CadSampleView : Grid
         _deleteButton.IsEnabled = canTransform;
         _selectionColorInput.IsEnabled = canTransform;
         _selectionLineWeightSelector.IsEnabled = canTransform;
+        _selectionLayerSelector.IsEnabled = canTransform;
+        _selectionLineTypeSelector.IsEnabled = canTransform;
+        _selectionLineTypeScaleInput.IsEnabled = canTransform;
+        _selectionTransparencyInput.IsEnabled = canTransform;
         _setSelectionColorButton.IsEnabled =
             canTransform &&
             TryParseSelectionColor(
@@ -1784,6 +2120,22 @@ public sealed class CadSampleView : Grid
             canTransform &&
             (_selectionLineWeightSelector.SelectedItem as ComboBoxItem)?.Tag is
                 ACadSharp.LineWeightType;
+        _setSelectionLayerButton.IsEnabled =
+            canTransform &&
+            (_selectionLayerSelector.SelectedItem as ComboBoxItem)?.Tag is string;
+        _setSelectionLineTypeButton.IsEnabled =
+            canTransform &&
+            (_selectionLineTypeSelector.SelectedItem as ComboBoxItem)?.Tag is string;
+        _setSelectionLineTypeScaleButton.IsEnabled =
+            canTransform &&
+            TryParsePositiveInvariantDouble(
+                _selectionLineTypeScaleInput.Text,
+                out _);
+        _setSelectionTransparencyButton.IsEnabled =
+            canTransform &&
+            TryParseTransparency(
+                _selectionTransparencyInput.Text,
+                out _);
         _moveStepInput.IsEnabled = canUsePlanTools;
         _rotationStepInput.IsEnabled = canUsePlanTools;
         _scaleFactorInput.IsEnabled = canUsePlanTools;
@@ -2003,6 +2355,39 @@ public sealed class CadSampleView : Grid
         }
     }
 
+    private static ComboBox CreatePropertySelector(TtfFont font, float width)
+    {
+        var selector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = width,
+            HeightConstraint = 30,
+            MaxDropDownHeight = 256,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        PopulateNamedPropertyChoices(selector, ReadOnlySpan<string>.Empty);
+        return selector;
+    }
+
+    private static void PopulateNamedPropertyChoices(
+        ComboBox selector,
+        ReadOnlySpan<string> names)
+    {
+        selector.Items.Clear();
+        selector.Items.Add(new ComboBoxItem { Text = "—" });
+        selector.Items.Add(new ComboBoxItem { Text = "*VARIES*" });
+        foreach (string name in names)
+        {
+            selector.Items.Add(new ComboBoxItem
+            {
+                Text = name,
+                Tag = name,
+            });
+        }
+        selector.SelectedIndex = 0;
+    }
+
     private static void PopulateLineWeightChoices(ComboBox selector)
     {
         selector.Items.Add(new ComboBoxItem { Text = "—" });
@@ -2055,6 +2440,60 @@ public sealed class CadSampleView : Grid
         return color.IsTrueColor
             ? $"#{color.R:X2}{color.G:X2}{color.B:X2}"
             : $"ACI {color.Index.ToString(CultureInfo.InvariantCulture)}";
+    }
+
+    private static string FormatTransparency(ACadSharp.Transparency transparency)
+    {
+        if (transparency.IsByLayer)
+        {
+            return "ByLayer";
+        }
+        if (transparency.IsByBlock)
+        {
+            return "ByBlock";
+        }
+        return transparency.Value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static bool TryParsePositiveInvariantDouble(
+        string source,
+        out double value) =>
+        double.TryParse(
+            source,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out value) &&
+        double.IsFinite(value) &&
+        value > 0.0;
+
+    private static bool TryParseTransparency(
+        string source,
+        out ACadSharp.Transparency transparency)
+    {
+        string value = source.Trim();
+        if (string.Equals(value, "ByLayer", StringComparison.OrdinalIgnoreCase))
+        {
+            transparency = ACadSharp.Transparency.ByLayer;
+            return true;
+        }
+        if (string.Equals(value, "ByBlock", StringComparison.OrdinalIgnoreCase))
+        {
+            transparency = ACadSharp.Transparency.ByBlock;
+            return true;
+        }
+        if (short.TryParse(
+                value,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out short explicitValue) &&
+            explicitValue is >= 0 and <= 90)
+        {
+            transparency = new ACadSharp.Transparency(explicitValue);
+            return true;
+        }
+
+        transparency = default;
+        return false;
     }
 
     private static bool TryParseSelectionColor(

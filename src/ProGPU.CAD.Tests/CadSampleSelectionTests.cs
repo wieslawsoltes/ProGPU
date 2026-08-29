@@ -459,6 +459,290 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void SelectionExtendedPropertiesCaptureCatalogAndRoundTripRenderedEdits()
+    {
+        var document = new CadDocument();
+        var targetLayer = new Layer("TARGET_LAYER")
+        {
+            Color = new ACadSharp.Color(3),
+        };
+        var targetLineType = new LineType("TARGET_LTYPE");
+        document.Layers.Add(targetLayer);
+        document.LineTypes.Add(targetLineType);
+        var first = new Line(new XYZ(-10, 0, 0), new XYZ(-5, 0, 0))
+        {
+            LineTypeScale = 1.0,
+            Transparency = Transparency.ByLayer,
+        };
+        var second = new Line(new XYZ(5, 0, 0), new XYZ(10, 0, 0))
+        {
+            Layer = targetLayer,
+            LineType = LineType.Continuous,
+            LineTypeScale = 2.0,
+            Transparency = Transparency.ByBlock,
+        };
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Drag(
+                canvas,
+                viewport.WorldToScreen(new CadPoint3D(-12, 2, 0)),
+                viewport.WorldToScreen(new CadPoint3D(12, -2, 0)));
+
+            CadSelectionGeneralProperties mixed =
+                canvas.CaptureSelectionGeneralProperties();
+            Assert.Null(mixed.CommonLayerName);
+            Assert.Null(mixed.CommonLineTypeName);
+            Assert.Null(mixed.CommonLineTypeScale);
+            Assert.Null(mixed.CommonTransparency);
+            CadSelectionPropertyCatalog catalog =
+                canvas.CaptureSelectionPropertyCatalog();
+            Assert.Equal(0UL, catalog.ContentGeneration);
+            Assert.Equal(
+                catalog.LayerNames.ToArray().OrderBy(static name => name),
+                catalog.LayerNames.ToArray());
+            Assert.Contains("TARGET_LAYER", catalog.LayerNames.ToArray());
+            Assert.Contains("TARGET_LTYPE", catalog.LineTypeNames.ToArray());
+
+            Assert.True(canvas.SetSelectionLayer("target_layer"));
+            Assert.True(canvas.SetSelectionLineType("target_ltype"));
+            Assert.True(canvas.SetSelectionLineTypeScale(2.5));
+            Assert.True(canvas.SetSelectionTransparency(new Transparency(30)));
+
+            Assert.Equal(4UL, session.ContentGeneration);
+            Assert.Equal(2, canvas.SelectedHandleCount);
+            Assert.Same(targetLayer, first.Layer);
+            Assert.Same(targetLayer, second.Layer);
+            Assert.Same(targetLineType, first.LineType);
+            Assert.Same(targetLineType, second.LineType);
+            Assert.Equal(2.5, first.LineTypeScale);
+            Assert.Equal(2.5, second.LineTypeScale);
+            Assert.Equal((short)30, first.Transparency.Value);
+            Assert.Equal((short)30, second.Transparency.Value);
+            CadSelectionGeneralProperties common =
+                canvas.CaptureSelectionGeneralProperties();
+            Assert.Equal("TARGET_LAYER", common.CommonLayerName);
+            Assert.Equal("TARGET_LTYPE", common.CommonLineTypeName);
+            Assert.Equal(2.5, common.CommonLineTypeScale);
+            Assert.Equal((short)30, common.CommonTransparency?.Value);
+            Assert.All(canvas.CurrentSnapshot!.Styles.ToArray(), style =>
+            {
+                Assert.Equal("TARGET_LTYPE", style.LineTypeName);
+                Assert.Equal(2.5, style.LineTypeScale);
+                Assert.Equal((byte)178, style.Alpha);
+            });
+
+            Assert.True(canvas.TryUndo());
+            Assert.True(canvas.TryUndo());
+            Assert.True(canvas.TryUndo());
+            Assert.True(canvas.TryUndo());
+            CadSelectionGeneralProperties undone =
+                canvas.CaptureSelectionGeneralProperties();
+            Assert.Null(undone.CommonLayerName);
+            Assert.Null(undone.CommonLineTypeName);
+            Assert.Null(undone.CommonLineTypeScale);
+            Assert.Null(undone.CommonTransparency);
+
+            Assert.True(canvas.TryRedo());
+            Assert.True(canvas.TryRedo());
+            Assert.True(canvas.TryRedo());
+            Assert.True(canvas.TryRedo());
+            Assert.Equal(12UL, session.ContentGeneration);
+            Assert.Equal((short)30, second.Transparency.Value);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewEditsExtendedPropertiesAndRefreshesMixedState()
+    {
+        var document = new CadDocument();
+        var targetLayer = new Layer("UI_LAYER");
+        var targetLineType = new LineType("UI_LTYPE");
+        document.Layers.Add(targetLayer);
+        document.LineTypes.Add(targetLineType);
+        var first = new Line(new XYZ(-10, 0, 0), new XYZ(-5, 0, 0))
+        {
+            Transparency = Transparency.ByLayer,
+        };
+        var second = new Line(new XYZ(5, 0, 0), new XYZ(10, 0, 0))
+        {
+            Layer = targetLayer,
+            LineType = LineType.Continuous,
+            LineTypeScale = 2.0,
+            Transparency = Transparency.ByBlock,
+        };
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 900));
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 1_280, 610));
+            CadPlanViewport viewport = view.Canvas.CurrentViewport;
+            Drag(
+                view.Canvas,
+                viewport.WorldToScreen(new CadPoint3D(-12, 2, 0)),
+                viewport.WorldToScreen(new CadPoint3D(12, -2, 0)));
+            Button setLayer = FindButton(view, "Set layer");
+            Button setLineType = FindButton(view, "Set linetype");
+            Button setScale = FindButton(view, "Set scale");
+            Button setTransparency = FindButton(view, "Set transparency");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+
+            Assert.Equal(
+                "*VARIES*",
+                Assert.IsType<ComboBoxItem>(
+                    view.SelectionLayerSelector.SelectedItem).Text);
+            Assert.Equal(
+                "*VARIES*",
+                Assert.IsType<ComboBoxItem>(
+                    view.SelectionLineTypeSelector.SelectedItem).Text);
+            Assert.Equal("*VARIES*", view.SelectionLineTypeScaleInput.Text);
+            Assert.Equal("*VARIES*", view.SelectionTransparencyInput.Text);
+            Assert.False(setLayer.IsEnabled);
+            Assert.False(setLineType.IsEnabled);
+            Assert.False(setScale.IsEnabled);
+            Assert.False(setTransparency.IsEnabled);
+
+            view.SelectionLayerSelector.SelectedItem =
+                FindNamedPropertyChoice(view.SelectionLayerSelector, "UI_LAYER");
+            Assert.True(setLayer.IsEnabled);
+            PressEnter(setLayer);
+            Assert.Same(targetLayer, first.Layer);
+
+            view.SelectionLineTypeSelector.SelectedItem =
+                FindNamedPropertyChoice(view.SelectionLineTypeSelector, "UI_LTYPE");
+            Assert.True(setLineType.IsEnabled);
+            PressEnter(setLineType);
+            Assert.Same(targetLineType, second.LineType);
+
+            view.SelectionLineTypeScaleInput.Text = "2.5";
+            Assert.True(setScale.IsEnabled);
+            PressEnter(setScale);
+            Assert.Equal(2.5, first.LineTypeScale);
+
+            view.SelectionTransparencyInput.Text = "30";
+            Assert.True(setTransparency.IsEnabled);
+            PressEnter(setTransparency);
+
+            Assert.Equal(4UL, session.ContentGeneration);
+            Assert.Equal(2, view.Canvas.SelectedHandleCount);
+            Assert.Equal((short)30, first.Transparency.Value);
+            Assert.Equal("UI_LAYER", SelectedPropertyText(view.SelectionLayerSelector));
+            Assert.Equal("UI_LTYPE", SelectedPropertyText(view.SelectionLineTypeSelector));
+            Assert.Equal("2.5", view.SelectionLineTypeScaleInput.Text);
+            Assert.Equal("30", view.SelectionTransparencyInput.Text);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Set transparency 30 on 2 selected entity(s)",
+                    StringComparison.Ordinal));
+
+            PressEnter(undo);
+            PressEnter(undo);
+            PressEnter(undo);
+            PressEnter(undo);
+            Assert.Equal("*VARIES*", SelectedPropertyText(view.SelectionLayerSelector));
+            Assert.Equal("*VARIES*", SelectedPropertyText(view.SelectionLineTypeSelector));
+            Assert.Equal("*VARIES*", view.SelectionLineTypeScaleInput.Text);
+            Assert.Equal("*VARIES*", view.SelectionTransparencyInput.Text);
+
+            PressEnter(redo);
+            PressEnter(redo);
+            PressEnter(redo);
+            PressEnter(redo);
+            Assert.Equal("UI_LAYER", SelectedPropertyText(view.SelectionLayerSelector));
+            Assert.Equal("UI_LTYPE", SelectedPropertyText(view.SelectionLineTypeSelector));
+            Assert.Equal("2.5", view.SelectionLineTypeScaleInput.Text);
+            Assert.Equal("30", view.SelectionTransparencyInput.Text);
+
+            foreach (string invalid in new[]
+            {
+                string.Empty,
+                "*VARIES*",
+                "0",
+                "-1",
+                "NaN",
+                "Infinity",
+            })
+            {
+                view.SelectionLineTypeScaleInput.Text = invalid;
+                Assert.False(setScale.IsEnabled);
+            }
+            foreach (string invalid in new[]
+            {
+                string.Empty,
+                "*VARIES*",
+                "-1",
+                "91",
+                "1.5",
+                "Opaque",
+            })
+            {
+                view.SelectionTransparencyInput.Text = invalid;
+                Assert.False(setTransparency.IsEnabled);
+            }
+            foreach (string valid in new[] { "ByLayer", "byblock", "0", "90" })
+            {
+                view.SelectionTransparencyInput.Text = valid;
+                Assert.True(setTransparency.IsEnabled);
+            }
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewRefreshesPropertyCatalogAcrossEqualGenerationDocuments()
+    {
+        var firstDocument = new CadDocument();
+        firstDocument.Layers.Add(new Layer("FIRST_LAYER"));
+        firstDocument.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
+        var secondDocument = new CadDocument();
+        secondDocument.Layers.Add(new Layer("SECOND_LAYER"));
+        secondDocument.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 900));
+            view.Canvas.Load(new CadDocumentSession(firstDocument));
+            Assert.Contains(
+                view.SelectionLayerSelector.Items.OfType<ComboBoxItem>(),
+                item => item.Tag is string name && name == "FIRST_LAYER");
+
+            view.Canvas.Load(new CadDocumentSession(secondDocument));
+
+            Assert.DoesNotContain(
+                view.SelectionLayerSelector.Items.OfType<ComboBoxItem>(),
+                item => item.Tag is string name && name == "FIRST_LAYER");
+            Assert.Contains(
+                view.SelectionLayerSelector.Items.OfType<ComboBoxItem>(),
+                item => item.Tag is string name && name == "SECOND_LAYER");
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewAcceptsCompleteSupportedColorSyntaxAndStandardLineweights()
     {
         var document = new CadDocument();
@@ -539,10 +823,14 @@ public sealed class CadSampleSelectionTests
     [Theory]
     [InlineData(CadDocumentFormat.Dxf)]
     [InlineData(CadDocumentFormat.Dwg)]
-    public async Task SelectionPropertyEditsSurviveDxfAndDwgRoundTrip(
+    public async Task SelectionGeneralPropertyEditsSurviveDxfAndDwgRoundTrip(
         CadDocumentFormat format)
     {
         var document = new CadDocument(ACadVersion.AC1032);
+        var layer = new Layer("PROPERTY_LAYER");
+        var lineType = new LineType("PROPERTY_LTYPE");
+        document.Layers.Add(layer);
+        document.LineTypes.Add(lineType);
         var line = new Line(XYZ.Zero, XYZ.AxisX);
         document.Entities.Add(line);
         var session = new CadDocumentSession(document);
@@ -553,6 +841,18 @@ public sealed class CadSampleSelectionTests
         history.Execute(new CadSetEntityLineWeightCommand(
             [line.Handle],
             LineWeightType.W100));
+        history.Execute(new CadSetEntityLayerCommand(
+            [line.Handle],
+            layer.Name));
+        history.Execute(new CadSetEntityLineTypeCommand(
+            [line.Handle],
+            lineType.Name));
+        history.Execute(new CadSetEntityLineTypeScaleCommand(
+            [line.Handle],
+            2.5));
+        history.Execute(new CadSetEntityTransparencyCommand(
+            [line.Handle],
+            new Transparency(30)));
         var store = new CadDocumentStore();
         using var stream = new MemoryStream();
 
@@ -566,15 +866,30 @@ public sealed class CadSampleSelectionTests
             stream,
             format,
             sourceName: $"selection-properties.{format.ToString().ToLowerInvariant()}");
-        (ACadSharp.Color Color, LineWeightType LineWeight) restored =
+        (ACadSharp.Color Color,
+            LineWeightType LineWeight,
+            string Layer,
+            string LineType,
+            double LineTypeScale,
+            short Transparency) restored =
             loaded.Session.Read(loadedDocument =>
             {
                 Entity entity = loadedDocument.Entities.Single();
-                return (entity.Color, entity.LineWeight);
+                return (
+                    entity.Color,
+                    entity.LineWeight,
+                    entity.Layer.Name,
+                    entity.LineType.Name,
+                    entity.LineTypeScale,
+                    entity.Transparency.Value);
             });
 
         Assert.Equal(new ACadSharp.Color(12, 34, 56), restored.Color);
         Assert.Equal(LineWeightType.W100, restored.LineWeight);
+        Assert.Equal("PROPERTY_LAYER", restored.Layer);
+        Assert.Equal("PROPERTY_LTYPE", restored.LineType);
+        Assert.Equal(2.5, restored.LineTypeScale);
+        Assert.Equal((short)30, restored.Transparency);
     }
 
     [Fact]
@@ -1125,6 +1440,17 @@ public sealed class CadSampleSelectionTests
             view.Canvas.FireUnloaded();
         }
     }
+
+    private static ComboBoxItem FindNamedPropertyChoice(
+        ComboBox selector,
+        string name) =>
+        selector.Items
+            .OfType<ComboBoxItem>()
+            .Single(item => item.Tag is string value &&
+                value.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+    private static string SelectedPropertyText(ComboBox selector) =>
+        Assert.IsType<ComboBoxItem>(selector.SelectedItem).Text;
 
     private static Button FindButton(Visual root, string label) =>
         DescendantsAndSelf(root)
