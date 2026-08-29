@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Geometry;
 using ProGPU.Backend;
 using Windows.UI;
 
@@ -76,6 +77,54 @@ internal static class Win2DCanvasQualification
                 0.5f,
                 CanvasImageInterpolation.NearestNeighbor);
             drawingSession.DrawImage(commandList, 176, 8);
+            using (var pathBuilder = new CanvasPathBuilder(device))
+            {
+                pathBuilder.BeginFigure(16, 156);
+                pathBuilder.AddLine(88, 156);
+                pathBuilder.AddQuadraticBezier(
+                    new System.Numerics.Vector2(104, 176),
+                    new System.Numerics.Vector2(88, 196));
+                pathBuilder.AddCubicBezier(
+                    new System.Numerics.Vector2(68, 208),
+                    new System.Numerics.Vector2(36, 208),
+                    new System.Numerics.Vector2(16, 196));
+                pathBuilder.AddLine(16, 156);
+                pathBuilder.EndFigure(CanvasFigureLoop.Closed);
+                using CanvasGeometry path =
+                    CanvasGeometry.CreatePath(pathBuilder);
+                drawingSession.FillGeometry(
+                    path,
+                    Color.FromArgb(255, 0, 96, 255));
+                drawingSession.DrawGeometry(
+                    path,
+                    Color.FromArgb(255, 255, 255, 255),
+                    2);
+            }
+            using (CanvasGeometry clip = CanvasGeometry.CreateCircle(
+                       device,
+                       152,
+                       180,
+                       20))
+            using (drawingSession.CreateLayer(1f, clip))
+            {
+                drawingSession.FillRectangle(
+                    128,
+                    156,
+                    48,
+                    48,
+                    Color.FromArgb(255, 0, 255, 0));
+            }
+            using (drawingSession.CreateLayer(
+                       1f,
+                       new Windows.Foundation.Rect(192, 156, 24, 48)))
+            {
+                drawingSession.FillRectangle(
+                    192,
+                    156,
+                    48,
+                    48,
+                    Color.FromArgb(255, 255, 0, 0));
+            }
             // Win2D executes DrawImage eagerly. ProGPU records until session
             // close, so its typed texture lease must preserve the source
             // without a staging readback after the public resource is closed.
@@ -117,6 +166,11 @@ internal static class Win2DCanvasQualification
             expectedBlue: true,
             expectedRed: true);
         RequirePixel(pixels, 180, 12, 255, 255, 0, 255);
+        RequirePixel(pixels, 52, 180, 255, 96, 0, 255);
+        RequirePixel(pixels, 152, 180, 0, 255, 0, 255);
+        RequirePixel(pixels, 128, 156, 0, 0, 0, 0);
+        RequirePixel(pixels, 204, 180, 0, 0, 255, 255);
+        RequirePixel(pixels, 228, 180, 0, 0, 0, 0);
         Require(
             CountYellowPixels(pixels, 90, 90, 230, 140) > 20,
             "The pinned Win2D text draw did not produce a visible yellow glyph run.");
@@ -124,7 +178,7 @@ internal static class Win2DCanvasQualification
             first.ExecutionPath == ProGpuCanvasExecutionPath.NativeCppWebGpu &&
             second.ExecutionPath == ProGpuCanvasExecutionPath.NativeCppWebGpu &&
             first.SubmissionCount > 0 && second.SubmissionCount > 0 &&
-            first.NativeDrawCount >= 6 && second.NativeDrawCount >= 1,
+            first.NativeDrawCount >= 10 && second.NativeDrawCount >= 1,
             $"Unexpected native Canvas metrics: first={first}, second={second}.");
 
         string? outputDirectory = ReadOptionalArgument(

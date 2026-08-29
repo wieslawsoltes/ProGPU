@@ -1,5 +1,6 @@
 using System.Numerics;
 using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Geometry;
 using Microsoft.UI;
 using ProGPU.Backend;
 using Windows.Graphics.DirectX;
@@ -13,6 +14,15 @@ public sealed class Win2DCanvasCompatibilityTests
     public void PinnedSimpleSampleDrawingBodyCompilesUnchanged()
     {
         Action<CanvasDrawingSession> body = DrawPinnedSimpleSample;
+
+        Assert.NotNull(body);
+    }
+
+    [Fact]
+    public void PinnedGeometryAndLayerDrawingBodyCompilesUnchanged()
+    {
+        Action<ICanvasResourceCreator, CanvasDrawingSession> body =
+            DrawPinnedGeometrySample;
 
         Assert.NotNull(body);
     }
@@ -120,11 +130,63 @@ public sealed class Win2DCanvasCompatibilityTests
         Assert.NotNull(typeof(CanvasCommandList).GetMethod(
             nameof(CanvasCommandList.CreateDrawingSession),
             Type.EmptyTypes));
+        Assert.NotNull(typeof(CanvasGeometry).GetMethod(
+            nameof(CanvasGeometry.CreatePath),
+            [typeof(CanvasPathBuilder)]));
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.DrawGeometry),
+            [
+                typeof(CanvasGeometry),
+                typeof(Windows.UI.Color),
+                typeof(float)
+            ]));
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.FillGeometry),
+            [typeof(CanvasGeometry), typeof(Windows.UI.Color)]));
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.CreateLayer),
+            [typeof(float), typeof(Windows.Foundation.Rect)]));
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.CreateLayer),
+            [typeof(float), typeof(CanvasGeometry), typeof(Matrix3x2)]));
     }
 
     private static void DrawPinnedSimpleSample(CanvasDrawingSession drawingSession)
     {
         drawingSession.DrawEllipse(155, 115, 80, 30, Colors.Black, 3);
         drawingSession.DrawText("Hello, world!", 100, 100, Colors.Yellow);
+    }
+
+    private static void DrawPinnedGeometrySample(
+        ICanvasResourceCreator resourceCreator,
+        CanvasDrawingSession drawingSession)
+    {
+        using var builder = new CanvasPathBuilder(resourceCreator);
+        builder.SetFilledRegionDetermination(
+            CanvasFilledRegionDetermination.Winding);
+        builder.BeginFigure(8, 8);
+        builder.AddLine(48, 8);
+        builder.AddQuadraticBezier(
+            new Vector2(56, 28),
+            new Vector2(48, 48));
+        builder.AddCubicBezier(
+            new Vector2(36, 56),
+            new Vector2(20, 56),
+            new Vector2(8, 48));
+        builder.AddArc(
+            new Vector2(8, 8),
+            20,
+            20,
+            0,
+            CanvasSweepDirection.Clockwise,
+            CanvasArcSize.Small);
+        builder.EndFigure(CanvasFigureLoop.Closed);
+        using CanvasGeometry geometry = CanvasGeometry.CreatePath(builder);
+        drawingSession.FillGeometry(geometry, Colors.Blue);
+        drawingSession.DrawGeometry(geometry, Colors.White, 2);
+        using CanvasActiveLayer layer = drawingSession.CreateLayer(
+            1,
+            new Windows.Foundation.Rect(8, 8, 20, 40));
+        drawingSession.FillGeometry(geometry, Colors.Red);
     }
 }

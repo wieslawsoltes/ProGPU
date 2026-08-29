@@ -1,4 +1,5 @@
 using System.Numerics;
+using Microsoft.Graphics.Canvas.Geometry;
 using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Vector;
@@ -27,8 +28,14 @@ public sealed class CanvasDrawingSession :
     private bool _hasClear;
     private bool _hasCommands;
     private bool _isDisposed;
+    private List<LayerState>? _layers;
+    private int _nextLayerToken;
 
     private readonly record struct PenKey(uint Color, int WidthBits);
+    private readonly record struct LayerState(
+        int Token,
+        bool HasRectangleClip,
+        bool HasGeometryClip);
 
     internal CanvasDrawingSession(
         ICanvasDrawingSessionTarget target)
@@ -492,6 +499,97 @@ public sealed class CanvasDrawingSession :
         float strokeWidth = 1f) =>
         DrawEllipse(x, y, radius, radius, color, strokeWidth);
 
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        Color color,
+        float strokeWidth = 1f) =>
+        DrawGeometry(geometry, 0f, 0f, color, strokeWidth);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        Vector2 offset,
+        Color color,
+        float strokeWidth = 1f) =>
+        DrawGeometry(
+            geometry,
+            offset.X,
+            offset.Y,
+            color,
+            strokeWidth);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        float x,
+        float y,
+        Color color,
+        float strokeWidth = 1f)
+    {
+        PathGeometry path = GetGeometryPath(geometry);
+        ValidateFinite(x, y);
+        Matrix4x4 transform = Matrix4x4.CreateTranslation(x, y, 0f) *
+            ToMatrix4x4(_transform);
+        _context.DrawPath(
+            null,
+            GetPen(color, strokeWidth),
+            path,
+            transform);
+        _hasCommands = true;
+    }
+
+    public void FillGeometry(CanvasGeometry geometry, Color color) =>
+        FillGeometry(geometry, 0f, 0f, color);
+
+    public void FillGeometry(
+        CanvasGeometry geometry,
+        Vector2 offset,
+        Color color) =>
+        FillGeometry(geometry, offset.X, offset.Y, color);
+
+    public void FillGeometry(
+        CanvasGeometry geometry,
+        float x,
+        float y,
+        Color color)
+    {
+        PathGeometry path = GetGeometryPath(geometry);
+        ValidateFinite(x, y);
+        Matrix4x4 transform = Matrix4x4.CreateTranslation(x, y, 0f) *
+            ToMatrix4x4(_transform);
+        _context.DrawPath(
+            GetBrush(color),
+            null,
+            path,
+            transform);
+        _hasCommands = true;
+    }
+
+    public CanvasActiveLayer CreateLayer(float opacity) =>
+        BeginLayer(opacity, null, null, Matrix3x2.Identity);
+
+    public CanvasActiveLayer CreateLayer(
+        float opacity,
+        Windows.Foundation.Rect clipRectangle) =>
+        BeginLayer(
+            opacity,
+            ValidateRect(
+                (float)clipRectangle.X,
+                (float)clipRectangle.Y,
+                (float)clipRectangle.Width,
+                (float)clipRectangle.Height),
+            null,
+            Matrix3x2.Identity);
+
+    public CanvasActiveLayer CreateLayer(
+        float opacity,
+        CanvasGeometry clipGeometry) =>
+        BeginLayer(opacity, null, clipGeometry, Matrix3x2.Identity);
+
+    public CanvasActiveLayer CreateLayer(
+        float opacity,
+        CanvasGeometry clipGeometry,
+        Matrix3x2 geometryTransform) =>
+        BeginLayer(opacity, null, clipGeometry, geometryTransform);
+
     public void FillCircle(
         Vector2 centerPoint,
         float radius,
@@ -538,7 +636,32 @@ public sealed class CanvasDrawingSession :
     public void Flush()
     {
         ThrowIfDisposed();
+        ThrowIfLayerActive();
         CommitPending();
+    }
+
+    internal void CloseLayer(int token)
+    {
+        ThrowIfDisposed();
+        if (_layers is not { Count: > 0 } layers ||
+            layers[^1].Token != token)
+        {
+            throw new InvalidOperationException(
+                "Canvas layers must be disposed in reverse creation order.");
+        }
+
+        LayerState layer = layers[^1];
+        layers.RemoveAt(layers.Count - 1);
+        if (layer.HasGeometryClip)
+        {
+            _context.PopGeometryClip();
+        }
+        if (layer.HasRectangleClip)
+        {
+            _context.PopClip();
+        }
+        _context.PopOpacity();
+        _hasCommands = true;
     }
 
     private void CommitPending()
@@ -612,6 +735,54 @@ public sealed class CanvasDrawingSession :
         }
 
         return bitmap;
+    }
+
+    private PathGeometry GetGeometryPath(CanvasGeometry geometry)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(geometry);
+        geometry.ValidateDevice(Device);
+        return geometry.Path;
+    }
+
+    private CanvasActiveLayer BeginLayer(
+        float opacity,
+        Rect? rectangleClip,
+        CanvasGeometry? geometryClip,
+        Matrix3x2 geometryTransform)
+    {
+        ThrowIfDisposed();
+        if (!float.IsFinite(opacity) || opacity < 0f || opacity > 1f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(opacity));
+        }
+        if (!IsFinite(geometryTransform))
+        {
+            throw new ArgumentOutOfRangeException(nameof(geometryTransform));
+        }
+
+        PathGeometry? path = geometryClip is null
+            ? null
+            : GetGeometryPath(geometryClip);
+        _context.PushOpacity(opacity);
+        if (rectangleClip is Rect clip)
+        {
+            _context.PushClip(clip, ToMatrix4x4(_transform));
+        }
+        if (path is not null)
+        {
+            _context.PushGeometryClip(
+                path,
+                ToMatrix4x4(geometryTransform * _transform));
+        }
+
+        int token = ++_nextLayerToken;
+        (_layers ??= new List<LayerState>()).Add(new LayerState(
+            token,
+            rectangleClip.HasValue,
+            path is not null));
+        _hasCommands = true;
+        return new CanvasActiveLayer(this, token);
     }
 
     private void DrawCommandList(
@@ -765,6 +936,15 @@ public sealed class CanvasDrawingSession :
         }
     }
 
+    private void ThrowIfLayerActive()
+    {
+        if (_layers is { Count: > 0 })
+        {
+            throw new InvalidOperationException(
+                "All CanvasActiveLayer scopes must be disposed before flushing or closing the drawing session.");
+        }
+    }
+
     private static uint Pack(Color color) =>
         (uint)color.A << 24 |
         (uint)color.R << 16 |
@@ -827,6 +1007,8 @@ public sealed class CanvasDrawingSession :
         {
             return;
         }
+
+        ThrowIfLayerActive();
 
         try
         {
