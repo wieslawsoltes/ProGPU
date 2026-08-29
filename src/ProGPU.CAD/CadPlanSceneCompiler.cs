@@ -118,7 +118,9 @@ public sealed class CadPlanSceneCompiler
         ReadOnlySpan<CadLineTypePattern> lineTypePatterns = snapshot.LineTypePatterns.Span;
         var context = new DrawingContext();
         context.EnsureCommandCapacity(checked(
-            Math.Max(0, entities.Length - snapshot.ConstructionLines.Length) +
+            Math.Max(
+                0,
+                entities.Length - snapshot.ConstructionLines.Length - snapshot.Meshes3D.Length) +
             Math.Max(0, snapshot.TextGlyphRuns.Length - snapshot.Texts.Length) +
             snapshot.TextDecorations.Length +
             snapshot.MTextGlyphRuns.Length +
@@ -163,6 +165,12 @@ public sealed class CadPlanSceneCompiler
                         "Unbounded RAY/XLINE geometry requires CadConstructionSceneCompiler and an explicit plan clip."));
                     warnedConstructionGeometry = true;
                 }
+                continue;
+            }
+            if (entity.Kind == CadEntityKind.Mesh3D)
+            {
+                // The exact finite edge representation is already recorded in
+                // this plan scene. Filled faces belong to the depth-aware 3D scene.
                 continue;
             }
 

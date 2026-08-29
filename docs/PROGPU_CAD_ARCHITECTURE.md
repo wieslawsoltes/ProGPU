@@ -1,6 +1,6 @@
 # ProGPU.CAD Architecture and Delivery Specification
 
-Status: foundation, 2026-08-28
+Status: foundation, 2026-08-29
 
 ## Scope
 
@@ -29,8 +29,8 @@ Approved ProGPU-owned sources that may be ported directly are:
   hatch handling, and SAT/SAB readers.
 - `src/ProGPU.Scene/Extensions`: spline, hatch, ACIS, 3D line, and retained-DXF
   compositor extensions.
-- `src/ProGPU.Scene/Shaders/AcisSolid.wgsl`, `Hatch.wgsl`, `Line3D.wgsl`, and
-  `RetainedGlyph.wgsl`.
+- `src/ProGPU.Scene/Shaders/AcisSolid.wgsl`, `Hatch.wgsl`, `Line3D.wgsl`,
+  `RetainedGlyph.wgsl`, and the managed/native canonical `Native3D.wgsl`.
 - `src/ProGPU.Backend/Shaders/GlyphRasterizer.wgsl`, `PathRasterizer.wgsl`, and
   `Text.wgsl`.
 - The managed/native scene compilers and shared native C ABI already in this
@@ -1138,11 +1138,11 @@ retained line stream and adds no MESH-specific allocation, upload, crossing, or
 shader.
 
 Nonzero subdivision is diagnosed rather than showing the level-0 control cage,
-because that would visibly change the requested surface. Filled/shaded faces,
-materials/UVs, crease-driven subdivision, hidden-line removal, depth buffering,
-and orbit-aware culling remain the matched 3D renderer contract. This checkpoint
-therefore claims exact level-0 wireframe topology only, while preserving the
-source MESH object for editing and DXF/DWG saving.
+because that would visibly change the requested surface. This wire contract is
+preserved alongside the later exact Flat face contract below. Smooth normals,
+crease-driven subdivision, texture resources/material overrides, and complete
+hidden-line policy remain matched 3D renderer gates; the source MESH object
+continues to own editing and DXF/DWG saving.
 
 ## Exact legacy polygon/polyface MESH wireframes
 
@@ -1177,6 +1177,62 @@ in double-precision WCS through editing and ancestor INSERT transforms, and
 reuse the existing retained line/point, BVH, exact selection, native-picture,
 and print-plan paths. No C ABI, shader, upload, or renderer-specific contract
 was added; managed and native renderers consume the same canonical commands.
+
+## Exact level-0 flat-shaded MESH surfaces
+
+Modern subdivision-level-zero `Mesh`, unfitted legacy `PolygonMesh`, and
+`PolyfaceMesh` records now retain one semantic `CadMesh3DPrimitive` in addition
+to their exact visible edge/point streams. Face positions and flat unit normals
+remain double-precision WCS in the immutable snapshot; modern per-vertex UVs
+are retained when the persisted count exactly matches the vertex count. One
+draw range preserves each source face's resolved layer/style. Negative polyface
+indices still suppress only their directed wire edge and do not suppress the
+face fill. Two- and one-index polyface records remain line/point topology and do
+not become degenerate triangles.
+
+Triangles are direct. A simple planar N-gon is projected along its dominant
+Newell-normal axis relative to its first point, checked for collapsed or
+self-intersecting boundaries, and deterministically ear-clipped. Work is
+`O(N^2)` worst case with `O(N)` scratch and exactly `N-2` output triangles.
+Autodesk documents a quadrilateral mesh face as two adjacent triangles, so a
+non-planar quad uses the stable persisted `0-2` diagonal. A non-planar face with
+more than four vertices has no persisted diagonal and remains explicitly
+unsupported. Each triangle intentionally owns three vertices: interpolation
+therefore cannot smooth across a CAD face or the fixed diagonal, and the exact
+Flat visual style needs no invented crease threshold. Smooth/subdivision
+normals, material overrides, texture resources, and surface evaluation remain
+separate fidelity gates.
+
+`CadMesh3DSceneCompiler` copies one immutable generation into consecutive
+same-style, float-rebased triangle-list batches in `O(M + R + V + I)` time and
+`O(V + I + B)` storage for mesh instances `M`, face ranges `R`, flat vertices
+`V`, indices `I`, and batches `B`. It is camera-independent. The shared sample
+maps those batches to the existing depth-buffered `Viewport3D`/`Mesh3D`
+pipeline, uses a Z-up perspective orbit camera, and renders both face sides in
+Flat mode. Plan rendering and printing continue to consume only the exact wire
+streams, so no filled face is accidentally projected into a 2D plot policy.
+Point and Window/Crossing selection use the semantic triangle surfaces and
+deduplicate them with the existing edge candidates to one source handle.
+
+The optional `ProGPU.CAD.Native` adapter writes all style batches into one
+existing native Mesh3D resource and one draw command. The stream is fixed-width,
+little-endian, pointer-free, and uses the existing native C ABI and canonical
+`src/ProGPU.Scene/Shaders/Native3D.wgsl`; there is no per-face, per-triangle, or
+per-frame P/Invoke. Normal retained operation performs one scene update when
+the CAD generation changes and one render submission per frame. The C++ engine
+already implemented and validated this Mesh3D ABI, so the parity audit required
+no C++ semantic fork or shader copy; matched tests cover the shared CAD batch
+data and native stream boundary. Texture leases and a native CAD document
+frontend remain explicit follow-ups.
+
+Exact approved in-repository provenance is
+`src/ProGPU.Scene/Extensions/Mesh3DExtensionPipeline.cs`,
+`src/ProGPU.WinUI/Controls/Viewport3D.cs`,
+`src/ProGPU.Backend.Native/NativeSceneStreamBuilder.cs`,
+`src/ProGPU.Native/src/Scene/Builder/progpu_native_scene_builder_3d.cpp`, and
+`src/ProGPU.Scene/Shaders/Native3D.wgsl`. The new code consumes those original
+ProGPU contracts directly; the CAD topology/triangulation and adapters are new
+clean-room implementations with matched managed/native boundary tests.
 
 ## Exact retained POINT dots
 
@@ -2227,6 +2283,22 @@ managed bytes. These are feature/cost baselines with visibly variable tail
 latency, no improvement or regression claim, and no substitute for matched
 viewer, GPU, native-image, or Instruments acceptance evidence.
 
+Two consecutive 2026-08-29 Release feature-cost runs used one final binary,
+1,000 tetrahedral level-zero MESH entities, three warmups, 24 construction
+iterations, and 1,000 spatial queries. Both retained 1,000 source meshes, 4,000
+face ranges/triangles, and 1,000 consecutive same-style 3D batches with no
+unsupported or invalid entities. Snapshot p50/p95/p99 was
+16.985/34.609/35.916 ms and 12.623/22.795/26.282 ms, allocating
+11,779,869 and 11,736,814 managed bytes per generation. Camera-independent 3D
+scene compilation measured 0.377/8.783/15.470 ms and
+0.208/9.726/13.277 ms, allocating 680,776 and 680,996 bytes. Plan wire-scene
+p50/p95/p99 was 8.474/30.133/35.024 ms and 6.965/28.466/34.755 ms. The JSON
+artifacts are `artifacts/progpu-cad/mesh3d-feature-run1.json` and
+`mesh3d-feature-run2.json`. Variable tails preclude a latency or regression
+claim; this is the first feature-cost baseline and does not replace image
+quality, GPU residency/submission counters, native differential pixels, or the
+required Instruments capture for a future optimization claim.
+
 Run the standalone samples with:
 
 ```bash
@@ -2381,6 +2453,45 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   document compiler; both renderers consume the same canonical line commands,
   so no C++ source, C ABI/wire, P/Invoke, shader, or generated binding change
   applies.
+
+- For flat-shaded level-zero surfaces, Autodesk's
+  [MESH DXF contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-4B9ADA67-87C8-4673-A579-6E4C76FF7025.htm),
+  [mesh display contract](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-E854E312-9BF4-476F-AF9D-AA2A276600C8.htm),
+  [SHADEMODE contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-A39F669D-DD11-46DD-BD20-7C41F2FF5326.htm), and
+  [polyface contract](https://help.autodesk.com/cloudhelp/2015/ENU/AutoCAD-DXF/files/GUID-96B6288E-F413-46C0-968A-A314171C0AAE.htm)
+  establish persisted face topology, the triangle-pair interpretation of a
+  quad, Flat versus smooth display, and signed hidden-edge indices. Adopted
+  exact level-zero faces, face style identity, deterministic triangle lists,
+  and the explicit Flat style; rejected inferred subdivision, smoothing/crease
+  thresholds, and ambiguous non-planar N-gon diagonals.
+  [WebGPU's primitive topology and depth contracts](https://gpuweb.github.io/gpuweb/),
+  [Direct3D triangle lists](https://learn.microsoft.com/en-us/windows/win32/direct3d9/triangle-lists), and
+  [Direct2D/Direct3D interoperation](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-direct3d-interoperation-overview)
+  informed indexed triangle batching, keeping CAD/UI 2D work separate from the
+  depth pass, and retaining one same-device resource generation rather than
+  crossing the managed/native boundary per primitive.
+  [Skia Canvas](https://api.skia.org/classSkCanvas.html),
+  [WebRender's retained pipeline](https://firefox-source-docs.mozilla.org/gfx/webrender/overview.html), and
+  [Vello's retained scene](https://github.com/linebender/vello/blob/main/vello/src/scene.rs)
+  were compared for retained scene reuse, viewport culling, lazy resource
+  preparation, batching, and device rebuild. They remain primarily 2D
+  references; ProGPU therefore keeps its original camera-independent CAD scene
+  and existing depth-aware managed/native Mesh3D backend instead of forcing a
+  depth mesh through a foreign 2D display-list abstraction. Startup stays lazy,
+  snapshot/batch keys are the immutable content generation plus style ranges,
+  uploads are demand-driven by the existing geometry version/resource caches,
+  worker preparation remains possible before GPU ownership, and device loss
+  rebuilds from retained CPU arrays.
+  [SkParagraph's shaping stages](https://docs.skia.org/docs/dev/design/text_shaper/),
+  [DirectWrite architecture](https://learn.microsoft.com/en-us/windows/win32/directwrite/introducing-directwrite),
+  [Win2D text drawing](https://microsoft.github.io/Win2D/WinUI3/html/M_Microsoft_Graphics_Canvas_CanvasDrawingSession_DrawText.htm),
+  [Parley's layout model](https://github.com/linebender/parley/blob/main/doc/concept.md), and
+  [HarfBuzz shape plans](https://harfbuzz.github.io/shaping-and-shape-plans.html)
+  were rechecked for the mandatory text audit. They are not applicable to this
+  slice because shaping/layout results, visibility, glyph/texture cache keys and
+  eviction, fallback and variable-font state, DPI/subpixel snapping, and text
+  device-loss invalidation do not change. No foreign implementation text,
+  structure, tables, names, or control flow was used.
 
 - For persisted DIMENSION pictures, Autodesk's
   [common DIMENSION DXF contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-EDD54EAC-A339-4EBA-AEA6-EC8066505E2B.htm),

@@ -24,6 +24,7 @@ public enum CadEntityKind : byte
     Point = 17,
     Ray = 18,
     XLine = 19,
+    Mesh3D = 20,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -141,6 +142,30 @@ public readonly record struct CadPointPrimitive(CadPoint3D Position);
 public readonly record struct CadConstructionLinePrimitive(
     CadPoint3D BasePoint,
     CadPoint3D Direction);
+
+/// <summary>One flat-shaded triangle vertex in rebased-independent WCS.</summary>
+public readonly record struct CadMesh3DVertex(
+    CadPoint3D Position,
+    CadPoint3D Normal,
+    Vector2 TextureCoordinate);
+
+/// <summary>One contiguous material/style range within a retained mesh entity.</summary>
+public readonly record struct CadMesh3DDrawRange(
+    int LayerIndex,
+    int StyleIndex,
+    int VertexOffset,
+    int VertexCount,
+    int IndexOffset,
+    int IndexCount);
+
+/// <summary>
+/// One semantic MESH, polygon-mesh, or polyface-mesh instance. Its draw ranges
+/// reference the snapshot-wide triangle streams and share this exact WCS bound.
+/// </summary>
+public readonly record struct CadMesh3DPrimitive(
+    int DrawRangeOffset,
+    int DrawRangeCount,
+    CadBounds3D Bounds);
 
 public readonly record struct CadCirclePrimitive(
     CadPoint3D Center,
@@ -480,6 +505,10 @@ public sealed class CadDocumentSnapshot
     private readonly CadLinePrimitive[] _lines;
     private readonly CadPointPrimitive[] _points;
     private readonly CadConstructionLinePrimitive[] _constructionLines;
+    private readonly CadMesh3DPrimitive[] _meshes3D;
+    private readonly CadMesh3DDrawRange[] _mesh3DDrawRanges;
+    private readonly CadMesh3DVertex[] _mesh3DVertices;
+    private readonly uint[] _mesh3DIndices;
     private readonly CadCirclePrimitive[] _circles;
     private readonly CadArcPrimitive[] _arcs;
     private readonly CadEllipsePrimitive[] _ellipses;
@@ -534,6 +563,10 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadLinePrimitive> Lines => _lines;
     public ReadOnlyMemory<CadPointPrimitive> Points => _points;
     public ReadOnlyMemory<CadConstructionLinePrimitive> ConstructionLines => _constructionLines;
+    public ReadOnlyMemory<CadMesh3DPrimitive> Meshes3D => _meshes3D;
+    public ReadOnlyMemory<CadMesh3DDrawRange> Mesh3DDrawRanges => _mesh3DDrawRanges;
+    public ReadOnlyMemory<CadMesh3DVertex> Mesh3DVertices => _mesh3DVertices;
+    public ReadOnlyMemory<uint> Mesh3DIndices => _mesh3DIndices;
     public ReadOnlyMemory<CadCirclePrimitive> Circles => _circles;
     public ReadOnlyMemory<CadArcPrimitive> Arcs => _arcs;
     public ReadOnlyMemory<CadEllipsePrimitive> Ellipses => _ellipses;
@@ -589,6 +622,10 @@ public sealed class CadDocumentSnapshot
         CadLinePrimitive[] lines,
         CadPointPrimitive[] points,
         CadConstructionLinePrimitive[] constructionLines,
+        CadMesh3DPrimitive[] meshes3D,
+        CadMesh3DDrawRange[] mesh3DDrawRanges,
+        CadMesh3DVertex[] mesh3DVertices,
+        uint[] mesh3DIndices,
         CadCirclePrimitive[] circles,
         CadArcPrimitive[] arcs,
         CadEllipsePrimitive[] ellipses,
@@ -641,6 +678,10 @@ public sealed class CadDocumentSnapshot
         _lines = lines;
         _points = points;
         _constructionLines = constructionLines;
+        _meshes3D = meshes3D;
+        _mesh3DDrawRanges = mesh3DDrawRanges;
+        _mesh3DVertices = mesh3DVertices;
+        _mesh3DIndices = mesh3DIndices;
         _circles = circles;
         _arcs = arcs;
         _ellipses = ellipses;

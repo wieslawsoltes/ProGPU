@@ -3,6 +3,17 @@ using System.Runtime.CompilerServices;
 
 namespace ProGPU.Backend.Native;
 
+public partial struct NativeFloat4
+{
+    public NativeFloat4(Vector4 value)
+    {
+        X = value.X;
+        Y = value.Y;
+        Z = value.Z;
+        W = value.W;
+    }
+}
+
 public partial struct NativePoint3D
 {
     public NativePoint3D(Vector3 value)
@@ -76,5 +87,58 @@ public partial struct NativeSceneLine3D
         Reserved2 = 0U;
         Reserved3 = 0U;
         Transform = new NativeMatrix4x4(transform);
+    }
+}
+
+public partial struct NativeSceneMesh3DVertex
+{
+    public NativeSceneMesh3DVertex(
+        Vector3 position,
+        Vector3 normal,
+        Vector2 textureCoordinate)
+    {
+        Position = new NativePoint3D(position);
+        Normal = new NativePoint3D(normal);
+        TextureCoordinate = textureCoordinate;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
+    }
+}
+
+public partial struct NativeSceneMesh3D
+{
+    public NativeSceneMesh3D(
+        uint vertexOffset,
+        uint vertexCount,
+        uint indexOffset,
+        uint indexCount,
+        Vector4 color,
+        Vector4 lightDirection,
+        Vector4 ambientColor,
+        Vector4 specularColor,
+        Vector4 materialAmbient,
+        float opacity,
+        NativeMesh3DRenderMode renderMode = NativeMesh3DRenderMode.Solid,
+        uint shadingMode = 2U)
+    {
+        StructSize = (uint)Unsafe.SizeOf<NativeSceneMesh3D>();
+        Flags = 0U;
+        Topology = (uint)NativeMesh3DTopology.Triangles;
+        RenderMode = (uint)renderMode;
+        VertexOffset = vertexOffset;
+        VertexCount = vertexCount;
+        IndexOffset = indexOffset;
+        IndexCount = indexCount;
+        ModelTransform = new NativeMatrix4x4(Matrix4x4.Identity);
+        NormalTransform = new NativeMatrix4x4(Matrix4x4.Identity);
+        Color = color;
+        LightDirection = new NativeFloat4(lightDirection);
+        AmbientColor = new NativeFloat4(ambientColor);
+        SpecularColor = new NativeFloat4(specularColor);
+        MaterialAmbient = new NativeFloat4(materialAmbient);
+        Opacity = opacity;
+        ShadingMode = shadingMode;
+        Reserved0 = 0U;
+        Reserved1 = 0U;
     }
 }

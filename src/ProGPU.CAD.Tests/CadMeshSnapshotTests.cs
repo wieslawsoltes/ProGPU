@@ -1,7 +1,10 @@
 using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.Tables;
+using System.Buffers.Binary;
 using CSMath;
+using ProGPU.Backend.Native;
+using ProGPU.CAD.Native;
 using ProGPU.Scene;
 using ProGPU.Scene.Native;
 using Xunit;
@@ -21,16 +24,21 @@ public sealed class CadMeshSnapshotTests
         CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
 
         Assert.Equal(5, snapshot.Lines.Length);
-        Assert.Equal(5, snapshot.Entities.Length);
+        Assert.Equal(6, snapshot.Entities.Length);
+        Assert.Single(snapshot.Meshes3D.ToArray());
         Assert.Equal(1, snapshot.Statistics.SourceEntityCount);
         Assert.Equal(6, snapshot.Statistics.ExpandedEntityCount);
         Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Equal(0, snapshot.Statistics.InvalidEntityCount);
-        Assert.All(snapshot.Entities.ToArray(), entity =>
+        Assert.All(snapshot.Entities.ToArray().Where(entity => entity.Kind == CadEntityKind.Line), entity =>
         {
             Assert.Equal(mesh.Handle, entity.Handle);
             Assert.Equal(CadEntityKind.Line, entity.Kind);
         });
+        Assert.Equal(
+            mesh.Handle,
+            Assert.Single(snapshot.Entities.ToArray(), entity =>
+                entity.Kind == CadEntityKind.Mesh3D).Handle);
         Assert.Equal(5, scene.Statistics.RecordedEntityCount);
 
         var entityScratch = new int[snapshot.Entities.Length];
@@ -49,7 +57,7 @@ public sealed class CadMeshSnapshotTests
             hashScratch,
             handles);
 
-        Assert.Equal(5, selection.MatchedPrimitiveCount);
+        Assert.Equal(6, selection.MatchedPrimitiveCount);
         Assert.Equal(1, selection.HandleTotalCount);
         Assert.Equal(mesh.Handle, handles[0]);
 
@@ -98,6 +106,214 @@ public sealed class CadMeshSnapshotTests
                 new CadPoint3D(10, 23, 34),
                 new CadPoint3D(14, 23, 34)));
         Assert.Equal(7, snapshot.Statistics.ExpandedEntityCount);
+    }
+
+    [Fact]
+    public void ConcavePlanarMeshRetainsExactFlatTrianglesUvSelectionAndRebasedScene()
+    {
+        const double world = 1_000_000_000_000.0;
+        var mesh = new Mesh();
+        mesh.Vertices.Add(new XYZ(world, world, 25));
+        mesh.Vertices.Add(new XYZ(world + 4, world, 25));
+        mesh.Vertices.Add(new XYZ(world + 4, world + 4, 25));
+        mesh.Vertices.Add(new XYZ(world + 2, world + 2, 25));
+        mesh.Vertices.Add(new XYZ(world, world + 4, 25));
+        mesh.TextureCoordinates =
+        [
+            new XYZ(0, 0, 0),
+            new XYZ(1, 0, 0),
+            new XYZ(1, 1, 0),
+            new XYZ(0.5, 0.5, 0),
+            new XYZ(0, 1, 0),
+        ];
+        mesh.Faces.Add([0, 1, 2, 3, 4]);
+        var document = new CadDocument();
+        document.Entities.Add(mesh);
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        CadMesh3DPrimitive primitive = Assert.Single(snapshot.Meshes3D.ToArray());
+        CadMesh3DDrawRange range = Assert.Single(snapshot.Mesh3DDrawRanges.ToArray());
+
+        Assert.Equal(9, range.VertexCount);
+        Assert.Equal(9, range.IndexCount);
+        Assert.Equal([0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U, 8U],
+            snapshot.Mesh3DIndices.ToArray());
+        Assert.All(snapshot.Mesh3DVertices.ToArray(), vertex =>
+        {
+            Assert.Equal(0.0, vertex.Normal.X, 12);
+            Assert.Equal(0.0, vertex.Normal.Y, 12);
+            Assert.Equal(1.0, vertex.Normal.Z, 12);
+        });
+        Assert.Contains(snapshot.Mesh3DVertices.ToArray(), vertex =>
+            vertex.TextureCoordinate == new System.Numerics.Vector2(0.5f, 0.5f));
+
+        CadSelectionCandidate candidate = MeshCandidate(snapshot);
+        CadPointHitResult interior = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(world + 1, world + 1, 25.125),
+            0.125);
+        CadPointHitResult notch = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(world + 2, world + 3, 25),
+            0.1);
+        Assert.Equal(CadPointHitStatus.Hit, interior.Status);
+        Assert.Equal(0.125, interior.Distance, 12);
+        Assert.Equal(CadPointHitStatus.Miss, notch.Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            CadSelectionHitTester.HitTestBounds(
+                snapshot,
+                candidate,
+                new CadBounds3D(
+                    new CadPoint3D(world + 0.9, world + 0.9, 24.9),
+                    new CadPoint3D(world + 1.1, world + 1.1, 25.1)),
+                CadBoundsSelectionMode.Crossing).Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Miss,
+            CadSelectionHitTester.HitTestBounds(
+                snapshot,
+                candidate,
+                new CadBounds3D(
+                    new CadPoint3D(world, world, 25),
+                    new CadPoint3D(world + 3, world + 4, 25)),
+                CadBoundsSelectionMode.Window).Status);
+
+        CadRecordedMesh3DScene scene = new CadMesh3DSceneCompiler().Compile(snapshot);
+        CadMesh3DDrawBatch batch = Assert.Single(scene.DrawBatches.ToArray());
+        Assert.Equal(1, scene.Statistics.SourceMeshCount);
+        Assert.Equal(1, scene.Statistics.FaceRangeCount);
+        Assert.Equal(3, scene.Statistics.TriangleCount);
+        Assert.Equal(1, scene.Statistics.DrawBatchCount);
+        Assert.Equal(mesh.Handle, batch.Handle);
+        Assert.Equal(range.VertexCount, batch.Positions.Length);
+        CadMesh3DVertex source = snapshot.Mesh3DVertices.Span[0];
+        System.Numerics.Vector3 rebased = batch.Positions.Span[0];
+        Assert.Equal((float)(source.Position.X - snapshot.RebaseOrigin.X), rebased.X);
+        Assert.Equal((float)(source.Position.Y - snapshot.RebaseOrigin.Y), rebased.Y);
+        Assert.Equal((float)(source.Position.Z - snapshot.RebaseOrigin.Z), rebased.Z);
+        Assert.Equal(primitive.Bounds, batch.Bounds);
+    }
+
+    [Fact]
+    public void NonPlanarQuadUsesPersistedZeroTwoDiagonalAndFlatNormals()
+    {
+        var mesh = new Mesh();
+        mesh.Vertices.Add(new XYZ(0, 0, 0));
+        mesh.Vertices.Add(new XYZ(2, 0, 0));
+        mesh.Vertices.Add(new XYZ(2, 2, 1));
+        mesh.Vertices.Add(new XYZ(0, 2, 0));
+        mesh.Faces.Add([0, 1, 2, 3]);
+        var document = new CadDocument();
+        document.Entities.Add(mesh);
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        CadMesh3DVertex[] vertices = snapshot.Mesh3DVertices.ToArray();
+
+        Assert.Equal(6, vertices.Length);
+        Assert.Equal(new CadPoint3D(0, 0, 0), vertices[0].Position);
+        Assert.Equal(new CadPoint3D(2, 2, 1), vertices[2].Position);
+        Assert.Equal(new CadPoint3D(0, 0, 0), vertices[3].Position);
+        Assert.Equal(new CadPoint3D(2, 2, 1), vertices[4].Position);
+        Assert.Equal(new CadPoint3D(0, 2, 0), vertices[5].Position);
+        Assert.NotEqual(vertices[0].Normal, vertices[3].Normal);
+    }
+
+    [Fact]
+    public void NativeAdapterBatchesMeshSceneIntoOneCanonicalPointerFreeDraw()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(CreateQuadMesh());
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        CadRecordedMesh3DScene scene = new CadMesh3DSceneCompiler().Compile(snapshot);
+        var camera = new CadNativeMesh3DCamera(
+            System.Numerics.Matrix4x4.Identity,
+            System.Numerics.Matrix4x4.Identity,
+            new System.Numerics.Vector3(0, 0, 5),
+            new NativeImageRect(0, 0, 640, 480));
+
+        CadNativeMesh3DScene native = new CadNativeMesh3DSceneCompiler().Compile(
+            scene,
+            camera,
+            sceneId: 90210U);
+        ReadOnlySpan<byte> stream = native.Stream;
+
+        Assert.Equal(1, native.DrawBatchCount);
+        Assert.Equal(6, native.VertexCount);
+        Assert.Equal(6, native.IndexCount);
+        Assert.Equal(80U, BinaryPrimitives.ReadUInt32LittleEndian(stream));
+        Assert.Equal(0x31534750U, BinaryPrimitives.ReadUInt32LittleEndian(stream[4..]));
+        Assert.Equal((uint)native.Length, BinaryPrimitives.ReadUInt32LittleEndian(stream[20..]));
+        Assert.Equal(90210U, BinaryPrimitives.ReadUInt64LittleEndian(stream[24..]));
+        Assert.Equal(1U, BinaryPrimitives.ReadUInt32LittleEndian(stream[44..]));
+        Assert.Equal(1U, BinaryPrimitives.ReadUInt32LittleEndian(stream[56..]));
+        Assert.Equal(snapshot.ContentGeneration + 1U, native.NativeGeneration);
+        Assert.Equal(native.NativeGeneration, BinaryPrimitives.ReadUInt64LittleEndian(stream[32..]));
+    }
+
+    [Fact]
+    public void Mesh3DSceneCanExcludeNonPlottableFaceBatches()
+    {
+        var document = new CadDocument();
+        var noPlot = new Layer("NO_PLOT") { PlotFlag = false };
+        document.Layers.Add(noPlot);
+        Mesh mesh = CreateTriangleMesh();
+        mesh.Layer = noPlot;
+        document.Entities.Add(mesh);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        CadRecordedMesh3DScene screen = new CadMesh3DSceneCompiler().Compile(snapshot);
+        CadRecordedMesh3DScene plotFiltered = new CadMesh3DSceneCompiler().Compile(
+            snapshot,
+            new CadMesh3DSceneOptions { IncludeNonPlottableLayers = false });
+
+        Assert.Single(screen.DrawBatches.ToArray());
+        Assert.Empty(plotFiltered.DrawBatches.ToArray());
+        Assert.Equal(1, plotFiltered.Statistics.SourceMeshCount);
+        Assert.Equal(1, plotFiltered.Statistics.FaceRangeCount);
+        Assert.Equal(0, plotFiltered.Statistics.TriangleCount);
+    }
+
+    [Theory]
+    [InlineData("self-intersecting", false)]
+    [InlineData("non-planar-ngon", true)]
+    public void AmbiguousFacesAreRejectedBeforeAnyMeshOrWireCommit(
+        string kind,
+        bool unsupported)
+    {
+        var mesh = new Mesh();
+        if (kind == "self-intersecting")
+        {
+            mesh.Vertices.Add(new XYZ(0, 0, 0));
+            mesh.Vertices.Add(new XYZ(2, 2, 0));
+            mesh.Vertices.Add(new XYZ(0, 2, 0));
+            mesh.Vertices.Add(new XYZ(2, 0, 0));
+        }
+        else
+        {
+            mesh.Vertices.Add(new XYZ(0, 0, 0));
+            mesh.Vertices.Add(new XYZ(2, 0, 0));
+            mesh.Vertices.Add(new XYZ(3, 1, 0));
+            mesh.Vertices.Add(new XYZ(1, 2, 1));
+            mesh.Vertices.Add(new XYZ(0, 1, 0));
+        }
+        mesh.Faces.Add(Enumerable.Range(0, mesh.Vertices.Count).ToArray());
+        var document = new CadDocument();
+        document.Entities.Add(mesh);
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        Assert.Empty(snapshot.Entities.ToArray());
+        Assert.Empty(snapshot.Lines.ToArray());
+        Assert.Empty(snapshot.Meshes3D.ToArray());
+        Assert.Equal(unsupported ? 1 : 0, snapshot.Statistics.UnsupportedEntityCount);
+        Assert.Equal(unsupported ? 0 : 1, snapshot.Statistics.InvalidEntityCount);
     }
 
     [Theory]
@@ -280,4 +496,18 @@ public sealed class CadMeshSnapshotTests
         CadPoint3D second) =>
         (line.Start == first && line.End == second) ||
         (line.Start == second && line.End == first);
+
+    private static CadSelectionCandidate MeshCandidate(CadDocumentSnapshot snapshot)
+    {
+        CadEntityHeader header = Assert.Single(
+            snapshot.Entities.ToArray(),
+            entity => entity.Kind == CadEntityKind.Mesh3D);
+        int entityIndex = Array.IndexOf(snapshot.Entities.ToArray(), header);
+        return new CadSelectionCandidate(
+            snapshot.ContentGeneration,
+            entityIndex,
+            header.Handle,
+            header.Kind,
+            header.Bounds);
+    }
 }

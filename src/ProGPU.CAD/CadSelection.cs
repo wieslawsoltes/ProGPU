@@ -346,6 +346,13 @@ public static class CadSelectionHitTester
     private const double AxisTolerance = 1e-10;
     private const double TwoPi = Math.PI * 2.0;
 
+    /// <summary>Measures one retained primitive against a WCS point.</summary>
+    /// <remarks>
+    /// Mesh surfaces visit T retained triangles in O(T) time. Polyline, spline,
+    /// text, and hatch costs follow their retained segment counts; scalar
+    /// primitives are O(1). The operation uses bounded stack storage and makes
+    /// no warm-query allocation.
+    /// </remarks>
     public static CadPointHitResult HitTestPoint(
         CadDocumentSnapshot snapshot,
         CadSelectionCandidate candidate,
@@ -386,6 +393,11 @@ public static class CadSelectionHitTester
                 point,
                 tolerance,
                 isRay: false),
+            CadEntityKind.Mesh3D => HitMesh3DPoint(
+                snapshot,
+                snapshot.Meshes3D.Span[header.PrimitiveIndex],
+                point,
+                tolerance),
             CadEntityKind.Circle => HitCircle(
                 snapshot.Circles.Span[header.PrimitiveIndex],
                 point,
@@ -451,8 +463,9 @@ public static class CadSelectionHitTester
     /// their bounded parameter interval at exact box-plane roots; filled SOLIDs use the
     /// convex triangle/box separating axes. Work is O(S) for S polyline segments,
     /// O(B * P^2 * R) for B degree-P spline spans, and O(G * T * R) for G glyphs with
-    /// T retained outline segments and bounded root work R. Other supported primitives
-    /// are O(1); all paths use bounded stack storage and no warm-query allocation.
+    /// T retained outline segments and bounded root work R, and O(F) for F retained
+    /// mesh triangles. Other supported primitives are O(1); all paths use bounded
+    /// stack storage and no warm-query allocation.
     /// </remarks>
     public static CadBoundsHitResult HitTestBounds(
         CadDocumentSnapshot snapshot,
@@ -487,6 +500,11 @@ public static class CadSelectionHitTester
                 bounds,
                 mode,
                 isRay: false),
+            CadEntityKind.Mesh3D => HitMesh3DBounds(
+                snapshot,
+                snapshot.Meshes3D.Span[header.PrimitiveIndex],
+                bounds,
+                mode),
             CadEntityKind.Circle => HitCircleBounds(
                 snapshot.Circles.Span[header.PrimitiveIndex],
                 header.Bounds,
@@ -607,6 +625,81 @@ public static class CadSelectionHitTester
         }
 
         return BoundsHit();
+    }
+
+    private static CadPointHitResult HitMesh3DPoint(
+        CadDocumentSnapshot snapshot,
+        CadMesh3DPrimitive mesh,
+        CadPoint3D point,
+        double tolerance)
+    {
+        double minimum = double.PositiveInfinity;
+        ReadOnlySpan<CadMesh3DDrawRange> ranges = snapshot.Mesh3DDrawRanges.Span;
+        ReadOnlySpan<CadMesh3DVertex> vertices = snapshot.Mesh3DVertices.Span;
+        ReadOnlySpan<uint> indices = snapshot.Mesh3DIndices.Span;
+        for (int rangeIndex = 0; rangeIndex < mesh.DrawRangeCount; rangeIndex++)
+        {
+            CadMesh3DDrawRange range = ranges[mesh.DrawRangeOffset + rangeIndex];
+            for (int index = 0; index < range.IndexCount; index += 3)
+            {
+                CadPoint3D first = vertices[
+                    range.VertexOffset + checked((int)indices[range.IndexOffset + index])].Position;
+                CadPoint3D second = vertices[
+                    range.VertexOffset + checked((int)indices[range.IndexOffset + index + 1])].Position;
+                CadPoint3D third = vertices[
+                    range.VertexOffset + checked((int)indices[range.IndexOffset + index + 2])].Position;
+                minimum = Math.Min(
+                    minimum,
+                    DistanceToTriangle(point, first, second, third));
+                if (minimum <= tolerance)
+                {
+                    return FromDistance(minimum, tolerance);
+                }
+            }
+        }
+        return FromDistance(minimum, tolerance);
+    }
+
+    private static CadBoundsHitResult HitMesh3DBounds(
+        CadDocumentSnapshot snapshot,
+        CadMesh3DPrimitive mesh,
+        CadBounds3D bounds,
+        CadBoundsSelectionMode mode)
+    {
+        if (bounds.IsEmpty)
+        {
+            return BoundsMiss();
+        }
+        if (mode == CadBoundsSelectionMode.Window)
+        {
+            return FromBoundsHit(ContainsBounds(bounds, mesh.Bounds));
+        }
+        if (!mesh.Bounds.Intersects(bounds))
+        {
+            return BoundsMiss();
+        }
+
+        ReadOnlySpan<CadMesh3DDrawRange> ranges = snapshot.Mesh3DDrawRanges.Span;
+        ReadOnlySpan<CadMesh3DVertex> vertices = snapshot.Mesh3DVertices.Span;
+        ReadOnlySpan<uint> indices = snapshot.Mesh3DIndices.Span;
+        for (int rangeIndex = 0; rangeIndex < mesh.DrawRangeCount; rangeIndex++)
+        {
+            CadMesh3DDrawRange range = ranges[mesh.DrawRangeOffset + rangeIndex];
+            for (int index = 0; index < range.IndexCount; index += 3)
+            {
+                CadPoint3D first = vertices[
+                    range.VertexOffset + checked((int)indices[range.IndexOffset + index])].Position;
+                CadPoint3D second = vertices[
+                    range.VertexOffset + checked((int)indices[range.IndexOffset + index + 1])].Position;
+                CadPoint3D third = vertices[
+                    range.VertexOffset + checked((int)indices[range.IndexOffset + index + 2])].Position;
+                if (TriangleIntersectsBounds(first, second, third, bounds))
+                {
+                    return BoundsHit();
+                }
+            }
+        }
+        return BoundsMiss();
     }
 
     private static bool ClipAxis(

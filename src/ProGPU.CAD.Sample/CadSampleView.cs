@@ -1,7 +1,9 @@
 using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Media3D;
 using ProGPU.Fonts.Inter;
+using ProGPU.Scene.Extensions;
 using ProGPU.Text;
 using ProGPU.Vector;
 using Windows.Storage;
@@ -13,6 +15,9 @@ public sealed class CadSampleView : Grid
 {
     private readonly CadDocumentStore _store = new();
     private readonly CadSampleCanvas _canvas;
+    private readonly Viewport3D _viewport3D;
+    private readonly Button _viewModeButton;
+    private readonly TextBlock _viewModeText;
     private readonly TextBlock _status;
     private readonly Button _openButton;
     private readonly Button _saveButton;
@@ -28,6 +33,7 @@ public sealed class CadSampleView : Grid
     private bool _isBusy;
     private string _currentDocumentName = "Representative analytic scene";
     private int _currentDiagnosticCount;
+    private bool _is3DView;
 
     public CadShxFontCatalog ShxFonts => _canvas.ShxFonts;
 
@@ -48,6 +54,14 @@ public sealed class CadSampleView : Grid
     public CadSampleView(CadShxFontCatalog? shxFonts)
     {
         _canvas = new CadSampleCanvas(shxFonts);
+        _viewport3D = new Viewport3D
+        {
+            Visibility = Visibility.Collapsed,
+            RenderMode = RenderMode3D.Solid,
+            ShadingMode = ShadingMode3D.Flat,
+            LightDirection = new System.Numerics.Vector3(0.25f, -0.5f, -1.0f),
+            AmbientIntensity = 0.25f,
+        };
         TtfFont font = InterFontFamily.Regular;
         RowDefinitions.Add(new GridLength(124, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));
@@ -88,13 +102,17 @@ public sealed class CadSampleView : Grid
         _openButton = CreateButton("Open DXF/DWG", font, 132);
         _saveButton = CreateButton("Save As", font, 92);
         Button fitButton = CreateButton("Fit", font, 68);
+        _viewModeButton = CreateButton("3D surfaces", font, 104);
+        _viewModeText = (TextBlock)_viewModeButton.Content!;
         Button clearSelectionButton = CreateButton("Clear selection", font, 112);
         _openButton.Margin = new Thickness(0, 0, 8, 0);
         _saveButton.Margin = new Thickness(0, 0, 8, 0);
         fitButton.Margin = new Thickness(0, 0, 8, 0);
+        _viewModeButton.Margin = new Thickness(0, 0, 8, 0);
         actions.AddChild(_openButton);
         actions.AddChild(_saveButton);
         actions.AddChild(fitButton);
+        actions.AddChild(_viewModeButton);
         actions.AddChild(clearSelectionButton);
 
         _undoButton = CreateButton("Undo", font, 68, 30);
@@ -205,16 +223,20 @@ public sealed class CadSampleView : Grid
             Child = _status,
         };
 
+        var contentHost = new Grid();
+        contentHost.AddChild(_canvas);
+        contentHost.AddChild(_viewport3D);
         AddChild(toolbar);
-        AddChild(_canvas);
+        AddChild(contentHost);
         AddChild(statusBorder);
         SetRow(toolbar, 0);
-        SetRow(_canvas, 1);
+        SetRow(contentHost, 1);
         SetRow(statusBorder, 2);
 
         _openButton.Click += async (_, _) => await OpenAsync();
         _saveButton.Click += async (_, _) => await SaveAsAsync();
         fitButton.Click += (_, _) => _canvas.FitToView();
+        _viewModeButton.Click += (_, _) => ToggleViewMode();
         clearSelectionButton.Click += (_, _) => _canvas.ClearSelection();
         _undoButton.Click += (_, _) => PerformUndo();
         _redoButton.Click += (_, _) => PerformRedo();
@@ -237,7 +259,117 @@ public sealed class CadSampleView : Grid
             UpdateEditControls();
         };
         _canvas.EditStateChanged += (_, _) => UpdateEditControls();
+        _canvas.SnapshotChanged += (_, _) => RebuildMesh3DView();
+        RebuildMesh3DView();
         UpdateEditControls();
+    }
+
+    private void ToggleViewMode()
+    {
+        if (!_viewModeButton.IsEnabled)
+        {
+            return;
+        }
+        _is3DView = !_is3DView;
+        _canvas.Visibility = _is3DView ? Visibility.Collapsed : Visibility.Visible;
+        _viewport3D.Visibility = _is3DView ? Visibility.Visible : Visibility.Collapsed;
+        _viewModeText.Text = _is3DView ? "Plan view" : "3D surfaces";
+        if (_is3DView)
+        {
+            _viewport3D.Invalidate();
+        }
+        UpdateEditControls();
+    }
+
+    private void RebuildMesh3DView()
+    {
+        _viewport3D.Children.Clear();
+        CadDocumentSnapshot? snapshot = _canvas.CurrentSnapshot;
+        if (snapshot is null)
+        {
+            SetMeshViewAvailability(false);
+            return;
+        }
+
+        CadRecordedMesh3DScene scene = new CadMesh3DSceneCompiler().Compile(snapshot);
+        foreach (CadMesh3DDrawBatch batch in scene.DrawBatches.Span)
+        {
+            uint[] sourceIndices = batch.Indices.ToArray();
+            var indices = new int[sourceIndices.Length];
+            for (int i = 0; i < sourceIndices.Length; i++)
+            {
+                indices[i] = checked((int)sourceIndices[i]);
+            }
+            CadColor32 color = batch.Color;
+            var material = new DiffuseMaterial
+            {
+                Color = new System.Numerics.Vector4(
+                    color.Red / 255.0f,
+                    color.Green / 255.0f,
+                    color.Blue / 255.0f,
+                    color.Alpha / 255.0f),
+                AmbientColor = new System.Numerics.Vector3(0.2f),
+                SpecularColor = new System.Numerics.Vector3(0.15f),
+                Shininess = 16.0f,
+            };
+            var geometry = new MeshGeometry3D
+            {
+                Positions = batch.Positions.ToArray(),
+                Normals = batch.Normals.ToArray(),
+                TextureCoordinates = batch.TextureCoordinates.ToArray(),
+                TriangleIndices = indices,
+            };
+            _viewport3D.Children.Add(new ModelVisual3D
+            {
+                Content = new GeometryModel3D
+                {
+                    Geometry = geometry,
+                    Material = material,
+                    BackMaterial = material,
+                },
+            });
+        }
+
+        bool hasMeshes = scene.DrawBatches.Length != 0;
+        SetMeshViewAvailability(hasMeshes);
+        if (!hasMeshes)
+        {
+            return;
+        }
+        CadBounds3D bounds = scene.Bounds;
+        CadPoint3D center = bounds.Center;
+        var target = new System.Numerics.Vector3(
+            checked((float)(center.X - scene.RebaseOrigin.X)),
+            checked((float)(center.Y - scene.RebaseOrigin.Y)),
+            checked((float)(center.Z - scene.RebaseOrigin.Z)));
+        float extent = checked((float)Math.Max(
+            Math.Max(bounds.Max.X - bounds.Min.X, bounds.Max.Y - bounds.Min.Y),
+            bounds.Max.Z - bounds.Min.Z));
+        float radius = Math.Max(extent * 1.8f, 10.0f);
+        var offset = new System.Numerics.Vector3(radius, -radius, radius * 0.8f);
+        _viewport3D.Camera = new PerspectiveCamera
+        {
+            Position = target + offset,
+            LookDirection = -offset,
+            UpDirection = System.Numerics.Vector3.UnitZ,
+            NearPlaneDistance = Math.Max(radius / 10_000.0f, 0.01f),
+            FarPlaneDistance = radius * 20.0f,
+            FieldOfView = 42.0f,
+        };
+        _viewport3D.Invalidate();
+    }
+
+    private void SetMeshViewAvailability(bool isAvailable)
+    {
+        _viewModeButton.IsEnabled = !_isBusy && isAvailable;
+        if (isAvailable || !_is3DView)
+        {
+            return;
+        }
+        _is3DView = false;
+        _canvas.Visibility = Visibility.Visible;
+        _viewport3D.Visibility = Visibility.Collapsed;
+        _viewModeText.Text = "3D surfaces";
     }
 
     private void MoveSelection(double xDirection, double yDirection)
@@ -595,6 +727,7 @@ public sealed class CadSampleView : Grid
     {
         _undoButton.IsEnabled = !_isBusy && _canvas.UndoCount > 0;
         _redoButton.IsEnabled = !_isBusy && _canvas.RedoCount > 0;
+        _viewModeButton.IsEnabled = !_isBusy && _viewport3D.Children.Count > 0;
         bool canTransform = !_isBusy && _canvas.SelectedHandleCount > 0;
         _moveStepInput.IsEnabled = !_isBusy;
         _rotationStepInput.IsEnabled = !_isBusy;

@@ -60,6 +60,7 @@
   <Project Path="ProGPU.Samples.Uno/ProGPU.Samples.Uno/ProGPU.Samples.Uno.csproj" />
   <Project Path="ProGPU.Dxf/ProGPU.Dxf.csproj" />
   <Project Path="ProGPU.CAD/ProGPU.CAD.csproj" />
+  <Project Path="ProGPU.CAD.Native/ProGPU.CAD.Native.csproj" />
   <Project Path="ProGPU.CAD.Benchmarks/ProGPU.CAD.Benchmarks.csproj" />
   <Project Path="ProGPU.CAD.Sample/ProGPU.CAD.Sample.csproj" />
   <Project Path="ProGPU.CAD.Sample.Browser/ProGPU.CAD.Sample.Browser.csproj" />

@@ -105,6 +105,10 @@ public sealed partial class CadSnapshotCompiler
         var lines = new List<CadLinePrimitive>();
         var points = new List<CadPointPrimitive>();
         var constructionLines = new List<CadConstructionLinePrimitive>();
+        var meshes3D = new List<CadMesh3DPrimitive>();
+        var mesh3DDrawRanges = new List<CadMesh3DDrawRange>();
+        var mesh3DVertices = new List<CadMesh3DVertex>();
+        var mesh3DIndices = new List<uint>();
         var circles = new List<CadCirclePrimitive>();
         var arcs = new List<CadArcPrimitive>();
         var ellipses = new List<CadEllipsePrimitive>();
@@ -202,6 +206,10 @@ public sealed partial class CadSnapshotCompiler
             lines.ToArray(),
             points.ToArray(),
             constructionLines.ToArray(),
+            meshes3D.ToArray(),
+            mesh3DDrawRanges.ToArray(),
+            mesh3DVertices.ToArray(),
+            mesh3DIndices.ToArray(),
             circles.ToArray(),
             arcs.ToArray(),
             ellipses.ToArray(),
@@ -926,6 +934,45 @@ public sealed partial class CadSnapshotCompiler
                 shxGlyphInstances,
                 shxFontResolver,
                 options);
+            XYZ[] textureValues = mesh.TextureCoordinates.ToArray();
+            if (textureValues.Length != 0 &&
+                textureValues.Length != worldVertices.Length)
+            {
+                throw new ArgumentException(
+                    "A level-0 MESH texture-coordinate count must match its vertex count.");
+            }
+            var meshFaces = new List<CadMesh3DFaceSource>(mesh.Faces.Count);
+            foreach (int[] face in mesh.Faces)
+            {
+                var facePoints = new CadPoint3D[face.Length];
+                var faceTextureCoordinates = textureValues.Length == 0
+                    ? Array.Empty<Vector2>()
+                    : new Vector2[face.Length];
+                for (int i = 0; i < face.Length; i++)
+                {
+                    int sourceIndex = face[i];
+                    facePoints[i] = worldVertices[sourceIndex];
+                    if (textureValues.Length != 0)
+                    {
+                        XYZ texture = textureValues[sourceIndex];
+                        float u = checked((float)texture.X);
+                        float v = checked((float)texture.Y);
+                        if (!float.IsFinite(u) || !float.IsFinite(v))
+                        {
+                            throw new ArgumentException(
+                                "A level-0 MESH texture coordinate must be finite.");
+                        }
+                        faceTextureCoordinates[i] = new Vector2(u, v);
+                    }
+                }
+                meshFaces.Add(new CadMesh3DFaceSource(
+                    facePoints,
+                    faceTextureCoordinates,
+                    layerIndex,
+                    styleIndex,
+                    AllowNonPlanarQuad: true));
+            }
+            CommitMesh3D(meshFaces, rootHandle);
             expandedCount = checked(expandedCount + orderedEdges.Count);
             for (int i = 0; i < orderedEdges.Count; i++)
             {
@@ -1013,7 +1060,53 @@ public sealed partial class CadSnapshotCompiler
                 }
             }
 
-            EmitUniformEdges(orderedEdges, worldVertices, rootHandle, effectiveLayer, resolvedStyle);
+            int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
+            int styleIndex = InternStyle(
+                resolvedStyle,
+                styles,
+                styleIndices,
+                lineTypePatterns,
+                lineTypePatternIndices,
+                lineTypeElements,
+                lineTypeTextResources,
+                lineTypeShapeResources,
+                textGlyphRuns,
+                textGlyphIndices,
+                textGlyphPositions,
+                textFonts,
+                textFontIndices,
+                shxGlyphInstances,
+                shxFontResolver,
+                options);
+            int mFaceCount = (mCount - 1) + (closeM && mCount > 2 ? 1 : 0);
+            int nFaceCount = (nCount - 1) + (closeN && nCount > 2 ? 1 : 0);
+            var meshFaces = new List<CadMesh3DFaceSource>(checked(mFaceCount * nFaceCount));
+            for (int m = 0; m < mFaceCount; m++)
+            {
+                int nextM = (m + 1) % mCount;
+                for (int n = 0; n < nFaceCount; n++)
+                {
+                    int nextN = (n + 1) % nCount;
+                    meshFaces.Add(new CadMesh3DFaceSource(
+                        [
+                            worldVertices[(m * nCount) + n],
+                            worldVertices[(nextM * nCount) + n],
+                            worldVertices[(nextM * nCount) + nextN],
+                            worldVertices[(m * nCount) + nextN],
+                        ],
+                        Array.Empty<Vector2>(),
+                        layerIndex,
+                        styleIndex,
+                        AllowNonPlanarQuad: true));
+                }
+            }
+            CommitMesh3D(meshFaces, rootHandle);
+            EmitUniformEdges(
+                orderedEdges,
+                worldVertices,
+                rootHandle,
+                layerIndex,
+                styleIndex);
 
             void AddLegacyEdge(int start, int end)
             {
@@ -1115,6 +1208,7 @@ public sealed partial class CadSnapshotCompiler
                 CadPoint3D Position,
                 int Layer,
                 int Style)>();
+            var meshFaces = new List<CadMesh3DFaceSource>(mesh.Faces.Count);
             foreach (VertexFaceRecord face in mesh.Faces)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -1172,6 +1266,21 @@ public sealed partial class CadSnapshotCompiler
                     continue;
                 }
 
+                if (count >= 3)
+                {
+                    var facePoints = new CadPoint3D[count];
+                    for (int i = 0; i < count; i++)
+                    {
+                        facePoints[i] = worldVertices[Math.Abs(raw[i]) - 1];
+                    }
+                    meshFaces.Add(new CadMesh3DFaceSource(
+                        facePoints,
+                        Array.Empty<Vector2>(),
+                        layerIndex,
+                        styleIndex,
+                        AllowNonPlanarQuad: true));
+                }
+
                 for (int i = 0; i < (count == 2 ? 1 : count); i++)
                 {
                     int next = count == 2 ? 1 : (i + 1) % count;
@@ -1203,6 +1312,7 @@ public sealed partial class CadSnapshotCompiler
             }
 
             EnsureDerivedEdgeCapacity(checked(orderedEdges.Count + orderedPoints.Count));
+            CommitMesh3D(meshFaces, rootHandle);
             foreach ((CadPoint3D start, CadPoint3D end, int layer, int style) in orderedEdges)
             {
                 EmitEdge(start, end, rootHandle, layer, style);
@@ -1268,28 +1378,10 @@ public sealed partial class CadSnapshotCompiler
             List<(int Start, int End)> orderedEdges,
             CadPoint3D[] worldVertices,
             ulong rootHandle,
-            Layer effectiveLayer,
-            CadResolvedStyle resolvedStyle)
+            int layerIndex,
+            int styleIndex)
         {
             EnsureDerivedEdgeCapacity(orderedEdges.Count);
-            int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
-            int styleIndex = InternStyle(
-                resolvedStyle,
-                styles,
-                styleIndices,
-                lineTypePatterns,
-                lineTypePatternIndices,
-                lineTypeElements,
-                lineTypeTextResources,
-                lineTypeShapeResources,
-                textGlyphRuns,
-                textGlyphIndices,
-                textGlyphPositions,
-                textFonts,
-                textFontIndices,
-                shxGlyphInstances,
-                shxFontResolver,
-                options);
             foreach ((int start, int end) in orderedEdges)
             {
                 EmitEdge(worldVertices[start], worldVertices[end], rootHandle, layerIndex, styleIndex);
@@ -1303,6 +1395,47 @@ public sealed partial class CadSnapshotCompiler
                 throw new CadSnapshotExpansionLimitException(
                     $"Expanded entity count exceeds the configured limit of {options.MaxExpandedEntities}.");
             }
+        }
+
+        void CommitMesh3D(
+            IReadOnlyList<CadMesh3DFaceSource> sourceFaces,
+            ulong rootHandle)
+        {
+            if (sourceFaces.Count == 0)
+            {
+                return;
+            }
+
+            CadMesh3DBuildResult build = CadMesh3DTopology.Build(sourceFaces);
+            int vertexOffset = mesh3DVertices.Count;
+            int indexOffset = mesh3DIndices.Count;
+            int rangeOffset = mesh3DDrawRanges.Count;
+            mesh3DVertices.AddRange(build.Vertices);
+            mesh3DIndices.AddRange(build.Indices);
+            for (int i = 0; i < build.DrawRanges.Length; i++)
+            {
+                CadMesh3DDrawRange range = build.DrawRanges[i];
+                mesh3DDrawRanges.Add(range with
+                {
+                    VertexOffset = checked(range.VertexOffset + vertexOffset),
+                    IndexOffset = checked(range.IndexOffset + indexOffset),
+                });
+            }
+
+            int primitiveIndex = meshes3D.Count;
+            meshes3D.Add(new CadMesh3DPrimitive(
+                rangeOffset,
+                build.DrawRanges.Length,
+                build.Bounds));
+            CadMesh3DDrawRange firstRange = build.DrawRanges[0];
+            entities.Add(new CadEntityHeader(
+                rootHandle,
+                CadEntityKind.Mesh3D,
+                firstRange.LayerIndex,
+                firstRange.StyleIndex,
+                primitiveIndex,
+                build.Bounds));
+            documentBounds = documentBounds.Union(build.Bounds);
         }
 
         void EmitEdge(
@@ -4244,14 +4377,6 @@ public sealed partial class CadSnapshotCompiler
         short Transparency,
         double LineTypeScale,
         double DefaultLineWeightMillimeters);
-
-    private sealed class CadUnsupportedEntityException : Exception
-    {
-        public CadUnsupportedEntityException(string message)
-            : base(message)
-        {
-        }
-    }
 
     private sealed class CadSnapshotExpansionLimitException : InvalidOperationException
     {

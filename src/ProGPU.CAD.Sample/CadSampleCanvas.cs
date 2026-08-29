@@ -80,6 +80,9 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public event EventHandler? EditStateChanged;
 
+    /// <summary>Raised after one complete immutable snapshot/picture replacement.</summary>
+    public event EventHandler? SnapshotChanged;
+
     public CadShxFontCatalog ShxFonts { get; }
 
     public CadSampleCanvas()
@@ -192,6 +195,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         RefreshConstructionPicture();
         previous?.Dispose();
         Invalidate();
+        SnapshotChanged?.Invoke(this, EventArgs.Empty);
         SelectionChanged?.Invoke(this, EventArgs.Empty);
         EditStateChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -646,6 +650,27 @@ public sealed class CadSampleCanvas : FrameworkElement
                 FourthCorner = new XYZ(-11, 25, 2),
                 Flags = InvisibleEdgeFlags.Third,
             });
+
+            var mesh = new Mesh();
+            mesh.Vertices.AddRange([
+                new XYZ(-18, 3, 0),
+                new XYZ(-2, 3, 0),
+                new XYZ(-2, 19, 0),
+                new XYZ(-18, 19, 0),
+                new XYZ(-18, 3, 16),
+                new XYZ(-2, 3, 16),
+                new XYZ(-2, 19, 16),
+                new XYZ(-18, 19, 16),
+            ]);
+            mesh.Faces.AddRange([
+                [0, 3, 2, 1],
+                [4, 5, 6, 7],
+                [0, 1, 5, 4],
+                [1, 2, 6, 5],
+                [2, 3, 7, 6],
+                [3, 0, 4, 7],
+            ]);
+            document.Entities.Add(mesh);
 
             var polyline = new LwPolyline { IsClosed = true };
             polyline.Vertices.Add(new LwPolyline.Vertex(-72, -30));

@@ -164,6 +164,7 @@ CadDocumentSession session = CreateDocument(
 var snapshotCompiler = new CadSnapshotCompiler();
 var pageSetupCompiler = new CadPageSetupCatalogCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
+var mesh3DSceneCompiler = new CadMesh3DSceneCompiler();
 var printPlanCompiler = new CadPrintPlanCompiler();
 CadBounds3D? constructionClip = constructionLineCount == 0
     ? null
@@ -213,6 +214,7 @@ for (int i = 0; i < warmupCount; i++)
     CadDocumentSnapshot warmSnapshot = snapshotCompiler.Compile(session, snapshotOptions);
     _ = pageSetupCompiler.Compile(session);
     _ = sceneCompiler.Compile(warmSnapshot);
+    _ = mesh3DSceneCompiler.Compile(warmSnapshot);
     using CadPrintPlan warmPrintPlan = printPlanCompiler.Compile(warmSnapshot, printOptions);
     using CadPrintPlan warmRotatedPrintPlan = printPlanCompiler.Compile(
         warmSnapshot,
@@ -244,6 +246,11 @@ Measurement sceneMeasurement = Measure(
     iterationCount,
     () => sceneCompiler.Compile(snapshot));
 CadRecordedPlanScene recordedScene = sceneCompiler.Compile(snapshot);
+Measurement mesh3DSceneMeasurement = Measure(
+    "mesh-3d-scene",
+    iterationCount,
+    () => mesh3DSceneCompiler.Compile(snapshot));
+CadRecordedMesh3DScene recordedMesh3DScene = mesh3DSceneCompiler.Compile(snapshot);
 var constructionCompiler = new CadConstructionSceneCompiler();
 CadBounds3D overlayClip = constructionClip ?? snapshot.Bounds;
 Measurement constructionSceneMeasurement = Measure(
@@ -340,10 +347,12 @@ var report = new CadBenchmarkReport(
     snapshot.SpatialIndex.NodeCount,
     recordedScene.Statistics.RecordedCommandCount,
     recordedScene.Statistics,
+    recordedMesh3DScene.Statistics,
     recordedConstructionScene.Statistics,
     snapshotMeasurement,
     pageSetupMeasurement,
     sceneMeasurement,
+    mesh3DSceneMeasurement,
     constructionSceneMeasurement,
     printPlanMeasurement,
     rotatedPrintPlanMeasurement,
@@ -1511,10 +1520,12 @@ internal sealed record CadBenchmarkReport(
     int SpatialNodeCount,
     int RecordedCommandCount,
     CadPlanSceneStatistics SceneStatistics,
+    CadMesh3DSceneStatistics Mesh3DSceneStatistics,
     CadConstructionSceneStatistics ConstructionSceneStatistics,
     Measurement SnapshotMilliseconds,
     Measurement PageSetupCatalogMilliseconds,
     Measurement PlanSceneMilliseconds,
+    Measurement Mesh3DSceneMilliseconds,
     Measurement ConstructionSceneMilliseconds,
     Measurement PrintPlanMilliseconds,
     Measurement RotatedPrintPlanMilliseconds,

@@ -28,10 +28,15 @@ public sealed class CadLegacyMeshSnapshotTests
             new CadDocumentSession(document));
 
         Assert.Equal(expectedEdges, snapshot.Lines.Length);
-        Assert.Equal(expectedEdges, snapshot.Entities.Length);
+        Assert.Equal(expectedEdges + 1, snapshot.Entities.Length);
+        Assert.Single(snapshot.Meshes3D.ToArray());
+        int expectedFaces = (2 + (closeM ? 1 : 0)) *
+            (2 + (closeN ? 1 : 0));
+        Assert.Equal(expectedFaces, snapshot.Mesh3DDrawRanges.Length);
+        Assert.Equal(expectedFaces * 6, snapshot.Mesh3DVertices.Length);
         Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Equal(0, snapshot.Statistics.InvalidEntityCount);
-        Assert.All(snapshot.Entities.ToArray(), entity =>
+        Assert.All(snapshot.Entities.ToArray().Where(entity => entity.Kind == CadEntityKind.Line), entity =>
         {
             Assert.Equal(mesh.Handle, entity.Handle);
             Assert.Equal(CadEntityKind.Line, entity.Kind);
@@ -86,6 +91,8 @@ public sealed class CadLegacyMeshSnapshotTests
             new CadDocumentSession(document));
 
         Assert.Equal(6, snapshot.Lines.Length);
+        Assert.Equal(2, snapshot.Mesh3DDrawRanges.Length);
+        Assert.Equal(6, snapshot.Mesh3DVertices.Length);
         Assert.Contains(snapshot.Lines.ToArray(), line =>
             HasEndpoints(line, new CadPoint3D(0, 0, 0), new CadPoint3D(2, 0, 0)));
         Assert.Contains(snapshot.Lines.ToArray(), line =>
@@ -117,13 +124,18 @@ public sealed class CadLegacyMeshSnapshotTests
 
         Assert.Equal(6, snapshot.Lines.Length);
         CadEntityHeader[] diagonalHeaders = snapshot.Entities.ToArray()
-            .Where((_, index) => HasEndpoints(
-                snapshot.Lines.Span[index],
+            .Where(header => header.Kind == CadEntityKind.Line)
+            .Where(header => HasEndpoints(
+                snapshot.Lines.Span[header.PrimitiveIndex],
                 new CadPoint3D(0, 0, 0),
                 new CadPoint3D(2, 1, 1)))
             .ToArray();
         Assert.Equal(2, diagonalHeaders.Length);
         Assert.Equal(2, diagonalHeaders.Select(header => header.StyleIndex).Distinct().Count());
+        CadRecordedMesh3DScene scene = new CadMesh3DSceneCompiler().Compile(snapshot);
+        Assert.Equal(2, scene.Statistics.FaceRangeCount);
+        Assert.Equal(2, scene.Statistics.DrawBatchCount);
+        Assert.Equal(2, scene.Statistics.TriangleCount);
     }
 
     [Fact]
@@ -154,7 +166,7 @@ public sealed class CadLegacyMeshSnapshotTests
             hashScratch,
             handles);
 
-        Assert.Equal(5, selection.MatchedPrimitiveCount);
+        Assert.Equal(6, selection.MatchedPrimitiveCount);
         Assert.Equal(1, selection.HandleTotalCount);
         Assert.Equal(mesh.Handle, handles[0]);
         Assert.Equal(5, scene.Statistics.RecordedEntityCount);

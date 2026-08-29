@@ -40,6 +40,7 @@ progpu_portable_package_ids=(
   ProGPU.Uno
   ProGPU.Dxf
   ProGPU.CAD
+  ProGPU.CAD.Native
   ProGPU.SkiaSharp
   ProGPU.BinaryCompatibility
   ProGPU.System.Drawing.Common
@@ -84,6 +85,7 @@ progpu_portable_package_projects=(
   src/ProGPU.Uno/ProGPU.Uno.csproj
   src/ProGPU.Dxf/ProGPU.Dxf.csproj
   src/ProGPU.CAD/ProGPU.CAD.csproj
+  src/ProGPU.CAD.Native/ProGPU.CAD.Native.csproj
   src/SkiaSharp/SkiaSharp.csproj
   src/ProGPU.BinaryCompatibility/ProGPU.BinaryCompatibility.csproj
   src/System.Drawing.Common/System.Drawing.Common.csproj
@@ -128,6 +130,7 @@ progpu_portable_package_purposes=(
   "Uno/WinUI integration and compositor backend adapter."
   "DXF import/rendering support for ProGPU vector scenes."
   "ACadSharp-backed DXF/DWG document sessions and retained GPU-accelerated CAD engine foundation."
+  "Optional native C++ scene adapter for immutable ProGPU CAD content."
   "ProGPU-backed portable SkiaSharp compatibility shim used by drawing and imaging adapters."
   "Opt-in official-identity SkiaSharp and Avalonia.Skia runtime/publish compatibility assets."
   "ProGPU-backed portable System.Drawing.Common compatibility shim for LibreWinForms and GDI-style callers."
