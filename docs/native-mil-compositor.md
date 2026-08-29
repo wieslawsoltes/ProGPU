@@ -4880,8 +4880,12 @@ publishes `TextureChanged` only after one transactional native
 a safe caller-owned reference to the genuine `ID2D1DeviceContext1`; active
 deferred ProGPU leases reject producer entry. Both sides use the Dawn-qualified
 zero-key mutex profile while a separate monotonic content version records
-successful producer writes. This texture source can flow directly through the
-already-qualified D3DImage sideband with no CPU copy or new scene resource.
+successful producer writes. `ProGpuDirect2DD3DImageSource` adapts this texture
+source to the neutral `IPortableD3DImageSource` and
+`IPortableInvalidationSource` contracts, so it flows through the already-
+qualified D3DImage sideband with no CPU copy or new scene resource. It fails
+closed while content version is zero and does not own or dispose the wrapped
+surface.
 
 Dawn ownership transitions run outside the Direct2D provider state lock. This
 preserves one lock order when a render submission already owns the WebGPU
