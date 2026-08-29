@@ -34,6 +34,8 @@ public sealed class CadSampleView : Grid
     private readonly Button _deletePageSetupButton;
     private readonly TextBlock _status;
     private readonly Button _openButton;
+    private readonly Button _importPageSetupsButton;
+    private readonly Button _importReplacePageSetupsButton;
     private readonly Button _saveButton;
     private readonly Button _fitButton;
     private readonly Button _clearSelectionButton;
@@ -142,6 +144,8 @@ public sealed class CadSampleView : Grid
         toolbar.Child = toolbarRows;
 
         _openButton = CreateButton("Open DXF/DWG", font, 132);
+        _importPageSetupsButton = CreateButton("Import setups", font, 112);
+        _importReplacePageSetupsButton = CreateButton("Import / replace", font, 128);
         _saveButton = CreateButton("Save As", font, 92);
         _fitButton = CreateButton("Fit", font, 68);
         _viewModeButton = CreateButton("3D surfaces", font, 104);
@@ -150,10 +154,14 @@ public sealed class CadSampleView : Grid
         _printPreviewText = (TextBlock)_printPreviewButton.Content!;
         _clearSelectionButton = CreateButton("Clear selection", font, 112);
         _openButton.Margin = new Thickness(0, 0, 8, 0);
+        _importPageSetupsButton.Margin = new Thickness(0, 0, 8, 0);
+        _importReplacePageSetupsButton.Margin = new Thickness(0, 0, 8, 0);
         _saveButton.Margin = new Thickness(0, 0, 8, 0);
         _fitButton.Margin = new Thickness(0, 0, 8, 0);
         _viewModeButton.Margin = new Thickness(0, 0, 8, 0);
         actions.AddChild(_openButton);
+        actions.AddChild(_importPageSetupsButton);
+        actions.AddChild(_importReplacePageSetupsButton);
         actions.AddChild(_saveButton);
         actions.AddChild(_fitButton);
         actions.AddChild(_viewModeButton);
@@ -349,6 +357,11 @@ public sealed class CadSampleView : Grid
         SetRow(statusBorder, 2);
 
         _openButton.Click += async (_, _) => await OpenAsync();
+        _importPageSetupsButton.Click += async (_, _) =>
+            await ImportPageSetupsAsync(CadPageSetupImportConflictPolicy.Reject);
+        _importReplacePageSetupsButton.Click += async (_, _) =>
+            await ImportPageSetupsAsync(
+                CadPageSetupImportConflictPolicy.ReplaceExisting);
         _saveButton.Click += async (_, _) => await SaveAsAsync();
         _fitButton.Click += (_, _) => _canvas.FitToView();
         _viewModeButton.Click += (_, _) => ToggleViewMode();
@@ -1338,6 +1351,80 @@ public sealed class CadSampleView : Grid
         }
     }
 
+    private async Task ImportPageSetupsAsync(
+        CadPageSetupImportConflictPolicy conflictPolicy)
+    {
+        if (_canvas.CurrentSession is null ||
+            !TryBeginOperation(
+                conflictPolicy == CadPageSetupImportConflictPolicy.Reject
+                    ? "Choose a DXF or DWG page-setup source..."
+                    : "Choose a DXF or DWG page-setup source to import and replace..."))
+        {
+            return;
+        }
+
+        try
+        {
+            var picker = new FileOpenPicker();
+            picker.FileTypeFilter.Add(".dxf");
+            picker.FileTypeFilter.Add(".dwg");
+            StorageFile? file = await picker.PickSingleFileAsync();
+            if (file is null)
+            {
+                SetStatus("Page-setup import cancelled.");
+                return;
+            }
+
+            SetStatus($"Reading page setups from {file.Name}...");
+            byte[] bytes = await file.ReadBytesAsync();
+            using var source = new MemoryStream(bytes, writable: false);
+            CadLoadResult loaded = await _store.LoadAsync(
+                source,
+                CadDocumentFormat.Auto,
+                sourceName: file.Name);
+            ImportPageSetups(
+                loaded.Session,
+                conflictPolicy,
+                file.Name,
+                loaded.Diagnostics.Count);
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Page-setup import failed: {exception.Message}");
+        }
+        finally
+        {
+            EndOperation();
+        }
+    }
+
+    /// <summary>
+    /// Imports all named setups from a loaded source. This typed seam is shared
+    /// by desktop/browser pickers and deterministic host tests.
+    /// </summary>
+    public CadPageSetupImportResult ImportPageSetups(
+        CadDocumentSession source,
+        CadPageSetupImportConflictPolicy conflictPolicy,
+        string sourceName = "drawing",
+        int diagnosticCount = 0)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        ArgumentOutOfRangeException.ThrowIfNegative(diagnosticCount);
+        CadPageSetupImportResult result = _canvas.ImportNamedPageSetups(
+            source,
+            conflictPolicy);
+        SetStatus(
+            $"Imported {result.ImportedCount:N0} named page setup(s) from " +
+            $"{sourceName} as one edit: {result.CreatedCount:N0} new, " +
+            $"{result.ReplacedCount:N0} replaced" +
+            (diagnosticCount == 0
+                ? "."
+                : $"; source reported {diagnosticCount:N0} diagnostic(s)."));
+        UpdateEditControls();
+        return result;
+    }
+
     private async Task<CadShxFontDiscoveryResult?> DiscoverLocalShxFontsAsync(
         StorageFile file,
         CadDocumentSession session)
@@ -1432,6 +1519,8 @@ public sealed class CadSampleView : Grid
 
         _isBusy = true;
         _openButton.IsEnabled = false;
+        _importPageSetupsButton.IsEnabled = false;
+        _importReplacePageSetupsButton.IsEnabled = false;
         _saveButton.IsEnabled = false;
         UpdateEditControls();
         SetStatus(status);
@@ -1442,6 +1531,8 @@ public sealed class CadSampleView : Grid
     {
         _isBusy = false;
         _openButton.IsEnabled = true;
+        _importPageSetupsButton.IsEnabled = true;
+        _importReplacePageSetupsButton.IsEnabled = true;
         _saveButton.IsEnabled = true;
         UpdateEditControls();
     }
@@ -1453,6 +1544,10 @@ public sealed class CadSampleView : Grid
         bool canUsePlanTools =
             !_isBusy && !_isPrintPreview && !isReferencePicking;
         _openButton.IsEnabled = canUsePlanTools;
+        bool canImportPageSetups = canUsePlanTools &&
+            _canvas.CurrentSession is not null;
+        _importPageSetupsButton.IsEnabled = canImportPageSetups;
+        _importReplacePageSetupsButton.IsEnabled = canImportPageSetups;
         _saveButton.IsEnabled = !_isBusy;
         _fitButton.IsEnabled = canUsePlanTools && !_is3DView;
         _clearSelectionButton.IsEnabled = canUsePlanTools;

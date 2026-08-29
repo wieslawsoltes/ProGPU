@@ -623,6 +623,34 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Imports every named page setup captured from another session through
+    /// one generation-safe reversible document edit.
+    /// </summary>
+    public CadPageSetupImportResult ImportNamedPageSetups(
+        CadDocumentSession source,
+        CadPageSetupImportConflictPolicy conflictPolicy)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        CadImportNamedPageSetupsCommand command =
+            CadImportNamedPageSetupsCommand.CaptureAll(
+                source,
+                conflictPolicy,
+                "Import named page setups");
+        ulong generation = history.Execute(command);
+        RecompileAfterEdit(session);
+        return new CadPageSetupImportResult(
+            generation,
+            command.ImportedCount,
+            command.CreatedCount,
+            command.ReplacedCount);
+    }
+
+    /// <summary>
     /// Compiles one retained page from a generation-matched drawing page setup.
     /// Unsupported page policies fail with their typed CADPAGE diagnostic.
     /// </summary>

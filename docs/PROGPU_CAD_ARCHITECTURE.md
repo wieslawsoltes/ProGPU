@@ -2133,6 +2133,44 @@ input, selects the renamed catalog entry, and uses the same history generation.
 Matched collision, identity, association, UI, Undo/Redo, DXF, and DWG
 regressions cover the contract.
 
+`CadImportNamedPageSetupsCommand` implements bounded cross-document import.
+The command synchronously captures either all named setups or an explicit
+case-insensitive subset while holding the source session read lock, owns every
+fixed plot value and copied string, and then releases the source completely.
+The import is capped at 4,096 setups, 4,096 UTF-16 code units per string, and
+1,048,576 total copied string code units. The target edit preflights the whole
+batch and offers two explicit policies: `Reject` leaves the drawing and history
+generation untouched on any name collision; `ReplaceExisting` preserves the
+target object's dictionary identity, casing, owner, and handle while replacing
+only its fixed plot state. New entries retain exact object identity through
+Undo/Redo and receive ACadSharp's normal fresh handle on reattachment. One
+command is one content generation, all mutations have inverse rollback, and
+layouts—including their page-setup markers and copied plot state—are never
+changed implicitly. Capture costs O(I + S) time/storage for I setups and S
+owned string units; Apply, Undo, and Redo cost O(I).
+
+The shared desktop/browser shell uses the existing DXF/DWG picker and exposes
+separate `Import setups` and `Import / replace` actions, making collision intent
+explicit before file selection. It loads the source into an independent
+session, imports every standalone named setup through the existing synchronized
+history, rebuilds the detached catalog, reports created/replaced counts, and
+keeps the current drawing identity unchanged. DWT is not advertised because
+the current document store supports DXF/DWG streams only. Matched reject,
+replacement identity, detached-source, subset, Undo/Redo, shared-UI, DXF, and
+DWG regressions cover the contract.
+
+This design adopts Autodesk's documented selection and redefine-on-conflict
+semantics while making rejection/replacement an explicit typed policy. It
+adapts the dialog-owned workflow to ProGPU's session snapshot and reversible
+command model. It rejects silent replacement, implicit propagation to layouts,
+retained source-document references, and unbounded source strings. Primary
+references are Autodesk's
+[named page-setup workflow](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Core/files/GUID-62B163D7-92F5-4793-85C2-246BDDA81470.htm),
+[direct import procedure](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-4FADF4BA-7FE6-4F57-84BC-0A5A56F8930F.htm),
+[Import Page Setups dialog](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-C3DE7352-1DE5-4F82-A5FE-5884C27B0473.htm),
+and the official
+[plot-settings dictionary contract](https://help.autodesk.com/cloudhelp/2017/ENU/AutoCAD-NET/files/GUID-56BD3247-471C-4471-A238-FFDFDC3BD2E4.htm).
+
 This slice changes document metadata and the shared host only. It changes no
 scene compiler, shader, render command, cache, GPU resource, native ABI, or
 managed/native renderer behavior, so a paired native rendering implementation

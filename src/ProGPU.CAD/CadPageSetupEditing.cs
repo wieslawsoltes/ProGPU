@@ -569,6 +569,521 @@ public sealed class CadRenameNamedPageSetupCommand : CadEditCommand
     }
 }
 
+/// <summary>Controls collisions while importing named page setups.</summary>
+public enum CadPageSetupImportConflictPolicy : byte
+{
+    /// <summary>Reject the entire import before mutating any target entry.</summary>
+    Reject,
+
+    /// <summary>Replace the fixed plot state of existing named entries.</summary>
+    ReplaceExisting,
+}
+
+/// <summary>Summarizes one completed named page-setup import edit.</summary>
+public readonly record struct CadPageSetupImportResult(
+    ulong ContentGeneration,
+    int ImportedCount,
+    int CreatedCount,
+    int ReplacedCount);
+
+/// <summary>
+/// Imports a bounded detached snapshot of named page setups as one reversible edit.
+/// </summary>
+/// <remarks>
+/// Capture is O(I + S) time and storage for I imported setups and S owned string
+/// code units. Apply, Undo, and Redo are O(I). Existing target entries preserve
+/// object identity and handles; newly created entries retain object identity
+/// across Undo/Redo and receive a fresh handle when reattached. Layouts are not
+/// changed implicitly. The command never retains the source document or session.
+/// </remarks>
+public sealed class CadImportNamedPageSetupsCommand : CadEditCommand
+{
+    public const int MaximumSetupCount = 4_096;
+    public const int MaximumStringCodeUnits = 4_096;
+    public const int MaximumTotalStringCodeUnits = 1_048_576;
+
+    private readonly ImportedEntry[] _imports;
+    private readonly CadPageSetupImportConflictPolicy _conflictPolicy;
+    private CadDictionary? _pageSetups;
+    private TargetEntry[]? _targets;
+
+    public CadPageSetupImportConflictPolicy ConflictPolicy => _conflictPolicy;
+
+    public int ImportedCount => _imports.Length;
+
+    public int CreatedCount { get; private set; }
+
+    public int ReplacedCount { get; private set; }
+
+    private CadImportNamedPageSetupsCommand(
+        ImportedEntry[] imports,
+        CadPageSetupImportConflictPolicy conflictPolicy,
+        string description)
+        : base(description)
+    {
+        if (!Enum.IsDefined(conflictPolicy))
+        {
+            throw new ArgumentOutOfRangeException(nameof(conflictPolicy));
+        }
+        _imports = imports;
+        _conflictPolicy = conflictPolicy;
+    }
+
+    /// <summary>Captures every standalone named page setup from a source session.</summary>
+    public static CadImportNamedPageSetupsCommand CaptureAll(
+        CadDocumentSession source,
+        CadPageSetupImportConflictPolicy conflictPolicy =
+            CadPageSetupImportConflictPolicy.Reject,
+        string description = "Import named page setups")
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return new CadImportNamedPageSetupsCommand(
+            source.Read(CaptureAllEntries),
+            conflictPolicy,
+            description);
+    }
+
+    /// <summary>Captures an explicit case-insensitive subset from a source session.</summary>
+    public static CadImportNamedPageSetupsCommand Capture(
+        CadDocumentSession source,
+        IEnumerable<string> pageSetupNames,
+        CadPageSetupImportConflictPolicy conflictPolicy =
+            CadPageSetupImportConflictPolicy.Reject,
+        string description = "Import named page setups")
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        string[] names = OwnSelectedNames(pageSetupNames);
+        return new CadImportNamedPageSetupsCommand(
+            source.Read(document => CaptureSelectedEntries(document, names)),
+            conflictPolicy,
+            description);
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        CadDictionary pageSetups = ResolvePageSetupDictionary(document);
+        if (isRedo)
+        {
+            ValidateRetainedDictionary(pageSetups);
+            TargetEntry[] targets = GetTargets();
+            ValidateForwardState(pageSetups, targets);
+            ApplyForwardTransactional(pageSetups, targets);
+            return;
+        }
+
+        TargetEntry[] capturedTargets = PreflightFirstApply(pageSetups);
+        ApplyForwardTransactional(pageSetups, capturedTargets);
+        _pageSetups = pageSetups;
+        _targets = capturedTargets;
+        CreatedCount = capturedTargets.Count(static target => target.IsCreated);
+        ReplacedCount = capturedTargets.Length - CreatedCount;
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        CadDictionary pageSetups = ResolvePageSetupDictionary(document);
+        ValidateRetainedDictionary(pageSetups);
+        TargetEntry[] targets = GetTargets();
+        ValidateReverseState(pageSetups, targets);
+        ApplyReverseTransactional(pageSetups, targets);
+    }
+
+    private TargetEntry[] PreflightFirstApply(CadDictionary pageSetups)
+    {
+        var targets = new TargetEntry[_imports.Length];
+        for (int i = 0; i < _imports.Length; i++)
+        {
+            ImportedEntry imported = _imports[i];
+            if (pageSetups.TryGetEntry(
+                    imported.Name,
+                    out NonGraphicalObject current))
+            {
+                if (current is not PlotSettings existing || current is Layout)
+                {
+                    throw new InvalidOperationException(
+                        $"Target entry '{imported.Name}' is not a named PLOTSETTINGS object.");
+                }
+                if (_conflictPolicy == CadPageSetupImportConflictPolicy.Reject)
+                {
+                    throw new InvalidOperationException(
+                        $"Named page setup '{imported.Name}' already exists; " +
+                        "the import was not applied.");
+                }
+                targets[i] = new TargetEntry(
+                    existing.Name,
+                    imported.State.WithPageName(existing.Name),
+                    existing,
+                    CadPlotSettingsState.Capture(existing),
+                    IsCreated: false);
+                continue;
+            }
+
+            var created = new PlotSettings(imported.Name);
+            imported.State
+                .WithPageName(imported.Name)
+                .ApplyTo(created);
+            targets[i] = new TargetEntry(
+                imported.Name,
+                CadPlotSettingsState.Capture(created),
+                created,
+                default,
+                IsCreated: true);
+        }
+        return targets;
+    }
+
+    private static void ApplyForwardTransactional(
+        CadDictionary pageSetups,
+        TargetEntry[] targets)
+    {
+        int completed = 0;
+        try
+        {
+            for (; completed < targets.Length; completed++)
+            {
+                TargetEntry target = targets[completed];
+                if (target.IsCreated)
+                {
+                    AddTransactional(pageSetups, target.PageSetup);
+                }
+                else
+                {
+                    CadPlotSettingsState.ApplyTransactional(
+                        target.PageSetup,
+                        target.ImportedState);
+                }
+            }
+        }
+        catch (Exception applyException)
+        {
+            try
+            {
+                for (int i = completed - 1; i >= 0; i--)
+                {
+                    ApplyReverse(pageSetups, targets[i]);
+                }
+            }
+            catch (Exception rollbackException)
+            {
+                throw new InvalidOperationException(
+                    "Importing page setups failed and its rollback also failed.",
+                    new AggregateException(applyException, rollbackException));
+            }
+            throw;
+        }
+    }
+
+    private static void ApplyReverseTransactional(
+        CadDictionary pageSetups,
+        TargetEntry[] targets)
+    {
+        int index = targets.Length - 1;
+        try
+        {
+            for (; index >= 0; index--)
+            {
+                ApplyReverse(pageSetups, targets[index]);
+            }
+        }
+        catch (Exception revertException)
+        {
+            try
+            {
+                for (int i = index + 1; i < targets.Length; i++)
+                {
+                    TargetEntry target = targets[i];
+                    if (target.IsCreated)
+                    {
+                        AddTransactional(pageSetups, target.PageSetup);
+                    }
+                    else
+                    {
+                        CadPlotSettingsState.ApplyTransactional(
+                            target.PageSetup,
+                            target.ImportedState);
+                    }
+                }
+            }
+            catch (Exception rollbackException)
+            {
+                throw new InvalidOperationException(
+                    "Undoing the page-setup import failed and its rollback also failed.",
+                    new AggregateException(revertException, rollbackException));
+            }
+            throw;
+        }
+    }
+
+    private static void ApplyReverse(
+        CadDictionary pageSetups,
+        TargetEntry target)
+    {
+        if (!target.IsCreated)
+        {
+            CadPlotSettingsState.ApplyTransactional(
+                target.PageSetup,
+                target.PreviousState);
+            return;
+        }
+        if (!pageSetups.Remove(target.Name, out NonGraphicalObject removed) ||
+            !ReferenceEquals(target.PageSetup, removed))
+        {
+            throw new InvalidOperationException(
+                $"Imported page setup '{target.Name}' could not be removed.");
+        }
+    }
+
+    private static void ValidateForwardState(
+        CadDictionary pageSetups,
+        TargetEntry[] targets)
+    {
+        foreach (TargetEntry target in targets)
+        {
+            if (target.IsCreated)
+            {
+                if (pageSetups.ContainsKey(target.Name) ||
+                    target.PageSetup.Owner is not null ||
+                    target.PageSetup.Handle != 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Imported page setup '{target.Name}' is not detached for Redo.");
+                }
+            }
+            else
+            {
+                EnsureRetainedEntry(pageSetups, target);
+            }
+        }
+    }
+
+    private static void ValidateReverseState(
+        CadDictionary pageSetups,
+        TargetEntry[] targets)
+    {
+        foreach (TargetEntry target in targets)
+        {
+            EnsureRetainedEntry(pageSetups, target);
+        }
+    }
+
+    private static void EnsureRetainedEntry(
+        CadDictionary pageSetups,
+        TargetEntry target)
+    {
+        if (!pageSetups.TryGetEntry(target.Name, out PlotSettings current) ||
+            current is Layout ||
+            !ReferenceEquals(target.PageSetup, current))
+        {
+            throw new InvalidOperationException(
+                $"Named page setup '{target.Name}' is no longer the retained setup.");
+        }
+    }
+
+    private void ValidateRetainedDictionary(CadDictionary pageSetups)
+    {
+        if (!ReferenceEquals(_pageSetups, pageSetups))
+        {
+            throw new InvalidOperationException(
+                "The ACAD_PLOTSETTINGS dictionary is no longer the retained dictionary.");
+        }
+    }
+
+    private TargetEntry[] GetTargets() => _targets ??
+        throw new InvalidOperationException(
+            "The page-setup import command has not been applied.");
+
+    private static ImportedEntry[] CaptureAllEntries(CadDocument document)
+    {
+        CadDictionary pageSetups = ResolvePageSetupDictionary(document);
+        var entries = new List<ImportedEntry>();
+        var ownership = new StringOwnershipBudget();
+        foreach (NonGraphicalObject entry in pageSetups)
+        {
+            if (entry is not PlotSettings pageSetup || entry is Layout)
+            {
+                continue;
+            }
+            EnsureSetupCapacity(entries.Count);
+            entries.Add(CaptureEntry(pageSetup, ownership));
+        }
+        EnsureNotEmpty(entries.Count);
+        entries.Sort(ImportedEntryComparer.Instance);
+        return entries.ToArray();
+    }
+
+    private static ImportedEntry[] CaptureSelectedEntries(
+        CadDocument document,
+        string[] names)
+    {
+        CadDictionary pageSetups = ResolvePageSetupDictionary(document);
+        var entries = new ImportedEntry[names.Length];
+        var ownership = new StringOwnershipBudget();
+        for (int i = 0; i < names.Length; i++)
+        {
+            if (!pageSetups.TryGetEntry(names[i], out PlotSettings pageSetup) ||
+                pageSetup is Layout)
+            {
+                throw new InvalidOperationException(
+                    $"Source named page setup '{names[i]}' does not exist.");
+            }
+            entries[i] = CaptureEntry(pageSetup, ownership);
+        }
+        Array.Sort(entries, ImportedEntryComparer.Instance);
+        return entries;
+    }
+
+    private static ImportedEntry CaptureEntry(
+        PlotSettings pageSetup,
+        StringOwnershipBudget ownership)
+    {
+        string name = ownership.CopyRequired(pageSetup.Name, "page-setup name");
+        CadPlotSettingsState state = CadPlotSettingsState.Capture(pageSetup)
+            .CopyStrings(ownership.CopyOptional);
+        return new ImportedEntry(name, state);
+    }
+
+    private static string[] OwnSelectedNames(IEnumerable<string> names)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+        var owned = new List<string>();
+        var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int totalCodeUnits = 0;
+        foreach (string name in names)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            EnsureSetupCapacity(owned.Count);
+            if (name.Length > MaximumStringCodeUnits ||
+                totalCodeUnits > MaximumTotalStringCodeUnits - name.Length)
+            {
+                throw new ArgumentException(
+                    "Selected page-setup names exceed the import ownership budget.",
+                    nameof(names));
+            }
+            string copy = new(name.AsSpan());
+            if (!unique.Add(copy))
+            {
+                throw new ArgumentException(
+                    $"Selected page-setup name '{copy}' is duplicated.",
+                    nameof(names));
+            }
+            totalCodeUnits += copy.Length;
+            owned.Add(copy);
+        }
+        EnsureNotEmpty(owned.Count);
+        return owned.ToArray();
+    }
+
+    private static void EnsureSetupCapacity(int count)
+    {
+        if (count >= MaximumSetupCount)
+        {
+            throw new InvalidDataException(
+                "The source exceeds the named page-setup import count budget.");
+        }
+    }
+
+    private static void EnsureNotEmpty(int count)
+    {
+        if (count == 0)
+        {
+            throw new InvalidOperationException(
+                "The source contains no selected named page setups.");
+        }
+    }
+
+    private static CadDictionary ResolvePageSetupDictionary(CadDocument document)
+    {
+        if (document.RootDictionary is null ||
+            !document.RootDictionary.TryGetEntry(
+                CadDictionary.AcadPlotSettings,
+                out CadDictionary pageSetups))
+        {
+            throw new InvalidOperationException(
+                "The document has no ACAD_PLOTSETTINGS dictionary.");
+        }
+        return pageSetups;
+    }
+
+    private static void AddTransactional(
+        CadDictionary pageSetups,
+        PlotSettings pageSetup)
+    {
+        try
+        {
+            pageSetups.Add(pageSetup);
+        }
+        catch
+        {
+            if (pageSetups.TryGetEntry(pageSetup.Name, out PlotSettings current) &&
+                ReferenceEquals(pageSetup, current))
+            {
+                pageSetups.Remove(pageSetup.Name);
+            }
+            throw;
+        }
+    }
+
+    private readonly record struct ImportedEntry(
+        string Name,
+        CadPlotSettingsState State);
+
+    private readonly record struct TargetEntry(
+        string Name,
+        CadPlotSettingsState ImportedState,
+        PlotSettings PageSetup,
+        CadPlotSettingsState PreviousState,
+        bool IsCreated);
+
+    private sealed class ImportedEntryComparer : IComparer<ImportedEntry>
+    {
+        public static ImportedEntryComparer Instance { get; } = new();
+
+        public int Compare(ImportedEntry left, ImportedEntry right)
+        {
+            int insensitive = StringComparer.OrdinalIgnoreCase.Compare(
+                left.Name,
+                right.Name);
+            return insensitive != 0
+                ? insensitive
+                : StringComparer.Ordinal.Compare(left.Name, right.Name);
+        }
+    }
+
+    private sealed class StringOwnershipBudget
+    {
+        private int _totalCodeUnits;
+
+        public string CopyRequired(string? value, string field)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                throw new InvalidDataException(
+                    $"The source {field} is empty.");
+            }
+            return Copy(value, field)!;
+        }
+
+        public string? CopyOptional(string? value) =>
+            Copy(value, "plot-settings string");
+
+        private string? Copy(string? value, string field)
+        {
+            if (value is null)
+            {
+                return null;
+            }
+            if (value.Length > MaximumStringCodeUnits ||
+                _totalCodeUnits > MaximumTotalStringCodeUnits - value.Length)
+            {
+                throw new InvalidDataException(
+                    $"The source {field} exceeds the import ownership budget.");
+            }
+            _totalCodeUnits += value.Length;
+            return new string(value.AsSpan());
+        }
+    }
+}
+
 /// <summary>
 /// Removes one unassigned named page setup as a reversible document edit.
 /// </summary>
@@ -965,6 +1480,16 @@ internal readonly record struct CadPlotSettingsState(
     public CadPlotSettingsState WithPageName(string pageName) => this with
     {
         PageName = pageName,
+    };
+
+    public CadPlotSettingsState CopyStrings(
+        Func<string?, string?> copy) => this with
+    {
+        PageName = copy(PageName),
+        PaperSize = copy(PaperSize),
+        PlotViewName = copy(PlotViewName),
+        StyleSheet = copy(StyleSheet),
+        SystemPrinterName = copy(SystemPrinterName),
     };
 
     public static void ApplyTransactional(
