@@ -74,6 +74,23 @@ internal static class Win2DCanvasQualification
                 Color.FromArgb(255, 255, 255, 255),
                 1);
         }
+        RequireBounds(
+            commandList.GetBounds(device),
+            -0.5f,
+            -0.5f,
+            13f,
+            13f,
+            "command-list local bounds");
+        RequireBounds(
+            commandList.GetBounds(
+                device,
+                System.Numerics.Matrix3x2.CreateScale(2f) *
+                System.Numerics.Matrix3x2.CreateTranslation(4f, 6f)),
+            3f,
+            5f,
+            26f,
+            26f,
+            "command-list transformed bounds");
 
         using (CanvasDrawingSession drawingSession =
                target.CreateDrawingSession())
@@ -96,6 +113,12 @@ internal static class Win2DCanvasQualification
                 0.5f,
                 CanvasImageInterpolation.NearestNeighbor);
             drawingSession.DrawImage(commandList, 176, 8);
+            drawingSession.DrawImage(
+                commandList,
+                new Windows.Foundation.Rect(200, 48, 24, 24),
+                new Windows.Foundation.Rect(0, 0, 6, 12),
+                1f,
+                CanvasImageInterpolation.Linear);
             using (var pathBuilder = new CanvasPathBuilder(device))
             {
                 pathBuilder.BeginFigure(16, 156);
@@ -262,6 +285,7 @@ internal static class Win2DCanvasQualification
             expectedBlue: true,
             expectedRed: true);
         RequirePixel(pixels, 180, 12, 255, 255, 0, 255);
+        RequirePixel(pixels, 212, 60, 255, 255, 0, 255);
         RequirePixel(pixels, 52, 180, 255, 96, 0, 255);
         RequirePixel(pixels, 152, 180, 0, 255, 0, 255);
         RequirePixel(pixels, 128, 156, 0, 0, 0, 0);
@@ -392,6 +416,23 @@ internal static class Win2DCanvasQualification
             $"{pixels[index]},{pixels[index + 1]}," +
             $"{pixels[index + 2]},{pixels[index + 3]}; expected " +
             $"{blue},{green},{red},{alpha}.");
+    }
+
+    private static void RequireBounds(
+        Windows.Foundation.Rect actual,
+        float x,
+        float y,
+        float width,
+        float height,
+        string contract)
+    {
+        const double tolerance = 0.0001d;
+        Require(
+            Math.Abs(actual.X - x) <= tolerance &&
+            Math.Abs(actual.Y - y) <= tolerance &&
+            Math.Abs(actual.Width - width) <= tolerance &&
+            Math.Abs(actual.Height - height) <= tolerance,
+            $"Unexpected {contract}: {actual}.");
     }
 
     private static void RequirePixelInRange(

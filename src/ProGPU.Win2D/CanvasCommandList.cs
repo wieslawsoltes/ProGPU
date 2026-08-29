@@ -44,6 +44,79 @@ public sealed class CanvasCommandList :
 
     public bool IsDisposed => _isDisposed;
 
+    public Windows.Foundation.Rect GetBounds(
+        ICanvasResourceCreator resourceCreator) =>
+        GetBounds(resourceCreator, Matrix3x2.Identity);
+
+    public Windows.Foundation.Rect GetBounds(
+        ICanvasResourceCreator resourceCreator,
+        Matrix3x2 transform)
+    {
+        CanvasContract.ValidateImageResourceCreator(
+            resourceCreator,
+            Device);
+        if (!CanvasContract.IsFinite(transform))
+        {
+            throw new ArgumentOutOfRangeException(nameof(transform));
+        }
+
+        lock (_lifetimeLock)
+        {
+            ThrowIfDisposed();
+            if (_hasActiveSession)
+            {
+                throw new InvalidOperationException(
+                    "Close the CanvasCommandList drawing session before querying its bounds.");
+            }
+
+            bool hasBounds = false;
+            Vector2 minimum = default;
+            Vector2 maximum = default;
+            Matrix4x4 boundsTransform = ToMatrix4x4(transform);
+            for (int index = 0; index < _pictures.Count; index++)
+            {
+                if (!GpuPictureBounds.TryGetBounds(
+                        _pictures[index],
+                        boundsTransform,
+                        out Rect pictureBounds))
+                {
+                    throw new NotSupportedException(
+                        "The command list contains a retained command whose two-dimensional bounds cannot be resolved.");
+                }
+                if (pictureBounds.IsEmpty)
+                {
+                    continue;
+                }
+
+                Vector2 pictureMinimum = new(
+                    pictureBounds.X,
+                    pictureBounds.Y);
+                Vector2 pictureMaximum = new(
+                    pictureBounds.X + pictureBounds.Width,
+                    pictureBounds.Y + pictureBounds.Height);
+                if (hasBounds)
+                {
+                    minimum = Vector2.Min(minimum, pictureMinimum);
+                    maximum = Vector2.Max(maximum, pictureMaximum);
+                }
+                else
+                {
+                    minimum = pictureMinimum;
+                    maximum = pictureMaximum;
+                    hasBounds = true;
+                }
+            }
+
+            return hasBounds
+                ? new Windows.Foundation.Rect(
+                    minimum.X,
+                    minimum.Y,
+                    maximum.X - minimum.X,
+                    maximum.Y - minimum.Y)
+                : default;
+        }
+    }
+
     public CanvasDrawingSession CreateDrawingSession()
     {
         lock (_lifetimeLock)
@@ -151,6 +224,12 @@ public sealed class CanvasCommandList :
             throw new ObjectDisposedException(nameof(CanvasCommandList));
         }
     }
+
+    private static Matrix4x4 ToMatrix4x4(in Matrix3x2 value) => new(
+        value.M11, value.M12, 0f, 0f,
+        value.M21, value.M22, 0f, 0f,
+        0f, 0f, 1f, 0f,
+        value.M31, value.M32, 0f, 1f);
 
     public void Dispose()
     {
