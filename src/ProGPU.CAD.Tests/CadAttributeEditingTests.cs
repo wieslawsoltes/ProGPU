@@ -35,21 +35,25 @@ public sealed class CadAttributeEditingTests
                 0,
                 "CONSTANT VALUE",
                 false,
-                false),
+                false,
+                "Label prompt"),
             entries[0]);
         Assert.Equal(CadAttributeValueOwner.Definition, entries[1].Owner);
         Assert.Equal("NOTES", entries[1].Tag);
         Assert.Equal("CONSTANT MTEXT", entries[1].Value);
         Assert.True(entries[1].IsMultiline);
         Assert.True(entries[1].IsInvisible);
+        Assert.Equal("Notes prompt", entries[1].Prompt);
         Assert.Equal(CadAttributeValueOwner.VariableDefinition, entries[2].Owner);
         Assert.Equal("PART", entries[2].Tag);
         Assert.Equal("DEFAULT", entries[2].Value);
         Assert.True(entries[2].IsMultiline);
+        Assert.Equal("Part prompt", entries[2].Prompt);
         Assert.Equal(CadAttributeValueOwner.Reference, entries[3].Owner);
         Assert.Equal("PART", entries[3].Tag);
         Assert.Equal("REFERENCE VALUE", entries[3].Value);
         Assert.True(entries[3].IsMultiline);
+        Assert.Empty(entries[3].Prompt);
     }
 
     [Fact]
@@ -190,6 +194,93 @@ public sealed class CadAttributeEditingTests
     }
 
     [Fact]
+    public void DefinitionPromptEditRetainsExactTargetAndAssignedValues()
+    {
+        (CadDocument document, Insert insert, AttributeDefinition label, _) =
+            CreateDocument();
+        AttributeDefinition part = insert.Block.AttributeDefinitions.Single(
+            definition => definition.Tag == "PART");
+        AttributeEntity assigned = insert.Attributes.Single(
+            attribute => attribute.Tag == "PART");
+        assigned.Value = "ASSIGNED";
+        assigned.MText.Value = "ASSIGNED";
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        Assert.Equal(1UL, history.Execute(
+            new CadSetAttributeDefinitionPromptCommand(
+                insert.Handle,
+                "part",
+                "Updated part prompt")));
+
+        Assert.Same(part, insert.Block.AttributeDefinitions.Single(
+            definition => definition.Tag == "PART"));
+        Assert.Equal("Updated part prompt", part.Prompt);
+        Assert.Equal("Label prompt", label.Prompt);
+        Assert.Equal("ASSIGNED", assigned.Value);
+        Assert.Equal("ASSIGNED", assigned.MText.Value);
+        Assert.Equal(
+            "Updated part prompt",
+            Assert.Single(new CadAttributeValueCatalogCompiler()
+                .Compile(session, insert.Handle)
+                .Entries.ToArray(),
+                entry => entry.Owner == CadAttributeValueOwner.VariableDefinition &&
+                    entry.Tag == "PART").Prompt);
+
+        Assert.True(history.TryUndo(out ulong undone));
+        Assert.Equal(2UL, undone);
+        Assert.Equal("Part prompt", part.Prompt);
+        Assert.Equal("ASSIGNED", assigned.Value);
+        Assert.True(history.TryRedo(out ulong redone));
+        Assert.Equal(3UL, redone);
+        Assert.Equal("Updated part prompt", part.Prompt);
+        Assert.Equal("ASSIGNED", assigned.Value);
+    }
+
+    [Fact]
+    public void DefinitionPromptUsesOccurrenceAndRejectsLockedInsert()
+    {
+        (CadDocument document, Insert insert, AttributeDefinition label, _) =
+            CreateDocument();
+        var duplicate = new AttributeDefinition
+        {
+            Tag = "LABEL",
+            Value = "SECOND",
+            Prompt = "Second label prompt",
+        };
+        insert.Block.Entities.Add(duplicate);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetAttributeDefinitionPromptCommand(
+            insert.Handle,
+            "label",
+            new string('p',
+                CadSetAttributeDefinitionPromptCommand.MaximumPromptCodeUnits),
+            occurrence: 1));
+
+        Assert.Equal("Label prompt", label.Prompt);
+        Assert.Equal(256, duplicate.Prompt.Length);
+        Assert.Throws<ArgumentException>(() =>
+            new CadSetAttributeDefinitionPromptCommand(
+                insert.Handle,
+                "LABEL",
+                new string('p',
+                    CadSetAttributeDefinitionPromptCommand.MaximumPromptCodeUnits + 1)));
+
+        Assert.True(history.TryUndo(out _));
+        insert.Layer.Flags |= LayerFlags.Locked;
+        ulong generation = session.ContentGeneration;
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadSetAttributeDefinitionPromptCommand(
+                insert.Handle,
+                "LABEL",
+                "Blocked")));
+        Assert.Equal(generation, session.ContentGeneration);
+        Assert.Equal("Label prompt", label.Prompt);
+    }
+
+    [Fact]
     public void ConstantMultilineEditSynchronizesPayloadAndRejectsVariableTarget()
     {
         (CadDocument document, Insert insert, _, AttributeDefinition notes) =
@@ -278,6 +369,11 @@ public sealed class CadAttributeEditingTests
                 insert.Handle,
                 "PART",
                 @"FUTURE\PDEFAULT"));
+        history.Execute(
+            new CadSetAttributeDefinitionPromptCommand(
+                insert.Handle,
+                "PART",
+                "Persisted part prompt"));
         using var stream = new MemoryStream();
         var store = new CadDocumentStore();
 
@@ -306,6 +402,7 @@ public sealed class CadAttributeEditingTests
                 .Single(candidate => candidate.Tag == "PART");
             Assert.Equal(@"FUTURE\PDEFAULT", variable.Value);
             Assert.Equal(@"FUTURE\PDEFAULT", variable.MText.Value);
+            Assert.Equal("Persisted part prompt", variable.Prompt);
             AttributeEntity existing = loadedDocument.Entities
                 .OfType<Insert>()
                 .Single()
@@ -329,12 +426,14 @@ public sealed class CadAttributeEditingTests
         {
             Tag = "LABEL",
             Value = "CONSTANT VALUE",
+            Prompt = "Label prompt",
             Flags = AttributeFlags.Constant,
         };
         var notes = new AttributeDefinition
         {
             Tag = "NOTES",
             Value = "CONSTANT SINGLE",
+            Prompt = "Notes prompt",
             Flags = AttributeFlags.Constant | AttributeFlags.Hidden,
             AttributeType = AttributeType.ConstantMultiLine,
             MText = new MText("CONSTANT MTEXT"),
@@ -343,6 +442,7 @@ public sealed class CadAttributeEditingTests
         {
             Tag = "PART",
             Value = "DEFAULT",
+            Prompt = "Part prompt",
             AttributeType = AttributeType.MultiLine,
             MText = new MText("DEFAULT"),
         };

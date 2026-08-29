@@ -1889,6 +1889,92 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void SharedViewEditsDefinitionPromptWithoutChangingReferenceValue()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("UI_ATTRIBUTE_PROMPT_BLOCK");
+        block.Entities.Add(new Line(new XYZ(-5, 0, 0), new XYZ(5, 0, 0)));
+        var definition = new AttributeDefinition
+        {
+            Tag = "PART",
+            Value = "DEFAULT",
+            Prompt = "Part number",
+            InsertPoint = new XYZ(0, 1, 0),
+            Height = 1,
+        };
+        block.Entities.Add(definition);
+        var insert = new Insert(block);
+        AttributeEntity assigned = Assert.Single(insert.Attributes);
+        assigned.Value = "ASSIGNED";
+        document.Entities.Add(insert);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 960));
+            view.Canvas.Load(session);
+            Click(
+                view.Canvas,
+                view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
+            Button setPrompt = FindButton(view, "Set prompt");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+            ComboBoxItem definitionItem = view.SelectionAttributeSelector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Tag is CadAttributeValueEntry
+                {
+                    Owner: CadAttributeValueOwner.VariableDefinition,
+                    Tag: "PART",
+                });
+            ComboBoxItem referenceItem = view.SelectionAttributeSelector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Tag is CadAttributeValueEntry
+                {
+                    Owner: CadAttributeValueOwner.Reference,
+                    Tag: "PART",
+                });
+
+            view.SelectionAttributeSelector.SelectedItem = referenceItem;
+            Assert.Empty(view.SelectionAttributePromptInput.Text);
+            Assert.False(view.SelectionAttributePromptInput.IsEnabled);
+            Assert.False(setPrompt.IsEnabled);
+
+            view.SelectionAttributeSelector.SelectedItem = definitionItem;
+            Assert.Equal("Part number", view.SelectionAttributePromptInput.Text);
+            Assert.True(view.SelectionAttributePromptInput.IsEnabled);
+            view.SelectionAttributePromptInput.Text = "Updated part number";
+            PressEnter(setPrompt);
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal("Updated part number", definition.Prompt);
+            Assert.Equal("ASSIGNED", assigned.Value);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Set definition prompt PART #1 as one edit",
+                    StringComparison.Ordinal));
+
+            PressEnter(undo);
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal("Part number", definition.Prompt);
+            Assert.Equal("Part number", view.SelectionAttributePromptInput.Text);
+            Assert.Equal("ASSIGNED", assigned.Value);
+            PressEnter(redo);
+            Assert.Equal(3UL, session.ContentGeneration);
+            Assert.Equal("Updated part number", definition.Prompt);
+            Assert.Equal(
+                "Updated part number",
+                view.SelectionAttributePromptInput.Text);
+            Assert.Equal("ASSIGNED", assigned.Value);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewClearsLayerMergeQueueAcrossGenerationAndSessionChanges()
     {
         var firstDocument = new CadDocument();

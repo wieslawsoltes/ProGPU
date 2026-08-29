@@ -1590,7 +1590,9 @@ selected model-space INSERT into a bounded generation-tagged catalog. It emits
 reference-owned variable ATTRIB values, definition-owned constant ATTDEF
 values, and variable ATTDEF defaults as distinct typed entries, preserving
 case-insensitive tag plus explicit duplicate-tag occurrence addressing,
-multiline and hidden metadata, and the selected block identity. Malformed
+multiline and hidden metadata, the copied definition prompt, and the selected
+block identity. Reference entries expose no prompt because prompts belong to
+ATTDEF rather than assigned ATTRIB state. Malformed
 multiline payloads are counted as unsupported rather than exposed as editable
 values. Catalog construction is
 `O(D + A + S)` time/storage for `D` definitions, `A` references, and `S` copied
@@ -1613,6 +1615,17 @@ Following AutoCAD's definition contract, assigned ATTRIB values on existing
 INSERTs remain unchanged; INSERTs created later inherit the current default.
 Undo/Redo therefore changes the default inherited by still-later INSERTs without
 rewriting any existing reference.
+
+`CadSetAttributeDefinitionPromptCommand` addresses either a constant or
+variable ATTDEF through the same selected-INSERT, case-insensitive tag, and
+explicit occurrence contract. It retains the exact INSERT, block, and
+definition identities and prior prompt for generation-synchronized Undo/Redo.
+The prompt is an independently owned string capped at AutoCAD's documented 256
+UTF-16 code-unit single-line ATTDEF command limit; an empty persisted prompt is
+valid. Editing it changes future insertion interaction only: existing assigned
+ATTRIB values, text layout, retained scene data, and rendered pixels remain
+unchanged. Resolution is `O(D)` and the retained Apply/Undo/Redo mutations are
+`O(1)`.
 
 `CadSynchronizeBlockAttributePropertiesCommand` implements bounded property and
 structural block attribute synchronization. One selected,
@@ -4304,6 +4317,8 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   [`SetAttributeFromBlock` definition-and-transform overload](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-ManagedRefGuide/files/OREFNET-Autodesk_AutoCAD_DatabaseServices_AttributeReference_SetAttributeFromBlock_AttributeDefinition_Matrix3d.html),
   [constant-reference ownership](https://help.autodesk.com/cloudhelp/2022/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_AttributeReference_IsConstant.html),
   [attribute modes](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-67A2DDAD-2217-412F-8AEF-D4495192F45B.htm),
+  [`-ATTDEF` prompt behavior and limit](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-5C99524B-B5BB-4067-AE18-BD3575F29DBF.htm),
+  [`AcDbAttributeDefinition::setPrompt`](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-__MEMBERTYPE_Methods_AcDbAttributeDefinition.html),
   [definition-property editing](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-F351FDBB-2731-40C1-A186-1B1F47779E32.htm),
   [ATTSYNC value preservation and XData warning](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-56B14079-250B-4C99-AB3D-F95BA1C32AB7.htm),
   [ATTREDEF structural behavior](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-MAC-Core/files/GUID-CB8237C2-EB63-4839-9B84-5B890C979CBB.htm),
@@ -4312,11 +4327,15 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   were treated as the public CAD contract. Adopted definition-owned constants,
   reference-owned variable values, invisible display/plot suppression, embedded
   multiline content, transform-baked reference geometry, array-cell replication,
-  default-only variable-definition edits, and ATTSYNC's all-reference property
+  default-only variable-definition edits, definition-owned group-3 prompt edits
+  with the 256-code-unit command limit and constant-mode prompt suppression,
+  and ATTSYNC's all-reference property
   propagation with assigned-value preservation. Existing assigned references
   stay unchanged while future INSERTs inherit an edited default; property sync
   instead rebuilds reference properties from each definition and INSERT
-  transform without replacing the assigned value. Adapted ATTREDEF's structural
+  transform without replacing the assigned value. Prompt edits likewise leave
+  every assigned ATTRIB value untouched and affect future insertion interaction,
+  not rendering. Adapted ATTREDEF's structural
   behavior to an original ordered replacement contract: retained/renamed
   references preserve assigned values, new references use current definition
   defaults, removed references retain exact handles only while Undo/Redo owns

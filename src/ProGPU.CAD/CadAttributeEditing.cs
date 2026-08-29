@@ -18,7 +18,8 @@ public readonly record struct CadAttributeValueEntry(
     int Occurrence,
     string Value,
     bool IsMultiline,
-    bool IsInvisible);
+    bool IsInvisible,
+    string Prompt);
 
 public sealed class CadAttributeValueCatalogOptions
 {
@@ -160,7 +161,8 @@ public sealed class CadAttributeValueCatalogCompiler
                 occurrence,
                 Copy(value, "attribute value"),
                 isMultiline,
-                (definition.Flags & AttributeFlags.Hidden) != 0));
+                (definition.Flags & AttributeFlags.Hidden) != 0,
+                Copy(definition.Prompt ?? string.Empty, "attribute prompt")));
         }
 
         var referenceOccurrences = new Dictionary<string, int>(
@@ -190,7 +192,8 @@ public sealed class CadAttributeValueCatalogCompiler
                 occurrence,
                 Copy(value, "attribute value"),
                 isMultiline,
-                (attribute.Flags & AttributeFlags.Hidden) != 0));
+                (attribute.Flags & AttributeFlags.Hidden) != 0,
+                string.Empty));
         }
 
         return new CadAttributeValueCatalog(
@@ -260,6 +263,153 @@ public sealed class CadAttributeValueCatalogCompiler
                 nameof(options),
                 "Every attribute catalog ownership limit must be positive.");
         }
+    }
+}
+
+/// <summary>
+/// Replaces one ATTDEF insertion prompt selected through a model-space INSERT,
+/// tag, and zero-based duplicate-tag occurrence.
+/// </summary>
+/// <remarks>
+/// Resolution is O(D) for D definitions in the selected INSERT block. Apply,
+/// Undo, and Redo retain the exact INSERT, block, and definition identities;
+/// the retained mutations are O(1). Existing ATTRIB values are not rewritten.
+/// The 256-code-unit limit matches AutoCAD's single-line ATTDEF command prompt
+/// contract; an empty persisted prompt is allowed.
+/// </remarks>
+public sealed class CadSetAttributeDefinitionPromptCommand : CadEditCommand
+{
+    public const int MaximumTagCodeUnits = 4_096;
+    public const int MaximumPromptCodeUnits = 256;
+
+    private readonly ulong _insertHandle;
+    private Insert? _insert;
+    private BlockRecord? _block;
+    private AttributeDefinition? _definition;
+    private string? _previousPrompt;
+
+    public ulong InsertHandle => _insertHandle;
+
+    public string Tag { get; }
+
+    public int Occurrence { get; }
+
+    public string Prompt { get; }
+
+    public CadSetAttributeDefinitionPromptCommand(
+        ulong insertHandle,
+        string tag,
+        string prompt,
+        int occurrence = 0,
+        string description = "Set attribute definition prompt")
+        : base(description)
+    {
+        if (insertHandle == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(insertHandle));
+        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(tag);
+        ArgumentNullException.ThrowIfNull(prompt);
+        ArgumentOutOfRangeException.ThrowIfNegative(occurrence);
+        if (tag.Length > MaximumTagCodeUnits)
+        {
+            throw new ArgumentException(
+                "The attribute tag exceeds the command ownership budget.",
+                nameof(tag));
+        }
+        if (prompt.Length > MaximumPromptCodeUnits)
+        {
+            throw new ArgumentException(
+                "The attribute prompt exceeds the 256-code-unit ATTDEF limit.",
+                nameof(prompt));
+        }
+
+        _insertHandle = insertHandle;
+        Tag = new string(tag.AsSpan());
+        Prompt = new string(prompt.AsSpan());
+        Occurrence = occurrence;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        AttributeDefinition definition;
+        if (isRedo)
+        {
+            definition = GetRetainedDefinition(document);
+        }
+        else
+        {
+            Entity entity = ResolveModelSpaceEntity(document, _insertHandle);
+            Insert insert = entity as Insert ?? throw new InvalidOperationException(
+                $"Model-space entity handle {_insertHandle:X} is not an INSERT.");
+            BlockRecord block = insert.Block ?? throw new InvalidOperationException(
+                $"INSERT handle {_insertHandle:X} has no block definition.");
+            definition = ResolveDefinition(block, Tag, Occurrence);
+            _insert = insert;
+            _block = block;
+            _definition = definition;
+            _previousPrompt = definition.Prompt ?? string.Empty;
+        }
+
+        definition.Prompt = Prompt;
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        AttributeDefinition definition = GetRetainedDefinition(document);
+        definition.Prompt = _previousPrompt ?? throw new InvalidOperationException(
+            "The attribute-prompt command has not been applied.");
+    }
+
+    private AttributeDefinition GetRetainedDefinition(CadDocument document)
+    {
+        Insert insert = _insert ?? throw new InvalidOperationException(
+            "The attribute-prompt command has not been applied.");
+        BlockRecord block = _block ?? throw new InvalidOperationException(
+            "The attribute-prompt command has not been applied.");
+        AttributeDefinition definition = _definition ??
+            throw new InvalidOperationException(
+                "The attribute-prompt command has not been applied.");
+        ValidateModelSpaceEntity(document, insert);
+        if (!ReferenceEquals(insert.Block, block))
+        {
+            throw new InvalidOperationException(
+                "The selected INSERT no longer references the retained block definition.");
+        }
+        AttributeDefinition current = ResolveDefinition(block, Tag, Occurrence);
+        if (!ReferenceEquals(current, definition))
+        {
+            throw new InvalidOperationException(
+                $"Attribute definition '{Tag}' occurrence {Occurrence} is no " +
+                "longer the retained definition.");
+        }
+        return definition;
+    }
+
+    private static AttributeDefinition ResolveDefinition(
+        BlockRecord block,
+        string tag,
+        int occurrence)
+    {
+        int currentOccurrence = 0;
+        foreach (AttributeDefinition definition in block.AttributeDefinitions)
+        {
+            if (!string.Equals(
+                    definition.Tag,
+                    tag,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (currentOccurrence == occurrence)
+            {
+                return definition;
+            }
+            currentOccurrence++;
+        }
+        throw new InvalidOperationException(
+            $"Block '{block.Name}' has no attribute definition '{tag}' " +
+            $"occurrence {occurrence}.");
     }
 }
 

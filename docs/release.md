@@ -68,6 +68,15 @@ managed/native retained-text compilation are covered. The existing TEXT/MTEXT
 renderer, caches, shaders, and native ABI are unchanged, so this slice makes no
 rendering-performance claim.
 
+Definition entries in that catalog now also expose their persisted ATTDEF
+prompt. The shared shell can edit either constant or variable definition
+prompts through the selected INSERT with explicit tag/occurrence addressing,
+the documented 256-code-unit limit, locked-layer authorization, and exact
+Undo/Redo identity. Assigned ATTRIB values are never rewritten; prompt changes
+survive DXF/DWG round trips and affect future insertion interaction only. This
+is document/history state, so managed/native picture replay, shaders, caches,
+uploads, DPI behavior, and device-loss contracts remain unchanged.
+
 The same selected-INSERT workflow now includes a bounded `Sync properties`
 edit. It synchronizes entity, text, tag, mode, and transform-baked geometry
 properties from the block definitions across every registered reference while
