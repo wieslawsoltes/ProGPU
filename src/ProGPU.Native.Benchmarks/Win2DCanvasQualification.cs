@@ -26,6 +26,11 @@ internal static class Win2DCanvasQualification
             16,
             16,
             96f);
+        using var checker = new CanvasRenderTarget(
+            device,
+            2,
+            2,
+            96f);
         using (CanvasDrawingSession sourceSession =
                source.CreateDrawingSession())
         {
@@ -36,6 +41,19 @@ internal static class Win2DCanvasQualification
                 16,
                 16,
                 Color.FromArgb(255, 255, 0, 255));
+        }
+        using (CanvasDrawingSession checkerSession =
+               checker.CreateDrawingSession())
+        {
+            checkerSession.Clear(Color.FromArgb(0, 0, 0, 0));
+            checkerSession.FillRectangle(
+                0, 0, 1, 1, Color.FromArgb(255, 128, 128, 128));
+            checkerSession.FillRectangle(
+                1, 0, 1, 1, Color.FromArgb(255, 0, 0, 0));
+            checkerSession.FillRectangle(
+                0, 1, 1, 1, Color.FromArgb(255, 0, 0, 0));
+            checkerSession.FillRectangle(
+                1, 1, 1, 1, Color.FromArgb(255, 128, 128, 128));
         }
         using var commandList = new CanvasCommandList(device);
         using (CanvasDrawingSession commandSession =
@@ -189,6 +207,20 @@ internal static class Win2DCanvasQualification
             {
                 drawingSession.FillEllipse(276, 72, 28, 24, radial);
             }
+            using (var imageBrush = new CanvasImageBrush(device, checker)
+                   {
+                       ExtendX = CanvasEdgeBehavior.Wrap,
+                       ExtendY = CanvasEdgeBehavior.Wrap,
+                       Transform =
+                           System.Numerics.Matrix3x2.CreateScale(8f) *
+                           System.Numerics.Matrix3x2.CreateTranslation(8f, 72f),
+                       Interpolation =
+                           CanvasImageInterpolation.NearestNeighbor
+                   })
+            {
+                drawingSession.FillRectangle(8, 72, 64, 64, imageBrush);
+                checker.Dispose();
+            }
             // Win2D executes DrawImage eagerly. ProGPU records until session
             // close, so its typed texture lease must preserve the source
             // without a staging readback after the public resource is closed.
@@ -240,6 +272,10 @@ internal static class Win2DCanvasQualification
         RequirePixel(pixels, 260, 220, 255, 255, 0, 255);
         RequirePixel(pixels, 246, 180, 192, 32, 160, 255);
         RequirePixel(pixels, 264, 180, 0, 0, 0, 0);
+        RequirePixel(pixels, 10, 74, 128, 128, 128, 255);
+        RequirePixel(pixels, 18, 74, 0, 0, 0, 255);
+        RequirePixel(pixels, 10, 82, 0, 0, 0, 255);
+        RequirePixel(pixels, 18, 82, 128, 128, 128, 255);
         RequireOpaqueRedBlueInRange(
             pixels,
             276,
@@ -254,7 +290,7 @@ internal static class Win2DCanvasQualification
             first.ExecutionPath == ProGpuCanvasExecutionPath.NativeCppWebGpu &&
             second.ExecutionPath == ProGpuCanvasExecutionPath.NativeCppWebGpu &&
             first.SubmissionCount > 0 && second.SubmissionCount > 0 &&
-            first.NativeDrawCount >= 13 && second.NativeDrawCount >= 1,
+            first.NativeDrawCount >= 14 && second.NativeDrawCount >= 1,
             $"Unexpected native Canvas metrics: first={first}, second={second}.");
 
         string? outputDirectory = ReadOptionalArgument(

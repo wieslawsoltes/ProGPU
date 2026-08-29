@@ -294,7 +294,12 @@ public enum NativeSceneImageFlags : uint
     Effect = 1U << 1,
     SnapToPixels = 1U << 2,
     SourcePremultiplied = 1U << 3,
-    PatchBatch = 1U << 4
+    PatchBatch = 1U << 4,
+    AddressURepeat = 1U << 5,
+    AddressUMirrorRepeat = 2U << 5,
+    AddressVRepeat = 1U << 7,
+    AddressVMirrorRepeat = 2U << 7,
+    ExtendedSourceRect = 1U << 9
 }
 
 [Flags]

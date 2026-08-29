@@ -8,6 +8,7 @@
       "winrt/lib/drawing/CanvasDevice.abi.idl": "42e4094446dc6188f9e801c87dbc288857ce5cd6f3d24f2e3716ae20de04e5c5",
       "winrt/lib/brushes/CanvasBrush.abi.idl": "62eb416edc7733e40721f425fddd17a4c4432801981f0be774548ce6ab1b3b7e",
       "winrt/lib/brushes/CanvasBrush.cpp": "7b779effc834b85e32dbacb73660186a8a8dac77789f55060d981a3ee4cb5eb6",
+      "winrt/lib/brushes/CanvasImageBrush.cpp": "0f3ec1f3f2c450422d1747574ed50fae99e2511d16e8f3437add6383d852808e",
       "winrt/lib/brushes/Gradients.h": "688ff307fd43002db32b42efb0d5d443cf22b978b994eafdaf0d5906ff0488c2",
       "winrt/docsrc/Interop.aml": "5ce8c606788345ba1762ecf3a9904f8a7b2ee26883e50bb6b622e9b055b39f23"
     }
@@ -24,7 +25,8 @@
       "ExampleGallery/LayersExample.xaml.cs": "d8e55aed43a6f40302ddbe893057fac919d3eeaa40220ef5362699e1f9f7a09d",
       "ExampleGallery/EffectsExample.xaml.cs": "573b1ee47a064a9094d97879436cd3877d4c95401c817a72c3de85d1fde3d9a7",
       "ExampleGallery/TextLayouts.xaml.cs": "72e7ed84be2da459d8da5507aa477b2c9fc14aead3e5d450f992a68129949257",
-      "ExampleGallery/Direct3DInteropExample.xaml.cs": "93362754e0fad5b287539ab2726dd7aa1f8ba3f63b194d1fc01d2e2094b02314"
+      "ExampleGallery/Direct3DInteropExample.xaml.cs": "93362754e0fad5b287539ab2726dd7aa1f8ba3f63b194d1fc01d2e2094b02314",
+      "ExampleGallery/DrawImageEmulations.xaml.cs": "283dd899515331ca3f9ed5097975a5b265846f43686e7b28cfc5435505c04444"
     }
   }
 }

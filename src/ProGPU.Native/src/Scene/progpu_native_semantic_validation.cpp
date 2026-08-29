@@ -284,11 +284,33 @@ bool is_valid_semantic_image(
         PROGPU_NATIVE_SCENE_IMAGE_EFFECT |
         PROGPU_NATIVE_SCENE_IMAGE_SNAP_TO_PIXELS |
         PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED |
-        PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH;
+        PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH |
+        PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_MASK |
+        PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_MASK |
+        PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT;
+    const std::uint32_t address_u =
+        (image.flags & PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_MASK) >>
+        PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT;
+    const std::uint32_t address_v =
+        (image.flags & PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_MASK) >>
+        PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT;
+    const bool extended_source =
+        (image.flags & PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT) != 0U;
+    const bool bounded_source = image.source_rect.x >= 0.0F &&
+        image.source_rect.y >= 0.0F &&
+        image.source_rect.x + image.source_rect.width <=
+            static_cast<float>(image.image_width) &&
+        image.source_rect.y + image.source_rect.height <=
+            static_cast<float>(image.image_height);
     semantic_image_sampler_options sampler{};
     return image.struct_size >= sizeof(image) &&
         (image.flags & ~known_flags) == 0U &&
         (image.flags & known_flags) != known_flags &&
+        address_u <= PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT &&
+        address_v <= PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT &&
+        ((address_u == 0U && address_v == 0U) || extended_source) &&
+        (!extended_source ||
+            (image.flags & PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH) == 0U) &&
         image.image_width != 0U &&
         image.image_height != 0U && image.image_width <= 16384U &&
         image.image_height <= 16384U &&
@@ -299,11 +321,7 @@ bool is_valid_semantic_image(
         !((image.flags & PROGPU_NATIVE_SCENE_IMAGE_EFFECT) != 0U &&
             image.sampling == PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC) &&
         valid_rect(image.source_rect) && valid_rect(image.destination_rect) &&
-        image.source_rect.x >= 0.0F && image.source_rect.y >= 0.0F &&
-        image.source_rect.x + image.source_rect.width <=
-            static_cast<float>(image.image_width) &&
-        image.source_rect.y + image.source_rect.height <=
-            static_cast<float>(image.image_height) &&
+        (extended_source || bounded_source) &&
         is_finite(image.transform) &&
         std::isfinite(image.opacity) && image.opacity >= 0.0F &&
         image.opacity <= 1.0F;

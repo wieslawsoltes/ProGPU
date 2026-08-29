@@ -122,6 +122,30 @@ def main() -> int:
         "Win2D gradient defaults",
     )
     require_text(
+        arguments.implementation / "winrt/lib/brushes/CanvasImageBrush.cpp",
+        (
+            "CanvasImageBrush::SetImage",
+            "CanvasImageBrush::put_ExtendX",
+            "CanvasImageBrush::put_ExtendY",
+            "CanvasImageBrush::put_SourceRectangle",
+            "CanvasImageBrush::put_Interpolation",
+            "SwitchToBitmapBrush",
+            "SwitchToImageBrush",
+        ),
+        "Win2D image-brush behavior",
+    )
+    require_text(
+        arguments.samples / "ExampleGallery/DrawImageEmulations.xaml.cs",
+        (
+            "new CanvasImageBrush(sender, checks)",
+            "ExtendX = CanvasEdgeBehavior.Wrap",
+            "ExtendY = CanvasEdgeBehavior.Wrap",
+            "Transform = Matrix3x2.CreateScale(16)",
+            "Interpolation = CanvasImageInterpolation.NearestNeighbor",
+        ),
+        "Win2D image-brush sample oracle",
+    )
+    require_text(
         arguments.samples / "ExampleGallery/ArcOptions.xaml.cs",
         (
             "new CanvasPathBuilder(sender)",

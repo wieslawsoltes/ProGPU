@@ -232,6 +232,17 @@ public enum TextureSamplingMode
     MagNearestMinNearestMipLinear
 }
 
+/// <summary>
+/// Selects how normalized texture coordinates outside the source extent are
+/// resolved by retained image draws.
+/// </summary>
+public enum TextureAddressMode : byte
+{
+    Clamp = 0,
+    Repeat = 1,
+    MirrorRepeat = 2
+}
+
 public enum TexturePatchKind : byte
 {
     Texture,
@@ -744,6 +755,11 @@ public struct RenderCommand
     public TexturePatch[]? TexturePatches;
     public TextureSamplingMode TextureSamplingMode;
     public byte TextureMaxAnisotropy;
+    public TextureAddressMode TextureAddressModeU;
+    public TextureAddressMode TextureAddressModeV;
+    public float TextureOpacity;
+    public bool HasTextureOpacity;
+    public bool AllowExtendedTextureSourceRect;
     public Vector2 TextureCubicCoefficients;
     public bool HasTextureCubicCoefficients;
     public bool SnapTextureToPixels;
@@ -999,6 +1015,11 @@ internal readonly struct RetainedTextureCommandData
     private readonly TexturePatch[]? _patches;
     private readonly TextureSamplingMode _samplingMode;
     private readonly byte _maxAnisotropy;
+    private readonly TextureAddressMode _addressModeU;
+    private readonly TextureAddressMode _addressModeV;
+    private readonly float _opacity;
+    private readonly bool _hasOpacity;
+    private readonly bool _allowExtendedSourceRect;
     private readonly Vector2 _cubicCoefficients;
     private readonly bool _hasCubicCoefficients;
     private readonly bool _snapToPixels;
@@ -1014,6 +1035,11 @@ internal readonly struct RetainedTextureCommandData
         _patches = command.TexturePatches;
         _samplingMode = command.TextureSamplingMode;
         _maxAnisotropy = command.TextureMaxAnisotropy;
+        _addressModeU = command.TextureAddressModeU;
+        _addressModeV = command.TextureAddressModeV;
+        _opacity = command.TextureOpacity;
+        _hasOpacity = command.HasTextureOpacity;
+        _allowExtendedSourceRect = command.AllowExtendedTextureSourceRect;
         _cubicCoefficients = command.TextureCubicCoefficients;
         _hasCubicCoefficients = command.HasTextureCubicCoefficients;
         _snapToPixels = command.SnapTextureToPixels;
@@ -1030,6 +1056,11 @@ internal readonly struct RetainedTextureCommandData
         command.TexturePatches = _patches;
         command.TextureSamplingMode = _samplingMode;
         command.TextureMaxAnisotropy = _maxAnisotropy;
+        command.TextureAddressModeU = _addressModeU;
+        command.TextureAddressModeV = _addressModeV;
+        command.TextureOpacity = _opacity;
+        command.HasTextureOpacity = _hasOpacity;
+        command.AllowExtendedTextureSourceRect = _allowExtendedSourceRect;
         command.TextureCubicCoefficients = _cubicCoefficients;
         command.HasTextureCubicCoefficients = _hasCubicCoefficients;
         command.SnapTextureToPixels = _snapToPixels;
@@ -1422,6 +1453,11 @@ internal readonly struct RetainedRenderCommand
         command.TexturePatches is not null ||
         command.TextureSamplingMode != default ||
         command.TextureMaxAnisotropy != 0 ||
+        command.TextureAddressModeU != default ||
+        command.TextureAddressModeV != default ||
+        command.TextureOpacity != 0f ||
+        command.HasTextureOpacity ||
+        command.AllowExtendedTextureSourceRect ||
         command.TextureCubicCoefficients != default ||
         command.HasTextureCubicCoefficients ||
         command.SnapTextureToPixels ||
@@ -1529,6 +1565,11 @@ internal readonly struct RetainedSimpleTextureCommand
     private readonly RenderCommandPresentationDependencies _presentationDependencies;
     private readonly byte _samplingMode;
     private readonly byte _maxAnisotropy;
+    private readonly byte _addressModeU;
+    private readonly byte _addressModeV;
+    private readonly float _opacity;
+    private readonly bool _hasOpacity;
+    private readonly bool _allowExtendedSourceRect;
     private readonly bool _snapToPixels;
     private readonly bool _isEdgeAliased;
 
@@ -1544,6 +1585,11 @@ internal readonly struct RetainedSimpleTextureCommand
         _presentationDependencies = command.PresentationDependencies;
         _samplingMode = checked((byte)command.TextureSamplingMode);
         _maxAnisotropy = command.TextureMaxAnisotropy;
+        _addressModeU = checked((byte)command.TextureAddressModeU);
+        _addressModeV = checked((byte)command.TextureAddressModeV);
+        _opacity = command.TextureOpacity;
+        _hasOpacity = command.HasTextureOpacity;
+        _allowExtendedSourceRect = command.AllowExtendedTextureSourceRect;
         _snapToPixels = command.SnapTextureToPixels;
         _isEdgeAliased = command.IsEdgeAliased;
     }
@@ -1560,6 +1606,11 @@ internal readonly struct RetainedSimpleTextureCommand
             PresentationDependencies = _presentationDependencies,
             TextureSamplingMode = (TextureSamplingMode)_samplingMode,
             TextureMaxAnisotropy = _maxAnisotropy,
+            TextureAddressModeU = (TextureAddressMode)_addressModeU,
+            TextureAddressModeV = (TextureAddressMode)_addressModeV,
+            TextureOpacity = _opacity,
+            HasTextureOpacity = _hasOpacity,
+            AllowExtendedTextureSourceRect = _allowExtendedSourceRect,
             SnapTextureToPixels = _snapToPixels,
             IsEdgeAliased = _isEdgeAliased
         };

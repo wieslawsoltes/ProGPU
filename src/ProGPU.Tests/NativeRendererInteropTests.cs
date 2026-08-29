@@ -2220,6 +2220,17 @@ public class NativeRendererInteropTests
         Assert.Equal(
             9U,
             (uint)NativeImageSampling.MagNearestMinNearestMipLinear);
+        Assert.Equal(1U << 5, (uint)NativeSceneImageFlags.AddressURepeat);
+        Assert.Equal(
+            2U << 5,
+            (uint)NativeSceneImageFlags.AddressUMirrorRepeat);
+        Assert.Equal(1U << 7, (uint)NativeSceneImageFlags.AddressVRepeat);
+        Assert.Equal(
+            2U << 7,
+            (uint)NativeSceneImageFlags.AddressVMirrorRepeat);
+        Assert.Equal(
+            1U << 9,
+            (uint)NativeSceneImageFlags.ExtendedSourceRect);
         Assert.Equal(16, Unsafe.SizeOf<NativeSubmissionToken>());
         Assert.Equal(16, Unsafe.SizeOf<NativeSceneMesh3DMaterials>());
         Assert.Equal(4U, (uint)NativeMesh3DFlags.SpecularMaterial);

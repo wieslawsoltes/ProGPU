@@ -195,6 +195,8 @@ struct progpu_native_engine {
     WGPUSampler image_mipmap_sampler = nullptr;
     std::array<WGPUSampler, 6U> image_filtered_samplers{};
     std::array<WGPUSampler, 15U> image_anisotropic_samplers{};
+    std::array<WGPUSampler, 11U * 17U * 9U>
+        image_addressed_samplers{};
     WGPUTexture image_texture = nullptr;
     WGPUTextureView image_texture_view = nullptr;
     WGPUBindGroup image_texture_bind_group = nullptr;
@@ -1586,6 +1588,11 @@ struct progpu_native_engine {
             }
         }
         for (auto sampler : image_anisotropic_samplers) {
+            if (sampler != nullptr) {
+                wgpuSamplerRelease(sampler);
+            }
+        }
+        for (auto sampler : image_addressed_samplers) {
             if (sampler != nullptr) {
                 wgpuSamplerRelease(sampler);
             }

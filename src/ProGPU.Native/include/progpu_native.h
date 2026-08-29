@@ -254,8 +254,22 @@ enum {
     /* Source RGB channels are already multiplied by source alpha. */
     PROGPU_NATIVE_SCENE_IMAGE_SOURCE_PREMULTIPLIED = 1U << 3U,
     /* A bounded patch-batch suffix follows all other image suffixes. */
-    PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH = 1U << 4U
+    PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH = 1U << 4U,
+    /* U/V sampler addressing; the value in each two-bit field is the
+     * progpu_native_image_address_mode value. */
+    PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT = 5U,
+    PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_MASK = 3U << 5U,
+    PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT = 7U,
+    PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_MASK = 3U << 7U,
+    /* Allows finite positive source rectangles outside the image extent. */
+    PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT = 1U << 9U
 };
+
+typedef enum progpu_native_image_address_mode {
+    PROGPU_NATIVE_IMAGE_ADDRESS_CLAMP = 0,
+    PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT = 1,
+    PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT = 2
+} progpu_native_image_address_mode;
 
 enum {
     /* Apply Skia-compatible luma-to-alpha after the affine transform. */

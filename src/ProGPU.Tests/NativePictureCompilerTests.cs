@@ -878,6 +878,59 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerLowersAddressedTextureBrushToOneExternalImageDraw()
+    {
+        using GpuTexture texture = CreateUnbackedTexture(2U, 2U);
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 64f, 32f));
+        drawing.DrawRectangle(
+            new GpuTextureBrush
+            {
+                Texture = texture,
+                SourceRect = new Rect(0f, 0f, 2f, 2f),
+                DestinationRect = new Rect(0f, 0f, 2f, 2f),
+                Transform = Matrix4x4.CreateScale(8f, 8f, 1f),
+                SamplingMode = TextureSamplingMode.Nearest,
+                AddressModeU = TextureAddressMode.Repeat,
+                AddressModeV = TextureAddressMode.MirrorRepeat,
+                Opacity = 0.5f
+            },
+            null,
+            new Rect(0f, 0f, 64f, 32f));
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            1240U,
+            1U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(1, compiled.ExternalImages.Length);
+
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        NativeMethods.SceneCommand command =
+            MemoryMarshal.Read<NativeMethods.SceneCommand>(
+                compiled.Stream.Slice(checked((int)header.CommandOffset)));
+        NativeSceneImageDraw draw =
+            MemoryMarshal.Read<NativeSceneImageDraw>(
+                compiled.Stream.Slice(checked((int)command.PayloadOffset)));
+        Assert.Equal(
+            NativeSceneImageFlags.AddressURepeat |
+                NativeSceneImageFlags.AddressVMirrorRepeat |
+                NativeSceneImageFlags.ExtendedSourceRect,
+            draw.Flags);
+        Assert.Equal(NativeImageSampling.Nearest, draw.Sampling);
+        Assert.Equal(new NativeImageRect(0f, 0f, 8f, 4f), draw.SourceRect);
+        Assert.Equal(new NativeImageRect(0f, 0f, 64f, 32f), draw.DestinationRect);
+        Assert.Equal(0.5f, draw.Opacity);
+    }
+
+    [Fact]
     public void CompilerCarriesPremultipliedTextureSourceIntoNativeScene()
     {
         using GpuTexture texture = CreateUnbackedTexture(16U, 8U);
