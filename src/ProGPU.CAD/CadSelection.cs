@@ -440,9 +440,9 @@ public static class CadSelectionHitTester
                 point,
                 tolerance),
             CadEntityKind.Solid =>
-                HitFaceSurface(snapshot.Faces.Span[header.PrimitiveIndex], point, tolerance),
+                HitFaceSurface(header.Kind, snapshot.Faces.Span[header.PrimitiveIndex], point, tolerance),
             CadEntityKind.Face3D =>
-                HitFaceSurface(snapshot.Faces.Span[header.PrimitiveIndex], point, tolerance),
+                HitFaceSurface(header.Kind, snapshot.Faces.Span[header.PrimitiveIndex], point, tolerance),
             CadEntityKind.Hatch => CadHatchSelection.HitTestPoint(
                 snapshot,
                 snapshot.Hatches.Span[header.PrimitiveIndex],
@@ -556,10 +556,12 @@ public static class CadSelectionHitTester
                 bounds,
                 mode),
             CadEntityKind.Solid => HitFaceSurfaceBounds(
+                header.Kind,
                 snapshot.Faces.Span[header.PrimitiveIndex],
                 bounds,
                 mode),
             CadEntityKind.Face3D => HitFaceSurfaceBounds(
+                header.Kind,
                 snapshot.Faces.Span[header.PrimitiveIndex],
                 bounds,
                 mode),
@@ -921,6 +923,7 @@ public static class CadSelectionHitTester
     }
 
     private static CadBoundsHitResult HitFaceSurfaceBounds(
+        CadEntityKind kind,
         CadFacePrimitive face,
         CadBounds3D bounds,
         CadBoundsSelectionMode mode)
@@ -929,29 +932,48 @@ public static class CadSelectionHitTester
         {
             return BoundsMiss();
         }
+        Span<CadFaceSurfaceTriangle> triangles =
+            stackalloc CadFaceSurfaceTriangle[CadFaceSurfaceTopology.MaximumTriangleCount];
+        int triangleCount = CadFaceSurfaceTopology.BuildTriangles(
+            kind,
+            face,
+            triangles);
+        if (triangleCount == 0)
+        {
+            return BoundsMiss();
+        }
         if (mode == CadBoundsSelectionMode.Window)
         {
-            return FromBoundsHit(
-                ContainsPoint(bounds, face.First) &&
-                ContainsPoint(bounds, face.Second) &&
-                ContainsPoint(bounds, face.Third) &&
-                ContainsPoint(bounds, face.Fourth));
+            for (int triangleIndex = 0;
+                 triangleIndex < triangleCount;
+                 triangleIndex++)
+            {
+                CadFaceSurfaceTriangle triangle = triangles[triangleIndex];
+                if (!ContainsPoint(bounds, triangle.First) ||
+                    !ContainsPoint(bounds, triangle.Second) ||
+                    !ContainsPoint(bounds, triangle.Third))
+                {
+                    return BoundsMiss();
+                }
+            }
+            return BoundsHit();
         }
 
-        bool intersects = TriangleIntersectsBounds(
-            face.First,
-            face.Second,
-            face.Third,
-            bounds);
-        if (!intersects && face.Fourth != face.Third)
+        for (int triangleIndex = 0;
+             triangleIndex < triangleCount;
+             triangleIndex++)
         {
-            intersects = TriangleIntersectsBounds(
-                face.First,
-                face.Third,
-                face.Fourth,
-                bounds);
+            CadFaceSurfaceTriangle triangle = triangles[triangleIndex];
+            if (TriangleIntersectsBounds(
+                    triangle.First,
+                    triangle.Second,
+                    triangle.Third,
+                    bounds))
+            {
+                return BoundsHit();
+            }
         }
-        return FromBoundsHit(intersects);
+        return BoundsMiss();
     }
 
     private static CadPointHitResult HitCircle(
@@ -1194,24 +1216,30 @@ public static class CadSelectionHitTester
     }
 
     private static CadPointHitResult HitFaceSurface(
+        CadEntityKind kind,
         CadFacePrimitive face,
         CadPoint3D point,
         double tolerance)
     {
-        double distance = DistanceToTriangle(
-            point,
-            face.First,
-            face.Second,
-            face.Third);
-        if (face.Fourth != face.Third)
+        Span<CadFaceSurfaceTriangle> triangles =
+            stackalloc CadFaceSurfaceTriangle[CadFaceSurfaceTopology.MaximumTriangleCount];
+        int triangleCount = CadFaceSurfaceTopology.BuildTriangles(
+            kind,
+            face,
+            triangles);
+        double distance = double.PositiveInfinity;
+        for (int triangleIndex = 0;
+             triangleIndex < triangleCount;
+             triangleIndex++)
         {
+            CadFaceSurfaceTriangle triangle = triangles[triangleIndex];
             distance = Math.Min(
                 distance,
                 DistanceToTriangle(
                     point,
-                    face.First,
-                    face.Third,
-                    face.Fourth));
+                    triangle.First,
+                    triangle.Second,
+                    triangle.Third));
         }
         return FromDistance(distance, tolerance);
     }

@@ -641,7 +641,10 @@ public sealed class CadSampleCanvas : FrameworkElement
                 new XYZ(-9, -8, 0),
                 new XYZ(7, -8, 0),
                 new XYZ(-9, 4, 0),
-                new XYZ(7, 4, 0)));
+                new XYZ(7, 4, 0))
+            {
+                Thickness = 8,
+            });
             document.Entities.Add(new Face3D
             {
                 FirstCorner = new XYZ(-6, 12, 0),

@@ -116,11 +116,13 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   analytic ellipse or arc under an affine transform, never a sampled polygon.
 - SOLID entities retain exact OCS-normalized corners, normalize Autodesk's
   persisted zig-zag `first,second,third,fourth` order to perimeter
-  `first,second,fourth,third`, and render as filled paths. 3DFACE entities
-  retain perimeter-ordered WCS corners and invisible-edge flags. The plan
+  `first,second,fourth,third`, and retain signed thickness as one WCS extrusion
+  vector. Flat SOLIDs render as even-odd filled plan paths; extruded SOLIDs
+  record the exact projected base/top/connector shell as wire geometry. 3DFACE
+  entities retain perimeter-ordered WCS corners and invisible-edge flags. The plan
   wireframe records only visible 3DFACE edges, while both records also compile
   to exact Flat triangle surfaces for the shared managed/native depth path.
-  Nonzero ellipse/SOLID thickness is reported until complete 3D side-surface
+  Nonzero ellipse thickness remains reported until complete 3D side-surface
   lowering is available.
 - Normal/Outer/Ignore solid and exact DXF/PAT patterned HATCH entities retain
   bounded packed loops and analytic line/circular-arc/elliptic-arc plus exact
@@ -815,6 +817,11 @@ an interactive browser picker/download smoke remains open.
   origin overload and accepts only a positive, finite, non-unit factor with a
   finite inverse. Non-uniform scaling is not exposed because entity families
   such as circles cannot preserve their authored type under anisotropic scale.
+  SOLID transforms explicitly convert its OCS corners through WCS: translation
+  projects the displacement back into OCS, rotation updates both corners and
+  normal while retaining signed thickness, and uniform scale multiplies signed
+  thickness with the geometry. This avoids relying on ACadSharp's corner-only
+  generic SOLID transform and keeps execute/undo/redo surface-equivalent.
   Transform commands roll back an already-applied entity prefix if a later
   entity fails. Add requires a detached zero-handle object; remove retains the
   same object for undo and treats a collection cancellation as a failed command
@@ -1238,16 +1245,27 @@ clean-room implementations with matched managed/native boundary tests.
 
 ## Exact SOLID and 3DFACE Flat surfaces
 
-The same immutable `CadFacePrimitive` now drives plan, selection, and depth
+The same immutable `CadFacePrimitive` drives plan, selection, and depth
 rendering without a second entity adapter. Snapshot capture converts SOLID's
 OCS corners to WCS and swaps its persisted third/fourth corners once so the
-record always follows the geometric perimeter. 3DFACE already persists WCS
-corners around its perimeter. A repeated fourth/third corner emits one triangle;
-a quadrilateral emits the stable `0-2` pair. Each emitted triangle owns three
-vertices and one exact double-precision cross-product normal before float
-rebasing. A zero-area triangle has no surface and is skipped without consuming a
-draw-batch budget; any remaining non-degenerate half of a malformed quad stays
-visible and selectable through its exact triangle.
+record always follows the geometric perimeter. Signed thickness becomes one
+WCS extrusion vector along the normalized OCS normal and is transformed as a
+vector by every ancestor INSERT/MINSERT affine transform. Bounds include both
+base and top corners. 3DFACE already persists WCS corners around its perimeter.
+
+One allocation-free bounded topology helper is authoritative for scene
+counting, scene emission, point selection, and box selection. A repeated
+fourth/third SOLID corner emits one triangle when flat or an eight-triangle
+closed triangular prism when thick. A simple convex or concave quadrilateral
+selects the concavity-preserving `0-2` or `1-3` diagonal and emits two cap
+triangles when flat or a twelve-triangle closed prism when thick. A properly
+crossed SOLID is split at the exact dominant-plane segment intersection into
+two even-odd triangular lobes: two triangles when flat and two independent
+eight-triangle prisms when thick. Thus a face requires at most sixteen output
+triangles and constant stack scratch. Each emitted triangle owns three vertices
+and one exact double-precision cross-product Flat normal before float rebasing;
+signed negative thickness reverses base/top outward orientation. A zero-area
+triangle has no surface and is skipped without consuming a draw-batch budget.
 
 Invisible 3DFACE edge bits continue to suppress only the corresponding plan,
 linetype, native-picture, and print wire. They never suppress the retained Flat
@@ -1255,9 +1273,13 @@ surface, including when all four edges are invisible. Point selection measures
 distance to the triangle union, and Window/Crossing selection uses the same
 triangle/box separating-axis test as SOLID and MESH. This keeps shaded output
 and semantic surface selection aligned while leaving existing 2D wire/print
-policy unchanged.
+policy explicit. Flat SOLID plan/print remains even-odd filled. Thick SOLID
+plan/print emits its projected base, top, and unique connector boundary as one
+wire command; an extrusion parallel to the plan view collapses to one base wire
+without duplicate overdraw. Depth-aware shaded output remains the 3D scene's
+responsibility.
 
-`CadMesh3DSceneCompiler` now runs in `O(M + F + R + V + I)` for mesh instances
+`CadMesh3DSceneCompiler` runs in `O(M + F + R + V + I)` for mesh instances
 `M`, retained SOLID/3DFACE records `F`, mesh/style ranges `R`, output vertices
 `V`, and indices `I`. Consecutive faces sharing a semantic root handle, layer,
 and style coalesce into one exactly sized allocation set and one draw batch;
@@ -1266,9 +1288,11 @@ Managed `Viewport3D` and optional native replay consume the same expanded batch
 arrays, existing pointer-free Mesh3D stream, stable C ABI, and canonical
 `Native3D.wgsl`. Native C++ has no ACadSharp frontend and requires no parallel
 semantic implementation, C ABI, generated binding, shader, or crossing change.
-Matched tests cover planar SOLID order, non-planar 3DFACE normals, triangle
-sentinels, all-invisible edges, large-WCS rebasing, degenerate surfaces, exact
-selection, and native stream counts.
+Matched tests cover planar and crossed SOLID order, positive/negative and
+ancestor-transformed thickness, triangular/quad/crossed shell counts,
+non-planar 3DFACE normals, triangle sentinels, all-invisible edges, large-WCS
+rebasing, degenerate surfaces, exact side/lobe/gap/concave-notch selection,
+plan/print policy, DXF/DWG round trips, and managed/native stream counts.
 
 ## Exact retained POINT dots
 
@@ -1956,6 +1980,7 @@ dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --soli
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --pattern-hatches 100 --hatch-selection --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --pattern-hatches 100 --complex-pattern-grammar --hatch-island-styles --hatch-selection --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --dimension-entities 1000 --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --thick-solid-entities 1000 --warmup 3 --iterations 24 --queries 1000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --mesh-entities 1000 --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --polygon-mesh-entities 1000 --polyface-mesh-entities 1000 --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --point-entities 10000 --warmup 3 --iterations 24 --queries 10000
@@ -1984,6 +2009,25 @@ p50/p95/p99 was `5.5/9.0/11.1 us` with zero managed allocation. This is a
 transparent feature/cost baseline with visibly noisy construction tails, not
 an improvement or release-acceptance claim; matched viewer/GPU/native-image and
 required Instruments evidence remain open acceptance gates.
+
+Two consecutive 2026-08-29 Release feature-cost runs used the same final
+Apple Silicon/.NET 10.0.5 binary, 1,000 standalone thick SOLIDs, three warmups,
+24 construction iterations, and 1,000 spatial queries. The fixture alternated
+simple and crossed quadrilaterals plus positive and negative thickness, yielding
+exactly 1,000 source/expanded/recorded records, 1,000 face ranges and batches,
+14,000 shell triangles, and zero unsupported or invalid entities. Snapshot
+p50/p95/p99 was `10.840/14.690/23.925 ms` and
+`8.901/15.656/18.555 ms`, allocating `789,573` and `789,577 B/op`.
+Camera-independent 3D-scene construction was `12.483/20.761/24.729 ms` and
+`14.672/24.815/33.531 ms`, allocating `1,760,784` and `1,761,115 B/op`.
+Plan-scene construction was `2.239/11.709/17.191 ms` and
+`2.296/10.888/28.407 ms`; spatial queries remained zero-allocation at
+`3.7/12.4/38.4 us` and `4.2/13.7/57.3 us`. The ignored JSON artifacts are
+`artifacts/progpu-cad/cad-thick-solid-run1.json` and
+`cad-thick-solid-run2.json`. These are transparent feature-cost baselines, not
+improvement or release-acceptance claims; matched viewer pixels, GPU residency
+and submission counters, native differential images, and Instruments traces
+remain open gates for a future performance claim.
 
 The 2026-08-29 level-0 MESH feature-cost run used one final Apple
 Silicon/.NET 10.0.5 Release process, 1,000 tetrahedral MESH roots, three
@@ -2549,16 +2593,23 @@ Sources consulted on 2026-08-27 through 2026-08-29:
 
 - For exact SOLID/3DFACE shaded surfaces, Autodesk's
   [SOLID DXF record](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DXF/files/GUID-E0C5F04E-D0C5-48F5-AC09-32733E8848F2.htm),
+  [managed SOLID thickness contract](https://help.autodesk.com/cloudhelp/2022/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Solid_Thickness.html),
+  [ActiveX thickness contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-ActiveX-Reference/files/GUID-0DFEAA18-C0FE-4B60-B103-39D52E939D63.htm),
+  [signed ELEV behavior](https://help.autodesk.com/view/ACD/2027/ENU/?caas=caas%2Fdocumentation%2FACD%2F2014%2FENU%2Ffiles%2FGUID-EE3D7937-2CD7-4F0F-BC8F-0AA0DC306EAE-htm.html),
   [SOLID command geometry](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Core/files/GUID-0998E0EE-7829-4AA4-9282-4FC703F9B1F4.htm),
   [3DFACE DXF record](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-747865D5-51F0-45F2-BEFE-9572DBC5B151.htm), and
   [3DFACE display contract](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-5E88BB23-9110-45FB-B54A-3FF2E2002585.htm)
   establish OCS versus WCS storage, repeated-fourth-corner triangles, SOLID's
-  diagonal third/fourth point convention, consecutive 3DFACE edge flags, and
+  diagonal third/fourth point convention, signed thickness along the normalized
+  extrusion direction, consecutive 3DFACE edge flags, and
   the rule that an all-invisible-edge 3DFACE remains present when shaded.
-  Adopted one perimeter-normalized immutable face record, fixed triangle lists,
-  exact Flat normals, and surface selection independent of wire visibility;
+  Adopted one perimeter-normalized immutable face record, one transformed WCS
+  extrusion vector, bounded exact lobe/prism triangle lists, exact Flat normals,
+  and surface selection independent of wire visibility;
   rejected treating SOLID's persisted order as a perimeter, hiding a shaded
-  face with its wire edges, or inventing area for degenerate triangles.
+  face with its wire edges, filling the bow-tie gap, unsigned thickness,
+  depth-agnostic filled plan projection of a thick shell, or inventing area for
+  degenerate triangles.
   [WebGPU's triangle/depth contracts](https://gpuweb.github.io/gpuweb/),
   [Direct3D triangle lists](https://learn.microsoft.com/en-us/windows/win32/direct3d9/triangle-lists), and
   [Direct2D/Direct3D interoperation](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-direct3d-interoperation-overview)
@@ -2569,7 +2620,9 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   were rechecked for startup/lazy initialization, retained-scene reuse,
   visibility, demand upload, worker preparation, batching, cache/device
   generations, and loss recovery. The existing ProGPU camera-independent CPU
-  batch plus managed/native Mesh3D resource remains the applicable design.
+  batch plus managed/native Mesh3D resource remains the applicable design;
+  no per-face crossing, runtime shader, copied native topology cache, or
+  backend-specific shell algorithm was introduced.
   [SkParagraph shaping](https://docs.skia.org/docs/dev/design/text_shaper/),
   [DirectWrite architecture](https://learn.microsoft.com/en-us/windows/win32/directwrite/introducing-directwrite),
   [Win2D text drawing](https://microsoft.github.io/Win2D/WinUI3/html/M_Microsoft_Graphics_Canvas_CanvasDrawingSession_DrawText.htm),

@@ -312,7 +312,7 @@ public sealed class CadPlanSceneCompiler
                     RecordEllipse(context, pen, snapshot.Ellipses.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
                     break;
                 case CadEntityKind.Solid:
-                    RecordSolid(context, pen.Brush, snapshot.Faces.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
+                    RecordSolid(context, pen, snapshot.Faces.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
                     break;
                 case CadEntityKind.Hatch:
                     RecordHatch(
@@ -750,11 +750,17 @@ public sealed class CadPlanSceneCompiler
 
     private static void RecordSolid(
         DrawingContext context,
-        Brush brush,
+        Pen pen,
         CadFacePrimitive face,
         CadPoint3D origin)
     {
-        var path = new PathGeometry();
+        if (face.Extrusion != CadPoint3D.Zero)
+        {
+            RecordExtrudedSolid(context, pen, face, origin);
+            return;
+        }
+
+        var path = new PathGeometry { FillRule = FillRule.EvenOdd };
         var figure = new PathFigure(Project(face.First, origin), isClosed: true);
         figure.Segments.Add(new LineSegment(Project(face.Second, origin)));
         figure.Segments.Add(new LineSegment(Project(face.Third, origin)));
@@ -764,7 +770,102 @@ public sealed class CadPlanSceneCompiler
         }
 
         path.Figures.Add(figure);
-        context.DrawPath(brush, null, path);
+        context.DrawPath(pen.Brush, null, path);
+    }
+
+    private static void RecordExtrudedSolid(
+        DrawingContext context,
+        Pen pen,
+        CadFacePrimitive face,
+        CadPoint3D origin)
+    {
+        Span<CadPoint3D> contourPoints = stackalloc CadPoint3D[6];
+        Span<int> contourLengths = stackalloc int[2];
+        int contourCount = CadFaceSurfaceTopology.BuildSolidContours(
+            face,
+            contourPoints,
+            contourLengths);
+        if (contourCount == 0)
+        {
+            return;
+        }
+
+        var path = new PathGeometry();
+        int pointOffset = 0;
+        bool displacedInPlan = face.Extrusion.X != 0.0 || face.Extrusion.Y != 0.0;
+        for (int contourIndex = 0; contourIndex < contourCount; contourIndex++)
+        {
+            int contourLength = contourLengths[contourIndex];
+            ReadOnlySpan<CadPoint3D> contour = contourPoints.Slice(
+                pointOffset,
+                contourLength);
+            for (int edge = 0; edge < contourLength; edge++)
+            {
+                CadPoint3D start = contour[edge];
+                CadPoint3D end = contour[(edge + 1) % contourLength];
+                AddProjectedFaceEdge(path, start, end, origin);
+                if (displacedInPlan)
+                {
+                    AddProjectedFaceEdge(
+                        path,
+                        start + face.Extrusion,
+                        end + face.Extrusion,
+                        origin);
+                }
+            }
+            pointOffset += contourLength;
+        }
+
+        if (displacedInPlan)
+        {
+            for (int pointIndex = 0; pointIndex < pointOffset; pointIndex++)
+            {
+                CadPoint3D point = contourPoints[pointIndex];
+                bool duplicate = false;
+                for (int previous = 0; previous < pointIndex; previous++)
+                {
+                    if (contourPoints[previous] == point)
+                    {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (!duplicate)
+                {
+                    AddProjectedFaceEdge(
+                        path,
+                        point,
+                        point + face.Extrusion,
+                        origin);
+                }
+            }
+        }
+
+        if (path.Figures.Count != 0)
+        {
+            context.DrawPath(null, pen, path);
+        }
+    }
+
+    private static void AddProjectedFaceEdge(
+        PathGeometry path,
+        CadPoint3D start,
+        CadPoint3D end,
+        CadPoint3D origin)
+    {
+        Vector2 projectedStart = Project(start, origin);
+        Vector2 projectedEnd = Project(end, origin);
+        if (projectedStart == projectedEnd)
+        {
+            return;
+        }
+
+        var figure = new PathFigure(projectedStart)
+        {
+            IsFilled = false,
+        };
+        figure.Segments.Add(new LineSegment(projectedEnd));
+        path.Figures.Add(figure);
     }
 
     private static void RecordHatch(

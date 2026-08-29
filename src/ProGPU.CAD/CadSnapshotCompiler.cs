@@ -1805,10 +1805,9 @@ public sealed partial class CadSnapshotCompiler
         int styleIndex,
         List<CadFacePrimitive> destination)
     {
-        if (solid.Thickness != 0.0)
+        if (!double.IsFinite(solid.Thickness))
         {
-            throw new CadUnsupportedEntityException(
-                "Extruded solids require 3D side-surface lowering.");
+            throw new ArgumentException("A SOLID thickness must be finite.");
         }
 
         CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(ToPoint(solid.Normal));
@@ -1816,6 +1815,11 @@ public sealed partial class CadSnapshotCompiler
         CadPoint3D second = TransformPoint(transform, hasTransform, basis.Transform(ToPoint(solid.SecondCorner)));
         CadPoint3D third = TransformPoint(transform, hasTransform, basis.Transform(ToPoint(solid.ThirdCorner)));
         CadPoint3D fourth = TransformPoint(transform, hasTransform, basis.Transform(ToPoint(solid.FourthCorner)));
+        CadPoint3D extrusion = basis.ZAxis * solid.Thickness;
+        if (hasTransform)
+        {
+            extrusion = transform.TransformVector(extrusion);
+        }
         return AddFace(
             handle,
             CadEntityKind.Solid,
@@ -1826,7 +1830,8 @@ public sealed partial class CadSnapshotCompiler
             second,
             fourth,
             third,
-            0);
+            0,
+            extrusion);
     }
 
     private static CadEntityHeader CompileFace3D(
@@ -1867,26 +1872,43 @@ public sealed partial class CadSnapshotCompiler
         CadPoint3D second,
         CadPoint3D third,
         CadPoint3D fourth,
-        byte invisibleEdgeMask)
+        byte invisibleEdgeMask,
+        CadPoint3D extrusion = default)
     {
         EnsureFinite(first);
         EnsureFinite(second);
         EnsureFinite(third);
         EnsureFinite(fourth);
+        EnsureFinite(extrusion);
         int primitiveIndex = destination.Count;
         destination.Add(new CadFacePrimitive(
             first,
             second,
             third,
             fourth,
-            invisibleEdgeMask));
+            invisibleEdgeMask)
+        {
+            Extrusion = extrusion,
+        });
+        CadBounds3D bounds = CadBounds3D.FromPoint(first)
+            .Include(second)
+            .Include(third)
+            .Include(fourth);
+        if (extrusion != CadPoint3D.Zero)
+        {
+            bounds = bounds
+                .Include(first + extrusion)
+                .Include(second + extrusion)
+                .Include(third + extrusion)
+                .Include(fourth + extrusion);
+        }
         return new CadEntityHeader(
             handle,
             kind,
             layerIndex,
             styleIndex,
             primitiveIndex,
-            CadBounds3D.FromPoint(first).Include(second).Include(third).Include(fourth));
+            bounds);
     }
 
     private static CadEntityHeader CompileSpline(

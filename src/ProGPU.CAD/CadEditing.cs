@@ -121,17 +121,30 @@ public abstract class CadEditCommand
     }
 
     /// <summary>
-    /// Applies a WCS translation while preserving a DIMENSION's persisted-picture
-    /// displacement contract.
+    /// Applies a WCS translation while preserving OCS SOLID coordinates and a
+    /// DIMENSION's persisted-picture displacement contract.
     /// </summary>
     /// <remarks>
-    /// ACadSharp transforms the semantic dimension definition points but leaves
-    /// group 12 unchanged. AutoCAD stores that group in OCS and uses it as the
-    /// relative WCS displacement of the already-authored anonymous picture. Work
-    /// and storage are O(1), and no dimension layout regeneration is performed.
+    /// SOLID corners are OCS values, so their WCS displacement is projected into
+    /// the entity basis. ACadSharp transforms semantic dimension definition points
+    /// but leaves group 12 unchanged. AutoCAD stores that group in OCS and uses it
+    /// as the relative WCS displacement of the already-authored anonymous picture.
+    /// Work and storage are O(1), and no dimension layout regeneration is performed.
     /// </remarks>
     protected static void ApplyEntityTranslation(Entity entity, XYZ translation)
     {
+        if (entity is Solid solid)
+        {
+            CadCoordinateSystem solidBasis = CreateEntityBasis(solid.Normal);
+            XYZ solidObjectTranslation = WorldToObjectVector(
+                solidBasis,
+                new CadPoint3D(translation.X, translation.Y, translation.Z));
+            solid.FirstCorner += solidObjectTranslation;
+            solid.SecondCorner += solidObjectTranslation;
+            solid.ThirdCorner += solidObjectTranslation;
+            solid.FourthCorner += solidObjectTranslation;
+            return;
+        }
         if (entity is not Dimension dimension)
         {
             entity.ApplyTranslation(translation);
@@ -156,8 +169,8 @@ public abstract class CadEditCommand
     }
 
     /// <summary>
-    /// Rotates semantic dimension data and its persisted picture without invoking
-    /// dimension-layout generation.
+    /// Rotates OCS SOLID geometry and semantic dimension data plus its persisted
+    /// picture without invoking dimension-layout generation.
     /// </summary>
     protected static void ApplyEntityRotation(Entity entity, XYZ axis, double radians) =>
         ApplyEntityRotation(
@@ -174,6 +187,11 @@ public abstract class CadEditCommand
         HashSet<BlockRecord> activePictures,
         int depth)
     {
+        if (entity is Solid solid)
+        {
+            ApplySolidRotation(solid, axis, radians);
+            return;
+        }
         if (entity is not Dimension dimension)
         {
             entity.ApplyRotation(axis, radians);
@@ -253,8 +271,8 @@ public abstract class CadEditCommand
     }
 
     /// <summary>
-    /// Scales semantic dimension data and its persisted picture without invoking
-    /// dimension-layout generation.
+    /// Uniformly scales OCS SOLID geometry/thickness and semantic dimension data
+    /// plus its persisted picture without invoking dimension-layout generation.
     /// </summary>
     protected static void ApplyEntityScaling(
         Entity entity,
@@ -277,6 +295,11 @@ public abstract class CadEditCommand
         HashSet<BlockRecord> activePictures,
         int depth)
     {
+        if (entity is Solid solid)
+        {
+            ApplySolidScaling(solid, scale, origin);
+            return;
+        }
         if (entity is not Dimension dimension)
         {
             entity.ApplyScaling(scale, origin);
@@ -358,23 +381,111 @@ public abstract class CadEditCommand
 
     private static CadPoint3D ObjectToWorldVector(XYZ normal, XYZ value)
     {
-        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(new CadPoint3D(
-            normal.X,
-            normal.Y,
-            normal.Z));
+        CadCoordinateSystem basis = CreateEntityBasis(normal);
         return basis.Transform(new CadPoint3D(value.X, value.Y, value.Z));
     }
 
     private static XYZ WorldToObjectVector(XYZ normal, CadPoint3D value)
     {
-        CadCoordinateSystem basis = CadCoordinateSystem.FromNormal(new CadPoint3D(
+        CadCoordinateSystem basis = CreateEntityBasis(normal);
+        return WorldToObjectVector(basis, value);
+    }
+
+    private static CadCoordinateSystem CreateEntityBasis(XYZ normal) =>
+        CadCoordinateSystem.FromNormal(new CadPoint3D(
             normal.X,
             normal.Y,
             normal.Z));
+
+    private static XYZ WorldToObjectVector(
+        CadCoordinateSystem basis,
+        CadPoint3D value)
+    {
         return new XYZ(
             CadPoint3D.Dot(value, basis.XAxis),
             CadPoint3D.Dot(value, basis.YAxis),
             CadPoint3D.Dot(value, basis.ZAxis));
+    }
+
+    private static void ApplySolidRotation(Solid solid, XYZ axis, double radians)
+    {
+        CadCoordinateSystem sourceBasis = CreateEntityBasis(solid.Normal);
+        Transform rotation = Transform.CreateRotation(axis, radians);
+        XYZ rotatedNormal = rotation.ApplyRotation(new XYZ(
+            sourceBasis.ZAxis.X,
+            sourceBasis.ZAxis.Y,
+            sourceBasis.ZAxis.Z)).Normalize();
+        CadCoordinateSystem destinationBasis = CreateEntityBasis(rotatedNormal);
+        solid.FirstCorner = RotateSolidCorner(
+            solid.FirstCorner,
+            sourceBasis,
+            destinationBasis,
+            rotation);
+        solid.SecondCorner = RotateSolidCorner(
+            solid.SecondCorner,
+            sourceBasis,
+            destinationBasis,
+            rotation);
+        solid.ThirdCorner = RotateSolidCorner(
+            solid.ThirdCorner,
+            sourceBasis,
+            destinationBasis,
+            rotation);
+        solid.FourthCorner = RotateSolidCorner(
+            solid.FourthCorner,
+            sourceBasis,
+            destinationBasis,
+            rotation);
+        solid.Normal = rotatedNormal;
+    }
+
+    private static XYZ RotateSolidCorner(
+        XYZ corner,
+        CadCoordinateSystem sourceBasis,
+        CadCoordinateSystem destinationBasis,
+        Transform rotation)
+    {
+        CadPoint3D world = sourceBasis.Transform(new CadPoint3D(
+            corner.X,
+            corner.Y,
+            corner.Z));
+        XYZ rotated = rotation.ApplyTransform(new XYZ(world.X, world.Y, world.Z));
+        return WorldToObjectVector(
+            destinationBasis,
+            new CadPoint3D(rotated.X, rotated.Y, rotated.Z));
+    }
+
+    private static void ApplySolidScaling(Solid solid, XYZ scale, XYZ origin)
+    {
+        if (scale.X != scale.Y || scale.X != scale.Z)
+        {
+            throw new InvalidOperationException(
+                "SOLID editing requires a uniform scale to preserve one thickness value.");
+        }
+
+        CadCoordinateSystem basis = CreateEntityBasis(solid.Normal);
+        solid.FirstCorner = ScaleSolidCorner(solid.FirstCorner, basis, scale.X, origin);
+        solid.SecondCorner = ScaleSolidCorner(solid.SecondCorner, basis, scale.X, origin);
+        solid.ThirdCorner = ScaleSolidCorner(solid.ThirdCorner, basis, scale.X, origin);
+        solid.FourthCorner = ScaleSolidCorner(solid.FourthCorner, basis, scale.X, origin);
+        solid.Thickness *= scale.X;
+    }
+
+    private static XYZ ScaleSolidCorner(
+        XYZ corner,
+        CadCoordinateSystem basis,
+        double factor,
+        XYZ origin)
+    {
+        CadPoint3D world = basis.Transform(new CadPoint3D(
+            corner.X,
+            corner.Y,
+            corner.Z));
+        var scaled = new CadPoint3D(
+            origin.X + ((world.X - origin.X) * factor),
+            origin.Y + ((world.Y - origin.Y) * factor),
+            origin.Z + ((world.Z - origin.Z) * factor));
+        return WorldToObjectVector(basis, scaled);
     }
 
     protected static Layer[] ResolveLayers(

@@ -211,7 +211,14 @@ public readonly record struct CadFacePrimitive(
     CadPoint3D Second,
     CadPoint3D Third,
     CadPoint3D Fourth,
-    byte InvisibleEdgeMask);
+    byte InvisibleEdgeMask)
+{
+    /// <summary>
+    /// Signed WCS displacement from the retained base contour to its top contour.
+    /// Zero identifies a flat SOLID or 3DFACE.
+    /// </summary>
+    public CadPoint3D Extrusion { get; init; }
+}
 
 public readonly record struct CadSplinePrimitive(
     int ControlPointOffset,

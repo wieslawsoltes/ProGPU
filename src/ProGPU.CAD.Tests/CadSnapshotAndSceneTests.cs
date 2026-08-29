@@ -168,7 +168,8 @@ public sealed class CadSnapshotAndSceneTests
         Assert.Equal(RenderCommandType.DrawPath, solid.Type);
         Assert.NotNull(solid.Brush);
         Assert.Null(solid.Pen);
-        Assert.True(Assert.Single(solid.Path!.Figures).IsClosed);
+        Assert.Equal(FillRule.EvenOdd, solid.Path!.FillRule);
+        Assert.True(Assert.Single(solid.Path.Figures).IsClosed);
         RenderCommand face = scene.DrawingContext.Commands[1];
         Assert.Null(face.Brush);
         Assert.NotNull(face.Pen);
@@ -182,6 +183,47 @@ public sealed class CadSnapshotAndSceneTests
         Assert.NotEqual(
             surfaceBatches[1].Normals.Span[0],
             surfaceBatches[1].Normals.Span[3]);
+    }
+
+    [Fact]
+    public void ExtrudedSolidRetainsTransformedThicknessAndRecordsPlanShell()
+    {
+        var block = new BlockRecord("THICK_SOLID");
+        block.Entities.Add(new Solid(
+            new XYZ(0, 0, 0),
+            new XYZ(4, 0, 0),
+            new XYZ(0, 3, 0),
+            new XYZ(4, 3, 0))
+        {
+            Normal = XYZ.AxisZ,
+            Thickness = 2,
+        });
+        var insert = new Insert(block)
+        {
+            InsertPoint = new XYZ(10, 20, 30),
+            XScale = 2,
+            YScale = 4,
+            ZScale = 3,
+        };
+        var document = new CadDocument();
+        document.Entities.Add(insert);
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        CadFacePrimitive face = Assert.Single(snapshot.Faces.ToArray());
+        CadEntityHeader header = Assert.Single(snapshot.Entities.ToArray());
+        CadRecordedPlanScene plan = new CadPlanSceneCompiler().Compile(snapshot);
+        CadRecordedMesh3DScene mesh = new CadMesh3DSceneCompiler().Compile(snapshot);
+
+        AssertPoint(new CadPoint3D(0, 0, 6), face.Extrusion);
+        AssertPoint(new CadPoint3D(10, 20, 30), header.Bounds.Min);
+        AssertPoint(new CadPoint3D(18, 32, 36), header.Bounds.Max);
+        Assert.Equal(12, mesh.Statistics.TriangleCount);
+        Assert.Equal(36, Assert.Single(mesh.DrawBatches.ToArray()).Indices.Length);
+        RenderCommand command = Assert.Single(plan.DrawingContext.Commands.ToArray());
+        Assert.Null(command.Brush);
+        Assert.NotNull(command.Pen);
+        Assert.Equal(4, command.Path!.Figures.Count);
     }
 
     [Fact]

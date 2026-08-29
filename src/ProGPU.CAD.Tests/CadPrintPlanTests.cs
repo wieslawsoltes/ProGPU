@@ -12,6 +12,32 @@ namespace ProGPU.CAD.Tests;
 public sealed class CadPrintPlanTests
 {
     [Fact]
+    public void ExtrudedSolidPrintsProjectedShellAsWireGeometry()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Solid(
+            new XYZ(0, 0, 0),
+            new XYZ(4, 0, 0),
+            new XYZ(0, 3, 0),
+            new XYZ(4, 3, 0))
+        {
+            Normal = new XYZ(0, 1, 0),
+            Thickness = 2,
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        using CadPrintPlan plan = new CadPrintPlanCompiler().Compile(snapshot);
+        using GpuPicture page = plan.CreatePagePicture();
+        RenderCommand shell = page.GetCommand(1).Picture!.GetCommand(0);
+
+        Assert.Equal(RenderCommandType.DrawPath, shell.Type);
+        Assert.Null(shell.Brush);
+        Assert.NotNull(shell.Pen);
+        Assert.NotEmpty(shell.Path!.Figures);
+    }
+
+    [Fact]
     public void A4FitPlanFiltersNonPlottableLayersAndRetainsPhysicalLineweight()
     {
         var document = new CadDocument();

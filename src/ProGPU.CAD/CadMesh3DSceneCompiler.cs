@@ -314,7 +314,9 @@ public sealed class CadMesh3DSceneCompiler
         for (int entityIndex = 0; entityIndex < entities.Length; entityIndex++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            AppendFace(faces[entities[entityIndex].PrimitiveIndex]);
+            AppendFace(
+                entities[entityIndex].Kind,
+                faces[entities[entityIndex].PrimitiveIndex]);
         }
 
         CadEntityHeader firstEntity = entities[0];
@@ -329,24 +331,24 @@ public sealed class CadMesh3DSceneCompiler
             textureCoordinates,
             indices);
 
-        void AppendFace(CadFacePrimitive face)
+        void AppendFace(CadEntityKind kind, CadFacePrimitive face)
         {
-            if (CadMesh3DTopology.TryComputeFlatNormal(
-                    face.First,
-                    face.Second,
-                    face.Third,
-                    out CadPoint3D firstNormal))
+            Span<CadFaceSurfaceTriangle> triangles =
+                stackalloc CadFaceSurfaceTriangle[CadFaceSurfaceTopology.MaximumTriangleCount];
+            int triangleCount = CadFaceSurfaceTopology.BuildTriangles(
+                kind,
+                face,
+                triangles);
+            for (int triangleIndex = 0;
+                 triangleIndex < triangleCount;
+                 triangleIndex++)
             {
-                AppendTriangle(face.First, face.Second, face.Third, firstNormal);
-            }
-            if (face.Fourth != face.Third &&
-                CadMesh3DTopology.TryComputeFlatNormal(
-                    face.First,
-                    face.Third,
-                    face.Fourth,
-                    out CadPoint3D secondNormal))
-            {
-                AppendTriangle(face.First, face.Third, face.Fourth, secondNormal);
+                CadFaceSurfaceTriangle triangle = triangles[triangleIndex];
+                AppendTriangle(
+                    triangle.First,
+                    triangle.Second,
+                    triangle.Third,
+                    triangle.Normal);
             }
         }
 
@@ -384,28 +386,19 @@ public sealed class CadMesh3DSceneCompiler
             cancellationToken.ThrowIfCancellationRequested();
             count = checked(
                 count + CountFaceTriangles(
+                    entities[entityIndex].Kind,
                     faces[entities[entityIndex].PrimitiveIndex]));
         }
         return count;
     }
 
-    private static int CountFaceTriangles(CadFacePrimitive face)
+    private static int CountFaceTriangles(
+        CadEntityKind kind,
+        CadFacePrimitive face)
     {
-        int count = CadMesh3DTopology.TryComputeFlatNormal(
-            face.First,
-            face.Second,
-            face.Third,
-            out _) ? 1 : 0;
-        if (face.Fourth != face.Third &&
-            CadMesh3DTopology.TryComputeFlatNormal(
-                face.First,
-                face.Third,
-                face.Fourth,
-                out _))
-        {
-            count++;
-        }
-        return count;
+        Span<CadFaceSurfaceTriangle> triangles =
+            stackalloc CadFaceSurfaceTriangle[CadFaceSurfaceTopology.MaximumTriangleCount];
+        return CadFaceSurfaceTopology.BuildTriangles(kind, face, triangles);
     }
 
     private static Vector3 ToRebasedVector(

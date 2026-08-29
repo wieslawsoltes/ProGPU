@@ -168,6 +168,78 @@ public sealed class CadEditingTests
         Assert.Equal(7.5, circle.Radius, 12);
     }
 
+    [Fact]
+    public void SolidEditsPreserveOcsGeometryAndSignedThicknessThroughHistory()
+    {
+        var solid = new Solid(
+            new XYZ(0, 0, 0),
+            new XYZ(2, 0, 0),
+            new XYZ(0, 3, 0),
+            new XYZ(2, 3, 0))
+        {
+            Normal = XYZ.AxisY,
+            Thickness = 2,
+        };
+        var document = new CadDocument();
+        document.Entities.Add(solid);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadTranslateEntitiesCommand(
+            [solid.Handle],
+            new CadPoint3D(10, 20, 30)));
+        CadDocumentSnapshot translated = new CadSnapshotCompiler().Compile(session);
+        Assert.Equal(
+            new CadBounds3D(
+                new CadPoint3D(8, 20, 30),
+                new CadPoint3D(10, 22, 33)),
+            translated.Bounds);
+        Assert.Equal(new CadPoint3D(0, 2, 0), translated.Faces.Span[0].Extrusion);
+
+        history.Execute(new CadRotateEntitiesCommand(
+            [solid.Handle],
+            new CadPoint3D(0, 0, 1),
+            Math.PI / 2));
+        CadDocumentSnapshot rotated = new CadSnapshotCompiler().Compile(session);
+        AssertCadPoint(new CadPoint3D(-2, 0, 0), rotated.Faces.Span[0].Extrusion);
+        AssertCadBounds(
+            new CadBounds3D(
+                new CadPoint3D(-22, 8, 30),
+                new CadPoint3D(-20, 10, 33)),
+            rotated.Bounds);
+
+        history.Execute(new CadScaleEntitiesCommand([solid.Handle], 2));
+        CadDocumentSnapshot scaled = new CadSnapshotCompiler().Compile(session);
+        AssertCadPoint(new CadPoint3D(-4, 0, 0), scaled.Faces.Span[0].Extrusion);
+        Assert.Equal(4.0, solid.Thickness, 12);
+        AssertCadBounds(
+            new CadBounds3D(
+                new CadPoint3D(-44, 16, 60),
+                new CadPoint3D(-40, 20, 66)),
+            scaled.Bounds);
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(2.0, solid.Thickness, 12);
+        Assert.True(history.TryUndo(out _));
+        AssertCadPoint(
+            new CadPoint3D(0, 2, 0),
+            new CadSnapshotCompiler().Compile(session).Faces.Span[0].Extrusion);
+        Assert.True(history.TryUndo(out _));
+        AssertCadBounds(
+            new CadBounds3D(
+                new CadPoint3D(-2, 0, 0),
+                new CadPoint3D(0, 2, 3)),
+            new CadSnapshotCompiler().Compile(session).Bounds);
+
+        Assert.True(history.TryRedo(out _));
+        Assert.True(history.TryRedo(out _));
+        Assert.True(history.TryRedo(out _));
+        Assert.Equal(4.0, solid.Thickness, 12);
+        AssertCadPoint(
+            new CadPoint3D(-4, 0, 0),
+            new CadSnapshotCompiler().Compile(session).Faces.Span[0].Extrusion);
+    }
+
     [Theory]
     [InlineData(0.0)]
     [InlineData(-1.0)]
@@ -1082,5 +1154,19 @@ public sealed class CadEditingTests
         Assert.InRange(actual.X, expected.X - tolerance, expected.X + tolerance);
         Assert.InRange(actual.Y, expected.Y - tolerance, expected.Y + tolerance);
         Assert.InRange(actual.Z, expected.Z - tolerance, expected.Z + tolerance);
+    }
+
+    private static void AssertCadPoint(CadPoint3D expected, CadPoint3D actual)
+    {
+        const double tolerance = 1e-10;
+        Assert.InRange(actual.X, expected.X - tolerance, expected.X + tolerance);
+        Assert.InRange(actual.Y, expected.Y - tolerance, expected.Y + tolerance);
+        Assert.InRange(actual.Z, expected.Z - tolerance, expected.Z + tolerance);
+    }
+
+    private static void AssertCadBounds(CadBounds3D expected, CadBounds3D actual)
+    {
+        AssertCadPoint(expected.Min, actual.Min);
+        AssertCadPoint(expected.Max, actual.Max);
     }
 }

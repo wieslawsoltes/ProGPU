@@ -344,6 +344,86 @@ public sealed class CadMeshSnapshotTests
         Assert.Single(scene.DrawBatches.ToArray());
     }
 
+    [Theory]
+    [InlineData(2.0, 0.0, 2.0)]
+    [InlineData(-2.0, -2.0, 0.0)]
+    public void SignedQuadSolidThicknessLowersToClosedTwelveTriangleShell(
+        double thickness,
+        double expectedMinimumZ,
+        double expectedMaximumZ)
+    {
+        var solid = new Solid(
+            new XYZ(0, 0, 0),
+            new XYZ(4, 0, 0),
+            new XYZ(0, 3, 0),
+            new XYZ(4, 3, 0))
+        {
+            Thickness = thickness,
+        };
+        var document = new CadDocument();
+        document.Entities.Add(solid);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        CadRecordedMesh3DScene scene = new CadMesh3DSceneCompiler().Compile(snapshot);
+        CadMesh3DDrawBatch batch = Assert.Single(scene.DrawBatches.ToArray());
+
+        Assert.Equal(expectedMinimumZ, snapshot.Bounds.Min.Z, 12);
+        Assert.Equal(expectedMaximumZ, snapshot.Bounds.Max.Z, 12);
+        Assert.Equal(thickness, snapshot.Faces.Span[0].Extrusion.Z, 12);
+        Assert.Equal(12, scene.Statistics.TriangleCount);
+        Assert.Equal(36, batch.Positions.Length);
+        Assert.Equal(36, batch.Normals.Length);
+        Assert.Equal(36, batch.Indices.Length);
+        Assert.Equal(6, batch.Normals.ToArray().Distinct().Count());
+
+        var camera = new CadNativeMesh3DCamera(
+            System.Numerics.Matrix4x4.Identity,
+            System.Numerics.Matrix4x4.Identity,
+            new System.Numerics.Vector3(0, 0, 5),
+            new NativeImageRect(0, 0, 640, 480));
+        CadNativeMesh3DScene native = new CadNativeMesh3DSceneCompiler().Compile(
+            scene,
+            camera,
+            sceneId: 71U);
+        Assert.Equal(1, native.DrawBatchCount);
+        Assert.Equal(36, native.VertexCount);
+        Assert.Equal(36, native.IndexCount);
+    }
+
+    [Fact]
+    public void TriangularAndCrossedSolidThicknessUseExactBoundedShellTopology()
+    {
+        var triangle = new Solid(
+            new XYZ(0, 0, 0),
+            new XYZ(4, 0, 0),
+            new XYZ(0, 3, 0))
+        {
+            Thickness = 2,
+        };
+        var crossed = new Solid(
+            new XYZ(10, 0, 0),
+            new XYZ(14, 4, 0),
+            new XYZ(14, 0, 0),
+            new XYZ(10, 4, 0))
+        {
+            Thickness = 2,
+        };
+        var document = new CadDocument();
+        document.Entities.Add(triangle);
+        document.Entities.Add(crossed);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        CadRecordedMesh3DScene scene = new CadMesh3DSceneCompiler().Compile(snapshot);
+        CadMesh3DDrawBatch[] batches = scene.DrawBatches.ToArray();
+
+        Assert.Equal(24, scene.Statistics.TriangleCount);
+        Assert.Equal(2, batches.Length);
+        Assert.Equal(8 * 3, batches[0].Indices.Length);
+        Assert.Equal(16 * 3, batches[1].Indices.Length);
+    }
+
     [Fact]
     public void ConsecutiveSameRootFaceRecordsShareOneManagedAndNativeBatch()
     {
@@ -557,6 +637,50 @@ public sealed class CadMeshSnapshotTests
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(loaded.Session);
         Assert.Equal(5, snapshot.Lines.Length);
         Assert.Equal(0, snapshot.Statistics.UnsupportedEntityCount);
+    }
+
+    [Theory]
+    [InlineData(CadDocumentFormat.Dxf)]
+    [InlineData(CadDocumentFormat.Dwg)]
+    public async Task SolidThicknessRoundTripsThroughAdvertisedFormats(
+        CadDocumentFormat format)
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        document.Entities.Add(new Solid(
+            new XYZ(0, 0, 0),
+            new XYZ(4, 0, 0),
+            new XYZ(0, 3, 0),
+            new XYZ(4, 3, 0))
+        {
+            Normal = new XYZ(0, 1, 1),
+            Thickness = -2.5,
+        });
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+
+        await store.SaveAsync(
+            new CadDocumentSession(document),
+            stream,
+            format,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            format,
+            sourceName: $"thick-solid.{format.ToString().ToLowerInvariant()}");
+
+        Solid restored = loaded.Session.Read(source =>
+            Assert.IsType<Solid>(Assert.Single(source.Entities)));
+        Assert.Equal(-2.5, restored.Thickness, 12);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(loaded.Session);
+        CadPoint3D extrusion = snapshot.Faces.Span[0].Extrusion;
+        Assert.Equal(0.0, extrusion.X, 12);
+        Assert.Equal(-2.5 * Math.Sqrt(0.5), extrusion.Y, 12);
+        Assert.Equal(-2.5 * Math.Sqrt(0.5), extrusion.Z, 12);
+        Assert.Equal(12, new CadMesh3DSceneCompiler()
+            .Compile(snapshot)
+            .Statistics
+            .TriangleCount);
     }
 
     [Fact]

@@ -768,6 +768,71 @@ public sealed class CadSelectionTests
     }
 
     [Fact]
+    public void SolidSelectionUsesCrossedLobesAndExtrudedSideSurfaces()
+    {
+        var crossed = new Solid(
+            new XYZ(0, 0, 0),
+            new XYZ(4, 4, 0),
+            new XYZ(4, 0, 0),
+            new XYZ(0, 4, 0));
+
+        CadPointHitResult lobe = Hit(
+            crossed,
+            new CadPoint3D(2, 3.5, 0),
+            1e-10);
+        CadPointHitResult gap = Hit(
+            (Entity)crossed.Clone(),
+            new CadPoint3D(0.5, 2, 0),
+            0.1);
+
+        Assert.Equal(CadPointHitStatus.Hit, lobe.Status);
+        Assert.Equal(CadPointHitStatus.Miss, gap.Status);
+
+        var concave = new Solid(
+            new XYZ(0, 0, 0),
+            new XYZ(2, 2, 0),
+            new XYZ(4, 2, 0),
+            new XYZ(0, 4, 0));
+        CadPointHitResult concaveInterior = Hit(
+            concave,
+            new CadPoint3D(3, 2.2, 0),
+            1e-10);
+        CadPointHitResult concaveNotch = Hit(
+            (Entity)concave.Clone(),
+            new CadPoint3D(0.5, 2, 0),
+            0.1);
+        Assert.Equal(CadPointHitStatus.Hit, concaveInterior.Status);
+        Assert.Equal(CadPointHitStatus.Miss, concaveNotch.Status);
+
+        var extruded = (Solid)crossed.Clone();
+        extruded.Thickness = 3;
+        CadPointHitResult side = Hit(
+            extruded,
+            new CadPoint3D(2, 4, 1.5),
+            1e-10);
+        var sideBox = new CadBounds3D(
+            new CadPoint3D(1.9, 3.9, 1.4),
+            new CadPoint3D(2.1, 4.1, 1.6));
+        var incompleteWindow = new CadBounds3D(
+            new CadPoint3D(-1, -1, -0.1),
+            new CadPoint3D(5, 5, 2.9));
+
+        Assert.Equal(CadPointHitStatus.Hit, side.Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            HitBounds(
+                (Entity)extruded.Clone(),
+                sideBox,
+                CadBoundsSelectionMode.Crossing).Status);
+        Assert.Equal(
+            CadBoundsHitStatus.Miss,
+            HitBounds(
+                (Entity)extruded.Clone(),
+                incompleteWindow,
+                CadBoundsSelectionMode.Window).Status);
+    }
+
+    [Fact]
     public void PointHitTesterRejectsStaleCandidatesAndReportsUnsupportedKinds()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
