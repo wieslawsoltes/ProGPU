@@ -26,11 +26,27 @@ internal static class Win2DCanvasQualification
             16,
             16,
             96f);
-        using var checker = CanvasBitmap.CreateFromColors(
+        using var copySource = CanvasBitmap.CreateFromColors(
             device,
             new Color[4],
             2,
             2,
+            96f,
+            CanvasAlphaMode.Premultiplied);
+        using var checker = CanvasBitmap.CreateFromBytes(
+            device,
+            new byte[16],
+            2,
+            2,
+            Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized,
+            96f,
+            CanvasAlphaMode.Premultiplied);
+        using var onePixel = CanvasBitmap.CreateFromBytes(
+            device,
+            [255, 255, 255, 255],
+            1,
+            1,
+            Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized,
             96f,
             CanvasAlphaMode.Premultiplied);
         using (CanvasDrawingSession sourceSession =
@@ -44,7 +60,7 @@ internal static class Win2DCanvasQualification
                 16,
                 Color.FromArgb(255, 255, 0, 255));
         }
-        checker.SetPixelColors(
+        copySource.SetPixelColors(
         [
             Color.FromArgb(255, 64, 32, 16),
             Color.FromArgb(255, 0, 0, 0),
@@ -53,7 +69,7 @@ internal static class Win2DCanvasQualification
         ]);
         ProGpuCanvasCpuConversionPath fullColorConversionPath =
             device.LastPixelConversionPath;
-        checker.SetPixelColors(
+        copySource.SetPixelColors(
             [Color.FromArgb(255, 0, 0, 0)],
             left: 1,
             top: 0,
@@ -61,6 +77,18 @@ internal static class Win2DCanvasQualification
             height: 1);
         ProGpuCanvasCpuConversionPath subrectangleColorConversionPath =
             device.LastPixelConversionPath;
+        checker.CopyPixelsFromBitmap(copySource);
+        checker.CopyPixelsFromBitmap(onePixel, destinationX: 1, destinationY: 0);
+        checker.CopyPixelsFromBitmap(
+            copySource,
+            destinationX: 1,
+            destinationY: 0,
+            sourceRectangleLeft: 1,
+            sourceRectangleTop: 0,
+            sourceRectangleWidth: 1,
+            sourceRectangleHeight: 1);
+        RequireThrows<NotSupportedException>(() =>
+            checker.CopyPixelsFromBitmap(checker));
         using var commandList = new CanvasCommandList(device);
         using (CanvasDrawingSession commandSession =
                commandList.CreateDrawingSession())
@@ -249,7 +277,7 @@ internal static class Win2DCanvasQualification
             {
                 drawingSession.FillRectangle(8, 72, 64, 64, imageBrush);
                 RequireThrows<InvalidOperationException>(() =>
-                    checker.SetPixelColors(new Color[4]));
+                    checker.CopyPixelsFromBitmap(copySource));
                 checker.Dispose();
             }
             // Win2D executes DrawImage eagerly. ProGPU records until session
