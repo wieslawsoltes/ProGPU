@@ -36,7 +36,8 @@ public enum ProGpuDirect2DInterfaceKind
     D2D1DeviceContext = 12,
     D2D1DeviceContext1 = 13,
     D2D1Bitmap = 14,
-    D2D1Bitmap1 = 15
+    D2D1Bitmap1 = 15,
+    WinRtDirect3D11Device = 16
 }
 
 public enum ProGpuDirect2DStatus

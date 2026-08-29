@@ -128,6 +128,18 @@ public sealed class Direct2DInteropContractTests
             test,
             StringComparison.Ordinal);
         Assert.Contains(
+            "PROGPU_NATIVE_DIRECT2D_INTERFACE_WINRT_DIRECT3D11_DEVICE",
+            header,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CreateDirect3D11DeviceFromDXGIDevice(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IDirect3DDxgiInterfaceAccess",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "surface->d2d_context->BeginDraw();",
             source,
             StringComparison.Ordinal);

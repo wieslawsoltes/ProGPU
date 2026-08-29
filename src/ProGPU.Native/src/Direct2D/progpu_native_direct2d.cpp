@@ -4,6 +4,7 @@
 #include <d3d11.h>
 #include <dxgi1_2.h>
 #include <windows.h>
+#include <windows.graphics.directx.direct3d11.interop.h>
 #include <wrl/client.h>
 
 #include <atomic>
@@ -25,6 +26,7 @@ struct progpu_native_direct2d_surface {
     ComPtr<ID3D11Texture2D> texture;
     ComPtr<IDXGISurface> dxgi_surface;
     ComPtr<IDXGIKeyedMutex> keyed_mutex;
+    ComPtr<IInspectable> winrt_d3d_device;
     ComPtr<ID2D1Factory2> d2d_factory;
     ComPtr<ID2D1Device1> d2d_device;
     ComPtr<ID2D1DeviceContext1> d2d_context;
@@ -352,6 +354,14 @@ HRESULT create_direct2d_resources(
     return S_OK;
 }
 
+HRESULT create_winrt_direct3d_device(
+    progpu_native_direct2d_surface& surface)
+{
+    return CreateDirect3D11DeviceFromDXGIDevice(
+        surface.dxgi_device.Get(),
+        surface.winrt_d3d_device.GetAddressOf());
+}
+
 template<typename T>
 progpu_native_direct2d_status return_interface(
     const ComPtr<T>& source,
@@ -424,6 +434,14 @@ progpu_native_direct2d_status progpu_native_direct2d_surface_create(
             : PROGPU_NATIVE_DIRECT2D_STATUS_DEVICE_CREATION_FAILED;
     }
     hr = create_direct2d_resources(*options, *instance);
+    if (FAILED(hr)) {
+        if (native_hresult != nullptr) {
+            *native_hresult = hr;
+        }
+        delete instance;
+        return PROGPU_NATIVE_DIRECT2D_STATUS_RESOURCE_CREATION_FAILED;
+    }
+    hr = create_winrt_direct3d_device(*instance);
     if (FAILED(hr)) {
         if (native_hresult != nullptr) {
             *native_hresult = hr;
@@ -539,6 +557,8 @@ progpu_native_direct2d_status progpu_native_direct2d_surface_get_interface(
         }
         case PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_BITMAP1:
             return return_interface(surface->d2d_bitmap, value);
+        case PROGPU_NATIVE_DIRECT2D_INTERFACE_WINRT_DIRECT3D11_DEVICE:
+            return return_interface(surface->winrt_d3d_device, value);
         default:
             return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
     }

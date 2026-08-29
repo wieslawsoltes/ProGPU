@@ -34,7 +34,7 @@ binary.
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
 | Direct2D `ID2D1*` API | Foundation implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine `ID2D1Factory1/2`, `ID2D1Device/1`, `ID2D1DeviceContext/1`, and `ID2D1Bitmap/1` objects over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` |
-| Native Win2D binary interop | In progress | The real COM device/context/bitmap resource domain, transactional drawing session, and zero-copy Dawn import are implemented; Win2D activation/resource wrapping and full device-loss recreation remain gated work |
+| Native Win2D binary interop | In progress | The real COM device/context/bitmap resource domain, WinRT `IDirect3DDevice` over the same `IDXGIDevice`, transactional drawing session, and zero-copy Dawn import are implemented; Canvas factory/resource wrapping and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
 | Arbitrary Win2D native-resource wrapping (`GetOrCreate(IUnknown*)`) off Windows | Unsupported by design | Fail closed; there is no portable COM object identity to preserve |
@@ -88,6 +88,15 @@ package-neutral ABI. Producer acquire/release is serialized, nested access and
 unmatched release fail closed, and every successful producer release advances
 the content version. The consumer can reopen the NT handle and use the same
 keyed-mutex ownership sequence through Dawn shared-texture memory.
+
+The same provider also calls the system
+`CreateDirect3D11DeviceFromDXGIDevice(...)` entry point once for the owned
+`IDXGIDevice` and exposes the resulting genuine WinRT `IDirect3DDevice` as
+`WinRtDirect3D11Device`. The native regression unwraps it through
+`IDirect3DDxgiInterfaceAccess` and requires exact `ID3D11Device` identity. That
+is the device argument required by Win2D's
+`CanvasDevice.CreateFromDirect3D11Device`; it avoids a second adapter/resource
+domain and establishes the activation input for the next Canvas factory lane.
 
 ABI v3 includes the managed ownership half as package `ProGPU.Direct2D`.
 `ProGpuDirect2DSurface.Create(...)` validates a live Dawn D3D12 context, exact
