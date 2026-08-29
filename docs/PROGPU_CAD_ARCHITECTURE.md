@@ -1587,11 +1587,12 @@ reference edit command.
 
 `CadAttributeValueCatalogCompiler` copies the values reachable from one
 selected model-space INSERT into a bounded generation-tagged catalog. It emits
-reference-owned variable ATTRIB values and definition-owned constant ATTDEF
-values as distinct typed entries, preserving case-insensitive tag plus explicit
-duplicate-tag occurrence addressing, multiline and hidden metadata, and the
-selected block identity. Malformed multiline payloads are counted as
-unsupported rather than exposed as editable values. Catalog construction is
+reference-owned variable ATTRIB values, definition-owned constant ATTDEF
+values, and variable ATTDEF defaults as distinct typed entries, preserving
+case-insensitive tag plus explicit duplicate-tag occurrence addressing,
+multiline and hidden metadata, and the selected block identity. Malformed
+multiline payloads are counted as unsupported rather than exposed as editable
+values. Catalog construction is
 `O(D + A + S)` time/storage for `D` definitions, `A` references, and `S` copied
 UTF-16 code units, capped at 4,096 entries, 65,536 code units per string, and
 1,048,576 total code units. It performs no font lookup, shaping, scene
@@ -1603,14 +1604,24 @@ constant ATTDEF in its block. Single-line and embedded-MTEXT values change
 transactionally together. Undo/Redo validates the retained INSERT, block,
 definition, tag, and occurrence identities; it does not rewrite any INSERT
 reference because every instance reads the same definition-owned constant.
-The shared desktop/browser shell exposes both ownership paths through one
+
+`CadSetVariableAttributeDefinitionDefaultCommand` uses the same selected-INSERT,
+tag, and occurrence address but rejects constant definitions and edits the exact
+variable ATTDEF default. It updates single-line and embedded-MTEXT payloads
+transactionally and retains exact identity and prior values for Undo/Redo.
+Following AutoCAD's definition contract, assigned ATTRIB values on existing
+INSERTs remain unchanged; INSERTs created later inherit the current default.
+Undo/Redo therefore changes the default inherited by still-later INSERTs without
+rewriting any existing reference.
+
+The shared desktop/browser shell exposes all three ownership paths through one
 selector and value editor. A commit advances one document generation, rebuilds
 one retained snapshot, preserves the selected INSERT and attribute key, and
 refreshes the displayed value. Locked INSERTs remain inspectable but cannot
-authorize either reference or definition mutation. The same regenerated
-TEXT/MTEXT commands feed managed replay, the native picture compiler, printing,
-and exact selection; no shader, native ABI, cache key, glyph upload, or
-device-loss contract changes.
+authorize reference or definition mutation. The same regenerated TEXT/MTEXT
+commands feed managed replay, the native picture compiler, printing, and exact
+selection; no shader, native ABI, cache key, glyph upload, or device-loss
+contract changes.
 
 For `I` array cells, `B` non-attribute block children, `C` visible constant
 definitions, and `A` visible variable references, lowering is
@@ -1619,8 +1630,8 @@ array, nesting, expanded-entity, text-code-unit, and glyph limits. The traversal
 adds no per-frame work or native crossings; stable scene/print replay retains
 the same command and device-resource behavior. ATTDISP override state,
 annotative contexts, fields, dynamic-block evaluation, prompt/tag/mode/geometry
-editing, and synchronized propagation of changed variable defaults into
-existing references remain explicit future contracts.
+editing, and full definition/reference property synchronization remain explicit
+future contracts.
 
 The 2026-08-28 matched macOS Release checkpoint used .NET 10.0.5, three
 warmups, 24 samples, 100 variable attributed INSERTs with 21-character Inter
@@ -4247,12 +4258,19 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   [`SetAttributeFromBlock`](https://help.autodesk.com/cloudhelp/2024/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_AttributeReference_SetAttributeFromBlock_Matrix3d.html),
   [constant-reference ownership](https://help.autodesk.com/cloudhelp/2022/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_AttributeReference_IsConstant.html),
   [attribute modes](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-67A2DDAD-2217-412F-8AEF-D4495192F45B.htm),
+  [definition-property editing](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-F351FDBB-2731-40C1-A186-1B1F47779E32.htm),
+  [ATTSYNC value preservation](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-56B14079-250B-4C99-AB3D-F95BA1C32AB7.htm),
+  [definition/default editing](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-889213DA-A3AF-4020-89F0-1E5049AD26EC.htm),
   and [MINSERT behavior](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-A780A2FA-4A2E-4574-950F-E788AB71F527.htm)
   were treated as the public CAD contract. Adopted definition-owned constants,
   reference-owned variable values, invisible display/plot suppression, embedded
-  multiline content, transform-baked reference geometry, and array-cell
-  replication. Rejected rendering replaceable defaults, duplicating malformed
-  constant references, and applying INSERT geometry twice.
+  multiline content, transform-baked reference geometry, array-cell replication,
+  and default-only variable-definition edits: existing assigned references stay
+  unchanged while future INSERTs inherit the edited default. ATTSYNC remains a
+  separate future property-synchronization contract and must preserve assigned
+  reference values. Rejected rendering replaceable defaults, rewriting existing
+  reference values during a default edit, duplicating malformed constant
+  references, and applying INSERT geometry twice.
   [Skia's shaped-text stages](https://docs.skia.org/docs/dev/design/text_shaper/),
   [DirectWrite/Direct2D separation and reusable layouts](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite),
   [Win2D retained text layout](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm),

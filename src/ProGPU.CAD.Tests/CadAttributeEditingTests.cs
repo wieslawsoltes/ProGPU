@@ -27,7 +27,7 @@ public sealed class CadAttributeEditingTests
         Assert.Equal("EDITABLE_BLOCK", catalog.BlockName);
         Assert.Equal(0, catalog.UnsupportedCount);
         CadAttributeValueEntry[] entries = catalog.Entries.ToArray();
-        Assert.Equal(3, entries.Length);
+        Assert.Equal(4, entries.Length);
         Assert.Equal(
             new CadAttributeValueEntry(
                 CadAttributeValueOwner.Definition,
@@ -42,10 +42,110 @@ public sealed class CadAttributeEditingTests
         Assert.Equal("CONSTANT MTEXT", entries[1].Value);
         Assert.True(entries[1].IsMultiline);
         Assert.True(entries[1].IsInvisible);
-        Assert.Equal(CadAttributeValueOwner.Reference, entries[2].Owner);
+        Assert.Equal(CadAttributeValueOwner.VariableDefinition, entries[2].Owner);
         Assert.Equal("PART", entries[2].Tag);
-        Assert.Equal("REFERENCE VALUE", entries[2].Value);
+        Assert.Equal("DEFAULT", entries[2].Value);
         Assert.True(entries[2].IsMultiline);
+        Assert.Equal(CadAttributeValueOwner.Reference, entries[3].Owner);
+        Assert.Equal("PART", entries[3].Tag);
+        Assert.Equal("REFERENCE VALUE", entries[3].Value);
+        Assert.True(entries[3].IsMultiline);
+    }
+
+    [Fact]
+    public void VariableDefaultEditFeedsFutureInsertsWithoutChangingAssignedValues()
+    {
+        (CadDocument document, Insert first, _, _) = CreateDocument();
+        AttributeDefinition part = first.Block.AttributeDefinitions.Single(
+            definition => definition.Tag == "PART");
+        AttributeEntity firstValue = first.Attributes.Single(
+            attribute => attribute.Tag == "PART");
+        firstValue.Value = "FIRST ASSIGNED";
+        firstValue.MText.Value = "FIRST ASSIGNED";
+        var second = new Insert(first.Block);
+        AttributeEntity secondValue = second.Attributes.Single(
+            attribute => attribute.Tag == "PART");
+        secondValue.Value = "SECOND ASSIGNED";
+        secondValue.MText.Value = "SECOND ASSIGNED";
+        document.Entities.Add(second);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetVariableAttributeDefinitionDefaultCommand(
+            first.Handle,
+            "part",
+            "FUTURE DEFAULT"));
+
+        Assert.Equal("FUTURE DEFAULT", part.Value);
+        Assert.Equal("FUTURE DEFAULT", part.MText.Value);
+        Assert.Equal("FIRST ASSIGNED", firstValue.Value);
+        Assert.Equal("FIRST ASSIGNED", firstValue.MText.Value);
+        Assert.Equal("SECOND ASSIGNED", secondValue.Value);
+        Assert.Equal("SECOND ASSIGNED", secondValue.MText.Value);
+        var future = new Insert(first.Block);
+        AttributeEntity futureValue = future.Attributes.Single(
+            attribute => attribute.Tag == "PART");
+        Assert.Equal("FUTURE DEFAULT", futureValue.Value);
+        Assert.Equal("FUTURE DEFAULT", futureValue.MText.Value);
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal("DEFAULT", part.Value);
+        Assert.Equal("DEFAULT", part.MText.Value);
+        var afterUndo = new Insert(first.Block);
+        Assert.Equal(
+            "DEFAULT",
+            afterUndo.Attributes.Single(attribute => attribute.Tag == "PART").Value);
+        Assert.True(history.TryRedo(out _));
+        Assert.Equal("FUTURE DEFAULT", part.Value);
+        Assert.Equal("FIRST ASSIGNED", firstValue.Value);
+        Assert.Equal("SECOND ASSIGNED", secondValue.Value);
+    }
+
+    [Fact]
+    public void VariableDefaultUsesDefinitionOccurrenceAndRejectsConstantTarget()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("DUPLICATE_ATTRIBUTE_BLOCK");
+        var constant = new AttributeDefinition
+        {
+            Tag = "DUPLICATE",
+            Value = "CONSTANT",
+            Flags = AttributeFlags.Constant,
+        };
+        var variable = new AttributeDefinition
+        {
+            Tag = "DUPLICATE",
+            Value = "DEFAULT",
+        };
+        block.Entities.Add(constant);
+        block.Entities.Add(variable);
+        var insert = new Insert(block);
+        document.Entities.Add(insert);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetVariableAttributeDefinitionDefaultCommand(
+            insert.Handle,
+            "duplicate",
+            "UPDATED",
+            occurrence: 1));
+
+        Assert.Equal("CONSTANT", constant.Value);
+        Assert.Equal("UPDATED", variable.Value);
+        Assert.Contains(
+            new CadAttributeValueCatalogCompiler()
+                .Compile(session, insert.Handle)
+                .Entries.ToArray(),
+            entry => entry.Owner == CadAttributeValueOwner.VariableDefinition &&
+                entry.Tag == "DUPLICATE" &&
+                entry.Occurrence == 1 &&
+                entry.Value == "UPDATED");
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadSetVariableAttributeDefinitionDefaultCommand(
+                insert.Handle,
+                "DUPLICATE",
+                "INVALID",
+                occurrence: 0)));
     }
 
     [Fact]
@@ -146,21 +246,38 @@ public sealed class CadAttributeEditingTests
                 new string('x',
                     CadSetConstantAttributeDefinitionValueCommand
                         .MaximumValueCodeUnits + 1)));
+        Assert.Throws<ArgumentException>(() =>
+            new CadSetVariableAttributeDefinitionDefaultCommand(
+                insert.Handle,
+                "PART",
+                new string('x',
+                    CadSetVariableAttributeDefinitionDefaultCommand
+                        .MaximumValueCodeUnits + 1)));
     }
 
     [Theory]
     [InlineData(CadDocumentFormat.Dxf)]
     [InlineData(CadDocumentFormat.Dwg)]
-    public async Task ConstantDefinitionEditSurvivesDxfAndDwgRoundTrip(
+    public async Task DefinitionValueEditsSurviveDxfAndDwgRoundTrip(
         CadDocumentFormat format)
     {
         (CadDocument document, Insert insert, _, _) = CreateDocument();
+        AttributeEntity assigned = insert.Attributes.Single(
+            attribute => attribute.Tag == "PART");
+        assigned.Value = "ASSIGNED VALUE";
+        assigned.MText.Value = "ASSIGNED VALUE";
         var session = new CadDocumentSession(document);
-        new CadDocumentHistory(session).Execute(
+        var history = new CadDocumentHistory(session);
+        history.Execute(
             new CadSetConstantAttributeDefinitionValueCommand(
                 insert.Handle,
                 "NOTES",
                 @"PERSISTED\PVALUE"));
+        history.Execute(
+            new CadSetVariableAttributeDefinitionDefaultCommand(
+                insert.Handle,
+                "PART",
+                @"FUTURE\PDEFAULT"));
         using var stream = new MemoryStream();
         var store = new CadDocumentStore();
 
@@ -183,6 +300,19 @@ public sealed class CadAttributeEditingTests
                 .Single(candidate => candidate.Tag == "NOTES");
             Assert.Equal(@"PERSISTED\PVALUE", definition.Value);
             Assert.Equal(@"PERSISTED\PVALUE", definition.MText.Value);
+            AttributeDefinition variable = loadedDocument.BlockRecords[
+                    "EDITABLE_BLOCK"]
+                .AttributeDefinitions
+                .Single(candidate => candidate.Tag == "PART");
+            Assert.Equal(@"FUTURE\PDEFAULT", variable.Value);
+            Assert.Equal(@"FUTURE\PDEFAULT", variable.MText.Value);
+            AttributeEntity existing = loadedDocument.Entities
+                .OfType<Insert>()
+                .Single()
+                .Attributes
+                .Single(candidate => candidate.Tag == "PART");
+            Assert.Equal("ASSIGNED VALUE", existing.Value);
+            Assert.Equal("ASSIGNED VALUE", existing.MText.Value);
             return true;
         });
     }

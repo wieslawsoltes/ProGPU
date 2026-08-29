@@ -1961,10 +1961,12 @@ public sealed class CadSampleView : Grid
 
         foreach (CadAttributeValueEntry candidate in catalog.Entries.Span)
         {
-            string ownership = candidate.Owner ==
-                CadAttributeValueOwner.Definition
-                ? "constant"
-                : "reference";
+            string ownership = candidate.Owner switch
+            {
+                CadAttributeValueOwner.Definition => "constant",
+                CadAttributeValueOwner.VariableDefinition => "variable default",
+                _ => "reference",
+            };
             string multiline = candidate.IsMultiline ? ", multiline" : string.Empty;
             string hidden = candidate.IsInvisible ? ", hidden" : string.Empty;
             var item = new ComboBoxItem
@@ -2416,9 +2418,12 @@ public sealed class CadSampleView : Grid
                 SetStatus("Attribute editing requires exactly one selected INSERT.");
                 return;
             }
-            string ownership = entry.Owner == CadAttributeValueOwner.Definition
-                ? "constant definition"
-                : "reference";
+            string ownership = entry.Owner switch
+            {
+                CadAttributeValueOwner.Definition => "constant definition",
+                CadAttributeValueOwner.VariableDefinition => "variable default",
+                _ => "reference",
+            };
             SetStatus(
                 $"Set {ownership} attribute {entry.Tag} " +
                 $"#{entry.Occurrence + 1} as one edit.");

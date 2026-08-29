@@ -8,6 +8,7 @@ public enum CadAttributeValueOwner : byte
 {
     Reference = 0,
     Definition = 1,
+    VariableDefinition = 2,
 }
 
 /// <summary>One detached editable value exposed by a selected INSERT.</summary>
@@ -67,7 +68,7 @@ public sealed class CadAttributeValueCatalog
 }
 
 /// <summary>
-/// Copies the reference-owned variable values and definition-owned constant
+/// Copies reference-owned variable values plus constant and variable-definition
 /// values reachable from one model-space INSERT into immutable ProGPU state.
 /// </summary>
 /// <remarks>
@@ -141,10 +142,6 @@ public sealed class CadAttributeValueCatalogCompiler
             cancellationToken.ThrowIfCancellationRequested();
             string tag = definition.Tag ?? string.Empty;
             int occurrence = TakeOccurrence(definitionOccurrences, tag);
-            if (!IsDefinitionOwned(definition))
-            {
-                continue;
-            }
             if (!TryGetEditableValue(
                     definition,
                     out string value,
@@ -156,7 +153,9 @@ public sealed class CadAttributeValueCatalogCompiler
             }
             EnsureCapacity(entries.Count, options.MaxEntries);
             entries.Add(new CadAttributeValueEntry(
-                CadAttributeValueOwner.Definition,
+                IsDefinitionOwned(definition)
+                    ? CadAttributeValueOwner.Definition
+                    : CadAttributeValueOwner.VariableDefinition,
                 Copy(tag, "attribute tag"),
                 occurrence,
                 Copy(value, "attribute value"),
@@ -440,6 +439,211 @@ public sealed class CadSetConstantAttributeDefinitionValueCommand : CadEditComma
         {
             throw new InvalidOperationException(
                 $"Constant attribute definition '{definition.Tag}' uses an " +
+                "unsupported attribute type.");
+        }
+    }
+
+    private static void SetValueTransactional(
+        AttributeDefinition definition,
+        string value,
+        string? mtextValue)
+    {
+        string rollbackValue = definition.Value;
+        string? rollbackMTextValue = definition.MText?.Value;
+        try
+        {
+            definition.Value = value;
+            if (definition.MText is MText mtext)
+            {
+                mtext.Value = mtextValue ?? value;
+            }
+        }
+        catch
+        {
+            definition.Value = rollbackValue;
+            if (definition.MText is MText mtext && rollbackMTextValue is not null)
+            {
+                mtext.Value = rollbackMTextValue;
+            }
+            throw;
+        }
+    }
+}
+
+/// <summary>
+/// Replaces one variable ATTDEF default selected through a model-space INSERT,
+/// tag, and zero-based duplicate-tag occurrence.
+/// </summary>
+/// <remarks>
+/// Resolution is O(D) for D definitions in the selected INSERT block. Apply,
+/// Undo, and Redo retain the exact definition identity and use O(1) mutation.
+/// Values already assigned to existing INSERT references are deliberately not
+/// changed; a later INSERT created from the block receives the edited default.
+/// </remarks>
+public sealed class CadSetVariableAttributeDefinitionDefaultCommand : CadEditCommand
+{
+    public const int MaximumTagCodeUnits = 4_096;
+    public const int MaximumValueCodeUnits =
+        CadSnapshotOptions.DefaultMaxTextCodeUnitsPerEntity;
+
+    private readonly ulong _insertHandle;
+    private Insert? _insert;
+    private BlockRecord? _block;
+    private AttributeDefinition? _definition;
+    private string? _previousValue;
+    private string? _previousMTextValue;
+
+    public ulong InsertHandle => _insertHandle;
+
+    public string Tag { get; }
+
+    public int Occurrence { get; }
+
+    public string Value { get; }
+
+    public CadSetVariableAttributeDefinitionDefaultCommand(
+        ulong insertHandle,
+        string tag,
+        string value,
+        int occurrence = 0,
+        string description = "Set variable attribute definition default")
+        : base(description)
+    {
+        if (insertHandle == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(insertHandle));
+        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(tag);
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentOutOfRangeException.ThrowIfNegative(occurrence);
+        if (tag.Length > MaximumTagCodeUnits)
+        {
+            throw new ArgumentException(
+                "The attribute tag exceeds the command ownership budget.",
+                nameof(tag));
+        }
+        if (value.Length > MaximumValueCodeUnits)
+        {
+            throw new ArgumentException(
+                "The attribute value exceeds the snapshot per-entity text budget.",
+                nameof(value));
+        }
+
+        _insertHandle = insertHandle;
+        Tag = new string(tag.AsSpan());
+        Value = new string(value.AsSpan());
+        Occurrence = occurrence;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        AttributeDefinition definition;
+        if (isRedo)
+        {
+            definition = GetRetainedDefinition(document);
+        }
+        else
+        {
+            Entity entity = ResolveModelSpaceEntity(document, _insertHandle);
+            Insert insert = entity as Insert ?? throw new InvalidOperationException(
+                $"Model-space entity handle {_insertHandle:X} is not an INSERT.");
+            BlockRecord block = insert.Block ?? throw new InvalidOperationException(
+                $"INSERT handle {_insertHandle:X} has no block definition.");
+            definition = ResolveDefinition(block, Tag, Occurrence);
+            if (IsDefinitionOwned(definition))
+            {
+                throw new InvalidOperationException(
+                    $"Attribute definition '{Tag}' occurrence {Occurrence} is " +
+                    "constant and does not own a variable default.");
+            }
+            ValidatePayload(definition);
+            _insert = insert;
+            _block = block;
+            _definition = definition;
+            _previousValue = definition.Value;
+            _previousMTextValue = definition.MText?.Value;
+        }
+
+        SetValueTransactional(definition, Value, Value);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        AttributeDefinition definition = GetRetainedDefinition(document);
+        string previous = _previousValue ?? throw new InvalidOperationException(
+            "The variable-default command has not been applied.");
+        SetValueTransactional(definition, previous, _previousMTextValue);
+    }
+
+    private AttributeDefinition GetRetainedDefinition(CadDocument document)
+    {
+        Insert insert = _insert ?? throw new InvalidOperationException(
+            "The variable-default command has not been applied.");
+        BlockRecord block = _block ?? throw new InvalidOperationException(
+            "The variable-default command has not been applied.");
+        AttributeDefinition definition = _definition ??
+            throw new InvalidOperationException(
+                "The variable-default command has not been applied.");
+        ValidateModelSpaceEntity(document, insert);
+        if (!ReferenceEquals(insert.Block, block))
+        {
+            throw new InvalidOperationException(
+                "The selected INSERT no longer references the retained block definition.");
+        }
+        AttributeDefinition current = ResolveDefinition(block, Tag, Occurrence);
+        if (!ReferenceEquals(current, definition))
+        {
+            throw new InvalidOperationException(
+                $"Attribute definition '{Tag}' occurrence {Occurrence} is no " +
+                "longer the retained definition.");
+        }
+        return definition;
+    }
+
+    private static AttributeDefinition ResolveDefinition(
+        BlockRecord block,
+        string tag,
+        int occurrence)
+    {
+        int currentOccurrence = 0;
+        foreach (AttributeDefinition definition in block.AttributeDefinitions)
+        {
+            if (!string.Equals(
+                    definition.Tag,
+                    tag,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (currentOccurrence == occurrence)
+            {
+                return definition;
+            }
+            currentOccurrence++;
+        }
+        throw new InvalidOperationException(
+            $"Block '{block.Name}' has no attribute definition '{tag}' " +
+            $"occurrence {occurrence}.");
+    }
+
+    private static bool IsDefinitionOwned(AttributeDefinition definition) =>
+        (definition.Flags & AttributeFlags.Constant) != 0 ||
+        definition.AttributeType == AttributeType.ConstantMultiLine;
+
+    private static void ValidatePayload(AttributeDefinition definition)
+    {
+        if (definition.AttributeType != AttributeType.SingleLine &&
+            definition.MText is null)
+        {
+            throw new InvalidOperationException(
+                $"Variable attribute definition '{definition.Tag}' has no " +
+                "embedded MTEXT payload.");
+        }
+        if (definition.AttributeType is not (
+            AttributeType.SingleLine or AttributeType.MultiLine))
+        {
+            throw new InvalidOperationException(
+                $"Variable attribute definition '{definition.Tag}' uses an " +
                 "unsupported attribute type.");
         }
     }

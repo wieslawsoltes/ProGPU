@@ -1336,6 +1336,13 @@ public sealed class CadSampleCanvas : FrameworkElement
                     value,
                     occurrence,
                     $"Set constant block attribute '{tag}'"),
+            CadAttributeValueOwner.VariableDefinition =>
+                new CadSetVariableAttributeDefinitionDefaultCommand(
+                    insertHandle,
+                    tag,
+                    value,
+                    occurrence,
+                    $"Set variable block attribute default '{tag}'"),
             _ => throw new ArgumentOutOfRangeException(nameof(owner)),
         };
         history.Execute(command);

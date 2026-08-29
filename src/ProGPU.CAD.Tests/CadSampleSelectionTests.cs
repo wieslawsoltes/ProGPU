@@ -1642,7 +1642,7 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
-    public void SharedViewEditsReferenceAndConstantBlockAttributesByOwnership()
+    public void SharedViewEditsBlockAttributesByOwnership()
     {
         var document = new CadDocument();
         var block = new BlockRecord("UI_ATTRIBUTE_BLOCK");
@@ -1683,7 +1683,7 @@ public sealed class CadSampleSelectionTests
 
             Assert.Equal(1, view.Canvas.SelectedHandleCount);
             Assert.Equal(insert.Handle, view.Canvas.SelectedHandles.Span[0]);
-            Assert.Equal(3, view.SelectionAttributeSelector.Items.Count);
+            Assert.Equal(4, view.SelectionAttributeSelector.Items.Count);
             ComboBoxItem referenceItem = view.SelectionAttributeSelector.Items
                 .OfType<ComboBoxItem>()
                 .Single(item => item.Tag is CadAttributeValueEntry
@@ -1743,6 +1743,43 @@ public sealed class CadSampleSelectionTests
             PressEnter(redo);
             Assert.Equal("CONSTANT EDIT", constant.Value);
             Assert.Equal("CONSTANT EDIT", view.SelectionAttributeValueInput.Text);
+
+            ComboBoxItem variableDefaultItem = view.SelectionAttributeSelector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Tag is CadAttributeValueEntry
+                {
+                    Owner: CadAttributeValueOwner.VariableDefinition,
+                    Tag: "PART",
+                });
+            view.SelectionAttributeSelector.SelectedItem = variableDefaultItem;
+            Assert.Equal("DEFAULT", view.SelectionAttributeValueInput.Text);
+            view.SelectionAttributeValueInput.Text = "FUTURE DEFAULT";
+            PressEnter(setAttribute);
+
+            Assert.Equal(5UL, session.ContentGeneration);
+            Assert.Equal("FUTURE DEFAULT", variableDefinition.Value);
+            Assert.Equal("REFERENCE EDIT", variable.Value);
+            Assert.Equal(
+                "FUTURE DEFAULT",
+                new Insert(block).Attributes.Single(
+                    attribute => attribute.Tag == "PART").Value);
+            Assert.Equal("FUTURE DEFAULT", view.SelectionAttributeValueInput.Text);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Set variable default attribute PART #1 as one edit",
+                    StringComparison.Ordinal));
+
+            PressEnter(undo);
+            Assert.Equal(6UL, session.ContentGeneration);
+            Assert.Equal("DEFAULT", variableDefinition.Value);
+            Assert.Equal("REFERENCE EDIT", variable.Value);
+            Assert.Equal("DEFAULT", view.SelectionAttributeValueInput.Text);
+            PressEnter(redo);
+            Assert.Equal(7UL, session.ContentGeneration);
+            Assert.Equal("FUTURE DEFAULT", variableDefinition.Value);
+            Assert.Equal("REFERENCE EDIT", variable.Value);
+            Assert.Equal("FUTURE DEFAULT", view.SelectionAttributeValueInput.Text);
         }
         finally
         {
