@@ -4759,6 +4759,29 @@ between host and guest (`45BA556F...CD3FE0C` and
 `Vector256=False`; actual Vector256 execution remains a required x64 CI or
 hardware qualification rather than an inferred claim.
 
+## Managed glyph direction-partition SIMD checkpoint
+
+Checkpoint `f8c6cc7e` follows the row-reuse work by partitioning each bounded
+crossing block into positive and negative X-coordinate ranges. The managed
+Vector128/Vector256 hot loops apply direction-specific mask accumulation with
+no per-crossing direction field or branch. Ref-plus-offset access removes the
+per-pixel span construction exposed by the follow-up managed CPU trace, and
+the logical pooled crossing payload falls from eight to four bytes per root.
+Checked root bounds, the 8x8 sampling grid, exact integer coverage
+quantization, scalar oracle, GPU-first execution policy, and native C++ path
+are unchanged.
+
+The expanded differential suite passes 21/21 on Apple ARM64, Windows 11 ARM64
+Parallels, and Ubuntu ARM64. Eight alternating Apple M3 Pro pairs improved
+median process p50/p95/p99 from 208.648/240.219/302.034 to
+174.606/222.808/262.180 us/glyph while preserving checksum 36 and
+4,120 B/glyph. Three Windows ARM64 and three Ubuntu ARM64 processes preserved
+checksum 175 and the same allocation. A self-contained Windows x64 publish
+reported `Vector256=True` and retained exact output across three processes;
+that VM lane qualifies behavior only, not physical-x64 performance. Exact
+archive, WinUI submodule, and executable hashes plus rejected experiments are
+recorded in `GLYPH_CPU_FALLBACK_SIMD_RESEARCH.md`.
+
 ## Processed PCM16 intrinsic-SIMD checkpoint
 
 Checkpoint `e6236472` removes the remaining whole-buffer scalar loop from the

@@ -120,3 +120,73 @@ in the Windows 11 ARM64 Parallels guest. Three fresh Vector128 runs under .NET
 performance comparison. The guest and the Rosetta x64 runtime both reported
 `Vector256=False`; actual Vector256 runtime qualification therefore remains an
 x64 CI/hardware gate rather than an inferred local result.
+
+## Direction-partitioned crossing follow-up
+
+Checkpoint `f8c6cc7e` removes the remaining direction branch and transient
+span construction from the managed winding hot loop. A baseline managed CPU
+trace on Apple M3 Pro attributed 44.74% exclusive CPU to
+`CountCoveredSamplesSimd128`, 28.83% to its rasterizer caller, and 22.95% to
+crossing construction. The accepted layout keeps one pooled float arena with
+one fixed-capacity block per Y subscanline. Positive crossings grow from the
+front of each block and negative crossings grow from the back. The two
+direction-specific intrinsic loops can then add or subtract comparison masks
+without loading a direction field or branching per crossing.
+
+Integer winding addition is commutative, so reordering crossings by direction
+does not change nonzero-winding semantics. The scalar oracle remains
+structurally independent. The intrinsic loop receives the already-validated
+arena by reference plus bounded starts/counts, avoiding two `ReadOnlySpan`
+constructions for every pixel and subscanline. `Unsafe.Add` cannot escape the
+rented arena: all offsets are derived from the checked
+`segmentCount * 3 * 8` capacity, and collection advances the positive and
+negative cursors only for roots that the previous implementation would have
+stored. The requested pooled payload also falls from one eight-byte
+`CpuCrossing` per root to one four-byte X coordinate per root.
+
+The focused Release suite is now 21/21. In addition to the existing line,
+quadratic, cubic, vector-width, and scalar-tail cases, it compares opposed
+outer/inner contour directions and a zero-segment glyph byte-for-byte with the
+scalar oracle. The 64x64 benchmark validates equality before timing and every
+measured process retained checksum 36 and 4,120 B/glyph.
+
+Eight alternating baseline/candidate pairs on Apple M3 Pro, macOS 26.6, and
+.NET 10.0.5 used 300 warmups followed by 80 samples of 100 glyphs:
+
+| Metric | Baseline median of process percentiles | `f8c6cc7e` median | Change |
+| --- | ---: | ---: | ---: |
+| p50 | 208.648 us/glyph | 174.606 us/glyph | -16.3% |
+| p95 | 240.219 us/glyph | 222.808 us/glyph | -7.2% |
+| p99 | 302.034 us/glyph | 262.180 us/glyph | -13.2% |
+
+All eight candidate p50 values beat their immediately preceding baseline.
+These are machine/workload-specific results, not a cross-platform speed
+claim. An explicit replicated-crossing-vector temporary was exact but slower,
+and precomputing one additional negative-count stack array was exact but
+effectively flat with mixed paired results; both experiments were rejected.
+
+The exact commit archive SHA-256 is
+`DC1F64A71366336D447C72333DD87BA0839D214967596FA11BC73C08EFA3180E`.
+It restored and built the benchmark with zero warnings under .NET SDK
+10.0.400 in Windows 11 ARM64 Parallels. The archive's pinned WinUI submodule
+content was hydrated from the unchanged submodule checkout; `generic.xaml`
+matched SHA-256
+`4C4085838721C0AFCB1A9EE17591C0655CDDDADB26D330788E08BCD7F1AF8285`.
+The Windows ARM64 focused suite passed 21/21 under .NET 10.0.11. Three
+Vector128 benchmark processes reported p50 226.390, 211.794, and 217.026
+us/glyph with checksum 175 and 4,120 B/glyph.
+
+Ubuntu 24.04 ARM64, detached at the same commit, built the benchmark with zero
+warnings and passed the same 21/21 tests under the available .NET 11 preview
+host with `DOTNET_ROLL_FORWARD=Major`. Three Vector128 processes reported p50
+204.072, 235.584, and 225.172 us/glyph with the same checksum and allocation.
+The repository's pre-existing untracked `external/ACadSharp/` directory was
+left untouched.
+
+Finally, a self-contained `win-x64` publish ran under Windows-on-ARM emulation
+and reported `Vector128=True`, `Vector256=True`, and `Vector512=False`. Three
+Vector256 processes retained checksum 175 and 4,120 B/glyph, with p50 values
+556.960, 620.446, and 522.980 us/glyph. The executable SHA-256 was
+`938C78099A766487717B7E23B73220A1746D49646893FA16C599EC7ECB223EA5`.
+This closes functional coverage of the 256-bit branch; emulated timings are
+correctness evidence only and do not replace a physical-x64 performance gate.

@@ -104,6 +104,22 @@ three Vector128 runs retained the same deterministic checksum. The available
 Windows and Rosetta runtimes reported `Vector256=False`, so hardware-backed
 Vector256 runtime coverage remains an explicit x64 CI/qualification gate.
 
+Managed checkpoint `f8c6cc7e` then partitions every row-local crossing block
+by winding direction. The Vector128/Vector256 loops no longer load a direction
+field or branch per crossing, and bounded ref-plus-offset access removes two
+transient span views per pixel/subscanline. The logical pooled crossing payload
+is halved while the scalar oracle and GPU-first selection order remain
+unchanged. Eight alternating Apple ARM64 pairs improved median process
+p50/p95/p99 from 208.648/240.219/302.034 to
+174.606/222.808/262.180 us/glyph with byte-exact output and unchanged
+4,120 B/glyph allocation. Windows ARM64 and Ubuntu ARM64 each passed the
+expanded 21/21 differential suite. A self-contained Windows x64 publish also
+executed with `Vector256=True` and the same deterministic checksum, closing
+functional coverage of the 256-bit path; its emulated timing is not treated as
+physical-x64 performance evidence. Full commands, hashes, rejected candidates,
+and distributions are recorded in
+[`GLYPH_CPU_FALLBACK_SIMD_RESEARCH.md`](GLYPH_CPU_FALLBACK_SIMD_RESEARCH.md).
+
 ## Validation gate
 
 Every final-frame mode permits only the tight GPU differential contract: at
