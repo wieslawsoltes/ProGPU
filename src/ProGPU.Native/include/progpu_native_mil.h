@@ -133,6 +133,17 @@ progpu_native_mil_channel_set_bitmap_source_rgba8(
     const void* pixels,
     size_t pixel_size);
 /*
+ * Declares a canonical TYPE_BITMAPSOURCE as a live external image. The scene
+ * carries dimensions only; the compositor binds a typed same-device texture
+ * view before installation.
+ */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_bitmap_source_external_image(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t width,
+    uint32_t height);
+/*
  * Declares a canonical TYPE_MEDIAPLAYER as a live external image. The scene
  * remains pointer-free; the compositor binds the same-device texture view by
  * the emitted scene resource identity before installation.

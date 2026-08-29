@@ -109,6 +109,14 @@ internal static unsafe partial class NativeMilMethods
         void* pixels,
         nuint pixelSize);
 
+    [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_bitmap_source_external_image")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetBitmapSourceExternalImage(
+        nint channel,
+        uint handle,
+        uint width,
+        uint height);
+
     [LibraryImport(NativeMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_media_player_external_image")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeMilStatus SetMediaPlayerExternalImage(
@@ -297,6 +305,14 @@ internal static unsafe partial class NativeMilDawnMethods
         uint rowBytes,
         void* pixels,
         nuint pixelSize);
+
+    [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_bitmap_source_external_image")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeMilStatus SetBitmapSourceExternalImage(
+        nint channel,
+        uint handle,
+        uint width,
+        uint height);
 
     [LibraryImport(NativeDawnMethods.LibraryName, EntryPoint = "progpu_native_mil_channel_set_media_player_external_image")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

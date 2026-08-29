@@ -140,6 +140,14 @@ public:
         std::uint32_t row_bytes,
         std::span<const std::byte> pixels) noexcept;
 
+    // Declares a canonical TYPE_BITMAPSOURCE as a live external image. This
+    // is the zero-copy counterpart to set_bitmap_source_rgba8 for typed
+    // same-device image providers such as portable Win2D CanvasBitmap.
+    status set_bitmap_source_external_image(
+        std::uint32_t handle,
+        std::uint32_t width,
+        std::uint32_t height) noexcept;
+
     // Declares a canonical TYPE_MEDIAPLAYER as a live external image. The
     // semantic scene carries only dimensions and a stable resource identity;
     // the compositor receives the same-device texture view out of band.

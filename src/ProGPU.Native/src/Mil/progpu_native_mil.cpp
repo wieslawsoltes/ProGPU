@@ -2226,6 +2226,7 @@ struct channel::implementation {
         std::uint32_t height{};
         std::uint32_t row_bytes{};
         std::vector<std::byte> pixels;
+        bool external_image{};
     };
 
     struct media_player_state {
@@ -10434,15 +10435,24 @@ struct channel::implementation {
             if (existing != image_indices.end()) {
                 image_index = existing->second;
             } else {
-                if (!builder.add_rgba8_image(
-                        bitmap->second.width,
-                        bitmap->second.height,
-                        bitmap->second.row_bytes,
-                        bitmap->second.pixels,
-                        image_index)) {
-                    return status::invalid_graph;
+                if (bitmap->second.external_image) {
+                    const auto external = image_indices.find(
+                        image_source_handle);
+                    if (external == image_indices.end()) {
+                        return status::invalid_handle;
+                    }
+                    image_index = external->second;
+                } else {
+                    if (!builder.add_rgba8_image(
+                            bitmap->second.width,
+                            bitmap->second.height,
+                            bitmap->second.row_bytes,
+                            bitmap->second.pixels,
+                            image_index)) {
+                        return status::invalid_graph;
+                    }
+                    image_indices.emplace(image_source_handle, image_index);
                 }
-                image_indices.emplace(image_source_handle, image_index);
             }
             progpu_native_affine_2d native_transform{};
             progpu_native_image_rect bounds{};
@@ -15265,6 +15275,36 @@ status channel::set_bitmap_source_rgba8(
         source.height = height;
         source.row_bytes = row_bytes;
         source.pixels.assign(pixels.begin(), pixels.end());
+        source.external_image = false;
+        implementation_->bitmap_sources.insert_or_assign(
+            handle, std::move(source));
+        implementation_->increment_generation(handle);
+        build_cache_.reset();
+        return status::success;
+    } catch (const std::bad_alloc&) {
+        return status::capacity_exceeded;
+    } catch (...) {
+        return status::invalid_argument;
+    }
+}
+
+status channel::set_bitmap_source_external_image(
+    std::uint32_t handle,
+    std::uint32_t width,
+    std::uint32_t height) noexcept {
+    if (!implementation_->require_resource(handle, type_bitmap_source)) {
+        return status::invalid_handle;
+    }
+    if (width == 0U || height == 0U || width > 16'384U ||
+        height > 16'384U) {
+        return status::invalid_argument;
+    }
+    try {
+        implementation::bitmap_source_state source{};
+        source.width = width;
+        source.height = height;
+        source.row_bytes = width * 4U;
+        source.external_image = true;
         implementation_->bitmap_sources.insert_or_assign(
             handle, std::move(source));
         implementation_->increment_generation(handle);
@@ -15653,24 +15693,36 @@ status channel::build_scene_core(
         native::semantic_scene_builder builder(scene_id, generation);
         std::unordered_map<std::uint32_t, std::uint32_t> brush_indices;
         std::unordered_map<std::uint32_t, std::uint32_t> image_indices;
-        std::vector<std::pair<std::uint32_t, implementation::media_player_state>>
-            ordered_media_players;
-        ordered_media_players.reserve(source.media_players.size());
-        for (const auto& player : source.media_players) {
-            ordered_media_players.push_back(player);
+        struct ordered_external_image final {
+            std::uint32_t handle{};
+            std::uint32_t width{};
+            std::uint32_t height{};
+        };
+        std::vector<ordered_external_image> ordered_external_images;
+        ordered_external_images.reserve(
+            source.bitmap_sources.size() + source.media_players.size());
+        for (const auto& [handle, bitmap] : source.bitmap_sources) {
+            if (bitmap.external_image) {
+                ordered_external_images.push_back(
+                    {handle, bitmap.width, bitmap.height});
+            }
         }
-        std::ranges::sort(
-            ordered_media_players,
-            {},
-            &std::pair<std::uint32_t,
-                implementation::media_player_state>::first);
-        for (const auto& [handle, player] : ordered_media_players) {
+        for (const auto& [handle, player] : source.media_players) {
+            ordered_external_images.push_back(
+                {handle, player.width, player.height});
+        }
+        std::ranges::sort(ordered_external_images, {},
+            &ordered_external_image::handle);
+        for (const auto& external : ordered_external_images) {
             std::uint32_t image_index = PROGPU_NATIVE_SCENE_NO_INDEX;
             if (!builder.add_external_image(
-                    player.width, player.height, image_index)) {
+                    external.width, external.height, image_index)) {
                 return status::invalid_graph;
             }
-            image_indices.emplace(handle, image_index);
+            if (!image_indices.emplace(
+                    external.handle, image_index).second) {
+                return status::invalid_graph;
+            }
         }
         std::unordered_map<std::uint64_t,
             implementation::glyph_scene_resource> glyph_resources;
