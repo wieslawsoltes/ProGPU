@@ -10881,6 +10881,52 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
     }
     PROGPU_REQUIRE(found_fant);
 
+    PROGPU_REQUIRE(
+        state.set_bitmap_source_external_image(bitmap, 0U, 2U) ==
+        status::invalid_argument);
+    PROGPU_REQUIRE(
+        state.set_bitmap_source_external_image(target, 2U, 2U) ==
+        status::invalid_handle);
+    PROGPU_REQUIRE(
+        state.set_bitmap_source_external_image(bitmap, 32U, 16U) ==
+        status::success);
+    PROGPU_REQUIRE(state.resource_generation(bitmap) == 3U);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7005U, 4U, stream, &metrics) ==
+        status::success);
+    const auto external_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    PROGPU_REQUIRE(external_header.resource_count >= 1U);
+    const auto external_resource = read_value<progpu_native_scene_resource>(
+        stream, external_header.resource_offset);
+    PROGPU_REQUIRE(
+        external_resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE);
+    PROGPU_REQUIRE(
+        (external_resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U);
+    PROGPU_REQUIRE(external_resource.resource_id == 1U);
+    PROGPU_REQUIRE(external_resource.generation == 4U);
+    PROGPU_REQUIRE(external_resource.payload_size == 0U);
+    bool found_external = false;
+    for (std::uint32_t index = 0U;
+         index < external_header.command_count;
+         ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            external_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE ||
+            record.resource_index != 0U) {
+            continue;
+        }
+        const auto image = read_value<progpu_native_scene_image_draw>(
+            stream, record.payload_offset);
+        PROGPU_REQUIRE(image.image_width == 32U);
+        PROGPU_REQUIRE(image.image_height == 16U);
+        PROGPU_REQUIRE(image.row_bytes == 128U);
+        found_external = true;
+    }
+    PROGPU_REQUIRE(found_external);
+
     std::vector<std::byte> delete_bitmap;
     append_command(
         delete_bitmap,
