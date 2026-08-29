@@ -136,9 +136,10 @@ Shapes, ArcOptions, and VectorArt sample bodies. It currently supports:
   precedence over the standard dash enum. `MiterOrBevel` fails closed until it
   has a distinct retained semantic;
 - typed `ICanvasBrush`, `CanvasSolidColorBrush`,
-  `CanvasLinearGradientBrush`, and `CanvasRadialGradientBrush` resources plus
-  color/HDR gradient-stop DTOs. Primitive, geometry, stroke-style, and default
-  text overloads consume the same brush contract. Each mutable Canvas brush
+  `CanvasLinearGradientBrush`, `CanvasRadialGradientBrush`, and
+  `CanvasImageBrush` resources plus color/HDR gradient-stop DTOs. Primitive,
+  geometry, stroke-style, and default text overloads consume the same brush
+  contract. Each mutable Canvas brush
   caches an immutable ProGPU brush realization by version, while stroke pens
   cache by realized brush identity and width, so steady drawing allocates no
   new brush or pen and an earlier recorded picture cannot be changed by later
@@ -147,6 +148,19 @@ Shapes, ArcOptions, and VectorArt sample bodies. It currently supports:
   The qualified portable gradient lane is premultiplied sRGB with 8-bit
   normalized precision; straight alpha, scRGB/custom conversion, and other
   precisions fail closed instead of changing interpolation;
+- same-device `CanvasBitmap`/`CanvasRenderTarget` image-brush fills with an
+  optional DIP source rectangle, independent clamp/wrap/mirror X/Y addressing,
+  opacity, and nearest, linear, multisample-linear, or cubic sampling. A
+  positive axis-preserving scale/translation lowers to one native external
+  image draw whose extended source coordinates are resolved by a flat
+  shader-address mode plus the GPU sampler. This keeps D3D12, Metal, and Vulkan
+  repeat/mirror semantics identical without CPU tiling or extra submissions.
+  The drawing context retains the texture lease, so public bitmap and brush
+  disposal before session commit cannot invalidate recorded work. This path
+  performs no CPU readback, repacking, or per-tile submission.
+  Command-list/effect image sources, rotation/skew/reflection, anisotropic
+  sampling, and high-quality cubic currently fail closed pending their typed
+  retained contracts;
 - target-preserving later drawing sessions and `Flush()` without retaining or
   replaying all earlier command lists;
 - Win2D-compatible `GetPixelBytes()` for validation and explicit diagnostics
@@ -164,7 +178,7 @@ The current package is source compatible, not binary compatible with
 devices, straight/ignored alpha, non-BGRA render targets, Dawn/browser device
 factories, Direct2D COM wrapping, cross-device resources, self-referential
 texture feedback, anisotropic sampling, and high-quality cubic sampling.
-Bitmap file/pixel creation and updates, image brushes, `MiterOrBevel`,
+Bitmap file/pixel creation and updates, `MiterOrBevel`,
 command-list bounds/scaling, geometry query/stroke/outline operations, opacity
 brush layers, text formats/layouts, effects, sprite batches, and XAML controls
 remain the next incremental compatibility groups.
@@ -220,7 +234,21 @@ The gate has a completed portable-core layer and three expanding oracle layers:
    84 pixels by 1/255 with mean absolute channel difference
    `0.0005946181`; the added gradient interiors, endpoints, radial center,
    geometry hole, and clips satisfy their exact probes.
-   The isolated typed/source contract suite passes 9/9 after the brush-source
+   Exact ProGPU `f86481b5` adds a wrapped same-device `CanvasImageBrush` checker
+   as one addressed external-image draw and advances the frame to `14+2`
+   native draws. Apple M3 Pro Metal produces SHA-256
+   `09BA76F11AD8477D3D4852CE09B816FA84176DA8461DB5C974C2A8C6B6AC47F8`,
+   Parallels WDDM D3D12 produces
+   `0D1EC07A46B5CCB9495C3BB30FFE20D78CE3AD7DD5CABE03BBE7B52DA7D088A9`,
+   and Ubuntu llvmpipe/Vulkan produces
+   `60BD4E94ED3BBBD99A34F6577CD1FA6EF7693263E040B304D4166F0227520C64`.
+   D3D12 versus Metal retains only two pixels at 1/255; Vulkan retains the
+   previous 84 pixels at 1/255 with mean absolute channel difference
+   `0.0005946181`. The entire image-brush region is exact across all three
+   backends. The gate caught D3D12 initially clamping extended UVs; the final
+   GPU-only shader address normalization fixed that backend difference without
+   a CPU fallback.
+   The isolated typed/source contract suite passes 10/10 after the image-brush
    contract is added.
    The frame includes full-opacity and half-opacity same-device bitmap draws;
    the source is publicly disposed before the destination session closes to
