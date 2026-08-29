@@ -175,6 +175,9 @@ public sealed partial class CadSnapshotCompiler
         var orderedBlockEntities = new Dictionary<BlockRecord, Entity[]>(
             ReferenceEqualityComparer.Instance);
         bool hasDrawOrderOverrides = false;
+        AttributeVisibilityMode attributeVisibility =
+            document.Header.AttributeVisibility;
+        ValidateAttributeVisibility(attributeVisibility);
         bool applySortOrder = options.DrawOrderPurpose switch
         {
             CadDrawOrderPurpose.Regeneration => true,
@@ -196,7 +199,7 @@ public sealed partial class CadSnapshotCompiler
             if (entity.IsInvisible || !entity.Layer.IsOn ||
                 IsLayerFrozen(entity.Layer) ||
                 (!options.IncludeNonPlottableLayers && !entity.Layer.PlotFlag) ||
-                IsHiddenAttribute(entity))
+                IsAttributeExcluded(entity, attributeVisibility))
             {
                 continue;
             }
@@ -297,7 +300,7 @@ public sealed partial class CadSnapshotCompiler
             {
                 return;
             }
-            if (IsHiddenAttribute(entity))
+            if (IsAttributeExcluded(entity, attributeVisibility))
             {
                 return;
             }
@@ -1669,9 +1672,26 @@ public sealed partial class CadSnapshotCompiler
         (attribute.Flags & AttributeFlags.Constant) != 0 ||
         attribute.AttributeType == AttributeType.ConstantMultiLine;
 
-    private static bool IsHiddenAttribute(Entity entity) =>
+    private static bool IsAttributeExcluded(
+        Entity entity,
+        AttributeVisibilityMode visibility) =>
         entity is AttributeBase attribute &&
-        (attribute.Flags & AttributeFlags.Hidden) != 0;
+        (visibility == AttributeVisibilityMode.None ||
+            (visibility == AttributeVisibilityMode.Normal &&
+                (attribute.Flags & AttributeFlags.Hidden) != 0));
+
+    private static void ValidateAttributeVisibility(
+        AttributeVisibilityMode visibility)
+    {
+        if (visibility is not (
+            AttributeVisibilityMode.None or
+            AttributeVisibilityMode.Normal or
+            AttributeVisibilityMode.All))
+        {
+            throw new InvalidDataException(
+                $"Drawing ATTMODE value {(int)visibility} is invalid.");
+        }
+    }
 
     private static CadEntityHeader CompileLine(
         Line line,

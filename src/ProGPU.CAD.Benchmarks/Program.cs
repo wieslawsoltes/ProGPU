@@ -22,6 +22,7 @@ int mtextEntityCount = ReadNonNegativeInt("--mtext-entities", 0);
 int shxTextEntityCount = ReadNonNegativeInt("--shx-text-entities", 0);
 int shxMTextEntityCount = ReadNonNegativeInt("--shx-mtext-entities", 0);
 int attributeInsertCount = ReadNonNegativeInt("--attribute-inserts", 0);
+AttributeVisibilityMode attributeDisplayMode = ReadAttributeDisplayMode();
 int dimensionEntityCount = ReadNonNegativeInt("--dimension-entities", 0);
 int thickSolidEntityCount = ReadNonNegativeInt("--thick-solid-entities", 0);
 int meshEntityCount = ReadNonNegativeInt("--mesh-entities", 0);
@@ -179,6 +180,7 @@ CadDocumentSession session = CreateDocument(
     shxTextEntityCount,
     shxMTextEntityCount,
     attributeInsertCount,
+    attributeDisplayMode,
     dimensionEntityCount,
     thickSolidEntityCount,
     meshEntityCount,
@@ -397,6 +399,7 @@ var report = new CadBenchmarkReport(
     shxTextEntityCount,
     shxMTextEntityCount,
     attributeInsertCount,
+    attributeDisplayMode,
     dimensionEntityCount,
     thickSolidEntityCount,
     meshEntityCount,
@@ -491,7 +494,8 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         mtextEntityCount +
         shxTextEntityCount +
         shxMTextEntityCount +
-        (attributeInsertCount * 2) +
+        (attributeInsertCount *
+            (attributeDisplayMode == AttributeVisibilityMode.None ? 1 : 2)) +
         (dimensionEntityCount * 6) +
         thickSolidEntityCount +
         (meshEntityCount * checked(1 + (6 * Pow4(meshSubdivisionLevel)))) +
@@ -544,6 +548,7 @@ CadDocumentSession CreateDocument(
     int shxTextCount,
     int shxMTextCount,
     int attributeCount,
+    AttributeVisibilityMode attributeVisibility,
     int dimensionCount,
     int thickSolidCount,
     int meshCount,
@@ -574,6 +579,7 @@ CadDocumentSession CreateDocument(
     CadDocumentSession result = CadDocumentSession.CreateNew();
     result.Edit("Build benchmark document", document =>
     {
+        document.Header.AttributeVisibility = attributeVisibility;
         if (useCompoundPointMarkers)
         {
             document.Header.PointDisplayMode = 98;
@@ -1681,6 +1687,19 @@ string? ReadString(string name)
     return index < 0 || index + 1 >= args.Length ? null : args[index + 1];
 }
 
+AttributeVisibilityMode ReadAttributeDisplayMode()
+{
+    string? value = ReadString("--attribute-display");
+    return value?.ToLowerInvariant() switch
+    {
+        null or "normal" => AttributeVisibilityMode.Normal,
+        "on" or "all" => AttributeVisibilityMode.All,
+        "off" or "none" => AttributeVisibilityMode.None,
+        _ => throw new ArgumentException(
+            "--attribute-display must be normal, on, or off."),
+    };
+}
+
 bool HasFlag(string name) =>
     Array.Exists(args, value => value.Equals(name, StringComparison.OrdinalIgnoreCase));
 
@@ -1706,6 +1725,7 @@ internal sealed record CadBenchmarkReport(
     int ShxTextEntityCount,
     int ShxMTextEntityCount,
     int AttributeInsertCount,
+    AttributeVisibilityMode AttributeDisplayMode,
     int DimensionEntityCount,
     int ThickSolidEntityCount,
     int MeshEntityCount,

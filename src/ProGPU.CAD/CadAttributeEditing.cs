@@ -1,5 +1,6 @@
 using ACadSharp;
 using ACadSharp.Entities;
+using ACadSharp.Header;
 using ACadSharp.Tables;
 
 namespace ProGPU.CAD;
@@ -9,6 +10,98 @@ public enum CadAttributeValueOwner : byte
     Reference = 0,
     Definition = 1,
     VariableDefinition = 2,
+}
+
+/// <summary>
+/// Replaces the drawing-wide persisted ATTMODE value as one reversible edit.
+/// </summary>
+/// <remarks>
+/// Apply, Undo, and Redo are O(1), retain the exact header identity, and reject
+/// intervening header replacement or value mutation. Snapshot recompilation is
+/// owned by the caller so rendering, selection, native replay, and plotting all
+/// observe one immutable generation.
+/// </remarks>
+public sealed class CadSetAttributeVisibilityModeCommand : CadEditCommand
+{
+    private CadHeader? _header;
+    private AttributeVisibilityMode _previousMode;
+
+    public AttributeVisibilityMode Mode { get; }
+
+    public CadSetAttributeVisibilityModeCommand(
+        AttributeVisibilityMode mode,
+        string description = "Set attribute display mode")
+        : base(description)
+    {
+        ValidateMode(mode, nameof(mode));
+        Mode = mode;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        CadHeader header;
+        if (isRedo)
+        {
+            header = GetRetainedHeader(document, _previousMode);
+        }
+        else
+        {
+            header = document.Header;
+            ValidateMode(header.AttributeVisibility, nameof(document));
+            if (header.AttributeVisibility == Mode)
+            {
+                throw new InvalidOperationException(
+                    $"Drawing ATTMODE is already {(int)Mode} ({Mode}).");
+            }
+
+            _header = header;
+            _previousMode = header.AttributeVisibility;
+        }
+
+        header.AttributeVisibility = Mode;
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        CadHeader header = GetRetainedHeader(document, Mode);
+        header.AttributeVisibility = _previousMode;
+    }
+
+    private CadHeader GetRetainedHeader(
+        CadDocument document,
+        AttributeVisibilityMode expectedMode)
+    {
+        CadHeader header = _header ?? throw new InvalidOperationException(
+            "The attribute-display command has not been applied.");
+        if (!ReferenceEquals(document.Header, header))
+        {
+            throw new InvalidOperationException(
+                "The drawing header is no longer the retained header.");
+        }
+        if (header.AttributeVisibility != expectedMode)
+        {
+            throw new InvalidOperationException(
+                $"Drawing ATTMODE changed from the expected value " +
+                $"{(int)expectedMode} ({expectedMode}).");
+        }
+        return header;
+    }
+
+    private static void ValidateMode(
+        AttributeVisibilityMode mode,
+        string parameterName)
+    {
+        if (mode is not (
+            AttributeVisibilityMode.None or
+            AttributeVisibilityMode.Normal or
+            AttributeVisibilityMode.All))
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                mode,
+                "ATTMODE must be Off (0), Normal (1), or On (2).");
+        }
+    }
 }
 
 /// <summary>One detached editable value exposed by a selected INSERT.</summary>

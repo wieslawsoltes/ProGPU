@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Text;
 using ACadSharp;
 using ACadSharp.Entities;
+using ACadSharp.Header;
 using ACadSharp.Tables;
 using ACadSharp.XData;
 using CSMath;
@@ -2995,6 +2996,108 @@ public sealed class CadSampleSelectionTests
             view.Canvas.FireUnloaded();
         }
     }
+
+    [Fact]
+    public void AttributeDisplaySelectorEditsOneGenerationAndTracksUndoRedo()
+    {
+        var document = new CadDocument();
+        var style = new TextStyle("INTER") { Filename = "Inter.ttf" };
+        document.TextStyles.Add(style);
+        document.Entities.Add(new Line(
+            new XYZ(-20, -20, 0),
+            new XYZ(20, -20, 0)));
+        document.Entities.Add(new AttributeDefinition
+        {
+            Tag = "VISIBLE",
+            Value = "V",
+            InsertPoint = XYZ.Zero,
+            Height = 2,
+            Style = style,
+        });
+        document.Entities.Add(new AttributeDefinition
+        {
+            Tag = "HIDDEN",
+            Value = "H",
+            InsertPoint = new XYZ(10, 0, 0),
+            Height = 2,
+            Style = style,
+            Flags = AttributeFlags.Hidden,
+        });
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Canvas.Load(session);
+
+            Assert.True(view.AttributeDisplaySelector.IsEnabled);
+            Assert.Equal(
+                AttributeVisibilityMode.Normal,
+                Assert.IsType<ComboBoxItem>(
+                    view.AttributeDisplaySelector.SelectedItem).Tag);
+            Assert.Single(view.Canvas.CurrentSnapshot!.Texts.ToArray());
+
+            view.AttributeDisplaySelector.SelectedItem =
+                FindAttributeDisplayChoice(
+                    view.AttributeDisplaySelector,
+                    AttributeVisibilityMode.All);
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(
+                AttributeVisibilityMode.All,
+                session.Read(current => current.Header.AttributeVisibility));
+            Assert.Equal(2, view.Canvas.CurrentSnapshot!.Texts.Length);
+            Assert.Equal(1, view.Canvas.UndoCount);
+
+            PressEnter(FindButton(view, "Undo"));
+
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal(
+                AttributeVisibilityMode.Normal,
+                session.Read(current => current.Header.AttributeVisibility));
+            Assert.Single(view.Canvas.CurrentSnapshot!.Texts.ToArray());
+            Assert.Equal(
+                AttributeVisibilityMode.Normal,
+                Assert.IsType<ComboBoxItem>(
+                    view.AttributeDisplaySelector.SelectedItem).Tag);
+
+            PressEnter(FindButton(view, "Redo"));
+
+            Assert.Equal(3UL, session.ContentGeneration);
+            Assert.Equal(
+                AttributeVisibilityMode.All,
+                session.Read(current => current.Header.AttributeVisibility));
+            Assert.Equal(2, view.Canvas.CurrentSnapshot!.Texts.Length);
+            Assert.Equal(
+                AttributeVisibilityMode.All,
+                Assert.IsType<ComboBoxItem>(
+                    view.AttributeDisplaySelector.SelectedItem).Tag);
+
+            view.AttributeDisplaySelector.SelectedItem =
+                FindAttributeDisplayChoice(
+                    view.AttributeDisplaySelector,
+                    AttributeVisibilityMode.None);
+
+            Assert.Equal(4UL, session.ContentGeneration);
+            Assert.Equal(
+                AttributeVisibilityMode.None,
+                session.Read(current => current.Header.AttributeVisibility));
+            Assert.Empty(view.Canvas.CurrentSnapshot!.Texts.ToArray());
+            using CadPrintPlan plan = view.Canvas.CreateA4PrintPlan(96.0f);
+            Assert.Equal(1, plan.SceneStatistics.RecordedEntityCount);
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    private static ComboBoxItem FindAttributeDisplayChoice(
+        ComboBox selector,
+        AttributeVisibilityMode mode) =>
+        selector.Items
+            .OfType<ComboBoxItem>()
+            .Single(item => item.Tag is AttributeVisibilityMode candidate &&
+                candidate == mode);
 
     private static ComboBoxItem FindNamedPropertyChoice(
         ComboBox selector,

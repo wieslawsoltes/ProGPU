@@ -1,4 +1,5 @@
 using System.Globalization;
+using ACadSharp.Header;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -23,6 +24,7 @@ public sealed class CadSampleView : Grid
     private readonly CadPrintPreviewCanvas _printPreview;
     private readonly Button _viewModeButton;
     private readonly TextBlock _viewModeText;
+    private readonly ComboBox _attributeDisplaySelector;
     private readonly Button _printPreviewButton;
     private readonly TextBlock _printPreviewText;
     private readonly ComboBox _pageSetupSelector;
@@ -117,6 +119,7 @@ public sealed class CadSampleView : Grid
     private bool _is3DView;
     private bool _isPrintPreview;
     private bool _isRefreshingPageSetups;
+    private bool _isRefreshingAttributeDisplay;
     private bool _isRefreshingSelectionProperties;
     private bool _isSelectionEditable;
     private bool _isSolidThicknessSelection;
@@ -134,6 +137,8 @@ public sealed class CadSampleView : Grid
     public CadPrintPreviewCanvas PrintPreview => _printPreview;
 
     public ComboBox PageSetupSelector => _pageSetupSelector;
+
+    public ComboBox AttributeDisplaySelector => _attributeDisplaySelector;
 
     public TextBox PageSetupNameInput => _pageSetupNameInput;
 
@@ -340,6 +345,23 @@ public sealed class CadSampleView : Grid
         _fitButton = CreateButton("Fit", font, 68);
         _viewModeButton = CreateButton("3D surfaces", font, 104);
         _viewModeText = (TextBlock)_viewModeButton.Content!;
+        _attributeDisplaySelector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = 150,
+            HeightConstraint = 34,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        AddAttributeDisplayChoice(
+            "Attributes: Normal",
+            AttributeVisibilityMode.Normal);
+        AddAttributeDisplayChoice(
+            "Attributes: On",
+            AttributeVisibilityMode.All);
+        AddAttributeDisplayChoice(
+            "Attributes: Off",
+            AttributeVisibilityMode.None);
         _printPreviewButton = CreateButton("Print preview", font, 112);
         _printPreviewText = (TextBlock)_printPreviewButton.Content!;
         _clearSelectionButton = CreateButton("Clear selection", font, 112);
@@ -359,6 +381,7 @@ public sealed class CadSampleView : Grid
         actions.AddChild(_saveButton);
         actions.AddChild(_fitButton);
         actions.AddChild(_viewModeButton);
+        actions.AddChild(_attributeDisplaySelector);
         actions.AddChild(_clearSelectionButton);
 
         _undoButton = CreateButton("Undo", font, 68, 30);
@@ -1154,6 +1177,8 @@ public sealed class CadSampleView : Grid
         _saveButton.Click += async (_, _) => await SaveAsAsync();
         _fitButton.Click += (_, _) => _canvas.FitToView();
         _viewModeButton.Click += (_, _) => ToggleViewMode();
+        _attributeDisplaySelector.SelectionChanged += (_, _) =>
+            OnAttributeDisplaySelectionChanged();
         _printPreviewButton.Click += (_, _) => TogglePrintPreview();
         _pageSetupSelector.SelectionChanged += (_, _) =>
             OnPageSetupSelectionChanged();
@@ -1435,10 +1460,12 @@ public sealed class CadSampleView : Grid
                 ShowPlanView(clearPreview: true);
             }
             RefreshPageSetups(preserveSelection: true);
+            RefreshAttributeDisplayMode();
             RefreshSelectionPropertyControls();
         };
         RebuildMesh3DView();
         RefreshPageSetups(preserveSelection: false);
+        RefreshAttributeDisplayMode();
         RefreshSelectionPropertyControls();
         UpdateEditControls();
     }
@@ -1881,6 +1908,73 @@ public sealed class CadSampleView : Grid
             _printPreview.Clear();
         }
     }
+
+    private void AddAttributeDisplayChoice(
+        string label,
+        AttributeVisibilityMode mode)
+    {
+        _attributeDisplaySelector.Items.Add(new ComboBoxItem(label)
+        {
+            Tag = mode,
+        });
+    }
+
+    private void OnAttributeDisplaySelectionChanged()
+    {
+        if (_isRefreshingAttributeDisplay || _isBusy || _isPrintPreview ||
+            _canvas.PendingDrawOrderPlacement is not null ||
+            (_attributeDisplaySelector.SelectedItem as ComboBoxItem)?.Tag is not
+                AttributeVisibilityMode mode)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_canvas.SetAttributeDisplayMode(mode))
+            {
+                SetStatus(
+                    $"Set ATTMODE to {DescribeAttributeDisplayMode(mode)} as one edit.");
+            }
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set ATTMODE failed: {exception.Message}");
+        }
+        finally
+        {
+            RefreshAttributeDisplayMode();
+            UpdateEditControls();
+        }
+    }
+
+    private void RefreshAttributeDisplayMode()
+    {
+        _isRefreshingAttributeDisplay = true;
+        try
+        {
+            AttributeVisibilityMode mode = _canvas.AttributeDisplayMode;
+            _attributeDisplaySelector.SelectedItem =
+                _attributeDisplaySelector.Items
+                    .OfType<ComboBoxItem>()
+                    .FirstOrDefault(item =>
+                        item.Tag is AttributeVisibilityMode candidate &&
+                        candidate == mode);
+        }
+        finally
+        {
+            _isRefreshingAttributeDisplay = false;
+        }
+    }
+
+    private static string DescribeAttributeDisplayMode(
+        AttributeVisibilityMode mode) => mode switch
+    {
+        AttributeVisibilityMode.None => "Off",
+        AttributeVisibilityMode.Normal => "Normal",
+        AttributeVisibilityMode.All => "On",
+        _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+    };
 
     private void RebuildMesh3DView()
     {
@@ -3910,6 +4004,8 @@ public sealed class CadSampleView : Grid
         _saveButton.IsEnabled = !_isBusy;
         _fitButton.IsEnabled = canUsePlanTools && !_is3DView;
         _clearSelectionButton.IsEnabled = canUsePlanTools;
+        _attributeDisplaySelector.IsEnabled =
+            canUsePlanTools && _canvas.CurrentSession is not null;
         _printPreviewButton.IsEnabled =
             !_isBusy && !isReferencePicking &&
             (_isPrintPreview || _canvas.CurrentSnapshot is not null);

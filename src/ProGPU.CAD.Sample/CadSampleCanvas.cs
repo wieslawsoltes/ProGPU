@@ -1,6 +1,7 @@
 using System.Numerics;
 using ACadSharp;
 using ACadSharp.Entities;
+using ACadSharp.Header;
 using ACadSharp.Objects;
 using ACadSharp.Tables;
 using CSMath;
@@ -179,6 +180,11 @@ public sealed class CadSampleCanvas : FrameworkElement
     public int UndoCount => _history?.UndoCount ?? 0;
 
     public int RedoCount => _history?.RedoCount ?? 0;
+
+    /// <summary>The persisted drawing ATTMODE consumed by every snapshot.</summary>
+    public AttributeVisibilityMode AttributeDisplayMode =>
+        CurrentSession?.Read(document => document.Header.AttributeVisibility) ??
+        AttributeVisibilityMode.Normal;
 
     public event EventHandler? SelectionChanged;
 
@@ -608,6 +614,40 @@ public sealed class CadSampleCanvas : FrameworkElement
             throw new InvalidOperationException("No CAD document is loaded.");
         return new CadPageSetupCatalogCompiler().Compile(session);
     }
+
+    /// <summary>
+    /// Changes persisted ATTMODE and replaces all snapshot-derived consumers as
+    /// one generation-safe edit.
+    /// </summary>
+    public bool SetAttributeDisplayMode(AttributeVisibilityMode mode)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        string description =
+            $"Set ATTMODE to {DescribeAttributeDisplayMode(mode)}";
+        if (session.Read(document => document.Header.AttributeVisibility) == mode)
+        {
+            return false;
+        }
+
+        history.Execute(new CadSetAttributeVisibilityModeCommand(
+            mode,
+            description));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    private static string DescribeAttributeDisplayMode(
+        AttributeVisibilityMode mode) => mode switch
+    {
+        AttributeVisibilityMode.None => "Off",
+        AttributeVisibilityMode.Normal => "Normal",
+        AttributeVisibilityMode.All => "On",
+        _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+    };
 
     /// <summary>
     /// Applies a named page setup to a layout as one generation-safe,

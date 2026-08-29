@@ -1,6 +1,6 @@
 # ProGPU.CAD Architecture and Delivery Specification
 
-Status: foundation, 2026-08-29
+Status: foundation, 2026-08-30
 
 ## Scope
 
@@ -1559,9 +1559,30 @@ template and emits no pixels; its matching ATTRIB owns the per-reference value.
 A constant ATTDEF remains definition-owned and is emitted once for every INSERT
 or MINSERT cell. A malformed constant ATTRIB is ignored so it cannot duplicate
 the definition-owned value. Standalone model-space ATTDEF entities remain
-ordinary visible default text. Invisible attribute flags suppress both display
-and print while leaving the mutable document data intact; Verify and Preset do
-not change rendering.
+ordinary visible default text. In drawing `ATTMODE` Normal, Invisible attribute
+flags suppress both display and print while leaving the mutable document data
+intact; Verify and Preset do not change rendering.
+
+The drawing header's persisted `AttributeVisibility` value is the single
+ATTMODE authority. `Normal` (1) preserves each ATTDEF/ATTRIB Invisible flag,
+`All` (2, AutoCAD `ATTDISP On`) includes both visible and invisible attributes,
+and `None` (0, `ATTDISP Off`) excludes every attribute while leaving its model
+data untouched. Snapshot compilation captures and validates that value once,
+then applies it before both top-level and nested attribute lowering. The same
+immutable result therefore governs screen replay, BVH selection, print plans,
+and the generic managed/native picture compilers without replay-time filtering
+or document mutation. Malformed persisted values fail snapshot compilation
+explicitly rather than being guessed.
+
+`CadSetAttributeVisibilityModeCommand` changes ATTMODE in `O(1)` time and
+storage, retains the exact `CadHeader` identity and prior value, and rejects a
+no-op, malformed value, replaced header, or unexpected intervening mutation.
+The shared canvas executes it through `CadDocumentHistory`, advances exactly
+one content generation, and transactionally replaces one complete immutable
+snapshot/picture. Undo and Redo each advance one generation and restore the
+exact previous/selected value. ACadSharp's existing `$ATTMODE` header mapping
+persists the setting in both DXF and DWG; no dependency change or renderer-only
+side channel is required.
 
 AutoCAD attribute-reference geometry is already transformed from block space
 when the reference is created. ProGPU therefore applies only the containing
@@ -1711,26 +1732,28 @@ Normal active registry lookup and rendering exclude leased objects. Handle
 reassignment is rejected while any lease exists and succeeds after history
 disposal.
 
-The shared desktop/browser shell exposes all three value-ownership paths
-through one selector and value editor, non-structural definition modes, the
-explicit Constant ownership transition, and the selected block's property-sync
-action. A commit advances one document generation, rebuilds one retained
+The shared desktop/browser shell exposes drawing-wide Attributes Normal/On/Off
+alongside all three value-ownership paths through one selector and value editor,
+non-structural definition modes, the explicit Constant ownership transition,
+and the selected block's property-sync action. A commit advances one document
+generation, rebuilds one retained
 snapshot, preserves the selected INSERT and attribute key, and refreshes the
 displayed value. Locked INSERTs remain inspectable but cannot authorize
 reference, definition, or synchronization mutation. The same regenerated
 TEXT/MTEXT commands feed managed replay, the native picture compiler, printing,
 and exact selection; no shader, native ABI, cache key, glyph upload, or
-device-loss contract changes.
+device-loss contract changes. The display selector uses ordinary dynamically
+themed WinUI resources and is disabled during busy, print-preview, and
+draw-order reference-pick states.
 
 For `I` array cells, `B` non-attribute block children, `C` visible constant
 definitions, and `A` visible variable references, lowering is
 `O(I * (B + C + A))` time and immutable output storage, bounded by the existing
 array, nesting, expanded-entity, text-code-unit, and glyph limits. The traversal
 adds no per-frame work or native crossings; stable scene/print replay retains
-the same command and device-resource behavior. ATTDISP override state,
-annotative contexts, fields, dynamic-block evaluation, prompt/definition
-editing, and broader dynamic/third-party application semantics remain explicit
-future contracts.
+the same command and device-resource behavior. Annotative contexts, fields,
+dynamic-block evaluation, and broader dynamic/third-party application semantics
+remain explicit future contracts.
 
 The 2026-08-28 matched macOS Release checkpoint used .NET 10.0.5, three
 warmups, 24 samples, 100 variable attributed INSERTs with 21-character Inter
@@ -1749,6 +1772,25 @@ control produced 100 source/expanded/recorded entities, snapshot
 attribute traversal therefore stays in the same measured complexity and
 latency class; its `8,112 B` snapshot difference is the retained INSERT/object
 graph overhead for the 100-reference workload, not per-frame state.
+
+The 2026-08-30 ATTMODE checkpoint used the same Apple Silicon Release binary,
+.NET 10.0.5, three warmups, 24 samples, 10,000 spatial queries, 100 variable
+attributed INSERTs, and one ordinary line so the Off print fixture remained
+intentionally nonempty. Normal and On each produced 101 source/visible and 201
+expanded entities, 101 retained commands, identical `501,264 B/op` snapshot
+allocation, and zero query allocation. Their snapshot p50/p95/p99 values were
+`18.3430/30.4771/32.8135 ms` and `18.9622/34.5946/37.0752 ms`; plan-scene values
+were `0.0716/0.1478/0.1605 ms` and `0.0297/0.1591/0.2761 ms`. The small timing
+spread is run-order/process noise over identical visible work, while equal
+counts and allocation prove the On policy adds no alternate lowering path. Off
+produced 101 source/visible but only 101 expanded entities and one retained line
+command; snapshot was `0.1968/0.4368/0.4956 ms` at `24,496 B/op`, plan-scene was
+`0.0019/0.0126/0.1540 ms` at `1,712 B/op`, and spatial-query p50/p95/p99 was
+`0/200/200 ns` at zero allocation. The lower Off costs follow directly from
+excluding 100 text primitives before shaping, spatial indexing, replay, and
+printing; they are not a quality reduction because Off is the persisted drawing
+contract. This compatibility slice is not a CPU/GPU optimization and changed no
+shader or device resource, so a new Instruments capture was not applicable.
 
 ## Persisted DIMENSION-picture lowering
 
@@ -4358,6 +4400,9 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   [`SetAttributeFromBlock` definition-and-transform overload](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-ManagedRefGuide/files/OREFNET-Autodesk_AutoCAD_DatabaseServices_AttributeReference_SetAttributeFromBlock_AttributeDefinition_Matrix3d.html),
   [constant-reference ownership](https://help.autodesk.com/cloudhelp/2022/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_AttributeReference_IsConstant.html),
   [attribute modes](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-67A2DDAD-2217-412F-8AEF-D4495192F45B.htm),
+  [ATTDISP Normal/On/Off behavior](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-MAC-Core/files/GUID-BCFF32DB-6860-4812-BEF1-3BB658126B26.htm),
+  [drawing-persisted ATTMODE values](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-D6DE0459-AE5C-4FFF-9E1C-2468D532C49D.htm),
+  [Invisible print/display and override behavior](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-92A7CE9D-2E1C-415E-A1BF-5CB35D5E2D38.htm),
   [`-ATTDEF` prompt behavior and limit](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-5C99524B-B5BB-4067-AE18-BD3575F29DBF.htm),
   [`AcDbAttributeDefinition::setPrompt`](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-__MEMBERTYPE_Methods_AcDbAttributeDefinition.html),
   [definition-property editing](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-F351FDBB-2731-40C1-A186-1B1F47779E32.htm),
@@ -4366,7 +4411,10 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   [ATTREDEF structural behavior](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-MAC-Core/files/GUID-CB8237C2-EB63-4839-9B84-5B890C979CBB.htm),
   [definition/default editing](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-889213DA-A3AF-4020-89F0-1E5049AD26EC.htm),
   and [MINSERT behavior](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-A780A2FA-4A2E-4574-950F-E788AB71F527.htm)
-  were treated as the public CAD contract. Adopted definition-owned constants,
+  were treated as the public CAD contract. Adopted drawing-persisted ATTMODE 0,
+  1, and 2 with Off suppressing all attributes, Normal respecting each
+  Invisible flag, On overriding that flag, and one complete regeneration after
+  a change; definition-owned constants,
   reference-owned variable values, invisible display/plot suppression, embedded
   multiline content, transform-baked reference geometry, array-cell replication,
   default-only variable-definition edits, definition-owned group-3 prompt edits
