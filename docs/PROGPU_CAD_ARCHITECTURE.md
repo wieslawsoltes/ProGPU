@@ -885,9 +885,9 @@ an interactive browser picker/download smoke remains open.
   It executes only repository-defined `CadEditCommand` implementations; the
   abstract mutation methods are internal so consumers cannot inject an
   unvalidated arbitrary command behind the history contract.
-- The first commands translate, rotate, or uniformly scale a deduplicated stable
-  handle set, set entity visibility, assign an existing layer, and add or remove
-  one model-space entity, or atomically remove a bounded semantic handle set.
+- The first commands translate, rotate, uniformly scale, or copy a deduplicated
+  stable handle set, set entity visibility, assign an existing layer, and add or
+  remove one model-space entity, or atomically remove a bounded semantic handle set.
   They resolve every model-space handle before mutation,
   preserve the original visibility vector, apply the inverse transform for
   undo, and advance one document generation for execute, undo, or redo. The
@@ -944,10 +944,19 @@ an interactive browser picker/download smoke remains open.
   in-history edits are undone first; arbitrary populated-layer deletion remains
   unsupported until entity/block reference reassignment has a complete semantic
   transaction.
-- Entity duplication uses ACadSharp's public detached-clone contract, applies an
-  optional finite translation before ownership transfer, and retains the one
-  cloned object across undo/redo handle reassignment. The source is never
-  mutated, and failed source resolution publishes no generation.
+- Entity duplication uses ACadSharp's public detached-clone contract. The
+  single-entity command applies an optional finite translation before ownership
+  transfer and retains its cloned object across Undo/Redo handle reassignment.
+  The selection-set command deduplicates and bounds at most 65,536 source
+  handles, resolves the complete source set before cloning, applies one optional
+  finite WCS displacement to every detached clone, and publishes one structurally
+  complete `AddRange` batch. Invalid input therefore leaves model space unchanged,
+  while Undo uses the preflighted batch-removal contract and Redo restores the
+  same independent clone graphs instead of recloning potentially changed sources.
+  ACadSharp's matching ProGPU-owned batch-add implementation and regressions are
+  recorded at submodule commit `d17db6f8`; the ProGPU command, snapshot, UI,
+  Undo/Redo, DXF, and DWG tests are matched. Work and retained storage are O(N)
+  for N unique sources, and a successful Apply/Undo/Redo publishes one generation.
 - Linetype assignment uses the same table-identity and rollback contract for
   explicit, `ByLayer`, and `ByBlock` entries. The immutable snapshot retains the
   newly resolved linetype name. Entity linetype-scale assignment accepts only
@@ -999,6 +1008,14 @@ an interactive browser picker/download smoke remains open.
   history. Mixed/common UI state, catalog replacement, rendered color,
   lineweight, linetype scale, and alpha, selection retention, Undo/Redo, and
   DXF/DWG persistence have matched regressions.
+- The shared shell also exposes `Copy −X`, `Copy +X`, `Copy −Y`, and `Copy +Y`
+  against the same finite positive invariant WCS step used by Move. One action
+  copies the complete semantic-root selection through one bounded command and
+  one retained-scene rebuild. Source handles remain selected after Apply,
+  Undo, and Redo so repeated displacement copies remain explicit and the shell
+  never retains handles that ACadSharp clears while detached duplicates are in
+  history. This is a typed desktop/browser editing surface only; it does not
+  add a second renderer, shader, native ABI, or document-object implementation.
 - The clean-room behavior source for this workflow is Autodesk's public
   [Properties palette](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DidYouKnow/files/GUID-94C065AB-FF9E-4752-B778-23D2FBB87E18.htm),
   [object-property tools](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-81585857-F1B1-44F4-B7D0-B707386CA721.htm),
@@ -3341,8 +3358,11 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   composes only public translation/rotation calls and rejects private matrix
   ordering as an implementation dependency. Uniform scale uses
   the documented origin overload and a reciprocal factor. Duplication consumes
-  only the documented detached-copy result and adds ProGPU-owned command state
-  plus optional translation. Rejected
+  only the documented detached-copy result and adds ProGPU-owned bounded
+  selection-set state, optional WCS displacement, transactional batch ownership,
+  and exact retained-clone Undo/Redo. The batch-add extension is original
+  ProGPU-owned work in ACadSharp commit `d17db6f8`, paired with structural
+  publication and invalid-input regressions. Rejected
   extension-only validation, unconditional DWG-save claims, private handle
   manipulation, pivot matrices based on undocumented composition order, and exposing
   anisotropic scaling without type-preserving entity conformance.
@@ -3693,6 +3713,17 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   silently presenting that fixed plan contract as full UCS, reference-angle, or
   reference-length behavior. The implementation calls only existing original
   ProGPU transform commands and does not reproduce Autodesk implementation code.
+- [Autodesk COPY](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-1CF9287F-06E8-4D03-8377-2E130862FE02.htm):
+  adopted a selection set, one relative X/Y/Z displacement vector, independent
+  copied objects, and Single-mode completion as the public behavior contract.
+  Adapted the current shared plan shell to four finite WCS-axis actions using
+  the existing Move step and to preserve the source selection for deterministic
+  repeated copies and generation-safe Undo/Redo. Multiple-mode prompting,
+  base/second-point acquisition, linear Array/Fit, clipboard transfer, UCS input,
+  and arbitrary 3D picking are rejected at this bounded toolbar seam until their
+  own typed interaction contracts exist. The implementation is original ProGPU
+  command/history/UI code over the pinned ACadSharp detached-clone and collection
+  contracts; no Autodesk implementation text or structure was used.
 - [HarfBuzz shaping](https://harfbuzz.github.io/what-is-harfbuzz.html),
   [Parley rich-text architecture](https://github.com/linebender/parley/blob/main/doc/concept.md),
   [SkParagraph](https://docs.skia.org/docs/dev/design/text_shaper/), and

@@ -763,6 +763,32 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Copies all selected semantic model-space roots by one WCS displacement
+    /// while preserving the source selection for repeated copy operations.
+    /// </summary>
+    public bool DuplicateSelection(CadPoint3D translation)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadDuplicateModelSpaceEntitiesCommand(
+            new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
+            translation,
+            _selectedHandleCount == 1
+                ? "Copy selected entity"
+                : $"Copy {_selectedHandleCount} selected entities"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>
     /// Rotates all selected semantic model-space entities around the complete
     /// selection-bounds center and the WCS positive Z axis as one edit.
     /// </summary>

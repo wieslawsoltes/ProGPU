@@ -281,6 +281,62 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void SelectedEntitiesCopyAsOneEditAndPreserveTheSourceSelection()
+    {
+        var document = new CadDocument();
+        var first = new Line(new XYZ(-10, 0, 0), new XYZ(-5, 0, 0));
+        var second = new Line(new XYZ(5, 0, 0), new XYZ(10, 0, 0));
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Drag(
+                canvas,
+                viewport.WorldToScreen(new CadPoint3D(-12, 2, 0)),
+                viewport.WorldToScreen(new CadPoint3D(12, -2, 0)));
+            ulong[] selectedSources = canvas.SelectedHandles.ToArray();
+
+            Assert.Equal(2, selectedSources.Length);
+            Assert.True(canvas.DuplicateSelection(new CadPoint3D(0, 5, 0)));
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(4, document.Entities.Count);
+            Assert.Equal(4, canvas.CurrentSnapshot!.Entities.Length);
+            Assert.Equal(selectedSources, canvas.SelectedHandles.ToArray());
+            Assert.Contains(
+                document.Entities.OfType<Line>(),
+                line => line.StartPoint == new XYZ(-10, 5, 0) &&
+                    line.EndPoint == new XYZ(-5, 5, 0));
+            Assert.Contains(
+                document.Entities.OfType<Line>(),
+                line => line.StartPoint == new XYZ(5, 5, 0) &&
+                    line.EndPoint == new XYZ(10, 5, 0));
+            Assert.Equal(1, canvas.UndoCount);
+
+            Assert.True(canvas.TryUndo());
+
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal(2, document.Entities.Count);
+            Assert.Equal(selectedSources, canvas.SelectedHandles.ToArray());
+
+            Assert.True(canvas.TryRedo());
+
+            Assert.Equal(3UL, session.ContentGeneration);
+            Assert.Equal(4, document.Entities.Count);
+            Assert.Equal(selectedSources, canvas.SelectedHandles.ToArray());
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SelectionPropertiesCaptureMixedValuesAndRoundTripRenderedEdits()
     {
         var document = new CadDocument();
@@ -892,6 +948,49 @@ public sealed class CadSampleSelectionTests
         Assert.Equal((short)30, restored.Transparency);
     }
 
+    [Theory]
+    [InlineData(CadDocumentFormat.Dxf)]
+    [InlineData(CadDocumentFormat.Dwg)]
+    public async Task MultiObjectCopySurvivesDxfAndDwgRoundTrip(
+        CadDocumentFormat format)
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        var first = new Line(new XYZ(1, 2, 3), new XYZ(4, 5, 6));
+        var second = new Line(new XYZ(-3, -2, 1), new XYZ(-1, 4, 1));
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        history.Execute(new CadDuplicateModelSpaceEntitiesCommand(
+            [first.Handle, second.Handle],
+            new CadPoint3D(10, -2, 4),
+            "Copy selection"));
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+
+        await store.SaveAsync(
+            session,
+            stream,
+            format,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            format,
+            sourceName: $"multi-copy.{format.ToString().ToLowerInvariant()}");
+        XYZ[] starts = loaded.Session.Read(loadedDocument =>
+            loadedDocument.Entities
+                .OfType<Line>()
+                .Select(static line => line.StartPoint)
+                .ToArray());
+
+        Assert.Equal(4, starts.Length);
+        Assert.Contains(new XYZ(1, 2, 3), starts);
+        Assert.Contains(new XYZ(-3, -2, 1), starts);
+        Assert.Contains(new XYZ(11, 0, 7), starts);
+        Assert.Contains(new XYZ(7, -4, 5), starts);
+    }
+
     [Fact]
     public void DeleteSelectionClearsSemanticHandlesAndRoundTripsAsOneEdit()
     {
@@ -1106,6 +1205,64 @@ public sealed class CadSampleSelectionTests
             Assert.Equal(new XYZ(-1, 0, 0), line.StartPoint);
             Assert.True(undo.IsEnabled);
             Assert.False(redo.IsEnabled);
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewCopyButtonsValidateAndExecuteOneSelectionSetEdit()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            Button copyPositiveX = FindButton(view, "Copy +X");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+            TextBox moveStep = DescendantsAndSelf(view)
+                .OfType<TextBox>()
+                .Single(textBox => textBox.Text == "1");
+            Assert.False(copyPositiveX.IsEnabled);
+
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            Click(
+                view.Canvas,
+                view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
+
+            ulong sourceHandle = line.Handle;
+            Assert.True(copyPositiveX.IsEnabled);
+            moveStep.Text = "invalid";
+            PressEnter(copyPositiveX);
+            Assert.Single(document.Entities);
+            Assert.Equal(0UL, session.ContentGeneration);
+
+            moveStep.Text = "3";
+            PressEnter(copyPositiveX);
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(2, document.Entities.Count);
+            Assert.Equal([sourceHandle], view.Canvas.SelectedHandles.ToArray());
+            Assert.Contains(
+                document.Entities.OfType<Line>(),
+                entity => entity.StartPoint == new XYZ(1, 0, 0) &&
+                    entity.EndPoint == new XYZ(5, 0, 0));
+            Assert.True(undo.IsEnabled);
+
+            PressEnter(undo);
+            Assert.Single(document.Entities);
+            Assert.Equal([sourceHandle], view.Canvas.SelectedHandles.ToArray());
+            Assert.True(redo.IsEnabled);
+
+            PressEnter(redo);
+            Assert.Equal(2, document.Entities.Count);
+            Assert.Equal([sourceHandle], view.Canvas.SelectedHandles.ToArray());
         }
         finally
         {

@@ -3,6 +3,8 @@ using ACadSharp.Blocks;
 using ACadSharp.Entities;
 using ACadSharp.Tables;
 using CSMath;
+using ProGPU.Scene;
+using ProGPU.Scene.Native;
 using Xunit;
 
 namespace ProGPU.CAD.Tests;
@@ -605,6 +607,121 @@ public sealed class CadEditingTests
 
         Assert.Equal(0UL, session.ContentGeneration);
         Assert.Equal(0, history.UndoCount);
+    }
+
+    [Fact]
+    public void MultiDuplicatePublishesOneGenerationAndRoundTripsRetainedClones()
+    {
+        var document = new CadDocument();
+        var layer = new Layer("COPIES") { Color = ACadSharp.Color.Green };
+        document.Layers.Add(layer);
+        var first = new Line(new XYZ(1, 2, 3), new XYZ(4, 5, 6))
+        {
+            Layer = layer,
+            LineWeight = LineWeightType.W50,
+        };
+        var second = new Circle
+        {
+            Center = new XYZ(-3, 8, 1),
+            Radius = 2,
+            Layer = layer,
+        };
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadDuplicateModelSpaceEntitiesCommand(
+            [first.Handle, second.Handle, first.Handle],
+            new CadPoint3D(10, -2, 4),
+            "Copy selection");
+
+        history.Execute(command);
+
+        Assert.Equal(1UL, session.ContentGeneration);
+        Assert.Equal(2, command.EntityCount);
+        Assert.Equal([first.Handle, second.Handle], command.SourceHandles.ToArray());
+        Assert.Equal(2, command.CurrentHandles.Span.Length);
+        Assert.All(command.CurrentHandles.ToArray(), handle => Assert.NotEqual(0UL, handle));
+        Line duplicateLine = Assert.IsType<Line>(command.Duplicates.Span[0]);
+        Circle duplicateCircle = Assert.IsType<Circle>(command.Duplicates.Span[1]);
+        Assert.Equal(new XYZ(11, 0, 7), duplicateLine.StartPoint);
+        Assert.Equal(new XYZ(14, 3, 10), duplicateLine.EndPoint);
+        Assert.Equal(new XYZ(7, 6, 5), duplicateCircle.Center);
+        Assert.Same(layer, duplicateLine.Layer);
+        Assert.Same(layer, duplicateCircle.Layer);
+        Assert.Equal(4, document.Entities.Count);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        Assert.Equal(4, snapshot.Entities.Length);
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        RenderCommand[] commands = scene.DrawingContext.Commands.ToArray();
+        Assert.Equal(4, commands.Length);
+        using GpuPicture picture = scene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            96U,
+            snapshot.ContentGeneration,
+            out NativeCompiledPicture? native,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(native);
+        Assert.Equal(commands.Length, native.SourceCommandCount);
+
+        Assert.True(history.TryUndo(out ulong undone));
+
+        Assert.Equal(2UL, undone);
+        Assert.All(command.CurrentHandles.ToArray(), handle => Assert.Equal(0UL, handle));
+        Assert.All(command.Duplicates.ToArray(), duplicate =>
+        {
+            Assert.Null(duplicate.Owner);
+            Assert.Null(duplicate.Document);
+            Assert.Equal(0UL, duplicate.Handle);
+        });
+        Assert.Equal(2, document.Entities.Count);
+
+        Assert.True(history.TryRedo(out ulong redone));
+
+        Assert.Equal(3UL, redone);
+        Assert.Same(duplicateLine, command.Duplicates.Span[0]);
+        Assert.Same(duplicateCircle, command.Duplicates.Span[1]);
+        Assert.All(command.CurrentHandles.ToArray(), handle => Assert.NotEqual(0UL, handle));
+        Assert.Equal(4, document.Entities.Count);
+    }
+
+    [Fact]
+    public void MultiDuplicatePreflightsSourcesAndBoundsWithoutPartialMutation()
+    {
+        var document = new CadDocument();
+        var line = new Line(XYZ.Zero, XYZ.AxisX);
+        document.Entities.Add(line);
+        ulong lineHandle = line.Handle;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadDuplicateModelSpaceEntitiesCommand(
+                [lineHandle, ulong.MaxValue],
+                CadPoint3D.Zero)));
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(0, history.UndoCount);
+        Assert.Single(document.Entities);
+        Assert.Equal(lineHandle, line.Handle);
+
+        Assert.Throws<ArgumentException>(() =>
+            new CadDuplicateModelSpaceEntitiesCommand(Array.Empty<ulong>()));
+        Assert.Throws<ArgumentException>(() =>
+            new CadDuplicateModelSpaceEntitiesCommand([lineHandle, 0UL]));
+        Assert.Throws<ArgumentException>(() =>
+            new CadDuplicateModelSpaceEntitiesCommand(
+                [lineHandle, lineHandle + 1],
+                maximumEntityCount: 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadDuplicateModelSpaceEntitiesCommand(
+                [lineHandle],
+                maximumEntityCount: 0));
+        Assert.Throws<ArgumentException>(() =>
+            new CadDuplicateModelSpaceEntitiesCommand(
+                [lineHandle],
+                new CadPoint3D(double.NaN, 0, 0)));
     }
 
     [Fact]

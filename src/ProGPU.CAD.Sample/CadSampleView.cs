@@ -44,6 +44,7 @@ public sealed class CadSampleView : Grid
     private readonly Button _deleteButton;
     private readonly Button[] _drawOrderButtons;
     private readonly Button[] _moveButtons;
+    private readonly Button[] _copyButtons;
     private readonly Button[] _rotateButtons;
     private readonly Button[] _scaleButtons;
     private readonly TextBox _selectionColorInput;
@@ -316,6 +317,31 @@ public sealed class CadSampleView : Grid
         _scaleButtons = [scaleUp, scaleDown];
         transformActions.AddChild(scaleUp);
         transformActions.AddChild(scaleDown);
+        transformActions.AddChild(new TextBlock
+        {
+            Text = "Copy by move step",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(12, 6, 8, 0),
+        });
+        Button copyNegativeX = CreateButton("Copy −X", font, 72, 30);
+        Button copyPositiveX = CreateButton("Copy +X", font, 72, 30);
+        Button copyNegativeY = CreateButton("Copy −Y", font, 72, 30);
+        Button copyPositiveY = CreateButton("Copy +Y", font, 72, 30);
+        copyNegativeX.Margin = new Thickness(0, 0, 4, 0);
+        copyPositiveX.Margin = new Thickness(0, 0, 8, 0);
+        copyNegativeY.Margin = new Thickness(0, 0, 4, 0);
+        _copyButtons = [
+            copyNegativeX,
+            copyPositiveX,
+            copyNegativeY,
+            copyPositiveY,
+        ];
+        foreach (Button copyButton in _copyButtons)
+        {
+            transformActions.AddChild(copyButton);
+        }
 
         selectionPropertyActions.AddChild(new TextBlock
         {
@@ -620,6 +646,10 @@ public sealed class CadSampleView : Grid
         movePositiveX.Click += (_, _) => MoveSelection(1, 0);
         moveNegativeY.Click += (_, _) => MoveSelection(0, -1);
         movePositiveY.Click += (_, _) => MoveSelection(0, 1);
+        copyNegativeX.Click += (_, _) => CopySelection(-1, 0);
+        copyPositiveX.Click += (_, _) => CopySelection(1, 0);
+        copyNegativeY.Click += (_, _) => CopySelection(0, -1);
+        copyPositiveY.Click += (_, _) => CopySelection(0, 1);
         rotateCounterclockwise.Click += (_, _) => RotateSelection(1);
         rotateClockwise.Click += (_, _) => RotateSelection(-1);
         scaleUp.Click += (_, _) => ScaleSelection(useReciprocal: false);
@@ -1531,6 +1561,49 @@ public sealed class CadSampleView : Grid
         }
     }
 
+    private void CopySelection(double xDirection, double yDirection)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+        if (!double.TryParse(
+                _moveStepInput.Text,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out double step) ||
+            !double.IsFinite(step) ||
+            step <= 0.0)
+        {
+            SetStatus("Copy failed: the WCS step must be a finite positive invariant number.");
+            return;
+        }
+
+        int selectedCount = _canvas.SelectedHandleCount;
+        try
+        {
+            if (!_canvas.DuplicateSelection(new CadPoint3D(
+                    xDirection * step,
+                    yDirection * step,
+                    0)))
+            {
+                SetStatus("Copy requires at least one selected entity.");
+                return;
+            }
+            SetStatus(
+                $"Copied {selectedCount:N0} selected entity(s) by " +
+                $"({xDirection * step:G}, {yDirection * step:G}, 0) WCS.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Copy failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
     private void RotateSelection(double direction)
     {
         if (_isBusy)
@@ -2146,6 +2219,10 @@ public sealed class CadSampleView : Grid
         foreach (Button moveButton in _moveButtons)
         {
             moveButton.IsEnabled = canTransform;
+        }
+        foreach (Button copyButton in _copyButtons)
+        {
+            copyButton.IsEnabled = canTransform;
         }
         foreach (Button rotateButton in _rotateButtons)
         {

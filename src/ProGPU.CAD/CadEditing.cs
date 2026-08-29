@@ -2428,6 +2428,164 @@ public sealed class CadRemoveModelSpaceEntitiesCommand : CadEditCommand
     }
 }
 
+/// <summary>
+/// Duplicates a bounded stable set of model-space entities with one optional
+/// WCS displacement as a single reversible edit.
+/// </summary>
+/// <remarks>
+/// The complete source selection is resolved before cloning, and every clone
+/// is detached and transformed before ACadSharp publishes the structurally
+/// complete addition batch. Undo removes the same retained object graphs as
+/// one preflighted batch; Redo restores those graphs rather than cloning the
+/// potentially changed sources again. Work and retained storage are O(N) for
+/// N unique source handles.
+/// </remarks>
+public sealed class CadDuplicateModelSpaceEntitiesCommand : CadEditCommand
+{
+    public const int DefaultMaximumEntityCount = 65_536;
+
+    private readonly ulong[] _sourceHandles;
+    private readonly ulong[] _currentHandles;
+    private readonly XYZ? _translation;
+    private Entity[]? _duplicates;
+
+    public ReadOnlyMemory<ulong> SourceHandles => _sourceHandles;
+
+    public ReadOnlyMemory<ulong> CurrentHandles => _currentHandles;
+
+    public ReadOnlyMemory<Entity> Duplicates =>
+        _duplicates ?? ReadOnlyMemory<Entity>.Empty;
+
+    public int EntityCount => _sourceHandles.Length;
+
+    public int MaximumEntityCount { get; }
+
+    public CadPoint3D? Translation { get; }
+
+    public CadDuplicateModelSpaceEntitiesCommand(
+        IEnumerable<ulong> sourceHandles,
+        CadPoint3D? translation = null,
+        string description = "Duplicate entities",
+        int maximumEntityCount = DefaultMaximumEntityCount)
+        : base(description)
+    {
+        ArgumentNullException.ThrowIfNull(sourceHandles);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumEntityCount);
+        if (translation is CadPoint3D value &&
+            (!double.IsFinite(value.X) ||
+             !double.IsFinite(value.Y) ||
+             !double.IsFinite(value.Z)))
+        {
+            throw new ArgumentException(
+                "A duplicate translation must be finite.",
+                nameof(translation));
+        }
+
+        var unique = new HashSet<ulong>();
+        var retainedHandles = new List<ulong>();
+        foreach (ulong handle in sourceHandles)
+        {
+            if (handle == 0)
+            {
+                throw new ArgumentException(
+                    "Every model-space source handle must be non-zero.",
+                    nameof(sourceHandles));
+            }
+            if (!unique.Add(handle))
+            {
+                continue;
+            }
+            if (retainedHandles.Count == maximumEntityCount)
+            {
+                throw new ArgumentException(
+                    $"The duplicate set exceeds the configured limit of {maximumEntityCount} unique entities.",
+                    nameof(sourceHandles));
+            }
+            retainedHandles.Add(handle);
+        }
+
+        if (retainedHandles.Count == 0)
+        {
+            throw new ArgumentException(
+                "At least one non-zero model-space source handle is required.",
+                nameof(sourceHandles));
+        }
+
+        MaximumEntityCount = maximumEntityCount;
+        Translation = translation;
+        _translation = translation is CadPoint3D point
+            ? new XYZ(point.X, point.Y, point.Z)
+            : null;
+        _sourceHandles = retainedHandles.ToArray();
+        _currentHandles = new ulong[_sourceHandles.Length];
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Entity[] duplicates;
+        if (isRedo)
+        {
+            duplicates = _duplicates ??
+                throw new InvalidOperationException(
+                    "The duplicate command has not been applied.");
+        }
+        else
+        {
+            Entity[] sources = ResolveModelSpaceEntities(
+                document,
+                _sourceHandles);
+            duplicates = new Entity[sources.Length];
+            for (int i = 0; i < sources.Length; i++)
+            {
+                Entity duplicate = (Entity)sources[i].Clone();
+                ValidateDetachedDuplicate(duplicate);
+                if (_translation is XYZ displacement &&
+                    displacement != XYZ.Zero)
+                {
+                    ApplyEntityTranslation(duplicate, displacement);
+                }
+                duplicates[i] = duplicate;
+            }
+            _duplicates = duplicates;
+        }
+
+        foreach (Entity duplicate in duplicates)
+        {
+            ValidateDetachedDuplicate(duplicate);
+        }
+        document.Entities.AddRange(duplicates);
+        for (int i = 0; i < duplicates.Length; i++)
+        {
+            _currentHandles[i] = duplicates[i].Handle;
+        }
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Entity[] duplicates = _duplicates ??
+            throw new InvalidOperationException(
+                "The duplicate command has not been applied.");
+        ValidateModelSpaceEntities(document, duplicates);
+        if (!document.Entities.TryRemoveRange(duplicates))
+        {
+            throw new InvalidOperationException(
+                "The model-space duplicate batch removal was cancelled before mutation.");
+        }
+        Array.Clear(_currentHandles);
+    }
+
+    private static void ValidateDetachedDuplicate(Entity duplicate)
+    {
+        if (duplicate.Owner is not null ||
+            duplicate.Document is not null ||
+            duplicate.Handle != 0)
+        {
+            throw new InvalidOperationException(
+                "A duplicated entity is not detached and cannot be added to model space.");
+        }
+    }
+}
+
 /// <summary>Duplicates one model-space entity with optional translation.</summary>
 public sealed class CadDuplicateModelSpaceEntityCommand : CadEditCommand
 {
