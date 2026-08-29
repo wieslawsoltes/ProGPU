@@ -4872,7 +4872,7 @@ boundary, not a fake `d2d1.dll` or a partial COM vtable implementation. COM
 pointers remain confined to the Windows header and process. The portable MIL
 packet retains zero pointers and zero event handles.
 
-ABI v2 and package `ProGPU.Direct2D` now bind that producer lifecycle to Dawn's
+ABI v3 and package `ProGPU.Direct2D` now bind that producer lifecycle to Dawn's
 same-adapter shared-texture import. `ProGpuDirect2DSurface` owns the native
 surface through Dawn, implements `IProGpuContextTextureLeaseSource`, and
 publishes `TextureChanged` only after one transactional native
@@ -4904,10 +4904,11 @@ are present. SHA-256 is
 `f115ea21f43c218444a2d9fd9ebb622e073a5b3cafb52ec1745990e7984e498c`
 for `progpu_native_direct2d.dll` and
 `cab7f76311cd5115a0f8f84ee680115eb6481c6842eb45a85eea0633c08292fc`
-for `progpu_native_direct2d_tests.exe`. ABI v2 extends the native test with
-nested/unmatched draw rejection and the zero-key Dawn handoff; the Windows
-build entry point now verifies all 11 exports and stages
-`progpu_native_direct2d.dll` for both Windows RIDs. Fresh ABI v2 hashes replace
+for `progpu_native_direct2d_tests.exe`. ABI v3 extends the native test with
+nested/unmatched draw rejection, the zero-key Dawn handoff, and generic
+GUID-based COM `QueryInterface` success plus `E_NOINTERFACE` failure. The
+Windows build entry point now verifies all 12 exports and stages
+`progpu_native_direct2d.dll` for both Windows RIDs. Fresh ABI v3 hashes replace
 this archived baseline only after the native CTest runs on Windows; a merely
 booted VM or a stalled Guest Tools login is not recorded as a pass.
 

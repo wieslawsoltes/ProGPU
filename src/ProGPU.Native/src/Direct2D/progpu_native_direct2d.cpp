@@ -13,6 +13,10 @@
 
 using Microsoft::WRL::ComPtr;
 
+static_assert(
+    sizeof(progpu_native_direct2d_guid) == sizeof(GUID),
+    "Direct2D portable GUID layout changed");
+
 struct progpu_native_direct2d_surface {
     ComPtr<ID3D11Device> d3d_device;
     ComPtr<ID3D11DeviceContext> d3d_context;
@@ -545,6 +549,43 @@ uint32_t progpu_native_direct2d_com_release(void* value)
     return value == nullptr
         ? 0U
         : reinterpret_cast<IUnknown*>(value)->Release();
+}
+
+progpu_native_direct2d_status progpu_native_direct2d_com_query_interface(
+    void* value,
+    const progpu_native_direct2d_guid* interface_id,
+    void** result,
+    int32_t* native_hresult)
+{
+    if (result != nullptr) {
+        *result = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (value == nullptr || interface_id == nullptr || result == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    GUID native_interface_id{};
+    native_interface_id.Data1 = interface_id->data1;
+    native_interface_id.Data2 = interface_id->data2;
+    native_interface_id.Data3 = interface_id->data3;
+    for (uint32_t index = 0U; index < 8U; ++index) {
+        native_interface_id.Data4[index] = interface_id->data4[index];
+    }
+    HRESULT hr = reinterpret_cast<IUnknown*>(value)->QueryInterface(
+        native_interface_id,
+        result);
+    *native_hresult = hr;
+    if (SUCCEEDED(hr)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+    }
+    *result = nullptr;
+    return hr == E_NOINTERFACE
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED
+        : PROGPU_NATIVE_DIRECT2D_STATUS_RESOURCE_CREATION_FAILED;
 }
 
 progpu_native_direct2d_status progpu_native_direct2d_surface_acquire(

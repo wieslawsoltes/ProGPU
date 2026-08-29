@@ -53,7 +53,8 @@ public enum ProGpuDirect2DStatus
     DeviceLost = 9,
     DrawAlreadyActive = 10,
     DrawNotActive = 11,
-    DrawFailed = 12
+    DrawFailed = 12,
+    InterfaceNotSupported = 13
 }
 
 public sealed record ProGpuDirect2DSurfaceOptions(
@@ -105,13 +106,70 @@ public sealed class ProGpuDirect2DComReference : SafeHandleZeroOrMinusOneIsInval
     internal ProGpuDirect2DComReference(
         nint value,
         ProGpuDirect2DInterfaceKind kind)
+        : this(value, kind, null)
+    {
+    }
+
+    private ProGpuDirect2DComReference(
+        nint value,
+        ProGpuDirect2DInterfaceKind kind,
+        Guid? queriedInterfaceId)
         : base(ownsHandle: true)
     {
         InterfaceKind = kind;
+        QueriedInterfaceId = queriedInterfaceId;
         SetHandle(value);
     }
 
     public ProGpuDirect2DInterfaceKind InterfaceKind { get; }
+
+    public Guid? QueriedInterfaceId { get; }
+
+    /// <summary>
+    /// Queries this genuine COM object for any interface supported by the
+    /// installed Windows runtime. The returned safe handle owns one reference.
+    /// </summary>
+    public unsafe ProGpuDirect2DComReference QueryInterface(Guid interfaceId)
+    {
+        bool referenceAdded = false;
+        try
+        {
+            DangerousAddRef(ref referenceAdded);
+            ProGpuDirect2DNative.NativeGuid nativeInterfaceId =
+                ProGpuDirect2DNative.NativeGuid.FromGuid(interfaceId);
+            nint result = 0;
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.ComQueryInterface(
+                    DangerousGetHandle(),
+                    &nativeInterfaceId,
+                    &result,
+                    &nativeHResult);
+            if (status != ProGpuDirect2DStatus.Success)
+            {
+                throw new ProGpuDirect2DException(
+                    $"QueryInterface({interfaceId:D})",
+                    status,
+                    nativeHResult);
+            }
+            if (result == 0)
+            {
+                throw new InvalidOperationException(
+                    "COM QueryInterface succeeded without returning an interface.");
+            }
+            return new ProGpuDirect2DComReference(
+                result,
+                InterfaceKind,
+                interfaceId);
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                DangerousRelease();
+            }
+        }
+    }
 
     protected override bool ReleaseHandle()
     {

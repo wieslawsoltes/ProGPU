@@ -1,3 +1,4 @@
+progpu_native_direct2d_com_query_interface
 progpu_native_direct2d_com_release
 progpu_native_direct2d_get_abi_version
 progpu_native_direct2d_surface_acquire

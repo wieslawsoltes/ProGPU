@@ -32,7 +32,8 @@ typedef enum progpu_native_direct2d_status {
     PROGPU_NATIVE_DIRECT2D_STATUS_DEVICE_LOST = 9,
     PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_ALREADY_ACTIVE = 10,
     PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE = 11,
-    PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_FAILED = 12
+    PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_FAILED = 12,
+    PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED = 13
 } progpu_native_direct2d_status;
 
 typedef enum progpu_native_direct2d_surface_flags {
@@ -99,8 +100,18 @@ typedef struct progpu_native_direct2d_surface_descriptor {
     uint64_t content_version;
 } progpu_native_direct2d_surface_descriptor;
 
+/* Binary-compatible Windows GUID layout. Keeping this definition in the C ABI
+ * lets AOT callers request later Direct2D interface generations without COM
+ * reflection or a new enum/ABI revision for every Windows SDK interface. */
+typedef struct progpu_native_direct2d_guid {
+    uint32_t data1;
+    uint16_t data2;
+    uint16_t data3;
+    uint8_t data4[8];
+} progpu_native_direct2d_guid;
+
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 2U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 3U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -129,6 +140,16 @@ progpu_native_direct2d_surface_get_interface(
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
 progpu_native_direct2d_com_release(void* value);
+
+/* Queries any caller-owned COM reference for a concrete Windows interface.
+ * A successful result owns one reference and must be released through
+ * progpu_native_direct2d_com_release. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_com_query_interface(
+    void* value,
+    const progpu_native_direct2d_guid* interface_id,
+    void** result,
+    int32_t* native_hresult);
 
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_surface_acquire(
