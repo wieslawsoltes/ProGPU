@@ -42,7 +42,11 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 2U;",
+            "internal const uint AbiVersion = 3U;",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_com_query_interface",
             native,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -100,7 +104,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 2U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 3U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -114,6 +118,14 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains(
             "progpu_native_direct2d_com_release",
             header,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_com_query_interface",
+            header,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED",
+            test,
             StringComparison.Ordinal);
         Assert.Contains(
             "surface->d2d_context->BeginDraw();",

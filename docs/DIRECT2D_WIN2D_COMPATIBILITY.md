@@ -89,7 +89,7 @@ unmatched release fail closed, and every successful producer release advances
 the content version. The consumer can reopen the NT handle and use the same
 keyed-mutex ownership sequence through Dawn shared-texture memory.
 
-ABI v2 adds the managed ownership half as package `ProGPU.Direct2D`.
+ABI v3 includes the managed ownership half as package `ProGPU.Direct2D`.
 `ProGpuDirect2DSurface.Create(...)` validates a live Dawn D3D12 context, exact
 adapter LUID when requested, BGRA8-unorm premultiplied format, dimensions, DPI,
 NT-handle and keyed-mutex flags before importing the allocation through
@@ -350,15 +350,19 @@ for `progpu_native_direct2d.dll` and
 `cab7f76311cd5115a0f8f84ee680115eb6481c6842eb45a85eea0633c08292fc`
 for `progpu_native_direct2d_tests.exe`.
 
-The current ABI v2 gate adds transactional `BeginDraw`/`EndDraw`, safe COM
-release, nested/unmatched draw rejection, zero-key Dawn ownership, and exact
-11-export verification. `eng/build-progpu-native-windows.ps1` builds and runs
+The current ABI v3 gate adds transactional `BeginDraw`/`EndDraw`, safe COM
+release, nested/unmatched draw rejection, zero-key Dawn ownership, and a
+generic GUID-based `QueryInterface` export. The latter returns a caller-owned
+reference to any later Direct2D interface supported by the installed Windows
+runtime and reports `E_NOINTERFACE` explicitly; it does not emulate the
+interface or depend on managed COM reflection. The gate enforces an exact
+12-export allowlist. `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
 export drift against `eng/progpu-native-direct2d-exports.txt`.
 `Direct2DInteropContractTests` separately verifies the static AOT ABI, absence
 of reflection/dynamic native loading and CPU copies, lock-order boundary, and
-typed lease contract on every portable managed test host. The ABI v2 manual
+typed lease contract on every portable managed test host. The ABI v3 manual
 Parallels rerun must produce fresh hashes before replacing the archived ABI v1
 hashes above; a booted desktop or an unresponsive Guest Tools login is not
 accepted as qualification evidence.

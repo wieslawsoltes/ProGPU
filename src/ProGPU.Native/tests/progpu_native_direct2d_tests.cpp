@@ -44,6 +44,18 @@ ComPtr<T> get_interface(
     return result;
 }
 
+progpu_native_direct2d_guid to_portable_guid(const GUID& value)
+{
+    progpu_native_direct2d_guid result{};
+    result.data1 = value.Data1;
+    result.data2 = value.Data2;
+    result.data3 = value.Data3;
+    for (uint32_t index = 0U; index < 8U; ++index) {
+        result.data4[index] = value.Data4[index];
+    }
+    return result;
+}
+
 } // namespace
 
 int main()
@@ -130,6 +142,9 @@ int main()
     auto context = get_interface<ID2D1DeviceContext1>(
         surface,
         PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT1);
+    auto base_context = get_interface<ID2D1DeviceContext>(
+        surface,
+        PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT);
     auto bitmap = get_interface<ID2D1Bitmap1>(
         surface,
         PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_BITMAP1);
@@ -141,8 +156,39 @@ int main()
         PROGPU_NATIVE_DIRECT2D_INTERFACE_D3D11_TEXTURE2D);
 
     require(factory1 && factory2 && device && context && bitmap &&
-            d3d_device && texture,
+            base_context && d3d_device && texture,
         "one or more genuine COM interfaces were unavailable");
+
+    progpu_native_direct2d_guid context1_id =
+        to_portable_guid(__uuidof(ID2D1DeviceContext1));
+    void* queried_context_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_com_query_interface(
+            base_context.Get(),
+            &context1_id,
+            &queried_context_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            queried_context_value != nullptr && native_hresult == S_OK,
+        "generic COM query did not return ID2D1DeviceContext1");
+    ComPtr<ID2D1DeviceContext1> queried_context;
+    queried_context.Attach(
+        static_cast<ID2D1DeviceContext1*>(queried_context_value));
+
+    progpu_native_direct2d_guid unsupported_id =
+        to_portable_guid(GUID_NULL);
+    void* unsupported_value =
+        reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_com_query_interface(
+            base_context.Get(),
+            &unsupported_id,
+            &unsupported_value,
+            &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED &&
+            unsupported_value == nullptr && native_hresult == E_NOINTERFACE,
+        "unsupported generic COM query did not fail closed");
     ComPtr<ID2D1Multithread> multithread;
     require(SUCCEEDED(factory2.As(&multithread)) &&
             multithread->GetMultithreadProtected(),
@@ -260,6 +306,8 @@ int main()
     texture.Reset();
     d3d_device.Reset();
     bitmap.Reset();
+    queried_context.Reset();
+    base_context.Reset();
     context.Reset();
     device.Reset();
     factory2.Reset();

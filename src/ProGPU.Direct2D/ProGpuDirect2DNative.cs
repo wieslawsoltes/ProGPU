@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -6,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 2U;
+    internal const uint AbiVersion = 3U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -40,6 +41,32 @@ internal static unsafe partial class ProGpuDirect2DNative
         internal ulong InitialAcquireKey;
         internal ulong InitialReleaseKey;
         internal ulong ContentVersion;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeGuid
+    {
+        internal uint Data1;
+        internal ushort Data2;
+        internal ushort Data3;
+        internal ulong Data4;
+
+        internal static NativeGuid FromGuid(Guid value)
+        {
+            Span<byte> bytes = stackalloc byte[16];
+            if (!value.TryWriteBytes(bytes))
+            {
+                throw new InvalidOperationException(
+                    "The interface GUID could not be serialized.");
+            }
+            return new NativeGuid
+            {
+                Data1 = BinaryPrimitives.ReadUInt32LittleEndian(bytes),
+                Data2 = BinaryPrimitives.ReadUInt16LittleEndian(bytes[4..]),
+                Data3 = BinaryPrimitives.ReadUInt16LittleEndian(bytes[6..]),
+                Data4 = BinaryPrimitives.ReadUInt64LittleEndian(bytes[8..])
+            };
+        }
     }
 
     [LibraryImport(
@@ -85,6 +112,16 @@ internal static unsafe partial class ProGpuDirect2DNative
         EntryPoint = "progpu_native_direct2d_com_release")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial uint ComRelease(nint value);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_com_query_interface")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus ComQueryInterface(
+        nint value,
+        NativeGuid* interfaceId,
+        nint* result,
+        int* nativeHResult);
 
     [LibraryImport(
         LibraryName,
