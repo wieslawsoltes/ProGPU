@@ -109,6 +109,16 @@ Shapes, ArcOptions, and VectorArt sample bodies. It currently supports:
   rectangle, optional DIP source rectangle, opacity, and qualified nearest,
   linear, multisample-linear, or cubic sampling; typed texture leases keep a
   source alive through deferred native submission without a staging copy;
+- typed `CanvasBitmap.CreateFromBytes(...)` plus full and subrectangle
+  `SetPixelBytes(...)` for the qualified BGRA8-unorm premultiplied profile.
+  Caller bytes go directly to `GpuTexture.WritePixels`/
+  `WritePixelsSubRect` and therefore to one WebGPU queue texture upload; an
+  oversized Win2D-compatible array exposes only its required prefix to the
+  backend. There is no WIC/reflection adapter, staging readback, CPU repack, or
+  per-pixel scalar loop. Mutation fails closed while a deferred drawing owns a
+  typed texture lease, and render-target mutation also fails while a drawing
+  session is active, so later writes cannot silently alter previously recorded
+  Win2D work;
 - single-recording `CanvasCommandList` creation, multi-chunk recording across
   `Flush()`, `ICanvasImage.GetBounds(...)`, and origin/offset or cropped and
   destination-scaled drawing as nested immutable pictures. The reusable
@@ -185,8 +195,9 @@ The current package is source compatible, not binary compatible with
 devices, straight/ignored alpha, non-BGRA render targets, Dawn/browser device
 factories, Direct2D COM wrapping, cross-device resources, self-referential
 texture feedback, anisotropic sampling, and high-quality cubic sampling.
-Bitmap file/pixel creation and updates, `MiterOrBevel`, geometry
-query/stroke/outline operations, command-list/effect image brushes, opacity
+Bitmap file decoding, color-array/buffer creation and updates, GPU bitmap-copy
+operations, `MiterOrBevel`, geometry query/stroke/outline operations,
+command-list/effect image brushes, opacity
 brush layers, text formats/layouts, effects, sprite batches, and XAML controls
 remain the next incremental compatibility groups.
 Command-list `Clear` currently fails closed because portable unbounded-clear
@@ -276,6 +287,22 @@ The gate has a completed portable-core layer and three expanding oracle layers:
    The isolated typed/source contract suite passes 10/10, retained-picture
    bounds pass 4/4 on macOS, Windows ARM64, and Linux ARM64, and the exact C++
    renderer passes 10/10 native suites on Windows and Linux.
+   Exact ProGPU `3390388e` adds the direct byte-upload bitmap subset without
+   changing the retained draw stream. The gate creates the 2x2 checker from a
+   zeroed byte array, performs one full update and one 1x1 subrectangle update,
+   then verifies all four checker cells on Metal, D3D12, and Vulkan. It also
+   proves that mutation after the image brush acquires its deferred texture
+   lease fails closed. The live frame and `16+2` draw counts retain the three
+   hashes above; Metal versus D3D12 remains two pixels at 1/255 and D3D12
+   versus Vulkan remains 84 pixels at 1/255. The Win2D contract suite passes
+   10/10 on macOS, Windows ARM64, and Linux ARM64, and all three benchmark builds are
+   warning-free. The exact Windows source archive SHA-256 is
+   `24FD8FC118952E4C51B857C01D476E06873472F43DEEBE46490C443510A98248`.
+   Native C++ and its ABI are unchanged, so Windows reuses the already exact
+   ARM64 DLL SHA-256
+   `39C0FD9F5B13CF277581C64096668CAF3673742719B55D6C6252AC9EB009262D`;
+   the pinned WinUI `generic.xaml` SHA-256 is
+   `4C4085838721C0AFCB1A9EE17591C0655CDDDADB26D330788E08BCD7F1AF8285`.
    The frame includes full-opacity and half-opacity same-device bitmap draws;
    the source is publicly disposed before the destination session closes to
    prove that the typed GPU lease, rather than a CPU copy, owns deferred use.
@@ -322,7 +349,8 @@ Win2D execution.
    device/render-target/drawing-session API and pass pinned SimpleSample source
    plus live headless native pixels on Metal and D3D12.
 3. Add the remaining geometry operations/image and layer-opacity brushes,
-   bitmap creation/update, text-format/layout, and existing-effect adapters;
+   bitmap file/color/buffer/copy APIs, text-format/layout, and existing-effect
+   adapters;
    promote each pinned ExampleGallery group only after differential parity.
 4. Implement and qualify the Windows same-adapter Win2D/DXGI import adapter.
 5. Add WinUI, LibreWPF, and Avalonia controls as host adapters over the same
