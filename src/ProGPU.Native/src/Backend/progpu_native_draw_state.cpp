@@ -92,7 +92,9 @@ bool resolve_group_mask(
         }
         const auto& chain = *resolved.clip_chain;
         return chain.struct_size >= sizeof(progpu_native_clip_chain) &&
-            chain.flags == 0U && chain.paths != nullptr &&
+            (chain.flags &
+                ~PROGPU_NATIVE_CLIP_CHAIN_STAGED_SIGNED_WINDING) == 0U &&
+            chain.paths != nullptr &&
             chain.path_count > 0U && chain.path_count <= (1U << 16U) &&
             chain.segments != nullptr && chain.segment_count > 0U &&
             chain.segment_count <= (1U << 24U) &&

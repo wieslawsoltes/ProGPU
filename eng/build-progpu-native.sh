@@ -260,6 +260,15 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
       --paths --atlas-growth --rectangles 1024 --warmup 1 --iterations 2
+  for signed_winding_execution in inline staged; do
+    DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
+      dotnet run \
+        --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+        -c Release -- \
+        --paths --signed-winding-paths --rerasterize-paths \
+        --signed-winding-execution "${signed_winding_execution}" \
+        --rectangles 4 --warmup 1 --iterations 2 --sync
+  done
   DYLD_LIBRARY_PATH="${build_dir}:${runtime_dir}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
@@ -393,6 +402,15 @@ else
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
       -c Release -- \
       --paths --atlas-growth --rectangles 1024 --warmup 1 --iterations 2
+  for signed_winding_execution in inline staged; do
+    LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
+      dotnet run \
+        --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \
+        -c Release -- \
+        --paths --signed-winding-paths --rerasterize-paths \
+        --signed-winding-execution "${signed_winding_execution}" \
+        --rectangles 4 --warmup 1 --iterations 2 --sync
+  done
   LD_LIBRARY_PATH="${build_dir}:$(dirname "${native_library}")${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" \
     dotnet run \
       --project "${repo_root}/src/ProGPU.Native.Benchmarks/ProGPU.Native.Benchmarks.csproj" \

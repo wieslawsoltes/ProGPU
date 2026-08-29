@@ -1123,9 +1123,21 @@ public sealed unsafe class NativeCompositor : IDisposable
         bool capturePayloadHash = false,
         uint contentRevision = 0,
         NativeDrawState drawState = default,
-        ReadOnlySpan<NativePathBooleanNode> booleanNodes = default)
+        ReadOnlySpan<NativePathBooleanNode> booleanNodes = default,
+        NativeSignedWindingExecutionPreference signedWindingExecution =
+            NativeSignedWindingExecutionPreference.Fastest)
     {
         ValidateTarget(target);
+        if (!Enum.IsDefined(signedWindingExecution))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(signedWindingExecution));
+        }
+        NativeSignedWindingExecutionPath signedWindingExecutionPath =
+            signedWindingExecution ==
+                NativeSignedWindingExecutionPreference.StagedVectorCompute
+                ? NativeSignedWindingExecutionPath.StagedVectorCompute
+                : NativeSignedWindingExecutionPath.InlineVectorCompute;
         NativeMethods.GroupMask nativeGroupMask = default;
         NativeMethods.ClipChain nativeClipChain = default;
         NativeMethods.GroupEffect nativeGroupEffect = default;
@@ -1168,6 +1180,10 @@ public sealed unsafe class NativeCompositor : IDisposable
                         : 0U) |
                     (contentRevision != 0U
                         ? NativeMethods.GeometryFrameRetainCompiledPayload
+                        : 0U) |
+                    (signedWindingExecutionPath ==
+                        NativeSignedWindingExecutionPath.StagedVectorCompute
+                        ? NativeMethods.PathFrameStagedSignedWinding
                         : 0U),
                 ContentRevision = contentRevision,
                 DrawState = &nativeDrawState,
@@ -1207,7 +1223,8 @@ public sealed unsafe class NativeCompositor : IDisposable
                 metrics.CoverageStagingBytes,
                 metrics.UniformUploadBytes,
                 metrics.SubmissionCount,
-                metrics.PayloadHash);
+                metrics.PayloadHash,
+                signedWindingExecutionPath);
         }
     }
 
@@ -2283,6 +2300,10 @@ public sealed unsafe class NativeCompositor : IDisposable
                 *nativeClipChain = new NativeMethods.ClipChain
                 {
                     StructSize = (uint)Unsafe.SizeOf<NativeMethods.ClipChain>(),
+                    Flags = chain.SignedWindingExecutionPath ==
+                        NativeSignedWindingExecutionPath.StagedVectorCompute
+                        ? NativeMethods.ClipChainStagedSignedWinding
+                        : 0U,
                     Paths = chain.Paths,
                     PathCount = (nuint)chain.PathCount,
                     Segments = chain.Segments,

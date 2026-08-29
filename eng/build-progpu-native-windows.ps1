@@ -390,6 +390,8 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
             # member of every retained resource/effect family. The exhaustive
             # scene cross-product remains on the Linux/macOS integration lanes.
             Invoke-NativeBenchmark --paths --group-vector-clip-chain --rectangles 96 --warmup 2 --iterations 4
+            Invoke-NativeBenchmark --paths --signed-winding-paths --rerasterize-paths --signed-winding-execution inline --rectangles 4 --warmup 1 --iterations 2 --sync
+            Invoke-NativeBenchmark --paths --signed-winding-paths --rerasterize-paths --signed-winding-execution staged --rectangles 4 --warmup 1 --iterations 2 --sync
             Invoke-NativeBenchmark --group-box-blur --rectangles 96 --warmup 2 --iterations 4
             Invoke-NativeBenchmark --images --group-effect-chain --rectangles 96 --warmup 2 --iterations 4
             Invoke-NativeBenchmark --images --group-blend-mode Overlay --rectangles 96 --warmup 2 --iterations 4

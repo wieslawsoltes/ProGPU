@@ -84,8 +84,12 @@ fail closed when a bound or typed invariant is not satisfied.
 
 Mask-only programs retain the existing compact `array<u32,16>` evaluator and
 the phased two-word sample-mask route for translated-equivalent leaves. Signed
-programs are marked in the GPU program descriptor and execute as three typed
-GPU stages:
+programs are marked in the GPU program descriptor. The fastest/default policy
+executes their bounded vector evaluator inline in `PathRasterizer.wgsl`, with
+no per-leaf intermediate buffer. This is the qualified path on Metal and
+D3D12.
+
+An explicit staged compatibility policy executes three typed GPU stages:
 
 1. `PathSignedWindingLeaf.wgsl` writes each leaf's raw signed winding for all
    active supersamples. Its analytic segment walker evaluates eight horizontal
@@ -103,21 +107,24 @@ algorithms used by the ordinary and signed-leaf modules. CMake composes that
 source fragment into each complete shader at build time; the runtime does not
 concatenate or specialize shader text.
 
-The existing managed `PathAtlas` composes the same common fragment with
-`PathRasterizer.wgsl` and retains its bounded inline signed evaluator. This
-keeps the portable managed implementation behavior-compatible while the native
-C++ backend selects the staged pipelines before dispatch.
+The managed `PathAtlas` and native fastest path compose the same common
+fragment with `PathRasterizer.wgsl` and use the same bounded inline signed
+evaluator. The native C++ API also exposes the staged implementation as a typed
+forced path rather than silently selecting it.
 
-The staged route never performs CPU readback, CPU repacking, per-item GPU
-submission, or managed fallback. Leaf ordinal phases are batched across paths;
-the evaluator and pack stages are each one dispatch with the path index in the
-third dispatch dimension. For `S` visited segments, `N` instructions,
-sample-grid width `G<=8`, and stack bound `D<=16`, leaf work is `O(G*S)` per
-pixel, postfix work is `O(G*N)` eight-lane vector operations, and pack work is
-`O(1)`. Staging uses 64 32-bit words per leaf texel plus one two-word predicate
-mask per signed path, with fixed public program and stack bounds. Compared with
-the scalar-per-supersample staging prototype, this uses one eighth as many
-evaluator invocations and one thirty-second as much result storage.
+Neither route performs CPU readback, CPU repacking, per-item GPU submission, or
+managed fallback. For `S` visited segments, `N` instructions, sample-grid width
+`G<=8`, and stack bound `D<=16`, the inline route uses `O(G*(S+N))` work per
+pixel and `O(D)` bounded private evaluator storage. In the staged route, leaf
+ordinal phases are batched across paths; the evaluator and pack stages are each
+one dispatch with the path index in the third dispatch dimension. Leaf work is
+`O(G*S)` per pixel, postfix work is `O(G*N)` eight-lane vector operations, and
+pack work is `O(1)`. Staging uses 64 32-bit words per leaf texel plus one
+two-word predicate mask per signed path, with fixed public program and stack
+bounds. Compared with the scalar-per-supersample staging prototype, an 8x8
+path uses one sixty-fourth as many launched evaluator invocations (an eightfold
+reduction in each dispatch dimension) and one thirty-second as much result
+storage.
 
 ### Portable buffer-to-texture placement
 
