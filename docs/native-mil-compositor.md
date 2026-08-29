@@ -4775,8 +4775,10 @@ native shared library with GCC 13.3.0, passes the native MIL CTest 1/1, and
 exports `progpu_native_mil_channel_set_media_player_external_image`. Qualified
 Linux `libprogpu_native.so` SHA-256 is
 `17a2e5fd74de64a3697b98b41245a747c75850292573407346cda8671e7dba3a`.
-Windows D3D12 qualification is tracked by the consuming LibreWPF integration
-gate.
+Windows 11 ARM64 qualification from the same archive builds the full DLL with
+MSVC 19.44.35228.0, passes the native MIL CTest 1/1 in 3.61 seconds, and
+exposes the same new C export. Qualified Windows `progpu_native.dll` SHA-256 is
+`0eeb5e34086b753ac6abd93192c3def9aaec9559fb71cca053e33c7fdfbe258d`.
 
 This checkpoint covers one packed RGBA/BGRA same-device plane. D3DImage shared-
 surface import, keyed synchronization, planar NV12/P010 video, color-space/HDR
