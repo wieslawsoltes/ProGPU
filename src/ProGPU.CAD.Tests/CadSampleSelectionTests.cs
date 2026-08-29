@@ -3,6 +3,7 @@ using System.Text;
 using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.Tables;
+using ACadSharp.XData;
 using CSMath;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -1669,6 +1670,14 @@ public sealed class CadSampleSelectionTests
             attribute => attribute.Tag == "PART");
         variable.Height = 0.5;
         document.Entities.Add(insert);
+        var appId = new AppId("PROGPU_UI_SYNC_TEST");
+        document.AppIds.Add(appId);
+        insert.ExtendedData.Add(
+            appId,
+            new ExtendedData([new ExtendedDataString("INSERT")]));
+        variable.ExtendedData.Add(
+            appId,
+            new ExtendedData([new ExtendedDataString("ATTRIB")]));
         var session = new CadDocumentSession(document);
         var view = new CadSampleView();
         try
@@ -1788,11 +1797,14 @@ public sealed class CadSampleSelectionTests
             Assert.Equal(8UL, session.ContentGeneration);
             Assert.Equal(1, variable.Height);
             Assert.Equal("REFERENCE EDIT", variable.Value);
+            Assert.Empty(insert.ExtendedData);
+            Assert.Empty(variable.ExtendedData);
             Assert.Contains(
                 DescendantsAndSelf(view).OfType<TextBlock>(),
                 text => text.Text.Contains(
                     "Synchronized 2 attribute(s) across 1 INSERT(s) as one edit; " +
-                    "added 0, removed 0; assigned values were preserved",
+                    "added 0, removed 0, cleared 2 reference XData app payload(s); " +
+                    "assigned values were preserved",
                     StringComparison.Ordinal));
             CadRecordedPlanScene synchronizedScene =
                 new CadPlanSceneCompiler().Compile(view.Canvas.CurrentSnapshot!);
@@ -1864,7 +1876,8 @@ public sealed class CadSampleSelectionTests
                 DescendantsAndSelf(view).OfType<TextBlock>(),
                 text => text.Text.Contains(
                     "Synchronized 0 attribute(s) across 1 INSERT(s) as one edit; " +
-                    "added 0, removed 1; assigned values were preserved",
+                    "added 0, removed 1, cleared 0 reference XData app payload(s); " +
+                    "assigned values were preserved",
                     StringComparison.Ordinal));
             Assert.True(view.Canvas.TryUndo());
             Assert.Single(insert.Attributes);

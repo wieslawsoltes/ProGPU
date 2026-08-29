@@ -3,6 +3,7 @@ using ACadSharp.Blocks;
 using ACadSharp.Entities;
 using ACadSharp.Extensions;
 using ACadSharp.Tables;
+using ACadSharp.XData;
 using CSMath;
 using Xunit;
 
@@ -159,6 +160,60 @@ public sealed class CadAttributeSynchronizationTests
     }
 
     [Fact]
+    public void ClearsReferenceSequenceXDataAndRestoresExactPayloads()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("XDATA_SYNC_BLOCK");
+        var definition = new AttributeDefinition
+        {
+            Tag = "PART",
+            Value = "DEFAULT",
+        };
+        block.Entities.Add(definition);
+        var insert = new Insert(block);
+        document.Entities.Add(insert);
+        AttributeEntity attribute = Assert.Single(insert.Attributes);
+        Seqend seqend = insert.Attributes.Seqend;
+        var appId = new AppId("PROGPU_SYNC_TEST");
+        document.AppIds.Add(appId);
+        ExtendedData insertData = CreateTestXData("INSERT");
+        ExtendedData attributeData = CreateTestXData("ATTRIB");
+        ExtendedData seqendData = CreateTestXData("SEQEND");
+        ExtendedData definitionData = CreateTestXData("ATTDEF");
+        ExtendedData blockData = CreateTestXData("BLOCK_RECORD");
+        insert.ExtendedData.Add(appId, insertData);
+        attribute.ExtendedData.Add(appId, attributeData);
+        seqend.ExtendedData.Add(appId, seqendData);
+        definition.ExtendedData.Add(appId, definitionData);
+        block.ExtendedData.Add(appId, blockData);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadSynchronizeBlockAttributePropertiesCommand(
+            insert.Handle);
+
+        history.Execute(command);
+
+        Assert.Equal(3, command.ClearedExtendedDataEntryCount);
+        Assert.Empty(insert.ExtendedData);
+        Assert.Empty(attribute.ExtendedData);
+        Assert.Empty(seqend.ExtendedData);
+        AssertExactXData(definition, appId, definitionData);
+        AssertExactXData(block, appId, blockData);
+
+        Assert.True(history.TryUndo(out _));
+        AssertExactXData(insert, appId, insertData);
+        AssertExactXData(attribute, appId, attributeData);
+        AssertExactXData(seqend, appId, seqendData);
+        AssertExactXData(definition, appId, definitionData);
+        AssertExactXData(block, appId, blockData);
+
+        Assert.True(history.TryRedo(out _));
+        Assert.Empty(insert.ExtendedData);
+        Assert.Empty(attribute.ExtendedData);
+        Assert.Empty(seqend.ExtendedData);
+    }
+
+    [Fact]
     public void DuplicateTagsAndOneRenamedDefinitionKeepLogicalValues()
     {
         var document = new CadDocument();
@@ -291,6 +346,12 @@ public sealed class CadAttributeSynchronizationTests
         document.Entities.Add(insert);
         AttributeEntity attribute = Assert.Single(insert.Attributes);
         Seqend seqend = insert.Attributes.Seqend;
+        var appId = new AppId("PROGPU_REMOVED_SYNC_TEST");
+        document.AppIds.Add(appId);
+        ExtendedData attributeData = CreateTestXData("REMOVED_ATTRIB");
+        ExtendedData seqendData = CreateTestXData("REMOVED_SEQEND");
+        attribute.ExtendedData.Add(appId, attributeData);
+        seqend.ExtendedData.Add(appId, seqendData);
         ulong attributeHandle = attribute.Handle;
         ulong seqendHandle = seqend.Handle;
         Assert.True(block.Entities.Remove(definition));
@@ -304,7 +365,10 @@ public sealed class CadAttributeSynchronizationTests
         Assert.Equal(0, command.AttributeCount);
         Assert.Equal(0, command.AddedAttributeCount);
         Assert.Equal(1, command.RemovedAttributeCount);
+        Assert.Equal(2, command.ClearedExtendedDataEntryCount);
         Assert.Empty(insert.Attributes);
+        Assert.Empty(attribute.ExtendedData);
+        Assert.Empty(seqend.ExtendedData);
         Assert.Null(document.GetCadObject<AttributeEntity>(attributeHandle));
         Assert.Null(document.GetCadObject<Seqend>(seqendHandle));
         Assert.Same(document, attribute.Document);
@@ -317,8 +381,12 @@ public sealed class CadAttributeSynchronizationTests
         Assert.Same(seqend, insert.Attributes.Seqend);
         Assert.Equal(attributeHandle, attribute.Handle);
         Assert.Equal(seqendHandle, seqend.Handle);
+        AssertExactXData(attribute, appId, attributeData);
+        AssertExactXData(seqend, appId, seqendData);
 
         Assert.True(history.TryRedo(out _));
+        Assert.Empty(attribute.ExtendedData);
+        Assert.Empty(seqend.ExtendedData);
         history.Clear();
         Assert.Null(attribute.Document);
         Assert.Null(seqend.Document);
@@ -485,6 +553,13 @@ public sealed class CadAttributeSynchronizationTests
         AttributeEntity attribute = Assert.Single(insert.Attributes);
         attribute.Value = "ASSIGNED";
         attribute.Height = 0.5;
+        var appId = new AppId("PROGPU_PERSISTED_SYNC_TEST");
+        document.AppIds.Add(appId);
+        insert.ExtendedData.Add(appId, CreateTestXData("INSERT"));
+        attribute.ExtendedData.Add(appId, CreateTestXData("ATTRIB"));
+        var unrelated = new Line(XYZ.Zero, new XYZ(1, 1, 0));
+        unrelated.ExtendedData.Add(appId, CreateTestXData("UNRELATED"));
+        document.Entities.Add(unrelated);
         definition.Height = 2.75;
         definition.Color = new ACadSharp.Color(12, 34, 56);
         var addedDefinition = new AttributeDefinition
@@ -514,12 +589,13 @@ public sealed class CadAttributeSynchronizationTests
 
         loaded.Session.Read(loadedDocument =>
         {
-            AttributeEntity[] restored = loadedDocument.Entities
+            Insert restoredInsert = loadedDocument.Entities
                 .OfType<Insert>()
-                .Single()
-                .Attributes
-                .ToArray();
+                .Single();
+            AttributeEntity[] restored = restoredInsert.Attributes.ToArray();
             Assert.Equal(2, restored.Length);
+            Assert.Empty(restoredInsert.ExtendedData);
+            Assert.All(restored, item => Assert.Empty(item.ExtendedData));
             Assert.Equal("ASSIGNED", restored[0].Value);
             Assert.Equal(2.75, restored[0].Height);
             Assert.Equal(new ACadSharp.Color(12, 34, 56), restored[0].Color);
@@ -527,8 +603,32 @@ public sealed class CadAttributeSynchronizationTests
             Assert.Equal("SERIAL", restored[1].Tag);
             Assert.Equal("SERIAL DEFAULT", restored[1].Value);
             Assert.Equal(1.5, restored[1].Height);
+            Assert.True(loadedDocument.Entities
+                .OfType<Line>()
+                .Single()
+                .ExtendedData
+                .TryGet("PROGPU_PERSISTED_SYNC_TEST", out _));
             return true;
         });
+    }
+
+    private static ExtendedData CreateTestXData(string value) =>
+        new(
+        [
+            ExtendedDataControlString.Open,
+            new ExtendedDataString(value),
+            ExtendedDataControlString.Close,
+        ]);
+
+    private static void AssertExactXData(
+        CadObject owner,
+        AppId appId,
+        ExtendedData expected)
+    {
+        KeyValuePair<AppId, ExtendedData> entry = Assert.Single(
+            owner.ExtendedData);
+        Assert.Same(appId, entry.Key);
+        Assert.Same(expected, entry.Value);
     }
 
     private static Insert CreateInsert(

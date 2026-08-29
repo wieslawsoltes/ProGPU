@@ -2469,7 +2469,9 @@ public sealed class CadSampleView : Grid
                 $"Synchronized {synchronized.AttributeCount:N0} attribute(s) " +
                 $"across {synchronized.InsertCount:N0} INSERT(s) as one edit; " +
                 $"added {synchronized.AddedAttributeCount:N0}, removed " +
-                $"{synchronized.RemovedAttributeCount:N0}; assigned values were preserved.");
+                $"{synchronized.RemovedAttributeCount:N0}, cleared " +
+                $"{synchronized.ClearedExtendedDataEntryCount:N0} reference XData " +
+                "app payload(s); assigned values were preserved.");
         }
         catch (Exception exception)
         {

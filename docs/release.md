@@ -79,6 +79,13 @@ mutation. Structural differences now add default-valued references, remove
 obsolete references, and restore exact ATTRIB/SEQEND identities and handles
 through Undo/Redo. Inactive handles live only in private history-owned leases;
 capacity eviction, redo replacement, divergence reset, and Clear release them.
+Following Autodesk's ATTSYNC warning, the same transaction now clears bounded
+XData application payloads from each matching INSERT and its ATTRIB/SEQEND
+sequence while leaving definition-owned BlockRecord/ATTDEF XData intact. Undo
+restores the exact registered AppId and payload identities, Redo clears them
+again, and the shared shell reports the cleared payload count. ACadSharp feature
+commit `ac9301e5` supplies the constant-time application-entry count used by the
+normal XData-free preflight path.
 Focused semantic, lease-lifecycle, persistence, shared-shell, and managed/native
 retained-picture regressions cover the slice.
 

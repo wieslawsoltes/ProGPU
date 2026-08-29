@@ -1627,6 +1627,17 @@ not move the corresponding assigned value. Remaining unmatched definitions
 create ATTRIBs from definition defaults in definition order; remaining unmatched
 references are removed.
 
+The same atomic transition implements Autodesk's documented ATTSYNC XData
+warning at the block-reference boundary. It clears every application payload
+attached to each matching INSERT, its original/retained/new ATTRIB identities,
+and its active SEQEND. It deliberately leaves the BlockRecord and ATTDEF XData
+untouched because those objects are definition-owned rather than per-reference.
+Before mutation, the command retains the exact registered `AppId` and
+`ExtendedData` object pairs without parsing or copying their record payloads.
+Undo reattaches those exact pairs, Redo clears them again, and history disposal
+releases the detached payload references. The preflight caps the aggregate at
+1,048,576 application entries and reports the cleared count to the shared shell.
+
 The complete batch is preflighted before mutation and retains the exact
 ATTRIB/MText object states and ordered collection replacements needed for
 transactional Undo/Redo. Removed ATTRIB/SEQEND objects move out of the active
@@ -1637,10 +1648,12 @@ release the inactive side permanently. Ordered replacement plans compose in
 strict history order and reject a sequence that no longer matches the expected
 identity/order. It rejects
 locked target references, XRef/unloaded or dynamic blocks, malformed multiline
-payloads, and more than 4,096 definitions, 65,536 INSERTs, or 1,048,576
-source or target attributes. For `D` definitions, `I` references, and `A`
-original attributes, first apply is `O(D * I + A)` time with
-`O(D * I + A)` bounded owned history state; Undo and Redo have the same bound.
+payloads, and more than 4,096 definitions, 65,536 INSERTs, 1,048,576 source or
+target attributes, or 1,048,576 XData application entries. For `D` definitions,
+`I` references, `A` original attributes, and `X` reference-owned XData
+application entries, first apply is `O(D * I + A + X)` time with
+`O(D * I + A + X)` bounded owned history state; Undo and Redo have the same
+bound.
 Normal active registry lookup and rendering exclude leased objects. Handle
 reassignment is rejected while any lease exists and succeeds after history
 disposal.
@@ -1662,7 +1675,8 @@ array, nesting, expanded-entity, text-code-unit, and glyph limits. The traversal
 adds no per-frame work or native crossings; stable scene/print replay retains
 the same command and device-resource behavior. ATTDISP override state,
 annotative contexts, fields, dynamic-block evaluation, prompt/definition
-editing and per-reference XData cleanup remain explicit future contracts.
+editing, and broader dynamic/third-party application semantics remain explicit
+future contracts.
 
 The 2026-08-28 matched macOS Release checkpoint used .NET 10.0.5, three
 warmups, 24 samples, 100 variable attributed INSERTs with 21-character Inter
@@ -4291,7 +4305,7 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   [constant-reference ownership](https://help.autodesk.com/cloudhelp/2022/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_AttributeReference_IsConstant.html),
   [attribute modes](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-67A2DDAD-2217-412F-8AEF-D4495192F45B.htm),
   [definition-property editing](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-F351FDBB-2731-40C1-A186-1B1F47779E32.htm),
-  [ATTSYNC value preservation](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-56B14079-250B-4C99-AB3D-F95BA1C32AB7.htm),
+  [ATTSYNC value preservation and XData warning](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-56B14079-250B-4C99-AB3D-F95BA1C32AB7.htm),
   [ATTREDEF structural behavior](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-MAC-Core/files/GUID-CB8237C2-EB63-4839-9B84-5B890C979CBB.htm),
   [definition/default editing](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-889213DA-A3AF-4020-89F0-1E5049AD26EC.htm),
   and [MINSERT behavior](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-A780A2FA-4A2E-4574-950F-E788AB71F527.htm)
@@ -4306,7 +4320,11 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   behavior to an original ordered replacement contract: retained/renamed
   references preserve assigned values, new references use current definition
   defaults, removed references retain exact handles only while Undo/Redo owns
-  them, and every INSERT changes as one transaction. Rejected rendering
+  them, and every INSERT changes as one transaction. Adapted the XData warning
+  to the persisted reference-owned INSERT/ATTRIB/SEQEND sequence: Apply and Redo
+  clear its bounded application payload map, Undo restores the exact registered
+  keys and payload objects, and definition-owned BlockRecord/ATTDEF data remains
+  intact. Rejected rendering
   replaceable defaults, rewriting retained reference values during either edit,
   nontransactional structural repair, duplicating malformed constant references,
   and applying INSERT geometry twice.
@@ -4331,8 +4349,9 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   `CadAttributeSynchronization.cs`, and `CadPrintPlan.cs`; these original
   ProGPU algorithms are directly reused. The approved dependency provenance for
   exact ordered replacement and handle leasing is the ProGPU-owned ACadSharp
-  feature-branch work in commits `2a3df82a`, `b95db6b2`, and `d4104e03`; no
-  third-party implementation supplied that contract.
+  feature-branch work in commits `2a3df82a`, `b95db6b2`, and `d4104e03`;
+  `ac9301e5` exposes the constant-time XData entry count used by bounded
+  preflight. No third-party implementation supplied those contracts.
   ACadSharp's public object model and pinned fixtures were inspected only to
   identify persisted contracts and independently observable placement; no
   dependency implementation text or structure was copied. The native C++ tree

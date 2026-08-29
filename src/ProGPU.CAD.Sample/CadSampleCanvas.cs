@@ -1394,7 +1394,8 @@ public sealed class CadSampleCanvas : FrameworkElement
             command.InsertCount,
             command.AttributeCount,
             command.AddedAttributeCount,
-            command.RemovedAttributeCount);
+            command.RemovedAttributeCount,
+            command.ClearedExtendedDataEntryCount);
     }
 
     /// <summary>Sets the complete selection to one CAD color as one edit.</summary>

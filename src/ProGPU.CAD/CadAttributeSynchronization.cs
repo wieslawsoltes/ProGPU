@@ -4,6 +4,7 @@ using ACadSharp.Entities;
 using ACadSharp.Extensions;
 using ACadSharp.Objects;
 using ACadSharp.Tables;
+using ACadSharp.XData;
 using CSMath;
 
 namespace ProGPU.CAD;
@@ -14,25 +15,29 @@ public readonly record struct CadAttributeSynchronizationResult(
     int InsertCount,
     int AttributeCount,
     int AddedAttributeCount,
-    int RemovedAttributeCount);
+    int RemovedAttributeCount,
+    int ClearedExtendedDataEntryCount);
 
 /// <summary>
 /// Synchronizes the retained ATTRIB properties of every reference to the block
 /// selected through one model-space INSERT, while preserving assigned values.
 /// </summary>
 /// <remarks>
-/// The first apply performs O(D * I + A) work and owns O(D * I + A) bounded
-/// state for D definitions, I registered INSERTs, and A original attributes.
-/// Undo and Redo are O(D * I + A). Existing reference values are retained by
-/// case-insensitive tag and then stable unmatched order; new references use
-/// definition defaults. Removed references keep exact handles in bounded leases
-/// until this command leaves undo/redo history.
+/// The first apply performs O(D * I + A + X) work and owns O(D * I + A + X)
+/// bounded state for D definitions, I registered INSERTs, A original attributes,
+/// and X reference-owned XData application entries. Undo and Redo have the same
+/// bound. Existing reference values are retained by case-insensitive tag and
+/// then stable unmatched order; new references use definition defaults. XData
+/// on each INSERT, its ATTRIB sequence, and its active SEQEND is cleared while
+/// definition-owned XData remains unchanged. Removed references keep exact
+/// handles in bounded leases until this command leaves undo/redo history.
 /// </remarks>
 public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditCommand
 {
     public const int MaximumDefinitionCount = 4_096;
     public const int MaximumInsertCount = 65_536;
     public const int MaximumAttributeCount = 1_048_576;
+    public const int MaximumExtendedDataEntryCount = 1_048_576;
 
     private readonly ulong _selectedInsertHandle;
     private Insert? _selectedInsert;
@@ -40,6 +45,7 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
     private Insert[]? _inserts;
     private AttributeOperation[]? _operations;
     private StructuralOperation[]? _structuralOperations;
+    private ExtendedDataOperation[]? _extendedDataOperations;
 
     public ulong SelectedInsertHandle => _selectedInsertHandle;
 
@@ -50,6 +56,8 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
     public int AddedAttributeCount { get; private set; }
 
     public int RemovedAttributeCount { get; private set; }
+
+    public int ClearedExtendedDataEntryCount { get; private set; }
 
     public CadSynchronizeBlockAttributePropertiesCommand(
         ulong selectedInsertHandle,
@@ -196,6 +204,11 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
         }
 
         var structuralOperations = new List<StructuralOperation>();
+        ExtendedDataOperation[] extendedDataOperations =
+            CaptureExtendedDataOperations(
+                block,
+                preparedInserts,
+                out int clearedExtendedDataEntryCount);
         try
         {
             foreach (PreparedInsert prepared in preparedInserts)
@@ -224,10 +237,12 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
         _inserts = inserts;
         _operations = operations.ToArray();
         _structuralOperations = structuralOperations.ToArray();
+        _extendedDataOperations = extendedDataOperations;
         InsertCount = inserts.Length;
         AttributeCount = checked((int)totalAttributeCount);
         AddedAttributeCount = addedAttributeCount;
         RemovedAttributeCount = removedAttributeCount;
+        ClearedExtendedDataEntryCount = clearedExtendedDataEntryCount;
         try
         {
             ApplySynchronizedState();
@@ -240,10 +255,12 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
             _inserts = null;
             _operations = null;
             _structuralOperations = null;
+            _extendedDataOperations = null;
             InsertCount = 0;
             AttributeCount = 0;
             AddedAttributeCount = 0;
             RemovedAttributeCount = 0;
+            ClearedExtendedDataEntryCount = 0;
             throw;
         }
     }
@@ -255,9 +272,12 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
         try
         {
             ApplyStates(useSynchronizedState: false);
+            SetExtendedDataState(cleared: false, document);
         }
         catch
         {
+            SetExtendedDataState(cleared: true, document);
+            ApplyStates(useSynchronizedState: true);
             SetStructuralState(applied: true);
             throw;
         }
@@ -268,6 +288,7 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
         StructuralOperation[] operations = _structuralOperations ?? [];
         ReleaseStructuralOperations(operations);
         _structuralOperations = [];
+        _extendedDataOperations = [];
     }
 
     private void ValidateRetainedState(
@@ -284,6 +305,10 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
             throw new InvalidOperationException(
                 "The attribute synchronization command has not been applied.");
         AttributeOperation[] operations = _operations ??
+            throw new InvalidOperationException(
+                "The attribute synchronization command has not been applied.");
+        ExtendedDataOperation[] extendedDataOperations =
+            _extendedDataOperations ??
             throw new InvalidOperationException(
                 "The attribute synchronization command has not been applied.");
 
@@ -344,6 +369,17 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
                     $"{operation.Insert.Handle:X} no longer matches command state.");
             }
         }
+
+        foreach (ExtendedDataOperation operation in extendedDataOperations)
+        {
+            if (!ReferenceEquals(operation.Owner.Document, document) ||
+                !operation.Matches(cleared: expectStructuralApplied))
+            {
+                throw new InvalidOperationException(
+                    "Reference-owned XData no longer matches attribute " +
+                    "synchronization history state.");
+            }
+        }
     }
 
     private void ApplySynchronizedState()
@@ -357,6 +393,113 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
         {
             ApplyStates(useSynchronizedState: false);
             throw;
+        }
+        SetExtendedDataState(cleared: true, _selectedInsert!.Document!);
+    }
+
+    private void SetExtendedDataState(bool cleared, CadDocument document)
+    {
+        ExtendedDataOperation[] operations = _extendedDataOperations ??
+            throw new InvalidOperationException(
+                "The attribute synchronization command has not been applied.");
+        if (cleared)
+        {
+            foreach (ExtendedDataOperation operation in operations)
+            {
+                operation.Owner.ExtendedData.Clear();
+            }
+            return;
+        }
+
+        foreach (ExtendedDataOperation operation in operations)
+        {
+            if (operation.Owner.ExtendedData.Count != 0)
+            {
+                throw new InvalidOperationException(
+                    "Reference-owned XData was populated outside attribute " +
+                    "synchronization history.");
+            }
+            foreach (KeyValuePair<AppId, ExtendedData> entry in operation.Original)
+            {
+                if (!document.AppIds.TryGetValue(
+                        entry.Key.Name,
+                        out AppId? registered) ||
+                    !ReferenceEquals(registered, entry.Key))
+                {
+                    throw new InvalidOperationException(
+                        $"XData application '{entry.Key.Name}' no longer retains " +
+                        "its registered identity.");
+                }
+            }
+        }
+
+        try
+        {
+            foreach (ExtendedDataOperation operation in operations)
+            {
+                foreach (KeyValuePair<AppId, ExtendedData> entry in operation.Original)
+                {
+                    operation.Owner.ExtendedData.Add(entry.Key, entry.Value);
+                }
+            }
+        }
+        catch
+        {
+            foreach (ExtendedDataOperation operation in operations)
+            {
+                operation.Owner.ExtendedData.Clear();
+            }
+            throw;
+        }
+    }
+
+    private static ExtendedDataOperation[] CaptureExtendedDataOperations(
+        BlockRecord block,
+        IEnumerable<PreparedInsert> preparedInserts,
+        out int entryCount)
+    {
+        var owners = new HashSet<CadObject>(ReferenceEqualityComparer.Instance);
+        var operations = new List<ExtendedDataOperation>();
+        long totalEntryCount = 0;
+
+        foreach (PreparedInsert prepared in preparedInserts)
+        {
+            Add(prepared.Insert);
+            foreach (AttributeEntity attribute in prepared.Original)
+            {
+                Add(attribute);
+            }
+            foreach (AttributeEntity attribute in prepared.Replacement)
+            {
+                Add(attribute);
+            }
+            if (prepared.Insert.Attributes.Seqend is Seqend seqend)
+            {
+                Add(seqend);
+            }
+        }
+
+        entryCount = checked((int)totalEntryCount);
+        return operations.ToArray();
+
+        void Add(CadObject owner)
+        {
+            if (owner.ExtendedData.Count == 0 || !owners.Add(owner))
+            {
+                return;
+            }
+
+            KeyValuePair<AppId, ExtendedData>[] entries =
+                owner.ExtendedData.ToArray();
+            totalEntryCount = checked(totalEntryCount + entries.Length);
+            if (totalEntryCount > MaximumExtendedDataEntryCount)
+            {
+                throw new InvalidOperationException(
+                    $"Block '{block.Name}' exceeds the " +
+                    $"{MaximumExtendedDataEntryCount:N0}-entry reference XData " +
+                    "synchronization limit.");
+            }
+            operations.Add(new ExtendedDataOperation(owner, entries));
         }
     }
 
@@ -642,6 +785,34 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
     private sealed record StructuralOperation(
         Insert Insert,
         CadObjectCollection<AttributeEntity>.ReversibleReplacement Replacement);
+
+    private sealed record ExtendedDataOperation(
+        CadObject Owner,
+        KeyValuePair<AppId, ExtendedData>[] Original)
+    {
+        public bool Matches(bool cleared)
+        {
+            if (cleared)
+            {
+                return Owner.ExtendedData.Count == 0;
+            }
+            if (Owner.ExtendedData.Count != Original.Length)
+            {
+                return false;
+            }
+            foreach (KeyValuePair<AppId, ExtendedData> entry in Original)
+            {
+                if (!Owner.ExtendedData.TryGet(
+                        entry.Key,
+                        out ExtendedData? current) ||
+                    !ReferenceEquals(current, entry.Value))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
 
     private sealed class AttributeState
     {
