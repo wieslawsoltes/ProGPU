@@ -106,7 +106,7 @@ try {
         -FilePath $CertificatePath | Out-Null
     $TrustedCertificate = Import-Certificate `
         -FilePath $CertificatePath `
-        -CertStoreLocation "Cert:\CurrentUser\TrustedPeople"
+        -CertStoreLocation "Cert:\CurrentUser\Root"
 
     & $SignTool.FullName sign `
         /fd SHA256 `
@@ -147,7 +147,7 @@ try {
         Remove-AppxPackage -ErrorAction SilentlyContinue
     if ($TrustedCertificate) {
         Remove-Item `
-            -LiteralPath ("Cert:\CurrentUser\TrustedPeople\" + $TrustedCertificate.Thumbprint) `
+            -LiteralPath ("Cert:\CurrentUser\Root\" + $TrustedCertificate.Thumbprint) `
             -Force `
             -ErrorAction SilentlyContinue
     }
