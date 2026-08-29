@@ -5,6 +5,10 @@ using Microsoft.UI;
 using ProGPU.Backend;
 using Windows.Graphics.DirectX;
 using Xunit;
+using Pen = ProGPU.Vector.Pen;
+using PenLineCap = ProGPU.Vector.PenLineCap;
+using PenStrokeTransformMode = ProGPU.Vector.PenStrokeTransformMode;
+using SolidColorBrush = ProGPU.Vector.SolidColorBrush;
 
 namespace ProGPU.Win2D.Tests;
 
@@ -141,6 +145,14 @@ public sealed class Win2DCanvasCompatibilityTests
                 typeof(float)
             ]));
         Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.DrawGeometry),
+            [
+                typeof(CanvasGeometry),
+                typeof(Windows.UI.Color),
+                typeof(float),
+                typeof(CanvasStrokeStyle)
+            ]));
+        Assert.NotNull(type.GetMethod(
             nameof(CanvasDrawingSession.FillGeometry),
             [typeof(CanvasGeometry), typeof(Windows.UI.Color)]));
         Assert.NotNull(type.GetMethod(
@@ -149,6 +161,53 @@ public sealed class Win2DCanvasCompatibilityTests
         Assert.NotNull(type.GetMethod(
             nameof(CanvasDrawingSession.CreateLayer),
             [typeof(float), typeof(CanvasGeometry), typeof(Matrix3x2)]));
+    }
+
+    [Fact]
+    public void CanvasStrokeStyleCachesTypedPenAndCustomDashWins()
+    {
+        using var style = new CanvasStrokeStyle();
+        var brush = new SolidColorBrush(Vector4.One);
+
+        Pen first = style.GetOrCreatePen(brush, 4f);
+        Pen repeated = style.GetOrCreatePen(brush, 4f);
+        Assert.Same(first, repeated);
+        Assert.Equal(PenLineCap.Flat, first.StartLineCap);
+        Assert.Equal(PenLineCap.Flat, first.EndLineCap);
+        Assert.Equal(PenLineCap.Square, first.DashCap);
+        Assert.Equal(10f, first.MiterLimit);
+        Assert.Null(first.DashArray);
+
+        style.DashStyle = CanvasDashStyle.Dash;
+        Pen dashed = style.GetOrCreatePen(brush, 4f);
+        Assert.NotSame(first, dashed);
+        Assert.Equal([2d, 2d], dashed.DashArray!);
+
+        float[] custom = [1f, 3f, 2f, 4f];
+        style.CustomDashStyle = custom;
+        custom[0] = 99f;
+        Pen customPen = style.GetOrCreatePen(brush, 4f);
+        Assert.Equal([1d, 3d, 2d, 4d], customPen.DashArray!);
+        Assert.Equal([1f, 3f, 2f, 4f], style.CustomDashStyle);
+
+        style.TransformBehavior = CanvasStrokeTransformBehavior.Hairline;
+        Pen hairline = style.GetOrCreatePen(brush, 4f);
+        Assert.True(hairline.IsHairline);
+        Assert.Equal(PenStrokeTransformMode.Fixed, hairline.StrokeTransformMode);
+    }
+
+    [Fact]
+    public void UnsupportedMiterOrBevelFailsClosed()
+    {
+        using var style = new CanvasStrokeStyle
+        {
+            LineJoin = CanvasLineJoin.MiterOrBevel
+        };
+
+        Assert.Throws<NotSupportedException>(() =>
+            style.GetOrCreatePen(
+                new SolidColorBrush(Vector4.One),
+                2f));
     }
 
     private static void DrawPinnedSimpleSample(CanvasDrawingSession drawingSession)
@@ -183,7 +242,16 @@ public sealed class Win2DCanvasCompatibilityTests
         builder.EndFigure(CanvasFigureLoop.Closed);
         using CanvasGeometry geometry = CanvasGeometry.CreatePath(builder);
         drawingSession.FillGeometry(geometry, Colors.Blue);
-        drawingSession.DrawGeometry(geometry, Colors.White, 2);
+        using var strokeStyle = new CanvasStrokeStyle
+        {
+            StartCap = CanvasCapStyle.Round,
+            EndCap = CanvasCapStyle.Triangle
+        };
+        drawingSession.DrawGeometry(
+            geometry,
+            Colors.White,
+            2,
+            strokeStyle);
         using CanvasActiveLayer layer = drawingSession.CreateLayer(
             1,
             new Windows.Foundation.Rect(8, 8, 20, 40));

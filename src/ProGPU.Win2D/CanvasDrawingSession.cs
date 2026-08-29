@@ -507,6 +507,19 @@ public sealed class CanvasDrawingSession :
 
     public void DrawGeometry(
         CanvasGeometry geometry,
+        Color color,
+        float strokeWidth,
+        CanvasStrokeStyle strokeStyle) =>
+        DrawGeometry(
+            geometry,
+            0f,
+            0f,
+            color,
+            strokeWidth,
+            strokeStyle);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
         Vector2 offset,
         Color color,
         float strokeWidth = 1f) =>
@@ -516,6 +529,20 @@ public sealed class CanvasDrawingSession :
             offset.Y,
             color,
             strokeWidth);
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        Vector2 offset,
+        Color color,
+        float strokeWidth,
+        CanvasStrokeStyle strokeStyle) =>
+        DrawGeometry(
+            geometry,
+            offset.X,
+            offset.Y,
+            color,
+            strokeWidth,
+            strokeStyle);
 
     public void DrawGeometry(
         CanvasGeometry geometry,
@@ -531,6 +558,27 @@ public sealed class CanvasDrawingSession :
         _context.DrawPath(
             null,
             GetPen(color, strokeWidth),
+            path,
+            transform);
+        _hasCommands = true;
+    }
+
+    public void DrawGeometry(
+        CanvasGeometry geometry,
+        float x,
+        float y,
+        Color color,
+        float strokeWidth,
+        CanvasStrokeStyle strokeStyle)
+    {
+        PathGeometry path = GetGeometryPath(geometry);
+        ValidateFinite(x, y);
+        ArgumentNullException.ThrowIfNull(strokeStyle);
+        Matrix4x4 transform = Matrix4x4.CreateTranslation(x, y, 0f) *
+            ToMatrix4x4(_transform);
+        _context.DrawPath(
+            null,
+            strokeStyle.GetOrCreatePen(GetBrush(color), strokeWidth),
             path,
             transform);
         _hasCommands = true;
