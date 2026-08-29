@@ -781,8 +781,10 @@ validated for version, size, alignment, offsets, ranges, and device domain.
 ## IO and browser policy
 
 - Desktop paths use ACadSharp stream readers/writers through a typed
-  `ICadDocumentStore` service. Browser hosts supply streams or random-access
-  adapters; engine APIs do not depend on native file dialogs.
+  `ICadDocumentStore` service. `ICadDocumentPathStore` is the explicitly
+  non-browser filesystem adapter over that stream contract. Browser hosts
+  supply streams or random-access adapters; engine APIs do not depend on native
+  file dialogs.
 - Format selection uses both the requested format and validated content. A file
   extension alone is not a security boundary.
 - Reads have explicit limits for file size, object count, recursion, decoded
@@ -794,6 +796,51 @@ validated for version, size, alignment, offsets, ranges, and device domain.
 - DWG writer support is capability/version gated because upstream stability is
   not uniform across versions. Round-trip conformance is required before a
   version is advertised as production save support.
+
+`CadDocumentPathStore` normalizes one caller-authorized file path but never
+creates its parent directory. Reads open one asynchronous sequential file
+stream, deny concurrent writers/deletion through the share mode, retain the
+absolute source name, and delegate all content detection, byte/entity limits,
+diagnostics, and cancellation to `CadDocumentStore`. Auto save format accepts
+only a `.dxf` or `.dwg` destination extension; explicit format remains
+authoritative, while load Auto mode still validates the content signature and
+does not treat an extension as a security boundary.
+
+A path save creates one bounded-name `CreateNew` staging file in the exact
+destination directory, forces the stream store's saved-generation commit to
+remain deferred, serializes the locked document generation, flushes .NET and OS
+file buffers, closes the handle, checks cancellation again, and performs one
+same-directory `File.Move(..., overwrite: true)`. Only after that namespace
+operation succeeds does it commit the serialized generation and publish the
+single deferred `Completed` progress notification. Serialization, flush,
+cancellation, invalid destination, and replacement failures therefore leave an
+existing destination unchanged, keep the session dirty, and best-effort delete
+only the adapter-owned staging path. A newer in-memory edit made after the
+serialized capture remains dirty even when that older generation is
+successfully committed. Same-directory staging prevents the cross-volume copy
+fallback; atomic namespace replacement still depends on the host filesystem,
+and this contract does not claim a portable directory-metadata fsync.
+
+The operation is `O(N)` serialization time and `O(N)` temporary filesystem
+storage for `N` output bytes with bounded `O(1)` managed adapter state. It adds
+no document copy beyond the writer, renderer work, shader, native ABI crossing,
+upload, or managed/native replay difference. Focused tests cover DXF and DWG
+extension inference/round trips, replacement of an existing destination,
+serialization failure, cancellation after writing starts, post-serialization
+commit failure, exact saved-generation state, progress ordering, missing-parent
+policy, and staging cleanup.
+
+Primary platform contracts consulted on 2026-08-29:
+
+- [.NET `File.Move(String, String, Boolean)`](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.move)
+  provides the overwrite move used for the final same-directory namespace
+  operation; cross-volume move is explicitly rejected architecturally by
+  staging in the destination directory.
+- [.NET `FileStream.Flush(Boolean)`](https://learn.microsoft.com/en-us/dotnet/api/system.io.filestream.flush)
+  defines the `flushToDisk: true` intermediate-buffer flush performed before
+  the staging handle is closed and renamed.
+- [.NET `FileStream`](https://learn.microsoft.com/en-us/dotnet/api/system.io.filestream)
+  defines the asynchronous file-handle behavior used by the path adapter.
 
 ## Persisted draw order
 

@@ -43,6 +43,18 @@ ACadSharp `master` stays exactly synchronized with upstream. This is document IO
 and edit orchestration, changes no renderer hot path, and makes no performance
 claim.
 
+ProGPU.CAD now includes an explicitly non-browser path store over its existing
+caller-owned stream API. Path saves serialize to a unique same-directory file,
+defer the session saved-generation commit, flush and close the staged file, and
+replace the destination only after successful serialization and cancellation
+checks. Failures preserve the prior destination, keep the session dirty, and
+clean only the owned staging file. Auto save format recognizes `.dxf`/`.dwg`;
+path loads retain the normalized absolute source name while keeping content
+detection and resource limits in the stream store. DXF/DWG round trips,
+replacement, cancellation, serialization/commit failure, progress, cleanup,
+and missing-directory policy are covered. This is filesystem orchestration and
+does not change rendering, shaders, native ABI, or managed/native parity.
+
 The CAD shell now exposes bounded block-attribute value editing for exactly one
 selected INSERT. A generation-tagged catalog distinguishes reference-owned
 variable ATTRIB values from definition-owned constant ATTDEF values, including
