@@ -16,6 +16,17 @@ if (Array.Exists(
         args,
         static value => string.Equals(
             value,
+            "--win2d-color-simd",
+            StringComparison.OrdinalIgnoreCase)))
+{
+    Win2DColorSimdBenchmark.Run(args);
+    return;
+}
+
+if (Array.Exists(
+        args,
+        static value => string.Equals(
+            value,
             "--win2d-canvas",
             StringComparison.OrdinalIgnoreCase)))
 {

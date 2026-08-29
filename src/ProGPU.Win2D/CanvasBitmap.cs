@@ -1,8 +1,10 @@
+using System.Buffers;
 using System.Numerics;
 using ProGPU.Backend;
 using Windows.Foundation;
 using Windows.Graphics.DirectX;
 using Windows.Graphics.Imaging;
+using Windows.UI;
 
 namespace Microsoft.Graphics.Canvas;
 
@@ -171,6 +173,76 @@ public abstract class CanvasBitmap :
         }
     }
 
+    public static CanvasBitmap CreateFromColors(
+        ICanvasResourceCreator resourceCreator,
+        Color[] colors,
+        int widthInPixels,
+        int heightInPixels) =>
+        CreateFromColors(
+            resourceCreator,
+            colors,
+            widthInPixels,
+            heightInPixels,
+            CanvasContract.DefaultDpi,
+            CanvasAlphaMode.Premultiplied);
+
+    public static CanvasBitmap CreateFromColors(
+        ICanvasResourceCreator resourceCreator,
+        Color[] colors,
+        int widthInPixels,
+        int heightInPixels,
+        float dpi) =>
+        CreateFromColors(
+            resourceCreator,
+            colors,
+            widthInPixels,
+            heightInPixels,
+            dpi,
+            CanvasAlphaMode.Premultiplied);
+
+    public static CanvasBitmap CreateFromColors(
+        ICanvasResourceCreator resourceCreator,
+        Color[] colors,
+        int widthInPixels,
+        int heightInPixels,
+        float dpi,
+        CanvasAlphaMode alphaMode)
+    {
+        ArgumentNullException.ThrowIfNull(colors);
+        CanvasDevice device = GetResourceCreatorDevice(resourceCreator);
+        CanvasContract.ValidateDpi(dpi);
+        CanvasContract.ValidateAlphaMode(alphaMode);
+        ValidatePixelDimensions(widthInPixels, heightInPixels);
+        int requiredColorCount = ValidatePixelColorCount(
+            colors.Length,
+            widthInPixels,
+            heightInPixels,
+            nameof(colors));
+        int requiredByteCount = checked(requiredColorCount * 4);
+        byte[] converted = ArrayPool<byte>.Shared.Rent(requiredByteCount);
+        try
+        {
+            ProGpuCanvasCpuConversionPath path =
+                CanvasColorBgraConverter.Convert(
+                    colors.AsSpan(0, requiredColorCount),
+                    converted.AsSpan(0, requiredByteCount),
+                    device.PixelConversionMode);
+            device.RecordPixelConversionPath(path);
+            return CreateFromBytes(
+                device,
+                converted,
+                widthInPixels,
+                heightInPixels,
+                DirectXPixelFormat.B8G8R8A8UIntNormalized,
+                dpi,
+                alphaMode);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(converted);
+        }
+    }
+
     public void SetPixelBytes(byte[] bytes)
     {
         ArgumentNullException.ThrowIfNull(bytes);
@@ -215,6 +287,60 @@ public abstract class CanvasBitmap :
                 (uint)top,
                 (uint)width,
                 (uint)height);
+        }
+    }
+
+    public void SetPixelColors(Color[] colors)
+    {
+        ArgumentNullException.ThrowIfNull(colors);
+        lock (_lifetimeLock)
+        {
+            ValidateCanMutate();
+            int requiredColorCount = ValidatePixelColorCount(
+                colors.Length,
+                checked((int)Texture.Width),
+                checked((int)Texture.Height),
+                nameof(colors));
+            WritePixelColors(
+                colors.AsSpan(0, requiredColorCount),
+                x: 0,
+                y: 0,
+                Texture.Width,
+                Texture.Height,
+                fullTexture: true);
+        }
+    }
+
+    public void SetPixelColors(
+        Color[] colors,
+        int left,
+        int top,
+        int width,
+        int height)
+    {
+        ArgumentNullException.ThrowIfNull(colors);
+        lock (_lifetimeLock)
+        {
+            ValidateCanMutate();
+            ValidatePixelSubrectangle(
+                left,
+                top,
+                width,
+                height,
+                Texture.Width,
+                Texture.Height);
+            int requiredColorCount = ValidatePixelColorCount(
+                colors.Length,
+                width,
+                height,
+                nameof(colors));
+            WritePixelColors(
+                colors.AsSpan(0, requiredColorCount),
+                (uint)left,
+                (uint)top,
+                (uint)width,
+                (uint)height,
+                fullTexture: false);
         }
     }
 
@@ -381,6 +507,61 @@ public abstract class CanvasBitmap :
         }
     }
 
+    private void WritePixelColors(
+        ReadOnlySpan<Color> colors,
+        uint x,
+        uint y,
+        uint width,
+        uint height,
+        bool fullTexture)
+    {
+        int requiredByteCount = checked(colors.Length * 4);
+        byte[] converted = ArrayPool<byte>.Shared.Rent(requiredByteCount);
+        try
+        {
+            ProGpuCanvasCpuConversionPath path =
+                CanvasColorBgraConverter.Convert(
+                    colors,
+                    converted.AsSpan(0, requiredByteCount),
+                    Device.PixelConversionMode);
+            Device.RecordPixelConversionPath(path);
+            if (fullTexture)
+            {
+                Texture.WritePixels<byte>(
+                    converted.AsSpan(0, requiredByteCount));
+            }
+            else
+            {
+                Texture.WritePixelsSubRect<byte>(
+                    converted.AsSpan(0, requiredByteCount),
+                    x,
+                    y,
+                    width,
+                    height);
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(converted);
+        }
+    }
+
+    private static CanvasDevice GetResourceCreatorDevice(
+        ICanvasResourceCreator resourceCreator)
+    {
+        ArgumentNullException.ThrowIfNull(resourceCreator);
+        CanvasDevice device = resourceCreator.Device ??
+            throw new ArgumentException(
+                "The resource creator did not provide a CanvasDevice.",
+                nameof(resourceCreator));
+        if (device.IsDisposed)
+        {
+            throw new ObjectDisposedException(nameof(resourceCreator));
+        }
+
+        return device;
+    }
+
     private static void ValidatePixelDimensions(
         int widthInPixels,
         int heightInPixels)
@@ -408,6 +589,23 @@ public abstract class CanvasBitmap :
         {
             throw new ArgumentException(
                 $"The BGRA8 pixel buffer requires at least {required} bytes.",
+                parameterName);
+        }
+
+        return checked((int)required);
+    }
+
+    private static int ValidatePixelColorCount(
+        int colorCount,
+        int width,
+        int height,
+        string parameterName)
+    {
+        long required = checked((long)width * height);
+        if (colorCount < required)
+        {
+            throw new ArgumentException(
+                $"The pixel buffer requires at least {required} colors.",
                 parameterName);
         }
 

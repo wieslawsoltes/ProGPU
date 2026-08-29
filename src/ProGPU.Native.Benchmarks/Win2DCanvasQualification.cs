@@ -26,12 +26,11 @@ internal static class Win2DCanvasQualification
             16,
             16,
             96f);
-        using var checker = CanvasBitmap.CreateFromBytes(
+        using var checker = CanvasBitmap.CreateFromColors(
             device,
-            new byte[16],
+            new Color[4],
             2,
             2,
-            Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized,
             96f,
             CanvasAlphaMode.Premultiplied);
         using (CanvasDrawingSession sourceSession =
@@ -45,19 +44,23 @@ internal static class Win2DCanvasQualification
                 16,
                 Color.FromArgb(255, 255, 0, 255));
         }
-        checker.SetPixelBytes(
+        checker.SetPixelColors(
         [
-            128, 128, 128, 255,
-            0, 0, 0, 255,
-            0, 0, 0, 255,
-            128, 128, 128, 255
+            Color.FromArgb(255, 64, 32, 16),
+            Color.FromArgb(255, 0, 0, 0),
+            Color.FromArgb(255, 0, 0, 0),
+            Color.FromArgb(255, 64, 32, 16)
         ]);
-        checker.SetPixelBytes(
-            [0, 0, 0, 255],
+        ProGpuCanvasCpuConversionPath fullColorConversionPath =
+            device.LastPixelConversionPath;
+        checker.SetPixelColors(
+            [Color.FromArgb(255, 0, 0, 0)],
             left: 1,
             top: 0,
             width: 1,
             height: 1);
+        ProGpuCanvasCpuConversionPath subrectangleColorConversionPath =
+            device.LastPixelConversionPath;
         using var commandList = new CanvasCommandList(device);
         using (CanvasDrawingSession commandSession =
                commandList.CreateDrawingSession())
@@ -246,7 +249,7 @@ internal static class Win2DCanvasQualification
             {
                 drawingSession.FillRectangle(8, 72, 64, 64, imageBrush);
                 RequireThrows<InvalidOperationException>(() =>
-                    checker.SetPixelBytes(new byte[16]));
+                    checker.SetPixelColors(new Color[4]));
                 checker.Dispose();
             }
             // Win2D executes DrawImage eagerly. ProGPU records until session
@@ -301,10 +304,10 @@ internal static class Win2DCanvasQualification
         RequirePixel(pixels, 260, 220, 255, 255, 0, 255);
         RequirePixel(pixels, 246, 180, 192, 32, 160, 255);
         RequirePixel(pixels, 264, 180, 0, 0, 0, 0);
-        RequirePixel(pixels, 10, 74, 128, 128, 128, 255);
+        RequirePixel(pixels, 10, 74, 16, 32, 64, 255);
         RequirePixel(pixels, 18, 74, 0, 0, 0, 255);
         RequirePixel(pixels, 10, 82, 0, 0, 0, 255);
-        RequirePixel(pixels, 18, 82, 128, 128, 128, 255);
+        RequirePixel(pixels, 18, 82, 16, 32, 64, 255);
         RequireOpaqueRedBlueInRange(
             pixels,
             276,
@@ -321,6 +324,15 @@ internal static class Win2DCanvasQualification
             first.SubmissionCount > 0 && second.SubmissionCount > 0 &&
             first.NativeDrawCount >= 14 && second.NativeDrawCount >= 1,
             $"Unexpected native Canvas metrics: first={first}, second={second}.");
+        Require(
+            fullColorConversionPath is
+                ProGpuCanvasCpuConversionPath.Vector128 or
+                ProGpuCanvasCpuConversionPath.Vector256,
+            $"The full Color conversion did not use intrinsic SIMD: {fullColorConversionPath}.");
+        Require(
+            subrectangleColorConversionPath ==
+                ProGpuCanvasCpuConversionPath.ScalarReference,
+            $"The one-pixel Color update did not select its bounded scalar path: {subrectangleColorConversionPath}.");
 
         string? outputDirectory = ReadOptionalArgument(
             args,
@@ -345,6 +357,10 @@ internal static class Win2DCanvasQualification
                         Backend = context.AdapterBackendType.ToString(),
                         PixelFormat = target.Format.ToString(),
                         AlphaMode = target.AlphaMode.ToString(),
+                        PixelConversionMode = device.PixelConversionMode.ToString(),
+                        FullPixelConversionPath = fullColorConversionPath.ToString(),
+                        SubrectanglePixelConversionPath =
+                            subrectangleColorConversionPath.ToString(),
                         PixelSha256 = hash,
                         First = first,
                         Second = second

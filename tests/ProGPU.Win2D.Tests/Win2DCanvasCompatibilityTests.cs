@@ -1,4 +1,7 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Brushes;
 using Microsoft.Graphics.Canvas.Geometry;
@@ -80,6 +83,84 @@ public sealed class Win2DCanvasCompatibilityTests
                 2.1f,
                 96f,
                 CanvasDpiRounding.Ceiling));
+    }
+
+    [Fact]
+    public void ColorToBgraIntrinsicSimdMatchesScalarOracleAndBoundedTail()
+    {
+        Windows.UI.Color[] colors =
+        [
+            Windows.UI.Color.FromArgb(0, 1, 2, 3),
+            Windows.UI.Color.FromArgb(4, 5, 6, 7),
+            Windows.UI.Color.FromArgb(8, 9, 10, 11),
+            Windows.UI.Color.FromArgb(12, 13, 14, 15),
+            Windows.UI.Color.FromArgb(16, 17, 18, 19),
+            Windows.UI.Color.FromArgb(20, 21, 22, 23),
+            Windows.UI.Color.FromArgb(24, 25, 26, 27),
+            Windows.UI.Color.FromArgb(28, 29, 30, 31),
+            Windows.UI.Color.FromArgb(32, 33, 34, 35),
+            Windows.UI.Color.FromArgb(36, 37, 38, 39),
+            Windows.UI.Color.FromArgb(40, 41, 42, 43)
+        ];
+        Assert.Equal(4, Unsafe.SizeOf<Windows.UI.Color>());
+        Assert.Equal(
+            [0, 1, 2, 3],
+            MemoryMarshal.AsBytes(colors.AsSpan(0, 1)).ToArray());
+
+        byte[] expected = new byte[colors.Length * 4];
+        ProGpuCanvasCpuConversionPath scalarPath =
+            CanvasColorBgraConverter.Convert(
+                colors,
+                expected,
+                ProGpuCanvasCpuConversionMode.ScalarReference);
+        Assert.Equal(
+            ProGpuCanvasCpuConversionPath.ScalarReference,
+            scalarPath);
+
+        byte[] actual = Enumerable.Repeat(
+            (byte)0xCC,
+            expected.Length + 5).ToArray();
+        ProGpuCanvasCpuConversionPath actualPath =
+            CanvasColorBgraConverter.Convert(
+                colors,
+                actual,
+                ProGpuCanvasCpuConversionMode.Automatic);
+        Assert.Equal(expected, actual.AsSpan(0, expected.Length).ToArray());
+        Assert.All(actual.AsSpan(expected.Length).ToArray(),
+            static value => Assert.Equal(0xCC, value));
+
+        if (Vector128.IsHardwareAccelerated)
+        {
+            byte[] forced = new byte[expected.Length];
+            ProGpuCanvasCpuConversionPath forcedPath =
+                CanvasColorBgraConverter.Convert(
+                    colors,
+                    forced,
+                    ProGpuCanvasCpuConversionMode.IntrinsicSimd);
+            Assert.Equal(expected, forced);
+            Assert.NotEqual(
+                ProGpuCanvasCpuConversionPath.ScalarReference,
+                forcedPath);
+            Assert.NotEqual(
+                ProGpuCanvasCpuConversionPath.ScalarReference,
+                actualPath);
+
+            byte[] smallAutomatic = new byte[12];
+            Assert.Equal(
+                ProGpuCanvasCpuConversionPath.ScalarReference,
+                CanvasColorBgraConverter.Convert(
+                    colors.AsSpan(0, 3),
+                    smallAutomatic,
+                    ProGpuCanvasCpuConversionMode.Automatic));
+            byte[] smallForced = new byte[12];
+            Assert.NotEqual(
+                ProGpuCanvasCpuConversionPath.ScalarReference,
+                CanvasColorBgraConverter.Convert(
+                    colors.AsSpan(0, 3),
+                    smallForced,
+                    ProGpuCanvasCpuConversionMode.IntrinsicSimd));
+            Assert.Equal(smallAutomatic, smallForced);
+        }
     }
 
     [Fact]
@@ -183,6 +264,45 @@ public sealed class Win2DCanvasCompatibilityTests
             nameof(CanvasBitmap.SetPixelBytes),
             [
                 typeof(byte[]),
+                typeof(int),
+                typeof(int),
+                typeof(int),
+                typeof(int)
+            ]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CreateFromColors),
+            [
+                typeof(ICanvasResourceCreator),
+                typeof(Windows.UI.Color[]),
+                typeof(int),
+                typeof(int)
+            ]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CreateFromColors),
+            [
+                typeof(ICanvasResourceCreator),
+                typeof(Windows.UI.Color[]),
+                typeof(int),
+                typeof(int),
+                typeof(float)
+            ]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CreateFromColors),
+            [
+                typeof(ICanvasResourceCreator),
+                typeof(Windows.UI.Color[]),
+                typeof(int),
+                typeof(int),
+                typeof(float),
+                typeof(CanvasAlphaMode)
+            ]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.SetPixelColors),
+            [typeof(Windows.UI.Color[])]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.SetPixelColors),
+            [
+                typeof(Windows.UI.Color[]),
                 typeof(int),
                 typeof(int),
                 typeof(int),

@@ -79,6 +79,21 @@ public enum ProGpuCanvasExecutionPath
     NativeCppWebGpu = 0
 }
 
+public enum ProGpuCanvasCpuConversionMode
+{
+    Automatic = 0,
+    IntrinsicSimd = 1,
+    ScalarReference = 2
+}
+
+public enum ProGpuCanvasCpuConversionPath
+{
+    None = 0,
+    Vector256 = 1,
+    Vector128 = 2,
+    ScalarReference = 3
+}
+
 public readonly record struct ProGpuCanvasRenderMetrics(
     ProGpuCanvasExecutionPath ExecutionPath,
     int SourceCommandCount,
