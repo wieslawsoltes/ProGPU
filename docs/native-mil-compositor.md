@@ -4806,6 +4806,15 @@ identity fail closed. Native CTest coverage verifies copied-to-external mode
 replacement, dimensions, row bytes, generation, zero payload, and invalid
 bindings; the managed native backend builds with zero warnings.
 
+The exact tracked delta from the prior qualified archive through documentation
+head `4ece2969` rebuilds and relinks on both Parallels guests. Ubuntu 24.04
+ARM64 passes the native MIL CTest 1/1 in 0.03 seconds, exposes the new export,
+and produces `libprogpu_native.so` SHA-256
+`c7633cc318977e69373c5d26d0bceed24de86d52bfe8b6506fe731ad14b24f54`.
+Windows 11 ARM64 with MSVC 19.44.35228.0 passes the same CTest 1/1 in
+2.50 seconds, exposes the new export, and produces `progpu_native.dll` SHA-256
+`fc627fff1240a9f06ae4e785101f9052b9dac8dbe600ae1a331d094087d79fdf`.
+
 This is the native compositor endpoint used by portable Win2D `CanvasBitmap`
 and future synchronized D3DImage/Direct2D providers. It does not itself import
 an `ID2D1*`, D3D9 surface, or DXGI shared handle; those platform providers must
