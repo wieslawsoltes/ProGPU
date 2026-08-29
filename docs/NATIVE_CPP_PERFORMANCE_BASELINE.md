@@ -2715,6 +2715,30 @@ are respectively `00818eafe791a9fd5e09312bc373ab7ccbbafb36bee400b8b285008ae1ca18
 `bb355d0551464352ce8fdcdca887495101cd5343734fc74589f3cf4fbead813d`,
 and `104a10fe1ce6a99fa283af9166a0c084d8237dd89777e09c961490324d9bd61c`.
 
+## Signed-winding execution-policy checkpoint
+
+The signed-winding rerasterization benchmark compares four exact 8x8 Nonzero
+paths against the managed contour oracle on every frame. Four alternating Apple
+M3 Pro/Metal Release runs per execution mode used three warm-ups and 30
+synchronized measurements. The median-of-run native p50/p95 was
+`3.1407/3.3726 ms` for the bounded inline evaluator and `7.7894/9.3647 ms` for
+the vectorized three-stage compatibility pipeline. Inline is 2.48 times faster
+at p50 and 2.78 times faster at p95 and reduces coverage staging from
+`119,844,576` to `165,888` bytes (722.44-fold). Both paths allocated zero
+managed bytes per frame and produced exact full-frame hash `4026F1AF5062CEA5`.
+The fastest/default policy therefore selects inline while the staged route
+remains a typed forced mode with its resolved path reported in metrics. Time
+Profiler and Metal System Trace captures accompany the ignored benchmark JSON
+under `artifacts/performance/signed-winding-simd/`.
+
+Windows 11 ARM64 rebuilt checkpoint `cf0792aa` with strict MSVC `/W4 /WX`
+(315/315 steps), passed 11/11 native/Dawn CTests, and ran both forced modes on
+the Parallels WDDM D3D12 adapter without device loss. Both compared all 518,400
+pixels exactly against managed output with the same hash, reported the forced
+execution path, and retained the same staging-byte counts. The bounded VM p50
+samples were `10.699 ms` inline and `35.3319 ms` staged; they qualify
+correctness and selection only, not physical-D3D12 performance.
+
 ## Native retained-plan shaping optimization checkpoint
 
 The Apple M3 Pro Release text benchmark shapes decoded scalars through the

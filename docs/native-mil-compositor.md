@@ -715,10 +715,12 @@ CPU raster fallback are unchanged. The native compiler performs one bounded,
 order-dependent `O(S + N)` walk over segments `S` and postfix nodes `N`; the
 dependency chain is not an independent-lane SIMD candidate. Pixel coverage
 remains on the shared GPU path rasterizer on Metal, D3D12, Vulkan, and browser
-WebGPU. Exact signed programs use three bounded GPU stages: vectorized raw
-winding per leaf, eight-lane postfix evaluation per supersample row, and R8
-coverage packing. They retain 64 signed words per leaf texel plus one two-word
-predicate mask, without CPU readback or repacking. The shared path/clip/glyph atlas staging
+WebGPU. Exact signed programs default to the bounded inline vector evaluator,
+which has no intermediate leaf storage. A typed forced compatibility policy
+uses three bounded GPU stages: vectorized raw winding per leaf, eight-lane
+postfix evaluation per supersample row, and R8 coverage packing. That staged
+path retains 64 signed words per leaf texel plus one two-word predicate mask,
+without CPU readback or repacking. The shared path/clip/glyph atlas staging
 keeps 256-byte row pitch and separately aligns every copy source offset to 512
 bytes for D3D12 placed-texture-footprint parity. The split form for
 ordinary boolean programs still adds one packed-u32 compute entry point and
