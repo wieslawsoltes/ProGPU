@@ -68,6 +68,7 @@ public sealed class CadSampleView : Grid
     private readonly Button _setSelectionVisibilityButton;
     private readonly Button _setSelectionSolidThicknessButton;
     private readonly Button _setSelectionAttributeValueButton;
+    private readonly Button _synchronizeSelectionAttributePropertiesButton;
     private readonly ComboBox _layerStateSelector;
     private readonly ComboBox _layerVisibilitySelector;
     private readonly ComboBox _layerPlotSelector;
@@ -603,9 +604,16 @@ public sealed class CadSampleView : Grid
             font,
             108,
             30);
+        _synchronizeSelectionAttributePropertiesButton = CreateButton(
+            "Sync properties",
+            font,
+            116,
+            30);
         selectionAttributeActions.AddChild(_selectionAttributeSelector);
         selectionAttributeActions.AddChild(_selectionAttributeValueInput);
         selectionAttributeActions.AddChild(_setSelectionAttributeValueButton);
+        selectionAttributeActions.AddChild(
+            _synchronizeSelectionAttributePropertiesButton);
 
         selectionStyleActions.AddChild(new TextBlock
         {
@@ -1223,6 +1231,8 @@ public sealed class CadSampleView : Grid
             SetSelectionSolidThickness();
         _setSelectionAttributeValueButton.Click += (_, _) =>
             SetSelectionAttributeValue();
+        _synchronizeSelectionAttributePropertiesButton.Click += (_, _) =>
+            SynchronizeSelectionAttributeProperties();
         _setLayerVisibilityButton.Click += (_, _) => SetLayerVisibility();
         _setLayerPlotButton.Click += (_, _) => SetLayerPlotFlag();
         _setLayerFreezeButton.Click += (_, _) => SetLayerFreeze();
@@ -2438,6 +2448,38 @@ public sealed class CadSampleView : Grid
         }
     }
 
+    private void SynchronizeSelectionAttributeProperties()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        try
+        {
+            CadAttributeSynchronizationResult? result =
+                _canvas.SynchronizeSelectedBlockAttributeProperties();
+            if (result is not CadAttributeSynchronizationResult synchronized)
+            {
+                SetStatus(
+                    "Attribute synchronization requires exactly one selected INSERT.");
+                return;
+            }
+            SetStatus(
+                $"Synchronized {synchronized.AttributeCount:N0} attribute(s) " +
+                $"across {synchronized.InsertCount:N0} INSERT(s) as one edit; " +
+                "assigned values were preserved.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Sync attribute properties failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
     private void SetLayerVisibility()
     {
         if (_isBusy ||
@@ -3603,6 +3645,10 @@ public sealed class CadSampleView : Grid
             hasSelectedAttribute &&
             _selectionAttributeValueInput.Text.Length <=
                 CadSetAttributeValueCommand.MaximumValueCodeUnits;
+        _synchronizeSelectionAttributePropertiesButton.IsEnabled =
+            canTransform &&
+            _canvas.SelectedHandleCount == 1 &&
+            _selectionAttributeSelector.Items.Count > 1;
         bool canEditLayerState =
             canUsePlanTools &&
             (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is string;

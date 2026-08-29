@@ -1667,6 +1667,7 @@ public sealed class CadSampleSelectionTests
         var insert = new Insert(block);
         AttributeEntity variable = insert.Attributes.Single(
             attribute => attribute.Tag == "PART");
+        variable.Height = 0.5;
         document.Entities.Add(insert);
         var session = new CadDocumentSession(document);
         var view = new CadSampleView();
@@ -1678,6 +1679,7 @@ public sealed class CadSampleSelectionTests
                 view.Canvas,
                 view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
             Button setAttribute = FindButton(view, "Set attribute");
+            Button syncAttributeProperties = FindButton(view, "Sync properties");
             Button undo = FindButton(view, "Undo");
             Button redo = FindButton(view, "Redo");
 
@@ -1780,6 +1782,41 @@ public sealed class CadSampleSelectionTests
             Assert.Equal("FUTURE DEFAULT", variableDefinition.Value);
             Assert.Equal("REFERENCE EDIT", variable.Value);
             Assert.Equal("FUTURE DEFAULT", view.SelectionAttributeValueInput.Text);
+
+            Assert.True(syncAttributeProperties.IsEnabled);
+            PressEnter(syncAttributeProperties);
+            Assert.Equal(8UL, session.ContentGeneration);
+            Assert.Equal(1, variable.Height);
+            Assert.Equal("REFERENCE EDIT", variable.Value);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Synchronized 2 attribute(s) across 1 INSERT(s) as one edit; " +
+                    "assigned values were preserved",
+                    StringComparison.Ordinal));
+            CadRecordedPlanScene synchronizedScene =
+                new CadPlanSceneCompiler().Compile(view.Canvas.CurrentSnapshot!);
+            using (GpuPicture synchronizedPicture = synchronizedScene.CreatePicture())
+            {
+                Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+                    synchronizedPicture,
+                    96U,
+                    view.Canvas.CurrentSnapshot!.ContentGeneration,
+                    out NativeCompiledPicture? synchronizedNative,
+                    out NativePictureCompileFailure synchronizedFailure),
+                    synchronizedFailure.ToString());
+                Assert.NotNull(synchronizedNative);
+                Assert.True(synchronizedNative.SourceCommandCount > 0);
+            }
+
+            PressEnter(undo);
+            Assert.Equal(9UL, session.ContentGeneration);
+            Assert.Equal(0.5, variable.Height);
+            Assert.Equal("REFERENCE EDIT", variable.Value);
+            PressEnter(redo);
+            Assert.Equal(10UL, session.ContentGeneration);
+            Assert.Equal(1, variable.Height);
+            Assert.Equal("REFERENCE EDIT", variable.Value);
         }
         finally
         {

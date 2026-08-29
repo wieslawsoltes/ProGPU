@@ -1614,14 +1614,38 @@ INSERTs remain unchanged; INSERTs created later inherit the current default.
 Undo/Redo therefore changes the default inherited by still-later INSERTs without
 rewriting any existing reference.
 
-The shared desktop/browser shell exposes all three ownership paths through one
-selector and value editor. A commit advances one document generation, rebuilds
-one retained snapshot, preserves the selected INSERT and attribute key, and
-refreshes the displayed value. Locked INSERTs remain inspectable but cannot
-authorize reference or definition mutation. The same regenerated TEXT/MTEXT
-commands feed managed replay, the native picture compiler, printing, and exact
-selection; no shader, native ABI, cache key, glyph upload, or device-loss
-contract changes.
+`CadSynchronizeBlockAttributePropertiesCommand` implements the bounded,
+property-only portion of block attribute synchronization. One selected,
+unlocked model-space INSERT authorizes the edit; the command finds every
+registered INSERT that retains the same block identity, copies each ATTDEF's
+entity, text, mode, tag, and starting geometry properties into its matching
+ATTRIB, and applies that INSERT's block transform. Existing assigned single-line
+and embedded-MTEXT values are preserved. Case-insensitive tag matches consume
+references in retained order, including duplicate tags; unmatched definitions
+and references are then paired in retained order so definition tag renames do
+not move the corresponding assigned value.
+
+The complete batch is preflighted before mutation and retains the exact
+ATTRIB/MText object states needed for transactional Undo/Redo. It rejects
+locked target references, XRef/unloaded or dynamic blocks, malformed multiline
+payloads, and more than 4,096 definitions, 65,536 INSERTs, or 1,048,576
+attributes. Definition/reference count differences are rejected explicitly:
+the pinned ACadSharp collection removal contract clears object handles, so an
+exact reversible structural add/remove reconciliation needs a future
+handle-preserving sequence-replacement dependency contract. For `D`
+definitions, `I` references, and `A = D * I` retained attributes, first apply is
+`O(D + I + A)` time with `O(I + A)` owned history state; Undo and Redo are
+`O(I + A)`.
+
+The shared desktop/browser shell exposes all three value-ownership paths
+through one selector and value editor, plus the selected block's property-sync
+action. A commit advances one document generation, rebuilds one retained
+snapshot, preserves the selected INSERT and attribute key, and refreshes the
+displayed value. Locked INSERTs remain inspectable but cannot authorize
+reference, definition, or synchronization mutation. The same regenerated
+TEXT/MTEXT commands feed managed replay, the native picture compiler, printing,
+and exact selection; no shader, native ABI, cache key, glyph upload, or
+device-loss contract changes.
 
 For `I` array cells, `B` non-attribute block children, `C` visible constant
 definitions, and `A` visible variable references, lowering is
@@ -1629,9 +1653,9 @@ definitions, and `A` visible variable references, lowering is
 array, nesting, expanded-entity, text-code-unit, and glyph limits. The traversal
 adds no per-frame work or native crossings; stable scene/print replay retains
 the same command and device-resource behavior. ATTDISP override state,
-annotative contexts, fields, dynamic-block evaluation, prompt/tag/mode/geometry
-editing, and full definition/reference property synchronization remain explicit
-future contracts.
+annotative contexts, fields, dynamic-block evaluation, prompt/definition
+editing, structural reference add/remove reconciliation, and per-reference
+XData cleanup remain explicit future contracts.
 
 The 2026-08-28 matched macOS Release checkpoint used .NET 10.0.5, three
 warmups, 24 samples, 100 variable attributed INSERTs with 21-character Inter
@@ -4256,21 +4280,26 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   [ATTDEF DXF contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-F0EA099B-6F88-4BCC-BEC7-247BA64838A4.htm),
   [ATTRIB DXF contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-DXF/files/GUID-7DD8B495-C3F8-48CD-A766-14F9D7D0DD9B.htm),
   [`SetAttributeFromBlock`](https://help.autodesk.com/cloudhelp/2024/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_AttributeReference_SetAttributeFromBlock_Matrix3d.html),
+  [`SetAttributeFromBlock` definition-and-transform overload](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-ManagedRefGuide/files/OREFNET-Autodesk_AutoCAD_DatabaseServices_AttributeReference_SetAttributeFromBlock_AttributeDefinition_Matrix3d.html),
   [constant-reference ownership](https://help.autodesk.com/cloudhelp/2022/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_AttributeReference_IsConstant.html),
   [attribute modes](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-67A2DDAD-2217-412F-8AEF-D4495192F45B.htm),
   [definition-property editing](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-F351FDBB-2731-40C1-A186-1B1F47779E32.htm),
   [ATTSYNC value preservation](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-56B14079-250B-4C99-AB3D-F95BA1C32AB7.htm),
+  [ATTREDEF structural behavior](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-MAC-Core/files/GUID-CB8237C2-EB63-4839-9B84-5B890C979CBB.htm),
   [definition/default editing](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-889213DA-A3AF-4020-89F0-1E5049AD26EC.htm),
   and [MINSERT behavior](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-A780A2FA-4A2E-4574-950F-E788AB71F527.htm)
   were treated as the public CAD contract. Adopted definition-owned constants,
   reference-owned variable values, invisible display/plot suppression, embedded
   multiline content, transform-baked reference geometry, array-cell replication,
-  and default-only variable-definition edits: existing assigned references stay
-  unchanged while future INSERTs inherit the edited default. ATTSYNC remains a
-  separate future property-synchronization contract and must preserve assigned
-  reference values. Rejected rendering replaceable defaults, rewriting existing
-  reference values during a default edit, duplicating malformed constant
-  references, and applying INSERT geometry twice.
+  default-only variable-definition edits, and ATTSYNC's all-reference property
+  propagation with assigned-value preservation. Existing assigned references
+  stay unchanged while future INSERTs inherit an edited default; property sync
+  instead rebuilds reference properties from each definition and INSERT
+  transform without replacing the assigned value. Adapted structural behavior
+  to an explicit rejection until a handle-preserving reversible collection
+  contract exists. Rejected rendering replaceable defaults, rewriting existing
+  reference values during either edit, nontransactional structural repair,
+  duplicating malformed constant references, and applying INSERT geometry twice.
   [Skia's shaped-text stages](https://docs.skia.org/docs/dev/design/text_shaper/),
   [DirectWrite/Direct2D separation and reusable layouts](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite),
   [Win2D retained text layout](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm),
@@ -4288,8 +4317,9 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   The exact approved in-repository implementation provenance is
   `CadSnapshotCompiler.cs` (`CompileText` and INSERT traversal),
   `CadSnapshotCompiler.MText.cs`, `CadSnapshotCompiler.ShxMText.cs`,
-  `CadSelection.cs`, `CadPlanSceneCompiler.cs`, `CadAttributeEditing.cs`, and
-  `CadPrintPlan.cs`; these original ProGPU algorithms are directly reused.
+  `CadSelection.cs`, `CadPlanSceneCompiler.cs`, `CadAttributeEditing.cs`,
+  `CadAttributeSynchronization.cs`, and `CadPrintPlan.cs`; these original
+  ProGPU algorithms are directly reused.
   ACadSharp's public object model and pinned fixtures were inspected only to
   identify persisted contracts and independently observable placement; no
   dependency implementation text or structure was copied. The native C++ tree

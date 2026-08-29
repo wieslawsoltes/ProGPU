@@ -68,6 +68,17 @@ managed/native retained-text compilation are covered. The existing TEXT/MTEXT
 renderer, caches, shaders, and native ABI are unchanged, so this slice makes no
 rendering-performance claim.
 
+The same selected-INSERT workflow now includes a bounded `Sync properties`
+edit. It synchronizes entity, text, tag, mode, and transform-baked geometry
+properties from the block definitions across every registered reference while
+preserving assigned values. Duplicate tags and tag renames retain deterministic
+value ownership; the complete batch is preflighted and exactly reversible.
+Locked references, XRef/unloaded or dynamic blocks, malformed multiline data,
+and structural definition/reference count differences are rejected before any
+mutation. Structural add/remove synchronization remains gated on an ACadSharp
+handle-preserving reversible sequence contract. Focused semantic, persistence,
+shared-shell, and managed/native retained-picture regressions cover the slice.
+
 ## Preview.62 retained SaveLayer optimization closure
 
 The alternating three-process Release comparison uses official SkiaSharp

@@ -1350,6 +1350,33 @@ public sealed class CadSampleCanvas : FrameworkElement
         return true;
     }
 
+    /// <summary>
+    /// Synchronizes definition-owned properties across every reference to the
+    /// block selected through exactly one INSERT, preserving assigned values.
+    /// </summary>
+    public CadAttributeSynchronizationResult?
+        SynchronizeSelectedBlockAttributeProperties()
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount != 1)
+        {
+            return null;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        var command = new CadSynchronizeBlockAttributePropertiesCommand(
+            _selectedHandles[0]);
+        ulong generation = history.Execute(command);
+        RecompileAfterEdit(session);
+        return new CadAttributeSynchronizationResult(
+            generation,
+            command.InsertCount,
+            command.AttributeCount);
+    }
+
     /// <summary>Sets the complete selection to one CAD color as one edit.</summary>
     public bool SetSelectionColor(ACadSharp.Color color)
     {
