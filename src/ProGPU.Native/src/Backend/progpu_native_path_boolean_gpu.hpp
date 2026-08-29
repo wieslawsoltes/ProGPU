@@ -258,7 +258,9 @@ gpu_program_reference append_gpu_records(
                 node.max_x,
                 node.max_y,
                 node.fill_rule,
-                0U});
+                node.kind == PROGPU_NATIVE_PATH_BOOLEAN_WINDING_LEAF
+                    ? 1U
+                    : 0U});
         } else if (node.kind == PROGPU_NATIVE_PATH_BOOLEAN_EMPTY) {
             tokens[index] = gpu_empty_token;
         } else {
@@ -268,8 +270,7 @@ gpu_program_reference append_gpu_records(
                 node.kind == PROGPU_NATIVE_PATH_BOOLEAN_WINDING_NEGATE;
         }
     }
-    const bool split_program =
-        !signed_winding_program &&
+    const bool split_program = signed_winding_program ||
         (pure_left_fold_xor_leaf_count(path, nodes) != 0U ||
             has_overlapping_translated_equivalent_leaves(
                 segments,

@@ -17,6 +17,18 @@ inline constexpr std::uint32_t native_initial_atlas_size = 1024U;
 inline constexpr std::uint32_t native_max_atlas_size = 4096U;
 inline constexpr std::uint32_t path_padding = 4U;
 inline constexpr std::uint32_t webgpu_copy_row_alignment = 256U;
+// WebGPU exposes a 256-byte row-pitch rule, while D3D12 placed texture
+// footprints additionally require the source offset to be 512-byte aligned.
+// Using the stricter portable placement alignment keeps buffer-to-atlas copies
+// valid on native D3D12 drivers and translation layers.
+inline constexpr std::uint32_t webgpu_copy_offset_alignment = 512U;
+inline constexpr std::uint32_t path_maximum_sample_grid = 8U;
+inline constexpr std::uint32_t path_maximum_sample_count =
+    path_maximum_sample_grid * path_maximum_sample_grid;
+inline constexpr std::uint32_t path_sample_mask_word_count = 2U;
+
+static_assert(
+    webgpu_copy_offset_alignment % webgpu_copy_row_alignment == 0U);
 
 enum class layer_family : std::uint32_t {
     solid = 1U,

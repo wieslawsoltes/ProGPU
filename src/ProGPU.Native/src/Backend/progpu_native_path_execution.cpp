@@ -127,9 +127,13 @@ progpu_native_status render_paths(
 
     std::vector<gpu_path_uniforms> path_uniforms;
     std::vector<std::vector<gpu_path_uniforms>> split_leaf_uniforms;
+    std::vector<std::vector<gpu_path_uniforms>>
+        split_signed_leaf_uniforms;
     std::vector<gpu_path_record> path_records;
     std::vector<gpu_path_coverage_combine_uniforms>
         coverage_combine_uniforms;
+    std::vector<gpu_path_coverage_combine_uniforms>
+        signed_coverage_combine_uniforms;
     if (!compiled_payload_hit) {
         engine->path_cache_valid = false;
         engine->path_gpu_cache_valid = false;
@@ -140,6 +144,7 @@ progpu_native_status render_paths(
             engine->path_rasters.clear();
             path_uniforms.reserve(frame->path_count);
             coverage_combine_uniforms.reserve(frame->path_count);
+            signed_coverage_combine_uniforms.reserve(frame->path_count);
             path_records.reserve(
                 frame->path_count + boolean_node_count * 2U);
             engine->path_rasters.reserve(frame->path_count);
@@ -300,7 +305,7 @@ progpu_native_status render_paths(
                         webgpu_copy_row_alignment);
                     const std::uint64_t aligned_output_offset = align_up_u64(
                         output_offset,
-                        webgpu_copy_row_alignment);
+                        webgpu_copy_offset_alignment);
                     if (aligned_output_offset >
                         std::numeric_limits<std::uint32_t>::max()) {
                         return engine->fail(
@@ -341,17 +346,33 @@ progpu_native_status render_paths(
                             frame->segments,
                             frame->segment_count));
                     if (program.split_leaf_count != 0U) {
+                        const bool signed_winding_program =
+                            (program.operation_kind &
+                                path_boolean::gpu_signed_winding_program_flag) !=
+                            0U;
+                        const std::uint64_t leaf_words_per_pixel =
+                            signed_winding_program
+                                ? path_maximum_sample_count
+                                : path_sample_mask_word_count;
                         const std::uint64_t leaf_words_per_row =
-                            static_cast<std::uint64_t>(width) * 2U;
+                            static_cast<std::uint64_t>(width) *
+                            leaf_words_per_pixel;
                         const std::uint64_t leaf_bytes =
                             leaf_words_per_row * sizeof(std::uint32_t) *
                             height;
                         const std::uint64_t source_offset = align_up_u64(
                             next_output,
                             webgpu_copy_row_alignment);
+                        const std::uint64_t signed_result_bytes =
+                            signed_winding_program
+                                ? static_cast<std::uint64_t>(width) * height *
+                                    path_sample_mask_word_count *
+                                    sizeof(std::uint32_t)
+                                : 0U;
                         const std::uint64_t split_next_output =
                             source_offset + leaf_bytes *
-                                program.split_leaf_count;
+                                program.split_leaf_count +
+                            signed_result_bytes;
                         if (split_next_output >
                             std::numeric_limits<std::uint32_t>::max()) {
                             return engine->fail(
@@ -365,6 +386,7 @@ progpu_native_status render_paths(
                             subpixel_y,
                             raster_scale,
                             leaf_words_per_row,
+                            signed_winding_program,
                             width,
                             height,
                             &path](
@@ -384,22 +406,32 @@ progpu_native_status render_paths(
                                 height,
                                 path.sample_grid,
                                 0U,
-                                0U});
+                                signed_winding_program
+                                    ? path_boolean::
+                                        gpu_signed_winding_program_flag
+                                    : 0U});
                         };
-                        split_leaf_uniforms.resize(
-                            program.split_leaf_count);
+                        auto& selected_leaf_uniforms = signed_winding_program
+                            ? split_signed_leaf_uniforms
+                            : split_leaf_uniforms;
+                        if (selected_leaf_uniforms.size() <
+                            program.split_leaf_count) {
+                            selected_leaf_uniforms.resize(
+                                program.split_leaf_count);
+                        }
                         for (std::uint32_t leaf_index = 0U;
                              leaf_index < program.split_leaf_count;
                              ++leaf_index) {
                             const std::uint64_t leaf_output_offset =
                                 source_offset + leaf_bytes * leaf_index;
                             append_leaf_uniform(
-                                split_leaf_uniforms[leaf_index],
+                                selected_leaf_uniforms[leaf_index],
                                 program.path_record_index + leaf_index,
                                 static_cast<std::uint32_t>(
                                     leaf_output_offset));
                         }
-                        coverage_combine_uniforms.push_back({
+                        const gpu_path_coverage_combine_uniforms
+                            combine_uniform{
                             static_cast<std::uint32_t>(source_offset) / 4U,
                             static_cast<std::uint32_t>(leaf_bytes) / 4U,
                             program.split_leaf_count,
@@ -410,7 +442,14 @@ progpu_native_status render_paths(
                             output_bytes_per_row / 4U,
                             width,
                             height,
-                            path.sample_grid});
+                            path.sample_grid};
+                        if (signed_winding_program) {
+                            signed_coverage_combine_uniforms.push_back(
+                                combine_uniform);
+                        } else {
+                            coverage_combine_uniforms.push_back(
+                                combine_uniform);
+                        }
                         output_offset =
                             static_cast<std::uint32_t>(split_next_output);
                     } else {
@@ -555,8 +594,12 @@ progpu_native_status render_paths(
     if (engine->path_atlas_texture == nullptr) {
         engine->path_atlas_size = required_atlas_size;
     }
-    if (!create_path_resources(*engine) ||
-        !resize_path_atlas(*engine, required_atlas_size)) {
+    if (!create_path_resources(*engine)) {
+        return engine->fail(
+            PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+            "The native path atlas WebGPU resources could not be created.");
+    }
+    if (!resize_path_atlas(*engine, required_atlas_size)) {
         return engine->fail(
             PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
             "The native path atlas WebGPU resources could not be created.");
@@ -565,7 +608,6 @@ progpu_native_status render_paths(
         engine->path_atlas_generation == atlas_generation_before) {
         ++engine->path_atlas_generation;
     }
-
     const std::uint64_t vertex_bytes = engine->path_vertices.size() *
         sizeof(progpu::native::vector_vertex);
     const std::uint64_t index_bytes = engine->path_indices.size() *
@@ -625,13 +667,21 @@ progpu_native_status render_paths(
     path_raster_resources temporary;
     WGPUBuffer& path_uniform_buffer = temporary.uniforms;
     auto& split_leaf_uniform_buffers = temporary.split_leaf_uniforms;
+    auto& split_signed_leaf_uniform_buffers =
+        temporary.split_signed_leaf_uniforms;
     WGPUBuffer& path_record_buffer = temporary.records;
     WGPUBuffer& path_segment_buffer = temporary.segments;
     WGPUBuffer& coverage_buffer = temporary.coverage;
     WGPUBuffer& coverage_combine_uniform_buffer =
         temporary.coverage_combine_uniforms;
+    WGPUBuffer& signed_coverage_combine_uniform_buffer =
+        temporary.signed_coverage_combine_uniforms;
     WGPUBindGroup& raster_bind_group = temporary.bind_group;
     auto& split_leaf_bind_groups = temporary.split_leaf_bind_groups;
+    auto& split_signed_leaf_bind_groups =
+        temporary.split_signed_leaf_bind_groups;
+    WGPUBindGroup& signed_combine_bind_group =
+        temporary.signed_combine_bind_group;
     const auto create_buffer = [&](
         const char* label,
         std::uint64_t size,
@@ -665,6 +715,21 @@ progpu_native_status render_paths(
                     WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
             }
         }
+        split_signed_leaf_uniform_buffers.resize(
+            split_signed_leaf_uniforms.size(),
+            nullptr);
+        for (std::size_t phase_index = 0U;
+             phase_index < split_signed_leaf_uniforms.size();
+             ++phase_index) {
+            if (!split_signed_leaf_uniforms[phase_index].empty()) {
+                split_signed_leaf_uniform_buffers[phase_index] =
+                    create_buffer(
+                        "ProGPU native split signed-winding leaf uniforms",
+                        split_signed_leaf_uniforms[phase_index].size() *
+                            sizeof(gpu_path_uniforms),
+                        WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+            }
+        }
         path_record_buffer = create_buffer(
             "ProGPU native path records",
             path_records.size() * sizeof(gpu_path_record),
@@ -683,6 +748,12 @@ progpu_native_status render_paths(
                 coverage_combine_uniforms.size(),
                 1U) * sizeof(gpu_path_coverage_combine_uniforms),
             WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
+        signed_coverage_combine_uniform_buffer = create_buffer(
+            "ProGPU native signed-winding combine uniforms",
+            std::max<std::size_t>(
+                signed_coverage_combine_uniforms.size(),
+                1U) * sizeof(gpu_path_coverage_combine_uniforms),
+            WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst);
         bool split_buffer_allocation_failed = false;
         for (std::size_t phase_index = 0U;
              phase_index < split_leaf_uniforms.size();
@@ -691,10 +762,18 @@ progpu_native_status render_paths(
                 !split_leaf_uniforms[phase_index].empty() &&
                 split_leaf_uniform_buffers[phase_index] == nullptr;
         }
+        for (std::size_t phase_index = 0U;
+             phase_index < split_signed_leaf_uniforms.size();
+             ++phase_index) {
+            split_buffer_allocation_failed |=
+                !split_signed_leaf_uniforms[phase_index].empty() &&
+                split_signed_leaf_uniform_buffers[phase_index] == nullptr;
+        }
         if (path_uniform_buffer == nullptr || split_buffer_allocation_failed ||
             path_record_buffer == nullptr ||
             path_segment_buffer == nullptr || coverage_buffer == nullptr ||
-            coverage_combine_uniform_buffer == nullptr) {
+            coverage_combine_uniform_buffer == nullptr ||
+            signed_coverage_combine_uniform_buffer == nullptr) {
             return engine->fail(
                 PROGPU_NATIVE_STATUS_OUT_OF_MEMORY,
                 "The native path raster staging buffers could not be allocated.");
@@ -726,6 +805,22 @@ progpu_native_status render_paths(
                     phase_bytes);
             }
         }
+        for (std::size_t phase_index = 0U;
+             phase_index < split_signed_leaf_uniforms.size();
+             ++phase_index) {
+            const std::uint64_t phase_bytes =
+                split_signed_leaf_uniforms[phase_index].size() *
+                    sizeof(gpu_path_uniforms);
+            split_leaf_uniform_bytes += phase_bytes;
+            if (phase_bytes != 0U) {
+                wgpuQueueWriteBuffer(
+                    engine->queue,
+                    split_signed_leaf_uniform_buffers[phase_index],
+                    0U,
+                    split_signed_leaf_uniforms[phase_index].data(),
+                    phase_bytes);
+            }
+        }
         wgpuQueueWriteBuffer(engine->queue, path_record_buffer, 0U,
             path_records.data(), record_bytes);
         wgpuQueueWriteBuffer(engine->queue, path_segment_buffer, 0U,
@@ -741,8 +836,20 @@ progpu_native_status render_paths(
                 coverage_combine_uniforms.data(),
                 combine_uniform_bytes);
         }
+        const std::uint64_t signed_combine_uniform_bytes =
+            signed_coverage_combine_uniforms.size() *
+                sizeof(gpu_path_coverage_combine_uniforms);
+        if (signed_combine_uniform_bytes != 0U) {
+            wgpuQueueWriteBuffer(
+                engine->queue,
+                signed_coverage_combine_uniform_buffer,
+                0U,
+                signed_coverage_combine_uniforms.data(),
+                signed_combine_uniform_bytes);
+        }
         path_upload_bytes = uniform_bytes + split_leaf_uniform_bytes +
-            record_bytes + segment_bytes + combine_uniform_bytes;
+            record_bytes + segment_bytes + combine_uniform_bytes +
+            signed_combine_uniform_bytes;
 
         const auto create_raster_bind_group = [
             engine,
@@ -751,12 +858,12 @@ progpu_native_status render_paths(
             path_segment_buffer,
             segment_bytes,
             coverage_buffer,
-            coverage_staging_bytes,
-            coverage_combine_uniform_buffer,
-            combine_uniform_bytes](
+            coverage_staging_bytes](
             const char* label,
             WGPUBuffer uniform_buffer,
-            std::uint64_t uniform_size) {
+            std::uint64_t uniform_size,
+            WGPUBuffer combine_buffer,
+            std::uint64_t combine_size) {
             const std::array<WGPUBindGroupEntry, 5U> entries{{
                 {nullptr, 0U, uniform_buffer, 0U,
                     std::max<std::uint64_t>(
@@ -769,9 +876,9 @@ progpu_native_status render_paths(
                     nullptr, nullptr},
                 {nullptr, 3U, coverage_buffer, 0U,
                     coverage_staging_bytes, nullptr, nullptr},
-                {nullptr, 4U, coverage_combine_uniform_buffer, 0U,
+                {nullptr, 4U, combine_buffer, 0U,
                     std::max<std::uint64_t>(
-                        combine_uniform_bytes,
+                        combine_size,
                         sizeof(gpu_path_coverage_combine_uniforms)),
                     nullptr, nullptr}
             }};
@@ -785,7 +892,9 @@ progpu_native_status render_paths(
         raster_bind_group = create_raster_bind_group(
             "ProGPU native path raster bind group",
             path_uniform_buffer,
-            uniform_bytes);
+            uniform_bytes,
+            coverage_combine_uniform_buffer,
+            combine_uniform_bytes);
         split_leaf_bind_groups.resize(split_leaf_uniforms.size(), nullptr);
         bool split_bind_group_creation_failed = false;
         for (std::size_t phase_index = 0U;
@@ -799,10 +908,43 @@ progpu_native_status render_paths(
                     create_raster_bind_group(
                         "ProGPU native split boolean leaf bind group",
                         split_leaf_uniform_buffers[phase_index],
-                        phase_bytes);
+                        phase_bytes,
+                        coverage_combine_uniform_buffer,
+                        combine_uniform_bytes);
                 split_bind_group_creation_failed |=
                     split_leaf_bind_groups[phase_index] == nullptr;
             }
+        }
+        split_signed_leaf_bind_groups.resize(
+            split_signed_leaf_uniforms.size(),
+            nullptr);
+        for (std::size_t phase_index = 0U;
+             phase_index < split_signed_leaf_uniforms.size();
+             ++phase_index) {
+            const std::uint64_t phase_bytes =
+                split_signed_leaf_uniforms[phase_index].size() *
+                    sizeof(gpu_path_uniforms);
+            if (phase_bytes != 0U) {
+                split_signed_leaf_bind_groups[phase_index] =
+                    create_raster_bind_group(
+                        "ProGPU native split signed-winding leaf bind group",
+                        split_signed_leaf_uniform_buffers[phase_index],
+                        phase_bytes,
+                        signed_coverage_combine_uniform_buffer,
+                        signed_combine_uniform_bytes);
+                split_bind_group_creation_failed |=
+                    split_signed_leaf_bind_groups[phase_index] == nullptr;
+            }
+        }
+        if (!signed_coverage_combine_uniforms.empty()) {
+            signed_combine_bind_group = create_raster_bind_group(
+                "ProGPU native signed-winding combine bind group",
+                path_uniform_buffer,
+                uniform_bytes,
+                signed_coverage_combine_uniform_buffer,
+                signed_combine_uniform_bytes);
+            split_bind_group_creation_failed |=
+                signed_combine_bind_group == nullptr;
         }
         if (raster_bind_group == nullptr ||
             split_bind_group_creation_failed) {
@@ -813,7 +955,8 @@ progpu_native_status render_paths(
     }
 
     const bool split_raster_submissions =
-        !coverage_combine_uniforms.empty();
+        !coverage_combine_uniforms.empty() ||
+        !signed_coverage_combine_uniforms.empty();
     const bool restore_semantic_encoder = split_raster_submissions &&
         engine->semantic_encoder != nullptr;
     if (restore_semantic_encoder) {
@@ -883,12 +1026,43 @@ progpu_native_status render_paths(
                 workgroups_y,
                 (raster.height + 15U) / 16U);
         }
+        std::uint32_t signed_leaf_workgroups_x = 0U;
+        std::uint32_t signed_leaf_workgroups_y = 0U;
+        for (const auto& phase : split_signed_leaf_uniforms) {
+            for (const auto& uniform : phase) {
+                signed_leaf_workgroups_x = std::max(
+                    signed_leaf_workgroups_x,
+                    (uniform.width + 15U) / 16U);
+                signed_leaf_workgroups_y = std::max(
+                    signed_leaf_workgroups_y,
+                    (uniform.height * 8U + 15U) / 16U);
+            }
+        }
+        std::uint32_t signed_pack_workgroups_x = 0U;
+        std::uint32_t signed_pack_workgroups_y = 0U;
+        std::uint32_t signed_sample_workgroups_x = 0U;
+        std::uint32_t signed_sample_workgroups_y = 0U;
+        for (const auto& uniform : signed_coverage_combine_uniforms) {
+            signed_pack_workgroups_x = std::max(
+                signed_pack_workgroups_x,
+                (uniform.width + 63U) / 64U);
+            signed_pack_workgroups_y = std::max(
+                signed_pack_workgroups_y,
+                (uniform.height + 15U) / 16U);
+            signed_sample_workgroups_x = std::max(
+                signed_sample_workgroups_x,
+                (uniform.width + 15U) / 16U);
+            signed_sample_workgroups_y = std::max(
+                signed_sample_workgroups_y,
+                (uniform.height + 15U) / 16U);
+        }
         const auto encode_raster_pass = [&](
             const char* label,
             WGPUBindGroup bind_group,
             std::size_t uniform_count,
             WGPUComputePipeline pipeline,
-            std::uint32_t dispatch_x) {
+            std::uint32_t dispatch_x,
+            std::uint32_t dispatch_y) {
             if (uniform_count == 0U) {
                 return true;
             }
@@ -914,7 +1088,7 @@ progpu_native_status render_paths(
             wgpuComputePassEncoderDispatchWorkgroups(
                 compute_pass,
                 dispatch_x,
-                workgroups_y,
+                dispatch_y,
                 static_cast<std::uint32_t>(uniform_count));
             wgpuComputePassEncoderEnd(compute_pass);
             wgpuComputePassEncoderRelease(compute_pass);
@@ -925,7 +1099,8 @@ progpu_native_status render_paths(
                 raster_bind_group,
                 path_uniforms.size(),
                 engine->path_raster_pipeline,
-                workgroups_x)) {
+                workgroups_x,
+                workgroups_y)) {
             if (owns_encoder && encoder != nullptr) {
                 wgpuCommandEncoderRelease(encoder);
             }
@@ -941,7 +1116,8 @@ progpu_native_status render_paths(
                     split_leaf_bind_groups[phase_index],
                     split_leaf_uniforms[phase_index].size(),
                     engine->path_split_leaf_pipeline,
-                    split_workgroups_x)) {
+                    split_workgroups_x,
+                    workgroups_y)) {
                 if (owns_encoder && encoder != nullptr) {
                     wgpuCommandEncoderRelease(encoder);
                 }
@@ -956,6 +1132,66 @@ progpu_native_status render_paths(
                     PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
                     "A native path split boolean raster phase could not be submitted.");
             }
+        }
+        for (std::size_t phase_index = 0U;
+             phase_index < split_signed_leaf_uniforms.size();
+             ++phase_index) {
+            if (!encode_raster_pass(
+                    "ProGPU native path signed-winding leaf coverage pass",
+                    split_signed_leaf_bind_groups[phase_index],
+                    split_signed_leaf_uniforms[phase_index].size(),
+                    engine->path_split_signed_leaf_pipeline,
+                    signed_leaf_workgroups_x,
+                    signed_leaf_workgroups_y)) {
+                if (owns_encoder && encoder != nullptr) {
+                    wgpuCommandEncoderRelease(encoder);
+                }
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "A native path signed-winding leaf pass could not be created.");
+            }
+            if (!submit_raster_phase(
+                    "ProGPU native path signed-winding leaf commands")) {
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "A native path signed-winding leaf phase could not be submitted.");
+            }
+        }
+
+        if (!signed_coverage_combine_uniforms.empty()) {
+            WGPUComputePassDescriptor row_descriptor{};
+            row_descriptor.label =
+                progpu::native::webgpu::string_view(
+                    "ProGPU native path signed-winding sample combine pass");
+            WGPUComputePassEncoder row_pass =
+                wgpuCommandEncoderBeginComputePass(
+                    encoder,
+                    &row_descriptor);
+            if (row_pass == nullptr) {
+                if (owns_encoder) {
+                    wgpuCommandEncoderRelease(encoder);
+                }
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "The native path signed-winding sample pass could not be created.");
+            }
+            wgpuComputePassEncoderSetPipeline(
+                row_pass,
+                engine->path_split_signed_rows_pipeline);
+            wgpuComputePassEncoderSetBindGroup(
+                row_pass,
+                0U,
+                signed_combine_bind_group,
+                0U,
+                nullptr);
+            wgpuComputePassEncoderDispatchWorkgroups(
+                row_pass,
+                signed_sample_workgroups_x,
+                signed_sample_workgroups_y,
+                static_cast<std::uint32_t>(
+                    signed_coverage_combine_uniforms.size()));
+            wgpuComputePassEncoderEnd(row_pass);
+            wgpuComputePassEncoderRelease(row_pass);
         }
 
         if (!coverage_combine_uniforms.empty()) {
@@ -990,6 +1226,42 @@ progpu_native_status render_paths(
                 workgroups_y,
                 static_cast<std::uint32_t>(
                     coverage_combine_uniforms.size()));
+            wgpuComputePassEncoderEnd(combine_pass);
+            wgpuComputePassEncoderRelease(combine_pass);
+        }
+
+        if (!signed_coverage_combine_uniforms.empty()) {
+            WGPUComputePassDescriptor combine_descriptor{};
+            combine_descriptor.label =
+                progpu::native::webgpu::string_view(
+                    "ProGPU native path signed-winding coverage pack pass");
+            WGPUComputePassEncoder combine_pass =
+                wgpuCommandEncoderBeginComputePass(
+                    encoder,
+                    &combine_descriptor);
+            if (combine_pass == nullptr) {
+                if (owns_encoder) {
+                    wgpuCommandEncoderRelease(encoder);
+                }
+                return engine->fail(
+                    PROGPU_NATIVE_STATUS_INTERNAL_ERROR,
+                    "The native path signed-winding pack pass could not be created.");
+            }
+            wgpuComputePassEncoderSetPipeline(
+                combine_pass,
+                engine->path_split_signed_coverage_pipeline);
+            wgpuComputePassEncoderSetBindGroup(
+                combine_pass,
+                0U,
+                signed_combine_bind_group,
+                0U,
+                nullptr);
+            wgpuComputePassEncoderDispatchWorkgroups(
+                combine_pass,
+                signed_pack_workgroups_x,
+                signed_pack_workgroups_y,
+                static_cast<std::uint32_t>(
+                    signed_coverage_combine_uniforms.size()));
             wgpuComputePassEncoderEnd(combine_pass);
             wgpuComputePassEncoderRelease(combine_pass);
         }

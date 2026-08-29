@@ -77,8 +77,14 @@ struct progpu_native_engine {
     WGPUTexture analytic_sentinel_texture = nullptr;
     WGPUTextureView analytic_sentinel_texture_view = nullptr;
     WGPUShaderModule path_raster_shader = nullptr;
+    WGPUShaderModule path_signed_winding_leaf_shader = nullptr;
+    WGPUShaderModule path_signed_winding_evaluate_shader = nullptr;
+    WGPUShaderModule path_signed_winding_coverage_shader = nullptr;
     WGPUComputePipeline path_raster_pipeline = nullptr;
     WGPUComputePipeline path_split_leaf_pipeline = nullptr;
+    WGPUComputePipeline path_split_signed_leaf_pipeline = nullptr;
+    WGPUComputePipeline path_split_signed_rows_pipeline = nullptr;
+    WGPUComputePipeline path_split_signed_coverage_pipeline = nullptr;
     WGPUComputePipeline path_split_boolean_combine_pipeline = nullptr;
     WGPUBindGroupLayout path_raster_layout = nullptr;
     WGPUPipelineLayout path_raster_pipeline_layout = nullptr;
@@ -1692,6 +1698,15 @@ struct progpu_native_engine {
         if (path_split_leaf_pipeline != nullptr) {
             wgpuComputePipelineRelease(path_split_leaf_pipeline);
         }
+        if (path_split_signed_leaf_pipeline != nullptr) {
+            wgpuComputePipelineRelease(path_split_signed_leaf_pipeline);
+        }
+        if (path_split_signed_rows_pipeline != nullptr) {
+            wgpuComputePipelineRelease(path_split_signed_rows_pipeline);
+        }
+        if (path_split_signed_coverage_pipeline != nullptr) {
+            wgpuComputePipelineRelease(path_split_signed_coverage_pipeline);
+        }
         if (path_split_boolean_combine_pipeline != nullptr) {
             wgpuComputePipelineRelease(path_split_boolean_combine_pipeline);
         }
@@ -1703,6 +1718,15 @@ struct progpu_native_engine {
         }
         if (path_raster_shader != nullptr) {
             wgpuShaderModuleRelease(path_raster_shader);
+        }
+        if (path_signed_winding_leaf_shader != nullptr) {
+            wgpuShaderModuleRelease(path_signed_winding_leaf_shader);
+        }
+        if (path_signed_winding_evaluate_shader != nullptr) {
+            wgpuShaderModuleRelease(path_signed_winding_evaluate_shader);
+        }
+        if (path_signed_winding_coverage_shader != nullptr) {
+            wgpuShaderModuleRelease(path_signed_winding_coverage_shader);
         }
         if (index_buffer != nullptr) {
             wgpuBufferDestroy(index_buffer);

@@ -79,6 +79,18 @@ set(PROGPU_NATIVE_VECTOR_SHADER
 set(PROGPU_NATIVE_PATH_RASTERIZER_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathRasterizer.wgsl"
     CACHE FILEPATH "Shared ProGPU path-rasterizer shader source")
+set(PROGPU_NATIVE_PATH_RASTERIZER_COMMON_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathRasterizerCommon.wgsl"
+    CACHE FILEPATH "Shared ProGPU path-rasterizer declarations and algorithms")
+set(PROGPU_NATIVE_PATH_SIGNED_WINDING_LEAF_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathSignedWindingLeaf.wgsl"
+    CACHE FILEPATH "Shared ProGPU signed-winding leaf shader source")
+set(PROGPU_NATIVE_PATH_SIGNED_WINDING_EVALUATE_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathSignedWindingEvaluate.wgsl"
+    CACHE FILEPATH "Shared ProGPU signed-winding evaluator shader source")
+set(PROGPU_NATIVE_PATH_SIGNED_WINDING_COVERAGE_SHADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/PathSignedWindingCoverage.wgsl"
+    CACHE FILEPATH "Shared ProGPU signed-winding coverage shader source")
 set(PROGPU_NATIVE_GLYPH_RASTERIZER_SHADER
     "${CMAKE_CURRENT_SOURCE_DIR}/../ProGPU.Backend/Shaders/GlyphRasterizer.wgsl"
     CACHE FILEPATH "Shared ProGPU glyph-rasterizer shader source")
@@ -176,6 +188,22 @@ if(NOT EXISTS "${PROGPU_NATIVE_VECTOR_SHADER}")
 endif()
 if(NOT EXISTS "${PROGPU_NATIVE_PATH_RASTERIZER_SHADER}")
     message(FATAL_ERROR "The shared ProGPU PathRasterizer.wgsl source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_PATH_RASTERIZER_COMMON_SHADER}")
+    message(FATAL_ERROR
+        "The shared ProGPU PathRasterizerCommon.wgsl source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_PATH_SIGNED_WINDING_LEAF_SHADER}")
+    message(FATAL_ERROR
+        "The shared ProGPU PathSignedWindingLeaf.wgsl source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_PATH_SIGNED_WINDING_EVALUATE_SHADER}")
+    message(FATAL_ERROR
+        "The shared ProGPU PathSignedWindingEvaluate.wgsl source is missing")
+endif()
+if(NOT EXISTS "${PROGPU_NATIVE_PATH_SIGNED_WINDING_COVERAGE_SHADER}")
+    message(FATAL_ERROR
+        "The shared ProGPU PathSignedWindingCoverage.wgsl source is missing")
 endif()
 if(NOT EXISTS "${PROGPU_NATIVE_GLYPH_RASTERIZER_SHADER}")
     message(FATAL_ERROR "The shared ProGPU GlyphRasterizer.wgsl source is missing")
@@ -345,13 +373,59 @@ add_custom_command(
     OUTPUT "${generated_path_rasterizer_shader}"
     COMMAND "${CMAKE_COMMAND}"
         "-DINPUT=${PROGPU_NATIVE_PATH_RASTERIZER_SHADER}"
+        "-DPREFIX_INPUT=${PROGPU_NATIVE_PATH_RASTERIZER_COMMON_SHADER}"
         "-DOUTPUT=${generated_path_rasterizer_shader}"
         "-DSYMBOL=path_rasterizer_wgsl"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     DEPENDS
         "${PROGPU_NATIVE_PATH_RASTERIZER_SHADER}"
+        "${PROGPU_NATIVE_PATH_RASTERIZER_COMMON_SHADER}"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
     COMMENT "Embedding the shared ProGPU PathRasterizer.wgsl shader"
+    VERBATIM)
+set(generated_path_signed_winding_leaf_shader
+    "${generated_directory}/PathSignedWindingLeafWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_path_signed_winding_leaf_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_PATH_SIGNED_WINDING_LEAF_SHADER}"
+        "-DPREFIX_INPUT=${PROGPU_NATIVE_PATH_RASTERIZER_COMMON_SHADER}"
+        "-DOUTPUT=${generated_path_signed_winding_leaf_shader}"
+        "-DSYMBOL=path_signed_winding_leaf_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_PATH_SIGNED_WINDING_LEAF_SHADER}"
+        "${PROGPU_NATIVE_PATH_RASTERIZER_COMMON_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the ProGPU signed-winding leaf shader"
+    VERBATIM)
+set(generated_path_signed_winding_evaluate_shader
+    "${generated_directory}/PathSignedWindingEvaluateWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_path_signed_winding_evaluate_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_PATH_SIGNED_WINDING_EVALUATE_SHADER}"
+        "-DOUTPUT=${generated_path_signed_winding_evaluate_shader}"
+        "-DSYMBOL=path_signed_winding_evaluate_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_PATH_SIGNED_WINDING_EVALUATE_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the ProGPU signed-winding evaluator shader"
+    VERBATIM)
+set(generated_path_signed_winding_coverage_shader
+    "${generated_directory}/PathSignedWindingCoverageWgsl.generated.hpp")
+add_custom_command(
+    OUTPUT "${generated_path_signed_winding_coverage_shader}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${PROGPU_NATIVE_PATH_SIGNED_WINDING_COVERAGE_SHADER}"
+        "-DOUTPUT=${generated_path_signed_winding_coverage_shader}"
+        "-DSYMBOL=path_signed_winding_coverage_wgsl"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    DEPENDS
+        "${PROGPU_NATIVE_PATH_SIGNED_WINDING_COVERAGE_SHADER}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedShader.cmake"
+    COMMENT "Embedding the ProGPU signed-winding coverage shader"
     VERBATIM)
 set(generated_clip_compose_shader
     "${generated_directory}/ClipComposeWgsl.generated.hpp")
@@ -487,6 +561,9 @@ add_custom_target(progpu_native_generated_shaders
     DEPENDS
         "${generated_vector_shader}"
         "${generated_path_rasterizer_shader}"
+        "${generated_path_signed_winding_leaf_shader}"
+        "${generated_path_signed_winding_evaluate_shader}"
+        "${generated_path_signed_winding_coverage_shader}"
         "${generated_glyph_rasterizer_shader}"
         "${generated_text_shader}"
         "${generated_texture_shader}"
