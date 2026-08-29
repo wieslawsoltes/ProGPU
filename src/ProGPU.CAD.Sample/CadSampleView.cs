@@ -124,17 +124,23 @@ public sealed class CadSampleView : Grid
         _deleteButton = CreateButton("Delete", font, 76, 30);
         Button sendToBack = CreateButton("To back", font, 76, 30);
         Button bringToFront = CreateButton("To front", font, 76, 30);
+        Button bringAbove = CreateButton("Above…", font, 82, 30);
+        Button sendUnder = CreateButton("Under…", font, 82, 30);
         _undoButton.Margin = new Thickness(0, 0, 8, 0);
         _redoButton.Margin = new Thickness(0, 0, 8, 0);
         _deleteButton.Margin = new Thickness(0, 0, 8, 0);
         sendToBack.Margin = new Thickness(0, 0, 4, 0);
-        bringToFront.Margin = new Thickness(0, 0, 12, 0);
-        _drawOrderButtons = [sendToBack, bringToFront];
+        bringToFront.Margin = new Thickness(0, 0, 4, 0);
+        bringAbove.Margin = new Thickness(0, 0, 4, 0);
+        sendUnder.Margin = new Thickness(0, 0, 12, 0);
+        _drawOrderButtons = [sendToBack, bringToFront, bringAbove, sendUnder];
         editActions.AddChild(_undoButton);
         editActions.AddChild(_redoButton);
         editActions.AddChild(_deleteButton);
         editActions.AddChild(sendToBack);
         editActions.AddChild(bringToFront);
+        editActions.AddChild(bringAbove);
+        editActions.AddChild(sendUnder);
         editActions.AddChild(new TextBlock
         {
             Text = "Move step (WCS)",
@@ -259,6 +265,10 @@ public sealed class CadSampleView : Grid
             SetSelectionDrawOrder(CadDrawOrderPlacement.SendToBack);
         bringToFront.Click += (_, _) =>
             SetSelectionDrawOrder(CadDrawOrderPlacement.BringToFront);
+        bringAbove.Click += (_, _) =>
+            BeginSelectionDrawOrderReferencePick(CadDrawOrderPlacement.BringAbove);
+        sendUnder.Click += (_, _) =>
+            BeginSelectionDrawOrderReferencePick(CadDrawOrderPlacement.SendUnder);
         moveNegativeX.Click += (_, _) => MoveSelection(-1, 0);
         movePositiveX.Click += (_, _) => MoveSelection(1, 0);
         moveNegativeY.Click += (_, _) => MoveSelection(0, -1);
@@ -278,6 +288,14 @@ public sealed class CadSampleView : Grid
             UpdateEditControls();
         };
         _canvas.EditStateChanged += (_, _) => UpdateEditControls();
+        _canvas.DrawOrderReferencePickChanged += (_, _) =>
+        {
+            if (!_isBusy && _canvas.PendingDrawOrderPlacement is not null)
+            {
+                SetStatus(DescribeDrawOrderReferencePick());
+            }
+            UpdateEditControls();
+        };
         _canvas.SnapshotChanged += (_, _) => RebuildMesh3DView();
         RebuildMesh3DView();
         UpdateEditControls();
@@ -285,6 +303,24 @@ public sealed class CadSampleView : Grid
 
     public override void OnKeyDown(KeyRoutedEventArgs e)
     {
+        if (!e.Handled &&
+            _canvas.PendingDrawOrderPlacement is not null &&
+            FocusManager.GetFocusedElement() is not TextBox)
+        {
+            if (e.Key == Key.Enter)
+            {
+                CommitSelectionDrawOrderReferencePick();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.Escape)
+            {
+                CancelSelectionDrawOrderReferencePick();
+                e.Handled = true;
+                return;
+            }
+        }
+
         if (!e.Handled &&
             e.Key == Key.Delete &&
             FocusManager.GetFocusedElement() is not TextBox)
@@ -569,6 +605,93 @@ public sealed class CadSampleView : Grid
         }
     }
 
+    private void BeginSelectionDrawOrderReferencePick(
+        CadDrawOrderPlacement placement)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+        try
+        {
+            if (!_canvas.BeginSelectionDrawOrderReferencePick(placement))
+            {
+                SetStatus("Draw order requires at least one selected entity.");
+                return;
+            }
+            SetStatus(DescribeDrawOrderReferencePick());
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Draw order failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void CommitSelectionDrawOrderReferencePick()
+    {
+        if (_isBusy || _canvas.PendingDrawOrderPlacement is null)
+        {
+            return;
+        }
+
+        CadDrawOrderPlacement placement =
+            _canvas.PendingDrawOrderPlacement.Value;
+        int referenceCount = _canvas.DrawOrderReferenceHandleCount;
+        try
+        {
+            if (!_canvas.CommitSelectionDrawOrderReferencePick())
+            {
+                SetStatus(
+                    "Select at least one unselected reference object, then press Enter; Escape cancels.");
+                return;
+            }
+            SetStatus(placement == CadDrawOrderPlacement.BringAbove
+                ? $"Moved the selection immediately above {referenceCount:N0} reference object(s)."
+                : $"Moved the selection immediately under {referenceCount:N0} reference object(s).");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Draw order failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void CancelSelectionDrawOrderReferencePick()
+    {
+        if (!_canvas.CancelSelectionDrawOrderReferencePick())
+        {
+            return;
+        }
+        SetStatus("Draw-order reference selection canceled.");
+        UpdateEditControls();
+    }
+
+    private string DescribeDrawOrderReferencePick()
+    {
+        string placement = _canvas.PendingDrawOrderPlacement ==
+            CadDrawOrderPlacement.BringAbove
+            ? "above"
+            : "under";
+        string unsupported =
+            _canvas.LastDrawOrderReferenceUnsupportedPrimitiveCount == 0
+                ? string.Empty
+                : $" | {_canvas.LastDrawOrderReferenceUnsupportedPrimitiveCount:N0} unsupported candidates";
+        string truncated = _canvas.LastDrawOrderReferenceSelectionWasTruncated
+            ? " | truncated"
+            : string.Empty;
+        return $"Select reference objects for {placement}: " +
+            $"{_canvas.DrawOrderReferenceHandleCount:N0} accumulated; " +
+            "click/drag adds, Enter commits, Escape cancels" +
+            unsupported + truncated;
+    }
+
     private void PerformUndo()
     {
         if (_isBusy)
@@ -814,14 +937,20 @@ public sealed class CadSampleView : Grid
 
     private void UpdateEditControls()
     {
-        _undoButton.IsEnabled = !_isBusy && _canvas.UndoCount > 0;
-        _redoButton.IsEnabled = !_isBusy && _canvas.RedoCount > 0;
-        _viewModeButton.IsEnabled = !_isBusy && _viewport3D.Children.Count > 0;
-        bool canTransform = !_isBusy && _canvas.SelectedHandleCount > 0;
+        bool isReferencePicking =
+            _canvas.PendingDrawOrderPlacement is not null;
+        _undoButton.IsEnabled =
+            !_isBusy && !isReferencePicking && _canvas.UndoCount > 0;
+        _redoButton.IsEnabled =
+            !_isBusy && !isReferencePicking && _canvas.RedoCount > 0;
+        _viewModeButton.IsEnabled =
+            !_isBusy && !isReferencePicking && _viewport3D.Children.Count > 0;
+        bool canTransform = !_isBusy && !isReferencePicking &&
+            _canvas.SelectedHandleCount > 0;
         _deleteButton.IsEnabled = canTransform;
-        _moveStepInput.IsEnabled = !_isBusy;
-        _rotationStepInput.IsEnabled = !_isBusy;
-        _scaleFactorInput.IsEnabled = !_isBusy;
+        _moveStepInput.IsEnabled = !_isBusy && !isReferencePicking;
+        _rotationStepInput.IsEnabled = !_isBusy && !isReferencePicking;
+        _scaleFactorInput.IsEnabled = !_isBusy && !isReferencePicking;
         foreach (Button drawOrderButton in _drawOrderButtons)
         {
             drawOrderButton.IsEnabled = canTransform;

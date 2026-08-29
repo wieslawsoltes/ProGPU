@@ -754,9 +754,23 @@ entity/key pairs or removes a table created by the command; replacement carries
 an internal rollback snapshot, and failed resolution, validation, or limit
 checks publish no generation or history entry. The command deliberately
 preserves the drawing's existing `SORTENTS` Plotting policy. The shared sample
-exposes selection-preserving To front/To back actions; the typed Above/Under API
-is ready for a later reference-object interaction without weakening the core
-transaction.
+exposes selection-preserving To front/To back actions plus the complete
+Above/Under reference prompt. Starting the latter freezes the edited semantic
+handle set, and each exact click, Window, or Crossing gesture accumulates
+disjoint reference roots in snapshot-sized caller buffers. Enter commits all
+references through one command/history entry; Escape, Clear Selection, or a new
+document cancels without changing content generation. The reference overlay and
+unsupported/truncated counters remain transient UI state.
+
+One reference gesture costs the existing broad-phase and exact-selection work,
+typically O(log F + K + X) and O(F + K + X) worst case for F finite retained
+primitives, K candidates, and their bounded exact-geometry cost X. Semantic
+deduplication is O(K) average, and refreshing the complete reference overlay is
+O(E) for E retained entity headers. Storage is O(E), allocated with the other
+snapshot selection buffers and reused across gestures. Accumulation performs no
+ACadSharp traversal, scene compilation, persistence mutation, or GPU upload.
+Only Enter performs the documented O(E + S + E log E) persisted-order command
+and the sample's current full immutable scene rebuild.
 
 Resolution costs O(E + S + E log E) time and O(E) bounded snapshot storage for
 E entities and S sparse entries in each distinct visited block. Cached child
@@ -789,6 +803,12 @@ snapshot-sized caller buffers, resolves expanded primitives to unique semantic
 root handles, reports unsupported/truncated results, and records only transient
 fixed-device-space selection rectangles after the immutable picture. Camera and
 selection interaction never revisit ACadSharp or recompile geometry. The
+draw-order toolbar uses those same exact queries for a plural Above/Under
+reference prompt: gestures add disjoint semantic roots without replacing the
+edited selection, a separate fixed-device-space overlay shows the accumulated
+reference bounds, Enter publishes one reversible edit, and Escape cancels.
+Conflicting transform, order, delete, history, and 3D-view actions remain
+disabled while the prompt owns pointer selection. The
 second shared toolbar row applies a finite positive invariant WCS step along
 `-X`, `+X`, `-Y`, or `+Y` to every selected semantic root handle through one
 `CadTranslateEntitiesCommand`. A third row rotates the same selection in either
@@ -2635,10 +2655,12 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   requires the relative draw order of multiple selected objects to remain
   unchanged, while the current
   [overlap-order workflow](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Core/files/GUID-D3009A24-3357-49E4-96BB-066D5A2CC25F.htm)
-  places a selection immediately above or under its reference objects and limits
+  places a selection immediately above or under its plural reference objects,
+  using a second reference-selection stage before confirmation, and limits
   ordering to one model/paper space. ProGPU adopts those observable semantics as
-  an original stable partition/insertion algorithm and a canonical transactional
-  persistence rewrite; it does not copy ACadSharp convenience-move control flow.
+  an original stable partition/insertion algorithm, canonical transactional
+  persistence rewrite, and shared exact semantic-root prompt; it does not copy
+  ACadSharp convenience-move or foreign UI control flow.
 
 - For atomic selected-object deletion, Autodesk's
   [ERASE command contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-MAC-Core/files/GUID-6FC4AA9A-A3DC-49D0-A22B-CC0ED48C1310.htm),

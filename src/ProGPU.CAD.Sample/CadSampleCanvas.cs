@@ -27,14 +27,20 @@ public sealed class CadSampleCanvas : FrameworkElement
         new ThemeResourceBrush("TextPrimary"),
         1,
         strokeTransformMode: PenStrokeTransformMode.Fixed);
+    private readonly Pen _drawOrderReferencePen = new(
+        new ThemeResourceBrush("SystemAccentColor"),
+        1,
+        strokeTransformMode: PenStrokeTransformMode.Fixed);
     private readonly CadSnapshotOptions _snapshotOptions;
     private readonly HashSet<ulong> _selectedHandleSet = new();
+    private readonly HashSet<ulong> _drawOrderReferenceHandleSet = new();
     private GpuPicture? _picture;
     private GpuPicture? _constructionPicture;
     private GpuPicture? _pointMarkerPicture;
     private CadDocumentHistory? _history;
     private CadBounds3D _bounds;
     private CadBounds3D _selectedBounds;
+    private CadBounds3D _drawOrderReferenceBounds;
     private Vector2 _pan;
     private Vector2 _pointerOrigin;
     private Vector2 _panOrigin;
@@ -45,7 +51,10 @@ public sealed class CadSampleCanvas : FrameworkElement
     private CadSelectionCandidate[] _selectionCandidates = [];
     private CadSelectionCandidate[] _selectionMatches = [];
     private ulong[] _selectedHandles = [];
+    private ulong[] _drawOrderReferenceHandles = [];
+    private ulong[] _drawOrderReferenceQueryHandles = [];
     private int _selectedHandleCount;
+    private int _drawOrderReferenceHandleCount;
     private int _lastUnsupportedPrimitiveCount;
     private bool _lastSelectionWasTruncated;
     private bool _isPanning;
@@ -65,11 +74,24 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public int SelectedHandleCount => _selectedHandleCount;
 
+    public ReadOnlyMemory<ulong> DrawOrderReferenceHandles =>
+        _drawOrderReferenceHandles.AsMemory(0, _drawOrderReferenceHandleCount);
+
+    public int DrawOrderReferenceHandleCount => _drawOrderReferenceHandleCount;
+
+    public CadDrawOrderPlacement? PendingDrawOrderPlacement { get; private set; }
+
     public int LastUnsupportedPrimitiveCount => _lastUnsupportedPrimitiveCount;
 
     public bool LastSelectionWasTruncated => _lastSelectionWasTruncated;
 
+    public int LastDrawOrderReferenceUnsupportedPrimitiveCount { get; private set; }
+
+    public bool LastDrawOrderReferenceSelectionWasTruncated { get; private set; }
+
     public CadBoundsSelectionMode? LastSelectionMode { get; private set; }
+
+    public CadBoundsSelectionMode? LastDrawOrderReferenceSelectionMode { get; private set; }
 
     public CadPlanViewport CurrentViewport => CreateViewport();
 
@@ -80,6 +102,12 @@ public sealed class CadSampleCanvas : FrameworkElement
     public event EventHandler? SelectionChanged;
 
     public event EventHandler? EditStateChanged;
+
+    /// <summary>
+    /// Raised when an Above/Under reference-pick session starts, accumulates
+    /// references, commits, or is canceled.
+    /// </summary>
+    public event EventHandler? DrawOrderReferencePickChanged;
 
     /// <summary>Raised after one complete immutable snapshot/picture replacement.</summary>
     public event EventHandler? SnapshotChanged;
@@ -150,6 +178,14 @@ public sealed class CadSampleCanvas : FrameworkElement
             _selectedHandles.Length >= selectionCapacity
             ? _selectedHandles
             : new ulong[selectionCapacity];
+        ulong[] drawOrderReferenceHandles = !resetViewSelectionAndHistory &&
+            _drawOrderReferenceHandles.Length >= selectionCapacity
+            ? _drawOrderReferenceHandles
+            : new ulong[selectionCapacity];
+        ulong[] drawOrderReferenceQueryHandles = !resetViewSelectionAndHistory &&
+            _drawOrderReferenceQueryHandles.Length >= selectionCapacity
+            ? _drawOrderReferenceQueryHandles
+            : new ulong[selectionCapacity];
         int preservedHandleCount = resetViewSelectionAndHistory
             ? 0
             : Math.Min(_selectedHandleCount, selectedHandles.Length);
@@ -181,10 +217,13 @@ public sealed class CadSampleCanvas : FrameworkElement
         _selectionMatches = selectionMatches;
         _selectionHandleScratch = selectionHandleScratch;
         _selectedHandles = selectedHandles;
+        _drawOrderReferenceHandles = drawOrderReferenceHandles;
+        _drawOrderReferenceQueryHandles = drawOrderReferenceQueryHandles;
         _history = replacementHistory;
         _pan = replacementPan;
         if (resetViewSelectionAndHistory)
         {
+            ResetDrawOrderReferencePickState(notify: false);
             ResetSelectionState(notify: false);
             _needsFit = true;
         }
@@ -239,6 +278,13 @@ public sealed class CadSampleCanvas : FrameworkElement
                 null,
                 _selectionPen,
                 ToScreenRect(viewport, _selectedBounds));
+        }
+        if (!_drawOrderReferenceBounds.IsEmpty)
+        {
+            context.DrawRectangle(
+                null,
+                _drawOrderReferencePen,
+                ToScreenRect(viewport, _drawOrderReferenceBounds));
         }
         if (_isSelecting && _hasSelectionDrag)
         {
@@ -367,13 +413,87 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public void ClearSelection()
     {
+        ResetDrawOrderReferencePickState(notify: true);
         ResetSelectionState(notify: true);
         Invalidate();
+    }
+
+    /// <summary>
+    /// Starts a bounded multi-gesture reference selection for an Above or Under
+    /// draw-order edit. The edited selection remains unchanged until commit.
+    /// </summary>
+    public bool BeginSelectionDrawOrderReferencePick(
+        CadDrawOrderPlacement placement)
+    {
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+        if (placement is not
+            (CadDrawOrderPlacement.BringAbove or
+             CadDrawOrderPlacement.SendUnder))
+        {
+            throw new ArgumentOutOfRangeException(nameof(placement));
+        }
+
+        ResetDrawOrderReferencePickState(notify: false);
+        PendingDrawOrderPlacement = placement;
+        DrawOrderReferencePickChanged?.Invoke(this, EventArgs.Empty);
+        Invalidate();
+        return true;
+    }
+
+    /// <summary>
+    /// Commits all accumulated semantic reference roots as one reversible
+    /// persisted draw-order edit. An empty reference selection remains active.
+    /// </summary>
+    public bool CommitSelectionDrawOrderReferencePick()
+    {
+        CadDrawOrderPlacement? placement = PendingDrawOrderPlacement;
+        if (placement is null || _drawOrderReferenceHandleCount == 0)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        int selectedCount = _selectedHandleCount;
+        int referenceCount = _drawOrderReferenceHandleCount;
+        history.Execute(new CadSetModelSpaceDrawOrderCommand(
+            new ArraySegment<ulong>(_selectedHandles, 0, selectedCount),
+            placement.Value,
+            new ArraySegment<ulong>(
+                _drawOrderReferenceHandles,
+                0,
+                referenceCount),
+            description: placement == CadDrawOrderPlacement.BringAbove
+                ? $"Bring {selectedCount} selected {(selectedCount == 1 ? "entity" : "entities")} above {referenceCount} reference {(referenceCount == 1 ? "entity" : "entities")}"
+                : $"Send {selectedCount} selected {(selectedCount == 1 ? "entity" : "entities")} under {referenceCount} reference {(referenceCount == 1 ? "entity" : "entities")}"));
+        ResetDrawOrderReferencePickState(notify: false);
+        RecompileAfterEdit(session);
+        DrawOrderReferencePickChanged?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
+
+    /// <summary>Cancels a pending reference selection without editing the document.</summary>
+    public bool CancelSelectionDrawOrderReferencePick()
+    {
+        if (PendingDrawOrderPlacement is null)
+        {
+            return false;
+        }
+
+        ResetDrawOrderReferencePickState(notify: true);
+        Invalidate();
+        return true;
     }
 
     /// <summary>Moves all selected semantic model-space entities as one edit.</summary>
     public bool TranslateSelection(CadPoint3D translation)
     {
+        ThrowIfDrawOrderReferencePickPending();
         if (_selectedHandleCount == 0)
         {
             return false;
@@ -399,6 +519,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     /// </summary>
     public bool RotateSelection(double radians)
     {
+        ThrowIfDrawOrderReferencePickPending();
         if (_selectedHandleCount == 0)
         {
             return false;
@@ -426,6 +547,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     /// </summary>
     public bool ScaleSelection(double factor)
     {
+        ThrowIfDrawOrderReferencePickPending();
         if (_selectedHandleCount == 0)
         {
             return false;
@@ -452,6 +574,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     /// </summary>
     public bool SetSelectionDrawOrder(CadDrawOrderPlacement placement)
     {
+        ThrowIfDrawOrderReferencePickPending();
         if (_selectedHandleCount == 0)
         {
             return false;
@@ -490,6 +613,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     /// </summary>
     public bool DeleteSelection()
     {
+        ThrowIfDrawOrderReferencePickPending();
         if (_selectedHandleCount == 0)
         {
             return false;
@@ -512,6 +636,7 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public bool TryUndo()
     {
+        ThrowIfDrawOrderReferencePickPending();
         CadDocumentHistory? history = _history;
         CadDocumentSession? session = CurrentSession;
         if (history is null || session is null || !history.TryUndo(out _))
@@ -526,6 +651,7 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public bool TryRedo()
     {
+        ThrowIfDrawOrderReferencePickPending();
         CadDocumentHistory? history = _history;
         CadDocumentSession? session = CurrentSession;
         if (history is null || session is null || !history.TryRedo(out _))
@@ -556,6 +682,12 @@ public sealed class CadSampleCanvas : FrameworkElement
         CadDocumentSnapshot? snapshot = CurrentSnapshot;
         if (snapshot is null)
         {
+            return;
+        }
+
+        if (PendingDrawOrderPlacement is not null)
+        {
+            AccumulateDrawOrderReferences(snapshot);
             return;
         }
 
@@ -592,6 +724,52 @@ public sealed class CadSampleCanvas : FrameworkElement
         SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    private void AccumulateDrawOrderReferences(CadDocumentSnapshot snapshot)
+    {
+        CadBoundsSelectionMode mode = _hasSelectionDrag &&
+            _selectionCurrent.X >= _pointerOrigin.X
+            ? CadBoundsSelectionMode.Window
+            : CadBoundsSelectionMode.Crossing;
+        float inflation = _hasSelectionDrag ? 0.0f : PointSelectionTolerance;
+        CadBounds3D selectionBounds = CreateViewport().CreatePlanSelectionBounds(
+            _pointerOrigin,
+            _selectionCurrent,
+            inflation);
+        CadBoundsSelectionQueryResult result = CadSelectionQuery.QueryExactBounds(
+            snapshot,
+            selectionBounds,
+            mode,
+            _selectionEntityScratch,
+            _selectionCandidates,
+            _selectionMatches,
+            _selectionHandleScratch,
+            _drawOrderReferenceQueryHandles);
+
+        for (int i = 0; i < result.HandleWrittenCount; i++)
+        {
+            ulong handle = _drawOrderReferenceQueryHandles[i];
+            if (_selectedHandleSet.Contains(handle) ||
+                !_drawOrderReferenceHandleSet.Add(handle))
+            {
+                continue;
+            }
+            if (_drawOrderReferenceHandleCount >= _drawOrderReferenceHandles.Length)
+            {
+                throw new InvalidOperationException(
+                    "The draw-order reference buffer cannot represent the complete snapshot selection.");
+            }
+            _drawOrderReferenceHandles[_drawOrderReferenceHandleCount++] = handle;
+        }
+
+        LastDrawOrderReferenceUnsupportedPrimitiveCount =
+            result.UnsupportedPrimitiveCount;
+        LastDrawOrderReferenceSelectionWasTruncated =
+            result.AreCandidatesTruncated || result.AreHandlesTruncated;
+        LastDrawOrderReferenceSelectionMode = mode;
+        RefreshDrawOrderReferenceBounds(snapshot);
+        DrawOrderReferencePickChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     private CadPoint3D GetSelectionCenter()
     {
         if (_selectedBounds.IsEmpty)
@@ -612,6 +790,43 @@ public sealed class CadSampleCanvas : FrameworkElement
             {
                 _selectedBounds = _selectedBounds.Union(entity.Bounds);
             }
+        }
+    }
+
+    private void RefreshDrawOrderReferenceBounds(CadDocumentSnapshot snapshot)
+    {
+        _drawOrderReferenceBounds = CadBounds3D.Empty;
+        foreach (CadEntityHeader entity in snapshot.Entities.Span)
+        {
+            if (_drawOrderReferenceHandleSet.Contains(entity.Handle))
+            {
+                _drawOrderReferenceBounds =
+                    _drawOrderReferenceBounds.Union(entity.Bounds);
+            }
+        }
+    }
+
+    private void ResetDrawOrderReferencePickState(bool notify)
+    {
+        PendingDrawOrderPlacement = null;
+        _drawOrderReferenceHandleCount = 0;
+        _drawOrderReferenceHandleSet.Clear();
+        _drawOrderReferenceBounds = CadBounds3D.Empty;
+        LastDrawOrderReferenceUnsupportedPrimitiveCount = 0;
+        LastDrawOrderReferenceSelectionWasTruncated = false;
+        LastDrawOrderReferenceSelectionMode = null;
+        if (notify)
+        {
+            DrawOrderReferencePickChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private void ThrowIfDrawOrderReferencePickPending()
+    {
+        if (PendingDrawOrderPlacement is not null)
+        {
+            throw new InvalidOperationException(
+                "Commit or cancel the pending draw-order reference selection first.");
         }
     }
 
@@ -691,6 +906,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     private void ReleaseResources()
     {
         ReleasePointerCaptures();
+        ResetDrawOrderReferencePickState(notify: false);
         _picture?.Dispose();
         _picture = null;
         _constructionPicture?.Dispose();

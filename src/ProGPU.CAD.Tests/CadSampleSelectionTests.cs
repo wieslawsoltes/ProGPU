@@ -604,6 +604,168 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void CanvasAccumulatesDisjointDrawOrderReferencesAndCommitsOnce()
+    {
+        var document = new CadDocument();
+        var selected = new Line(new XYZ(-30, 0, 0), new XYZ(-28, 0, 0));
+        var firstReference = new Line(new XYZ(-10, 0, 0), new XYZ(-8, 0, 0));
+        var secondReference = new Line(new XYZ(10, 0, 0), new XYZ(12, 0, 0));
+        var last = new Line(new XYZ(30, 0, 0), new XYZ(32, 0, 0));
+        document.Entities.Add(selected);
+        document.Entities.Add(firstReference);
+        document.Entities.Add(secondReference);
+        document.Entities.Add(last);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(
+                canvas,
+                viewport.WorldToScreen(new CadPoint3D(-29, 0, 0)));
+            int pickChanges = 0;
+            canvas.DrawOrderReferencePickChanged += (_, _) => pickChanges++;
+
+            Assert.True(canvas.BeginSelectionDrawOrderReferencePick(
+                CadDrawOrderPlacement.BringAbove));
+
+            Assert.Equal(
+                CadDrawOrderPlacement.BringAbove,
+                canvas.PendingDrawOrderPlacement);
+            Assert.Equal(0, canvas.DrawOrderReferenceHandleCount);
+            Assert.Equal(0UL, session.ContentGeneration);
+
+            Click(
+                canvas,
+                viewport.WorldToScreen(new CadPoint3D(-29, 0, 0)));
+
+            Assert.Equal(0, canvas.DrawOrderReferenceHandleCount);
+            Assert.Equal(selected.Handle, canvas.SelectedHandles.Span[0]);
+            Assert.False(canvas.CommitSelectionDrawOrderReferencePick());
+            Assert.Equal(0UL, session.ContentGeneration);
+
+            Click(
+                canvas,
+                viewport.WorldToScreen(new CadPoint3D(-9, 0, 0)));
+            Drag(
+                canvas,
+                viewport.WorldToScreen(new CadPoint3D(9, 1, 0)),
+                viewport.WorldToScreen(new CadPoint3D(13, -1, 0)));
+
+            Assert.Equal(2, canvas.DrawOrderReferenceHandleCount);
+            Assert.Equal(
+                new[] { firstReference.Handle, secondReference.Handle },
+                canvas.DrawOrderReferenceHandles.ToArray());
+            Assert.Equal(CadBoundsSelectionMode.Window,
+                canvas.LastDrawOrderReferenceSelectionMode);
+            Assert.False(canvas.LastDrawOrderReferenceSelectionWasTruncated);
+            Assert.Equal(0, canvas.LastDrawOrderReferenceUnsupportedPrimitiveCount);
+            Assert.Equal(0UL, session.ContentGeneration);
+            var context = new DrawingContext();
+            canvas.OnRender(context);
+            Assert.Equal(
+                3,
+                context.Commands.Count(command =>
+                    command.Type == RenderCommandType.DrawRect));
+
+            Assert.True(canvas.CommitSelectionDrawOrderReferencePick());
+
+            Assert.Null(canvas.PendingDrawOrderPlacement);
+            Assert.Equal(0, canvas.DrawOrderReferenceHandleCount);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(1, canvas.UndoCount);
+            Assert.Equal(selected.Handle, canvas.SelectedHandles.Span[0]);
+            Assert.Equal(
+                new double[] { -10, 10, -30, 30 },
+                canvas.CurrentSnapshot!.Lines.ToArray().Select(line => line.Start.X));
+            Assert.True(pickChanges >= 5);
+
+            Assert.True(canvas.TryUndo());
+            Assert.Equal(
+                new double[] { -30, -10, 10, 30 },
+                canvas.CurrentSnapshot.Lines.ToArray().Select(line => line.Start.X));
+            Assert.Equal(selected.Handle, canvas.SelectedHandles.Span[0]);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewAboveUnderPromptUsesEnterAndEscapeWithoutPartialEdits()
+    {
+        var document = new CadDocument();
+        var first = new Line(new XYZ(-30, 0, 0), new XYZ(-28, 0, 0));
+        var reference = new Line(new XYZ(-10, 0, 0), new XYZ(-8, 0, 0));
+        var third = new Line(new XYZ(10, 0, 0), new XYZ(12, 0, 0));
+        var selected = new Line(new XYZ(30, 0, 0), new XYZ(32, 0, 0));
+        document.Entities.Add(first);
+        document.Entities.Add(reference);
+        document.Entities.Add(third);
+        document.Entities.Add(selected);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            Button above = FindButton(view, "Above…");
+            Button under = FindButton(view, "Under…");
+            Button toFront = FindButton(view, "To front");
+            Assert.False(above.IsEnabled);
+            Assert.False(under.IsEnabled);
+
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = view.Canvas.CurrentViewport;
+            Click(
+                view.Canvas,
+                viewport.WorldToScreen(new CadPoint3D(31, 0, 0)));
+
+            Assert.True(above.IsEnabled);
+            Assert.True(under.IsEnabled);
+            PressEnter(under);
+
+            Assert.Equal(
+                CadDrawOrderPlacement.SendUnder,
+                view.Canvas.PendingDrawOrderPlacement);
+            Assert.False(toFront.IsEnabled);
+            Click(
+                view.Canvas,
+                viewport.WorldToScreen(new CadPoint3D(-9, 0, 0)));
+            var enter = new KeyRoutedEventArgs { Key = Silk.NET.Input.Key.Enter };
+
+            view.OnKeyDown(enter);
+
+            Assert.True(enter.Handled);
+            Assert.Null(view.Canvas.PendingDrawOrderPlacement);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(
+                new double[] { -30, 30, -10, 10 },
+                view.Canvas.CurrentSnapshot!.Lines.ToArray().Select(line => line.Start.X));
+            Assert.Equal(selected.Handle, view.Canvas.SelectedHandles.Span[0]);
+            Assert.True(above.IsEnabled);
+
+            PressEnter(above);
+            Assert.NotNull(view.Canvas.PendingDrawOrderPlacement);
+            var escape = new KeyRoutedEventArgs { Key = Silk.NET.Input.Key.Escape };
+
+            view.OnKeyDown(escape);
+
+            Assert.True(escape.Handled);
+            Assert.Null(view.Canvas.PendingDrawOrderPlacement);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(1, view.Canvas.UndoCount);
+            Assert.True(toFront.IsEnabled);
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewRotateAndScaleControlsValidateAndExecuteTransforms()
     {
         var document = new CadDocument();
