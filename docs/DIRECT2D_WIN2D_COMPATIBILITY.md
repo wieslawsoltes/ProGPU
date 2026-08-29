@@ -110,9 +110,16 @@ Shapes, ArcOptions, and VectorArt sample bodies. It currently supports:
   linear, multisample-linear, or cubic sampling; typed texture leases keep a
   source alive through deferred native submission without a staging copy;
 - single-recording `CanvasCommandList` creation, multi-chunk recording across
-  `Flush()`, and origin/offset drawing as nested immutable pictures; command
-  lists are cloned into the destination ownership graph, so no intermediate
-  bitmap is allocated and public disposal before submission remains safe;
+  `Flush()`, `ICanvasImage.GetBounds(...)`, and origin/offset or cropped and
+  destination-scaled drawing as nested immutable pictures. The reusable
+  `GpuPictureBounds` reader walks typed retained commands without materializing
+  their compatibility command arrays, reuses clip-aware hit-test primitive
+  bounds, composes nested affine transforms, and fails closed for unbalanced
+  state, cycles, GPU/3D transforms, or unsupported commands. Source cropping
+  becomes one retained destination clip plus one affine nested-picture
+  transform; command lists are cloned into the destination ownership graph, so
+  no intermediate bitmap is allocated and public disposal before submission
+  remains safe;
 - reusable rectangle, rounded-rectangle, ellipse, circle, polygon, and consumed
   path-builder geometries; path figures support line, quadratic, cubic, both
   Win2D arc forms, fill-rule, filled-figure, segment-stroke, and smooth-join
@@ -178,8 +185,8 @@ The current package is source compatible, not binary compatible with
 devices, straight/ignored alpha, non-BGRA render targets, Dawn/browser device
 factories, Direct2D COM wrapping, cross-device resources, self-referential
 texture feedback, anisotropic sampling, and high-quality cubic sampling.
-Bitmap file/pixel creation and updates, `MiterOrBevel`,
-command-list bounds/scaling, geometry query/stroke/outline operations, opacity
+Bitmap file/pixel creation and updates, `MiterOrBevel`, geometry
+query/stroke/outline operations, command-list/effect image brushes, opacity
 brush layers, text formats/layouts, effects, sprite batches, and XAML controls
 remain the next incremental compatibility groups.
 Command-list `Clear` currently fails closed because portable unbounded-clear
@@ -248,15 +255,34 @@ The gate has a completed portable-core layer and three expanding oracle layers:
    backends. The gate caught D3D12 initially clamping extended UVs; the final
    GPU-only shader address normalization fixed that backend difference without
    a CPU fallback.
-   The isolated typed/source contract suite passes 10/10 after the image-brush
-   contract is added.
+   Exact ProGPU `2196beaa` adds typed bitmap and command-list image bounds plus
+   cropped/destination-scaled command-list drawing. The scaled source still
+   expands as the two existing immutable picture chunks, so the frame advances
+   to `16+2` native draws without a render-to-texture pass, readback, upload, or
+   per-primitive submission. Apple M3 Pro Metal produces SHA-256
+   `AFF6CBF059B5F2CDBF24243B1DA94E41F227A4E348FD0B76F07E9D1F239C5497`,
+   Parallels WDDM D3D12 produces
+   `82592978570D34A2E5D110B95D963E051F01026184C23E0DF4703D7B6DEDA2B5`,
+   and Ubuntu llvmpipe/Vulkan produces
+   `59E132D93DDE652E0FE569162B248178F7EEA83806BA2CE0F3A7A81600B89617`.
+   Metal versus D3D12 changes two pixels by 1/255 with mean absolute channel
+   difference `0.0000173611`; Vulkan versus D3D12 changes the same 84 existing
+   antialiased-edge pixels by 1/255 with mean `0.0005946181`. The new
+   command-list bounds, crop, scale, and interior probes are exact across all
+   three backends. The exact Windows archive SHA-256 is
+   `7FCD5A09E672C61102066C60FEB0F9EDBEEE279521AF0251015F17AE3C5942EF`,
+   and its rebuilt ARM64 `progpu_native.dll` SHA-256 is
+   `39C0FD9F5B13CF277581C64096668CAF3673742719B55D6C6252AC9EB009262D`.
+   The isolated typed/source contract suite passes 10/10, retained-picture
+   bounds pass 4/4 on macOS, Windows ARM64, and Linux ARM64, and the exact C++
+   renderer passes 10/10 native suites on Windows and Linux.
    The frame includes full-opacity and half-opacity same-device bitmap draws;
    the source is publicly disposed before the destination session closes to
    prove that the typed GPU lease, rather than a CPU copy, owns deferred use.
    It also records a command list in two chunks separated by `Flush()`, draws
-   it with an offset, disposes the public list before target submission, draws
-   a retained quadratic/cubic path, and validates exact circle and rectangle
-   layer clipping.
+   it with an offset and with a cropped destination scale, disposes the public
+   list before target submission, draws a retained quadratic/cubic path, and
+   validates exact circle and rectangle layer clipping.
    VM timing is not treated as physical D3D12 performance evidence.
 
    CI uploads the D3D12, Metal, and Vulkan Canvas frames and runs
