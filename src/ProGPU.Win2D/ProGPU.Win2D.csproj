@@ -7,7 +7,7 @@
     <Description>Portable Win2D-compatible Canvas API compiled to the ProGPU native C++ WebGPU renderer.</Description>
     <PackageDescription>Portable source-compatible Win2D Canvas device, bitmap, render-target, and drawing-session API compiled to the retained ProGPU C++ WebGPU renderer.</PackageDescription>
     <PackageTags>progpu;win2d;direct2d;canvas;webgpu;native</PackageTags>
-    <PackageReleaseNotes>Adds the first native C++ portable Canvas lane with BGRA8 premultiplied render targets, DPI conversion, transforms, solid primitives, default text, target-preserving drawing sessions, diagnostics, and deterministic Metal/D3D12 validation.</PackageReleaseNotes>
+    <PackageReleaseNotes>Adds the first native C++ portable Canvas lane with BGRA8 premultiplied render targets, DPI conversion, transforms, solid primitives, default text, same-device bitmap drawing with opacity and typed GPU leases, target-preserving drawing sessions, diagnostics, and deterministic Metal/D3D12 validation.</PackageReleaseNotes>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.Backend.Native\ProGPU.Backend.Native.csproj" />

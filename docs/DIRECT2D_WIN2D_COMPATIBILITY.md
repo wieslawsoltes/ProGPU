@@ -84,7 +84,7 @@ The portable API will be a thin recording layer rather than a second renderer:
 | `CanvasRenderTarget` | renderable/sampleable `GpuTexture` with retained lifetime and DPI |
 | `CanvasDrawingSession` | allocation-conscious recorder over `ProGPU.Scene.DrawingContext` |
 | `CanvasCommandList` | immutable/retained `RenderCommandList` picture |
-| `CanvasBitmap` | typed texture source/lease with generation invalidation |
+| `CanvasBitmap` | typed same-device texture source/lease with deferred lifetime ownership |
 | `CanvasGeometry` | reusable `VectorPathGeometry`, stroke, boolean, bounds, and hit-test paths |
 | brushes and stroke styles | existing typed brush/gradient/pen resources and native material pages |
 | text formats/layouts | reusable ProGPU shaping, glyph-run, atlas, and text-style resources |
@@ -104,6 +104,10 @@ sample. It currently supports:
 - filled rectangles, rounded rectangles, ellipses, and circles;
 - point-origin default text using deterministic Inter 20 DIP glyphs until the
   Segoe UI/native-font selection contract is added;
+- same-device `CanvasBitmap` drawing at an offset or into a destination
+  rectangle, optional DIP source rectangle, opacity, and qualified nearest,
+  linear, multisample-linear, or cubic sampling; typed texture leases keep a
+  source alive through deferred native submission without a staging copy;
 - target-preserving later drawing sessions and `Flush()` without retaining or
   replaying all earlier command lists;
 - Win2D-compatible `GetPixelBytes()` for validation and explicit diagnostics
@@ -119,10 +123,12 @@ Readback is requested only by `GetPixelBytes()` and the validation gate.
 The current package is source compatible, not binary compatible with
 `Microsoft.Graphics.Canvas.dll`. It intentionally fails closed for software
 devices, straight/ignored alpha, non-BGRA render targets, Dawn/browser device
-factories, Direct2D COM wrapping, and cross-device resources. Brushes,
-`CanvasCommandList`, bitmap drawing, arbitrary geometry, clips/layers, text
-formats/layouts, effects, sprite batches, and XAML controls remain the next
-incremental compatibility groups. No portable API surfaces raw COM pointers.
+factories, Direct2D COM wrapping, cross-device resources, self-referential
+texture feedback, anisotropic sampling, and high-quality cubic sampling.
+Bitmap file/pixel creation and updates, brushes, `CanvasCommandList`, arbitrary
+geometry, clips/layers, text formats/layouts, effects, sprite batches, and XAML
+controls remain the next incremental compatibility groups. No portable API
+surfaces raw COM pointers.
 
 ## Validation gate
 
@@ -143,7 +149,10 @@ The gate has a completed portable-core layer and three expanding oracle layers:
    GPU target without display-list growth or CPU copies. The Apple M3 Pro
    Metal result and Windows 11 ARM64 Parallels Display Adapter D3D12 result are
    byte-identical BGRA8 premultiplied frames with SHA-256
-   `404F1313FD713A516CAA69D685D47F6B7F472F787EF40C90D1AE0F965F640AD6`.
+   `06CD9FDE62D7400D7C9FC3ABF0A248023E70A9A57D15D48F197D237D7CF01767`.
+   The frame includes full-opacity and half-opacity same-device bitmap draws;
+   the source is publicly disposed before the destination session closes to
+   prove that the typed GPU lease, rather than a CPU copy, owns deferred use.
    VM timing is not treated as physical D3D12 performance evidence.
 
 1. Build and capture the pinned unmodified SimpleSample plus selected
@@ -175,8 +184,8 @@ Win2D execution.
 2. **Implemented:** add the minimal portable Canvas
    device/render-target/drawing-session API and pass pinned SimpleSample source
    plus live headless native pixels on Metal and D3D12.
-3. Add the remaining shapes, geometry, layers, bitmap, text-format/layout, and
-   existing-effect adapters;
+3. Add the remaining shapes, geometry, layers, bitmap creation/update,
+   text-format/layout, and existing-effect adapters;
    promote each pinned ExampleGallery group only after differential parity.
 4. Implement and qualify the Windows same-adapter Win2D/DXGI import adapter.
 5. Add WinUI, LibreWPF, and Avalonia controls as host adapters over the same
