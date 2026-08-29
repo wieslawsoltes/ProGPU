@@ -18,11 +18,16 @@ public sealed class CadSampleView : Grid
     private readonly CadDocumentStore _store = new();
     private readonly CadSampleCanvas _canvas;
     private readonly Viewport3D _viewport3D;
+    private readonly CadPrintPreviewCanvas _printPreview;
     private readonly Button _viewModeButton;
     private readonly TextBlock _viewModeText;
+    private readonly Button _printPreviewButton;
+    private readonly TextBlock _printPreviewText;
     private readonly TextBlock _status;
     private readonly Button _openButton;
     private readonly Button _saveButton;
+    private readonly Button _fitButton;
+    private readonly Button _clearSelectionButton;
     private readonly Button _undoButton;
     private readonly Button _redoButton;
     private readonly Button _deleteButton;
@@ -38,10 +43,13 @@ public sealed class CadSampleView : Grid
     private string _currentDocumentName = "Representative analytic scene";
     private int _currentDiagnosticCount;
     private bool _is3DView;
+    private bool _isPrintPreview;
 
     public CadShxFontCatalog ShxFonts => _canvas.ShxFonts;
 
     public CadSampleCanvas Canvas => _canvas;
+
+    public CadPrintPreviewCanvas PrintPreview => _printPreview;
 
     /// <summary>
     /// Ordered fully-qualified desktop support directories probed after the
@@ -65,6 +73,10 @@ public sealed class CadSampleView : Grid
             ShadingMode = ShadingMode3D.Flat,
             LightDirection = new System.Numerics.Vector3(0.25f, -0.5f, -1.0f),
             AmbientIntensity = 0.25f,
+        };
+        _printPreview = new CadPrintPreviewCanvas
+        {
+            Visibility = Visibility.Collapsed,
         };
         TtfFont font = InterFontFamily.Regular;
         RowDefinitions.Add(new GridLength(124, GridUnitType.Absolute));
@@ -105,19 +117,23 @@ public sealed class CadSampleView : Grid
 
         _openButton = CreateButton("Open DXF/DWG", font, 132);
         _saveButton = CreateButton("Save As", font, 92);
-        Button fitButton = CreateButton("Fit", font, 68);
+        _fitButton = CreateButton("Fit", font, 68);
         _viewModeButton = CreateButton("3D surfaces", font, 104);
         _viewModeText = (TextBlock)_viewModeButton.Content!;
-        Button clearSelectionButton = CreateButton("Clear selection", font, 112);
+        _printPreviewButton = CreateButton("Print preview", font, 112);
+        _printPreviewText = (TextBlock)_printPreviewButton.Content!;
+        _clearSelectionButton = CreateButton("Clear selection", font, 112);
         _openButton.Margin = new Thickness(0, 0, 8, 0);
         _saveButton.Margin = new Thickness(0, 0, 8, 0);
-        fitButton.Margin = new Thickness(0, 0, 8, 0);
+        _fitButton.Margin = new Thickness(0, 0, 8, 0);
         _viewModeButton.Margin = new Thickness(0, 0, 8, 0);
+        _printPreviewButton.Margin = new Thickness(0, 0, 8, 0);
         actions.AddChild(_openButton);
         actions.AddChild(_saveButton);
-        actions.AddChild(fitButton);
+        actions.AddChild(_fitButton);
         actions.AddChild(_viewModeButton);
-        actions.AddChild(clearSelectionButton);
+        actions.AddChild(_printPreviewButton);
+        actions.AddChild(_clearSelectionButton);
 
         _undoButton = CreateButton("Undo", font, 68, 30);
         _redoButton = CreateButton("Redo", font, 68, 30);
@@ -246,6 +262,7 @@ public sealed class CadSampleView : Grid
         var contentHost = new Grid();
         contentHost.AddChild(_canvas);
         contentHost.AddChild(_viewport3D);
+        contentHost.AddChild(_printPreview);
         AddChild(toolbar);
         AddChild(contentHost);
         AddChild(statusBorder);
@@ -255,9 +272,10 @@ public sealed class CadSampleView : Grid
 
         _openButton.Click += async (_, _) => await OpenAsync();
         _saveButton.Click += async (_, _) => await SaveAsAsync();
-        fitButton.Click += (_, _) => _canvas.FitToView();
+        _fitButton.Click += (_, _) => _canvas.FitToView();
         _viewModeButton.Click += (_, _) => ToggleViewMode();
-        clearSelectionButton.Click += (_, _) => _canvas.ClearSelection();
+        _printPreviewButton.Click += (_, _) => TogglePrintPreview();
+        _clearSelectionButton.Click += (_, _) => _canvas.ClearSelection();
         _undoButton.Click += (_, _) => PerformUndo();
         _redoButton.Click += (_, _) => PerformRedo();
         _deleteButton.Click += (_, _) => PerformDelete();
@@ -296,13 +314,34 @@ public sealed class CadSampleView : Grid
             }
             UpdateEditControls();
         };
-        _canvas.SnapshotChanged += (_, _) => RebuildMesh3DView();
+        _canvas.SnapshotChanged += (_, _) =>
+        {
+            RebuildMesh3DView();
+            if (_isPrintPreview)
+            {
+                ShowPlanView(clearPreview: true);
+            }
+        };
         RebuildMesh3DView();
         UpdateEditControls();
     }
 
     public override void OnKeyDown(KeyRoutedEventArgs e)
     {
+        if (!e.Handled &&
+            _isPrintPreview &&
+            e.Key == Key.Escape &&
+            FocusManager.GetFocusedElement() is not TextBox)
+        {
+            ShowPlanView(clearPreview: true);
+            SetStatus(DescribeCurrentDocument(
+                _currentDocumentName,
+                _currentDiagnosticCount));
+            UpdateEditControls();
+            e.Handled = true;
+            return;
+        }
+
         if (!e.Handled &&
             _canvas.PendingDrawOrderPlacement is not null &&
             FocusManager.GetFocusedElement() is not TextBox)
@@ -322,6 +361,7 @@ public sealed class CadSampleView : Grid
         }
 
         if (!e.Handled &&
+            !_isPrintPreview &&
             e.Key == Key.Delete &&
             FocusManager.GetFocusedElement() is not TextBox)
         {
@@ -335,7 +375,7 @@ public sealed class CadSampleView : Grid
 
     private void ToggleViewMode()
     {
-        if (!_viewModeButton.IsEnabled)
+        if (!_viewModeButton.IsEnabled || _isPrintPreview)
         {
             return;
         }
@@ -348,6 +388,66 @@ public sealed class CadSampleView : Grid
             _viewport3D.Invalidate();
         }
         UpdateEditControls();
+    }
+
+    private void TogglePrintPreview()
+    {
+        if (_isBusy || _canvas.PendingDrawOrderPlacement is not null)
+        {
+            return;
+        }
+        if (_isPrintPreview)
+        {
+            ShowPlanView(clearPreview: true);
+            SetStatus(DescribeCurrentDocument(
+                _currentDocumentName,
+                _currentDiagnosticCount));
+            UpdateEditControls();
+            return;
+        }
+
+        try
+        {
+            float outputDpi = CadPrintPreviewCanvas.CalculateFitOutputDpi(
+                _canvas.Size);
+            using CadPrintPlan plan = _canvas.CreateA4PrintPlan(outputDpi);
+            _printPreview.Load(plan);
+            _is3DView = false;
+            _isPrintPreview = true;
+            _canvas.Visibility = Visibility.Collapsed;
+            _viewport3D.Visibility = Visibility.Collapsed;
+            _printPreview.Visibility = Visibility.Visible;
+            _viewModeText.Text = "3D surfaces";
+            _printPreviewText.Text = "Plan view";
+            SetStatus(
+                $"A4 model-extents print preview | {plan.OutputDpi:N1} DPI | " +
+                $"{plan.PageSizePixels.Width:N0} × {plan.PageSizePixels.Height:N0} px | " +
+                $"generation {plan.ContentGeneration:N0}");
+        }
+        catch (Exception exception)
+        {
+            ShowPlanView(clearPreview: true);
+            SetStatus($"Print preview failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void ShowPlanView(bool clearPreview)
+    {
+        _is3DView = false;
+        _isPrintPreview = false;
+        _canvas.Visibility = Visibility.Visible;
+        _viewport3D.Visibility = Visibility.Collapsed;
+        _printPreview.Visibility = Visibility.Collapsed;
+        _viewModeText.Text = "3D surfaces";
+        _printPreviewText.Text = "Print preview";
+        if (clearPreview)
+        {
+            _printPreview.Clear();
+        }
     }
 
     private void RebuildMesh3DView()
@@ -430,7 +530,10 @@ public sealed class CadSampleView : Grid
 
     private void SetMeshViewAvailability(bool isAvailable)
     {
-        _viewModeButton.IsEnabled = !_isBusy && isAvailable;
+        _viewModeButton.IsEnabled =
+            !_isBusy && !_isPrintPreview &&
+            _canvas.PendingDrawOrderPlacement is null &&
+            isAvailable;
         if (isAvailable || !_is3DView)
         {
             return;
@@ -939,18 +1042,27 @@ public sealed class CadSampleView : Grid
     {
         bool isReferencePicking =
             _canvas.PendingDrawOrderPlacement is not null;
+        bool canUsePlanTools =
+            !_isBusy && !_isPrintPreview && !isReferencePicking;
+        _openButton.IsEnabled = canUsePlanTools;
+        _saveButton.IsEnabled = !_isBusy;
+        _fitButton.IsEnabled = canUsePlanTools && !_is3DView;
+        _clearSelectionButton.IsEnabled = canUsePlanTools;
+        _printPreviewButton.IsEnabled =
+            !_isBusy && !isReferencePicking &&
+            (_isPrintPreview || _canvas.CurrentSnapshot is not null);
         _undoButton.IsEnabled =
-            !_isBusy && !isReferencePicking && _canvas.UndoCount > 0;
+            canUsePlanTools && _canvas.UndoCount > 0;
         _redoButton.IsEnabled =
-            !_isBusy && !isReferencePicking && _canvas.RedoCount > 0;
+            canUsePlanTools && _canvas.RedoCount > 0;
         _viewModeButton.IsEnabled =
-            !_isBusy && !isReferencePicking && _viewport3D.Children.Count > 0;
-        bool canTransform = !_isBusy && !isReferencePicking &&
+            canUsePlanTools && _viewport3D.Children.Count > 0;
+        bool canTransform = canUsePlanTools &&
             _canvas.SelectedHandleCount > 0;
         _deleteButton.IsEnabled = canTransform;
-        _moveStepInput.IsEnabled = !_isBusy && !isReferencePicking;
-        _rotationStepInput.IsEnabled = !_isBusy && !isReferencePicking;
-        _scaleFactorInput.IsEnabled = !_isBusy && !isReferencePicking;
+        _moveStepInput.IsEnabled = canUsePlanTools;
+        _rotationStepInput.IsEnabled = canUsePlanTools;
+        _scaleFactorInput.IsEnabled = canUsePlanTools;
         foreach (Button drawOrderButton in _drawOrderButtons)
         {
             drawOrderButton.IsEnabled = canTransform;

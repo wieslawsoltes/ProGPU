@@ -11,6 +11,7 @@ using Xunit;
 
 namespace ProGPU.CAD.Tests;
 
+[Collection("CAD sample UI")]
 public sealed class CadSampleSelectionTests
 {
     [Fact]

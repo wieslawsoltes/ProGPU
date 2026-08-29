@@ -64,7 +64,7 @@ public static class ThemeManager
             }
         }
     }
-    
+
     private static readonly Dictionary<(Type ControlType, VisualThemeFamily Family), Style> NativeDefaultStyles = new();
     private static readonly Dictionary<(string Key, VisualThemeFamily Family), SolidColorBrush> DarkBrushCache = new();
     private static readonly Dictionary<(string Key, VisualThemeFamily Family), SolidColorBrush> LightBrushCache = new();
@@ -118,6 +118,9 @@ public static class ThemeManager
     {
         { "PageBackground", new Vector4(0.08f, 0.08f, 0.12f, 1.0f) }, // Dark Mica: #14141F
         { "CardBackground", new Vector4(0.12f, 0.12f, 0.16f, 1.0f) }, // #1F1F28
+        { "PrintPaperBackground", new Vector4(1f, 1f, 1f, 1f) },
+        { "PrintPaperBorder", new Vector4(0f, 0f, 0f, 0.35f) },
+        { "PrintPrintableAreaBorder", new Vector4(0f, 0f, 0f, 0.28f) },
         { "ControlBackground", new Vector4(0.14f, 0.14f, 0.17f, 1.0f) }, // #24242B
         { "ControlBackgroundHover", new Vector4(0.18f, 0.18f, 0.22f, 1.0f) }, // #2D2D37
         { "ControlBackgroundPressed", new Vector4(0.09f, 0.09f, 0.11f, 1.0f) }, // #17171C
@@ -152,6 +155,9 @@ public static class ThemeManager
     {
         { "PageBackground", new Vector4(0.96f, 0.96f, 0.98f, 1.0f) }, // Light Acrylic: #F5F5F7
         { "CardBackground", new Vector4(1.0f, 1.0f, 1.0f, 1.0f) }, // Solid White
+        { "PrintPaperBackground", new Vector4(1f, 1f, 1f, 1f) },
+        { "PrintPaperBorder", new Vector4(0f, 0f, 0f, 0.35f) },
+        { "PrintPrintableAreaBorder", new Vector4(0f, 0f, 0f, 0.28f) },
         { "ControlBackground", new Vector4(0.91f, 0.91f, 0.93f, 1.0f) }, // #EAEAEC
         { "ControlBackgroundHover", new Vector4(0.87f, 0.87f, 0.89f, 1.0f) }, // #DFDFE2
         { "ControlBackgroundPressed", new Vector4(0.82f, 0.82f, 0.84f, 1.0f) }, // #D1D1D4
@@ -186,6 +192,9 @@ public static class ThemeManager
     {
         { "PageBackground", new Vector4(0.118f, 0.118f, 0.118f, 1f) }, // Dark Cocoa Titlebar Gray: #1E1E1E
         { "CardBackground", new Vector4(0.176f, 0.176f, 0.176f, 1f) }, // Slightly lighter charcoal: #2D2D2D
+        { "PrintPaperBackground", new Vector4(1f, 1f, 1f, 1f) },
+        { "PrintPaperBorder", new Vector4(0f, 0f, 0f, 0.35f) },
+        { "PrintPrintableAreaBorder", new Vector4(0f, 0f, 0f, 0.28f) },
         { "ControlBackground", new Vector4(0.227f, 0.227f, 0.235f, 1.0f) }, // Dark solid charcoal: #3A3A3C
         { "ControlBackgroundHover", new Vector4(0.282f, 0.282f, 0.29f, 1.0f) }, // #48484A
         { "ControlBackgroundPressed", new Vector4(0.329f, 0.329f, 0.337f, 1.0f) }, // #545456
@@ -248,6 +257,9 @@ public static class ThemeManager
     {
         { "PageBackground", new Vector4(0.965f, 0.965f, 0.965f, 1f) }, // Classic Cocoa Window Gray: #ECECEC
         { "CardBackground", new Vector4(1.0f, 1.0f, 1.0f, 1.0f) }, // Solid White
+        { "PrintPaperBackground", new Vector4(1f, 1f, 1f, 1f) },
+        { "PrintPaperBorder", new Vector4(0f, 0f, 0f, 0.35f) },
+        { "PrintPrintableAreaBorder", new Vector4(0f, 0f, 0f, 0.28f) },
         { "ControlBackground", new Vector4(0.894f, 0.894f, 0.902f, 1.0f) }, // Light solid gray: #E4E4E6
         { "ControlBackgroundHover", new Vector4(0.82f, 0.82f, 0.839f, 1.0f) }, // #D1D1D6
         { "ControlBackgroundPressed", new Vector4(0.78f, 0.78f, 0.80f, 1.0f) }, // #C7C7CC
@@ -905,20 +917,20 @@ public static class ThemeManager
             new Setter(nameof(Control.Template), new ControlTemplate(typeof(ToggleButton), (parent) =>
             {
                 var grid = new Grid();
-                
+
                 var chrome = new ToggleButtonChrome();
                 TemplateBinding.Bind(chrome, ToggleButtonChrome.IsCheckedProperty, parent, ToggleButton.IsCheckedProperty);
                 TemplateBinding.Bind(chrome, ToggleButtonChrome.IsPointerOverProperty, parent, DependencyProperty.Lookup(parent.GetType(), "IsPointerOver")!);
                 TemplateBinding.Bind(chrome, ToggleButtonChrome.IsPointerPressedProperty, parent, DependencyProperty.Lookup(parent.GetType(), "IsPointerPressed")!);
                 TemplateBinding.Bind(chrome, ToggleButtonChrome.IsFocusedProperty, parent, DependencyProperty.Lookup(parent.GetType(), "IsFocused")!);
                 TemplateBinding.Bind(chrome, ToggleButtonChrome.IsEnabledProperty, parent, DependencyProperty.Lookup(parent.GetType(), "IsEnabled")!);
-                
+
                 grid.AddChild(chrome);
-                
+
                 var presenter = new ContentPresenter { HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
                 TemplateBinding.Bind(presenter, ContentPresenter.PaddingProperty, parent, Control.PaddingProperty);
                 grid.AddChild(presenter);
-                
+
                 return grid;
             }))
         });
@@ -1304,7 +1316,7 @@ public class CheckboxChrome : FrameworkElement
                     new GradientStop(topColor, 0f),
                     new GradientStop(bottomColor, 1f)
                 });
-                
+
                 var borderCol = ThemeManager.GetColor("CheckboxCheckedBorder", activeTheme, activeFamily);
                 pen = new Pen(new SolidColorBrush(borderCol), 0.5f);
             }
@@ -1316,7 +1328,7 @@ public class CheckboxChrome : FrameworkElement
                     new GradientStop(topColor, 0f),
                     new GradientStop(bottomColor, 1f)
                 });
-                
+
                 var borderCol = ThemeManager.GetColor("CheckboxUncheckedBorder", activeTheme, activeFamily);
                 pen = new Pen(new SolidColorBrush(borderCol), 0.5f);
             }
@@ -1454,7 +1466,7 @@ public class RadioButtonChrome : FrameworkElement
                     new GradientStop(topColor, 0f),
                     new GradientStop(bottomColor, 1f)
                 });
-                
+
                 var borderCol = ThemeManager.GetColor("CheckboxCheckedBorder", activeTheme, activeFamily);
                 pen = new Pen(new SolidColorBrush(borderCol), 0.5f);
             }
@@ -1466,7 +1478,7 @@ public class RadioButtonChrome : FrameworkElement
                     new GradientStop(topColor, 0f),
                     new GradientStop(bottomColor, 1f)
                 });
-                
+
                 var borderCol = ThemeManager.GetColor("CheckboxUncheckedBorder", activeTheme, activeFamily);
                 pen = new Pen(new SolidColorBrush(borderCol), 0.5f);
             }
@@ -1765,7 +1777,7 @@ public class ToggleButtonChrome : FrameworkElement
                     new GradientStop(topColor, 0f),
                     new GradientStop(bottomColor, 1f)
                 });
-                
+
                 var borderCol = ThemeManager.GetColor("CheckboxCheckedBorder", activeTheme, activeFamily);
                 pen = new Pen(new SolidColorBrush(borderCol), 1f);
             }
@@ -1793,7 +1805,7 @@ public class ToggleButtonChrome : FrameworkElement
                     new GradientStop(topColor, 0f),
                     new GradientStop(bottomColor, 1f)
                 });
-                
+
                 var borderCol = ThemeManager.GetColor("CheckboxUncheckedBorder", activeTheme, activeFamily);
                 pen = new Pen(new SolidColorBrush(borderCol), 1f);
             }
@@ -1928,7 +1940,7 @@ public class SliderChrome : FrameworkElement
         }
 
         Rect trackRect = new Rect(baseThumbRadius, yCenter - trackHeight / 2f, trackWidth, trackHeight);
-        
+
         if (activeFamily == VisualThemeFamily.macOS)
         {
             // 1. Draw macOS Track Background (Inactive part)

@@ -490,6 +490,44 @@ public sealed class CadSampleCanvas : FrameworkElement
         return true;
     }
 
+    /// <summary>
+    /// Compiles one retained A4 model-extents page for the shared preview host.
+    /// The plotting snapshot deliberately resolves default CAD color against
+    /// white paper and applies the document's Plotting SORTENTS policy.
+    /// </summary>
+    public CadPrintPlan CreateA4PrintPlan(float outputDpi)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (!float.IsFinite(outputDpi) || outputDpi <= 0.0f)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(outputDpi),
+                "Print-preview DPI must be finite and positive.");
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new CadFontManagerTextResolver(
+                    InterFontFamily.Regular),
+                ShxFontResolver = ShxFonts,
+                DrawOrderPurpose = CadDrawOrderPurpose.Plotting,
+                DrawingBackgroundColor = new CadColor32(
+                    byte.MaxValue,
+                    byte.MaxValue,
+                    byte.MaxValue),
+            });
+        return new CadPrintPlanCompiler().Compile(
+            snapshot,
+            new CadPrintPlanOptions
+            {
+                OutputDpi = outputDpi,
+            });
+    }
+
     /// <summary>Moves all selected semantic model-space entities as one edit.</summary>
     public bool TranslateSelection(CadPoint3D translation)
     {

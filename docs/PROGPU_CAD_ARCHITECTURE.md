@@ -851,9 +851,10 @@ write succeeds, so a failed native write or browser download cannot mark the
 session clean.
 
 The hosts remain an executable engine-integration baseline, not yet the complete
-CAD editor shell: properties/layer panels, arbitrary-camera projected selection,
-editing tools, printing, and round-trip-certified output remain tracked
-application phases.
+CAD editor shell. They now share plan, Flat 3D, and retained A4 model-extents
+print-preview modes; properties/layer panels, arbitrary-camera projected
+selection, broader editing tools, page-setup selection, printer/export adapters,
+and round-trip-certified output remain tracked application phases.
 
 The Release browser AOT publish succeeds. Its linker audit currently reports
 annotation warnings in ACadSharp's initialization/reflection utilities and in
@@ -2047,16 +2048,43 @@ The first model-space print-plan foundation is implemented by
   storage for E entity headers and C scene commands; no raster surface is
   allocated.
 
+The shared desktop/browser shell now consumes that contract through a retained
+A4 model-extents preview. Entering preview compiles a separate generation-tagged
+snapshot with `CadDrawOrderPurpose.Plotting`, so a drawing whose SORTENTS
+Plotting bit differs from interactive regeneration is never previewed in the
+wrong order. The print snapshot resolves against a white physical-page
+background. In particular, indexed ACI 7 is deterministically white on the dark
+model canvas and black on the light page, while explicitly authored true white
+remains white. The switch uses integer Rec. 709 luminance weights and a midpoint
+light/dark threshold; no other indexed or true color is changed.
+
+`CadPrintPreviewCanvas` chooses an output DPI from the available logical
+viewport and the physical A4 dimensions, capped at 300 DPI, then displays the
+resulting page at one page pixel per logical pixel. That 1:1 contract is
+intentional: the page compiler's fixed-device strokes already express physical
+lineweights at its output DPI, and a second fit transform would incorrectly
+leave those widths unscaled. The control owns only the independently retained
+page picture and page metadata, centers it with a translation, draws a transient
+dynamic-theme paper/printable-area frame, performs no CAD traversal or print
+compilation during `OnRender`, and disposes the retained page on exit. Entering
+preview costs the existing plotting snapshot O(E log E) plus print-plan O(E + C)
+work and O(E + C) generation storage; stable preview replay is O(C) retained
+commands with no semantic-document access or retained upload after the compiled
+scene cache is warm. A content-generation replacement exits and releases a stale
+preview instead of presenting the old page.
+
 Catalog extraction and model-space page rotation are now implemented, but this
-foundation does not claim layout/paper-space viewport lowering, DCS camera/view lowering,
-CTB/STB overrides, shaded-viewport policies, transparency flattening, PDF/SVG,
-raster encoding, printer enumeration/spooling, or multi-page collation. Those
-remain explicit typed compilers/adapters and conformance gates; unsupported
-features are not silently rasterized or dropped. This CPU metadata/lowering
-slice changes no shader, stable C ABI, native renderer, compositor, atlas, or
-device-loss behavior. Both managed and native renderers continue to consume the
-same existing retained picture, clip, affine transform, shaped text, analytic
-path, and fixed-stroke commands, so no paired native implementation applies.
+foundation does not claim layout/paper-space viewport lowering, DCS camera/view
+lowering, a page-setup selection UI, CTB/STB overrides, shaded-viewport policies,
+transparency flattening, PDF/SVG, raster encoding, printer
+enumeration/spooling, or multi-page collation. Those remain explicit typed
+compilers/adapters and conformance gates; unsupported features are not silently
+rasterized or dropped. The preview adds no shader, stable C ABI, native renderer,
+compositor, atlas, or device-loss behavior. The ACI-7 decision occurs once in the
+shared immutable style stream; managed and native picture compilation consume
+the same resolved color, retained picture, clip, affine transform, shaped text,
+analytic path, and fixed-stroke commands, with a matched native-compilation
+regression. No paired native algorithm change applies.
 
 ## Performance and conformance gates
 
@@ -3424,7 +3452,15 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   [DirectWrite/Direct2D glyph-run transforms](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite),
   and [Parley layouts](https://github.com/linebender/parley/blob/main/README.md)
   remain retained CPU results from the immutable snapshot; the page rotation
-  neither reshapes text nor introduces a foreign document renderer.
+  neither reshapes text nor introduces a foreign document renderer. The shared
+  preview adopts that exact retained page rather than creating a UI-only drawing
+  path: it chooses a viewport-fit page DPI and replays at 1:1 so physical fixed
+  strokes preserve their proportion. Autodesk's
+  [background-adaptive ACI 7 contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-2B089E0A-BDC0-4916-885E-543A85FC8CFD.htm)
+  confirms that ACI 7 appears white on dark backgrounds and black on light
+  backgrounds. ProGPU adapts that observable rule through one deterministic
+  luminance decision in snapshot style resolution; explicit true colors remain
+  unchanged and the same packed result feeds managed and native replay.
 - [Autodesk ROTATE](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-1C265537-FBAC-48D5-B448-B72E777071E5.htm),
   [rotation behavior](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-9DB2CB8C-7FB7-45A4-83A7-82FFC53FC7E1.htm),
   and [SCALE](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-Core/files/GUID-D4E17E51-5000-4AB6-8D6A-6D2AB4863C75.htm):

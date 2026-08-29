@@ -4330,6 +4330,9 @@ public sealed partial class CadSnapshotCompiler
             : entity.Color.IsByBlock
                 ? byBlock?.Color ?? ACadSharp.Color.Default
                 : entity.Color;
+        color = ResolveBackgroundAdaptiveColor(
+            color,
+            options.DrawingBackgroundColor);
         LineWeightType lineWeight = entity.LineWeight switch
         {
             LineWeightType.ByLayer => effectiveLayer.LineWeight,
@@ -4369,6 +4372,32 @@ public sealed partial class CadSnapshotCompiler
             transparency,
             effectiveLineTypeScale,
             options.DefaultLineWeightMillimeters);
+    }
+
+    /// <summary>
+    /// Resolves ACI 7 to black on a light drawing background or white on a dark
+    /// drawing background. Explicit true colors and every other ACI value remain
+    /// unchanged.
+    /// </summary>
+    private static ACadSharp.Color ResolveBackgroundAdaptiveColor(
+        ACadSharp.Color color,
+        CadColor32 background)
+    {
+        if (color.IsTrueColor || color.Index != 7)
+        {
+            return color;
+        }
+
+        // Integer Rec. 709 luminance weights keep the decision deterministic.
+        // The midpoint classifies the sample's black model canvas and white
+        // physical page without changing explicitly authored true colors.
+        int luminance =
+            (2_126 * background.Red) +
+            (7_152 * background.Green) +
+            (722 * background.Blue);
+        return luminance >= 1_275_000
+            ? new ACadSharp.Color(0, 0, 0)
+            : new ACadSharp.Color(byte.MaxValue, byte.MaxValue, byte.MaxValue);
     }
 
     private static bool IsContinuousLineTypeName(string name) =>
