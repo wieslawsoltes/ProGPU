@@ -396,6 +396,78 @@ public sealed class CadSamplePrintPreviewTests
         }
     }
 
+    [Fact]
+    public void SharedViewAppliesNamedPageSetupToModelWithUndoRedo()
+    {
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_000, 800));
+            ComboBox selector = view.PageSetupSelector;
+            selector.SelectedItem = selector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Text.StartsWith(
+                    "Named: A4 portrait",
+                    StringComparison.Ordinal));
+            Button apply = FindButton(view, "Apply to Model");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+            ulong originalGeneration = view.Canvas.CurrentSession!.ContentGeneration;
+
+            Assert.True(apply.IsEnabled);
+            PressEnter(apply);
+
+            Assert.Equal(
+                checked(originalGeneration + 1),
+                view.Canvas.CurrentSession.ContentGeneration);
+            Assert.Equal(1, view.Canvas.UndoCount);
+            Assert.Equal(0, view.Canvas.RedoCount);
+            Assert.Equal(
+                "A4 portrait",
+                view.Canvas.CreatePageSetupCatalog()
+                    .FindLayout(ACadLayout.ModelLayoutName)!
+                    .PageSetupName);
+            Assert.StartsWith(
+                "Named: A4 portrait",
+                Assert.IsType<ComboBoxItem>(selector.SelectedItem).Text,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Applied named page setup 'A4 portrait' to Model",
+                    StringComparison.Ordinal));
+
+            PressEnter(undo);
+
+            Assert.Equal(
+                "ProGPU A3 landscape",
+                view.Canvas.CreatePageSetupCatalog()
+                    .FindLayout(ACadLayout.ModelLayoutName)!
+                    .PageSetupName);
+            Assert.Equal(0, view.Canvas.UndoCount);
+            Assert.Equal(1, view.Canvas.RedoCount);
+            Assert.StartsWith(
+                "Named: A4 portrait",
+                Assert.IsType<ComboBoxItem>(selector.SelectedItem).Text,
+                StringComparison.Ordinal);
+
+            PressEnter(redo);
+
+            Assert.Equal(
+                "A4 portrait",
+                view.Canvas.CreatePageSetupCatalog()
+                    .FindLayout(ACadLayout.ModelLayoutName)!
+                    .PageSetupName);
+            Assert.Equal(1, view.Canvas.UndoCount);
+            Assert.Equal(0, view.Canvas.RedoCount);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
     private static Button FindButton(Visual root, string label) =>
         DescendantsAndSelf(root)
             .OfType<Button>()

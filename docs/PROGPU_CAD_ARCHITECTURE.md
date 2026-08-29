@@ -2058,7 +2058,27 @@ generation replacement, and never silently substitutes the fallback for an
 unsupported setup. Unsupported entries remain visible with their first typed
 `CADPAGE` diagnostic; selecting one releases any old preview and reports the
 unsupported contract. This is preview selection only: it does not mutate which
-page setup is current in the ACadSharp document.
+page setup is current in the ACadSharp document. A separate `Apply to Model`
+command is enabled only for model-compatible named setups, so preview and edit
+intent cannot be confused.
+
+`CadApplyNamedPageSetupCommand` implements that edit as an original fixed-field
+copy of the ACadSharp `PlotSettings` contract. It resolves the target layout and
+named dictionary entry under the session edit lock, rejects model/paper target
+mismatches before mutation, preserves layout identity, block ownership, tab
+order, geometry, UCS, and viewport state, and changes only inherited plot
+settings. The old and applied states are retained as bounded value records;
+Apply, Undo, and Redo are transactional O(1) operations with O(1) history
+storage. The shared shell applies to the displayed Model layout, publishes one
+new content generation, rebuilds the catalog while preserving the named
+selection, and exposes the edit through the existing synchronized Undo/Redo
+history. DXF and DWG save/reload regressions cover the applied settings.
+
+That persistence gate exposed an ACadSharp DXF reader defect: overlapping group
+codes from `AcDbPlotSettings` and `AcDbLayout` were always offered to the layout
+map first. The pinned ProGPU-owned ACadSharp feature commit `024ef7f5` routes
+layout parsing by the active subclass and adds ASCII/binary differential
+round-trip coverage. The dependency master branch remains untouched.
 
 Entering preview compiles a separate generation-tagged snapshot with
 `CadDrawOrderPurpose.Plotting`, so a drawing whose SORTENTS Plotting bit differs
@@ -2087,11 +2107,11 @@ commands with no semantic-document access or retained upload after the compiled
 scene cache is warm. A content-generation replacement exits and releases a stale
 preview instead of presenting the old page.
 
-Catalog extraction and model-space page rotation are now implemented, but this
-foundation does not claim layout/paper-space viewport lowering, DCS camera/view
-lowering, page-setup editing/import or applying a named setup to a layout,
-CTB/STB overrides, shaded-viewport policies, transparency flattening, PDF/SVG,
-raster encoding, printer
+Catalog extraction, model-space page rotation, and applying a compatible named
+setup to a layout are now implemented, but this foundation does not claim
+layout/paper-space viewport lowering, DCS camera/view lowering, page-setup
+creation/editing/import, CTB/STB overrides, shaded-viewport policies,
+transparency flattening, PDF/SVG, raster encoding, printer
 enumeration/spooling, or multi-page collation. Those remain explicit typed
 compilers/adapters and conformance gates; unsupported features are not silently
 rasterized or dropped. The preview adds no shader, stable C ABI, native renderer,
@@ -3420,6 +3440,7 @@ Sources consulted on 2026-08-27 through 2026-08-29:
 - [Autodesk page setup](https://help.autodesk.com/cloudhelp/2025/ENU/DWGTrueView/files/GUID-0D72CF75-DA37-4937-9D9A-D93AA9BDF8D3.htm),
   [Page Setup Manager](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-Core/files/GUID-B06031A0-EF7E-4287-8E34-ABDCC40FF8C4.htm),
   [named page-setup workflow](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-62B163D7-92F5-4793-85C2-246BDDA81470.htm),
+  [Plot Settings and Page Setups (.NET)](https://help.autodesk.com/cloudhelp/2017/ENU/AutoCAD-NET/files/GUID-56BD3247-471C-4471-A238-FFDFDC3BD2E4.htm),
   [plot-area choices](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-MAC-Core/files/GUID-7F356502-16EC-4371-86A9-2A58968762DD.htm),
   [plot-rotation enum](https://help.autodesk.com/cloudhelp/2019/ENU/OARX-RefGuide/files/OREF-AcDbPlotSettings__plotRotation.html),
   [drawing-orientation behavior](https://help.autodesk.com/cloudhelp/2025/ENU/DWGTrueView/files/GUID-E05BF1C8-3C44-4E0C-917C-5A95C860A98E.htm),
@@ -3455,7 +3476,11 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   layout is an editing command with separate undo/save semantics. Unsupported
   source policies remain selectable for their precise diagnostic, and the
   sample-only A4 option is visibly labeled as a fallback rather than pretending
-  to be a drawing-owned page setup.
+  to be a drawing-owned page setup. Autodesk's public managed contract applies
+  a named `PlotSettings` object to a derived `Layout` with `CopyFrom`; ProGPU
+  adopts the observable fixed plot-field copy while replacing database/runtime
+  transaction assumptions with its own typed session generation, bounded value
+  snapshot, target-space validation, and Undo/Redo command.
 - [Skia PDF pages](https://skia.org/docs/user/sample/pdf/),
   [Skia canvas backends](https://skia.org/docs/user/api/skcanvas_creation/),
   [Skia canvas transforms and clips](https://skia.org/docs/user/api/skcanvas_overview/),

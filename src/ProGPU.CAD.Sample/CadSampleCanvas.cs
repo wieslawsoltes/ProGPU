@@ -528,6 +528,26 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Applies a named page setup to a layout as one generation-safe,
+    /// reversible document edit.
+    /// </summary>
+    public void ApplyNamedPageSetup(
+        string targetLayoutName,
+        string namedPageSetupName)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadApplyNamedPageSetupCommand(
+            targetLayoutName,
+            namedPageSetupName,
+            $"Apply page setup '{namedPageSetupName}' to layout '{targetLayoutName}'"));
+        RecompileAfterEdit(session);
+    }
+
+    /// <summary>
     /// Compiles one retained page from a generation-matched drawing page setup.
     /// Unsupported page policies fail with their typed CADPAGE diagnostic.
     /// </summary>

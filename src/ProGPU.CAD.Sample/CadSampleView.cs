@@ -8,6 +8,7 @@ using ProGPU.Scene.Extensions;
 using ProGPU.Text;
 using ProGPU.Vector;
 using Windows.Storage;
+using ACadLayout = ACadSharp.Objects.Layout;
 using Key = Silk.NET.Input.Key;
 
 namespace ProGPU.CAD.Sample;
@@ -25,6 +26,7 @@ public sealed class CadSampleView : Grid
     private readonly Button _printPreviewButton;
     private readonly TextBlock _printPreviewText;
     private readonly ComboBox _pageSetupSelector;
+    private readonly Button _applyPageSetupButton;
     private readonly TextBlock _status;
     private readonly Button _openButton;
     private readonly Button _saveButton;
@@ -264,13 +266,16 @@ public sealed class CadSampleView : Grid
         {
             Font = font,
             FontSize = 11,
-            WidthConstraint = 320,
+            WidthConstraint = 280,
             HeightConstraint = 30,
             MaxDropDownHeight = 256,
             Margin = new Thickness(0, 0, 8, 0),
         };
+        _applyPageSetupButton = CreateButton("Apply to Model", font, 120, 30);
+        _applyPageSetupButton.Margin = new Thickness(0, 0, 8, 0);
         _printPreviewButton.Margin = new Thickness(0, 0, 8, 0);
         printActions.AddChild(_pageSetupSelector);
+        printActions.AddChild(_applyPageSetupButton);
         printActions.AddChild(_printPreviewButton);
 
         _status = new TextBlock
@@ -307,6 +312,8 @@ public sealed class CadSampleView : Grid
         _printPreviewButton.Click += (_, _) => TogglePrintPreview();
         _pageSetupSelector.SelectionChanged += (_, _) =>
             OnPageSetupSelectionChanged();
+        _applyPageSetupButton.Click += (_, _) =>
+            ApplySelectedPageSetupToModel();
         _clearSelectionButton.Click += (_, _) => _canvas.ClearSelection();
         _undoButton.Click += (_, _) => PerformUndo();
         _redoButton.Click += (_, _) => PerformRedo();
@@ -454,6 +461,41 @@ public sealed class CadSampleView : Grid
             ShowSelectedPrintPreview();
         }
         else
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void ApplySelectedPageSetupToModel()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        var item = _pageSetupSelector.SelectedItem as ComboBoxItem;
+        var choice = item?.Tag as PageSetupChoice;
+        if (choice?.PageSetup is not CadPageSetupSnapshot pageSetup ||
+            pageSetup.SourceKind != CadPageSetupSourceKind.NamedOverride)
+        {
+            SetStatus("Applying a page setup requires a named setup selection.");
+            UpdateEditControls();
+            return;
+        }
+
+        try
+        {
+            _canvas.ApplyNamedPageSetup(
+                ACadLayout.ModelLayoutName,
+                pageSetup.Name);
+            SetStatus(
+                $"Applied named page setup '{pageSetup.Name}' to Model as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Apply page setup failed: {exception.Message}");
+        }
+        finally
         {
             UpdateEditControls();
         }
@@ -1220,6 +1262,10 @@ public sealed class CadSampleView : Grid
         _pageSetupSelector.IsEnabled =
             !_isBusy && !isReferencePicking &&
             _canvas.CurrentSession is not null;
+        _applyPageSetupButton.IsEnabled =
+            canUsePlanTools &&
+            (_pageSetupSelector.SelectedItem as ComboBoxItem)?.Tag is
+                PageSetupChoice { CanApplyToModel: true };
         _undoButton.IsEnabled =
             canUsePlanTools && _canvas.UndoCount > 0;
         _redoButton.IsEnabled =
@@ -1305,6 +1351,13 @@ public sealed class CadSampleView : Grid
         public CadPageSetupPrintOptionsResult? Lowering { get; }
 
         public bool IsFallback => PageSetup is null;
+
+        public bool CanApplyToModel =>
+            PageSetup is
+            {
+                SourceKind: CadPageSetupSourceKind.NamedOverride,
+                TargetSpace: CadPageTargetSpace.Model,
+            };
 
         public string DisplayName { get; }
 
