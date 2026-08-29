@@ -134,7 +134,8 @@ internal static partial class Program
                     drawingSessionType =
                         drawingSession.GetType().FullName ??
                         drawingSession.GetType().Name;
-                    drawingSession.Clear(Colors.Transparent);
+                    drawingSession.Clear(
+                        Color.FromArgb(0, 0, 0, 0));
                     drawingSession.FillRectangle(
                         8.0F,
                         8.0F,
