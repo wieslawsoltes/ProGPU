@@ -168,6 +168,11 @@ The gate has a completed portable-core layer and three expanding oracle layers:
    frame is exact except for two antialiased curve-edge pixels differing by one
    channel level: Metal SHA-256 `BE7227D7224576EC3C74963CD18CA9736FAC67657350CC739170E496AE28991A`
    and D3D12 SHA-256 `6FEC0F3EF3F628E18395542383E487C5D8CDA6FE0B49906299A6CDB9D19BE502`.
+   Ubuntu 24.04 ARM64 llvmpipe/Vulkan produced SHA-256
+   `4443D80D541A386DEEEB6B35933550FE6FA437FDCC2ABA54BE8CA66E16877DF9`;
+   versus D3D12 it changes 42 antialiased-edge pixels, all by exactly 1/255,
+   with mean absolute channel difference `0.0003602431`. Metal changes two
+   pixels, also by exactly 1/255.
    The frame includes full-opacity and half-opacity same-device bitmap draws;
    the source is publicly disposed before the destination session closes to
    prove that the typed GPU lease, rather than a CPU copy, owns deferred use.
