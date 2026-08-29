@@ -1999,6 +1999,27 @@ public class NativeRendererInteropTests
         var chain = new NativeClipChain([nonzeroPath], segments, nodes);
 
         Assert.Equal(3, chain.BooleanNodeCount);
+        Assert.Equal(
+            NativeSignedWindingExecutionPreference.Fastest,
+            chain.SignedWindingExecutionPreference);
+        Assert.Equal(
+            NativeSignedWindingExecutionPath.InlineVectorCompute,
+            chain.SignedWindingExecutionPath);
+
+        var stagedChain = new NativeClipChain(
+            [nonzeroPath],
+            segments,
+            nodes,
+            NativeSignedWindingExecutionPreference.StagedVectorCompute);
+        Assert.Equal(
+            NativeSignedWindingExecutionPath.StagedVectorCompute,
+            stagedChain.SignedWindingExecutionPath);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new NativeClipChain(
+                [nonzeroPath],
+                segments,
+                nodes,
+                (NativeSignedWindingExecutionPreference)(-1)));
         Assert.Throws<ArgumentException>(() =>
             new NativeClipChain(
                 [new NativeClipPath(

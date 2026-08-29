@@ -389,7 +389,15 @@ typedef enum progpu_native_image_source_flags {
 
 enum {
     PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH = 1U << 0U,
-    PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD = 1U << 1U
+    PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD = 1U << 1U,
+    /* Path frames only: force the multi-pass signed-winding compatibility
+     * pipeline instead of the fastest bounded inline vector evaluator. */
+    PROGPU_NATIVE_PATH_FRAME_STAGED_SIGNED_WINDING = 1U << 2U
+};
+
+enum {
+    /* Clip chains default to the fastest bounded inline vector evaluator. */
+    PROGPU_NATIVE_CLIP_CHAIN_STAGED_SIGNED_WINDING = 1U << 0U
 };
 
 typedef enum progpu_native_status {

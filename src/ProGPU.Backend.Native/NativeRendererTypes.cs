@@ -332,6 +332,41 @@ public enum NativePathBooleanNodeKind : uint
     WindingNegate = 9
 }
 
+/// <summary>
+/// Selects the exact GPU implementation for signed Nonzero boolean paths.
+/// </summary>
+public enum NativeSignedWindingExecutionPreference
+{
+    /// <summary>Use the fastest qualified exact implementation.</summary>
+    Fastest,
+
+    /// <summary>
+    /// Evaluate the bounded postfix program inline in one vectorized compute
+    /// dispatch without intermediate leaf storage.
+    /// </summary>
+    InlineVectorCompute,
+
+    /// <summary>
+    /// Force the multi-pass leaf/evaluate/coverage compatibility pipeline.
+    /// </summary>
+    StagedVectorCompute
+}
+
+public enum NativeSignedWindingExecutionPath
+{
+    /// <summary>
+    /// The bounded postfix program executes inline without intermediate
+    /// per-leaf storage.
+    /// </summary>
+    InlineVectorCompute,
+
+    /// <summary>
+    /// Leaf evaluation, postfix evaluation, and coverage packing execute in
+    /// separate vectorized GPU passes.
+    /// </summary>
+    StagedVectorCompute
+}
+
 public enum NativeGroupEffectKind : uint
 {
     None = 0,
@@ -3492,8 +3527,13 @@ public sealed unsafe class NativeClipChain
     public NativeClipChain(
         ReadOnlySpan<NativeClipPath> paths,
         ReadOnlySpan<NativePathSegment> segments,
-        ReadOnlySpan<NativePathBooleanNode> booleanNodes = default)
+        ReadOnlySpan<NativePathBooleanNode> booleanNodes = default,
+        NativeSignedWindingExecutionPreference signedWindingExecution =
+            NativeSignedWindingExecutionPreference.Fastest)
     {
+        if (!Enum.IsDefined(signedWindingExecution))
+            throw new ArgumentOutOfRangeException(
+                nameof(signedWindingExecution));
         if (paths.IsEmpty)
             throw new ArgumentException("A native clip chain requires at least one path.", nameof(paths));
         if (paths.Length > 64)
@@ -3577,11 +3617,21 @@ public sealed unsafe class NativeClipChain
         paths.CopyTo(_paths);
         segments.CopyTo(_segments);
         booleanNodes.CopyTo(_booleanNodes);
+        SignedWindingExecutionPreference = signedWindingExecution;
     }
 
     public int PathCount => _paths.Length;
     public int SegmentCount => _segments.Length;
     public int BooleanNodeCount => _booleanNodes.Length;
+
+    public NativeSignedWindingExecutionPreference
+        SignedWindingExecutionPreference { get; }
+
+    public NativeSignedWindingExecutionPath SignedWindingExecutionPath =>
+        SignedWindingExecutionPreference ==
+            NativeSignedWindingExecutionPreference.StagedVectorCompute
+            ? NativeSignedWindingExecutionPath.StagedVectorCompute
+            : NativeSignedWindingExecutionPath.InlineVectorCompute;
 
     internal NativeClipPath* Paths =>
         (NativeClipPath*)Unsafe.AsPointer(
@@ -3786,7 +3836,8 @@ public readonly record struct NativePathFrameMetrics(
     ulong CoverageStagingBytes,
     ulong UniformUploadBytes,
     ulong SubmissionCount,
-    ulong PayloadHash);
+    ulong PayloadHash,
+    NativeSignedWindingExecutionPath SignedWindingExecutionPath);
 
 public readonly record struct NativeGlyphFrameMetrics(
     uint DrawCallCount,

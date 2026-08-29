@@ -61,7 +61,9 @@ bool rebuild_vector_clip_chain(
     std::uint32_t height,
     float dpi_scale) {
     const auto& chain = *mask.clip_chain;
-    if (chain.struct_size < sizeof(chain) || chain.flags != 0U ||
+    if (chain.struct_size < sizeof(chain) ||
+        (chain.flags &
+            ~PROGPU_NATIVE_CLIP_CHAIN_STAGED_SIGNED_WINDING) != 0U ||
         chain.paths == nullptr || chain.path_count == 0U ||
         chain.segments == nullptr || chain.segment_count == 0U ||
         chain.path_count > (1U << 16U) ||
@@ -277,11 +279,14 @@ bool rebuild_vector_clip_chain(
                     std::span<const progpu_native_path_segment>(
                         chain.segments,
                         chain.segment_count));
-                if (program.split_leaf_count != 0U) {
-                    const bool signed_winding_program =
-                        (program.operation_kind &
-                            path_boolean::gpu_signed_winding_program_flag) !=
-                        0U;
+                const bool signed_winding_program =
+                    (program.operation_kind &
+                        path_boolean::gpu_signed_winding_program_flag) != 0U;
+                const bool staged_signed_winding =
+                    (chain.flags &
+                        PROGPU_NATIVE_CLIP_CHAIN_STAGED_SIGNED_WINDING) != 0U;
+                if (program.split_leaf_count != 0U &&
+                    (!signed_winding_program || staged_signed_winding)) {
                     const std::uint64_t leaf_words_per_pixel =
                         signed_winding_program
                             ? path_maximum_sample_count

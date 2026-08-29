@@ -279,6 +279,49 @@ bool usePathScene = Array.Exists(
         value,
         "--paths",
         StringComparison.OrdinalIgnoreCase));
+bool useSignedWindingPathScene = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--signed-winding-paths",
+        StringComparison.OrdinalIgnoreCase));
+if (useSignedWindingPathScene && !usePathScene)
+{
+    throw new ArgumentException(
+        "--signed-winding-paths requires --paths.");
+}
+string? signedWindingExecutionArgument =
+    ReadStringArgument("--signed-winding-execution");
+NativeSignedWindingExecutionPreference signedWindingExecution =
+    signedWindingExecutionArgument?.ToLowerInvariant() switch
+    {
+        null or "auto" or "fastest" =>
+            NativeSignedWindingExecutionPreference.Fastest,
+        "inline" =>
+            NativeSignedWindingExecutionPreference.InlineVectorCompute,
+        "staged" =>
+            NativeSignedWindingExecutionPreference.StagedVectorCompute,
+        _ => throw new ArgumentException(
+            $"Unknown --signed-winding-execution value " +
+            $"'{signedWindingExecutionArgument}'.")
+    };
+if (signedWindingExecutionArgument is not null &&
+    !useSignedWindingPathScene)
+{
+    throw new ArgumentException(
+        "--signed-winding-execution requires --signed-winding-paths.");
+}
+bool rerasterizePaths = Array.Exists(
+    args,
+    static value => string.Equals(
+        value,
+        "--rerasterize-paths",
+        StringComparison.OrdinalIgnoreCase));
+if (rerasterizePaths && !usePathScene)
+{
+    throw new ArgumentException(
+        "--rerasterize-paths requires --paths.");
+}
 bool useGlyphScene = Array.Exists(
     args,
     static value => string.Equals(
@@ -337,6 +380,11 @@ bool forceAtlasGrowth = Array.Exists(
 if (forceAtlasGrowth && !useGlyphScene && !usePathScene)
 {
     throw new ArgumentException("--atlas-growth requires --glyphs or --paths.");
+}
+if (forceAtlasGrowth && useSignedWindingPathScene)
+{
+    throw new ArgumentException(
+        "--signed-winding-paths cannot be combined with --atlas-growth.");
 }
 bool enableManagedCompiledSceneCache = Array.Exists(
     args,
@@ -500,14 +548,21 @@ NativeGeometryPrimitive[] geometryPrimitives = useGeometryScene
         logicalWidth,
         logicalHeight)
     : [];
-(NativePathFill[] nativePaths, NativePathSegment[] nativePathSegments) =
+(NativePathFill[] nativePaths,
+ NativePathSegment[] nativePathSegments,
+ NativePathBooleanNode[] nativePathBooleanNodes) =
     usePathScene
-        ? CreateNativePaths(
-            rectangleCount,
-            logicalWidth,
-            logicalHeight,
-            forceAtlasGrowth)
-        : ([], []);
+        ? useSignedWindingPathScene
+            ? CreateNativeSignedWindingPaths(
+                rectangleCount,
+                logicalWidth,
+                logicalHeight)
+            : CreateNativePaths(
+                rectangleCount,
+                logicalWidth,
+                logicalHeight,
+                forceAtlasGrowth)
+        : ([], [], []);
 TtfFont? glyphFont = useGlyphScene || useSemanticScene
     ? InterFontFamily.Regular
     : null;
@@ -628,6 +683,7 @@ uint nativeAtlasGrowthCount = 0;
 NativeGlyphFrameMetrics lastNativeGlyphMetrics = default;
 uint nativeGlyphContentRevision = 1U;
 NativePathFrameMetrics lastNativePathMetrics = default;
+uint nativePathContentRevision = 1U;
 NativeGeometryFrameMetrics lastNativeGeometryMetrics = default;
 NativeImageFrameMetrics lastNativeImageMetrics = default;
 NativeSceneUpdateMetrics nativeSceneUpdateMetrics = default;
@@ -891,7 +947,8 @@ DrawingVisual managedVisual = useImageScene
         rectangleCount,
         logicalWidth,
         logicalHeight,
-        forceAtlasGrowth)
+        forceAtlasGrowth,
+        useSignedWindingPathScene)
     : useGeometryScene
     ? CreateManagedGeometryVisual(
         geometryPrimitives,
@@ -1548,7 +1605,7 @@ if (writeImages)
         : useGlyphScene
         ? "glyphs"
         : usePathScene
-        ? "paths"
+        ? useSignedWindingPathScene ? "paths-signed-winding" : "paths"
         : useGeometryScene
         ? "geometry"
         : useAnalyticScene
@@ -1623,7 +1680,9 @@ if (writeImages)
         : useGlyphScene
         ? forceAtlasGrowth ? "glyphs-growth" : "glyphs"
         : usePathScene
-        ? forceAtlasGrowth ? "paths-growth" : "paths"
+        ? useSignedWindingPathScene
+            ? "paths-signed-winding"
+            : forceAtlasGrowth ? "paths-growth" : "paths"
         : useDashedGeometryScene ? "dashes" : "latest";
     WritePpm(
         $"artifacts/progpu-native/differential/{imageStem}-native.ppm",
@@ -1965,7 +2024,9 @@ var report = new BenchmarkReport(
         : useGlyphScene
         ? "RetainedPositionedGlyphAtlas"
         : usePathScene
-        ? "RetainedPathAtlas"
+        ? useSignedWindingPathScene
+            ? "RetainedSignedWindingPathAtlas"
+            : "RetainedPathAtlas"
         : useGeometryScene
         ? useDashedGeometryScene
             ? "IndexedGeometryDashes"
@@ -1978,10 +2039,16 @@ var report = new BenchmarkReport(
             : "IndexedGeometry"
         : useAnalyticScene ? "IndexedAnalytic" : "SolidRectangles",
     RerasterizeGlyphs: rerasterizeGlyphs,
+    RerasterizePaths: rerasterizePaths,
+    SignedWindingExecution: useSignedWindingPathScene
+        ? lastNativePathMetrics.SignedWindingExecutionPath.ToString()
+        : "None",
     DifferentialContract: useSemanticLayerEffects
         ? "Matched retained mixed semantic scene through blur/drop-shadow GPU chain and post-effect rounded mask; bounded independent coverage and RGBA8 intermediate edge ownership"
         : useSemanticScene
         ? "Matched retained analytic/path/glyph/image semantic scene; bounded independent path/glyph coverage edge ownership"
+        : useSignedWindingPathScene
+        ? "Matched high-precision Nonzero contours; native Leaf/Union plus raw signed-winding addition against managed contour aggregation"
         : usesDrawStateClipImage
         ? "Near-exact; differences restricted to managed CPU-clipped texture perimeter versus native scissor"
         : useGroupEffectChain
@@ -2278,8 +2345,12 @@ ulong RenderNative(bool capturePayloadHash = false)
             nativePathSegments,
             clearColor,
             capturePayloadHash,
-            contentRevision: 1U,
-            drawState: nativeDrawState);
+            contentRevision: rerasterizePaths
+                ? nativePathContentRevision++
+                : 1U,
+            drawState: nativeDrawState,
+            booleanNodes: nativePathBooleanNodes,
+            signedWindingExecution: signedWindingExecution);
         lastNativePathMetrics = metrics;
         nativeVertexCount = metrics.VertexCount;
         nativeIndexCount = metrics.IndexCount;
@@ -3824,7 +3895,10 @@ static DrawingVisual CreateManagedGeometryVisual(
     };
 }
 
-static (NativePathFill[] Paths, NativePathSegment[] Segments) CreateNativePaths(
+static (
+    NativePathFill[] Paths,
+    NativePathSegment[] Segments,
+    NativePathBooleanNode[] BooleanNodes) CreateNativePaths(
     int count,
     float logicalWidth,
     float logicalHeight,
@@ -3900,7 +3974,99 @@ static (NativePathFill[] Paths, NativePathSegment[] Segments) CreateNativePaths(
             color,
             transform);
     }
-    return (paths, segments);
+    return (paths, segments, []);
+}
+
+static (
+    NativePathFill[] Paths,
+    NativePathSegment[] Segments,
+    NativePathBooleanNode[] BooleanNodes) CreateNativeSignedWindingPaths(
+        int count,
+        float logicalWidth,
+        float logicalHeight)
+{
+    const float localWidth = 30f;
+    const float localHeight = 20f;
+    var segments = new[]
+    {
+        // Two disjoint, equally oriented outer rectangles.
+        new NativePathSegment(NativePathSegmentKind.Line, new(-15f, -10f), new(-1f, -10f)),
+        new NativePathSegment(NativePathSegmentKind.Line, new(-1f, -10f), new(-1f, 10f)),
+        new NativePathSegment(NativePathSegmentKind.Line, new(-1f, 10f), new(-15f, 10f)),
+        new NativePathSegment(NativePathSegmentKind.Line, new(-15f, 10f), new(-15f, -10f)),
+        new NativePathSegment(NativePathSegmentKind.Line, new(1f, -10f), new(15f, -10f)),
+        new NativePathSegment(NativePathSegmentKind.Line, new(15f, -10f), new(15f, 10f)),
+        new NativePathSegment(NativePathSegmentKind.Line, new(15f, 10f), new(1f, 10f)),
+        new NativePathSegment(NativePathSegmentKind.Line, new(1f, 10f), new(1f, -10f)),
+        // A reverse-oriented contour inside the left rectangle cancels its
+        // raw signed winding after the binary union has normalized to +1.
+        new NativePathSegment(NativePathSegmentKind.Line, new(-11f, -5f), new(-11f, 5f)),
+        new NativePathSegment(NativePathSegmentKind.Line, new(-11f, 5f), new(-5f, 5f)),
+        new NativePathSegment(NativePathSegmentKind.Line, new(-5f, 5f), new(-5f, -5f)),
+        new NativePathSegment(NativePathSegmentKind.Line, new(-5f, -5f), new(-11f, -5f))
+    };
+    var baseBooleanNodes = new[]
+    {
+        new NativePathBooleanNode(
+            0U, 4U, new(-15f, -10f), new(-1f, 10f),
+            NativeFillRule.NonZero, NativePathBooleanNodeKind.Leaf),
+        new NativePathBooleanNode(
+            4U, 4U, new(1f, -10f), new(15f, 10f),
+            NativeFillRule.NonZero, NativePathBooleanNodeKind.Leaf),
+        new NativePathBooleanNode(
+            0U, 0U, default, default,
+            NativeFillRule.NonZero, NativePathBooleanNodeKind.Union),
+        new NativePathBooleanNode(
+            8U, 4U, new(-11f, -5f), new(-5f, 5f),
+            NativeFillRule.NonZero, NativePathBooleanNodeKind.WindingLeaf),
+        new NativePathBooleanNode(
+            0U, 0U, default, default,
+            NativeFillRule.NonZero, NativePathBooleanNodeKind.WindingAdd)
+    };
+    var booleanNodes = new NativePathBooleanNode[
+        count * baseBooleanNodes.Length];
+    for (int index = 0; index < count; index++)
+    {
+        baseBooleanNodes.CopyTo(
+            booleanNodes,
+            index * baseBooleanNodes.Length);
+    }
+    var paths = new NativePathFill[count];
+    int columns = Math.Max(1, (int)MathF.Ceiling(MathF.Sqrt(
+        count * logicalWidth / logicalHeight)));
+    int rows = (count + columns - 1) / columns;
+    float cellWidth = logicalWidth / columns;
+    float cellHeight = logicalHeight / rows;
+    float scale = MathF.Min(
+        cellWidth / (localWidth * 1.4f),
+        cellHeight / (localHeight * 1.4f));
+    for (int index = 0; index < count; index++)
+    {
+        int column = index % columns;
+        int row = index / columns;
+        float phase = index * 0.61803398875f % 1f;
+        Vector4 color = new(
+            0.2f + 0.7f * (0.5f + 0.5f * MathF.Sin(phase * MathF.Tau)),
+            0.25f + 0.65f * (0.5f + 0.5f * MathF.Sin((phase + 0.333f) * MathF.Tau)),
+            0.3f + 0.6f * (0.5f + 0.5f * MathF.Sin((phase + 0.666f) * MathF.Tau)),
+            1f);
+        Matrix3x2 transform = Matrix3x2.CreateScale(scale) *
+            Matrix3x2.CreateTranslation(
+                (column + 0.5f) * cellWidth,
+                (row + 0.5f) * cellHeight);
+        paths[index] = new NativePathFill(
+            0U,
+            (nuint)segments.Length,
+            new Vector2(-15f, -10f),
+            new Vector2(15f, 10f),
+            color,
+            transform,
+            NativeFillRule.NonZero,
+            PathAtlas.HighPrecisionCoverageSampleGrid,
+            booleanNodeOffset: (nuint)(index * baseBooleanNodes.Length),
+            booleanNodeCount: (nuint)baseBooleanNodes.Length);
+    }
+    return (paths, segments, booleanNodes);
 }
 
 static (NativeScenePathFill[] Paths, NativePathSegment[] Segments)
@@ -3910,7 +4076,9 @@ static (NativeScenePathFill[] Paths, NativePathSegment[] Segments)
         float logicalHeight,
         float xOffset)
 {
-    (NativePathFill[] sourcePaths, NativePathSegment[] segments) =
+    (NativePathFill[] sourcePaths,
+     NativePathSegment[] segments,
+     NativePathBooleanNode[] _) =
         CreateNativePaths(
             count,
             logicalWidth,
@@ -4122,29 +4290,40 @@ static DrawingVisual CreateManagedPathVisual(
     int count,
     float logicalWidth,
     float logicalHeight,
-    bool forceAtlasGrowth)
+    bool forceAtlasGrowth,
+    bool signedWinding = false)
 {
     const float radius = 12f;
     const float kappa = 0.55228475f;
-    var path = new PathGeometry();
-    var figure = new PathFigure(new Vector2(0f, -radius), isClosed: true);
-    figure.Segments.Add(new CubicBezierSegment(
-        new Vector2(radius * kappa, -radius),
-        new Vector2(radius, -radius * kappa),
-        new Vector2(radius, 0f)));
-    figure.Segments.Add(new CubicBezierSegment(
-        new Vector2(radius, radius * kappa),
-        new Vector2(radius * kappa, radius),
-        new Vector2(0f, radius)));
-    figure.Segments.Add(new CubicBezierSegment(
-        new Vector2(-radius * kappa, radius),
-        new Vector2(-radius, radius * kappa),
-        new Vector2(-radius, 0f)));
-    figure.Segments.Add(new CubicBezierSegment(
-        new Vector2(-radius, -radius * kappa),
-        new Vector2(-radius * kappa, -radius),
-        new Vector2(0f, -radius)));
-    path.Figures.Add(figure);
+    PathGeometry path;
+    if (signedWinding)
+    {
+        path = CreateManagedSignedWindingPath();
+    }
+    else
+    {
+        path = new PathGeometry();
+        var figure = new PathFigure(
+            new Vector2(0f, -radius),
+            isClosed: true);
+        figure.Segments.Add(new CubicBezierSegment(
+            new Vector2(radius * kappa, -radius),
+            new Vector2(radius, -radius * kappa),
+            new Vector2(radius, 0f)));
+        figure.Segments.Add(new CubicBezierSegment(
+            new Vector2(radius, radius * kappa),
+            new Vector2(radius * kappa, radius),
+            new Vector2(0f, radius)));
+        figure.Segments.Add(new CubicBezierSegment(
+            new Vector2(-radius * kappa, radius),
+            new Vector2(-radius, radius * kappa),
+            new Vector2(-radius, 0f)));
+        figure.Segments.Add(new CubicBezierSegment(
+            new Vector2(-radius, -radius * kappa),
+            new Vector2(-radius * kappa, -radius),
+            new Vector2(0f, -radius)));
+        path.Figures.Add(figure);
+    }
 
     var visual = new DrawingVisual
     {
@@ -4155,9 +4334,13 @@ static DrawingVisual CreateManagedPathVisual(
     int rows = (count + columns - 1) / columns;
     float cellWidth = logicalWidth / columns;
     float cellHeight = logicalHeight / rows;
+    float localWidth = signedWinding ? 30f : radius * 2f;
+    float localHeight = signedWinding ? 20f : radius * 2f;
     float scale = forceAtlasGrowth
         ? 1.5f
-        : MathF.Min(cellWidth, cellHeight) / (radius * 2.8f);
+        : MathF.Min(
+            cellWidth / (localWidth * 1.4f),
+            cellHeight / (localHeight * 1.4f));
     for (int index = 0; index < count; index++)
     {
         int column = index % columns;
@@ -4181,8 +4364,49 @@ static DrawingVisual CreateManagedPathVisual(
                 affine.M21, affine.M22, 0f, 0f,
                 0f, 0f, 1f, 0f,
                 affine.M31, affine.M32, 0f, 1f));
+        if (signedWinding)
+        {
+            RenderCommand command = visual.Context.Commands[^1];
+            command.PathSampleGrid = PathAtlas.HighPrecisionCoverageSampleGrid;
+            visual.Context.Commands[^1] = command;
+        }
     }
     return visual;
+}
+
+static PathGeometry CreateManagedSignedWindingPath()
+{
+    var path = new PathGeometry { FillRule = FillRule.Nonzero };
+    AddRectangle(path, -15f, -10f, -1f, 10f, reverse: false);
+    AddRectangle(path, 1f, -10f, 15f, 10f, reverse: false);
+    AddRectangle(path, -11f, -5f, -5f, 5f, reverse: true);
+    return path;
+
+    static void AddRectangle(
+        PathGeometry target,
+        float left,
+        float top,
+        float right,
+        float bottom,
+        bool reverse)
+    {
+        var figure = new PathFigure(
+            new Vector2(left, top),
+            isClosed: true);
+        if (reverse)
+        {
+            figure.Segments.Add(new LineSegment(new Vector2(left, bottom)));
+            figure.Segments.Add(new LineSegment(new Vector2(right, bottom)));
+            figure.Segments.Add(new LineSegment(new Vector2(right, top)));
+        }
+        else
+        {
+            figure.Segments.Add(new LineSegment(new Vector2(right, top)));
+            figure.Segments.Add(new LineSegment(new Vector2(right, bottom)));
+            figure.Segments.Add(new LineSegment(new Vector2(left, bottom)));
+        }
+        target.Figures.Add(figure);
+    }
 }
 
 static (
@@ -4510,6 +4734,8 @@ internal sealed record BenchmarkReport(
     string Backend,
     string Scene,
     bool RerasterizeGlyphs,
+    bool RerasterizePaths,
+    string SignedWindingExecution,
     string DifferentialContract,
     int RectangleCount,
     float DpiScale,

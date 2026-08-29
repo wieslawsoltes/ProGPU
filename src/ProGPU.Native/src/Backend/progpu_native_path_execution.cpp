@@ -19,7 +19,8 @@ progpu_native_status render_paths(
         (frame->segment_count != 0U && frame->segments == nullptr) ||
         (frame->flags &
             ~(PROGPU_NATIVE_GEOMETRY_FRAME_CAPTURE_PAYLOAD_HASH |
-              PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD)) != 0U ||
+              PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD |
+              PROGPU_NATIVE_PATH_FRAME_STAGED_SIGNED_WINDING)) != 0U ||
         (((frame->flags &
                 PROGPU_NATIVE_GEOMETRY_FRAME_RETAIN_COMPILED_PAYLOAD) != 0U) !=
             (frame->content_revision != 0U)) ||
@@ -30,6 +31,9 @@ progpu_native_status render_paths(
                 PROGPU_NATIVE_STATUS_INVALID_ARGUMENT,
                 "The path frame descriptor is invalid.");
     }
+    const bool staged_signed_winding =
+        (frame->flags &
+            PROGPU_NATIVE_PATH_FRAME_STAGED_SIGNED_WINDING) != 0U;
     const bool has_boolean_program_fields =
         frame->struct_size >= sizeof(progpu_native_path_frame);
     const auto* boolean_nodes = has_boolean_program_fields
@@ -345,11 +349,12 @@ progpu_native_status render_paths(
                         std::span<const progpu_native_path_segment>(
                             frame->segments,
                             frame->segment_count));
-                    if (program.split_leaf_count != 0U) {
-                        const bool signed_winding_program =
-                            (program.operation_kind &
-                                path_boolean::gpu_signed_winding_program_flag) !=
-                            0U;
+                    const bool signed_winding_program =
+                        (program.operation_kind &
+                            path_boolean::gpu_signed_winding_program_flag) !=
+                        0U;
+                    if (program.split_leaf_count != 0U &&
+                        (!signed_winding_program || staged_signed_winding)) {
                         const std::uint64_t leaf_words_per_pixel =
                             signed_winding_program
                                 ? path_maximum_sample_count
