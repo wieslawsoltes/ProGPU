@@ -183,6 +183,58 @@ public class ComputeExecutionPolicyTests
         Assert.Equal(scalar, simd);
     }
 
+    [Fact]
+    public void IntrinsicSimdGlyphCoveragePreservesOpposedContourWindings()
+    {
+        GpuSegment[] segments =
+        [
+            Line(new(0, 0), new(16, 0)),
+            Line(new(16, 0), new(16, 16)),
+            Line(new(16, 16), new(0, 16)),
+            Line(new(0, 16), new(0, 0)),
+            Line(new(5, 5), new(5, 11)),
+            Line(new(5, 11), new(11, 11)),
+            Line(new(11, 11), new(11, 5)),
+            Line(new(11, 5), new(5, 5))
+        ];
+        var record = new GpuGlyphRecord
+        {
+            StartSegment = 0,
+            SegmentCount = (uint)segments.Length,
+            MinX = 0,
+            MinY = 0,
+            MaxX = 16,
+            MaxY = 16
+        };
+
+        byte[] scalar = GlyphAtlas.RasterizeGlyphCoverageCpu(
+            segments, record, -2, -18, 1f, 0.375f, 20, 20,
+            useSimd: false);
+        byte[] simd = GlyphAtlas.RasterizeGlyphCoverageCpu(
+            segments, record, -2, -18, 1f, 0.375f, 20, 20,
+            useSimd: true);
+
+        Assert.Equal(scalar, simd);
+        Assert.Contains((byte)0, simd);
+        Assert.Contains((byte)255, simd);
+    }
+
+    [Fact]
+    public void IntrinsicSimdEmptyGlyphMatchesScalarOracle()
+    {
+        var record = new GpuGlyphRecord();
+
+        byte[] scalar = GlyphAtlas.RasterizeGlyphCoverageCpu(
+            [], record, 0, 0, 1f, 0f, 17, 3,
+            useSimd: false);
+        byte[] simd = GlyphAtlas.RasterizeGlyphCoverageCpu(
+            [], record, 0, 0, 1f, 0f, 17, 3,
+            useSimd: true);
+
+        Assert.Equal(scalar, simd);
+        Assert.All(simd, value => Assert.Equal((byte)0, value));
+    }
+
     private static GpuSegment Line(Vector2 start, Vector2 end) => new()
     {
         P0 = start,
