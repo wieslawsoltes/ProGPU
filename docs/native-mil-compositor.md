@@ -4785,6 +4785,32 @@ surface import, keyed synchronization, planar NV12/P010 video, color-space/HDR
 metadata, and protected content remain separate typed interop work; none may
 fall back through CPU pixels.
 
+## Native MIL external BitmapSource checkpoint
+
+ProGPU `cfebce57` extends the same zero-copy semantic resource contract from
+MediaPlayer to canonical WPF `TYPE_BITMAPSOURCE` (95). The new
+`progpu_native_mil_channel_set_bitmap_source_external_image` ABI binds only
+validated dimensions. During scene compilation, external bitmap and media
+descriptors are merged and sorted by their globally unique MIL handles before
+any payload-backed image is emitted. That makes resource IDs deterministic
+across mixed Win2D/image/video scenes while preserving the previous ordering
+when no external bitmap exists.
+
+An external bitmap draw reuses the ordinary image shader, sampling, transform,
+clip, opacity, damage, and backend paths. Its semantic image resource has zero
+payload bytes; the host must bind a same-device texture lease for the scene
+generation before installation. Rebinding the handle to copied RGBA8 pixels or
+back to an external image replaces the storage mode transactionally. Missing
+state, wrong resource type, zero/oversized dimensions, and duplicate external
+identity fail closed. Native CTest coverage verifies copied-to-external mode
+replacement, dimensions, row bytes, generation, zero payload, and invalid
+bindings; the managed native backend builds with zero warnings.
+
+This is the native compositor endpoint used by portable Win2D `CanvasBitmap`
+and future synchronized D3DImage/Direct2D providers. It does not itself import
+an `ID2D1*`, D3D9 surface, or DXGI shared handle; those platform providers must
+publish the already-validated ProGPU texture through the typed lease contract.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

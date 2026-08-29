@@ -34,6 +34,7 @@ binary.
 | Direct2D `ID2D1*` API | Not implemented | Windows system COM runtime only; ProGPU will not publish a fake `d2d1.dll` |
 | Native Win2D binary interop | Planned | Real Win2D renders to a same-adapter shared DXGI texture; ProGPU imports/composites it |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
+| Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
 | Arbitrary Win2D native-resource wrapping (`GetOrCreate(IUnknown*)`) off Windows | Unsupported by design | Fail closed; there is no portable COM object identity to preserve |
 
 This split follows Win2D's published architecture. Its repository describes an
@@ -137,6 +138,7 @@ Shapes, ArcOptions, and VectorArt sample bodies. It currently supports:
   copies, and self-copy fail closed. ProGPU does not reproduce Win2D's
   cross-device system-memory fallback because that would introduce a GPU
   readback/upload round trip;
+
 - single-recording `CanvasCommandList` creation, multi-chunk recording across
   `Flush()`, `ICanvasImage.GetBounds(...)`, and origin/offset or cropped and
   destination-scaled drawing as nested immutable pictures. The reusable
@@ -200,6 +202,24 @@ Shapes, ArcOptions, and VectorArt sample bodies. It currently supports:
   replaying all earlier command lists;
 - Win2D-compatible `GetPixelBytes()` for validation and explicit diagnostics
   proving `NativeCppWebGpu` execution.
+
+`cfebce57` also makes a same-device `CanvasBitmap` consumable by LibreWPF's
+native MIL compositor through the existing neutral image carrier. An adapter
+publishes the bitmap as `IPortableNativeImageSource`, whose native payload is
+the bitmap's `IProGpuTextureLeaseSource`. ProGPU binds the canonical
+`TYPE_BITMAPSOURCE` handle with
+`progpu_native_mil_channel_set_bitmap_source_external_image`, emits a semantic
+external-image resource in global MIL-handle order, and leaves lifetime/device
+validation to the consuming host's typed lease. The bitmap and MediaPlayer
+external resources share one deterministic resource-ID table. No WIC pointer,
+CPU pixels, readback, repack, or staging upload crosses the boundary.
+
+This is portable ProGPU Win2D source compatibility, not native Direct2D COM
+interop. A real Windows `ID2D1Bitmap1` or `CanvasBitmap` produced by Microsoft
+Win2D still requires the planned same-adapter DXGI import provider, including
+keyed-mutex/shared-fence synchronization and device-loss handling. Once that
+provider exposes the same typed lease, the native MIL consumer path is already
+in place.
 
 Every closed or flushed session becomes an immutable `GpuPicture`, is compiled
 by `GpuPictureNativeSceneCompiler`, and is installed/rendered by
