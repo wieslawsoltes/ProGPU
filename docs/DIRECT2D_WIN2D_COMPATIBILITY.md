@@ -214,12 +214,19 @@ validation to the consuming host's typed lease. The bitmap and MediaPlayer
 external resources share one deterministic resource-ID table. No WIC pointer,
 CPU pixels, readback, repack, or staging upload crosses the boundary.
 
-This is portable ProGPU Win2D source compatibility, not native Direct2D COM
-interop. A real Windows `ID2D1Bitmap1` or `CanvasBitmap` produced by Microsoft
-Win2D still requires the planned same-adapter DXGI import provider, including
-keyed-mutex/shared-fence synchronization and device-loss handling. Once that
-provider exposes the same typed lease, the native MIL consumer path is already
-in place.
+The canonical D3DImage consumer is now also in place. `TYPE_D3DIMAGE`,
+`MilCmdD3DImage`, and `MilCmdD3DImagePresent` retain their exact WPF packet
+layouts with zero process-local pointer/event fields, while
+`PortableD3DImageFrame` and the D3DImage external-image sideband carry the
+typed lease and content version. Lease acquisition/release is the explicit
+synchronization boundary and raw COM pointers remain outside the portable ABI.
+
+This is portable ProGPU Win2D source compatibility and the Direct2D/D3DImage
+consumer contract, not native Direct2D COM import. A real Windows
+`ID2D1Bitmap1` or `CanvasBitmap` produced by Microsoft Win2D still requires the
+same-adapter DXGI provider, including keyed-mutex/shared-fence synchronization,
+format/alpha validation, and device-loss handling. That provider can now bind
+directly to canonical native MIL without a CPU readback or a new scene path.
 
 Every closed or flushed session becomes an immutable `GpuPicture`, is compiled
 by `GpuPictureNativeSceneCompiler`, and is installed/rendered by

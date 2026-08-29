@@ -4816,9 +4816,30 @@ Windows 11 ARM64 with MSVC 19.44.35228.0 passes the same CTest 1/1 in
 `fc627fff1240a9f06ae4e785101f9052b9dac8dbe600ae1a331d094087d79fdf`.
 
 This is the native compositor endpoint used by portable Win2D `CanvasBitmap`
-and future synchronized D3DImage/Direct2D providers. It does not itself import
+and synchronized D3DImage/Direct2D providers. It does not itself import
 an `ID2D1*`, D3D9 surface, or DXGI shared handle; those platform providers must
 publish the already-validated ProGPU texture through the typed lease contract.
+
+## Canonical D3DImage checkpoint
+
+ProGPU `72c9d794` and `20918afb` implement canonical `TYPE_D3DIMAGE` (97),
+`MilCmdD3DImage`, and `MilCmdD3DImagePresent` on the native C++ channel. The
+portable packet writer preserves WPF's exact 24-byte update and 16-byte present
+layouts while writing zero for the process-local COM pointers and event
+handle. Nonzero pointer/event values fail closed. A Windows adapter must first
+import its D3D9/DXGI resource into an `IProGpuTextureLeaseSource`; lease acquire
+and release own keyed-mutex, shared-fence, and backend-transition semantics.
+
+`PortableD3DImageFrame` carries validated dimensions, a nonzero retained
+content version, and the neutral backend image. The typed
+`progpu_native_mil_channel_set_d3d_image_external_image` sideband binds that
+descriptor to the canonical resource. BitmapSource, MediaPlayer, and D3DImage
+external images are sorted together by MIL handle before semantic resource IDs
+are assigned, so the pointer-free scene and host lease table stay deterministic.
+The native regression covers update/present generations, zero-payload external
+image drawing, invalid type/dimensions/version, and raw handle rejection. The
+Apple Silicon native MIL CTest passes, the shared library links and exports the
+new ABI, and the managed canonical packet test passes.
 
 ## Managed glyph row-reuse SIMD checkpoint
 
