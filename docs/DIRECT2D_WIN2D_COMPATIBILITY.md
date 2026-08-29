@@ -2,13 +2,15 @@
 
 ## Decision
 
-`ProGPU.DirectX` does not currently implement Direct2D or expose `ID2D1*` COM
-interfaces. It is a typed Direct3D-style device/resource/pipeline facade over
-WebGPU, with D3D12 selected by the Windows backend. Direct2D, DirectWrite, WIC,
-and the native Win2D WinRT component are now classified explicitly as Windows
-native graphics interop dependencies. The ProGPU native-library resolver must
-not impersonate `d2d1.dll`, `dwrite.dll`, `windowscodecs.dll`, or
-`Microsoft.Graphics.Canvas.dll`.
+`ProGPU.DirectX` remains a typed Direct3D-style device/resource/pipeline facade
+over WebGPU, with D3D12 selected by the Windows backend. The C++ backend now
+also ships an isolated Windows `progpu_native_direct2d` provider. It creates
+genuine system Direct2D COM objects and a synchronized DXGI target that ProGPU
+can import; it does not reimplement Direct2D vtables or impersonate
+`d2d1.dll`. Direct2D, DirectWrite, WIC, and the native Win2D WinRT component
+remain Windows native graphics dependencies. The ProGPU native-library
+resolver must not impersonate `d2d1.dll`, `dwrite.dll`,
+`windowscodecs.dll`, or `Microsoft.Graphics.Canvas.dll`.
 
 Win2D support is feasible in two deliberately separate forms:
 
@@ -31,8 +33,8 @@ binary.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` API | Not implemented | Windows system COM runtime only; ProGPU will not publish a fake `d2d1.dll` |
-| Native Win2D binary interop | Planned | Real Win2D renders to a same-adapter shared DXGI texture; ProGPU imports/composites it |
+| Direct2D `ID2D1*` API | Foundation implemented | Windows-only provider returns genuine `ID2D1Factory1/2`, `ID2D1Device/1`, `ID2D1DeviceContext/1`, and `ID2D1Bitmap/1` objects over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` |
+| Native Win2D binary interop | In progress | The real COM device/context/bitmap resource domain and zero-copy DXGI producer are implemented; Win2D activation/wrapping, drawing-session ownership, and device-loss recovery remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
 | Arbitrary Win2D native-resource wrapping (`GetOrCreate(IUnknown*)`) off Windows | Unsupported by design | Fail closed; there is no portable COM object identity to preserve |
@@ -67,6 +69,37 @@ real Win2D / Direct2D (Windows D3D11)
         -> Dawn shared-texture-memory import (D3D12)
         -> ProGPU retained image/layer/effect composition
 ```
+
+Checkpoint `59045316` implements the first half of this path as a separate
+Windows native library. Its versioned C ABI creates one D3D11 device
+with BGRA support, a multithreaded `ID2D1Factory2`, `ID2D1Device1`,
+`ID2D1DeviceContext1`, and target `ID2D1Bitmap1`, plus a BGRA8-unorm
+premultiplied D3D11 texture carrying `SHARED_NTHANDLE` and keyed-mutex flags.
+The caller may request a specific adapter LUID, hardware with explicit WARP
+fallback, or forced WARP. The resulting descriptor reports the actual adapter
+LUID, dimensions, DPI, format, alpha mode, NT handle, initial synchronization
+keys, software-adapter state, and monotonic content version.
+
+The provider returns caller-owned references to the genuine base and versioned
+COM interfaces, including the D3D11/DXGI objects needed by an interop adapter.
+Those pointers are deliberately confined to `progpu_native_direct2d.h` and
+Windows process state; they never enter the portable scene, MIL, WebGPU, or
+package-neutral ABI. Producer acquire/release is serialized, nested access and
+unmatched release fail closed, and every successful producer release advances
+the content version. The consumer can reopen the NT handle and use the same
+keyed-mutex ownership sequence through Dawn shared-texture memory.
+
+This shape follows Microsoft's documented device-context construction and
+resource-domain model: Direct2D is created from the D3D11 `IDXGIDevice`, the
+bitmap target is created from the same-device `IDXGISurface`, a multithreaded
+factory serializes Direct2D calls, and the application still owns Direct3D/
+DXGI synchronization around mixed API access:
+
+- [Direct2D devices and device contexts](https://learn.microsoft.com/en-us/windows/win32/direct2d/devices-and-device-contexts)
+- [`CreateBitmapFromDxgiSurface`](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/nf-d2d1_1-id2d1devicecontext-createbitmapfromdxgisurface%28idxgisurface_constd2d1_bitmap_properties1_id2d1bitmap1%29)
+- [Direct2D/Direct3D interoperability](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-direct3d-interoperation-overview)
+- [multithreaded Direct2D applications](https://learn.microsoft.com/en-us/windows/win32/direct2d/multi-threaded-direct2d-apps)
+- [Windows graphics surface sharing](https://learn.microsoft.com/en-us/windows/win32/direct3darticles/surface-sharing-between-windows-graphics-apis)
 
 It must not perform `CopyPixels`, staging readback, CPU color conversion,
 per-primitive cross-API synchronization, or adapter-crossing copies. A forced
@@ -238,7 +271,7 @@ Readback is requested only by `GetPixelBytes()` and the validation gate.
 The current package is source compatible, not binary compatible with
 `Microsoft.Graphics.Canvas.dll`. It intentionally fails closed for software
 devices, straight/ignored alpha, non-BGRA render targets, Dawn/browser device
-factories, Direct2D COM wrapping, cross-device resources, self-referential
+factories, portable Direct2D COM wrapping, cross-device resources, self-referential
 texture feedback, anisotropic sampling, and high-quality cubic sampling.
 Bitmap file decoding, buffer creation and updates, `MiterOrBevel`, geometry
 query/stroke/outline operations,
@@ -257,6 +290,26 @@ interop contract, and the SimpleSample/shapes drawing contract before any
 oracle capture or source-compatibility test.
 
 The gate has a completed portable-core layer and three expanding oracle layers:
+
+The Windows-native COM foundation has its own strict gate. At exact checkpoint
+`59045316`, Windows 11 ARM64 under MSVC 19.44 compiles the provider and test
+with `/W4 /WX`. The executable validates bad-argument rejection, all advertised
+base/versioned COM queries, `ID2D1Multithread` protection, target size/DPI/
+options, one real clear plus brush/rectangle draw, NT-handle reopen through
+`ID3D11Device1`, and the complete keyed-mutex handoff `0 -> 1 -> 2 -> 3`.
+CTest passes 1/1 in 7.74 seconds. All eight C exports are present. SHA-256 is
+`f115ea21f43c218444a2d9fd9ebb622e073a5b3cafb52ec1745990e7984e498c`
+for `progpu_native_direct2d.dll` and
+`cab7f76311cd5115a0f8f84ee680115eb6481c6842eb45a85eea0633c08292fc`
+for `progpu_native_direct2d_tests.exe`.
+
+The pinned Win2D source audit also prevents us from calling this full Win2D
+binary compatibility prematurely. Its production library contains references
+to `ID2D1Effect`, bitmap/image/brush interfaces, device-context generations,
+geometry and geometry-sink families, command lists, DirectWrite/WIC interop,
+SVG, gradient meshes, sprite batches, and custom effects. Each group therefore
+gets an explicit interface/method gate; unsupported wrapping or creation fails
+closed rather than returning a partial COM object.
 
 0. `eng/progpu-prepare-win2d-source.py` fetches the two exact locked commits,
    refuses modified tracked checkouts, and runs
@@ -436,7 +489,10 @@ Win2D execution.
    bitmap file/buffer APIs, text-format/layout, and existing-effect
    adapters;
    promote each pinned ExampleGallery group only after differential parity.
-4. Implement and qualify the Windows same-adapter Win2D/DXGI import adapter.
+4. **Foundation implemented:** create the genuine Windows Direct2D COM resource
+   domain and synchronized shared-DXGI target. Next bind its producer lifecycle
+   to Dawn import and Win2D `ICanvasFactoryNative`/resource-wrapper interop,
+   then qualify same-adapter hardware and device loss.
 5. Add WinUI, LibreWPF, and Avalonia controls as host adapters over the same
    Canvas/scene core.
 6. Expand effects, sprite batching, SVG/ink/virtual bitmap, and custom effects

@@ -4856,6 +4856,36 @@ for `progpu_native.dll` and
 `d94382db3f1087573615c91ff983cd2343b6144b68c4f3db160f7c59f0f8568f`
 for `progpu_native_mil_tests.exe`.
 
+## Windows Direct2D COM producer checkpoint
+
+ProGPU `59045316` adds the separate Windows-only
+`progpu_native_direct2d` library. It creates genuine system
+`ID2D1Factory1/2`, `ID2D1Device/1`, `ID2D1DeviceContext/1`, and
+`ID2D1Bitmap/1` objects over a BGRA8-unorm premultiplied D3D11 target. The
+texture exposes an NT shared handle and keyed mutex; the versioned descriptor
+also carries actual adapter LUID, DPI, dimensions, initial synchronization
+keys, software-adapter state, and content version. Callers may select an exact
+adapter, hardware with explicit WARP fallback, or forced WARP.
+
+This is a genuine Direct2D/DXGI producer for the existing typed D3DImage lease
+boundary, not a fake `d2d1.dll` or a partial COM vtable implementation. COM
+pointers remain confined to the Windows header and process. The portable MIL
+packet retains zero pointers and zero event handles. The next adapter binds the
+producer's access lifecycle to Dawn's same-adapter import and Microsoft Win2D
+resource wrapping, after which the resulting `IProGpuTextureLeaseSource` can
+flow through the already-qualified D3DImage sideband.
+
+Windows 11 ARM64 MSVC `/W4 /WX` builds the provider and regression. The test
+queries every advertised base/versioned COM interface, verifies multithread
+protection and bitmap target state, performs a real Direct2D clear and filled
+rectangle, reopens the NT handle, and completes the keyed-mutex sequence
+`0 -> 1 -> 2 -> 3`. CTest passes 1/1 in 7.74 seconds and all eight C exports
+are present. SHA-256 is
+`f115ea21f43c218444a2d9fd9ebb622e073a5b3cafb52ec1745990e7984e498c`
+for `progpu_native_direct2d.dll` and
+`cab7f76311cd5115a0f8f84ee680115eb6481c6842eb45a85eea0633c08292fc`
+for `progpu_native_direct2d_tests.exe`.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
