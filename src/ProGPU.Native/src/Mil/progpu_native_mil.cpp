@@ -23,6 +23,7 @@
 namespace progpu::native::mil {
 namespace {
 
+constexpr std::uint32_t type_media_player = 1U;
 constexpr std::uint32_t type_visual = 39U;
 constexpr std::uint32_t type_viewport3d_visual = 40U;
 constexpr std::uint32_t type_glyph_run = 42U;
@@ -2227,6 +2228,11 @@ struct channel::implementation {
         std::vector<std::byte> pixels;
     };
 
+    struct media_player_state {
+        std::uint32_t width{};
+        std::uint32_t height{};
+    };
+
     struct drawing_image_state {
         std::uint32_t drawing_handle{};
         double bounds_x{};
@@ -2436,6 +2442,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, glyph_run_drawing_state>
         glyph_run_drawings;
     std::unordered_map<std::uint32_t, image_drawing_state> image_drawings;
+    std::unordered_map<std::uint32_t, media_player_state> media_players;
     std::unordered_map<std::uint32_t, bitmap_source_state> bitmap_sources;
     std::unordered_map<std::uint32_t, drawing_image_state> drawing_images;
     std::unordered_map<std::uint32_t, drawing_group_state> drawing_groups;
@@ -3284,6 +3291,7 @@ struct channel::implementation {
             glyph_run_drawings.erase(handle);
             glyph_runs.erase(handle);
             image_drawings.erase(handle);
+            media_players.erase(handle);
             bitmap_sources.erase(handle);
             drawing_images.erase(handle);
             drawing_groups.erase(handle);
@@ -10484,6 +10492,76 @@ struct channel::implementation {
                 ? status::success
                 : status::invalid_graph;
         };
+        const auto append_media_player = [
+            this,
+            &builder,
+            &image_indices](
+            std::uint32_t media_player_handle,
+            double x,
+            double y,
+            double width,
+            double height,
+            const render_scope_state& state) {
+            if (media_player_handle == 0U) {
+                return status::invalid_handle;
+            }
+            if (width == 0.0 || height == 0.0) {
+                return status::success;
+            }
+            const auto player = media_players.find(media_player_handle);
+            const auto image = image_indices.find(media_player_handle);
+            if (player == media_players.end() || image == image_indices.end()) {
+                return status::invalid_handle;
+            }
+            progpu_native_affine_2d native_transform{};
+            progpu_native_image_rect bounds{};
+            if (!try_to_native_affine(state.transform, native_transform) ||
+                !try_transform_bounds(
+                    x,
+                    y,
+                    width,
+                    height,
+                    state.transform,
+                    bounds)) {
+                return status::invalid_graph;
+            }
+            const auto& descriptor = player->second;
+            const progpu_native_scene_image_draw image_draw{
+                sizeof(progpu_native_scene_image_draw),
+                0U,
+                descriptor.width,
+                descriptor.height,
+                descriptor.width * 4U,
+                state.image_sampling,
+                {0.0F,
+                 0.0F,
+                 static_cast<float>(descriptor.width),
+                 static_cast<float>(descriptor.height)},
+                {static_cast<float>(x),
+                 static_cast<float>(y),
+                 static_cast<float>(width),
+                 static_cast<float>(height)},
+                native_transform,
+                1.0F,
+                1U};
+            const progpu_native_scene_image_sampling_options cubic_options{
+                sizeof(progpu_native_scene_image_sampling_options),
+                0U,
+                1.0F / 3.0F,
+                1.0F / 3.0F};
+            const auto* sampling_options = state.image_sampling ==
+                PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
+                ? &cubic_options
+                : nullptr;
+            return builder.draw_image(
+                    image->second,
+                    image_draw,
+                    bounds,
+                    PROGPU_NATIVE_SCENE_NO_INDEX,
+                    sampling_options)
+                ? status::success
+                : status::invalid_graph;
+        };
         for (;;) {
             const status read_status = reader.next(view);
             if (read_status == status::end_of_batch) {
@@ -10983,6 +11061,80 @@ struct channel::implementation {
                     current);
                 if (image_status != status::success) {
                     return image_status;
+                }
+                continue;
+            }
+            if (view.kind == command::draw_video ||
+                view.kind == command::draw_video_animate) {
+                const bool animated =
+                    view.kind == command::draw_video_animate;
+                using layout = command_layouts::draw_video;
+                double x = 0.0;
+                double y = 0.0;
+                double width = 0.0;
+                double height = 0.0;
+                std::uint32_t media_player_handle = 0U;
+                std::uint32_t trailing_value = 0U;
+                if (!has_exact_size(
+                        view,
+                        animated
+                            ? command_layouts::draw_video_animate::fixed_size
+                            : layout::fixed_size) ||
+                    !read_at(view.packet, layout::rectangle_offset, x) ||
+                    !read_at(view.packet, layout::rectangle_offset + 8U, y) ||
+                    !read_at(
+                        view.packet,
+                        layout::rectangle_offset + 16U,
+                        width) ||
+                    !read_at(
+                        view.packet,
+                        layout::rectangle_offset + 24U,
+                        height) ||
+                    !read_at(
+                        view.packet,
+                        layout::h_player_offset,
+                        media_player_handle) ||
+                    !read_at(
+                        view.packet,
+                        animated
+                            ? command_layouts::draw_video_animate::
+                                h_rectangle_animations_offset
+                            : layout::quad_word_pad0_offset,
+                        trailing_value)) {
+                    return status::malformed_batch;
+                }
+                if (!animated && trailing_value != 0U) {
+                    return status::malformed_batch;
+                }
+                if (!finite_double_as_float(x) ||
+                    !finite_double_as_float(y) ||
+                    !finite_double_as_float(width) ||
+                    !finite_double_as_float(height) ||
+                    width < 0.0 || height < 0.0) {
+                    return status::malformed_batch;
+                }
+                const status rectangle_status = resolve_animated_rect(
+                    x,
+                    y,
+                    width,
+                    height,
+                    animated ? trailing_value : 0U,
+                    x,
+                    y,
+                    width,
+                    height);
+                if (rectangle_status != status::success) {
+                    return rectangle_status;
+                }
+                const status video_status = append_media_player(
+                    media_player_handle,
+                    x,
+                    y,
+                    width,
+                    height,
+                    current);
+                if (video_status != status::success) {
+                    return video_status;
                 }
                 continue;
             }
@@ -15125,6 +15277,31 @@ status channel::set_bitmap_source_rgba8(
     }
 }
 
+status channel::set_media_player_external_image(
+    std::uint32_t handle,
+    std::uint32_t width,
+    std::uint32_t height) noexcept {
+    if (!implementation_->require_resource(handle, type_media_player)) {
+        return status::invalid_handle;
+    }
+    if (width == 0U || height == 0U || width > 16'384U ||
+        height > 16'384U) {
+        return status::invalid_argument;
+    }
+    try {
+        implementation_->media_players.insert_or_assign(
+            handle,
+            implementation::media_player_state{width, height});
+        implementation_->increment_generation(handle);
+        build_cache_.reset();
+        return status::success;
+    } catch (const std::bad_alloc&) {
+        return status::capacity_exceeded;
+    } catch (...) {
+        return status::invalid_argument;
+    }
+}
+
 status channel::set_drawing_image_bounds(
     std::uint32_t handle,
     double x,
@@ -15476,6 +15653,25 @@ status channel::build_scene_core(
         native::semantic_scene_builder builder(scene_id, generation);
         std::unordered_map<std::uint32_t, std::uint32_t> brush_indices;
         std::unordered_map<std::uint32_t, std::uint32_t> image_indices;
+        std::vector<std::pair<std::uint32_t, implementation::media_player_state>>
+            ordered_media_players;
+        ordered_media_players.reserve(source.media_players.size());
+        for (const auto& player : source.media_players) {
+            ordered_media_players.push_back(player);
+        }
+        std::ranges::sort(
+            ordered_media_players,
+            {},
+            &std::pair<std::uint32_t,
+                implementation::media_player_state>::first);
+        for (const auto& [handle, player] : ordered_media_players) {
+            std::uint32_t image_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+            if (!builder.add_external_image(
+                    player.width, player.height, image_index)) {
+                return status::invalid_graph;
+            }
+            image_indices.emplace(handle, image_index);
+        }
         std::unordered_map<std::uint64_t,
             implementation::glyph_scene_resource> glyph_resources;
         std::unordered_set<std::uint32_t> active_visuals;

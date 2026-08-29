@@ -140,6 +140,14 @@ public:
         std::uint32_t row_bytes,
         std::span<const std::byte> pixels) noexcept;
 
+    // Declares a canonical TYPE_MEDIAPLAYER as a live external image. The
+    // semantic scene carries only dimensions and a stable resource identity;
+    // the compositor receives the same-device texture view out of band.
+    status set_media_player_external_image(
+        std::uint32_t handle,
+        std::uint32_t width,
+        std::uint32_t height) noexcept;
+
     // Binds the exact local content bounds used by WPF DrawingImage when it
     // maps its retained Drawing into an ImageDrawing destination rectangle.
     status set_drawing_image_bounds(

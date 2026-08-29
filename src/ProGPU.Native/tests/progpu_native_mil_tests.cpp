@@ -10250,7 +10250,7 @@ bool dynamic_guidelines_follow_wpf_phase_state() {
     std::vector<std::byte> rejected;
     PROGPU_REQUIRE(build(
         6U, 500U, scene_build_request_flags::none, rejected, result) ==
-        status::unsupported_command);
+        status::invalid_handle);
 
     std::vector<std::byte> restored_content;
     append_render_data(restored_content, content, nested);
@@ -10894,6 +10894,147 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
     PROGPU_REQUIRE(
         state.set_bitmap_source_rgba8(target, 2U, 2U, 8U, pixels) ==
         status::invalid_handle);
+    return true;
+}
+
+bool render_data_video_uses_live_external_image_sideband() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t player = 4U;
+    constexpr std::uint32_t rectangle_animation = 5U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, player, 1U);
+    append_create(batch, rectangle_animation, 52U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::rect_resource,
+        rectangle_animation,
+        7.0,
+        9.0,
+        12.0,
+        14.0);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_video,
+        3.0,
+        5.0,
+        20.0,
+        10.0,
+        player,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7015U, 1U, stream) ==
+        status::invalid_handle);
+    PROGPU_REQUIRE(
+        state.set_media_player_external_image(player, 0U, 32U) ==
+        status::invalid_argument);
+    PROGPU_REQUIRE(
+        state.set_media_player_external_image(target, 64U, 32U) ==
+        status::invalid_handle);
+    PROGPU_REQUIRE(
+        state.set_media_player_external_image(player, 64U, 32U) ==
+        status::success);
+    PROGPU_REQUIRE(state.resource_generation(player) == 2U);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7015U, 2U, stream) == status::success);
+
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    PROGPU_REQUIRE(header.resource_count >= 1U);
+    const auto resource = read_value<progpu_native_scene_resource>(
+        stream, header.resource_offset);
+    PROGPU_REQUIRE(resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE);
+    PROGPU_REQUIRE(
+        (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U);
+    PROGPU_REQUIRE(resource.resource_id == 1U);
+    PROGPU_REQUIRE(resource.generation == 2U);
+    PROGPU_REQUIRE(resource.payload_size == 0U);
+
+    std::uint32_t image_count = 0U;
+    bool found_static = false;
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto command_record = read_value<progpu_native_scene_command>(
+            stream,
+            header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (command_record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+            continue;
+        }
+        ++image_count;
+        PROGPU_REQUIRE(command_record.resource_index == 0U);
+        const auto image = read_value<progpu_native_scene_image_draw>(
+            stream, command_record.payload_offset);
+        PROGPU_REQUIRE(image.image_width == 64U);
+        PROGPU_REQUIRE(image.image_height == 32U);
+        PROGPU_REQUIRE(image.row_bytes == 256U);
+        PROGPU_REQUIRE(image.source_rect.width == 64.0F);
+        PROGPU_REQUIRE(image.source_rect.height == 32.0F);
+        found_static |= image.destination_rect.x == 3.0F &&
+            image.destination_rect.y == 5.0F &&
+            image.destination_rect.width == 20.0F &&
+            image.destination_rect.height == 10.0F;
+    }
+    PROGPU_REQUIRE(image_count == 1U);
+    PROGPU_REQUIRE(found_static);
+
+    std::vector<std::byte> animated_nested;
+    append_command(
+        animated_nested,
+        command::draw_video_animate,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        player,
+        rectangle_animation);
+    std::vector<std::byte> animated_update;
+    append_render_data(animated_update, content, animated_nested);
+    PROGPU_REQUIRE(state.apply(animated_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7015U, 3U, stream) == status::success);
+    const auto animated_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    bool found_animated = false;
+    for (std::uint32_t index = 0U;
+         index < animated_header.command_count;
+         ++index) {
+        const auto command_record = read_value<progpu_native_scene_command>(
+            stream,
+            animated_header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (command_record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+            continue;
+        }
+        const auto image = read_value<progpu_native_scene_image_draw>(
+            stream, command_record.payload_offset);
+        found_animated |= image.destination_rect.x == 7.0F &&
+            image.destination_rect.y == 9.0F &&
+            image.destination_rect.width == 12.0F &&
+            image.destination_rect.height == 14.0F;
+    }
+    PROGPU_REQUIRE(found_animated);
     return true;
 }
 
@@ -15155,7 +15296,7 @@ bool render_data_scope_errors_fail_closed() {
         0U);
     PROGPU_REQUIRE(expect_nested_status(
         video,
-        status::unsupported_command));
+        status::invalid_handle));
     std::vector<std::byte> short_video;
     append_command(short_video, command::draw_video, 0.0);
     PROGPU_REQUIRE(expect_nested_status(
@@ -15174,7 +15315,7 @@ bool render_data_scope_errors_fail_closed() {
         0U);
     PROGPU_REQUIRE(expect_nested_status(
         animated_video,
-        status::unsupported_command));
+        status::invalid_handle));
     std::vector<std::byte> short_animated_video;
     append_command(
         short_animated_video,
@@ -16195,6 +16336,7 @@ int main() {
     PROGPU_REQUIRE(render_data_opacity_mask_scope_uses_gpu_brush_layer());
     PROGPU_REQUIRE(
         retained_image_drawing_uses_pointer_free_bitmap_sideband());
+    PROGPU_REQUIRE(render_data_video_uses_live_external_image_sideband());
     PROGPU_REQUIRE(
         retained_drawing_image_maps_vector_content_into_destination());
     PROGPU_REQUIRE(retained_drawing_image_infers_line_path_bounds());

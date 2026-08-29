@@ -8,6 +8,7 @@ public enum NativeMilBackend : byte
 
 public enum NativeMilResourceType : uint
 {
+    MediaPlayer = 1,
     BlurEffect = 36,
     DropShadowEffect = 37,
     Visual = 39,
