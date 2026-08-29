@@ -44,6 +44,30 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 8, (uint)resourceType);
     }
 
+    /// <summary>
+    /// Writes canonical MilCmdD3DImage state without process-local COM
+    /// pointers. Bind the live texture through the typed channel sideband.
+    /// </summary>
+    public void SetD3DImage(uint handle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.D3DImage, 24);
+        WriteUInt32(packet, 4, handle);
+    }
+
+    /// <summary>
+    /// Writes canonical MilCmdD3DImagePresent without a process-local event
+    /// handle. Portable synchronization belongs to the external image lease.
+    /// </summary>
+    public void PresentD3DImage(uint handle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.D3DImagePresent, 16);
+        WriteUInt32(packet, 4, handle);
+    }
+
     public void CreateVisual(uint handle)
     {
         WriteHandleCommand(NativeMilCommand.VisualCreate, handle);
@@ -1998,6 +2022,8 @@ internal static class NativeMilBatchEncoding
 
 internal static class NativeMilCommand
 {
+    internal const uint D3DImage = 0x0a;
+    internal const uint D3DImagePresent = 0x0b;
     internal const uint CreateResource = 0x07;
     internal const uint DeleteResource = 0x08;
     internal const uint DoubleResource = 0x0e;

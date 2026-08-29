@@ -13,6 +13,38 @@ namespace Avalonia.ProGpu.UnitTests;
 public class NativeRendererInteropTests
 {
     [Fact]
+    public void NativeMilBuildersWritePointerFreeCanonicalD3DImagePackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(17, NativeMilResourceType.D3DImage);
+        batch.SetD3DImage(17);
+        batch.PresentD3DImage(17);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(64, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x07U, ReadUInt32(encoded, 4));
+        Assert.Equal(17U, ReadUInt32(encoded, 8));
+        Assert.Equal(97U, ReadUInt32(encoded, 12));
+
+        Assert.Equal(28U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x0aU, ReadUInt32(encoded, 20));
+        Assert.Equal(17U, ReadUInt32(encoded, 24));
+        Assert.Equal(0UL, ReadUInt64(encoded, 28));
+        Assert.Equal(0UL, ReadUInt64(encoded, 36));
+
+        Assert.Equal(20U, ReadUInt32(encoded, 44));
+        Assert.Equal(0x0bU, ReadUInt32(encoded, 48));
+        Assert.Equal(17U, ReadUInt32(encoded, 52));
+        Assert.Equal(0UL, ReadUInt64(encoded, 56));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetD3DImage(0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.PresentD3DImage(0));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalBitmapCachePackets()
     {
         var batch = new NativeMilBatchBuilder();

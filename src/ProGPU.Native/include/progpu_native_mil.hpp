@@ -156,6 +156,16 @@ public:
         std::uint32_t width,
         std::uint32_t height) noexcept;
 
+    // Declares canonical TYPE_D3DIMAGE content as a live external image.
+    // Canonical MilCmdD3DImage/MilCmdD3DImagePresent remain pointer-free in
+    // portable batches; the lease provider owns backend synchronization and
+    // content_version carries the retained present generation out of band.
+    status set_d3d_image_external_image(
+        std::uint32_t handle,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint64_t content_version) noexcept;
+
     // Binds the exact local content bounds used by WPF DrawingImage when it
     // maps its retained Drawing into an ImageDrawing destination rectangle.
     status set_drawing_image_bounds(

@@ -162,6 +162,20 @@ progpu_native_mil_channel_set_media_player_external_image(
 }
 
 progpu_native_mil_status
+progpu_native_mil_channel_set_d3d_image_external_image(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t width,
+    uint32_t height,
+    uint64_t content_version) {
+    if (channel == nullptr) {
+        return PROGPU_NATIVE_MIL_STATUS_INVALID_ARGUMENT;
+    }
+    return to_abi(channel->state.set_d3d_image_external_image(
+        handle, width, height, content_version));
+}
+
+progpu_native_mil_status
 progpu_native_mil_channel_set_drawing_image_bounds(
     progpu_native_mil_channel* channel,
     uint32_t handle,

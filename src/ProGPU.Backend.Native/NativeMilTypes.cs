@@ -47,7 +47,8 @@ public enum NativeMilResourceType : uint
     DrawingGroup = 91,
     GuidelineSet = 92,
     BitmapCache = 94,
-    BitmapSource = 95
+    BitmapSource = 95,
+    D3DImage = 97
 }
 
 public enum NativeMilEffectRenderingBias : uint

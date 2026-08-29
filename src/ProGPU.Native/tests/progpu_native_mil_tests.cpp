@@ -10943,6 +10943,112 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
     return true;
 }
 
+bool canonical_d3d_image_uses_synchronized_external_image_sideband() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t image = 4U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, image, 97U);
+    append_command(batch, command::d3d_image, image,
+        std::uint64_t{0U}, std::uint64_t{0U});
+    append_command(batch, command::d3d_image_present, image,
+        std::uint64_t{0U});
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_image,
+        3.0,
+        5.0,
+        20.0,
+        10.0,
+        image,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    PROGPU_REQUIRE(state.resource_generation(image) == 3U);
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7014U, 1U, stream) ==
+        status::invalid_handle);
+    PROGPU_REQUIRE(
+        state.set_d3d_image_external_image(image, 0U, 32U, 1U) ==
+        status::invalid_argument);
+    PROGPU_REQUIRE(
+        state.set_d3d_image_external_image(target, 64U, 32U, 1U) ==
+        status::invalid_handle);
+    PROGPU_REQUIRE(
+        state.set_d3d_image_external_image(image, 64U, 32U, 0U) ==
+        status::invalid_argument);
+    PROGPU_REQUIRE(
+        state.set_d3d_image_external_image(image, 64U, 32U, 7U) ==
+        status::success);
+    PROGPU_REQUIRE(state.resource_generation(image) == 4U);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7014U, 2U, stream) == status::success);
+
+    const auto header = read_value<progpu_native_scene_header>(stream, 0U);
+    const auto resource = read_value<progpu_native_scene_resource>(
+        stream, header.resource_offset);
+    PROGPU_REQUIRE(resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_IMAGE);
+    PROGPU_REQUIRE(
+        (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U);
+    PROGPU_REQUIRE(resource.resource_id == 1U);
+    PROGPU_REQUIRE(resource.payload_size == 0U);
+    bool found_image = false;
+    for (std::uint32_t index = 0U; index < header.command_count; ++index) {
+        const auto record = read_value<progpu_native_scene_command>(
+            stream,
+            header.command_offset +
+                index * sizeof(progpu_native_scene_command));
+        if (record.kind != PROGPU_NATIVE_SCENE_COMMAND_DRAW_IMAGE) {
+            continue;
+        }
+        const auto draw = read_value<progpu_native_scene_image_draw>(
+            stream, record.payload_offset);
+        PROGPU_REQUIRE(draw.image_width == 64U);
+        PROGPU_REQUIRE(draw.image_height == 32U);
+        PROGPU_REQUIRE(draw.row_bytes == 256U);
+        PROGPU_REQUIRE(record.resource_index == 0U);
+        found_image = true;
+    }
+    PROGPU_REQUIRE(found_image);
+
+    std::vector<std::byte> present;
+    append_command(present, command::d3d_image_present, image,
+        std::uint64_t{0U});
+    PROGPU_REQUIRE(state.apply(present) == status::success);
+    PROGPU_REQUIRE(state.resource_generation(image) == 5U);
+
+    std::vector<std::byte> raw_pointer;
+    append_command(raw_pointer, command::d3d_image, image,
+        std::uint64_t{1U}, std::uint64_t{0U});
+    PROGPU_REQUIRE(state.apply(raw_pointer) == status::invalid_argument);
+    std::vector<std::byte> raw_event;
+    append_command(raw_event, command::d3d_image_present, image,
+        std::uint64_t{1U});
+    PROGPU_REQUIRE(state.apply(raw_event) == status::invalid_argument);
+    return true;
+}
+
 bool render_data_video_uses_live_external_image_sideband() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -16382,6 +16488,8 @@ int main() {
     PROGPU_REQUIRE(render_data_opacity_mask_scope_uses_gpu_brush_layer());
     PROGPU_REQUIRE(
         retained_image_drawing_uses_pointer_free_bitmap_sideband());
+    PROGPU_REQUIRE(
+        canonical_d3d_image_uses_synchronized_external_image_sideband());
     PROGPU_REQUIRE(render_data_video_uses_live_external_image_sideband());
     PROGPU_REQUIRE(
         retained_drawing_image_maps_vector_content_into_destination());
