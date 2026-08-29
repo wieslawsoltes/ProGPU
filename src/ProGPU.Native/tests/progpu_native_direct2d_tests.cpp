@@ -4,6 +4,7 @@
 #include <d3d11_1.h>
 #include <dxgi1_2.h>
 #include <windows.h>
+#include <windows.graphics.directx.direct3d11.interop.h>
 #include <wrl/client.h>
 
 #include <cstdlib>
@@ -154,10 +155,27 @@ int main()
     auto texture = get_interface<ID3D11Texture2D>(
         surface,
         PROGPU_NATIVE_DIRECT2D_INTERFACE_D3D11_TEXTURE2D);
+    auto winrt_d3d_device = get_interface<IInspectable>(
+        surface,
+        PROGPU_NATIVE_DIRECT2D_INTERFACE_WINRT_DIRECT3D11_DEVICE);
 
     require(factory1 && factory2 && device && context && bitmap &&
-            base_context && d3d_device && texture,
+            base_context && d3d_device && texture && winrt_d3d_device,
         "one or more genuine COM interfaces were unavailable");
+
+    ComPtr<IDirect3DDxgiInterfaceAccess> dxgi_interface_access;
+    require(SUCCEEDED(winrt_d3d_device.As(&dxgi_interface_access)),
+        "WinRT IDirect3DDevice omitted DXGI interface access");
+    ComPtr<ID3D11Device> unwrapped_d3d_device;
+    require(SUCCEEDED(dxgi_interface_access->GetInterface(
+                IID_PPV_ARGS(&unwrapped_d3d_device))),
+        "WinRT IDirect3DDevice did not expose its D3D11 device");
+    ComPtr<IUnknown> original_device_identity;
+    ComPtr<IUnknown> unwrapped_device_identity;
+    require(SUCCEEDED(d3d_device.As(&original_device_identity)) &&
+            SUCCEEDED(unwrapped_d3d_device.As(&unwrapped_device_identity)) &&
+            original_device_identity.Get() == unwrapped_device_identity.Get(),
+        "WinRT IDirect3DDevice did not preserve COM device identity");
 
     progpu_native_direct2d_guid context1_id =
         to_portable_guid(__uuidof(ID2D1DeviceContext1));
@@ -304,6 +322,11 @@ int main()
     imported_mutex.Reset();
     imported_texture.Reset();
     texture.Reset();
+    unwrapped_device_identity.Reset();
+    original_device_identity.Reset();
+    unwrapped_d3d_device.Reset();
+    dxgi_interface_access.Reset();
+    winrt_d3d_device.Reset();
     d3d_device.Reset();
     bitmap.Reset();
     queried_context.Reset();

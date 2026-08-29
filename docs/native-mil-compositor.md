@@ -4887,6 +4887,12 @@ qualified D3DImage sideband with no CPU copy or new scene resource. It fails
 closed while content version is zero and does not own or dispose the wrapped
 surface.
 
+The native owner also creates a genuine WinRT `IDirect3DDevice` from its exact
+`IDXGIDevice` via `CreateDirect3D11DeviceFromDXGIDevice`. The regression
+unwraps it through `IDirect3DDxgiInterfaceAccess` and requires the original
+`ID3D11Device` identity, establishing Win2D `CanvasDevice` activation without
+a second device or adapter-crossing copy.
+
 Dawn ownership transitions run outside the Direct2D provider state lock. This
 preserves one lock order when a render submission already owns the WebGPU
 render lock and requests a texture lease, and prevents the producer thread from
