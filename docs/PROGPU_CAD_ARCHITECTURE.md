@@ -932,8 +932,9 @@ an interactive browser picker/download smoke remains open.
   snapshot style resolution used by both picture compilers.
 - Layer lineweight assignment accepts declared explicit widths, hairline, and
   `Default`, while rejecting entity-only `ByLayer`/`ByBlock` and undefined wire
-  values. Inherited entities resolve the new physical/cosmetic thickness in the
-  immutable snapshot; undo restores each authored layer enum.
+  values, including ACadSharp's internal `ByDIPs` sentinel. Inherited entities
+  resolve the new physical/cosmetic thickness in the immutable snapshot; undo
+  restores each authored layer enum.
 - Layer linetype assignment resolves an existing explicit table entry before
   mutation and rejects entity-only `ByLayer`/`ByBlock` targets. Inherited entity
   styles retain the resolved name in the snapshot, while non-continuous pattern
@@ -956,10 +957,12 @@ an interactive browser picker/download smoke remains open.
   planner is implemented.
 - Lineweight assignment accepts only declared `LineWeightType` values, retaining
   explicit widths plus `ByLayer`, `ByBlock`, `Default`, and hairline semantics
-  without resolving them prematurely. Undo restores each authored enum value;
-  the next immutable snapshot resolves it through the existing layer/block
-  style contract, so both picture compilers receive the same physical or
-  cosmetic stroke policy.
+  without resolving them prematurely. It rejects ACadSharp's internal `ByDIPs`
+  sentinel because that value is absent from Autodesk's standard object
+  lineweight contract. Undo restores each authored enum value; the next
+  immutable snapshot resolves it through the existing layer/block style
+  contract, so both picture compilers receive the same physical or cosmetic
+  stroke policy.
 - Color assignment retains indexed, true-color, `ByLayer`, and `ByBlock` values
   as authored and rejects the header-only `ByEntity` sentinel before mutation.
   Undo restores each semantic value rather than baking resolved RGB, while the
@@ -971,6 +974,35 @@ an interactive browser picker/download smoke remains open.
   entity/table identity, and reverses an already-applied setter prefix on
   failure. Snapshot coverage verifies the existing integer-to-alpha rendering
   contract after the edit.
+- The shared desktop/browser shell exposes common Color and Lineweight values
+  for the complete semantic-root selection. A synchronous session read resolves
+  each selected handle to an exact model-space entity, returns `null` for a
+  mixed common value, and allocates no per-call collection. Capture is O(S) time
+  and O(1) auxiliary storage for S selected handles. The UI displays
+  `*VARIES*`, disables the controls for an empty selection, retains unsupported
+  `ByDIPs` as a diagnostic-only display value, and uses only dynamic theme
+  brushes. Color input accepts `ByLayer`, `ByBlock`, ACI 1–255, or exact
+  `#RRGGBB`; lineweight offers `ByLayer`, `ByBlock`, `Default`, and every
+  Autodesk standard physical width. One Set action applies one typed command to
+  all selected roots, publishes one generation, preserves selection, recompiles
+  the retained picture transactionally, and enters the existing Undo/Redo
+  history. Mixed/common UI state, rendered true-color/physical-width style,
+  selection retention, Undo/Redo, and DXF/DWG persistence have matched
+  regressions.
+- The clean-room behavior source for this workflow is Autodesk's public
+  [Properties palette](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DidYouKnow/files/GUID-94C065AB-FF9E-4752-B778-23D2FBB87E18.htm),
+  [object-property tools](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-81585857-F1B1-44F4-B7D0-B707386CA721.htm),
+  [color contract](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Core/files/GUID-14BC039D-238D-4D9E-921B-F4015F96CB54.htm),
+  [CHPROP contract](https://help.autodesk.com/view/ACD/2026/ENU/?caas=caas%2Fdocumentation%2FACDLT%2F2014%2FENU%2Ffiles%2FGUID-05074362-FC4B-4582-A7A4-B3F6170BB4A7-htm.html),
+  and [standard lineweight list](https://help.autodesk.com/cloudhelp/2024/CHS/AutoCAD-ActiveX-Reference/files/GUID-DE1AC635-BCEA-428F-A47D-80E35EFE55D3.htm).
+  ProGPU adopts common-property application to every selected object and the
+  visible mixed-value state. It adapts the palette to bounded explicit Set
+  actions and disables empty-selection defaults; color books are rejected
+  because the pinned document contract does not expose them. No foreign source
+  text or implementation structure was used. This is an application surface
+  over the existing property commands and immutable style compiler, not a
+  renderer, shader, native ABI, or resource-lifetime change; the existing
+  shared retained scene remains the managed/native parity boundary.
 - A direct session edit from another owner invalidates both history branches.
   The expected generation is checked again under the document lock so a race
   cannot apply an undo to the wrong document state. Failed resolution or command

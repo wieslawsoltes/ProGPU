@@ -1632,7 +1632,10 @@ public sealed class CadSetLayerLineWeightCommand : CadEditCommand
         : base(description)
     {
         if (!Enum.IsDefined(lineWeight) ||
-            lineWeight is LineWeightType.ByLayer or LineWeightType.ByBlock)
+            lineWeight is
+                LineWeightType.ByDIPs or
+                LineWeightType.ByLayer or
+                LineWeightType.ByBlock)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(lineWeight),
@@ -1992,7 +1995,8 @@ public sealed class CadSetEntityLineWeightCommand : CadEditCommand
         : base(description)
     {
         ArgumentNullException.ThrowIfNull(handles);
-        if (!Enum.IsDefined(lineWeight))
+        if (!Enum.IsDefined(lineWeight) ||
+            lineWeight == LineWeightType.ByDIPs)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(lineWeight),

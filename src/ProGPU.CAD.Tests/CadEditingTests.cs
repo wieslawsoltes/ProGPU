@@ -854,6 +854,8 @@ public sealed class CadEditingTests
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new CadSetLayerLineWeightCommand(["0"], LineWeightType.ByBlock));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadSetLayerLineWeightCommand(["0"], LineWeightType.ByDIPs));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
             new CadSetLayerLineWeightCommand(["0"], (LineWeightType)1234));
     }
 
@@ -1088,6 +1090,10 @@ public sealed class CadEditingTests
     [Fact]
     public void LineWeightCommandRejectsUndefinedWireValues()
     {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadSetEntityLineWeightCommand(
+                [1UL],
+                LineWeightType.ByDIPs));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new CadSetEntityLineWeightCommand(
                 [1UL],

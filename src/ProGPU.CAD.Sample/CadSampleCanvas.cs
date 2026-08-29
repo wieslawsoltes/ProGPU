@@ -13,6 +13,15 @@ using ACadLayout = ACadSharp.Objects.Layout;
 
 namespace ProGPU.CAD.Sample;
 
+/// <summary>
+/// Common general properties for the current semantic model-space selection.
+/// A null property means selected entities have different persisted values.
+/// </summary>
+public readonly record struct CadSelectionGeneralProperties(
+    int SelectionCount,
+    ACadSharp.Color? CommonColor,
+    LineWeightType? CommonLineWeight);
+
 /// <summary>Shared interactive retained CAD surface used by desktop and browser hosts.</summary>
 public sealed class CadSampleCanvas : FrameworkElement
 {
@@ -772,6 +781,104 @@ public sealed class CadSampleCanvas : FrameworkElement
             _selectedHandleCount == 1
                 ? "Scale selected entity"
                 : $"Scale {_selectedHandleCount} selected entities"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>
+    /// Captures the common persisted color and lineweight of the semantic
+    /// selection without retaining ACadSharp objects.
+    /// </summary>
+    public CadSelectionGeneralProperties CaptureSelectionGeneralProperties()
+    {
+        if (_selectedHandleCount == 0)
+        {
+            return default;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        return session.Read(document =>
+        {
+            ACadSharp.Color? commonColor = null;
+            LineWeightType? commonLineWeight = null;
+            for (int i = 0; i < _selectedHandleCount; i++)
+            {
+                ulong handle = _selectedHandles[i];
+                Entity? entity = document.GetCadObject<Entity>(handle);
+                if (entity is null ||
+                    !ReferenceEquals(entity.Owner, document.ModelSpace))
+                {
+                    throw new InvalidOperationException(
+                        $"Selected model-space entity handle {handle:X} no longer exists.");
+                }
+
+                if (i == 0)
+                {
+                    commonColor = entity.Color;
+                    commonLineWeight = entity.LineWeight;
+                    continue;
+                }
+                if (commonColor is ACadSharp.Color color &&
+                    !color.Equals(entity.Color))
+                {
+                    commonColor = null;
+                }
+                if (commonLineWeight is LineWeightType lineWeight &&
+                    lineWeight != entity.LineWeight)
+                {
+                    commonLineWeight = null;
+                }
+            }
+            return new CadSelectionGeneralProperties(
+                _selectedHandleCount,
+                commonColor,
+                commonLineWeight);
+        });
+    }
+
+    /// <summary>Sets the complete selection to one CAD color as one edit.</summary>
+    public bool SetSelectionColor(ACadSharp.Color color)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetEntityColorCommand(
+            new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
+            color,
+            _selectedHandleCount == 1
+                ? "Set selected entity color"
+                : $"Set {_selectedHandleCount} selected entity colors"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>Sets the complete selection to one CAD lineweight as one edit.</summary>
+    public bool SetSelectionLineWeight(LineWeightType lineWeight)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetEntityLineWeightCommand(
+            new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
+            lineWeight,
+            _selectedHandleCount == 1
+                ? "Set selected entity lineweight"
+                : $"Set {_selectedHandleCount} selected entity lineweights"));
         RecompileAfterEdit(session);
         return true;
     }

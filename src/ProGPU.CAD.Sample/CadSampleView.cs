@@ -46,6 +46,10 @@ public sealed class CadSampleView : Grid
     private readonly Button[] _moveButtons;
     private readonly Button[] _rotateButtons;
     private readonly Button[] _scaleButtons;
+    private readonly TextBox _selectionColorInput;
+    private readonly ComboBox _selectionLineWeightSelector;
+    private readonly Button _setSelectionColorButton;
+    private readonly Button _setSelectionLineWeightButton;
     private readonly TextBox _moveStepInput;
     private readonly TextBox _rotationStepInput;
     private readonly TextBox _scaleFactorInput;
@@ -56,6 +60,7 @@ public sealed class CadSampleView : Grid
     private bool _is3DView;
     private bool _isPrintPreview;
     private bool _isRefreshingPageSetups;
+    private bool _isRefreshingSelectionProperties;
 
     public CadShxFontCatalog ShxFonts => _canvas.ShxFonts;
 
@@ -66,6 +71,11 @@ public sealed class CadSampleView : Grid
     public ComboBox PageSetupSelector => _pageSetupSelector;
 
     public TextBox PageSetupNameInput => _pageSetupNameInput;
+
+    public TextBox SelectionColorInput => _selectionColorInput;
+
+    public ComboBox SelectionLineWeightSelector =>
+        _selectionLineWeightSelector;
 
     /// <summary>
     /// Ordered fully-qualified desktop support directories probed after the
@@ -95,7 +105,7 @@ public sealed class CadSampleView : Grid
             Visibility = Visibility.Collapsed,
         };
         TtfFont font = InterFontFamily.Regular;
-        RowDefinitions.Add(new GridLength(192, GridUnitType.Absolute));
+        RowDefinitions.Add(new GridLength(226, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));
         RowDefinitions.Add(new GridLength(30, GridUnitType.Absolute));
 
@@ -126,6 +136,11 @@ public sealed class CadSampleView : Grid
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
+        var selectionPropertyActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
         var printActions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -139,6 +154,7 @@ public sealed class CadSampleView : Grid
         toolbarRows.AddChild(actions);
         toolbarRows.AddChild(editActions);
         toolbarRows.AddChild(transformActions);
+        toolbarRows.AddChild(selectionPropertyActions);
         toolbarRows.AddChild(printActions);
         toolbarRows.AddChild(pageSetupCreateActions);
         toolbar.Child = toolbarRows;
@@ -275,6 +291,60 @@ public sealed class CadSampleView : Grid
         transformActions.AddChild(scaleUp);
         transformActions.AddChild(scaleDown);
 
+        selectionPropertyActions.AddChild(new TextBlock
+        {
+            Text = "Selection properties",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        selectionPropertyActions.AddChild(new TextBlock
+        {
+            Text = "Color",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _selectionColorInput = new TextBox
+        {
+            Font = font,
+            WidthConstraint = 132,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        _setSelectionColorButton = CreateButton("Set color", font, 84, 30);
+        _setSelectionColorButton.Margin = new Thickness(0, 0, 12, 0);
+        selectionPropertyActions.AddChild(_selectionColorInput);
+        selectionPropertyActions.AddChild(_setSelectionColorButton);
+        selectionPropertyActions.AddChild(new TextBlock
+        {
+            Text = "Lineweight",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _selectionLineWeightSelector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = 150,
+            HeightConstraint = 30,
+            MaxDropDownHeight = 256,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        PopulateLineWeightChoices(_selectionLineWeightSelector);
+        _setSelectionLineWeightButton = CreateButton(
+            "Set lineweight",
+            font,
+            112,
+            30);
+        selectionPropertyActions.AddChild(_selectionLineWeightSelector);
+        selectionPropertyActions.AddChild(_setSelectionLineWeightButton);
+
         printActions.AddChild(new TextBlock
         {
             Text = "Page setup",
@@ -371,6 +441,23 @@ public sealed class CadSampleView : Grid
         _applyPageSetupButton.Click += (_, _) =>
             ApplySelectedPageSetupToModel();
         _pageSetupNameInput.TextChanged += (_, _) => UpdateEditControls();
+        _selectionColorInput.TextChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
+        _selectionLineWeightSelector.SelectionChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
+        _setSelectionColorButton.Click += (_, _) => SetSelectionColor();
+        _setSelectionLineWeightButton.Click += (_, _) =>
+            SetSelectionLineWeight();
         _createPageSetupButton.Click += (_, _) =>
             CreateNamedPageSetupFromModel();
         _updatePageSetupButton.Click += (_, _) =>
@@ -401,6 +488,7 @@ public sealed class CadSampleView : Grid
         scaleDown.Click += (_, _) => ScaleSelection(useReciprocal: true);
         _canvas.SelectionChanged += (_, _) =>
         {
+            RefreshSelectionPropertyControls();
             if (!_isBusy)
             {
                 SetStatus(DescribeCurrentDocument(
@@ -429,6 +517,7 @@ public sealed class CadSampleView : Grid
         };
         RebuildMesh3DView();
         RefreshPageSetups(preserveSelection: false);
+        RefreshSelectionPropertyControls();
         UpdateEditControls();
     }
 
@@ -963,6 +1052,109 @@ public sealed class CadSampleView : Grid
         _canvas.Visibility = Visibility.Visible;
         _viewport3D.Visibility = Visibility.Collapsed;
         _viewModeText.Text = "3D surfaces";
+    }
+
+    private void RefreshSelectionPropertyControls()
+    {
+        _isRefreshingSelectionProperties = true;
+        try
+        {
+            CadSelectionGeneralProperties properties =
+                _canvas.CaptureSelectionGeneralProperties();
+            _selectionColorInput.Text = properties.SelectionCount == 0
+                ? string.Empty
+                : properties.CommonColor is ACadSharp.Color color
+                    ? FormatSelectionColor(color)
+                    : "*VARIES*";
+            if (properties.SelectionCount == 0)
+            {
+                _selectionLineWeightSelector.SelectedIndex = 0;
+            }
+            else if (properties.CommonLineWeight is null)
+            {
+                _selectionLineWeightSelector.SelectedIndex = 1;
+            }
+            else if (properties.CommonLineWeight ==
+                ACadSharp.LineWeightType.ByDIPs)
+            {
+                _selectionLineWeightSelector.SelectedIndex = 2;
+            }
+            else
+            {
+                _selectionLineWeightSelector.SelectedItem =
+                    _selectionLineWeightSelector.Items
+                        .OfType<ComboBoxItem>()
+                        .First(item => item.Tag is ACadSharp.LineWeightType value &&
+                            value == properties.CommonLineWeight.Value);
+            }
+        }
+        finally
+        {
+            _isRefreshingSelectionProperties = false;
+        }
+    }
+
+    private void SetSelectionColor()
+    {
+        if (_isBusy ||
+            !TryParseSelectionColor(
+                _selectionColorInput.Text,
+                out ACadSharp.Color color))
+        {
+            return;
+        }
+
+        int selectedCount = _canvas.SelectedHandleCount;
+        try
+        {
+            if (!_canvas.SetSelectionColor(color))
+            {
+                SetStatus("Setting color requires at least one selected entity.");
+                return;
+            }
+            SetStatus(
+                $"Set color {FormatSelectionColor(color)} on " +
+                $"{selectedCount:N0} selected entity(s) as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set color failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetSelectionLineWeight()
+    {
+        if (_isBusy ||
+            (_selectionLineWeightSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                ACadSharp.LineWeightType lineWeight)
+        {
+            return;
+        }
+
+        int selectedCount = _canvas.SelectedHandleCount;
+        try
+        {
+            if (!_canvas.SetSelectionLineWeight(lineWeight))
+            {
+                SetStatus("Setting lineweight requires at least one selected entity.");
+                return;
+            }
+            SetStatus(
+                $"Set lineweight {FormatLineWeight(lineWeight)} on " +
+                $"{selectedCount:N0} selected entity(s) as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set lineweight failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
     }
 
     private void MoveSelection(double xDirection, double yDirection)
@@ -1581,6 +1773,17 @@ public sealed class CadSampleView : Grid
         bool canTransform = canUsePlanTools &&
             _canvas.SelectedHandleCount > 0;
         _deleteButton.IsEnabled = canTransform;
+        _selectionColorInput.IsEnabled = canTransform;
+        _selectionLineWeightSelector.IsEnabled = canTransform;
+        _setSelectionColorButton.IsEnabled =
+            canTransform &&
+            TryParseSelectionColor(
+                _selectionColorInput.Text,
+                out _);
+        _setSelectionLineWeightButton.IsEnabled =
+            canTransform &&
+            (_selectionLineWeightSelector.SelectedItem as ComboBoxItem)?.Tag is
+                ACadSharp.LineWeightType;
         _moveStepInput.IsEnabled = canUsePlanTools;
         _rotationStepInput.IsEnabled = canUsePlanTools;
         _scaleFactorInput.IsEnabled = canUsePlanTools;
@@ -1798,6 +2001,110 @@ public sealed class CadSampleView : Grid
                 $"{source}: {pageSetup.Name}{applied}{unsupported}",
                 $"{source} {pageSetup.Name}");
         }
+    }
+
+    private static void PopulateLineWeightChoices(ComboBox selector)
+    {
+        selector.Items.Add(new ComboBoxItem { Text = "—" });
+        selector.Items.Add(new ComboBoxItem { Text = "*VARIES*" });
+        selector.Items.Add(new ComboBoxItem { Text = "ByDIPs (unsupported)" });
+        AddLineWeightChoice(selector, ACadSharp.LineWeightType.ByLayer);
+        AddLineWeightChoice(selector, ACadSharp.LineWeightType.ByBlock);
+        AddLineWeightChoice(selector, ACadSharp.LineWeightType.Default);
+        foreach (ACadSharp.LineWeightType value in
+            Enum.GetValues<ACadSharp.LineWeightType>())
+        {
+            if ((short)value >= 0)
+            {
+                AddLineWeightChoice(selector, value);
+            }
+        }
+        selector.SelectedIndex = 0;
+    }
+
+    private static void AddLineWeightChoice(
+        ComboBox selector,
+        ACadSharp.LineWeightType value) =>
+        selector.Items.Add(new ComboBoxItem
+        {
+            Text = FormatLineWeight(value),
+            Tag = value,
+        });
+
+    private static string FormatLineWeight(ACadSharp.LineWeightType value) =>
+        value switch
+        {
+            ACadSharp.LineWeightType.ByLayer => "ByLayer",
+            ACadSharp.LineWeightType.ByBlock => "ByBlock",
+            ACadSharp.LineWeightType.Default => "Default",
+            _ when (short)value >= 0 =>
+                $"{((short)value / 100.0).ToString("0.00", CultureInfo.InvariantCulture)} mm",
+            _ => value.ToString(),
+        };
+
+    private static string FormatSelectionColor(ACadSharp.Color color)
+    {
+        if (color.IsByLayer)
+        {
+            return "ByLayer";
+        }
+        if (color.IsByBlock)
+        {
+            return "ByBlock";
+        }
+        return color.IsTrueColor
+            ? $"#{color.R:X2}{color.G:X2}{color.B:X2}"
+            : $"ACI {color.Index.ToString(CultureInfo.InvariantCulture)}";
+    }
+
+    private static bool TryParseSelectionColor(
+        string source,
+        out ACadSharp.Color color)
+    {
+        string value = source.Trim();
+        if (string.Equals(value, "ByLayer", StringComparison.OrdinalIgnoreCase))
+        {
+            color = ACadSharp.Color.ByLayer;
+            return true;
+        }
+        if (string.Equals(value, "ByBlock", StringComparison.OrdinalIgnoreCase))
+        {
+            color = ACadSharp.Color.ByBlock;
+            return true;
+        }
+        if (value.Length == 7 &&
+            value[0] == '#' &&
+            uint.TryParse(
+                value.AsSpan(1),
+                NumberStyles.HexNumber,
+                CultureInfo.InvariantCulture,
+                out uint rgb))
+        {
+            color = new ACadSharp.Color(
+                (byte)((rgb >> 16) & byte.MaxValue),
+                (byte)((rgb >> 8) & byte.MaxValue),
+                (byte)(rgb & byte.MaxValue));
+            return true;
+        }
+
+        string indexText = value.StartsWith(
+            "ACI",
+            StringComparison.OrdinalIgnoreCase)
+            ? value[3..].TrimStart(' ', ':', '=')
+            : value;
+        if (short.TryParse(
+                indexText,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out short index) &&
+            index is >= 1 and <= 255)
+        {
+            color = new ACadSharp.Color(index);
+            return true;
+        }
+
+        color = default;
+        return false;
     }
 
     private static Button CreateButton(

@@ -281,6 +281,303 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void SelectionPropertiesCaptureMixedValuesAndRoundTripRenderedEdits()
+    {
+        var document = new CadDocument();
+        var first = new Line(new XYZ(-10, 0, 0), new XYZ(-5, 0, 0))
+        {
+            Color = ACadSharp.Color.ByLayer,
+            LineWeight = LineWeightType.W0,
+        };
+        var second = new Line(new XYZ(5, 0, 0), new XYZ(10, 0, 0))
+        {
+            Color = ACadSharp.Color.Blue,
+            LineWeight = LineWeightType.ByLayer,
+        };
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Drag(
+                canvas,
+                viewport.WorldToScreen(new CadPoint3D(-12, 2, 0)),
+                viewport.WorldToScreen(new CadPoint3D(12, -2, 0)));
+
+            CadSelectionGeneralProperties mixed =
+                canvas.CaptureSelectionGeneralProperties();
+            Assert.Equal(2, mixed.SelectionCount);
+            Assert.Null(mixed.CommonColor);
+            Assert.Null(mixed.CommonLineWeight);
+            var color = new ACadSharp.Color(12, 34, 56);
+
+            Assert.True(canvas.SetSelectionColor(color));
+            Assert.True(canvas.SetSelectionLineWeight(LineWeightType.W100));
+
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal(2, canvas.SelectedHandleCount);
+            Assert.Equal(color, first.Color);
+            Assert.Equal(color, second.Color);
+            Assert.Equal(LineWeightType.W100, first.LineWeight);
+            Assert.Equal(LineWeightType.W100, second.LineWeight);
+            CadSelectionGeneralProperties common =
+                canvas.CaptureSelectionGeneralProperties();
+            Assert.Equal(color, common.CommonColor);
+            Assert.Equal(LineWeightType.W100, common.CommonLineWeight);
+            Assert.All(canvas.CurrentSnapshot!.Styles.ToArray(), style =>
+            {
+                Assert.Equal((byte)12, style.Red);
+                Assert.Equal((byte)34, style.Green);
+                Assert.Equal((byte)56, style.Blue);
+                Assert.Equal(1.0, style.LineWeightMillimeters);
+            });
+
+            Assert.True(canvas.TryUndo());
+
+            CadSelectionGeneralProperties weightUndone =
+                canvas.CaptureSelectionGeneralProperties();
+            Assert.Equal(color, weightUndone.CommonColor);
+            Assert.Null(weightUndone.CommonLineWeight);
+            Assert.Equal(LineWeightType.W0, first.LineWeight);
+            Assert.Equal(LineWeightType.ByLayer, second.LineWeight);
+
+            Assert.True(canvas.TryUndo());
+
+            CadSelectionGeneralProperties colorUndone =
+                canvas.CaptureSelectionGeneralProperties();
+            Assert.Null(colorUndone.CommonColor);
+            Assert.Null(colorUndone.CommonLineWeight);
+            Assert.Equal(ACadSharp.Color.ByLayer, first.Color);
+            Assert.Equal(ACadSharp.Color.Blue, second.Color);
+
+            Assert.True(canvas.TryRedo());
+            Assert.True(canvas.TryRedo());
+            Assert.Equal(color, first.Color);
+            Assert.Equal(LineWeightType.W100, second.LineWeight);
+            Assert.Equal(6UL, session.ContentGeneration);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewEditsCompleteSelectionColorAndLineweightWithMixedState()
+    {
+        var document = new CadDocument();
+        var first = new Line(new XYZ(-10, 0, 0), new XYZ(-5, 0, 0))
+        {
+            Color = ACadSharp.Color.Red,
+            LineWeight = LineWeightType.W0,
+        };
+        var second = new Line(new XYZ(5, 0, 0), new XYZ(10, 0, 0))
+        {
+            Color = ACadSharp.Color.ByLayer,
+            LineWeight = LineWeightType.ByLayer,
+        };
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 850));
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 1_280, 624));
+            CadPlanViewport viewport = view.Canvas.CurrentViewport;
+            Drag(
+                view.Canvas,
+                viewport.WorldToScreen(new CadPoint3D(-12, 2, 0)),
+                viewport.WorldToScreen(new CadPoint3D(12, -2, 0)));
+            Button setColor = FindButton(view, "Set color");
+            Button setLineWeight = FindButton(view, "Set lineweight");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+
+            Assert.Equal("*VARIES*", view.SelectionColorInput.Text);
+            Assert.Equal(
+                "*VARIES*",
+                Assert.IsType<ComboBoxItem>(
+                    view.SelectionLineWeightSelector.SelectedItem).Text);
+            Assert.False(setColor.IsEnabled);
+            Assert.False(setLineWeight.IsEnabled);
+
+            view.SelectionColorInput.Text = "#0C2238";
+            Assert.True(setColor.IsEnabled);
+            PressEnter(setColor);
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(2, view.Canvas.SelectedHandleCount);
+            Assert.Equal(new ACadSharp.Color(12, 34, 56), first.Color);
+            Assert.Equal("#0C2238", view.SelectionColorInput.Text);
+            view.SelectionLineWeightSelector.SelectedItem =
+                view.SelectionLineWeightSelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Tag is LineWeightType.W100);
+            Assert.True(setLineWeight.IsEnabled);
+            PressEnter(setLineWeight);
+
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal(LineWeightType.W100, first.LineWeight);
+            Assert.Equal(LineWeightType.W100, second.LineWeight);
+            Assert.Equal(
+                "1.00 mm",
+                Assert.IsType<ComboBoxItem>(
+                    view.SelectionLineWeightSelector.SelectedItem).Text);
+            Assert.True(undo.IsEnabled);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Set lineweight 1.00 mm on 2 selected entity(s)",
+                    StringComparison.Ordinal));
+
+            PressEnter(undo);
+
+            Assert.Equal(
+                "*VARIES*",
+                Assert.IsType<ComboBoxItem>(
+                    view.SelectionLineWeightSelector.SelectedItem).Text);
+            Assert.Equal("#0C2238", view.SelectionColorInput.Text);
+            PressEnter(undo);
+            Assert.Equal("*VARIES*", view.SelectionColorInput.Text);
+
+            PressEnter(redo);
+            PressEnter(redo);
+            Assert.Equal("#0C2238", view.SelectionColorInput.Text);
+            Assert.Equal(LineWeightType.W100, second.LineWeight);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewAcceptsCompleteSupportedColorSyntaxAndStandardLineweights()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0))
+        {
+            LineWeight = LineWeightType.ByDIPs,
+        };
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 850));
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 1_280, 624));
+            Click(
+                view.Canvas,
+                view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
+            Assert.Equal(
+                "ByDIPs (unsupported)",
+                Assert.IsType<ComboBoxItem>(
+                    view.SelectionLineWeightSelector.SelectedItem).Text);
+            Button setColor = FindButton(view, "Set color");
+            var cases = new (string Input, ACadSharp.Color Expected)[]
+            {
+                ("ByLayer", ACadSharp.Color.ByLayer),
+                ("byblock", ACadSharp.Color.ByBlock),
+                ("ACI 255", new ACadSharp.Color(255)),
+                ("1", ACadSharp.Color.Red),
+                ("#000000", new ACadSharp.Color(0, 0, 0)),
+                ("#FFFFFF", new ACadSharp.Color(255, 255, 255)),
+            };
+            foreach ((string input, ACadSharp.Color expected) in cases)
+            {
+                view.SelectionColorInput.Text = input;
+                Assert.True(setColor.IsEnabled);
+                PressEnter(setColor);
+                Assert.Equal(expected, line.Color);
+            }
+
+            Assert.Equal((ulong)cases.Length, session.ContentGeneration);
+            foreach (string invalid in new[]
+            {
+                string.Empty,
+                "*VARIES*",
+                "ByEntity",
+                "ACI 0",
+                "ACI 256",
+                "#12345",
+                "#GG0000",
+            })
+            {
+                view.SelectionColorInput.Text = invalid;
+                Assert.False(setColor.IsEnabled);
+            }
+
+            ACadSharp.LineWeightType[] choices =
+                view.SelectionLineWeightSelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Where(item => item.Tag is ACadSharp.LineWeightType)
+                    .Select(item => (ACadSharp.LineWeightType)item.Tag!)
+                    .ToArray();
+            ACadSharp.LineWeightType[] expectedChoices =
+                Enum.GetValues<ACadSharp.LineWeightType>()
+                    .Where(value => value != ACadSharp.LineWeightType.ByDIPs)
+                    .ToArray();
+            Assert.Equal(expectedChoices.Length, choices.Length);
+            Assert.Equal(choices.Length, choices.Distinct().Count());
+            Assert.All(expectedChoices, value => Assert.Contains(value, choices));
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Theory]
+    [InlineData(CadDocumentFormat.Dxf)]
+    [InlineData(CadDocumentFormat.Dwg)]
+    public async Task SelectionPropertyEditsSurviveDxfAndDwgRoundTrip(
+        CadDocumentFormat format)
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        var line = new Line(XYZ.Zero, XYZ.AxisX);
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        history.Execute(new CadSetEntityColorCommand(
+            [line.Handle],
+            new ACadSharp.Color(12, 34, 56)));
+        history.Execute(new CadSetEntityLineWeightCommand(
+            [line.Handle],
+            LineWeightType.W100));
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+
+        await store.SaveAsync(
+            session,
+            stream,
+            format,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            format,
+            sourceName: $"selection-properties.{format.ToString().ToLowerInvariant()}");
+        (ACadSharp.Color Color, LineWeightType LineWeight) restored =
+            loaded.Session.Read(loadedDocument =>
+            {
+                Entity entity = loadedDocument.Entities.Single();
+                return (entity.Color, entity.LineWeight);
+            });
+
+        Assert.Equal(new ACadSharp.Color(12, 34, 56), restored.Color);
+        Assert.Equal(LineWeightType.W100, restored.LineWeight);
+    }
+
+    [Fact]
     public void DeleteSelectionClearsSemanticHandlesAndRoundTripsAsOneEdit()
     {
         var document = new CadDocument();
