@@ -182,6 +182,36 @@ public sealed unsafe class NativeMilChannel : IDisposable
     }
 
     /// <summary>
+    /// Binds a synchronized same-device texture lease to canonical WPF
+    /// D3DImage state. The canonical update/present packets carry zero COM and
+    /// event handles; the lease owns synchronization and contentVersion
+    /// identifies the retained present.
+    /// </summary>
+    public void SetD3DImageExternalImage(
+        uint handle,
+        uint width,
+        uint height,
+        ulong contentVersion)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(handle);
+        ArgumentOutOfRangeException.ThrowIfZero(width);
+        ArgumentOutOfRangeException.ThrowIfZero(height);
+        ArgumentOutOfRangeException.ThrowIfZero(contentVersion);
+        nint channel = GetChannel();
+        NativeMilStatus status = _backend == NativeMilBackend.Dawn
+            ? NativeMilDawnMethods.SetD3DImageExternalImage(
+                channel, handle, width, height, contentVersion)
+            : NativeMilMethods.SetD3DImageExternalImage(
+                channel, handle, width, height, contentVersion);
+        if (status != NativeMilStatus.Success)
+        {
+            throw new NativeMilException(
+                status,
+                $"The external image descriptor for MIL D3DImage handle {handle} was rejected with {status}.");
+        }
+    }
+
+    /// <summary>
     /// Copies an SFNT/TTC font into the portable sideband for a canonical WPF
     /// <see cref="NativeMilResourceType.GlyphRun"/> handle.
     /// </summary>

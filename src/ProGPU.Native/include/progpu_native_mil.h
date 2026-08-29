@@ -155,6 +155,19 @@ progpu_native_mil_channel_set_media_player_external_image(
     uint32_t width,
     uint32_t height);
 /*
+ * Declares canonical TYPE_D3DIMAGE content as a live external image. Portable
+ * MilCmdD3DImage/MilCmdD3DImagePresent packets carry zero process handles;
+ * the typed texture lease owns synchronization and content_version identifies
+ * the presented retained content.
+ */
+PROGPU_NATIVE_API progpu_native_mil_status
+progpu_native_mil_channel_set_d3d_image_external_image(
+    progpu_native_mil_channel* channel,
+    uint32_t handle,
+    uint32_t width,
+    uint32_t height,
+    uint64_t content_version);
+/*
  * Binds exact local Drawing bounds to a canonical TYPE_DRAWINGIMAGE handle.
  * The canonical packet carries only the referenced Drawing handle.
  */

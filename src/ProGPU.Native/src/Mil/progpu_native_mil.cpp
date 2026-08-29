@@ -67,6 +67,7 @@ constexpr std::uint32_t type_drawing_group = 91U;
 constexpr std::uint32_t type_guideline_set = 92U;
 constexpr std::uint32_t type_bitmap_cache = 94U;
 constexpr std::uint32_t type_bitmap_source = 95U;
+constexpr std::uint32_t type_d3d_image = 97U;
 constexpr std::uint32_t type_last = 98U;
 constexpr std::uint32_t maximum_visual_depth = 256U;
 constexpr std::uint32_t maximum_path_record_count = 1U << 20U;
@@ -2234,6 +2235,13 @@ struct channel::implementation {
         std::uint32_t height{};
     };
 
+    struct d3d_image_state {
+        std::uint32_t width{};
+        std::uint32_t height{};
+        std::uint64_t content_version{};
+        bool has_external_image{};
+    };
+
     struct drawing_image_state {
         std::uint32_t drawing_handle{};
         double bounds_x{};
@@ -2445,6 +2453,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, image_drawing_state> image_drawings;
     std::unordered_map<std::uint32_t, media_player_state> media_players;
     std::unordered_map<std::uint32_t, bitmap_source_state> bitmap_sources;
+    std::unordered_map<std::uint32_t, d3d_image_state> d3d_images;
     std::unordered_map<std::uint32_t, drawing_image_state> drawing_images;
     std::unordered_map<std::uint32_t, drawing_group_state> drawing_groups;
     std::unordered_map<std::uint32_t, guideline_set_state> guideline_sets;
@@ -3294,6 +3303,7 @@ struct channel::implementation {
             image_drawings.erase(handle);
             media_players.erase(handle);
             bitmap_sources.erase(handle);
+            d3d_images.erase(handle);
             drawing_images.erase(handle);
             drawing_groups.erase(handle);
             guideline_sets.erase(handle);
@@ -3301,6 +3311,57 @@ struct channel::implementation {
             effects.erase(handle);
             resources.erase(found);
             ++metrics.deleted_resource_count;
+            return status::success;
+        }
+        case command::d3d_image: {
+            using layout = command_layouts::d3d_image;
+            std::uint64_t interop_bitmap = 0U;
+            std::uint64_t software_bitmap = 0U;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::p_interop_device_bitmap_offset,
+                    interop_bitmap) ||
+                !read_at(
+                    view.packet,
+                    layout::p_software_bitmap_offset,
+                    software_bitmap)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_d3d_image)) {
+                return status::invalid_handle;
+            }
+            // These are COM pointers in desktop WPF and cannot cross the
+            // portable ABI. A Windows adapter must import them into a typed
+            // texture lease before it submits this canonical packet.
+            if (interop_bitmap != 0U || software_bitmap != 0U) {
+                return status::invalid_argument;
+            }
+            d3d_images.try_emplace(handle);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::d3d_image_present: {
+            using layout = command_layouts::d3d_image_present;
+            std::uint64_t event_handle = 0U;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::h_event_offset, event_handle)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_d3d_image) ||
+                !d3d_images.contains(handle)) {
+                return status::invalid_handle;
+            }
+            // HANDLE ownership is process-local. Portable synchronization is
+            // completed by acquiring/releasing the typed external image lease.
+            if (event_handle != 0U) {
+                return status::invalid_argument;
+            }
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
             return status::success;
         }
         case command::visual_create: {
@@ -5998,6 +6059,7 @@ struct channel::implementation {
                 (drawing.image_source_handle != 0U &&
                  (image_source == resources.end() ||
                   (image_source->second.type != type_bitmap_source &&
+                   image_source->second.type != type_d3d_image &&
                    image_source->second.type != type_drawing_image))) ||
                 (drawing.rect_animation_handle != 0U &&
                  !require_resource(
@@ -10418,6 +10480,67 @@ struct channel::implementation {
             }
             const auto bitmap = bitmap_sources.find(image_source_handle);
             if (bitmap == bitmap_sources.end()) {
+                const auto d3d_image = d3d_images.find(image_source_handle);
+                if (d3d_image != d3d_images.end()) {
+                    if (!d3d_image->second.has_external_image) {
+                        return status::invalid_handle;
+                    }
+                    const auto image = image_indices.find(image_source_handle);
+                    if (image == image_indices.end()) {
+                        return status::invalid_handle;
+                    }
+                    progpu_native_affine_2d native_transform{};
+                    progpu_native_image_rect bounds{};
+                    if (!try_to_native_affine(
+                            state.transform, native_transform) ||
+                        !try_transform_bounds(
+                            x,
+                            y,
+                            width,
+                            height,
+                            state.transform,
+                            bounds)) {
+                        return status::invalid_graph;
+                    }
+                    const auto& descriptor = d3d_image->second;
+                    const progpu_native_scene_image_draw image_draw{
+                        sizeof(progpu_native_scene_image_draw),
+                        0U,
+                        descriptor.width,
+                        descriptor.height,
+                        descriptor.width * 4U,
+                        state.image_sampling,
+                        {0.0F,
+                         0.0F,
+                         static_cast<float>(descriptor.width),
+                         static_cast<float>(descriptor.height)},
+                        {static_cast<float>(x),
+                         static_cast<float>(y),
+                         static_cast<float>(width),
+                         static_cast<float>(height)},
+                        native_transform,
+                        1.0F,
+                        1U};
+                    const progpu_native_scene_image_sampling_options
+                        cubic_options{
+                            sizeof(
+                                progpu_native_scene_image_sampling_options),
+                            0U,
+                            1.0F / 3.0F,
+                            1.0F / 3.0F};
+                    const auto* sampling_options = state.image_sampling ==
+                        PROGPU_NATIVE_IMAGE_SAMPLING_CUBIC
+                        ? &cubic_options
+                        : nullptr;
+                    return builder.draw_image(
+                            image->second,
+                            image_draw,
+                            bounds,
+                            PROGPU_NATIVE_SCENE_NO_INDEX,
+                            sampling_options)
+                        ? status::success
+                        : status::invalid_graph;
+                }
                 const auto source = resources.find(image_source_handle);
                 return source != resources.end() &&
                     source->second.type == type_drawing_image
@@ -15342,6 +15465,34 @@ status channel::set_media_player_external_image(
     }
 }
 
+status channel::set_d3d_image_external_image(
+    std::uint32_t handle,
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint64_t content_version) noexcept {
+    if (!implementation_->require_resource(handle, type_d3d_image) ||
+        !implementation_->d3d_images.contains(handle)) {
+        return status::invalid_handle;
+    }
+    if (width == 0U || height == 0U || width > 16'384U ||
+        height > 16'384U || content_version == 0U) {
+        return status::invalid_argument;
+    }
+    try {
+        implementation_->d3d_images.insert_or_assign(
+            handle,
+            implementation::d3d_image_state{
+                width, height, content_version, true});
+        implementation_->increment_generation(handle);
+        build_cache_.reset();
+        return status::success;
+    } catch (const std::bad_alloc&) {
+        return status::capacity_exceeded;
+    } catch (...) {
+        return status::invalid_argument;
+    }
+}
+
 status channel::set_drawing_image_bounds(
     std::uint32_t handle,
     double x,
@@ -15700,7 +15851,8 @@ status channel::build_scene_core(
         };
         std::vector<ordered_external_image> ordered_external_images;
         ordered_external_images.reserve(
-            source.bitmap_sources.size() + source.media_players.size());
+            source.bitmap_sources.size() + source.media_players.size() +
+            source.d3d_images.size());
         for (const auto& [handle, bitmap] : source.bitmap_sources) {
             if (bitmap.external_image) {
                 ordered_external_images.push_back(
@@ -15710,6 +15862,12 @@ status channel::build_scene_core(
         for (const auto& [handle, player] : source.media_players) {
             ordered_external_images.push_back(
                 {handle, player.width, player.height});
+        }
+        for (const auto& [handle, image] : source.d3d_images) {
+            if (image.has_external_image) {
+                ordered_external_images.push_back(
+                    {handle, image.width, image.height});
+            }
         }
         std::ranges::sort(ordered_external_images, {},
             &ordered_external_image::handle);
