@@ -19,6 +19,7 @@
     <ProjectReference Include="..\ProGPU.Fonts.Inter\ProGPU.Fonts.Inter.csproj" />
     <ProjectReference Include="..\ProGPU.Media\ProGPU.Media.csproj" />
     <ProjectReference Include="..\ProGPU.Vector\ProGPU.Vector.csproj" />
+    <ProjectReference Include="..\ProGPU.Win2D\ProGPU.Win2D.csproj" />
   </ItemGroup>
 
   <!-- Benchmark the exact locally built native renderer instead of a stale

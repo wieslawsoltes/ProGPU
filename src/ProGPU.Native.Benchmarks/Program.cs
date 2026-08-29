@@ -16,6 +16,17 @@ if (Array.Exists(
         args,
         static value => string.Equals(
             value,
+            "--win2d-canvas",
+            StringComparison.OrdinalIgnoreCase)))
+{
+    Win2DCanvasQualification.Run(args);
+    return;
+}
+
+if (Array.Exists(
+        args,
+        static value => string.Equals(
+            value,
             "--directx-hello-texture-oracle",
             StringComparison.OrdinalIgnoreCase)))
 {

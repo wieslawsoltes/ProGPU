@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAotCompatible>true</IsAotCompatible>
+    <Description>Portable Win2D-compatible Canvas API compiled to the ProGPU native C++ WebGPU renderer.</Description>
+    <PackageTags>progpu;win2d;direct2d;canvas;webgpu;native</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ProGPU.Backend.Native\ProGPU.Backend.Native.csproj" />
+    <ProjectReference Include="..\ProGPU.Fonts.Inter\ProGPU.Fonts.Inter.csproj" />
+    <ProjectReference Include="..\ProGPU.Scene.Native\ProGPU.Scene.Native.csproj" />
+    <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="ProGPU.Tests, PublicKey=$(ProGPUPublicKey)" />
+  </ItemGroup>
+</Project>
