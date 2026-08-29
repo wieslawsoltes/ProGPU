@@ -72,13 +72,12 @@ if (-not $SignTool) {
 }
 
 $Certificate = $null
-$TrustedCertificate = $null
+$TrustedCertificateThumbprint = $null
 $TemporaryDirectory = Join-Path `
     ([System.IO.Path]::GetTempPath()) `
     ("progpu-win2d-signing-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $TemporaryDirectory | Out-Null
 $PfxPath = Join-Path $TemporaryDirectory "progpu-win2d-test.pfx"
-$CertificatePath = Join-Path $TemporaryDirectory "progpu-win2d-test.cer"
 $SignedPackagePath = Join-Path $TemporaryDirectory "integration.msix"
 $Password = [Guid]::NewGuid().ToString("N")
 $SecurePassword = ConvertTo-SecureString $Password -AsPlainText -Force
@@ -101,12 +100,17 @@ try {
         -Cert $Certificate `
         -FilePath $PfxPath `
         -Password $SecurePassword | Out-Null
-    Export-Certificate `
-        -Cert $Certificate `
-        -FilePath $CertificatePath | Out-Null
-    $TrustedCertificate = Import-Certificate `
-        -FilePath $CertificatePath `
-        -CertStoreLocation "Cert:\CurrentUser\Root"
+    $RootStore = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+        "Root",
+        [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+    try {
+        $RootStore.Open(
+            [System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+        $RootStore.Add($Certificate)
+        $TrustedCertificateThumbprint = $Certificate.Thumbprint
+    } finally {
+        $RootStore.Close()
+    }
 
     & $SignTool.FullName sign `
         /fd SHA256 `
@@ -145,9 +149,9 @@ try {
 } finally {
     Get-AppxPackage -Name $PackageName -ErrorAction SilentlyContinue |
         Remove-AppxPackage -ErrorAction SilentlyContinue
-    if ($TrustedCertificate) {
+    if ($TrustedCertificateThumbprint) {
         Remove-Item `
-            -LiteralPath ("Cert:\CurrentUser\Root\" + $TrustedCertificate.Thumbprint) `
+            -LiteralPath ("Cert:\CurrentUser\Root\" + $TrustedCertificateThumbprint) `
             -Force `
             -ErrorAction SilentlyContinue
     }
