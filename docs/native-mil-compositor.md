@@ -72,10 +72,12 @@ return `unsupported_command`. A header-only 4-byte command view is
 cannot silently reinterpret the following nested record as effect payload.
 The decoder applies that generated-size check to the complete nested command
 range before semantic dispatch. Correctly framed but unimplemented dynamic
-Y-guideline and video records therefore return `unsupported_command`; short or
-oversized records return `malformed_batch`. This keeps capability status
-separate from wire corruption for all 25 nested commands and prevents an
-unsupported feature from bypassing packet-boundary validation.
+Y-guideline records therefore return `unsupported_command`; short or oversized
+records return `malformed_batch`. `DrawVideo` and `DrawVideoAnimate` are now
+implemented through the canonical MediaPlayer resource and the live external-
+image sideband described below. This keeps capability status separate from
+wire corruption for all 25 nested commands and prevents an unsupported feature
+from bypassing packet-boundary validation.
 Follow-up `d4a1f370` makes the complete retained Visual update family plus
 DoubleResource and PointResource consume generated sizes/offsets. That includes
 transform/effect/cache/clip/alpha/render-option/content/mask state, variable
@@ -4735,6 +4737,43 @@ Detailed current-user diagnostics for the native-MIL external-image test report
 `Parallels Display Adapter (WDDM)`, backend `D3D12`, and the test passes in
 480 ms. This is direct ARM64 D3D12 correctness evidence for the ownership and
 lowering seam, not physical-adapter performance evidence.
+
+## Native MIL live MediaPlayer checkpoint
+
+ProGPU `f5f7988b` implements canonical WPF `DrawVideo` (`0x4b`) and
+`DrawVideoAnimate` (`0x4c`) over resource type 1 (`TYPE_MEDIAPLAYER`). The new
+`progpu_native_mil_channel_set_media_player_external_image` sideband publishes
+only the live frame dimensions. Scene compilation emits a semantic external-
+image resource with no pixel payload or process pointer; the existing
+`NativeCompositor.BindSceneExternalImages` table supplies the current same-
+device `GpuTexture` view immediately before scene installation. Static and
+typed animated destination rectangles share the ordinary image shader,
+sampling, transform, clip, opacity, damage, and backend paths.
+
+External MediaPlayer resources are emitted first in ascending MIL-handle order,
+which gives the host deterministic scene resource IDs `1..N`. The binding
+generation is the requested semantic-scene generation. Missing sideband state,
+wrong resource types, malformed packets, nonfinite/negative rectangles, invalid
+animation handles, zero dimensions, and textures from another device fail
+closed. Replacing the binding table retains the new views transactionally; the
+managed host keeps each typed lease alive until the next table replacement.
+There is no CPU readback, RGBA repack, staging upload, or per-frame bitmap
+resource mutation.
+
+The neutral `PortableMediaPlayerFrame`/`IPortableMediaPlayerSource` contract
+lives in `ProGPU.Wpf.Interop`, so WPF, WinUI, Avalonia, and media producers can
+publish the same lease-backed frame without host-specific reflection. The
+native MIL test verifies static and animated video commands, external-resource
+identity, zero payload bytes, dimensions, generation, and fail-closed sideband
+validation. The managed packet test locks the exact 48-byte WPF records.
+Apple Silicon validation passes the native MIL CTest and managed packet test;
+Windows D3D12 and Linux Vulkan qualification are tracked by the consuming
+LibreWPF integration gate.
+
+This checkpoint covers one packed RGBA/BGRA same-device plane. D3DImage shared-
+surface import, keyed synchronization, planar NV12/P010 video, color-space/HDR
+metadata, and protected content remain separate typed interop work; none may
+fall back through CPU pixels.
 
 ## Managed glyph row-reuse SIMD checkpoint
 
