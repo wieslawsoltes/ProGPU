@@ -51,11 +51,11 @@ fn combine_winding_predicate_lanes(
     let insideB = windingB != vec4<i32>(0);
     var inside = insideA;
     switch operation {
-        case 1u: { inside = insideA && !insideB; }
-        case 2u: { inside = insideA && insideB; }
-        case 3u: { inside = insideA || insideB; }
+        case 1u: { inside = select(vec4<bool>(false), !insideB, insideA); }
+        case 2u: { inside = select(vec4<bool>(false), insideB, insideA); }
+        case 3u: { inside = select(insideB, vec4<bool>(true), insideA); }
         case 4u: { inside = insideA != insideB; }
-        case 5u: { inside = insideB && !insideA; }
+        case 5u: { inside = select(vec4<bool>(false), !insideA, insideB); }
         default: {}
     }
     return select(vec4<i32>(0), vec4<i32>(1), inside);
