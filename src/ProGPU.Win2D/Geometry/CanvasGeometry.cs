@@ -248,9 +248,11 @@ public sealed class CanvasGeometry : IDisposable
             CanvasGeometryCombine.Xor => 3,
             _ => throw new ArgumentOutOfRangeException(nameof(combine))
         };
-        PathGeometry left = ClonePath(Path);
-        PathGeometry right = ClonePath(otherGeometry.Path).CreateTransformed(
-            ToMatrix4x4(otherGeometryTransform));
+        PathGeometry left = Path;
+        PathGeometry right = otherGeometryTransform == Matrix3x2.Identity
+            ? otherGeometry.Path
+            : otherGeometry.Path.CreateTransformed(
+                ToMatrix4x4(otherGeometryTransform));
         var combined = new PathGeometry
         {
             IsCombined = true,
