@@ -2001,9 +2001,10 @@ SHA-256 values were
 `d396e5bcc5b9093271878499fafabae9e0b1fb0e7db6fd9aac8379e14ea64749`
 for `progpu_native.dll` and
 `4fe6051479644bfe40019e5d45570f68c57aeaae5040096b2fc257fe60c405d5`
-for `progpu_native_dawn.dll`. Rect animations, D3DImage/video sources,
-incremental bitmap invalidation, and same-device external texture bindings
-remain explicit follow-up work.
+for `progpu_native_dawn.dll`. Rect animations and canonical MediaPlayer video
+now have later typed implementations. D3DImage/shared-surface synchronization,
+planar/HDR video, and incremental bitmap invalidation remain explicit follow-up
+work.
 
 Animated-value implementation `a7dcd8de` closes the scalar resource and core
 render-data animation gap. The native channel now decodes the generated WPF
@@ -2542,9 +2543,11 @@ WinUI, and Avalonia adapters from hand-encoding the protocol.
 
 The canonical BitmapSource command still contains a process-local
 `IWICBitmapSource*`, so the portable decoder deliberately does not accept that
-packet or BitmapInvalidate as proof of portable pixels. D3DImage/video and
-same-device external texture bindings remain separate typed interop work; none
-are approximated by pointer scraping or stale copied bytes.
+packet or BitmapInvalidate as proof of portable pixels. The later canonical
+MediaPlayer lane binds packed live frames as typed same-device external images.
+D3DImage/shared-surface synchronization, planar/HDR media, and incremental
+bitmap invalidation remain separate typed interop work; none are approximated
+by pointer scraping or stale copied bytes.
 
 The Windows gate captures the expected forced-compute rejection with
 `System.Diagnostics.Process` rather than a PowerShell native-error pipeline.
@@ -4767,8 +4770,13 @@ native MIL test verifies static and animated video commands, external-resource
 identity, zero payload bytes, dimensions, generation, and fail-closed sideband
 validation. The managed packet test locks the exact 48-byte WPF records.
 Apple Silicon validation passes the native MIL CTest and managed packet test;
-Windows D3D12 and Linux Vulkan qualification are tracked by the consuming
-LibreWPF integration gate.
+Ubuntu 24.04 ARM64 qualification from exact archive `bb2313ab` builds the full
+native shared library with GCC 13.3.0, passes the native MIL CTest 1/1, and
+exports `progpu_native_mil_channel_set_media_player_external_image`. Qualified
+Linux `libprogpu_native.so` SHA-256 is
+`17a2e5fd74de64a3697b98b41245a747c75850292573407346cda8671e7dba3a`.
+Windows D3D12 qualification is tracked by the consuming LibreWPF integration
+gate.
 
 This checkpoint covers one packed RGBA/BGRA same-device plane. D3DImage shared-
 surface import, keyed synchronization, planar NV12/P010 video, color-space/HDR
