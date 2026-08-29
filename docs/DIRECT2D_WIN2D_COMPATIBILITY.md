@@ -117,6 +117,13 @@ Shapes, ArcOptions, and VectorArt sample bodies. It currently supports:
   path-builder geometries; path figures support line, quadratic, cubic, both
   Win2D arc forms, fill-rule, filled-figure, segment-stroke, and smooth-join
   state, and lower directly to retained native vector commands;
+- `CreateGroup`, affine `Transform`, and `CombineWith` union/intersection/xor/
+  exclusion operations. Boolean operands remain an immutable combined-geometry
+  DAG consumed by the native vector-mask evaluator; the Canvas operation does
+  not invoke the synchronous `PathOpGeometrySolver`, read a GPU buffer back, or
+  flatten curves on the CPU. Identity-transformed operands are retained without
+  cloning. Groups currently fail closed if an entry is itself a combined DAG,
+  because flattening it would change `GeometryGroup` fill semantics;
 - color `DrawGeometry`/`FillGeometry` overloads with origin or offset, plus
   scoped opacity layers with exact rectangle or path-geometry clips; layers
   must close LIFO and cannot cross a `Flush`, so malformed retained stacks fail
@@ -146,7 +153,7 @@ devices, straight/ignored alpha, non-BGRA render targets, Dawn/browser device
 factories, Direct2D COM wrapping, cross-device resources, self-referential
 texture feedback, anisotropic sampling, and high-quality cubic sampling.
 Bitmap file/pixel creation and updates, brushes, `MiterOrBevel`, command-list
-bounds/scaling, geometry boolean/query operations, opacity brushes, text
+bounds/scaling, geometry query/stroke/outline operations, opacity brushes, text
 formats/layouts, effects, sprite batches, and XAML controls remain the next
 incremental compatibility groups.
 Command-list `Clear` currently fails closed because portable unbounded-clear
