@@ -131,7 +131,7 @@ public sealed class CanvasRenderTarget : CanvasBitmap
         }
     }
 
-    protected override void DisposeCore()
+    protected override void ValidateCanDispose()
     {
         lock (_sessionLock)
         {
@@ -140,8 +140,6 @@ public sealed class CanvasRenderTarget : CanvasBitmap
                 throw new InvalidOperationException(
                     "Close the active CanvasDrawingSession before disposing its render target.");
             }
-
-            base.DisposeCore();
         }
     }
 

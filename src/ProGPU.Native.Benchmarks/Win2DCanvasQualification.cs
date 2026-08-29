@@ -19,6 +19,22 @@ internal static class Win2DCanvasQualification
             Width,
             Height,
             96f);
+        using var source = new CanvasRenderTarget(
+            device,
+            16,
+            16,
+            96f);
+        using (CanvasDrawingSession sourceSession =
+               source.CreateDrawingSession())
+        {
+            sourceSession.Clear(Color.FromArgb(0, 0, 0, 0));
+            sourceSession.FillRectangle(
+                0,
+                0,
+                16,
+                16,
+                Color.FromArgb(255, 255, 0, 255));
+        }
 
         using (CanvasDrawingSession drawingSession =
                target.CreateDrawingSession())
@@ -31,6 +47,19 @@ internal static class Win2DCanvasQualification
                 30,
                 Color.FromArgb(255, 255, 0, 0));
             DrawPinnedSimpleSample(drawingSession);
+            drawingSession.DrawImage(
+                source,
+                new Windows.Foundation.Rect(120, 8, 16, 16));
+            drawingSession.DrawImage(
+                source,
+                new Windows.Foundation.Rect(144, 8, 16, 16),
+                new Windows.Foundation.Rect(0, 0, 16, 16),
+                0.5f,
+                CanvasImageInterpolation.NearestNeighbor);
+            // Win2D executes DrawImage eagerly. ProGPU records until session
+            // close, so its typed texture lease must preserve the source
+            // without a staging readback after the public resource is closed.
+            source.Dispose();
         }
 
         ProGpuCanvasRenderMetrics first = target.LastRenderMetrics;
@@ -57,6 +86,15 @@ internal static class Win2DCanvasQualification
         RequirePixel(pixels, 2, 2, 0, 0, 0, 0);
         RequirePixel(pixels, 20, 20, 0, 0, 255, 255);
         RequirePixel(pixels, 75, 20, 0, 255, 0, 255);
+        RequirePixel(pixels, 128, 16, 255, 0, 255, 255);
+        RequirePixelInRange(
+            pixels,
+            152,
+            16,
+            minimum: 126,
+            maximum: 129,
+            expectedBlue: true,
+            expectedRed: true);
         Require(
             CountYellowPixels(pixels, 90, 90, 230, 140) > 20,
             "The pinned Win2D text draw did not produce a visible yellow glyph run.");
@@ -64,7 +102,7 @@ internal static class Win2DCanvasQualification
             first.ExecutionPath == ProGpuCanvasExecutionPath.NativeCppWebGpu &&
             second.ExecutionPath == ProGpuCanvasExecutionPath.NativeCppWebGpu &&
             first.SubmissionCount > 0 && second.SubmissionCount > 0 &&
-            first.NativeDrawCount >= 2 && second.NativeDrawCount >= 1,
+            first.NativeDrawCount >= 4 && second.NativeDrawCount >= 1,
             $"Unexpected native Canvas metrics: first={first}, second={second}.");
 
         string? outputDirectory = ReadOptionalArgument(
@@ -166,6 +204,28 @@ internal static class Win2DCanvasQualification
             $"{pixels[index]},{pixels[index + 1]}," +
             $"{pixels[index + 2]},{pixels[index + 3]}; expected " +
             $"{blue},{green},{red},{alpha}.");
+    }
+
+    private static void RequirePixelInRange(
+        ReadOnlySpan<byte> pixels,
+        int x,
+        int y,
+        byte minimum,
+        byte maximum,
+        bool expectedBlue,
+        bool expectedRed)
+    {
+        int index = (y * Width + x) * 4;
+        byte blue = pixels[index];
+        byte green = pixels[index + 1];
+        byte red = pixels[index + 2];
+        byte alpha = pixels[index + 3];
+        Require(
+            (!expectedBlue || blue >= minimum && blue <= maximum) &&
+            (!expectedRed || red >= minimum && red <= maximum) &&
+            green == 0 && alpha >= minimum && alpha <= maximum,
+            $"Pixel ({x},{y}) was BGRA {blue},{green},{red},{alpha}; " +
+            $"expected selected channels in [{minimum},{maximum}].");
     }
 
     private static string? ReadOptionalArgument(

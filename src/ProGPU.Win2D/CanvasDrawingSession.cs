@@ -86,6 +86,178 @@ public sealed class CanvasDrawingSession :
         _hasCommands = false;
     }
 
+    public void DrawImage(ICanvasImage image) =>
+        DrawImage(image, Vector2.Zero);
+
+    public void DrawImage(ICanvasImage image, Vector2 offset) =>
+        DrawImage(image, offset.X, offset.Y);
+
+    public void DrawImage(ICanvasImage image, float x, float y)
+    {
+        CanvasBitmap bitmap = GetBitmap(image);
+        DrawBitmap(
+            bitmap,
+            new Rect(
+                x,
+                y,
+                (float)bitmap.Size.Width,
+                (float)bitmap.Size.Height),
+            new Rect(0f, 0f, bitmap.Texture.Width, bitmap.Texture.Height),
+            1f,
+            CanvasImageInterpolation.Linear);
+    }
+
+    public void DrawImage(
+        CanvasBitmap bitmap,
+        Windows.Foundation.Rect destinationRectangle) =>
+        DrawBitmap(
+            GetBitmap(bitmap),
+            ValidateRect(
+                (float)destinationRectangle.X,
+                (float)destinationRectangle.Y,
+                (float)destinationRectangle.Width,
+                (float)destinationRectangle.Height),
+            new Rect(0f, 0f, bitmap.Texture.Width, bitmap.Texture.Height),
+            1f,
+            CanvasImageInterpolation.Linear);
+
+    public void DrawImage(
+        ICanvasImage image,
+        Vector2 offset,
+        Windows.Foundation.Rect sourceRectangle) =>
+        DrawImage(image, offset.X, offset.Y, sourceRectangle);
+
+    public void DrawImage(
+        ICanvasImage image,
+        float x,
+        float y,
+        Windows.Foundation.Rect sourceRectangle)
+    {
+        CanvasBitmap bitmap = GetBitmap(image);
+        Rect source = ValidateSourceRect(bitmap, sourceRectangle);
+        DrawBitmap(
+            bitmap,
+            new Rect(
+                x,
+                y,
+                (float)sourceRectangle.Width,
+                (float)sourceRectangle.Height),
+            source,
+            1f,
+            CanvasImageInterpolation.Linear);
+    }
+
+    public void DrawImage(
+        ICanvasImage image,
+        Windows.Foundation.Rect destinationRectangle,
+        Windows.Foundation.Rect sourceRectangle) =>
+        DrawImage(
+            image,
+            destinationRectangle,
+            sourceRectangle,
+            1f,
+            CanvasImageInterpolation.Linear);
+
+    public void DrawImage(
+        ICanvasImage image,
+        Vector2 offset,
+        Windows.Foundation.Rect sourceRectangle,
+        float opacity) =>
+        DrawImage(
+            image,
+            new Windows.Foundation.Rect(
+                offset.X,
+                offset.Y,
+                sourceRectangle.Width,
+                sourceRectangle.Height),
+            sourceRectangle,
+            opacity,
+            CanvasImageInterpolation.Linear);
+
+    public void DrawImage(
+        ICanvasImage image,
+        float x,
+        float y,
+        Windows.Foundation.Rect sourceRectangle,
+        float opacity) =>
+        DrawImage(
+            image,
+            new Windows.Foundation.Rect(
+                x,
+                y,
+                sourceRectangle.Width,
+                sourceRectangle.Height),
+            sourceRectangle,
+            opacity,
+            CanvasImageInterpolation.Linear);
+
+    public void DrawImage(
+        ICanvasImage image,
+        Windows.Foundation.Rect destinationRectangle,
+        Windows.Foundation.Rect sourceRectangle,
+        float opacity) =>
+        DrawImage(
+            image,
+            destinationRectangle,
+            sourceRectangle,
+            opacity,
+            CanvasImageInterpolation.Linear);
+
+    public void DrawImage(
+        ICanvasImage image,
+        Vector2 offset,
+        Windows.Foundation.Rect sourceRectangle,
+        float opacity,
+        CanvasImageInterpolation interpolation) =>
+        DrawImage(
+            image,
+            new Windows.Foundation.Rect(
+                offset.X,
+                offset.Y,
+                sourceRectangle.Width,
+                sourceRectangle.Height),
+            sourceRectangle,
+            opacity,
+            interpolation);
+
+    public void DrawImage(
+        ICanvasImage image,
+        float x,
+        float y,
+        Windows.Foundation.Rect sourceRectangle,
+        float opacity,
+        CanvasImageInterpolation interpolation) =>
+        DrawImage(
+            image,
+            new Windows.Foundation.Rect(
+                x,
+                y,
+                sourceRectangle.Width,
+                sourceRectangle.Height),
+            sourceRectangle,
+            opacity,
+            interpolation);
+
+    public void DrawImage(
+        ICanvasImage image,
+        Windows.Foundation.Rect destinationRectangle,
+        Windows.Foundation.Rect sourceRectangle,
+        float opacity,
+        CanvasImageInterpolation interpolation)
+    {
+        CanvasBitmap bitmap = GetBitmap(image);
+        DrawBitmap(
+            bitmap,
+            ValidateRect(
+                (float)destinationRectangle.X,
+                (float)destinationRectangle.Y,
+                (float)destinationRectangle.Width,
+                (float)destinationRectangle.Height),
+            ValidateSourceRect(bitmap, sourceRectangle),
+            opacity,
+            interpolation);
+    }
+
     public void DrawLine(
         Vector2 point0,
         Vector2 point1,
@@ -406,6 +578,124 @@ public sealed class CanvasDrawingSession :
         }
 
         return pen;
+    }
+
+    private CanvasBitmap GetBitmap(ICanvasImage image)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(image);
+        if (image is not CanvasBitmap bitmap)
+        {
+            throw new NotSupportedException(
+                "The first portable DrawImage lane accepts CanvasBitmap resources only.");
+        }
+        if (bitmap.IsDisposed)
+        {
+            throw new ObjectDisposedException(nameof(image));
+        }
+        if (!ReferenceEquals(bitmap.Device, Device))
+        {
+            throw new ArgumentException(
+                "Canvas image resources must belong to the drawing-session device.",
+                nameof(image));
+        }
+        if (ReferenceEquals(bitmap, _target))
+        {
+            throw new NotSupportedException(
+                "Drawing a CanvasRenderTarget into itself would create an unsupported texture feedback loop.");
+        }
+
+        return bitmap;
+    }
+
+    private void DrawBitmap(
+        CanvasBitmap bitmap,
+        Rect destination,
+        Rect sourcePixels,
+        float opacity,
+        CanvasImageInterpolation interpolation)
+    {
+        if (!float.IsFinite(opacity) || opacity < 0f || opacity > 1f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(opacity));
+        }
+
+        TextureSamplingMode sampling = interpolation switch
+        {
+            CanvasImageInterpolation.NearestNeighbor =>
+                TextureSamplingMode.Nearest,
+            CanvasImageInterpolation.Linear or
+            CanvasImageInterpolation.MultiSampleLinear =>
+                TextureSamplingMode.Linear,
+            CanvasImageInterpolation.Cubic =>
+                TextureSamplingMode.Cubic,
+            CanvasImageInterpolation.Anisotropic or
+            CanvasImageInterpolation.HighQualityCubic =>
+                throw new NotSupportedException(
+                    $"Canvas image interpolation {interpolation} is not qualified by the portable texture lane."),
+            _ => throw new ArgumentOutOfRangeException(nameof(interpolation))
+        };
+
+        if (!_context.TryRetainTexture(
+                bitmap,
+                Device.Context,
+                out var texture))
+        {
+            throw new ObjectDisposedException(nameof(bitmap));
+        }
+
+        Matrix4x4 transform = ToMatrix4x4(_transform);
+        if (opacity == 1f)
+        {
+            _context.DrawTexture(
+                texture,
+                destination,
+                sourcePixels,
+                transform,
+                sampling);
+        }
+        else
+        {
+            var opacityMatrix = new ImageEffectColorMatrix(
+                Vector4.UnitX,
+                Vector4.UnitY,
+                Vector4.UnitZ,
+                new Vector4(0f, 0f, 0f, opacity),
+                Vector4.Zero);
+            _context.DrawImageWithEffect(
+                texture,
+                destination,
+                sourceRect: sourcePixels,
+                samplingMode: sampling,
+                colorMatrix: opacityMatrix,
+                transform: transform);
+        }
+        _hasCommands = true;
+    }
+
+    private Rect ValidateSourceRect(
+        CanvasBitmap bitmap,
+        Windows.Foundation.Rect sourceRectangle)
+    {
+        ThrowIfDisposed();
+        float x = (float)sourceRectangle.X;
+        float y = (float)sourceRectangle.Y;
+        float width = (float)sourceRectangle.Width;
+        float height = (float)sourceRectangle.Height;
+        ValidateFinite(x, y, width, height);
+        if (x < 0f || y < 0f || width <= 0f || height <= 0f ||
+            x + width > bitmap.Size.Width ||
+            y + height > bitmap.Size.Height)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sourceRectangle));
+        }
+
+        float scale = bitmap.Dpi / CanvasContract.DefaultDpi;
+        return new Rect(
+            x * scale,
+            y * scale,
+            width * scale,
+            height * scale);
     }
 
     private Rect ValidateRect(
