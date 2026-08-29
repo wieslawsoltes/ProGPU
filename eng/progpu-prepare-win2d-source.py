@@ -24,6 +24,7 @@ def prepare_checkout(
     commit: str,
     name: str,
 ) -> None:
+    created = False
     if not (destination / ".git").is_dir():
         destination.parent.mkdir(parents=True, exist_ok=True)
         run(
@@ -34,7 +35,8 @@ def prepare_checkout(
             repository,
             str(destination),
         )
-    if output(
+        created = True
+    if not created and output(
         "git", "-C", str(destination), "status", "--porcelain", "--untracked-files=no"
     ):
         raise SystemExit(f"Refusing to change the modified {name} checkout.")
