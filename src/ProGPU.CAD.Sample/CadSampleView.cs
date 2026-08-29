@@ -82,6 +82,8 @@ public sealed class CadSampleView : Grid
     private readonly Button _createLayerButton;
     private readonly Button _renameLayerButton;
     private readonly Button _removeLayerButton;
+    private readonly ComboBox _layerMergeTargetSelector;
+    private readonly Button _mergeLayerButton;
     private readonly TextBox _moveStepInput;
     private readonly TextBox _rotationStepInput;
     private readonly TextBox _scaleFactorInput;
@@ -148,6 +150,8 @@ public sealed class CadSampleView : Grid
     public ComboBox LayerLineTypeSelector => _layerLineTypeSelector;
 
     public TextBox LayerNameInput => _layerNameInput;
+
+    public ComboBox LayerMergeTargetSelector => _layerMergeTargetSelector;
 
     /// <summary>
     /// Ordered fully-qualified desktop support directories probed after the
@@ -813,10 +817,36 @@ public sealed class CadSampleView : Grid
         _renameLayerButton = CreateButton("Rename layer", font, 108, 30);
         _renameLayerButton.Margin = new Thickness(0, 0, 8, 0);
         _removeLayerButton = CreateButton("Delete unused", font, 112, 30);
+        _removeLayerButton.Margin = new Thickness(0, 0, 12, 0);
+        var mergeTargetLabel = new TextBlock
+        {
+            Text = "Merge to",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        };
+        _layerMergeTargetSelector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = 150,
+            HeightConstraint = 30,
+            MaxDropDownHeight = 256,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        PopulateLayerStateChoices(
+            _layerMergeTargetSelector,
+            ReadOnlySpan<string>.Empty,
+            previousName: null);
+        _mergeLayerButton = CreateButton("Merge layer", font, 104, 30);
         layerLifecycleActions.AddChild(_layerNameInput);
         layerLifecycleActions.AddChild(_createLayerButton);
         layerLifecycleActions.AddChild(_renameLayerButton);
         layerLifecycleActions.AddChild(_removeLayerButton);
+        layerLifecycleActions.AddChild(mergeTargetLabel);
+        layerLifecycleActions.AddChild(_layerMergeTargetSelector);
+        layerLifecycleActions.AddChild(_mergeLayerButton);
 
         printActions.AddChild(new TextBlock
         {
@@ -1043,6 +1073,13 @@ public sealed class CadSampleView : Grid
                 UpdateEditControls();
             }
         };
+        _layerMergeTargetSelector.SelectionChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
         _setSelectionColorButton.Click += (_, _) => SetSelectionColor();
         _setSelectionLineWeightButton.Click += (_, _) =>
             SetSelectionLineWeight();
@@ -1066,6 +1103,7 @@ public sealed class CadSampleView : Grid
         _createLayerButton.Click += (_, _) => CreateLayer();
         _renameLayerButton.Click += (_, _) => RenameLayer();
         _removeLayerButton.Click += (_, _) => RemoveLayer();
+        _mergeLayerButton.Click += (_, _) => MergeLayer();
         _createPageSetupButton.Click += (_, _) =>
             CreateNamedPageSetupFromModel();
         _updatePageSetupButton.Click += (_, _) =>
@@ -1771,6 +1809,8 @@ public sealed class CadSampleView : Grid
             _canvas.CaptureSelectionPropertyCatalog();
         string? previousLayerStateName =
             (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag as string;
+        string? previousLayerMergeTargetName =
+            (_layerMergeTargetSelector.SelectedItem as ComboBoxItem)?.Tag as string;
         PopulateNamedPropertyChoices(
             _selectionLayerSelector,
             catalog.LayerNames.Span);
@@ -1784,6 +1824,10 @@ public sealed class CadSampleView : Grid
             _layerStateSelector,
             catalog.LayerNames.Span,
             previousLayerStateName);
+        PopulateLayerStateChoices(
+            _layerMergeTargetSelector,
+            catalog.LayerNames.Span,
+            previousLayerMergeTargetName);
         _selectionPropertyCatalogSession = session;
         _selectionPropertyCatalogGeneration = catalog.ContentGeneration;
     }
@@ -2407,6 +2451,35 @@ public sealed class CadSampleView : Grid
         catch (Exception exception)
         {
             SetStatus($"Delete layer failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void MergeLayer()
+    {
+        if (_isBusy ||
+            (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                string sourceLayerName ||
+            (_layerMergeTargetSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                string targetLayerName ||
+            !_canvas.CanMergeLayer(sourceLayerName, targetLayerName))
+        {
+            return;
+        }
+
+        try
+        {
+            _canvas.MergeLayer(sourceLayerName, targetLayerName);
+            SelectLayerStateChoice(targetLayerName);
+            SetStatus(
+                $"Merged layer {sourceLayerName} into {targetLayerName} as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Merge layer failed: {exception.Message}");
         }
         finally
         {
@@ -3140,6 +3213,7 @@ public sealed class CadSampleView : Grid
         _layerLineWeightSelector.IsEnabled = canEditLayerState;
         _layerLineTypeSelector.IsEnabled = canEditLayerState;
         _layerNameInput.IsEnabled = canEditLayerState;
+        _layerMergeTargetSelector.IsEnabled = canEditLayerState;
         _setLayerVisibilityButton.IsEnabled =
             canEditLayerState &&
             (_layerVisibilitySelector.SelectedItem as ComboBoxItem)?.Tag is bool;
@@ -3177,6 +3251,16 @@ public sealed class CadSampleView : Grid
         _removeLayerButton.IsEnabled =
             canEditLayerState &&
             _selectedLayerCanRemove;
+        string? mergeTargetLayerName =
+            (_layerMergeTargetSelector.SelectedItem as ComboBoxItem)?.Tag as string;
+        _mergeLayerButton.IsEnabled =
+            canEditLayerState &&
+            _selectedLayerCanRemove &&
+            selectedLayerName is not null &&
+            mergeTargetLayerName is not null &&
+            _canvas.CanMergeLayer(
+                selectedLayerName,
+                mergeTargetLayerName);
         _moveStepInput.IsEnabled = canUsePlanTools;
         _rotationStepInput.IsEnabled = canUsePlanTools;
         _scaleFactorInput.IsEnabled = canUsePlanTools;

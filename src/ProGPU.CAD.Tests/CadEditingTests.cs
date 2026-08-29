@@ -1168,13 +1168,28 @@ public sealed class CadEditingTests
         };
         document.Layers.Add(layer);
         document.Layers.Add(new Layer("REMOVE_BEFORE_SAVE"));
+        var mergeTarget = new Layer("MERGE_TARGET")
+        {
+            IsOn = false,
+            Color = ACadSharp.Color.Green,
+            LineWeight = LineWeightType.W30,
+        };
+        var mergeSource = new Layer("MERGE_SOURCE")
+        {
+            Color = ACadSharp.Color.Red,
+            LineWeight = LineWeightType.W15,
+        };
+        document.Layers.Add(mergeTarget);
+        document.Layers.Add(mergeSource);
         document.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX) { Layer = layer });
+        document.Entities.Add(new Circle(XYZ.AxisY, 1) { Layer = mergeSource });
         var session = new CadDocumentSession(document);
         var history = new CadDocumentHistory(session);
         history.Execute(new CadRenameLayerCommand(
             "PERSISTED_STATE",
             "PERSISTED_PROPERTIES"));
         history.Execute(new CadRemoveLayerCommand("REMOVE_BEFORE_SAVE"));
+        history.Execute(new CadMergeLayerCommand("MERGE_SOURCE", "MERGE_TARGET"));
         var store = new CadDocumentStore();
         using var stream = new MemoryStream();
 
@@ -1195,6 +1210,19 @@ public sealed class CadEditingTests
             source.Layers.Contains("PERSISTED_STATE")));
         Assert.False(loaded.Session.Read(source =>
             source.Layers.Contains("REMOVE_BEFORE_SAVE")));
+        Assert.False(loaded.Session.Read(source =>
+            source.Layers.Contains("MERGE_SOURCE")));
+        Layer restoredMergeTarget = loaded.Session.Read(source =>
+            source.Layers["MERGE_TARGET"]);
+        Assert.False(restoredMergeTarget.IsOn);
+        Assert.Equal(ACadSharp.Color.Green, restoredMergeTarget.Color);
+        Assert.Equal(LineWeightType.W30, restoredMergeTarget.LineWeight);
+        Assert.Single(loaded.Session.Read(source =>
+            source.GetCadObjects<Entity>()
+                .Where(entity => ReferenceEquals(
+                    entity.Layer,
+                    restoredMergeTarget))
+                .ToArray()));
         Assert.False(restored.IsOn);
         Assert.False(restored.PlotFlag);
         Assert.True((restored.Flags & LayerFlags.Frozen) != 0);
@@ -1596,6 +1624,227 @@ public sealed class CadEditingTests
         };
         xrefDocument.Layers.Add(xrefLayer);
         AssertRejected(xrefDocument, xrefLayer.Name);
+    }
+
+    [Fact]
+    public void MergeLayerCommandReassignsAllTypedReferencesAndRoundTripsIdentity()
+    {
+        var document = new CadDocument();
+        var source = new Layer("MERGE_SOURCE")
+        {
+            Color = ACadSharp.Color.Red,
+            LineWeight = LineWeightType.W15,
+        };
+        var target = new Layer("MERGE_TARGET")
+        {
+            Color = new ACadSharp.Color(12, 34, 56),
+            LineWeight = LineWeightType.W70,
+            PlotFlag = false,
+            Flags = LayerFlags.Locked,
+        };
+        document.Layers.Add(source);
+        document.Layers.Add(target);
+        var modelLine = new Line(XYZ.Zero, XYZ.AxisX) { Layer = source };
+        document.Entities.Add(modelLine);
+        var block = new BlockRecord("MERGE_BLOCK");
+        var nestedCircle = new Circle(XYZ.Zero, 2) { Layer = source };
+        block.Entities.Add(nestedCircle);
+        document.BlockRecords.Add(block);
+        var viewport = new Viewport { Layer = source };
+        viewport.FrozenLayers.Add(source);
+        viewport.FrozenLayers.Add(target);
+        viewport.FrozenLayers.Add(source);
+        document.PaperSpace.Entities.Add(viewport);
+        ulong originalSourceHandle = source.Handle;
+        ulong targetHandle = target.Handle;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadMergeLayerCommand(
+            "merge_source",
+            "MERGE_TARGET");
+
+        history.Execute(command);
+
+        Assert.Equal(3, command.AffectedEntityCount);
+        Assert.Equal(1, command.AffectedViewportCount);
+        Assert.Equal(2, command.AffectedViewportFrozenReferenceCount);
+        Assert.Equal(0UL, command.CurrentSourceHandle);
+        Assert.False(document.Layers.Contains("MERGE_SOURCE"));
+        Assert.Null(source.Owner);
+        Assert.Same(target, modelLine.Layer);
+        Assert.Same(target, nestedCircle.Layer);
+        Assert.Same(target, viewport.Layer);
+        Assert.Equal([target], viewport.FrozenLayers);
+        Assert.Equal(targetHandle, target.Handle);
+        Assert.Equal(new ACadSharp.Color(12, 34, 56), target.Color);
+        Assert.Equal(LineWeightType.W70, target.LineWeight);
+        Assert.False(target.PlotFlag);
+        Assert.True((target.Flags & LayerFlags.Locked) != 0);
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Same(source, document.Layers["MERGE_SOURCE"]);
+        Assert.NotEqual(0UL, command.CurrentSourceHandle);
+        Assert.NotEqual(originalSourceHandle, command.CurrentSourceHandle);
+        Assert.Same(source, modelLine.Layer);
+        Assert.Same(source, nestedCircle.Layer);
+        Assert.Same(source, viewport.Layer);
+        Assert.Equal([source, target, source], viewport.FrozenLayers);
+        Assert.Equal(targetHandle, target.Handle);
+
+        Assert.True(history.TryRedo(out _));
+        Assert.False(document.Layers.Contains("MERGE_SOURCE"));
+        Assert.Equal(0UL, command.CurrentSourceHandle);
+        Assert.Same(target, modelLine.Layer);
+        Assert.Same(target, nestedCircle.Layer);
+        Assert.Same(target, viewport.Layer);
+        Assert.Equal([target], viewport.FrozenLayers);
+    }
+
+    [Fact]
+    public void MergeLayerCommandKeepsLargeReferenceSetAtomicAndBounded()
+    {
+        const int entityCount = 10_000;
+        var document = new CadDocument();
+        var source = new Layer("SCALE_SOURCE");
+        var target = new Layer("SCALE_TARGET");
+        document.Layers.Add(source);
+        document.Layers.Add(target);
+        for (int i = 0; i < entityCount; i++)
+        {
+            document.Entities.Add(new Line(
+                new XYZ(i, 0, 0),
+                new XYZ(i, 1, 0))
+            {
+                Layer = source,
+            });
+        }
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadMergeLayerCommand(source.Name, target.Name);
+
+        history.Execute(command);
+
+        Assert.Equal(1UL, session.ContentGeneration);
+        Assert.Equal(entityCount, command.AffectedEntityCount);
+        Assert.All(document.Entities, entity => Assert.Same(target, entity.Layer));
+        Assert.False(document.Layers.Contains(source.Name));
+
+        Assert.True(history.TryUndo(out ulong generation));
+        Assert.Equal(2UL, generation);
+        Assert.All(document.Entities, entity => Assert.Same(source, entity.Layer));
+        Assert.Same(source, document.Layers[source.Name]);
+    }
+
+    [Fact]
+    public void MergeLayerCommandRollsBackTableNotificationFailure()
+    {
+        var document = new CadDocument();
+        var source = new Layer("ROLLBACK_SOURCE");
+        var target = new Layer("ROLLBACK_TARGET");
+        document.Layers.Add(source);
+        document.Layers.Add(target);
+        var line = new Line(XYZ.Zero, XYZ.AxisX) { Layer = source };
+        document.Entities.Add(line);
+        var viewport = new Viewport();
+        viewport.FrozenLayers.Add(source);
+        document.PaperSpace.Entities.Add(viewport);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadMergeLayerCommand(source.Name, target.Name);
+        EventHandler<ACadSharp.CollectionChangedEventArgs> failRemoval = (_, args) =>
+        {
+            if (ReferenceEquals(args.Item, source))
+            {
+                throw new InvalidOperationException("Injected remove failure.");
+            }
+        };
+        document.Layers.OnRemove += failRemoval;
+        try
+        {
+            InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
+                () => history.Execute(command));
+            Assert.Equal("Injected remove failure.", exception.Message);
+        }
+        finally
+        {
+            document.Layers.OnRemove -= failRemoval;
+        }
+
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(0, history.UndoCount);
+        Assert.Same(source, document.Layers[source.Name]);
+        Assert.Same(source, line.Layer);
+        Assert.Equal([source], viewport.FrozenLayers);
+
+        history.Execute(command);
+        Assert.Equal(1UL, session.ContentGeneration);
+        Assert.False(document.Layers.Contains(source.Name));
+        Assert.Same(target, line.Layer);
+        Assert.Empty(viewport.FrozenLayers);
+    }
+
+    [Fact]
+    public void MergeLayerCommandRejectsProtectedCurrentDependentAndInvalidTargets()
+    {
+        static void AssertRejected(
+            CadDocument document,
+            string sourceName,
+            string targetName)
+        {
+            var session = new CadDocumentSession(document);
+            var history = new CadDocumentHistory(session);
+            Assert.Throws<InvalidOperationException>(() => history.Execute(
+                new CadMergeLayerCommand(sourceName, targetName)));
+            Assert.Equal(0UL, session.ContentGeneration);
+            Assert.Equal(0, history.UndoCount);
+        }
+
+        var sameDocument = new CadDocument();
+        sameDocument.Layers.Add(new Layer("SAME"));
+        AssertRejected(sameDocument, "SAME", "same");
+
+        var currentDocument = new CadDocument();
+        var current = new Layer("CURRENT_SOURCE");
+        currentDocument.Layers.Add(current);
+        currentDocument.SetCurrent(current);
+        AssertRejected(currentDocument, current.Name, Layer.DefaultName);
+
+        var defaultDocument = new CadDocument();
+        defaultDocument.Layers.Add(new Layer("DEFAULT_TARGET"));
+        AssertRejected(defaultDocument, Layer.DefaultName, "DEFAULT_TARGET");
+
+        var defpointsDocument = new CadDocument();
+        defpointsDocument.Layers.Add(Layer.Defpoints);
+        defpointsDocument.Layers.Add(new Layer("DEFPOINTS_TARGET"));
+        AssertRejected(
+            defpointsDocument,
+            Layer.DefpointsName,
+            "DEFPOINTS_TARGET");
+
+        var xrefSourceDocument = new CadDocument();
+        xrefSourceDocument.Layers.Add(new Layer("XREF|SOURCE")
+        {
+            Flags = LayerFlags.XrefDependent,
+        });
+        AssertRejected(
+            xrefSourceDocument,
+            "XREF|SOURCE",
+            Layer.DefaultName);
+
+        var xrefTargetDocument = new CadDocument();
+        xrefTargetDocument.Layers.Add(new Layer("LOCAL_SOURCE"));
+        xrefTargetDocument.Layers.Add(new Layer("XREF|TARGET")
+        {
+            Flags = LayerFlags.XrefDependent,
+        });
+        AssertRejected(
+            xrefTargetDocument,
+            "LOCAL_SOURCE",
+            "XREF|TARGET");
+
+        var missingDocument = new CadDocument();
+        missingDocument.Layers.Add(new Layer("EXISTING_SOURCE"));
+        AssertRejected(missingDocument, "EXISTING_SOURCE", "MISSING");
     }
 
     [Fact]

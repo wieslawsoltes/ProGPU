@@ -1083,18 +1083,40 @@ an interactive browser picker/download smoke remains open.
   reference. Only then does it detach the table entry; Undo restores the same
   object with a newly assigned handle. Invalid or duplicate names and failed
   removal preflights leave both the table and content generation unchanged.
-  Arbitrary populated-layer deletion/merge remains unsupported until target
-  reassignment and all affected semantic references form one complete command.
-- The shared desktop/browser shell exposes `New layer`, `Rename layer`, and
-  `Delete unused` on a dedicated row. A created layer uses the selected layer as
-  its template and becomes the selected table row; a renamed layer remains
+- Populated-layer merge is a separate typed command rather than an unsafe delete
+  option. It resolves one retained source and target before mutation, rejects
+  layer 0, Defpoints, current, and xref-dependent sources plus xref-dependent
+  targets, then captures every registered `Entity.Layer` reference across model
+  space, paper space, block definitions, and owned children. It also snapshots
+  every affected viewport's complete frozen-layer sequence. Apply reassigns all
+  captured entities to the target, removes every source occurrence from those
+  viewport sequences, and only then detaches the source table entry. The target
+  identity and all target properties remain unchanged. Undo re-adds the same
+  source object with a new handle, restores every entity to that exact layer
+  identity, and restores each viewport sequence including original ordering and
+  duplicate occurrences; Redo validates and repeats the retained transition.
+  Capture is capped at 1,000,000 entity plus affected-viewport snapshot
+  references. Preflight and the dependency's one layer-table removal notification
+  are O(R + F), mutation is O(A + Fv), and retained command storage is O(A + Fv)
+  for R registered entities, F inspected frozen references, A affected entities,
+  V affected viewports, and Fv frozen entries in affected viewports. The existing
+  whole-generation O(E + G) snapshot/picture replacement follows one successful
+  edit. Failed preflight, Apply, Undo, or Redo validation publishes no partial
+  document generation. Multi-source selection batching remains a future LAYMRG
+  interaction; repeated single-source merges retain the complete semantic result.
+- The shared desktop/browser shell exposes `New layer`, `Rename layer`,
+  `Delete unused`, and an explicit `Merge to` target on a dedicated row. A
+  created layer uses the selected layer as its template and becomes the selected
+  table row; a renamed layer remains
   selected under its new name; a removed selection falls back to layer 0. Name
   validation uses the loaded document version, the 31/255-character persistence
   limits, and the shared forbidden-character set. The Delete button performs no
-  registry scan while typing or selecting; the command performs the definitive
-  O(R + F) preflight on click for R registered entities and F viewport frozen
-  references. Create and rename table work is average O(1), followed by the
-  existing whole-generation O(E + G) immutable snapshot/picture replacement.
+  registry scan while typing or selecting; delete and merge commands perform the
+  definitive O(R + F) reference scan only on click. A successful merge selects
+  the retained target, preserves semantic entity handles and current selection,
+  and replaces the shared managed/native picture once. Create and rename table
+  work is average O(1), followed by the existing whole-generation O(E + G)
+  immutable snapshot/picture replacement.
 - Autodesk's
   [Layer Properties Manager](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-B297EBD9-D68C-47E1-87CE-1B3798496599.htm)
   defines new-layer inheritance and create/rename/delete reachability. Its
@@ -1103,16 +1125,24 @@ an interactive browser picker/download smoke remains open.
   current, object/block-used, and xref layers. Autodesk's
   [unreferenced-definition guidance](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-8411645E-618C-4081-8FE4-5E09B52BAEDF.htm)
   additionally identifies paper-space, nested-block, current, permanent, and
-  xref references. ProGPU adopts those safety rules, while rejecting automatic
-  object reassignment as a different future merge/delete command. The clean
+  xref references. Autodesk's
+  [LAYMRG contract](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-7D66940F-EC67-4DEC-89BC-82B887EABD6E.htm)
+  specifies that objects on merged layers move to a target and the original
+  layers are purged, while the
+  [Merge to Layer contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-B7125CCB-A0DA-439F-BC43-A2F50CFFFAB7.htm)
+  specifies that the target's properties are retained. ProGPU adopts those
+  observable semantics for one source per atomic command and explicitly removes
+  source viewport-freeze references instead of changing the target's independent
+  viewport state. The clean
   typed registry enumeration required for complete preflight is ProGPU-owned
   ACadSharp feature commit `b83de724`; the dependency master branch remains
   untouched.
-- This lifecycle slice changes the object table and shared host, then invokes
-  the existing generation rebuild. It changes no scene compiler, shader, cache,
+- This lifecycle and merge slice changes the object table and shared host, then
+  invokes the existing generation rebuild. It changes no scene compiler, shader, cache,
   GPU resource, native ABI, or managed/native renderer algorithm. Both renderers
-  consume the same post-edit immutable picture, and the native picture regression
-  covers a used-layer rename. Text shaping, fallback, bidi, variable-font,
+  consume the same post-edit immutable picture, and native picture regressions
+  cover both used-layer rename and populated-layer merge. Text shaping, fallback,
+  bidi, variable-font,
   DPI/subpixel, glyph-cache, atlas, startup, worker, upload, eviction, and
   device-loss contracts are unchanged, so no paired renderer/text source change
   applies.

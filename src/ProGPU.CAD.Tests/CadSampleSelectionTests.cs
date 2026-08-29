@@ -1390,6 +1390,132 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void SharedViewMergesPopulatedLayerIntoExplicitTargetWithUndoRedo()
+    {
+        var document = new CadDocument();
+        var source = new Layer("POPULATED_SOURCE")
+        {
+            Color = ACadSharp.Color.Red,
+            LineWeight = LineWeightType.W15,
+        };
+        var target = new Layer("MERGE_DESTINATION")
+        {
+            Color = new ACadSharp.Color(12, 34, 56),
+            LineWeight = LineWeightType.W70,
+            PlotFlag = false,
+        };
+        var dependentTarget = new Layer("XREF|MERGE_TARGET")
+        {
+            Flags = LayerFlags.XrefDependent,
+        };
+        document.Layers.Add(source);
+        document.Layers.Add(target);
+        document.Layers.Add(dependentTarget);
+        var line = new Line(new XYZ(-5, 0, 0), new XYZ(5, 0, 0))
+        {
+            Layer = source,
+            Color = ACadSharp.Color.ByLayer,
+            LineWeight = LineWeightType.ByLayer,
+        };
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 900));
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 1_280, 474));
+            Click(
+                view.Canvas,
+                view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
+            Assert.Equal(1, view.Canvas.SelectedHandleCount);
+            view.LayerStateSelector.SelectedItem = FindNamedPropertyChoice(
+                view.LayerStateSelector,
+                source.Name);
+            Button merge = FindButton(view, "Merge layer");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+
+            view.LayerMergeTargetSelector.SelectedItem =
+                FindNamedPropertyChoice(
+                    view.LayerMergeTargetSelector,
+                    dependentTarget.Name);
+            Assert.False(merge.IsEnabled);
+            view.LayerMergeTargetSelector.SelectedItem =
+                FindNamedPropertyChoice(
+                    view.LayerMergeTargetSelector,
+                    source.Name);
+            Assert.False(merge.IsEnabled);
+            view.LayerMergeTargetSelector.SelectedItem =
+                FindNamedPropertyChoice(
+                    view.LayerMergeTargetSelector,
+                    target.Name);
+            Assert.True(merge.IsEnabled);
+
+            PressEnter(merge);
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.False(document.Layers.Contains(source.Name));
+            Assert.Same(target, line.Layer);
+            Assert.Equal(1, view.Canvas.SelectedHandleCount);
+            Assert.Equal(
+                target.Name,
+                view.Canvas.CaptureSelectionGeneralProperties().CommonLayerName);
+            Assert.Equal(new ACadSharp.Color(12, 34, 56), target.Color);
+            Assert.Equal(LineWeightType.W70, target.LineWeight);
+            Assert.False(target.PlotFlag);
+            Assert.Equal(target.Name, SelectedPropertyText(
+                view.LayerStateSelector));
+            Assert.DoesNotContain(
+                view.LayerStateSelector.Items.OfType<ComboBoxItem>(),
+                item => item.Tag is string name && name == source.Name);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    $"Merged layer {source.Name} into {target.Name} as one edit",
+                    StringComparison.Ordinal));
+            CadRecordedPlanScene mergedScene = new CadPlanSceneCompiler().Compile(
+                view.Canvas.CurrentSnapshot!);
+            using (GpuPicture picture = mergedScene.CreatePicture())
+            {
+                Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+                    picture,
+                    96U,
+                    view.Canvas.CurrentSnapshot!.ContentGeneration,
+                    out NativeCompiledPicture? native,
+                    out NativePictureCompileFailure failure),
+                    failure.ToString());
+                Assert.NotNull(native);
+                Assert.True(native.SourceCommandCount > 0);
+                Assert.True(native.GeometryPrimitiveCount > 0);
+            }
+
+            PressEnter(undo);
+            Assert.Same(source, document.Layers[source.Name]);
+            Assert.Same(source, line.Layer);
+            Assert.Equal(1, view.Canvas.SelectedHandleCount);
+            Assert.Equal(
+                source.Name,
+                view.Canvas.CaptureSelectionGeneralProperties().CommonLayerName);
+            Assert.Contains(
+                view.LayerStateSelector.Items.OfType<ComboBoxItem>(),
+                item => item.Tag is string name && name == source.Name);
+
+            PressEnter(redo);
+            Assert.False(document.Layers.Contains(source.Name));
+            Assert.Same(target, line.Layer);
+            Assert.DoesNotContain(
+                view.LayerMergeTargetSelector.Items.OfType<ComboBoxItem>(),
+                item => item.Tag is string name && name == source.Name);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewRefreshesPropertyCatalogAcrossEqualGenerationDocuments()
     {
         var firstDocument = new CadDocument();

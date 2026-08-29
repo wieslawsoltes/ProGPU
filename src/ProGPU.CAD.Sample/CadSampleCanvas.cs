@@ -1080,6 +1080,43 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Returns whether one source layer can be merged into one retained target.
+    /// This O(1) host predicate omits the command's definitive reference scan.
+    /// </summary>
+    public bool CanMergeLayer(string sourceLayerName, string targetLayerName)
+    {
+        if (string.IsNullOrWhiteSpace(sourceLayerName) ||
+            string.IsNullOrWhiteSpace(targetLayerName))
+        {
+            return false;
+        }
+        CadDocumentSession? session = CurrentSession;
+        return session is not null && session.Read(document =>
+        {
+            if (!document.Layers.TryGetValue(
+                    sourceLayerName,
+                    out Layer? source) ||
+                !document.Layers.TryGetValue(
+                    targetLayerName,
+                    out Layer? target) ||
+                ReferenceEquals(source, target) ||
+                source.Name.Equals(
+                    Layer.DefaultName,
+                    StringComparison.OrdinalIgnoreCase) ||
+                source.Name.Equals(
+                    Layer.DefpointsName,
+                    StringComparison.OrdinalIgnoreCase) ||
+                ReferenceEquals(document.Header.CurrentLayer, source) ||
+                (source.Flags & LayerFlags.XrefDependent) != 0 ||
+                (target.Flags & LayerFlags.XrefDependent) != 0)
+            {
+                return false;
+            }
+            return true;
+        });
+    }
+
+    /// <summary>
     /// Creates a layer by copying the selected template layer's editable state.
     /// The detached copy retains table names rather than mutable document objects.
     /// </summary>
@@ -1149,6 +1186,27 @@ public sealed class CadSampleCanvas : FrameworkElement
         history.Execute(new CadRemoveLayerCommand(
             layerName,
             $"Remove unused layer {layerName}"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>
+    /// Reassigns every registered source-layer entity to the target and purges
+    /// the source layer as one reversible edit.
+    /// </summary>
+    public bool MergeLayer(string sourceLayerName, string targetLayerName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceLayerName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetLayerName);
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadMergeLayerCommand(
+            sourceLayerName,
+            targetLayerName,
+            $"Merge layer {sourceLayerName} into {targetLayerName}"));
         RecompileAfterEdit(session);
         return true;
     }
