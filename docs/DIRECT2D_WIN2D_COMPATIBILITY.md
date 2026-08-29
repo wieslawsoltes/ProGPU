@@ -98,8 +98,26 @@ zero, calls the genuine `ID2D1DeviceContext1::BeginDraw`, and returns a drawing
 session whose `DeviceContext` is a caller-owned safe COM reference. Disposing
 the session calls native `EndDraw`, records tags/HRESULT on failure, releases
 key zero, resumes Dawn ownership, refreshes the monotonic content version, and
-publishes `TextureChanged`. The surface implements the same typed context-aware
-texture-lease source consumed by ProGPU images and LibreWPF D3DImage.
+publishes `TextureChanged`. The surface implements the typed context-aware
+texture-lease source consumed by ProGPU images. LibreWPF D3DImage uses the
+explicit `ProGpuDirect2DD3DImageSource` adapter, which publishes the surface as
+the frame's native image only after `ContentVersion` becomes nonzero and
+forwards `TextureChanged` through `IPortableInvalidationSource`:
+
+```csharp
+using ProGPU.Direct2D;
+using System.Windows.Interop;
+
+using ProGpuDirect2DSurface surface =
+    ProGpuDirect2DSurface.Create(context, options);
+var source = new ProGpuDirect2DD3DImageSource(surface);
+var image = new D3DImage();
+PortableD3DImageSourceFactory.Attach(image, source);
+```
+
+The application owns and disposes the surface after the image is detached or
+otherwise no longer reachable by rendering; the adapter deliberately does not
+take independent lifetime ownership.
 
 Key zero on both sides is deliberate: Dawn's qualified DXGI shared-texture
 memory path owns the keyed-mutex transition internally and uses the zero-key

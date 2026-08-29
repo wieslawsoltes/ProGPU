@@ -69,6 +69,7 @@ pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 - `ProGPU.Text.Shaping`
 - `ProGPU.Browser`
 - `ProGPU.DirectX`
+- `ProGPU.Direct2D`
 - `ProGPU.Transpiler`
 - `ProGPU.Compute`
 - `ProGPU.Vector`

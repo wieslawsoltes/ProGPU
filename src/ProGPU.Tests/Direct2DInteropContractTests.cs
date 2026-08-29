@@ -16,6 +16,10 @@ public sealed class Direct2DInteropContractTests
             "src",
             "ProGPU.Direct2D",
             "ProGpuDirect2DNative.cs");
+        string d3dImage = ReadRepoFile(
+            "src",
+            "ProGPU.Direct2D",
+            "ProGpuDirect2DD3DImageSource.cs");
 
         Assert.Contains(
             "<DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>",
@@ -27,6 +31,10 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "ProGPU.Backend.Native.csproj",
+            project,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU.Wpf.Interop.csproj",
             project,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -48,6 +56,26 @@ public sealed class Direct2DInteropContractTests
         Assert.DoesNotContain(
             "NativeLibrary.Load",
             native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IPortableD3DImageSource",
+            d3dImage,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IPortableInvalidationSource",
+            d3dImage,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "contentVersion == 0U",
+            d3dImage,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_surface.TextureChanged += handler",
+            d3dImage,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Reflection",
+            d3dImage,
             StringComparison.Ordinal);
     }
 
