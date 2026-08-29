@@ -5,6 +5,12 @@ param(
     [string] $NativeBinaryDirectory,
     [string] $Configuration = "Release",
     [int] $TimeoutSeconds = 120,
+    [string] $SigningCertificateThumbprint = $(
+        if ($env:PROGPU_WIN2D_SIGNING_CERTIFICATE_THUMBPRINT) {
+            $env:PROGPU_WIN2D_SIGNING_CERTIFICATE_THUMBPRINT
+        } else {
+            ""
+        }),
     [switch] $SkipBuild
 )
 
@@ -19,6 +25,31 @@ $RunningOnWindows =
         [System.PlatformID]::Win32NT
 if (-not $RunningOnWindows) {
     throw "The genuine Win2D integration gate requires Windows."
+}
+$SigningCertificateThumbprint =
+    ($SigningCertificateThumbprint -replace '\s', '').ToUpperInvariant()
+if (-not $SigningCertificateThumbprint) {
+    throw "Set -SigningCertificateThumbprint or PROGPU_WIN2D_SIGNING_CERTIFICATE_THUMBPRINT to a pre-provisioned CN=ProGPU package-signing certificate."
+}
+$SigningCertificate = Get-Item `
+    -LiteralPath ("Cert:\CurrentUser\My\" + $SigningCertificateThumbprint) `
+    -ErrorAction SilentlyContinue
+if (-not $SigningCertificate -or -not $SigningCertificate.HasPrivateKey) {
+    throw "The pre-provisioned package-signing certificate '$SigningCertificateThumbprint' is missing from CurrentUser/My or has no private key."
+}
+if ($SigningCertificate.Subject -ne "CN=ProGPU") {
+    throw "The package-signing certificate subject must exactly match the package publisher CN=ProGPU."
+}
+$TrustedSigningCertificate = @(
+    Get-Item `
+        -LiteralPath ("Cert:\CurrentUser\Root\" + $SigningCertificateThumbprint) `
+        -ErrorAction SilentlyContinue
+    Get-Item `
+        -LiteralPath ("Cert:\LocalMachine\Root\" + $SigningCertificateThumbprint) `
+        -ErrorAction SilentlyContinue
+) | Select-Object -First 1
+if (-not $TrustedSigningCertificate) {
+    throw "The package-signing certificate '$SigningCertificateThumbprint' is not pre-trusted in CurrentUser/Root or LocalMachine/Root. Provision trust outside the gate."
 }
 if (-not $NativeBinaryDirectory) {
     $NativeBinaryDirectory = Join-Path $RepoRoot "artifacts/progpu-native/build-$Rid"
@@ -64,58 +95,27 @@ $SignTool = Get-ChildItem `
     -Path (Join-Path ${env:ProgramFiles(x86)} "Windows Kits/10/bin") `
     -Filter "signtool.exe" `
     -Recurse |
-    Where-Object { $_.FullName -match "\\arm64\\signtool\.exe$" } |
+    Where-Object { $_.FullName -match "\\$Platform\\signtool\.exe$" } |
     Sort-Object FullName -Descending |
     Select-Object -First 1
 if (-not $SignTool) {
-    throw "The ARM64 Windows SDK signtool.exe was not found."
+    throw "The $Platform Windows SDK signtool.exe was not found."
 }
 
-$Certificate = $null
-$TrustedCertificateThumbprint = $null
 $TemporaryDirectory = Join-Path `
     ([System.IO.Path]::GetTempPath()) `
     ("progpu-win2d-signing-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $TemporaryDirectory | Out-Null
-$PfxPath = Join-Path $TemporaryDirectory "progpu-win2d-test.pfx"
 $SignedPackagePath = Join-Path $TemporaryDirectory "integration.msix"
-$Password = [Guid]::NewGuid().ToString("N")
-$SecurePassword = ConvertTo-SecureString $Password -AsPlainText -Force
 try {
     [System.IO.File]::Copy(
         "\\?\" + $Package.FullName,
         $SignedPackagePath,
         $true)
-    $Certificate = New-SelfSignedCertificate `
-        -Type Custom `
-        -Subject "CN=ProGPU" `
-        -KeyUsage DigitalSignature `
-        -KeyExportPolicy Exportable `
-        -KeySpec Signature `
-        -HashAlgorithm SHA256 `
-        -NotAfter ([DateTime]::Now.AddDays(1)) `
-        -CertStoreLocation "Cert:\CurrentUser\My" `
-        -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
-    Export-PfxCertificate `
-        -Cert $Certificate `
-        -FilePath $PfxPath `
-        -Password $SecurePassword | Out-Null
-    $RootStore = [System.Security.Cryptography.X509Certificates.X509Store]::new(
-        "Root",
-        [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
-    try {
-        $RootStore.Open(
-            [System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-        $RootStore.Add($Certificate)
-        $TrustedCertificateThumbprint = $Certificate.Thumbprint
-    } finally {
-        $RootStore.Close()
-    }
-
     & $SignTool.FullName sign `
         /fd SHA256 `
-        /f $PfxPath `
-        /p $Password `
+        /sha1 $SigningCertificateThumbprint `
+        /s My `
         $SignedPackagePath
     if ($LASTEXITCODE -ne 0) {
         throw "Signing the genuine Win2D integration package failed."
@@ -149,18 +149,6 @@ try {
 } finally {
     Get-AppxPackage -Name $PackageName -ErrorAction SilentlyContinue |
         Remove-AppxPackage -ErrorAction SilentlyContinue
-    if ($TrustedCertificateThumbprint) {
-        Remove-Item `
-            -LiteralPath ("Cert:\CurrentUser\Root\" + $TrustedCertificateThumbprint) `
-            -Force `
-            -ErrorAction SilentlyContinue
-    }
-    if ($Certificate) {
-        Remove-Item `
-            -LiteralPath ("Cert:\CurrentUser\My\" + $Certificate.Thumbprint) `
-            -Force `
-            -ErrorAction SilentlyContinue
-    }
     Remove-Item `
         -LiteralPath $TemporaryDirectory `
         -Recurse `

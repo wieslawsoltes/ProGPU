@@ -384,6 +384,11 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
         if ($LASTEXITCODE -ne 0) {
             throw "The portable Win2D Canvas contract tests failed."
         }
+        if ($env:PROGPU_RUN_REAL_WIN2D_INTEGRATION -eq "1") {
+            & (Join-Path $RepoRoot "eng/progpu-run-direct2d-win2d-integration.ps1") `
+                -Rid $Rid `
+                -NativeBinaryDirectory $BinaryDirectory
+        }
         $Win2DOracleDirectory = Join-Path $RepoRoot "artifacts/progpu-native/win2d-oracle"
         Invoke-NativeBenchmark `
             --win2d-canvas `
