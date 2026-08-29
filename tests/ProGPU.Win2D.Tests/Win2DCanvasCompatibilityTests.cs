@@ -137,6 +137,15 @@ public sealed class Win2DCanvasCompatibilityTests
         Assert.NotNull(typeof(CanvasGeometry).GetMethod(
             nameof(CanvasGeometry.CreatePath),
             [typeof(CanvasPathBuilder)]));
+        Assert.NotNull(typeof(CanvasGeometry).GetMethod(
+            nameof(CanvasGeometry.CreateGroup),
+            [typeof(ICanvasResourceCreator), typeof(CanvasGeometry[])]));
+        Assert.NotNull(typeof(CanvasGeometry).GetMethod(
+            nameof(CanvasGeometry.CombineWith),
+            [typeof(CanvasGeometry), typeof(Matrix3x2), typeof(CanvasGeometryCombine)]));
+        Assert.NotNull(typeof(CanvasGeometry).GetMethod(
+            nameof(CanvasGeometry.Transform),
+            [typeof(Matrix3x2)]));
         Assert.NotNull(type.GetMethod(
             nameof(CanvasDrawingSession.DrawGeometry),
             [

@@ -145,6 +145,26 @@ internal static class Win2DCanvasQualification
                     4,
                     dashStyle);
             }
+            using (CanvasGeometry outer = CanvasGeometry.CreateRectangle(
+                       device,
+                       240,
+                       156,
+                       48,
+                       48))
+            using (CanvasGeometry hole = CanvasGeometry.CreateCircle(
+                       device,
+                       264,
+                       180,
+                       10))
+            using (CanvasGeometry difference = outer.CombineWith(
+                       hole,
+                       System.Numerics.Matrix3x2.Identity,
+                       CanvasGeometryCombine.Exclude))
+            {
+                drawingSession.FillGeometry(
+                    difference,
+                    Color.FromArgb(255, 160, 32, 192));
+            }
             // Win2D executes DrawImage eagerly. ProGPU records until session
             // close, so its typed texture lease must preserve the source
             // without a staging readback after the public resource is closed.
@@ -194,6 +214,8 @@ internal static class Win2DCanvasQualification
         RequirePixel(pixels, 244, 220, 255, 255, 0, 255);
         RequirePixel(pixels, 252, 220, 0, 0, 0, 0);
         RequirePixel(pixels, 260, 220, 255, 255, 0, 255);
+        RequirePixel(pixels, 246, 180, 192, 32, 160, 255);
+        RequirePixel(pixels, 264, 180, 0, 0, 0, 0);
         Require(
             CountYellowPixels(pixels, 90, 90, 230, 140) > 20,
             "The pinned Win2D text draw did not produce a visible yellow glyph run.");
@@ -201,7 +223,7 @@ internal static class Win2DCanvasQualification
             first.ExecutionPath == ProGpuCanvasExecutionPath.NativeCppWebGpu &&
             second.ExecutionPath == ProGpuCanvasExecutionPath.NativeCppWebGpu &&
             first.SubmissionCount > 0 && second.SubmissionCount > 0 &&
-            first.NativeDrawCount >= 11 && second.NativeDrawCount >= 1,
+            first.NativeDrawCount >= 12 && second.NativeDrawCount >= 1,
             $"Unexpected native Canvas metrics: first={first}, second={second}.");
 
         string? outputDirectory = ReadOptionalArgument(

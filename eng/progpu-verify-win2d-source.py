@@ -110,6 +110,16 @@ def main() -> int:
         "Win2D geometry oracle",
     )
     require_text(
+        arguments.samples / "ExampleGallery/GeometryOperations.xaml.cs",
+        (
+            "CanvasGeometry.CreateGroup(resourceCreator",
+            "leftGeometry.CombineWith(rightGeometry",
+            "leftGeometry.Transform(",
+            "args.DrawingSession.FillGeometry(combinedGeometry",
+        ),
+        "Win2D geometry-operations oracle",
+    )
+    require_text(
         arguments.samples / "ExampleGallery/VectorArt.xaml.cs",
         ("args.DrawingSession.CreateLayer", "new Rect(0, 0, sceneSize.X, sceneSize.Y)"),
         "Win2D layer oracle",
