@@ -4870,12 +4870,28 @@ adapter, hardware with explicit WARP fallback, or forced WARP.
 This is a genuine Direct2D/DXGI producer for the existing typed D3DImage lease
 boundary, not a fake `d2d1.dll` or a partial COM vtable implementation. COM
 pointers remain confined to the Windows header and process. The portable MIL
-packet retains zero pointers and zero event handles. The next adapter binds the
-producer's access lifecycle to Dawn's same-adapter import and Microsoft Win2D
-resource wrapping, after which the resulting `IProGpuTextureLeaseSource` can
-flow through the already-qualified D3DImage sideband.
+packet retains zero pointers and zero event handles.
 
-Windows 11 ARM64 MSVC `/W4 /WX` builds the provider and regression. The test
+ABI v2 and package `ProGPU.Direct2D` now bind that producer lifecycle to Dawn's
+same-adapter shared-texture import. `ProGpuDirect2DSurface` owns the native
+surface through Dawn, implements `IProGpuContextTextureLeaseSource`, and
+publishes `TextureChanged` only after one transactional native
+`BeginDraw`/`EndDraw` has returned ownership to WebGPU. The draw session exposes
+a safe caller-owned reference to the genuine `ID2D1DeviceContext1`; active
+deferred ProGPU leases reject producer entry. Both sides use the Dawn-qualified
+zero-key mutex profile while a separate monotonic content version records
+successful producer writes. This texture source can flow directly through the
+already-qualified D3DImage sideband with no CPU copy or new scene resource.
+
+Dawn ownership transitions run outside the Direct2D provider state lock. This
+preserves one lock order when a render submission already owns the WebGPU
+render lock and requests a texture lease, and prevents the producer thread from
+holding `_gate` while entering Dawn. Managed binding uses source-generated
+`LibraryImport` and `SafeHandle`; reflection, dynamic native loading, delegate
+synthesis, readback, and repacking are absent.
+
+The archived ABI v1 baseline on Windows 11 ARM64 MSVC `/W4 /WX` builds the
+provider and regression. The test
 queries every advertised base/versioned COM interface, verifies multithread
 protection and bitmap target state, performs a real Direct2D clear and filled
 rectangle, reopens the NT handle, and completes the keyed-mutex sequence
@@ -4884,7 +4900,12 @@ are present. SHA-256 is
 `f115ea21f43c218444a2d9fd9ebb622e073a5b3cafb52ec1745990e7984e498c`
 for `progpu_native_direct2d.dll` and
 `cab7f76311cd5115a0f8f84ee680115eb6481c6842eb45a85eea0633c08292fc`
-for `progpu_native_direct2d_tests.exe`.
+for `progpu_native_direct2d_tests.exe`. ABI v2 extends the native test with
+nested/unmatched draw rejection and the zero-key Dawn handoff; the Windows
+build entry point now verifies all 11 exports and stages
+`progpu_native_direct2d.dll` for both Windows RIDs. Fresh ABI v2 hashes replace
+this archived baseline only after the native CTest runs on Windows; a merely
+booted VM or a stalled Guest Tools login is not recorded as a pass.
 
 ## Managed glyph row-reuse SIMD checkpoint
 

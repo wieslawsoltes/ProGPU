@@ -114,8 +114,8 @@ int main()
              PROGPU_NATIVE_DIRECT2D_DESCRIPTOR_FLAG_NT_HANDLE),
         "Direct2D descriptor omitted synchronization flags");
     require(descriptor.initial_acquire_key == 0U &&
-            descriptor.initial_release_key == 1U &&
-            descriptor.content_version == 1U,
+            descriptor.initial_release_key == 0U &&
+            descriptor.content_version == 0U,
         "Direct2D initial synchronization state changed");
 
     auto factory1 = get_interface<ID2D1Factory1>(
@@ -163,19 +163,22 @@ int main()
         "ID2D1Bitmap1 target options changed");
 
     require(
-        progpu_native_direct2d_surface_release(surface, 1U) ==
+        progpu_native_direct2d_surface_release(surface, 0U) ==
             PROGPU_NATIVE_DIRECT2D_STATUS_ACCESS_NOT_ACQUIRED,
         "unacquired Direct2D release did not fail closed");
     require(
-        progpu_native_direct2d_surface_acquire(surface, 0U, 1000U) ==
+        progpu_native_direct2d_surface_begin_draw(surface, 0U, 1000U) ==
             PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
-        "Direct2D producer mutex acquisition failed");
+        "Direct2D producer draw acquisition failed");
     require(
-        progpu_native_direct2d_surface_acquire(surface, 0U, 0U) ==
-            PROGPU_NATIVE_DIRECT2D_STATUS_ACCESS_ALREADY_ACQUIRED,
-        "nested Direct2D producer acquisition did not fail closed");
+        progpu_native_direct2d_surface_begin_draw(surface, 0U, 0U) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_ALREADY_ACTIVE,
+        "nested Direct2D draw did not fail closed");
+    require(
+        progpu_native_direct2d_surface_release(surface, 1U) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_ALREADY_ACTIVE,
+        "Direct2D draw scope allowed a raw mutex release");
 
-    context->BeginDraw();
     context->Clear(D2D1::ColorF(0.125F, 0.25F, 0.5F, 1.0F));
     ComPtr<ID2D1SolidColorBrush> brush;
     require(SUCCEEDED(context->CreateSolidColorBrush(
@@ -187,12 +190,24 @@ int main()
         brush.Get());
     D2D1_TAG tag1 = 0U;
     D2D1_TAG tag2 = 0U;
-    require(SUCCEEDED(context->EndDraw(&tag1, &tag2)),
-        "Direct2D drawing failed");
+    native_hresult = E_FAIL;
     require(
-        progpu_native_direct2d_surface_release(surface, 1U) ==
-            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
-        "Direct2D producer mutex release failed");
+        progpu_native_direct2d_surface_end_draw(
+            surface,
+            0U,
+            &tag1,
+            &tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "Direct2D transactional drawing failed");
+    require(
+        progpu_native_direct2d_surface_end_draw(
+            surface,
+            1U,
+            &tag1,
+            &tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE,
+        "unmatched Direct2D EndDraw did not fail closed");
 
     ComPtr<ID3D11Device1> d3d_device1;
     require(SUCCEEDED(d3d_device.As(&d3d_device1)),
@@ -205,16 +220,16 @@ int main()
     ComPtr<IDXGIKeyedMutex> imported_mutex;
     require(SUCCEEDED(imported_texture.As(&imported_mutex)),
         "reopened DXGI texture omitted its keyed mutex");
-    require(SUCCEEDED(imported_mutex->AcquireSync(1U, 1000U)),
+    require(SUCCEEDED(imported_mutex->AcquireSync(0U, 1000U)),
         "DXGI consumer mutex acquisition failed");
-    require(SUCCEEDED(imported_mutex->ReleaseSync(2U)),
+    require(SUCCEEDED(imported_mutex->ReleaseSync(0U)),
         "DXGI consumer mutex release failed");
     require(
-        progpu_native_direct2d_surface_acquire(surface, 2U, 1000U) ==
+        progpu_native_direct2d_surface_acquire(surface, 0U, 1000U) ==
             PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
         "Direct2D producer did not observe the consumer handoff");
     require(
-        progpu_native_direct2d_surface_release(surface, 3U) ==
+        progpu_native_direct2d_surface_release(surface, 0U) ==
             PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
         "Direct2D second producer release failed");
 
@@ -224,7 +239,7 @@ int main()
         progpu_native_direct2d_surface_get_descriptor(
             surface,
             &descriptor) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
-            descriptor.content_version == 3U,
+            descriptor.content_version == 2U,
         "Direct2D content version did not follow producer releases");
     require(
         progpu_native_direct2d_surface_get_last_hresult(surface) == S_OK,

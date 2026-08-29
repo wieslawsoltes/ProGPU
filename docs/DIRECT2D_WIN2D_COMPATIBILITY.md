@@ -33,8 +33,8 @@ binary.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` API | Foundation implemented | Windows-only provider returns genuine `ID2D1Factory1/2`, `ID2D1Device/1`, `ID2D1DeviceContext/1`, and `ID2D1Bitmap/1` objects over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` |
-| Native Win2D binary interop | In progress | The real COM device/context/bitmap resource domain and zero-copy DXGI producer are implemented; Win2D activation/wrapping, drawing-session ownership, and device-loss recovery remain gated work |
+| Direct2D `ID2D1*` API | Foundation implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine `ID2D1Factory1/2`, `ID2D1Device/1`, `ID2D1DeviceContext/1`, and `ID2D1Bitmap/1` objects over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` |
+| Native Win2D binary interop | In progress | The real COM device/context/bitmap resource domain, transactional drawing session, and zero-copy Dawn import are implemented; Win2D activation/resource wrapping and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
 | Arbitrary Win2D native-resource wrapping (`GetOrCreate(IUnknown*)`) off Windows | Unsupported by design | Fail closed; there is no portable COM object identity to preserve |
@@ -52,7 +52,7 @@ wraps native `ID2D1Device1`/`ID2D1Bitmap1` resources:
 
 ## Windows native interop lane
 
-The Windows adapter package will own a real D3D11/Direct2D/Win2D device on the
+The Windows adapter package owns a real D3D11/Direct2D device on the
 same DXGI adapter as ProGPU's Dawn D3D12 device. A Win2D drawing session renders
 to a BGRA8 premultiplied shared texture. The adapter publishes a typed
 `DxgiSharedHandle` descriptor and owner lease to the existing Dawn import path.
@@ -88,6 +88,34 @@ package-neutral ABI. Producer acquire/release is serialized, nested access and
 unmatched release fail closed, and every successful producer release advances
 the content version. The consumer can reopen the NT handle and use the same
 keyed-mutex ownership sequence through Dawn shared-texture memory.
+
+ABI v2 adds the managed ownership half as package `ProGPU.Direct2D`.
+`ProGpuDirect2DSurface.Create(...)` validates a live Dawn D3D12 context, exact
+adapter LUID when requested, BGRA8-unorm premultiplied format, dimensions, DPI,
+NT-handle and keyed-mutex flags before importing the allocation through
+`DawnSharedTextureMemory`. `BeginDrawing()` ends Dawn ownership, acquires key
+zero, calls the genuine `ID2D1DeviceContext1::BeginDraw`, and returns a drawing
+session whose `DeviceContext` is a caller-owned safe COM reference. Disposing
+the session calls native `EndDraw`, records tags/HRESULT on failure, releases
+key zero, resumes Dawn ownership, refreshes the monotonic content version, and
+publishes `TextureChanged`. The surface implements the same typed context-aware
+texture-lease source consumed by ProGPU images and LibreWPF D3DImage.
+
+Key zero on both sides is deliberate: Dawn's qualified DXGI shared-texture
+memory path owns the keyed-mutex transition internally and uses the zero-key
+profile. Content initialization is represented independently by
+`ContentVersion` (`0` before the first successful producer draw), not by
+inventing a 0/1/2/3 key protocol that Dawn does not advertise. Active deferred
+ProGPU leases reject a Direct2D draw, and the ownership transitions occur
+outside the provider state lock so a renderer holding the WebGPU render lock
+cannot deadlock against Direct2D session creation or completion.
+
+The public managed ABI is reflection-free and AOT-safe: source-generated
+`LibraryImport` calls bind the versioned native C ABI, `SafeHandle` owns every
+returned COM reference, and the native surface owner is transferred to the
+Dawn import only after all descriptor checks pass. No `NativeLibrary.Load`,
+delegate synthesis, COM-vtable reimplementation, pixel readback, repack, or
+CPU synchronization loop is used.
 
 This shape follows Microsoft's documented device-context construction and
 resource-domain model: Direct2D is created from the D3D11 `IDXGIDevice`, the
@@ -291,17 +319,31 @@ oracle capture or source-compatibility test.
 
 The gate has a completed portable-core layer and three expanding oracle layers:
 
-The Windows-native COM foundation has its own strict gate. At exact checkpoint
+The Windows-native COM foundation has its own strict gate. The archived ABI v1
+baseline at exact checkpoint
 `59045316`, Windows 11 ARM64 under MSVC 19.44 compiles the provider and test
 with `/W4 /WX`. The executable validates bad-argument rejection, all advertised
 base/versioned COM queries, `ID2D1Multithread` protection, target size/DPI/
 options, one real clear plus brush/rectangle draw, NT-handle reopen through
 `ID3D11Device1`, and the complete keyed-mutex handoff `0 -> 1 -> 2 -> 3`.
-CTest passes 1/1 in 7.74 seconds. All eight C exports are present. SHA-256 is
+CTest passes 1/1 in 7.74 seconds. Its eight C exports are present. SHA-256 is
 `f115ea21f43c218444a2d9fd9ebb622e073a5b3cafb52ec1745990e7984e498c`
 for `progpu_native_direct2d.dll` and
 `cab7f76311cd5115a0f8f84ee680115eb6481c6842eb45a85eea0633c08292fc`
 for `progpu_native_direct2d_tests.exe`.
+
+The current ABI v2 gate adds transactional `BeginDraw`/`EndDraw`, safe COM
+release, nested/unmatched draw rejection, zero-key Dawn ownership, and exact
+11-export verification. `eng/build-progpu-native-windows.ps1` builds and runs
+the native test on runnable Windows x64/ARM64 agents, stages
+`progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
+export drift against `eng/progpu-native-direct2d-exports.txt`.
+`Direct2DInteropContractTests` separately verifies the static AOT ABI, absence
+of reflection/dynamic native loading and CPU copies, lock-order boundary, and
+typed lease contract on every portable managed test host. The ABI v2 manual
+Parallels rerun must produce fresh hashes before replacing the archived ABI v1
+hashes above; a booted desktop or an unresponsive Guest Tools login is not
+accepted as qualification evidence.
 
 The pinned Win2D source audit also prevents us from calling this full Win2D
 binary compatibility prematurely. Its production library contains references

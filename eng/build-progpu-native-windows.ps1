@@ -165,6 +165,10 @@ if (-not (Test-Path $NativeDll)) {
     throw "The native renderer DLL was not produced: $NativeDll"
 }
 $DawnDll = Join-Path $BinaryDirectory "progpu_native_dawn.dll"
+$Direct2DDll = Join-Path $BinaryDirectory "progpu_native_direct2d.dll"
+if (-not (Test-Path $Direct2DDll)) {
+    throw "The Direct2D COM provider DLL was not produced: $Direct2DDll"
+}
 $ExpectedNativeExports = Get-Content (Join-Path $RepoRoot "eng/progpu-native-exports.txt") |
     Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
     Sort-Object -Unique
@@ -179,6 +183,21 @@ $ExportDifference = Compare-Object $ExpectedNativeExports $ActualNativeExports
 if ($ExportDifference) {
     $ExportDifference | Format-Table | Out-String | Write-Error
     throw "The ProGPU native exported-symbol surface changed."
+}
+$ExpectedDirect2DExports = Get-Content (Join-Path $RepoRoot "eng/progpu-native-direct2d-exports.txt") |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+    Sort-Object -Unique
+$ActualDirect2DExports = & dumpbin.exe /nologo /exports $Direct2DDll |
+    ForEach-Object {
+        if ($_ -match '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(progpu_native_direct2d_[A-Za-z0-9_]+)') {
+            $Matches[1]
+        }
+    } |
+    Sort-Object -Unique
+$Direct2DExportDifference = Compare-Object $ExpectedDirect2DExports $ActualDirect2DExports
+if ($Direct2DExportDifference) {
+    $Direct2DExportDifference | Format-Table | Out-String | Write-Error
+    throw "The ProGPU Direct2D provider exported-symbol surface changed."
 }
 if (-not $SkipExtendedIntegration) {
     if (-not (Test-Path $DawnDll)) {
@@ -205,6 +224,7 @@ if (-not $SkipExtendedIntegration) {
     }
     Copy-Item $NativeDll (Join-Path $PackageStage "progpu_native.dll") -Force
     Copy-Item $DawnDll (Join-Path $PackageStage "progpu_native_dawn.dll") -Force
+    Copy-Item $Direct2DDll (Join-Path $PackageStage "progpu_native_direct2d.dll") -Force
     $SdkPackageStage = Join-Path $PackageStage "sdk"
     New-Item -ItemType Directory -Force -Path $SdkPackageStage | Out-Null
     $SdkLibraries = @(
@@ -225,7 +245,8 @@ if (-not $SkipExtendedIntegration) {
     }
     $NativePdb = Join-Path $BinaryDirectory "progpu_native.pdb"
     $DawnPdb = Join-Path $BinaryDirectory "progpu_native_dawn.pdb"
-    if ((Test-Path $NativePdb) -or (Test-Path $DawnPdb)) {
+    $Direct2DPdb = Join-Path $BinaryDirectory "progpu_native_direct2d.pdb"
+    if ((Test-Path $NativePdb) -or (Test-Path $DawnPdb) -or (Test-Path $Direct2DPdb)) {
         $SymbolStage = Join-Path $RepoRoot "artifacts/progpu-native/symbols/$Rid"
         New-Item -ItemType Directory -Force -Path $SymbolStage | Out-Null
         if (Test-Path $NativePdb) {
@@ -233,6 +254,9 @@ if (-not $SkipExtendedIntegration) {
         }
         if (Test-Path $DawnPdb) {
             Copy-Item $DawnPdb $SymbolStage -Force
+        }
+        if (Test-Path $Direct2DPdb) {
+            Copy-Item $Direct2DPdb $SymbolStage -Force
         }
     }
 }

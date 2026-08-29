@@ -1,0 +1,121 @@
+using Microsoft.Win32.SafeHandles;
+
+namespace ProGPU.Direct2D;
+
+[Flags]
+public enum ProGpuDirect2DSurfaceFlags : uint
+{
+    None = 0,
+    EnableDebug = 1U << 0,
+    AllowWarpFallback = 1U << 1,
+    ForceWarp = 1U << 2
+}
+
+[Flags]
+public enum ProGpuDirect2DDescriptorFlags : uint
+{
+    None = 0,
+    KeyedMutex = 1U << 0,
+    NtHandle = 1U << 1,
+    SoftwareAdapter = 1U << 2
+}
+
+public enum ProGpuDirect2DInterfaceKind
+{
+    D3D11Device = 1,
+    D3D11DeviceContext = 2,
+    DxgiAdapter1 = 3,
+    DxgiDevice = 4,
+    DxgiSurface = 5,
+    DxgiKeyedMutex = 6,
+    D3D11Texture2D = 7,
+    D2D1Factory1 = 8,
+    D2D1Factory2 = 9,
+    D2D1Device = 10,
+    D2D1Device1 = 11,
+    D2D1DeviceContext = 12,
+    D2D1DeviceContext1 = 13,
+    D2D1Bitmap = 14,
+    D2D1Bitmap1 = 15
+}
+
+public enum ProGpuDirect2DStatus
+{
+    Success = 0,
+    InvalidArgument = 1,
+    OutOfMemory = 2,
+    AdapterNotFound = 3,
+    DeviceCreationFailed = 4,
+    ResourceCreationFailed = 5,
+    SynchronizationFailed = 6,
+    AccessAlreadyAcquired = 7,
+    AccessNotAcquired = 8,
+    DeviceLost = 9,
+    DrawAlreadyActive = 10,
+    DrawNotActive = 11,
+    DrawFailed = 12
+}
+
+public sealed record ProGpuDirect2DSurfaceOptions(
+    uint Width,
+    uint Height,
+    float DpiX = 96.0F,
+    float DpiY = 96.0F,
+    ProGpuDirect2DSurfaceFlags Flags =
+        ProGpuDirect2DSurfaceFlags.AllowWarpFallback,
+    long? AdapterLuid = null);
+
+public readonly record struct ProGpuDirect2DSurfaceDescriptor(
+    ProGpuDirect2DDescriptorFlags Flags,
+    uint Width,
+    uint Height,
+    float DpiX,
+    float DpiY,
+    uint DxgiFormat,
+    uint AlphaMode,
+    long AdapterLuid,
+    nint SharedNtHandle,
+    ulong InitialAcquireKey,
+    ulong InitialReleaseKey,
+    ulong ContentVersion);
+
+public sealed class ProGpuDirect2DException : Exception
+{
+    internal ProGpuDirect2DException(
+        string operation,
+        ProGpuDirect2DStatus status,
+        int nativeHResult)
+        : base($"Direct2D {operation} failed with {status} (0x{nativeHResult:X8}).")
+    {
+        Status = status;
+        NativeHResult = nativeHResult;
+        HResult = nativeHResult;
+    }
+
+    public ProGpuDirect2DStatus Status { get; }
+
+    public int NativeHResult { get; }
+}
+
+/// <summary>
+/// Owns one caller reference to a genuine Windows COM interface.
+/// </summary>
+public sealed class ProGpuDirect2DComReference : SafeHandleZeroOrMinusOneIsInvalid
+{
+    internal ProGpuDirect2DComReference(
+        nint value,
+        ProGpuDirect2DInterfaceKind kind)
+        : base(ownsHandle: true)
+    {
+        InterfaceKind = kind;
+        SetHandle(value);
+    }
+
+    public ProGpuDirect2DInterfaceKind InterfaceKind { get; }
+
+    protected override bool ReleaseHandle()
+    {
+        ProGpuDirect2DNative.ComRelease(handle);
+        return true;
+    }
+}

@@ -32,8 +32,10 @@ required_entries=(
   runtimes/osx-arm64/native/libprogpu_native_dawn.dylib
   runtimes/win-x64/native/progpu_native.dll
   runtimes/win-x64/native/progpu_native_dawn.dll
+  runtimes/win-x64/native/progpu_native_direct2d.dll
   runtimes/win-arm64/native/progpu_native.dll
   runtimes/win-arm64/native/progpu_native_dawn.dll
+  runtimes/win-arm64/native/progpu_native_direct2d.dll
   build/native/include/progpu_native.h
   build/native/include/progpu_native_dawn.h
   build/native/include/progpu_native_compression.hpp
@@ -41,6 +43,7 @@ required_entries=(
   build/native/include/progpu_native_image.hpp
   build/native/include/progpu_native_mil.h
   build/native/include/progpu_native_mil.hpp
+  build/native/include/progpu_native_direct2d.h
   build/native/include/progpu_native_scene_builder.hpp
   build/native/include/progpu_native_text.hpp
   build/native/modules/progpu_native_compression.cppm
