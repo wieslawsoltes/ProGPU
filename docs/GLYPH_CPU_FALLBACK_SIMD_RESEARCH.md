@@ -183,6 +183,14 @@ host with `DOTNET_ROLL_FORWARD=Major`. Three Vector128 processes reported p50
 The repository's pre-existing untracked `external/ACadSharp/` directory was
 left untouched.
 
+A broad host no-build run passed 3,886 of 3,892 tests. The six failures were
+outside glyph coverage (`WinUiCompositionTests`, `PathOperationRenderTests`,
+`CompositorReviewRegressionTests`, and `ImageEffectRenderTests`). Each failure
+reproduced in isolation after replacing the test output's `ProGPU.Text.dll`
+with the parent `70ce1fff` binary, so they are recorded as an existing branch
+baseline rather than attributed to this SIMD checkpoint. The scoped 21-test
+execution-policy and SIMD/scalar differential gate remains fully green.
+
 Finally, a self-contained `win-x64` publish ran under Windows-on-ARM emulation
 and reported `Vector128=True`, `Vector256=True`, and `Vector512=False`. Three
 Vector256 processes retained checksum 175 and 4,120 B/glyph, with p50 values
