@@ -164,3 +164,12 @@ and produced the same six decisive pixels: cancelled mask/path cases and the
 EvenOdd double contour were `5,6,10`; both positive islands and the Nonzero
 double contour were `51,209,242`. That run completed 22 draw calls from 35
 retained commands with 16,096 uploaded vertex bytes and no device loss.
+
+The Windows gate used source checkpoint
+`51d63ed24640d279923496fc5216f6399f56494b` from archive SHA-256
+`0a09a31491e115bf4794c0567e43e98013ecae91ed1d127a9717dd9365f9e9c2`.
+Strict ARM64 MSVC `/W4 /WX` completed all 315 build steps and all 11 native/Dawn
+CTests passed before the live sample. The provider-free macOS build also passed
+10/10 CTests; managed shader-resource coverage passed 20/20 and the selected
+managed PathAtlas GPU cases passed 5/5. The collected qualification bundle has
+SHA-256 `2459e7141471ab2101b885fe51b95a6b041e82e60ac1aaf093ddd75ee0b78aef`.
