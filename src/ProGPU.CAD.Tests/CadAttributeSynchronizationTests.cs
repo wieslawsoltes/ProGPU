@@ -263,6 +263,67 @@ public sealed class CadAttributeSynchronizationTests
     }
 
     [Fact]
+    public void ConstantDefinitionsRemoveMalformedReferencesWithExactUndoRedo()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("CONSTANT_OWNERSHIP_SYNC_BLOCK");
+        var constant = new AttributeDefinition
+        {
+            Tag = "FIXED",
+            Value = "CONSTANT",
+            Flags = AttributeFlags.Constant,
+        };
+        var variable = new AttributeDefinition
+        {
+            Tag = "PART",
+            Value = "DEFAULT",
+        };
+        block.Entities.Add(constant);
+        block.Entities.Add(variable);
+        var first = new Insert(block);
+        document.Entities.Add(first);
+        var second = new Insert(first.Block);
+        document.Entities.Add(second);
+        AttributeEntity firstVariable = Assert.Single(first.Attributes);
+        AttributeEntity secondVariable = Assert.Single(second.Attributes);
+        firstVariable.Value = "FIRST";
+        secondVariable.Value = "SECOND";
+        var firstMalformed = new AttributeEntity(constant);
+        var secondMalformed = new AttributeEntity(constant);
+        first.Attributes.Add(firstMalformed);
+        second.Attributes.Add(secondMalformed);
+        ulong firstMalformedHandle = firstMalformed.Handle;
+        ulong secondMalformedHandle = secondMalformed.Handle;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadSynchronizeBlockAttributePropertiesCommand(
+            first.Handle);
+
+        history.Execute(command);
+
+        Assert.Equal(2, command.InsertCount);
+        Assert.Equal(2, command.AttributeCount);
+        Assert.Equal(0, command.AddedAttributeCount);
+        Assert.Equal(2, command.RemovedAttributeCount);
+        Assert.Same(firstVariable, Assert.Single(first.Attributes));
+        Assert.Same(secondVariable, Assert.Single(second.Attributes));
+        Assert.Equal("FIRST", firstVariable.Value);
+        Assert.Equal("SECOND", secondVariable.Value);
+        Assert.Null(document.GetCadObject<AttributeEntity>(firstMalformedHandle));
+        Assert.Null(document.GetCadObject<AttributeEntity>(secondMalformedHandle));
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Same(firstMalformed, first.Attributes.ToArray()[1]);
+        Assert.Same(secondMalformed, second.Attributes.ToArray()[1]);
+        Assert.Equal(firstMalformedHandle, firstMalformed.Handle);
+        Assert.Equal(secondMalformedHandle, secondMalformed.Handle);
+
+        Assert.True(history.TryRedo(out _));
+        Assert.Same(firstVariable, Assert.Single(first.Attributes));
+        Assert.Same(secondVariable, Assert.Single(second.Attributes));
+    }
+
+    [Fact]
     public void AddsMissingReferencesAcrossEveryInsertWithDefaultsAndExactUndoRedo()
     {
         var document = new CadDocument();

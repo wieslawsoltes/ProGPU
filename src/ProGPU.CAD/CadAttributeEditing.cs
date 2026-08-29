@@ -817,6 +817,274 @@ public sealed class CadSetAttributeDefinitionModesCommand : CadEditCommand
 }
 
 /// <summary>
+/// Changes one ATTDEF between reference-owned variable and definition-owned
+/// constant storage, synchronizing every retained INSERT as one edit.
+/// </summary>
+/// <remarks>
+/// First Apply, Undo, and Redo perform O(D * I + A + X) bounded work and retain
+/// the same amount of state as block-attribute synchronization for D variable
+/// definitions, I registered INSERTs, A original ATTRIBs, and X reference-owned
+/// XData entries. Single-line versus multiline payload shape is preserved.
+/// </remarks>
+public sealed class CadSetAttributeDefinitionConstantModeCommand : CadEditCommand
+{
+    public const int MaximumTagCodeUnits = 4_096;
+
+    private readonly ulong _insertHandle;
+    private readonly CadSynchronizeBlockAttributePropertiesCommand _synchronization;
+    private Insert? _insert;
+    private BlockRecord? _block;
+    private AttributeDefinition? _definition;
+    private AttributeFlags _previousFlags;
+    private AttributeFlags _updatedFlags;
+    private AttributeType _previousType;
+    private AttributeType _updatedType;
+
+    public ulong InsertHandle => _insertHandle;
+
+    public string Tag { get; }
+
+    public int Occurrence { get; }
+
+    public bool IsConstant { get; }
+
+    public int InsertCount => _synchronization.InsertCount;
+
+    public int AttributeCount => _synchronization.AttributeCount;
+
+    public int AddedAttributeCount => _synchronization.AddedAttributeCount;
+
+    public int RemovedAttributeCount => _synchronization.RemovedAttributeCount;
+
+    public int ClearedExtendedDataEntryCount =>
+        _synchronization.ClearedExtendedDataEntryCount;
+
+    public CadSetAttributeDefinitionConstantModeCommand(
+        ulong insertHandle,
+        string tag,
+        bool isConstant,
+        int occurrence = 0,
+        string description = "Set attribute definition constant mode")
+        : base(description)
+    {
+        if (insertHandle == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(insertHandle));
+        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(tag);
+        ArgumentOutOfRangeException.ThrowIfNegative(occurrence);
+        if (tag.Length > MaximumTagCodeUnits)
+        {
+            throw new ArgumentException(
+                "The attribute tag exceeds the command ownership budget.",
+                nameof(tag));
+        }
+
+        _insertHandle = insertHandle;
+        Tag = new string(tag.AsSpan());
+        Occurrence = occurrence;
+        IsConstant = isConstant;
+        _synchronization = new CadSynchronizeBlockAttributePropertiesCommand(
+            insertHandle,
+            description);
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        if (isRedo)
+        {
+            AttributeDefinition retained = GetRetainedDefinition(document);
+            SetOwnershipTransactional(
+                retained,
+                _updatedFlags,
+                _updatedType);
+            try
+            {
+                _synchronization.Redo(document);
+            }
+            catch
+            {
+                SetOwnershipTransactional(
+                    retained,
+                    _previousFlags,
+                    _previousType);
+                throw;
+            }
+            return;
+        }
+
+        Entity entity = ResolveModelSpaceEntity(document, _insertHandle);
+        Insert insert = entity as Insert ?? throw new InvalidOperationException(
+            $"Model-space entity handle {_insertHandle:X} is not an INSERT.");
+        BlockRecord block = insert.Block ?? throw new InvalidOperationException(
+            $"INSERT handle {_insertHandle:X} has no block definition.");
+        AttributeDefinition definition = ResolveDefinition(
+            block,
+            Tag,
+            Occurrence);
+        bool wasConstant = IsDefinitionOwned(definition);
+        if (wasConstant == IsConstant)
+        {
+            throw new InvalidOperationException(
+                $"Attribute definition '{Tag}' occurrence {Occurrence} is already " +
+                (IsConstant ? "constant." : "variable."));
+        }
+        ValidatePayload(definition);
+
+        _insert = insert;
+        _block = block;
+        _definition = definition;
+        _previousFlags = definition.Flags;
+        _previousType = definition.AttributeType;
+        _updatedFlags = IsConstant
+            ? definition.Flags | AttributeFlags.Constant
+            : definition.Flags & ~AttributeFlags.Constant;
+        _updatedType = definition.AttributeType switch
+        {
+            AttributeType.SingleLine => AttributeType.SingleLine,
+            AttributeType.MultiLine or AttributeType.ConstantMultiLine =>
+                IsConstant
+                    ? AttributeType.ConstantMultiLine
+                    : AttributeType.MultiLine,
+            _ => throw new InvalidOperationException(
+                $"Attribute definition '{Tag}' uses an unsupported attribute type."),
+        };
+
+        SetOwnershipTransactional(
+            definition,
+            _updatedFlags,
+            _updatedType);
+        try
+        {
+            _synchronization.ExecuteFirst(document);
+        }
+        catch
+        {
+            SetOwnershipTransactional(
+                definition,
+                _previousFlags,
+                _previousType);
+            throw;
+        }
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        AttributeDefinition definition = GetRetainedDefinition(document);
+        _synchronization.Undo(document);
+        try
+        {
+            SetOwnershipTransactional(
+                definition,
+                _previousFlags,
+                _previousType);
+        }
+        catch
+        {
+            _synchronization.Redo(document);
+            throw;
+        }
+    }
+
+    internal override void Discard(CadDocument document) =>
+        _synchronization.Discard(document);
+
+    private AttributeDefinition GetRetainedDefinition(CadDocument document)
+    {
+        Insert insert = _insert ?? throw new InvalidOperationException(
+            "The attribute-constant command has not been applied.");
+        BlockRecord block = _block ?? throw new InvalidOperationException(
+            "The attribute-constant command has not been applied.");
+        AttributeDefinition definition = _definition ??
+            throw new InvalidOperationException(
+                "The attribute-constant command has not been applied.");
+        ValidateModelSpaceEntity(document, insert);
+        if (!ReferenceEquals(insert.Block, block))
+        {
+            throw new InvalidOperationException(
+                "The selected INSERT no longer references the retained block definition.");
+        }
+        AttributeDefinition current = ResolveDefinition(block, Tag, Occurrence);
+        if (!ReferenceEquals(current, definition))
+        {
+            throw new InvalidOperationException(
+                $"Attribute definition '{Tag}' occurrence {Occurrence} is no " +
+                "longer the retained definition.");
+        }
+        return definition;
+    }
+
+    private static AttributeDefinition ResolveDefinition(
+        BlockRecord block,
+        string tag,
+        int occurrence)
+    {
+        int currentOccurrence = 0;
+        foreach (AttributeDefinition definition in block.AttributeDefinitions)
+        {
+            if (!string.Equals(
+                    definition.Tag,
+                    tag,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (currentOccurrence == occurrence)
+            {
+                return definition;
+            }
+            currentOccurrence++;
+        }
+        throw new InvalidOperationException(
+            $"Block '{block.Name}' has no attribute definition '{tag}' " +
+            $"occurrence {occurrence}.");
+    }
+
+    private static bool IsDefinitionOwned(AttributeDefinition definition) =>
+        (definition.Flags & AttributeFlags.Constant) != 0 ||
+        definition.AttributeType == AttributeType.ConstantMultiLine;
+
+    private static void ValidatePayload(AttributeDefinition definition)
+    {
+        if (definition.AttributeType is not (
+                AttributeType.SingleLine or
+                AttributeType.MultiLine or
+                AttributeType.ConstantMultiLine))
+        {
+            throw new InvalidOperationException(
+                $"Attribute definition '{definition.Tag}' uses an unsupported " +
+                "attribute type.");
+        }
+        if (definition.AttributeType != AttributeType.SingleLine &&
+            definition.MText is null)
+        {
+            throw new InvalidOperationException(
+                $"Attribute definition '{definition.Tag}' has no embedded MTEXT payload.");
+        }
+    }
+
+    private static void SetOwnershipTransactional(
+        AttributeDefinition definition,
+        AttributeFlags flags,
+        AttributeType type)
+    {
+        AttributeFlags rollbackFlags = definition.Flags;
+        AttributeType rollbackType = definition.AttributeType;
+        try
+        {
+            definition.Flags = flags;
+            definition.AttributeType = type;
+        }
+        catch
+        {
+            definition.Flags = rollbackFlags;
+            definition.AttributeType = rollbackType;
+            throw;
+        }
+    }
+}
+
+/// <summary>
 /// Replaces one definition-owned constant ATTDEF value selected through a
 /// model-space INSERT, tag, and zero-based duplicate-tag occurrence.
 /// </summary>

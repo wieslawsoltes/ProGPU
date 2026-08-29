@@ -96,6 +96,19 @@ Focused mode, duplicate-occurrence, locked-layer, Undo/Redo, synchronization,
 managed/native retained-output, shared-shell, and DXF/DWG regressions cover the
 slice.
 
+Attribute-definition Constant mode is now a structural, bounded edit rather
+than a cosmetic flag change. One command transitions single-line or multiline
+ATTDEF ownership and synchronizes every reference to the selected block:
+variable-to-constant removes ATTRIBs, constant-to-variable creates transformed
+references from the definition default, and Undo/Redo retains exact values,
+embedded MTEXT, handles, order, and XData. Synchronization now emits references
+only for variable definitions and removes malformed constant references.
+ACadSharp feature commit `cb6d92ec` applies the same invariant to new INSERTs
+and `UpdateAttributes`. The shared dynamically themed shell exposes the explicit
+`Constant (sync all)` control. Managed snapshot and native-picture regressions
+confirm the existing retained text path changes ownership without a shader,
+ABI, cache, upload, DPI, or device-loss fork.
+
 The same selected-INSERT workflow now includes a bounded `Sync properties`
 edit. It synchronizes entity, text, tag, mode, and transform-baked geometry
 properties from the block definitions across every registered reference while

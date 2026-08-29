@@ -24,10 +24,12 @@ public readonly record struct CadAttributeSynchronizationResult(
 /// </summary>
 /// <remarks>
 /// The first apply performs O(D * I + A + X) work and owns O(D * I + A + X)
-/// bounded state for D definitions, I registered INSERTs, A original attributes,
-/// and X reference-owned XData application entries. Undo and Redo have the same
-/// bound. Existing reference values are retained by case-insensitive tag and
-/// then stable unmatched order; new references use definition defaults. XData
+/// bounded state for D variable definitions, I registered INSERTs, A original
+/// attributes, and X reference-owned XData application entries. Undo and Redo
+/// have the same bound. Constant definitions remain definition-owned and any
+/// malformed constant references are removed. Existing variable-reference
+/// values are retained by case-insensitive tag and then stable unmatched order;
+/// new references use definition defaults. XData
 /// on each INSERT, its ATTRIB sequence, and its active SEQEND is cleared while
 /// definition-owned XData remains unchanged. Removed references keep exact
 /// handles in bounded leases until this command leaves undo/redo history.
@@ -92,17 +94,21 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
                 $"INSERT handle {_selectedInsertHandle:X} has no block definition.");
         ValidateBlock(block);
 
-        AttributeDefinition[] definitions = block.AttributeDefinitions.ToArray();
-        if (definitions.Length > MaximumDefinitionCount)
+        AttributeDefinition[] allDefinitions =
+            block.AttributeDefinitions.ToArray();
+        if (allDefinitions.Length > MaximumDefinitionCount)
         {
             throw new InvalidOperationException(
                 $"Block '{block.Name}' exceeds the {MaximumDefinitionCount:N0}-definition " +
                 "attribute synchronization limit.");
         }
-        foreach (AttributeDefinition definition in definitions)
+        foreach (AttributeDefinition definition in allDefinitions)
         {
             ValidateDefinition(definition);
         }
+        AttributeDefinition[] definitions = allDefinitions
+            .Where(definition => !IsDefinitionOwned(definition))
+            .ToArray();
 
         Insert[] inserts = document.GetCadObjects<Insert>()
             .Where(insert => ReferenceEquals(insert.Block, block))
@@ -770,6 +776,10 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
                 $"Attribute definition '{definition.Tag}' has no embedded MTEXT payload.");
         }
     }
+
+    private static bool IsDefinitionOwned(AttributeDefinition definition) =>
+        (definition.Flags & AttributeFlags.Constant) != 0 ||
+        definition.AttributeType == AttributeType.ConstantMultiLine;
 
     private sealed record AttributeOperation(
         Insert Insert,

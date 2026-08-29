@@ -491,6 +491,126 @@ public sealed class CadAttributeEditingTests
     }
 
     [Fact]
+    public void ConstantModeTransitionsAllInsertOwnershipWithExactUndoRedo()
+    {
+        (CadDocument document, Insert first, AttributeDefinition label, _) =
+            CreateDocument();
+        AttributeDefinition part = first.Block.AttributeDefinitions.Single(
+            definition => definition.Tag == "PART");
+        AttributeEntity firstPart = Assert.Single(first.Attributes);
+        firstPart.Value = "FIRST ASSIGNED";
+        firstPart.MText.Value = "FIRST ASSIGNED";
+        var second = new Insert(first.Block);
+        document.Entities.Add(second);
+        AttributeEntity secondPart = Assert.Single(second.Attributes);
+        secondPart.Value = "SECOND ASSIGNED";
+        secondPart.MText.Value = "SECOND ASSIGNED";
+        ulong firstPartHandle = firstPart.Handle;
+        ulong secondPartHandle = secondPart.Handle;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var makeConstant = new CadSetAttributeDefinitionConstantModeCommand(
+            first.Handle,
+            "PART",
+            isConstant: true);
+
+        history.Execute(makeConstant);
+
+        Assert.Equal(AttributeFlags.Constant, part.Flags);
+        Assert.Equal(AttributeType.ConstantMultiLine, part.AttributeType);
+        Assert.Empty(first.Attributes);
+        Assert.Empty(second.Attributes);
+        Assert.Equal(2, makeConstant.InsertCount);
+        Assert.Equal(0, makeConstant.AttributeCount);
+        Assert.Equal(0, makeConstant.AddedAttributeCount);
+        Assert.Equal(2, makeConstant.RemovedAttributeCount);
+        Assert.Null(document.GetCadObject<AttributeEntity>(firstPartHandle));
+        Assert.Null(document.GetCadObject<AttributeEntity>(secondPartHandle));
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(AttributeFlags.None, part.Flags);
+        Assert.Equal(AttributeType.MultiLine, part.AttributeType);
+        Assert.Same(firstPart, Assert.Single(first.Attributes));
+        Assert.Same(secondPart, Assert.Single(second.Attributes));
+        Assert.Equal("FIRST ASSIGNED", firstPart.MText.Value);
+        Assert.Equal("SECOND ASSIGNED", secondPart.MText.Value);
+        Assert.Equal(firstPartHandle, firstPart.Handle);
+        Assert.Equal(secondPartHandle, secondPart.Handle);
+
+        Assert.True(history.TryRedo(out _));
+        Assert.Empty(first.Attributes);
+        Assert.Empty(second.Attributes);
+        Assert.True(history.TryUndo(out _));
+
+        var makeVariable = new CadSetAttributeDefinitionConstantModeCommand(
+            first.Handle,
+            "LABEL",
+            isConstant: false);
+        history.Execute(makeVariable);
+
+        Assert.Equal(AttributeFlags.None, label.Flags);
+        Assert.Equal(AttributeType.SingleLine, label.AttributeType);
+        Assert.Equal(2, makeVariable.AddedAttributeCount);
+        Assert.Equal(0, makeVariable.RemovedAttributeCount);
+        AttributeEntity firstLabel = first.Attributes.Single(
+            attribute => attribute.Tag == "LABEL");
+        AttributeEntity secondLabel = second.Attributes.Single(
+            attribute => attribute.Tag == "LABEL");
+        Assert.Equal("CONSTANT VALUE", firstLabel.Value);
+        Assert.Equal("CONSTANT VALUE", secondLabel.Value);
+        ulong firstLabelHandle = firstLabel.Handle;
+        ulong secondLabelHandle = secondLabel.Handle;
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(AttributeFlags.Constant, label.Flags);
+        Assert.DoesNotContain(first.Attributes, attribute => attribute.Tag == "LABEL");
+        Assert.DoesNotContain(second.Attributes, attribute => attribute.Tag == "LABEL");
+        Assert.True(history.TryRedo(out _));
+        Assert.Same(
+            firstLabel,
+            first.Attributes.Single(attribute => attribute.Tag == "LABEL"));
+        Assert.Same(
+            secondLabel,
+            second.Attributes.Single(attribute => attribute.Tag == "LABEL"));
+        Assert.Equal(firstLabelHandle, firstLabel.Handle);
+        Assert.Equal(secondLabelHandle, secondLabel.Handle);
+    }
+
+    [Fact]
+    public void ConstantModeRejectsLockedSiblingBeforeAnyMutation()
+    {
+        (CadDocument document, Insert first, _, _) = CreateDocument();
+        AttributeDefinition part = first.Block.AttributeDefinitions.Single(
+            definition => definition.Tag == "PART");
+        var lockedLayer = new Layer("LOCKED_CONSTANT_MODE")
+        {
+            Flags = LayerFlags.Locked,
+        };
+        document.Layers.Add(lockedLayer);
+        var lockedSibling = new Insert(first.Block)
+        {
+            Layer = lockedLayer,
+        };
+        document.Entities.Add(lockedSibling);
+        AttributeEntity firstPart = Assert.Single(first.Attributes);
+        AttributeEntity lockedPart = Assert.Single(lockedSibling.Attributes);
+        var session = new CadDocumentSession(document);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            new CadDocumentHistory(session).Execute(
+                new CadSetAttributeDefinitionConstantModeCommand(
+                    first.Handle,
+                    "PART",
+                    isConstant: true)));
+
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(AttributeFlags.None, part.Flags);
+        Assert.Equal(AttributeType.MultiLine, part.AttributeType);
+        Assert.Same(firstPart, Assert.Single(first.Attributes));
+        Assert.Same(lockedPart, Assert.Single(lockedSibling.Attributes));
+    }
+
+    [Fact]
     public void ConstantMultilineEditSynchronizesPayloadAndRejectsVariableTarget()
     {
         (CadDocument document, Insert insert, _, AttributeDefinition notes) =
@@ -637,6 +757,49 @@ public sealed class CadAttributeEditingTests
                 .Single(candidate => candidate.Tag == "PART");
             Assert.Equal("ASSIGNED VALUE", existing.Value);
             Assert.Equal("ASSIGNED VALUE", existing.MText.Value);
+            return true;
+        });
+    }
+
+    [Theory]
+    [InlineData(CadDocumentFormat.Dxf)]
+    [InlineData(CadDocumentFormat.Dwg)]
+    public async Task ConstantOwnershipTransitionSurvivesDxfAndDwgRoundTrip(
+        CadDocumentFormat format)
+    {
+        (CadDocument document, Insert insert, _, _) = CreateDocument();
+        AttributeEntity assigned = Assert.Single(insert.Attributes);
+        assigned.Value = "ASSIGNED VALUE";
+        assigned.MText.Value = "ASSIGNED VALUE";
+        var session = new CadDocumentSession(document);
+        new CadDocumentHistory(session).Execute(
+            new CadSetAttributeDefinitionConstantModeCommand(
+                insert.Handle,
+                "PART",
+                isConstant: true));
+        using var stream = new MemoryStream();
+        var store = new CadDocumentStore();
+
+        await store.SaveAsync(
+            session,
+            stream,
+            format,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            format,
+            sourceName: $"constant-ownership.{format.ToString().ToLowerInvariant()}");
+
+        loaded.Session.Read(loadedDocument =>
+        {
+            AttributeDefinition restored = loadedDocument.BlockRecords[
+                    "EDITABLE_BLOCK"]
+                .AttributeDefinitions
+                .Single(definition => definition.Tag == "PART");
+            Assert.Equal(AttributeFlags.Constant, restored.Flags);
+            Assert.Equal(AttributeType.ConstantMultiLine, restored.AttributeType);
+            Assert.Empty(loadedDocument.Entities.OfType<Insert>().Single().Attributes);
             return true;
         });
     }

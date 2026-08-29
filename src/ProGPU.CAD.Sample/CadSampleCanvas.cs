@@ -1465,6 +1465,43 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Changes one selected ATTDEF between constant and variable ownership and
+    /// synchronizes every retained reference to its block as one edit.
+    /// </summary>
+    public CadAttributeSynchronizationResult?
+        SetSelectedAttributeDefinitionConstantMode(
+            string tag,
+            int occurrence,
+            bool isConstant)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount != 1)
+        {
+            return null;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        var command = new CadSetAttributeDefinitionConstantModeCommand(
+            _selectedHandles[0],
+            tag,
+            isConstant,
+            occurrence,
+            $"Set block attribute constant mode '{tag}'");
+        ulong generation = history.Execute(command);
+        RecompileAfterEdit(session);
+        return new CadAttributeSynchronizationResult(
+            generation,
+            command.InsertCount,
+            command.AttributeCount,
+            command.AddedAttributeCount,
+            command.RemovedAttributeCount,
+            command.ClearedExtendedDataEntryCount);
+    }
+
+    /// <summary>
     /// Synchronizes definition-owned properties across every reference to the
     /// block selected through exactly one INSERT, preserving assigned values.
     /// </summary>

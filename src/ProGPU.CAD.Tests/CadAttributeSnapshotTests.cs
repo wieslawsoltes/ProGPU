@@ -105,7 +105,7 @@ public sealed class CadAttributeSnapshotTests
                 ColumnCount = 2,
                 ColumnSpacing = 5,
             };
-            Assert.Single(insert.Attributes);
+            Assert.Empty(insert.Attributes);
             document.Entities.Add(insert);
         });
 
@@ -357,6 +357,76 @@ public sealed class CadAttributeSnapshotTests
         Assert.Single(Compile(session).Texts.ToArray());
         Assert.True(history.TryUndo(out _));
         Assert.Single(Compile(session).Texts.ToArray());
+    }
+
+    [Fact]
+    public void ConstantModeAtomicallyChangesRenderedOwnershipForManagedAndNative()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        ulong insertHandle = 0;
+        AttributeEntity? assigned = null;
+        session.Edit("Add ownership-edit attribute", document =>
+        {
+            TextStyle style = AddTextStyle(document);
+            var block = new BlockRecord("OWNERSHIP_EDIT_ATTRIBUTE");
+            block.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 0, 0)));
+            block.Entities.Add(new AttributeDefinition
+            {
+                Tag = "SERIAL",
+                Value = "CC",
+                Style = style,
+                Height = 1,
+                InsertPoint = new XYZ(2, 1, 0),
+            });
+            var insert = new Insert(block);
+            assigned = Assert.Single(insert.Attributes);
+            assigned.Value = "A";
+            document.Entities.Add(insert);
+            insertHandle = insert.Handle;
+        });
+        var history = new CadDocumentHistory(session);
+
+        CadDocumentSnapshot variableSnapshot = Compile(session);
+        Assert.Equal(1, Assert.Single(variableSnapshot.Texts.ToArray()).GlyphCount);
+        CadRecordedPlanScene variableScene =
+            new CadPlanSceneCompiler().Compile(variableSnapshot);
+        using GpuPicture variablePicture = variableScene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            variablePicture,
+            96U,
+            variableScene.ContentGeneration,
+            out NativeCompiledPicture? variableNative,
+            out NativePictureCompileFailure variableFailure),
+            variableFailure.ToString());
+        Assert.NotNull(variableNative);
+
+        history.Execute(new CadSetAttributeDefinitionConstantModeCommand(
+            insertHandle,
+            "SERIAL",
+            isConstant: true));
+
+        CadDocumentSnapshot constantSnapshot = Compile(session);
+        Assert.Equal(2, Assert.Single(constantSnapshot.Texts.ToArray()).GlyphCount);
+        CadRecordedPlanScene constantScene =
+            new CadPlanSceneCompiler().Compile(constantSnapshot);
+        using GpuPicture constantPicture = constantScene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            constantPicture,
+            96U,
+            constantScene.ContentGeneration,
+            out NativeCompiledPicture? constantNative,
+            out NativePictureCompileFailure constantFailure),
+            constantFailure.ToString());
+        Assert.NotNull(constantNative);
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Same(
+            assigned,
+            session.Read(document => Assert.Single(
+                document.Entities.OfType<Insert>().Single().Attributes)));
+        Assert.Equal(1, Assert.Single(Compile(session).Texts.ToArray()).GlyphCount);
+        Assert.True(history.TryRedo(out _));
+        Assert.Equal(2, Assert.Single(Compile(session).Texts.ToArray()).GlyphCount);
     }
 
     [Fact]

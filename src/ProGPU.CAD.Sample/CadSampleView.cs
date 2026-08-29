@@ -67,6 +67,7 @@ public sealed class CadSampleView : Grid
     private readonly CheckBox _selectionAttributeVerifyCheckBox;
     private readonly CheckBox _selectionAttributePresetCheckBox;
     private readonly CheckBox _selectionAttributePositionLockedCheckBox;
+    private readonly CheckBox _selectionAttributeConstantCheckBox;
     private readonly Button _setSelectionLayerButton;
     private readonly Button _setSelectionLineTypeButton;
     private readonly Button _setSelectionLineTypeScaleButton;
@@ -77,6 +78,7 @@ public sealed class CadSampleView : Grid
     private readonly Button _setSelectionAttributePromptButton;
     private readonly Button _setSelectionAttributeTagButton;
     private readonly Button _setSelectionAttributeModesButton;
+    private readonly Button _setSelectionAttributeConstantButton;
     private readonly Button _synchronizeSelectionAttributePropertiesButton;
     private readonly ComboBox _layerStateSelector;
     private readonly ComboBox _layerVisibilitySelector;
@@ -179,6 +181,9 @@ public sealed class CadSampleView : Grid
 
     public CheckBox SelectionAttributePositionLockedCheckBox =>
         _selectionAttributePositionLockedCheckBox;
+
+    public CheckBox SelectionAttributeConstantCheckBox =>
+        _selectionAttributeConstantCheckBox;
 
     public ComboBox LayerStateSelector => _layerStateSelector;
 
@@ -669,10 +674,18 @@ public sealed class CadSampleView : Grid
         _selectionAttributePositionLockedCheckBox = CreateAttributeModeCheckBox(
             "Lock position",
             font);
+        _selectionAttributeConstantCheckBox = CreateAttributeModeCheckBox(
+            "Constant (sync all)",
+            font);
         _setSelectionAttributeModesButton = CreateButton(
             "Set modes",
             font,
             92,
+            30);
+        _setSelectionAttributeConstantButton = CreateButton(
+            "Set constant",
+            font,
+            104,
             30);
         _synchronizeSelectionAttributePropertiesButton = CreateButton(
             "Sync properties",
@@ -692,6 +705,8 @@ public sealed class CadSampleView : Grid
         selectionAttributeActions.AddChild(
             _selectionAttributePositionLockedCheckBox);
         selectionAttributeActions.AddChild(_setSelectionAttributeModesButton);
+        selectionAttributeActions.AddChild(_selectionAttributeConstantCheckBox);
+        selectionAttributeActions.AddChild(_setSelectionAttributeConstantButton);
         selectionAttributeActions.AddChild(
             _synchronizeSelectionAttributePropertiesButton);
 
@@ -1238,6 +1253,8 @@ public sealed class CadSampleView : Grid
             UpdateAttributeModeControls();
         _selectionAttributePositionLockedCheckBox.CheckedChanged += (_, _) =>
             UpdateAttributeModeControls();
+        _selectionAttributeConstantCheckBox.CheckedChanged += (_, _) =>
+            UpdateAttributeModeControls();
         _layerStateSelector.SelectionChanged += (_, _) =>
         {
             if (_isRefreshingSelectionProperties)
@@ -1339,6 +1356,8 @@ public sealed class CadSampleView : Grid
             SetSelectionAttributeTag();
         _setSelectionAttributeModesButton.Click += (_, _) =>
             SetSelectionAttributeModes();
+        _setSelectionAttributeConstantButton.Click += (_, _) =>
+            SetSelectionAttributeConstantMode();
         _synchronizeSelectionAttributePropertiesButton.Click += (_, _) =>
             SynchronizeSelectionAttributeProperties();
         _setLayerVisibilityButton.Click += (_, _) => SetLayerVisibility();
@@ -2098,7 +2117,9 @@ public sealed class CadSampleView : Grid
             };
             _selectionAttributeSelector.Items.Add(item);
             if (previous is CadAttributeValueEntry prior &&
-                prior.Owner == candidate.Owner &&
+                (prior.Owner == candidate.Owner ||
+                    (prior.Owner != CadAttributeValueOwner.Reference &&
+                        candidate.Owner != CadAttributeValueOwner.Reference)) &&
                 prior.Occurrence == candidate.Occurrence &&
                 string.Equals(
                     prior.Tag,
@@ -2714,6 +2735,8 @@ public sealed class CadSampleView : Grid
             entry?.IsPreset == true;
         _selectionAttributePositionLockedCheckBox.IsChecked =
             entry?.IsPositionLocked == true;
+        _selectionAttributeConstantCheckBox.IsChecked =
+            entry?.Owner == CadAttributeValueOwner.Definition;
     }
 
     private bool HaveSelectedAttributeModesChanged(
@@ -2723,6 +2746,57 @@ public sealed class CadSampleView : Grid
         _selectionAttributePresetCheckBox.IsChecked != entry.IsPreset ||
         _selectionAttributePositionLockedCheckBox.IsChecked !=
             entry.IsPositionLocked;
+
+    private bool HasSelectedAttributeConstantModeChanged(
+        CadAttributeValueEntry entry) =>
+        _selectionAttributeConstantCheckBox.IsChecked !=
+            (entry.Owner == CadAttributeValueOwner.Definition);
+
+    private void SetSelectionAttributeConstantMode()
+    {
+        if (_isBusy ||
+            (_selectionAttributeSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                CadAttributeValueEntry
+                {
+                    Owner: not CadAttributeValueOwner.Reference,
+                } entry ||
+            !HasSelectedAttributeConstantModeChanged(entry))
+        {
+            return;
+        }
+
+        bool isConstant = _selectionAttributeConstantCheckBox.IsChecked;
+        try
+        {
+            CadAttributeSynchronizationResult? result =
+                _canvas.SetSelectedAttributeDefinitionConstantMode(
+                    entry.Tag,
+                    entry.Occurrence,
+                    isConstant);
+            if (result is not CadAttributeSynchronizationResult synchronized)
+            {
+                SetStatus(
+                    "Attribute constant editing requires exactly one selected INSERT.");
+                return;
+            }
+            SetStatus(
+                $"Set definition {entry.Tag} #{entry.Occurrence + 1} to " +
+                $"{(isConstant ? "constant" : "variable")} and synchronized " +
+                $"{synchronized.InsertCount:N0} INSERT(s) as one edit; added " +
+                $"{synchronized.AddedAttributeCount:N0}, removed " +
+                $"{synchronized.RemovedAttributeCount:N0}, cleared " +
+                $"{synchronized.ClearedExtendedDataEntryCount:N0} reference XData " +
+                "app payload(s).");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set attribute constant mode failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
 
     private void SynchronizeSelectionAttributeProperties()
     {
@@ -3902,6 +3976,8 @@ public sealed class CadSampleView : Grid
             canTransform && hasSelectedDefinitionAttribute;
         _selectionAttributePositionLockedCheckBox.IsEnabled =
             canTransform && hasSelectedDefinitionAttribute;
+        _selectionAttributeConstantCheckBox.IsEnabled =
+            canTransform && hasSelectedDefinitionAttribute;
         _setSelectionColorButton.IsEnabled =
             canTransform &&
             TryParseSelectionColor(
@@ -3960,6 +4036,11 @@ public sealed class CadSampleView : Grid
             hasSelectedDefinitionAttribute &&
             selectedAttribute is CadAttributeValueEntry modesEntry &&
             HaveSelectedAttributeModesChanged(modesEntry);
+        _setSelectionAttributeConstantButton.IsEnabled =
+            canTransform &&
+            hasSelectedDefinitionAttribute &&
+            selectedAttribute is CadAttributeValueEntry constantEntry &&
+            HasSelectedAttributeConstantModeChanged(constantEntry);
         _synchronizeSelectionAttributePropertiesButton.IsEnabled =
             canTransform &&
             _canvas.CanSynchronizeSelectedBlockAttributeProperties;

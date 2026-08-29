@@ -1650,13 +1650,30 @@ output immediately because constants remain definition-owned. Resolution is
 group-280 handling: R2007+ carries the lock and R2010+ independently carries the
 preceding ATTDEF/ATTRIB version value.
 
+`CadSetAttributeDefinitionConstantModeCommand` performs the structural ownership
+transition that the non-structural mode command deliberately excludes. It
+preserves single-line versus multiline payload shape, maps multiline definitions
+between `MultiLine` and `ConstantMultiLine`, changes group-70 Constant state,
+and synchronizes every registered INSERT as one generation. Variable-to-constant
+removes the corresponding ATTRIBs so every occurrence reads the definition-owned
+default; constant-to-variable creates transform-baked ATTRIBs from that default.
+Undo restores the exact removed reference objects, values, embedded MTEXT,
+handles, order, and reference-owned XData; Redo reuses the same objects. The
+complete operation rejects any locked sibling INSERT before publishing the mode
+change. Its first Apply, Undo, and Redo are bounded `O(D * I + A + X)` time and
+owned state under the synchronization limits for `D` variable definitions, `I`
+INSERTs, `A` original ATTRIBs, and `X` reference-owned XData applications.
+
 `CadSynchronizeBlockAttributePropertiesCommand` implements bounded property and
 structural block attribute synchronization. One selected,
 unlocked model-space INSERT authorizes the edit; the command finds every
 registered INSERT that retains the same block identity, copies each ATTDEF's
 entity, text, mode, tag, and starting geometry properties into its matching
 ATTRIB, and applies that INSERT's block transform. Existing assigned single-line
-and embedded-MTEXT values are preserved. Case-insensitive tag matches consume
+and embedded-MTEXT values are preserved. Replacement sequences contain exactly
+one ATTRIB per variable ATTDEF and none for constant ATTDEFs; malformed or
+legacy constant references are removed under the same reversible lease contract.
+Case-insensitive tag matches consume
 references in retained order, including duplicate tags; unmatched definitions
 and references are then paired in retained order so definition tag renames do
 not move the corresponding assigned value. Remaining unmatched definitions
@@ -1695,7 +1712,8 @@ reassignment is rejected while any lease exists and succeeds after history
 disposal.
 
 The shared desktop/browser shell exposes all three value-ownership paths
-through one selector and value editor, plus the selected block's property-sync
+through one selector and value editor, non-structural definition modes, the
+explicit Constant ownership transition, and the selected block's property-sync
 action. A commit advances one document generation, rebuilds one retained
 snapshot, preserves the selected INSERT and attribute key, and refreshes the
 displayed value. Locked INSERTs remain inspectable but cannot authorize
@@ -4356,7 +4374,8 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   group-2 tag edits with uppercase/no-whitespace/no-`!` normalization and
   explicit duplicate occurrence addressing,
   non-structural group-70 invisible/verify/preset mode edits, group-280
-  position locking, and explicit definition-to-reference synchronization,
+  position locking, exact definition-owned Constant transitions, and explicit
+  definition-to-reference synchronization,
   and ATTSYNC's all-reference property
   propagation with assigned-value preservation. Existing assigned references
   stay unchanged while future INSERTs inherit an edited default; property sync
@@ -4366,7 +4385,9 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   not rendering. Definition tag edits also preserve existing ATTRIB tags and
   values until an explicit synchronization applies the new tag while retaining
   the assigned value. Mode edits preserve constant/multiline ownership and do
-  not rewrite variable references until synchronization; invisible mode uses
+  not rewrite variable references until synchronization. Constant transitions
+  atomically add or remove reference-owned ATTRIBs across every INSERT; invisible
+  mode uses
   the existing snapshot visibility gate and retained managed/native picture
   path rather than a new renderer branch. Adapted ATTREDEF's structural
   behavior to an original ordered replacement contract: retained/renamed
@@ -4404,7 +4425,10 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   feature-branch work in commits `2a3df82a`, `b95db6b2`, and `d4104e03`;
   `ac9301e5` exposes the constant-time XData entry count used by bounded
   preflight, and `faf19483` supplies the version-aware DXF position-lock
-  read/write contract. No third-party implementation supplied those contracts.
+  read/write contract. ACadSharp feature commit `cb6d92ec` makes new INSERTs and
+  `UpdateAttributes` omit constant references, matching Autodesk's explicit
+  definition-owned constant contract. No third-party implementation supplied
+  those contracts.
   ACadSharp's public object model and pinned fixtures were inspected only to
   identify persisted contracts and independently observable placement; no
   dependency implementation text or structure was copied. The native C++ tree

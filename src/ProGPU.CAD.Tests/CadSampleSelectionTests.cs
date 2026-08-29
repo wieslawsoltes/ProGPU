@@ -1802,7 +1802,7 @@ public sealed class CadSampleSelectionTests
             Assert.Contains(
                 DescendantsAndSelf(view).OfType<TextBlock>(),
                 text => text.Text.Contains(
-                    "Synchronized 2 attribute(s) across 1 INSERT(s) as one edit; " +
+                    "Synchronized 1 attribute(s) across 1 INSERT(s) as one edit; " +
                     "added 0, removed 0, cleared 2 reference XData app payload(s); " +
                     "assigned values were preserved",
                     StringComparison.Ordinal));
@@ -1919,6 +1919,7 @@ public sealed class CadSampleSelectionTests
             Button setPrompt = FindButton(view, "Set prompt");
             Button setTag = FindButton(view, "Set tag");
             Button setModes = FindButton(view, "Set modes");
+            Button setConstant = FindButton(view, "Set constant");
             Button undo = FindButton(view, "Undo");
             Button redo = FindButton(view, "Redo");
             ComboBoxItem definitionItem = view.SelectionAttributeSelector.Items
@@ -1948,7 +1949,9 @@ public sealed class CadSampleSelectionTests
             Assert.False(view.SelectionAttributePresetCheckBox.IsEnabled);
             Assert.False(
                 view.SelectionAttributePositionLockedCheckBox.IsEnabled);
+            Assert.False(view.SelectionAttributeConstantCheckBox.IsEnabled);
             Assert.False(setModes.IsEnabled);
+            Assert.False(setConstant.IsEnabled);
 
             view.SelectionAttributeSelector.SelectedItem = definitionItem;
             Assert.Equal("Part number", view.SelectionAttributePromptInput.Text);
@@ -1960,6 +1963,8 @@ public sealed class CadSampleSelectionTests
             Assert.False(view.SelectionAttributePresetCheckBox.IsChecked);
             Assert.False(
                 view.SelectionAttributePositionLockedCheckBox.IsChecked);
+            Assert.False(view.SelectionAttributeConstantCheckBox.IsChecked);
+            Assert.True(view.SelectionAttributeConstantCheckBox.IsEnabled);
             view.SelectionAttributePromptInput.Text = "Updated part number";
             PressEnter(setPrompt);
 
@@ -2051,6 +2056,38 @@ public sealed class CadSampleSelectionTests
                 view.SelectionAttributePositionLockedCheckBox.IsChecked);
             Assert.Equal(AttributeFlags.None, assigned.Flags);
             Assert.Equal("ASSIGNED", assigned.Value);
+
+            view.SelectionAttributeConstantCheckBox.IsChecked = true;
+            PressEnter(setConstant);
+            Assert.Equal(10UL, session.ContentGeneration);
+            Assert.Equal(
+                AttributeFlags.Constant |
+                    AttributeFlags.Hidden |
+                    AttributeFlags.Verify |
+                    AttributeFlags.Preset,
+                definition.Flags);
+            Assert.Empty(insert.Attributes);
+            Assert.True(view.SelectionAttributeConstantCheckBox.IsChecked);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Set definition ITEM #1 to constant and synchronized",
+                    StringComparison.Ordinal));
+
+            PressEnter(undo);
+            Assert.Equal(11UL, session.ContentGeneration);
+            Assert.Equal(
+                AttributeFlags.Hidden |
+                    AttributeFlags.Verify |
+                    AttributeFlags.Preset,
+                definition.Flags);
+            Assert.Same(assigned, Assert.Single(insert.Attributes));
+            Assert.False(view.SelectionAttributeConstantCheckBox.IsChecked);
+            Assert.Equal("ASSIGNED", assigned.Value);
+            PressEnter(redo);
+            Assert.Equal(12UL, session.ContentGeneration);
+            Assert.Empty(insert.Attributes);
+            Assert.True(view.SelectionAttributeConstantCheckBox.IsChecked);
         }
         finally
         {
