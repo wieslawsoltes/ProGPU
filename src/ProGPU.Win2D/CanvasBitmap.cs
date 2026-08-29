@@ -7,11 +7,15 @@ namespace Microsoft.Graphics.Canvas;
 
 /// <summary>GPU-resident Win2D-shaped bitmap resource.</summary>
 public abstract class CanvasBitmap :
+    ICanvasImage,
     ICanvasResourceCreatorWithDpi,
-    IProGpuTextureSource,
+    IProGpuTextureLeaseSource,
     IDisposable
 {
+    private readonly object _lifetimeLock = new();
     private bool _isDisposed;
+    private bool _textureDisposed;
+    private int _leaseCount;
 
     internal CanvasBitmap(
         CanvasDevice device,
@@ -75,14 +79,33 @@ public abstract class CanvasBitmap :
 
     public bool TryGetGpuTexture(out GpuTexture texture)
     {
-        if (!_isDisposed && !Texture.IsDisposed)
+        lock (_lifetimeLock)
         {
-            texture = Texture;
-            return true;
+            if (!_isDisposed && !Texture.IsDisposed)
+            {
+                texture = Texture;
+                return true;
+            }
         }
 
         texture = null!;
         return false;
+    }
+
+    public bool TryAcquireGpuTextureLease(out IProGpuTextureLease lease)
+    {
+        lock (_lifetimeLock)
+        {
+            if (_isDisposed || Texture.IsDisposed)
+            {
+                lease = null!;
+                return false;
+            }
+
+            _leaseCount = checked(_leaseCount + 1);
+            lease = new CanvasBitmapTextureLease(this, Texture);
+            return true;
+        }
     }
 
     protected void ThrowIfDisposed()
@@ -98,15 +121,76 @@ public abstract class CanvasBitmap :
         Texture.Dispose();
     }
 
+    protected virtual void ValidateCanDispose()
+    {
+    }
+
     public void Dispose()
     {
-        if (_isDisposed)
+        lock (_lifetimeLock)
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            ValidateCanDispose();
+            _isDisposed = true;
+            if (_leaseCount == 0)
+            {
+                DisposeTexture();
+            }
+        }
+        GC.SuppressFinalize(this);
+    }
+
+    private void ReleaseTextureLease()
+    {
+        lock (_lifetimeLock)
+        {
+            if (_leaseCount <= 0)
+            {
+                throw new InvalidOperationException(
+                    "Canvas bitmap texture lease accounting underflowed.");
+            }
+
+            _leaseCount--;
+            if (_leaseCount == 0 && _isDisposed)
+            {
+                DisposeTexture();
+            }
+        }
+    }
+
+    private void DisposeTexture()
+    {
+        if (_textureDisposed)
         {
             return;
         }
 
         DisposeCore();
-        _isDisposed = true;
-        GC.SuppressFinalize(this);
+        _textureDisposed = true;
+    }
+
+    private sealed class CanvasBitmapTextureLease : IProGpuTextureLease
+    {
+        private CanvasBitmap? _owner;
+
+        public CanvasBitmapTextureLease(
+            CanvasBitmap owner,
+            GpuTexture texture)
+        {
+            _owner = owner;
+            Texture = texture;
+        }
+
+        public GpuTexture Texture { get; }
+
+        public void Dispose()
+        {
+            CanvasBitmap? owner = Interlocked.Exchange(ref _owner, null);
+            owner?.ReleaseTextureLease();
+        }
     }
 }

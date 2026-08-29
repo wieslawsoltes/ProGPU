@@ -2012,14 +2012,20 @@ public sealed unsafe class NativeCompositor : IDisposable
                 source.Format == TextureFormat.R8Unorm,
             _ => false
         };
+        bool supportedAlphaMode = role ==
+            NativeSceneExternalImageRole.Primary
+                ? source.AlphaMode is
+                    GpuTextureAlphaMode.Straight or
+                    GpuTextureAlphaMode.Premultiplied
+                : source.AlphaMode == GpuTextureAlphaMode.Straight;
         if ((source.Usage & TextureUsage.TextureBinding) == 0 ||
             source.Dimension != GpuTextureDimension.Dimension2D ||
             source.DepthOrArrayLayers != 1 || source.SampleCount != 1 ||
-            source.AlphaMode != GpuTextureAlphaMode.Straight ||
+            !supportedAlphaMode ||
             !supportedFormat)
         {
             throw new ArgumentException(
-                "External scene images require a role-compatible single-sample bindable straight-alpha 2D texture.",
+                "External scene images require a role-compatible single-sample bindable 2D texture; primary images may be straight or premultiplied while chroma and mask planes must be straight alpha.",
                 nameof(source));
         }
     }

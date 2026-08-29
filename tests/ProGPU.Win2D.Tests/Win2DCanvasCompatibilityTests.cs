@@ -1,6 +1,7 @@
 using System.Numerics;
 using Microsoft.Graphics.Canvas;
 using Microsoft.UI;
+using ProGPU.Backend;
 using Windows.Graphics.DirectX;
 using Xunit;
 
@@ -99,6 +100,19 @@ public sealed class Win2DCanvasCompatibilityTests
                 typeof(Windows.UI.Color),
                 typeof(float)
             ]));
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.DrawImage),
+            [
+                typeof(ICanvasImage),
+                typeof(Windows.Foundation.Rect),
+                typeof(Windows.Foundation.Rect),
+                typeof(float),
+                typeof(CanvasImageInterpolation)
+            ]));
+        Assert.True(typeof(ICanvasImage).IsAssignableFrom(
+            typeof(CanvasBitmap)));
+        Assert.True(typeof(IProGpuTextureLeaseSource).IsAssignableFrom(
+            typeof(CanvasBitmap)));
     }
 
     private static void DrawPinnedSimpleSample(CanvasDrawingSession drawingSession)
