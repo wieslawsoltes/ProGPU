@@ -909,6 +909,106 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void SharedViewEditsLayerVisibilityAndPlotEligibilityIndependently()
+    {
+        var document = new CadDocument();
+        var targetLayer = new Layer("TARGET_STATE")
+        {
+            IsOn = true,
+            PlotFlag = true,
+        };
+        document.Layers.Add(targetLayer);
+        document.Entities.Add(new Line(
+            new XYZ(-5, 0, 0),
+            new XYZ(5, 0, 0))
+        {
+            Layer = targetLayer,
+        });
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 900));
+            view.Canvas.Load(session);
+            view.LayerStateSelector.SelectedItem =
+                FindNamedPropertyChoice(
+                    view.LayerStateSelector,
+                    "TARGET_STATE");
+            Button setVisibility = FindButton(view, "Set layer visibility");
+            Button setPlot = FindButton(view, "Set layer plot");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+
+            CadLayerGeneralProperties initial =
+                view.Canvas.CaptureLayerGeneralProperties("target_state");
+            Assert.Equal("TARGET_STATE", initial.Name);
+            Assert.True(initial.IsOn);
+            Assert.True(initial.IsPlottable);
+            Assert.Equal("On", SelectedPropertyText(
+                view.LayerVisibilitySelector));
+            Assert.Equal("Plot", SelectedPropertyText(view.LayerPlotSelector));
+
+            view.LayerVisibilitySelector.SelectedItem =
+                view.LayerVisibilitySelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Tag is false);
+            PressEnter(setVisibility);
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.False(targetLayer.IsOn);
+            Assert.Empty(view.Canvas.CurrentSnapshot!.Entities.ToArray());
+            Assert.Equal("TARGET_STATE", SelectedPropertyText(
+                view.LayerStateSelector));
+            Assert.Equal("Off", SelectedPropertyText(
+                view.LayerVisibilitySelector));
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Set layer TARGET_STATE Off as one edit",
+                    StringComparison.Ordinal));
+
+            PressEnter(undo);
+            Assert.True(targetLayer.IsOn);
+            Assert.Single(view.Canvas.CurrentSnapshot!.Entities.ToArray());
+            Assert.Equal("On", SelectedPropertyText(
+                view.LayerVisibilitySelector));
+
+            view.LayerPlotSelector.SelectedItem =
+                view.LayerPlotSelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Tag is false);
+            PressEnter(setPlot);
+
+            Assert.Equal(3UL, session.ContentGeneration);
+            Assert.False(targetLayer.PlotFlag);
+            Assert.Single(view.Canvas.CurrentSnapshot!.Entities.ToArray());
+            CadDocumentSnapshot plotting = new CadSnapshotCompiler().Compile(
+                session,
+                new CadSnapshotOptions
+                {
+                    IncludeNonPlottableLayers = false,
+                });
+            Assert.Empty(plotting.Entities.ToArray());
+            Assert.Equal("No plot", SelectedPropertyText(view.LayerPlotSelector));
+
+            PressEnter(undo);
+            Assert.True(targetLayer.PlotFlag);
+            Assert.Equal("Plot", SelectedPropertyText(view.LayerPlotSelector));
+            PressEnter(redo);
+            Assert.False(targetLayer.PlotFlag);
+            Assert.Equal("No plot", SelectedPropertyText(view.LayerPlotSelector));
+
+            Assert.Throws<InvalidOperationException>(() =>
+                view.Canvas.CaptureLayerGeneralProperties("MISSING"));
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewRefreshesPropertyCatalogAcrossEqualGenerationDocuments()
     {
         var firstDocument = new CadDocument();
@@ -925,6 +1025,9 @@ public sealed class CadSampleSelectionTests
             Assert.Contains(
                 view.SelectionLayerSelector.Items.OfType<ComboBoxItem>(),
                 item => item.Tag is string name && name == "FIRST_LAYER");
+            Assert.Contains(
+                view.LayerStateSelector.Items.OfType<ComboBoxItem>(),
+                item => item.Tag is string name && name == "FIRST_LAYER");
 
             view.Canvas.Load(new CadDocumentSession(secondDocument));
 
@@ -933,6 +1036,12 @@ public sealed class CadSampleSelectionTests
                 item => item.Tag is string name && name == "FIRST_LAYER");
             Assert.Contains(
                 view.SelectionLayerSelector.Items.OfType<ComboBoxItem>(),
+                item => item.Tag is string name && name == "SECOND_LAYER");
+            Assert.DoesNotContain(
+                view.LayerStateSelector.Items.OfType<ComboBoxItem>(),
+                item => item.Tag is string name && name == "FIRST_LAYER");
+            Assert.Contains(
+                view.LayerStateSelector.Items.OfType<ComboBoxItem>(),
                 item => item.Tag is string name && name == "SECOND_LAYER");
         }
         finally

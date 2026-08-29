@@ -958,6 +958,63 @@ public sealed class CadEditingTests
     }
 
     [Fact]
+    public void MissingLayerPlotTargetFailsBeforeMutation()
+    {
+        var document = new CadDocument();
+        var layer = new Layer("EXISTING") { PlotFlag = true };
+        document.Layers.Add(layer);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadSetLayerPlotFlagCommand(
+                ["EXISTING", "MISSING"],
+                plotFlag: false)));
+
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(0, history.UndoCount);
+        Assert.True(layer.PlotFlag);
+    }
+
+    [Theory]
+    [InlineData(CadDocumentFormat.Dxf)]
+    [InlineData(CadDocumentFormat.Dwg)]
+    public async Task LayerVisibilityAndPlotFlagRoundTripThroughAdvertisedFormats(
+        CadDocumentFormat format)
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        var layer = new Layer("PERSISTED_STATE")
+        {
+            IsOn = false,
+            PlotFlag = false,
+        };
+        document.Layers.Add(layer);
+        document.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX) { Layer = layer });
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+
+        await store.SaveAsync(
+            new CadDocumentSession(document),
+            stream,
+            format,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            format,
+            sourceName: $"layer-state.{format.ToString().ToLowerInvariant()}");
+
+        Layer restored = loaded.Session.Read(source =>
+            source.Layers["PERSISTED_STATE"]);
+        Assert.False(restored.IsOn);
+        Assert.False(restored.PlotFlag);
+        Assert.Empty(new CadSnapshotCompiler()
+            .Compile(loaded.Session)
+            .Entities
+            .ToArray());
+    }
+
+    [Fact]
     public void LayerColorCommandUpdatesInheritedSnapshotRgbAndRestoresPriorValues()
     {
         var document = new CadDocument();

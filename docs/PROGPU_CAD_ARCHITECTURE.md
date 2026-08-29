@@ -926,6 +926,28 @@ an interactive browser picker/download smoke remains open.
   visibility filtering on undo. A distinct multi-layer command owns plot
   eligibility (`PlotFlag`) and retains the snapshot state consumed by later
   print planning without changing screen visibility.
+- The shared desktop/browser shell now exposes those two persisted states for
+  one explicit layer-table selection. Its detached, generation-refreshed layer
+  catalog remains bounded by the same 65,536-entry/1,048,576-character contract
+  as entity layer assignment and preserves the selected name across edits.
+  `On`/`Off` rebuilds the screen snapshot and therefore both managed and native
+  replay; `Plot`/`No plot` leaves the screen snapshot visible while the existing
+  plotting-purpose snapshot excludes the layer. Each Set action is one existing
+  transactional command, generation, retained-scene rebuild, and Undo/Redo item.
+  Missing layer names fail during detached capture or complete command preflight.
+  DXF and DWG regressions retain both states.
+- Autodesk's public
+  [LAYER DXF record](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-D94802B0-8BE8-4AC9-8054-17197688AFDB.htm)
+  defines a negative group-62 color as Off and group 290 zero as Do Not Plot;
+  the public
+  [Layer Properties Manager contract](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-B297EBD9-D68C-47E1-87CE-1B3798496599.htm)
+  further specifies that an Off layer is invisible and never plotted even when
+  its Plot flag is on. ProGPU adopts that distinction and rejects conflating
+  `PlotFlag` with screen visibility. Freeze/Thaw and Lock/Unlock remain
+  unexposed until compilation and edit authorization consume those states.
+  This UI-only reachability slice changes no shader, renderer algorithm, C++
+  path, native ABI, cache/upload behavior, text system, or device-loss rule;
+  both renderers continue to consume the same immutable snapshot streams.
 - Layer color assignment accepts indexed and true explicit colors, rejecting
   `ByLayer`, `ByBlock`, and the header-only `ByEntity` sentinel. It restores each
   prior table value and updates inherited entity RGB through the same immutable

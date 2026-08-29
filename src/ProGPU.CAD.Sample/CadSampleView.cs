@@ -63,6 +63,11 @@ public sealed class CadSampleView : Grid
     private readonly Button _setSelectionTransparencyButton;
     private readonly Button _setSelectionVisibilityButton;
     private readonly Button _setSelectionSolidThicknessButton;
+    private readonly ComboBox _layerStateSelector;
+    private readonly ComboBox _layerVisibilitySelector;
+    private readonly ComboBox _layerPlotSelector;
+    private readonly Button _setLayerVisibilityButton;
+    private readonly Button _setLayerPlotButton;
     private readonly TextBox _moveStepInput;
     private readonly TextBox _rotationStepInput;
     private readonly TextBox _scaleFactorInput;
@@ -109,6 +114,12 @@ public sealed class CadSampleView : Grid
     public TextBox SelectionSolidThicknessInput =>
         _selectionSolidThicknessInput;
 
+    public ComboBox LayerStateSelector => _layerStateSelector;
+
+    public ComboBox LayerVisibilitySelector => _layerVisibilitySelector;
+
+    public ComboBox LayerPlotSelector => _layerPlotSelector;
+
     /// <summary>
     /// Ordered fully-qualified desktop support directories probed after the
     /// opened drawing's directory. Browser hosts should register bundled SHX
@@ -137,7 +148,7 @@ public sealed class CadSampleView : Grid
             Visibility = Visibility.Collapsed,
         };
         TtfFont font = InterFontFamily.Regular;
-        RowDefinitions.Add(new GridLength(294, GridUnitType.Absolute));
+        RowDefinitions.Add(new GridLength(328, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));
         RowDefinitions.Add(new GridLength(30, GridUnitType.Absolute));
 
@@ -183,6 +194,11 @@ public sealed class CadSampleView : Grid
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
+        var layerStateActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
         var printActions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -199,6 +215,7 @@ public sealed class CadSampleView : Grid
         toolbarRows.AddChild(selectionPropertyActions);
         toolbarRows.AddChild(selectionEntityActions);
         toolbarRows.AddChild(selectionStyleActions);
+        toolbarRows.AddChild(layerStateActions);
         toolbarRows.AddChild(printActions);
         toolbarRows.AddChild(pageSetupCreateActions);
         toolbar.Child = toolbarRows;
@@ -548,6 +565,66 @@ public sealed class CadSampleView : Grid
         selectionStyleActions.AddChild(_selectionTransparencyInput);
         selectionStyleActions.AddChild(_setSelectionTransparencyButton);
 
+        layerStateActions.AddChild(new TextBlock
+        {
+            Text = "Layer state",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _layerStateSelector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = 150,
+            HeightConstraint = 30,
+            MaxDropDownHeight = 256,
+            Margin = new Thickness(0, 0, 12, 0),
+        };
+        _layerStateSelector.Items.Add(new ComboBoxItem { Text = "—" });
+        _layerStateSelector.SelectedIndex = 0;
+        layerStateActions.AddChild(_layerStateSelector);
+        layerStateActions.AddChild(new TextBlock
+        {
+            Text = "Visibility",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _layerVisibilitySelector = CreateBooleanPropertySelector(
+            font,
+            "On",
+            "Off");
+        _setLayerVisibilityButton = CreateButton(
+            "Set layer visibility",
+            font,
+            136,
+            30);
+        _setLayerVisibilityButton.Margin = new Thickness(0, 0, 12, 0);
+        layerStateActions.AddChild(_layerVisibilitySelector);
+        layerStateActions.AddChild(_setLayerVisibilityButton);
+        layerStateActions.AddChild(new TextBlock
+        {
+            Text = "Plot",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _layerPlotSelector = CreateBooleanPropertySelector(
+            font,
+            "Plot",
+            "No plot");
+        _setLayerPlotButton = CreateButton(
+            "Set layer plot",
+            font,
+            112,
+            30);
+        layerStateActions.AddChild(_layerPlotSelector);
+        layerStateActions.AddChild(_setLayerPlotButton);
+
         printActions.AddChild(new TextBlock
         {
             Text = "Page setup",
@@ -700,6 +777,37 @@ public sealed class CadSampleView : Grid
                 UpdateEditControls();
             }
         };
+        _layerStateSelector.SelectionChanged += (_, _) =>
+        {
+            if (_isRefreshingSelectionProperties)
+            {
+                return;
+            }
+            _isRefreshingSelectionProperties = true;
+            try
+            {
+                RefreshLayerStateControls();
+            }
+            finally
+            {
+                _isRefreshingSelectionProperties = false;
+            }
+            UpdateEditControls();
+        };
+        _layerVisibilitySelector.SelectionChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
+        _layerPlotSelector.SelectionChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
         _setSelectionColorButton.Click += (_, _) => SetSelectionColor();
         _setSelectionLineWeightButton.Click += (_, _) =>
             SetSelectionLineWeight();
@@ -713,6 +821,8 @@ public sealed class CadSampleView : Grid
             SetSelectionVisibility();
         _setSelectionSolidThicknessButton.Click += (_, _) =>
             SetSelectionSolidThickness();
+        _setLayerVisibilityButton.Click += (_, _) => SetLayerVisibility();
+        _setLayerPlotButton.Click += (_, _) => SetLayerPlotFlag();
         _createPageSetupButton.Click += (_, _) =>
             CreateNamedPageSetupFromModel();
         _updatePageSetupButton.Click += (_, _) =>
@@ -1392,6 +1502,7 @@ public sealed class CadSampleView : Grid
                     : properties.CommonSolidThickness is double thickness
                         ? thickness.ToString("G17", CultureInfo.InvariantCulture)
                         : "*VARIES*";
+            RefreshLayerStateControls();
         }
         finally
         {
@@ -1412,15 +1523,48 @@ public sealed class CadSampleView : Grid
 
         CadSelectionPropertyCatalog catalog =
             _canvas.CaptureSelectionPropertyCatalog();
+        string? previousLayerStateName =
+            (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag as string;
         PopulateNamedPropertyChoices(
             _selectionLayerSelector,
             catalog.LayerNames.Span);
         PopulateNamedPropertyChoices(
             _selectionLineTypeSelector,
             catalog.LineTypeNames.Span);
+        PopulateLayerStateChoices(
+            _layerStateSelector,
+            catalog.LayerNames.Span,
+            previousLayerStateName);
         _selectionPropertyCatalogSession = session;
         _selectionPropertyCatalogGeneration = catalog.ContentGeneration;
     }
+
+    private void RefreshLayerStateControls()
+    {
+        if ((_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is not
+            string layerName)
+        {
+            _layerVisibilitySelector.SelectedIndex = 0;
+            _layerPlotSelector.SelectedIndex = 0;
+            return;
+        }
+
+        CadLayerGeneralProperties properties =
+            _canvas.CaptureLayerGeneralProperties(layerName);
+        SelectBooleanPropertyChoice(
+            _layerVisibilitySelector,
+            properties.IsOn);
+        SelectBooleanPropertyChoice(
+            _layerPlotSelector,
+            properties.IsPlottable);
+    }
+
+    private static void SelectBooleanPropertyChoice(
+        ComboBox selector,
+        bool value) =>
+        selector.SelectedItem = selector.Items
+            .OfType<ComboBoxItem>()
+            .First(item => item.Tag is bool candidate && candidate == value);
 
     private static void SelectNamedPropertyChoice(
         ComboBox selector,
@@ -1696,6 +1840,61 @@ public sealed class CadSampleView : Grid
         catch (Exception exception)
         {
             SetStatus($"Set SOLID thickness failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetLayerVisibility()
+    {
+        if (_isBusy ||
+            (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                string layerName ||
+            (_layerVisibilitySelector.SelectedItem as ComboBoxItem)?.Tag is not
+                bool isOn)
+        {
+            return;
+        }
+
+        try
+        {
+            _canvas.SetLayerVisibility(layerName, isOn);
+            SetStatus(
+                $"Set layer {layerName} {(isOn ? "On" : "Off")} as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set layer visibility failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetLayerPlotFlag()
+    {
+        if (_isBusy ||
+            (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                string layerName ||
+            (_layerPlotSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                bool isPlottable)
+        {
+            return;
+        }
+
+        try
+        {
+            _canvas.SetLayerPlotFlag(layerName, isPlottable);
+            SetStatus(
+                $"Set layer {layerName} " +
+                $"{(isPlottable ? "Plot" : "No plot")} as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set layer plot failed: {exception.Message}");
         }
         finally
         {
@@ -2405,6 +2604,18 @@ public sealed class CadSampleView : Grid
             TryParseFiniteInvariantDouble(
                 _selectionSolidThicknessInput.Text,
                 out _);
+        bool canEditLayerState =
+            canUsePlanTools &&
+            (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is string;
+        _layerStateSelector.IsEnabled = canUsePlanTools;
+        _layerVisibilitySelector.IsEnabled = canEditLayerState;
+        _layerPlotSelector.IsEnabled = canEditLayerState;
+        _setLayerVisibilityButton.IsEnabled =
+            canEditLayerState &&
+            (_layerVisibilitySelector.SelectedItem as ComboBoxItem)?.Tag is bool;
+        _setLayerPlotButton.IsEnabled =
+            canEditLayerState &&
+            (_layerPlotSelector.SelectedItem as ComboBoxItem)?.Tag is bool;
         _moveStepInput.IsEnabled = canUsePlanTools;
         _rotationStepInput.IsEnabled = canUsePlanTools;
         _scaleFactorInput.IsEnabled = canUsePlanTools;
@@ -2659,6 +2870,61 @@ public sealed class CadSampleView : Grid
             });
         }
         selector.SelectedIndex = 0;
+    }
+
+    private static void PopulateLayerStateChoices(
+        ComboBox selector,
+        ReadOnlySpan<string> names,
+        string? previousName)
+    {
+        selector.Items.Clear();
+        selector.Items.Add(new ComboBoxItem { Text = "—" });
+        ComboBoxItem? selected = null;
+        ComboBoxItem? defaultLayer = null;
+        foreach (string name in names)
+        {
+            var item = new ComboBoxItem
+            {
+                Text = name,
+                Tag = name,
+            };
+            selector.Items.Add(item);
+            if (name.Equals(previousName, StringComparison.OrdinalIgnoreCase))
+            {
+                selected = item;
+            }
+            if (name.Equals(
+                ACadSharp.Tables.Layer.DefaultName,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                defaultLayer = item;
+            }
+        }
+        selector.SelectedItem = selected ?? defaultLayer;
+        if (selector.SelectedItem is null)
+        {
+            selector.SelectedIndex = 0;
+        }
+    }
+
+    private static ComboBox CreateBooleanPropertySelector(
+        TtfFont font,
+        string trueText,
+        string falseText)
+    {
+        var selector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = 100,
+            HeightConstraint = 30,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        selector.Items.Add(new ComboBoxItem { Text = "—" });
+        selector.Items.Add(new ComboBoxItem { Text = trueText, Tag = true });
+        selector.Items.Add(new ComboBoxItem { Text = falseText, Tag = false });
+        selector.SelectedIndex = 0;
+        return selector;
     }
 
     private static void PopulateLineWeightChoices(ComboBox selector)

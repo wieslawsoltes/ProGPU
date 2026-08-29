@@ -30,6 +30,12 @@ public readonly record struct CadSelectionGeneralProperties(
     bool AllSelectedEntitiesAreSolids,
     double? CommonSolidThickness);
 
+/// <summary>Detached persisted state for one document layer.</summary>
+public readonly record struct CadLayerGeneralProperties(
+    string Name,
+    bool IsOn,
+    bool IsPlottable);
+
 /// <summary>
 /// Generation-tagged names that can be assigned by the shared property shell.
 /// The catalog owns no mutable ACadSharp objects.
@@ -995,6 +1001,26 @@ public sealed class CadSampleCanvas : FrameworkElement
         });
     }
 
+    /// <summary>Captures persisted state for one exact document layer name.</summary>
+    public CadLayerGeneralProperties CaptureLayerGeneralProperties(string layerName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        return session.Read(document =>
+        {
+            if (!document.Layers.TryGetValue(layerName, out Layer? layer))
+            {
+                throw new InvalidOperationException(
+                    $"Document layer '{layerName}' does not exist.");
+            }
+            return new CadLayerGeneralProperties(
+                layer.Name,
+                layer.IsOn,
+                layer.PlotFlag);
+        });
+    }
+
     /// <summary>Sets the complete selection to one CAD color as one edit.</summary>
     public bool SetSelectionColor(ACadSharp.Color color)
     {
@@ -1175,6 +1201,40 @@ public sealed class CadSampleCanvas : FrameworkElement
             _selectedHandleCount == 1
                 ? "Set selected SOLID thickness"
                 : $"Set {_selectedHandleCount} selected SOLID thicknesses"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>Sets persisted display visibility for one document layer.</summary>
+    public bool SetLayerVisibility(string layerName, bool isOn)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetLayerVisibilityCommand(
+            [layerName],
+            isOn,
+            $"Set layer {layerName} {(isOn ? "on" : "off")}"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>Sets persisted plot eligibility for one document layer.</summary>
+    public bool SetLayerPlotFlag(string layerName, bool isPlottable)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetLayerPlotFlagCommand(
+            [layerName],
+            isPlottable,
+            $"Set layer {layerName} {(isPlottable ? "plottable" : "non-plottable")}"));
         RecompileAfterEdit(session);
         return true;
     }
