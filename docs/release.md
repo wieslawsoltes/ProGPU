@@ -94,6 +94,7 @@ pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 - `ProGPU.Uno`
 - `ProGPU.Dxf`
 - `ProGPU.CAD`
+- `ProGPU.CAD.Native`
 - `ProGPU.SkiaSharp`
 - `ProGPU.BinaryCompatibility`
 - `ProGPU.System.Drawing.Common`
