@@ -574,12 +574,9 @@ public sealed class CadMeshSnapshotTests
     }
 
     [Fact]
-    public void SubdivisionAndTopologyVisitLimitAreExplicitlyDiagnosed()
+    public void SourceTopologyVisitLimitIsExplicitlyDiagnosed()
     {
         var document = new CadDocument();
-        Mesh subdivided = CreateTriangleMesh();
-        subdivided.SubdivisionLevel = 1;
-        document.Entities.Add(subdivided);
         document.Entities.Add(CreateTriangleMesh());
 
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
@@ -587,9 +584,7 @@ public sealed class CadMeshSnapshotTests
             new CadSnapshotOptions { MaxMeshFaceIndices = 2 });
 
         Assert.Empty(snapshot.Entities.ToArray());
-        Assert.Equal(2, snapshot.Statistics.UnsupportedEntityCount);
-        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
-            diagnostic.Message.Contains("Subdivided", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
         Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
             diagnostic.Message.Contains("topology", StringComparison.OrdinalIgnoreCase));
     }

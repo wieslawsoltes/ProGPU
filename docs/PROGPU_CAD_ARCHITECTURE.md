@@ -1146,12 +1146,9 @@ edges; hash-table worst case is `O(K^2)`. Stable replay uses the ordinary
 retained line stream and adds no MESH-specific allocation, upload, crossing, or
 shader.
 
-Nonzero subdivision is diagnosed rather than showing the level-0 control cage,
-because that would visibly change the requested surface. This wire contract is
-preserved alongside the later exact Flat face contract below. Smooth normals,
-crease-driven subdivision, texture resources/material overrides, and complete
-hidden-line policy remain matched 3D renderer gates; the source MESH object
-continues to own editing and DXF/DWG saving.
+This level-zero wire contract is preserved alongside the Flat and authored-
+subdivision surface contracts below. The source MESH object continues to own
+editing and DXF/DWG saving.
 
 ## Exact legacy polygon/polyface MESH wireframes
 
@@ -1187,7 +1184,7 @@ reuse the existing retained line/point, BVH, exact selection, native-picture,
 and print-plan paths. No C ABI, shader, upload, or renderer-specific contract
 was added; managed and native renderers consume the same canonical commands.
 
-## Exact level-0 flat-shaded MESH surfaces
+## Exact level-0 and bounded subdivided MESH surfaces
 
 Modern subdivision-level-zero `Mesh`, unfitted legacy `PolygonMesh`, and
 `PolyfaceMesh` records now retain one semantic `CadMesh3DPrimitive` in addition
@@ -1208,9 +1205,37 @@ non-planar quad uses the stable persisted `0-2` diagonal. A non-planar face with
 more than four vertices has no persisted diagonal and remains explicitly
 unsupported. Each triangle intentionally owns three vertices: interpolation
 therefore cannot smooth across a CAD face or the fixed diagonal, and the exact
-Flat visual style needs no invented crease threshold. Smooth/subdivision
-normals, material overrides, texture resources, and surface evaluation remain
-separate fidelity gates.
+Flat visual style needs no invented crease threshold.
+
+A modern `Mesh` with a positive persisted subdivision level now evaluates a
+bounded uniform Catmull-Clark cage at that authored level. Each refinement
+computes one face average, uses the four-point interior-edge mask, treats
+boundaries and sharp edges as midpoints, and applies the smooth, two-edge
+crease, and three-edge corner vertex masks. Boundary edges remain infinitely
+sharp. Persisted crease `-1` remains sharp at every level, zero remains smooth,
+and a positive level loses one unit of sharpness per refinement. With Blend
+Crease enabled, the final fractional unit linearly blends the corresponding
+smooth and sharp masks; a fractional or negative non-`-1` value without that
+public meaning is rejected. Final face-corner normals are area weighted across
+smooth adjacency and split at surviving hard creases. Per-control-vertex UVs
+use linear topological refinement because the MESH record has no independent
+face-varying seam data. The refined quads then use the existing deterministic
+triangle and retained wire paths, so selection, printing, managed depth/orbit,
+and optional native replay observe one identical generation.
+
+Compilation rejects repeated/collapsed face vertices, same-direction shared
+edges, edges incident to more than two faces, disconnected vertex fans,
+non-manifold boundaries, crease records outside the face topology, and
+degenerate refined faces before publishing the entity. The default maximum is
+six subdivision levels and one million aggregate source/refined corner visits;
+both are caller-configurable, including a zero level ceiling. If the source has
+`C` face corners and requests `L` levels, the final cage has `C*4^L` corners and
+the exact visit count is `C*(4^(L+1)-1)/3`. Construction is
+`O(sum(V_l + E_l + C_l))` expected time and storage over the evaluated levels,
+with hash-table worst cases called out as quadratic; the explicit corner budget
+bounds exponential refinement before a new level is allocated. Adaptive limit
+patches, legacy fitted polygon meshes, material/texture leases, and a complete
+hidden-line policy remain separate fidelity gates.
 
 `CadMesh3DSceneCompiler` copies one immutable generation into consecutive
 same-style, float-rebased triangle-list batches in `O(M + R + V + I)` time and
@@ -1982,6 +2007,7 @@ dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --patt
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --dimension-entities 1000 --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --thick-solid-entities 1000 --warmup 3 --iterations 24 --queries 1000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --mesh-entities 1000 --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --mesh-entities 100 --mesh-subdivision-level 2 --warmup 3 --iterations 24 --queries 1000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --polygon-mesh-entities 1000 --polyface-mesh-entities 1000 --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --point-entities 10000 --warmup 3 --iterations 24 --queries 10000
 ```
@@ -2059,6 +2085,27 @@ transparent feature/cost baseline with noisy tails and deliberately overlapping
 3D-to-plan projections, not an improvement or release-acceptance claim. Indexed
 edge batches, representative orbit/depth workloads, GPU counters,
 managed/native images, and required Instruments traces remain open gates.
+
+Two consecutive 2026-08-29 subdivision feature-cost runs used the same final
+Apple Silicon/.NET 10.0.5 Release binary, 100 closed tetrahedral modern MESH
+roots at authored level two, three warmups, 24 construction iterations, and
+1,000 spatial queries. Each source refined to 48 quads, 96 triangles, and 96
+unique displayed edges; both runs reported exactly 100 source roots, 9,700
+expanded records including the roots, 4,800 face ranges, 9,600 triangles, 100
+3D draw batches, and zero unsupported or invalid entities. Snapshot
+p50/p95/p99 was `26.669/55.135/60.927 ms` and
+`32.198/45.421/62.398 ms`, allocating `32,082,980` and `32,125,010 B/op`.
+Camera-independent 3D-scene construction was `0.507/9.124/13.513 ms` and
+`0.851/7.161/10.541 ms`, allocating `1,062,376 B/op` in both runs.
+Plan-wire construction was `14.410/34.380/34.821 ms` and
+`12.154/35.525/43.172 ms`; warm spatial queries remained zero-allocation at
+`39.6/136.8/155.0 us` and `50.7/155.2/212.2 us`. The ignored JSON artifacts
+are `artifacts/progpu-cad/mesh-subdivision-level2-run1.json` and
+`mesh-subdivision-level2-run2.json`. These measurements expose current
+feature cost and noisy construction tails; they make no latency improvement or
+regression claim and do not replace matched viewer pixels, GPU residency and
+submission counters, native differential images, or required Instruments
+captures for a future optimization claim.
 
 The 2026-08-29 retained-POINT feature-cost run used one final Apple
 Silicon/.NET 10.0.5 Release process, 10,000 PDMODE-zero POINT entities, three
@@ -2590,6 +2637,47 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   eviction, fallback and variable-font state, DPI/subpixel snapping, and text
   device-loss invalidation do not change. No foreign implementation text,
   structure, tables, names, or control flow was used.
+
+- For authored modern-MESH subdivision, Autodesk's
+  [MESH DXF contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-4B9ADA67-87C8-4673-A579-6E4C76FF7025.htm),
+  [MESHCREASE behavior](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-F176266D-C615-4A0B-95ED-E8FBE1D4E392.htm), and
+  [`AcDbSubDMesh::setCrease`](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-RefGuide/files/OREF-AcDbSubDMesh__setCrease_AcDbFullSubentPathArray__double.html)
+  establish the persisted smoothness level, Blend Crease flag, explicit edge
+  records, and `-1`/zero/positive crease meanings. Pixar's
+  [OpenSubdiv Sdc overview](https://opensubdiv.org/docs/sdc_overview.html) and
+  [documented compatibility rules](https://github.com/PixarAnimationStudios/OpenSubdiv/blob/dev/documentation/compatibility.rst)
+  describe Catmull-Clark face/edge/vertex masks, smooth/dart/crease/corner
+  classification, boundary interpolation, and uniform semi-sharp subtraction.
+  Adopted those public mathematical contracts and adapted them into an original
+  bounded, double-precision, generation-owned CPU evaluator with linear UV
+  refinement and explicit topology diagnostics. Rejected foreign source code,
+  helper/data layouts, adaptive patch tables, runtime dependency integration,
+  guessed repair, control-cage substitution, and unbounded exact-level cache
+  keys. Limit-patch evaluation remains a separately measured quality gate.
+  [Skia triangle meshes](https://api.skia.org/classSkCanvas.html),
+  [Direct2D meshes](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nn-d2d1-id2d1mesh),
+  [Win2D cached geometry](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Geometry_CanvasCachedGeometry.htm),
+  [WebRender's retained pipeline](https://firefox-source-docs.mozilla.org/gfx/webrender/overview.html), and
+  [Vello's retained scene](https://github.com/linebender/vello/blob/main/vello/src/scene.rs)
+  were rechecked for startup, retained reuse, culling, worker preparation,
+  batching, cache identity/eviction, demand-driven upload, and device loss.
+  They do not define CAD subdivision, so ProGPU evaluates immutable topology
+  before device ownership and reuses its existing generation-keyed Mesh3D
+  resources and shared managed/native depth path. Startup remains lazy, camera
+  changes reuse the compiled scene, and visibility/upload/device-loss contracts
+  are unchanged. The native C++ frontend has no ACadSharp document graph; it
+  consumes the exact same final positions, normals, UVs, and indices through
+  the existing single-update/single-draw stable ABI. Therefore no paired C++
+  topology evaluator, shader fork, C record, generated C# wire, or extra
+  crossing applies; matched native-batch tests cover the applicability seam.
+  [SkParagraph shaping](https://docs.skia.org/docs/dev/design/text_shaper/),
+  [DirectWrite architecture](https://learn.microsoft.com/en-us/windows/win32/directwrite/introducing-directwrite),
+  [Win2D text drawing](https://microsoft.github.io/Win2D/WinUI3/html/M_Microsoft_Graphics_Canvas_CanvasDrawingSession_DrawText.htm),
+  [Parley layout](https://github.com/linebender/parley/blob/main/doc/concept.md), and
+  [HarfBuzz shape plans](https://harfbuzz.github.io/shaping-and-shape-plans.html)
+  are not applicable because this slice changes no shaping/layout reuse,
+  fallback or variable-font state, glyph/texture cache key or eviction,
+  DPI/subpixel placement, text upload, or text device-loss invalidation.
 
 - For exact SOLID/3DFACE shaded surfaces, Autodesk's
   [SOLID DXF record](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DXF/files/GUID-E0C5F04E-D0C5-48F5-AC09-32733E8848F2.htm),

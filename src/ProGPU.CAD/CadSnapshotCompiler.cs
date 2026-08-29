@@ -27,6 +27,8 @@ public sealed class CadSnapshotOptions
     public const int DefaultMaxHatchTopologyVisits = 10_000_000;
     public const int DefaultMaxHatchSplineSourceValues = 10_000_000;
     public const int DefaultMaxMeshFaceIndices = 10_000_000;
+    public const int DefaultMaxMeshSubdivisionLevel = 6;
+    public const int DefaultMaxMeshSubdivisionTopologyVisits = 1_000_000;
 
     public double DefaultLineWeightMillimeters { get; init; } = 0.25;
     public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
@@ -45,6 +47,9 @@ public sealed class CadSnapshotOptions
     public int MaxHatchTopologyVisits { get; init; } = DefaultMaxHatchTopologyVisits;
     public int MaxHatchSplineSourceValues { get; init; } = DefaultMaxHatchSplineSourceValues;
     public int MaxMeshFaceIndices { get; init; } = DefaultMaxMeshFaceIndices;
+    public int MaxMeshSubdivisionLevel { get; init; } = DefaultMaxMeshSubdivisionLevel;
+    public int MaxMeshSubdivisionTopologyVisits { get; init; } =
+        DefaultMaxMeshSubdivisionTopologyVisits;
     public bool IncludeNonPlottableLayers { get; init; } = true;
     public ICadTextFontResolver? TextFontResolver { get; init; }
     public ICadShxFontResolver? ShxFontResolver { get; init; }
@@ -152,6 +157,8 @@ public sealed partial class CadSnapshotCompiler
         int unsupportedCount = 0;
         int invalidCount = 0;
         int remainingMeshFaceIndices = options.MaxMeshFaceIndices;
+        int remainingMeshSubdivisionTopologyVisits =
+            options.MaxMeshSubdivisionTopologyVisits;
         var hatchTopologyBudget = new CadHatchTopologyBudget(
             options.MaxHatchTopologyVisits);
         var hatchSplineSourceBudget = new CadHatchSplineSourceBudget(
@@ -823,15 +830,19 @@ public sealed partial class CadSnapshotCompiler
             Layer effectiveLayer,
             CadResolvedStyle resolvedStyle)
         {
-            if (mesh.SubdivisionLevel != 0)
+            if (mesh.SubdivisionLevel < 0)
+            {
+                throw new ArgumentException("MESH subdivision level cannot be negative.");
+            }
+            if (mesh.SubdivisionLevel > options.MaxMeshSubdivisionLevel)
             {
                 throw new CadUnsupportedEntityException(
-                    "Subdivided MESH display requires exact surface evaluation and a depth-aware shaded renderer.");
+                    $"MESH subdivision level {mesh.SubdivisionLevel} exceeds the configured limit of {options.MaxMeshSubdivisionLevel}.");
             }
             if (mesh.Vertices.Count < 3 || mesh.Faces.Count == 0)
             {
                 throw new ArgumentException(
-                    "A level-0 MESH requires at least three vertices and one face.");
+                    "A MESH requires at least three control vertices and one face.");
             }
 
             var worldVertices = new CadPoint3D[mesh.Vertices.Count];
@@ -845,17 +856,14 @@ public sealed partial class CadSnapshotCompiler
                 worldVertices[i] = point;
             }
 
-            var uniqueEdges = new HashSet<ulong>();
-            var orderedEdges = new List<(int Start, int End)>();
-            var faceVertices = new HashSet<int>();
-            int availableExpandedEntities = options.MaxExpandedEntities - expandedCount;
+            var sourceFaceVertices = new HashSet<int>();
             foreach (int[] face in mesh.Faces)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (face is null || face.Length < 3)
                 {
                     throw new ArgumentException(
-                        "Every level-0 MESH face must contain at least three vertex indices.");
+                        "Every MESH face must contain at least three control-vertex indices.");
                 }
                 if (face.Length > remainingMeshFaceIndices)
                 {
@@ -865,7 +873,7 @@ public sealed partial class CadSnapshotCompiler
                 }
                 remainingMeshFaceIndices -= face.Length;
 
-                faceVertices.Clear();
+                sourceFaceVertices.Clear();
                 for (int i = 0; i < face.Length; i++)
                 {
                     if ((i & 1023) == 0)
@@ -878,9 +886,9 @@ public sealed partial class CadSnapshotCompiler
                         (uint)end >= (uint)worldVertices.Length)
                     {
                         throw new ArgumentException(
-                            "A level-0 MESH face references a vertex outside the persisted vertex array.");
+                            "A MESH face references a vertex outside the persisted control array.");
                     }
-                    faceVertices.Add(start);
+                    sourceFaceVertices.Add(start);
                     if (start == end)
                     {
                         continue;
@@ -888,9 +896,78 @@ public sealed partial class CadSnapshotCompiler
                     if (worldVertices[start] == worldVertices[end])
                     {
                         throw new ArgumentException(
-                            "A level-0 MESH face contains a geometrically collapsed edge.");
+                            "A MESH face contains a geometrically collapsed control edge.");
                     }
+                }
+                if (sourceFaceVertices.Count < 3)
+                {
+                    throw new ArgumentException(
+                        "A MESH face must reference at least three distinct control vertices.");
+                }
+            }
 
+            XYZ[] textureValues = mesh.TextureCoordinates.ToArray();
+            if (textureValues.Length != 0 &&
+                textureValues.Length != worldVertices.Length)
+            {
+                throw new ArgumentException(
+                    "A MESH texture-coordinate count must match its control-vertex count.");
+            }
+            var sourceTextureCoordinates = textureValues.Length == 0
+                ? Array.Empty<Vector2>()
+                : new Vector2[textureValues.Length];
+            for (int i = 0; i < textureValues.Length; i++)
+            {
+                float u = checked((float)textureValues[i].X);
+                float v = checked((float)textureValues[i].Y);
+                if (!float.IsFinite(u) || !float.IsFinite(v))
+                {
+                    throw new ArgumentException("A MESH texture coordinate must be finite.");
+                }
+                sourceTextureCoordinates[i] = new Vector2(u, v);
+            }
+
+            CadPoint3D[] displayVertices = worldVertices;
+            Vector2[] displayTextureCoordinates = sourceTextureCoordinates;
+            IReadOnlyList<int[]> displayFaces = mesh.Faces;
+            CadPoint3D[][] displayNormals = Array.Empty<CadPoint3D[]>();
+            int subdivisionTopologyVisits = 0;
+            if (mesh.SubdivisionLevel > 0)
+            {
+                var sourceEdges = new CadMeshSubdivisionEdge[mesh.Edges.Count];
+                for (int i = 0; i < sourceEdges.Length; i++)
+                {
+                    Mesh.Edge edge = mesh.Edges[i];
+                    sourceEdges[i] = new CadMeshSubdivisionEdge(
+                        edge.Start,
+                        edge.End,
+                        edge.Crease);
+                }
+                CadMeshSubdivisionResult subdivision = CadMeshSubdivision.Refine(
+                    worldVertices,
+                    sourceTextureCoordinates,
+                    mesh.Faces,
+                    sourceEdges,
+                    mesh.SubdivisionLevel,
+                    mesh.BlendCrease,
+                    remainingMeshSubdivisionTopologyVisits,
+                    cancellationToken);
+                subdivisionTopologyVisits = subdivision.TopologyVisitCount;
+                displayVertices = subdivision.Vertices;
+                displayTextureCoordinates = subdivision.TextureCoordinates;
+                displayFaces = subdivision.Faces;
+                displayNormals = subdivision.FaceCornerNormals;
+            }
+
+            var uniqueEdges = new HashSet<ulong>();
+            var orderedEdges = new List<(int Start, int End)>();
+            int availableExpandedEntities = options.MaxExpandedEntities - expandedCount;
+            foreach (int[] face in displayFaces)
+            {
+                for (int i = 0; i < face.Length; i++)
+                {
+                    int start = face[i];
+                    int end = face[(i + 1) % face.Length];
                     int lower = Math.Min(start, end);
                     int upper = Math.Max(start, end);
                     ulong key = ((ulong)(uint)lower << 32) | (uint)upper;
@@ -905,15 +982,10 @@ public sealed partial class CadSnapshotCompiler
                     }
                     orderedEdges.Add((start, end));
                 }
-                if (faceVertices.Count < 3)
-                {
-                    throw new ArgumentException(
-                        "A level-0 MESH face must reference at least three distinct vertices.");
-                }
             }
             if (orderedEdges.Count == 0)
             {
-                throw new ArgumentException("A level-0 MESH has no visible topology edges.");
+                throw new ArgumentException("A MESH has no visible topology edges.");
             }
 
             int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
@@ -934,35 +1006,21 @@ public sealed partial class CadSnapshotCompiler
                 shxGlyphInstances,
                 shxFontResolver,
                 options);
-            XYZ[] textureValues = mesh.TextureCoordinates.ToArray();
-            if (textureValues.Length != 0 &&
-                textureValues.Length != worldVertices.Length)
+            var meshFaces = new List<CadMesh3DFaceSource>(displayFaces.Count);
+            for (int faceIndex = 0; faceIndex < displayFaces.Count; faceIndex++)
             {
-                throw new ArgumentException(
-                    "A level-0 MESH texture-coordinate count must match its vertex count.");
-            }
-            var meshFaces = new List<CadMesh3DFaceSource>(mesh.Faces.Count);
-            foreach (int[] face in mesh.Faces)
-            {
+                int[] face = displayFaces[faceIndex];
                 var facePoints = new CadPoint3D[face.Length];
-                var faceTextureCoordinates = textureValues.Length == 0
+                var faceTextureCoordinates = displayTextureCoordinates.Length == 0
                     ? Array.Empty<Vector2>()
                     : new Vector2[face.Length];
                 for (int i = 0; i < face.Length; i++)
                 {
                     int sourceIndex = face[i];
-                    facePoints[i] = worldVertices[sourceIndex];
-                    if (textureValues.Length != 0)
+                    facePoints[i] = displayVertices[sourceIndex];
+                    if (displayTextureCoordinates.Length != 0)
                     {
-                        XYZ texture = textureValues[sourceIndex];
-                        float u = checked((float)texture.X);
-                        float v = checked((float)texture.Y);
-                        if (!float.IsFinite(u) || !float.IsFinite(v))
-                        {
-                            throw new ArgumentException(
-                                "A level-0 MESH texture coordinate must be finite.");
-                        }
-                        faceTextureCoordinates[i] = new Vector2(u, v);
+                        faceTextureCoordinates[i] = displayTextureCoordinates[sourceIndex];
                     }
                 }
                 meshFaces.Add(new CadMesh3DFaceSource(
@@ -970,7 +1028,12 @@ public sealed partial class CadSnapshotCompiler
                     faceTextureCoordinates,
                     layerIndex,
                     styleIndex,
-                    AllowNonPlanarQuad: true));
+                    AllowNonPlanarQuad: true)
+                {
+                    Normals = displayNormals.Length == 0
+                        ? Array.Empty<CadPoint3D>()
+                        : displayNormals[faceIndex],
+                });
             }
             CommitMesh3D(meshFaces, rootHandle);
             expandedCount = checked(expandedCount + orderedEdges.Count);
@@ -981,8 +1044,8 @@ public sealed partial class CadSnapshotCompiler
                     cancellationToken.ThrowIfCancellationRequested();
                 }
                 (int startIndex, int endIndex) = orderedEdges[i];
-                CadPoint3D start = worldVertices[startIndex];
-                CadPoint3D end = worldVertices[endIndex];
+                CadPoint3D start = displayVertices[startIndex];
+                CadPoint3D end = displayVertices[endIndex];
                 int primitiveIndex = lines.Count;
                 lines.Add(new CadLinePrimitive(start, end));
                 CadBounds3D bounds = CadBounds3D.FromPoint(start).Include(end);
@@ -995,6 +1058,7 @@ public sealed partial class CadSnapshotCompiler
                     bounds));
                 documentBounds = documentBounds.Union(bounds);
             }
+            remainingMeshSubdivisionTopologyVisits -= subdivisionTopologyVisits;
         }
 
         void CompilePolygonMesh(
@@ -4360,6 +4424,15 @@ public sealed partial class CadSnapshotCompiler
             1);
         ArgumentOutOfRangeException.ThrowIfLessThan(
             options.MaxMeshFaceIndices,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxMeshSubdivisionLevel,
+            0);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            options.MaxMeshSubdivisionLevel,
+            30);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxMeshSubdivisionTopologyVisits,
             1);
     }
 

@@ -6,7 +6,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <Description>Optional typed native C++ scene adapter for immutable ProGPU CAD content.</Description>
     <PackageDescription>Compiles camera-independent ProGPU CAD 3D mesh scenes into the retained pointer-free native C++ WebGPU scene ABI.</PackageDescription>
-    <PackageReleaseNotes>Adds the optional one-resource/one-draw native adapter for exact flat-shaded SOLID, 3DFACE, and modern/legacy ProGPU CAD mesh batches, reusing the existing native Mesh3D ABI and canonical Native3D shader.</PackageReleaseNotes>
+    <PackageReleaseNotes>Adds the optional one-resource/one-draw native adapter for exact SOLID/3DFACE, modern level-zero and crease-aware subdivided MESH, and legacy MESH batches, reusing the existing native Mesh3D ABI and canonical Native3D shader.</PackageReleaseNotes>
     <PackageTags>progpu;cad;native;c++;webgpu;3d</PackageTags>
   </PropertyGroup>
   <ItemGroup>

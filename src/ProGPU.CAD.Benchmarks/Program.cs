@@ -18,6 +18,7 @@ int attributeInsertCount = ReadNonNegativeInt("--attribute-inserts", 0);
 int dimensionEntityCount = ReadNonNegativeInt("--dimension-entities", 0);
 int thickSolidEntityCount = ReadNonNegativeInt("--thick-solid-entities", 0);
 int meshEntityCount = ReadNonNegativeInt("--mesh-entities", 0);
+int meshSubdivisionLevel = ReadNonNegativeInt("--mesh-subdivision-level", 0);
 int polygonMeshEntityCount = ReadNonNegativeInt("--polygon-mesh-entities", 0);
 int polyfaceMeshEntityCount = ReadNonNegativeInt("--polyface-mesh-entities", 0);
 int pointEntityCount = ReadNonNegativeInt("--point-entities", 0);
@@ -63,6 +64,17 @@ if (blockArrayColumnCount > ushort.MaxValue)
     throw new ArgumentOutOfRangeException(
         nameof(blockArrayColumnCount),
         $"--block-array-columns cannot exceed {ushort.MaxValue}.");
+}
+if (meshSubdivisionLevel > CadSnapshotOptions.DefaultMaxMeshSubdivisionLevel)
+{
+    throw new ArgumentOutOfRangeException(
+        nameof(meshSubdivisionLevel),
+        $"--mesh-subdivision-level cannot exceed {CadSnapshotOptions.DefaultMaxMeshSubdivisionLevel}.");
+}
+if (meshSubdivisionLevel != 0 && meshEntityCount == 0)
+{
+    throw new ArgumentException(
+        "--mesh-subdivision-level requires a positive --mesh-entities count.");
 }
 
 if (measureSplineSelection &&
@@ -145,6 +157,7 @@ CadDocumentSession session = CreateDocument(
     dimensionEntityCount,
     thickSolidEntityCount,
     meshEntityCount,
+    meshSubdivisionLevel,
     polygonMeshEntityCount,
     polyfaceMeshEntityCount,
     pointEntityCount,
@@ -321,6 +334,7 @@ var report = new CadBenchmarkReport(
     dimensionEntityCount,
     thickSolidEntityCount,
     meshEntityCount,
+    meshSubdivisionLevel,
     polygonMeshEntityCount,
     polyfaceMeshEntityCount,
     pointEntityCount,
@@ -410,7 +424,7 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         (attributeInsertCount * 2) +
         (dimensionEntityCount * 6) +
         thickSolidEntityCount +
-        (meshEntityCount * 7) +
+        (meshEntityCount * checked(1 + (6 * Pow4(meshSubdivisionLevel)))) +
         (polygonMeshEntityCount * 13) +
         (polyfaceMeshEntityCount * 7) +
         pointEntityCount +
@@ -437,6 +451,13 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         (diagnostics.Length == 0 ? string.Empty : Environment.NewLine + diagnostics));
 }
 
+int Pow4(int exponent)
+{
+    int result = 1;
+    for (int i = 0; i < exponent; i++) result = checked(result * 4);
+    return result;
+}
+
 CadDocumentSession CreateDocument(
     int count,
     int arrayColumns,
@@ -448,6 +469,7 @@ CadDocumentSession CreateDocument(
     int dimensionCount,
     int thickSolidCount,
     int meshCount,
+    int meshSubdivision,
     int polygonMeshCount,
     int polyfaceMeshCount,
     int pointCount,
@@ -789,7 +811,7 @@ CadDocumentSession CreateDocument(
         {
             double x = (i % 100) * 12.0;
             double y = (i / 100) * 12.0;
-            var mesh = new Mesh();
+            var mesh = new Mesh { SubdivisionLevel = meshSubdivision };
             mesh.Vertices.Add(new XYZ(x, y, 0));
             mesh.Vertices.Add(new XYZ(x + 8, y, 0));
             mesh.Vertices.Add(new XYZ(x + 4, y + 8, 0));
@@ -1514,6 +1536,7 @@ internal sealed record CadBenchmarkReport(
     int DimensionEntityCount,
     int ThickSolidEntityCount,
     int MeshEntityCount,
+    int MeshSubdivisionLevel,
     int PolygonMeshEntityCount,
     int PolyfaceMeshEntityCount,
     int PointEntityCount,

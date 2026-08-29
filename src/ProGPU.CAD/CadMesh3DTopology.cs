@@ -15,7 +15,14 @@ internal readonly record struct CadMesh3DFaceSource(
     Vector2[] TextureCoordinates,
     int LayerIndex,
     int StyleIndex,
-    bool AllowNonPlanarQuad);
+    bool AllowNonPlanarQuad)
+{
+    /// <summary>
+    /// Optional normal per face corner. An empty array selects exact Flat
+    /// triangle normals; subdivided surfaces provide crease-aware smooth normals.
+    /// </summary>
+    public CadPoint3D[] Normals { get; init; } = Array.Empty<CadPoint3D>();
+}
 
 internal sealed class CadMesh3DBuildResult
 {
@@ -59,6 +66,10 @@ internal static class CadMesh3DTopology
                 throw new ArgumentException(
                     "A mesh face has no texture-coordinate array.",
                     nameof(faces));
+            CadPoint3D[] normals = face.Normals ??
+                throw new ArgumentException(
+                    "A mesh face has no normal array.",
+                    nameof(faces));
             if (points.Length < 3)
             {
                 throw new ArgumentException(
@@ -70,6 +81,12 @@ internal static class CadMesh3DTopology
             {
                 throw new ArgumentException(
                     "A mesh face texture-coordinate count must be zero or match its vertex count.",
+                    nameof(faces));
+            }
+            if (normals.Length != 0 && normals.Length != points.Length)
+            {
+                throw new ArgumentException(
+                    "A mesh face normal count must be zero or match its vertex count.",
                     nameof(faces));
             }
 
@@ -88,9 +105,18 @@ internal static class CadMesh3DTopology
                         nameof(faces));
                 }
 
-                AppendVertex(triangles[triangle], first, normal);
-                AppendVertex(triangles[triangle + 1], second, normal);
-                AppendVertex(triangles[triangle + 2], third, normal);
+                AppendVertex(
+                    triangles[triangle],
+                    first,
+                    ResolveNormal(triangles[triangle], normal));
+                AppendVertex(
+                    triangles[triangle + 1],
+                    second,
+                    ResolveNormal(triangles[triangle + 1], normal));
+                AppendVertex(
+                    triangles[triangle + 2],
+                    third,
+                    ResolveNormal(triangles[triangle + 2], normal));
             }
 
             int vertexCount = vertices.Count - vertexOffset;
@@ -126,6 +152,23 @@ internal static class CadMesh3DTopology
                     normal,
                     textureCoordinate));
                 bounds = bounds.Include(position);
+            }
+
+            CadPoint3D ResolveNormal(int sourceIndex, CadPoint3D flatNormal)
+            {
+                if (normals.Length == 0)
+                {
+                    return flatNormal;
+                }
+                CadPoint3D value = normals[sourceIndex];
+                double length = value.Length;
+                if (!double.IsFinite(length) || length <= RelativeTolerance)
+                {
+                    throw new ArgumentException(
+                        "A mesh corner normal must be finite and non-zero.",
+                        nameof(faces));
+                }
+                return value / length;
             }
         }
 
