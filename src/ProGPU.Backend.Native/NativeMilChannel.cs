@@ -126,6 +126,34 @@ public sealed unsafe class NativeMilChannel : IDisposable
     }
 
     /// <summary>
+    /// Binds the dimensions of a live same-device video texture to a canonical
+    /// WPF MediaPlayer resource. The scene remains pointer-free; callers bind
+    /// the texture view through <see cref="NativeCompositor.BindSceneExternalImages"/>
+    /// before installing the compiled scene.
+    /// </summary>
+    public void SetMediaPlayerExternalImage(
+        uint handle,
+        uint width,
+        uint height)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(handle);
+        ArgumentOutOfRangeException.ThrowIfZero(width);
+        ArgumentOutOfRangeException.ThrowIfZero(height);
+        nint channel = GetChannel();
+        NativeMilStatus status = _backend == NativeMilBackend.Dawn
+            ? NativeMilDawnMethods.SetMediaPlayerExternalImage(
+                channel, handle, width, height)
+            : NativeMilMethods.SetMediaPlayerExternalImage(
+                channel, handle, width, height);
+        if (status != NativeMilStatus.Success)
+        {
+            throw new NativeMilException(
+                status,
+                $"The external image descriptor for MIL MediaPlayer handle {handle} was rejected with {status}.");
+        }
+    }
+
+    /// <summary>
     /// Copies an SFNT/TTC font into the portable sideband for a canonical WPF
     /// <see cref="NativeMilResourceType.GlyphRun"/> handle.
     /// </summary>

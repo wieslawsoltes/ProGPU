@@ -190,6 +190,40 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilRenderDataBuilderWritesCanonicalVideoPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(7, NativeMilResourceType.MediaPlayer);
+        var renderData = new NativeMilRenderDataBuilder();
+
+        renderData.DrawVideo(new NativeMilRect(2, 3, 40, 24), 7);
+        renderData.DrawVideo(new NativeMilRect(4, 5, 20, 12), 7, 8);
+        byte[] resource = batch.ToArray();
+        byte[] encoded = renderData.WrittenSpan.ToArray();
+
+        Assert.Equal(1U, ReadUInt32(resource, 12));
+        Assert.Equal(96, encoded.Length);
+        Assert.Equal(48U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x4bU, ReadUInt32(encoded, 4));
+        Assert.Equal(2.0, ReadDouble(encoded, 8));
+        Assert.Equal(3.0, ReadDouble(encoded, 16));
+        Assert.Equal(40.0, ReadDouble(encoded, 24));
+        Assert.Equal(24.0, ReadDouble(encoded, 32));
+        Assert.Equal(7U, ReadUInt32(encoded, 40));
+        Assert.Equal(0U, ReadUInt32(encoded, 44));
+        Assert.Equal(48U, ReadUInt32(encoded, 48));
+        Assert.Equal(0x4cU, ReadUInt32(encoded, 52));
+        Assert.Equal(7U, ReadUInt32(encoded, 88));
+        Assert.Equal(8U, ReadUInt32(encoded, 92));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderData.DrawVideo(new NativeMilRect(0, 0, 1, 1), 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            renderData.DrawVideo(
+                new NativeMilRect(0, 0, double.NaN, 1),
+                7));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalAnimationValuePackets()
     {
         var batch = new NativeMilBatchBuilder();

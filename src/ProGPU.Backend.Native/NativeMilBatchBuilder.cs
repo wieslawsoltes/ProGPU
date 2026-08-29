@@ -1749,6 +1749,59 @@ public sealed class NativeMilRenderDataBuilder
             packet, 40, rectangleAnimationHandle);
     }
 
+    public void DrawVideo(
+        NativeMilRect destination,
+        uint mediaPlayerHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(mediaPlayerHandle);
+        ValidateVideoDestination(destination);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawVideo, 44);
+        WriteVideoPayload(packet, destination, mediaPlayerHandle, 0);
+    }
+
+    public void DrawVideo(
+        NativeMilRect destination,
+        uint mediaPlayerHandle,
+        uint rectangleAnimationHandle)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(mediaPlayerHandle);
+        ValidateVideoDestination(destination);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DrawVideoAnimate, 44);
+        WriteVideoPayload(
+            packet,
+            destination,
+            mediaPlayerHandle,
+            rectangleAnimationHandle);
+    }
+
+    private static void ValidateVideoDestination(NativeMilRect destination)
+    {
+        if (!double.IsFinite(destination.X) ||
+            !double.IsFinite(destination.Y) ||
+            !double.IsFinite(destination.Width) ||
+            !double.IsFinite(destination.Height) ||
+            destination.Width < 0.0 || destination.Height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(destination));
+        }
+    }
+
+    private static void WriteVideoPayload(
+        Span<byte> packet,
+        NativeMilRect destination,
+        uint mediaPlayerHandle,
+        uint trailingValue)
+    {
+        NativeMilBatchBuilder.WriteDouble(packet, 4, destination.X);
+        NativeMilBatchBuilder.WriteDouble(packet, 12, destination.Y);
+        NativeMilBatchBuilder.WriteDouble(packet, 20, destination.Width);
+        NativeMilBatchBuilder.WriteDouble(packet, 28, destination.Height);
+        NativeMilBatchBuilder.WriteUInt32(packet, 36, mediaPlayerHandle);
+        NativeMilBatchBuilder.WriteUInt32(packet, 40, trailingValue);
+    }
+
     public void DrawRectangle(
         double x,
         double y,
@@ -1983,6 +2036,8 @@ internal static class NativeMilCommand
     internal const uint DrawImageAnimate = 0x48;
     internal const uint DrawGlyphRun = 0x49;
     internal const uint DrawDrawing = 0x4a;
+    internal const uint DrawVideo = 0x4b;
+    internal const uint DrawVideoAnimate = 0x4c;
     internal const uint PushClip = 0x4d;
     internal const uint PushOpacityMask = 0x4e;
     internal const uint PushOpacity = 0x4f;
