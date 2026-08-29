@@ -1167,12 +1167,19 @@ public sealed class CadEditingTests
             LineType = lineType,
         };
         document.Layers.Add(layer);
+        document.Layers.Add(new Layer("REMOVE_BEFORE_SAVE"));
         document.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX) { Layer = layer });
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        history.Execute(new CadRenameLayerCommand(
+            "PERSISTED_STATE",
+            "PERSISTED_PROPERTIES"));
+        history.Execute(new CadRemoveLayerCommand("REMOVE_BEFORE_SAVE"));
         var store = new CadDocumentStore();
         using var stream = new MemoryStream();
 
         await store.SaveAsync(
-            new CadDocumentSession(document),
+            session,
             stream,
             format,
             new CadSaveOptions { AllowUncertifiedWrite = true });
@@ -1183,7 +1190,11 @@ public sealed class CadEditingTests
             sourceName: $"layer-state.{format.ToString().ToLowerInvariant()}");
 
         Layer restored = loaded.Session.Read(source =>
-            source.Layers["PERSISTED_STATE"]);
+            source.Layers["PERSISTED_PROPERTIES"]);
+        Assert.False(loaded.Session.Read(source =>
+            source.Layers.Contains("PERSISTED_STATE")));
+        Assert.False(loaded.Session.Read(source =>
+            source.Layers.Contains("REMOVE_BEFORE_SAVE")));
         Assert.False(restored.IsOn);
         Assert.False(restored.PlotFlag);
         Assert.True((restored.Flags & LayerFlags.Frozen) != 0);
@@ -1397,6 +1408,194 @@ public sealed class CadEditingTests
         document.Layers.Add(layer);
 
         Assert.Throws<ArgumentException>(() => new CadAddLayerCommand(layer));
+    }
+
+    [Fact]
+    public void LayerNameRulesMatchAdvertisedVersionAndCharacterLimits()
+    {
+        Assert.True(CadLayerNameRules.IsValid(
+            new string('A', 31),
+            ACadVersion.AC1015));
+        Assert.False(CadLayerNameRules.IsValid(
+            new string('A', 32),
+            ACadVersion.AC1015));
+        Assert.True(CadLayerNameRules.IsValid(
+            new string('B', 255),
+            ACadVersion.AC1032));
+        Assert.False(CadLayerNameRules.IsValid(
+            new string('B', 256),
+            ACadVersion.AC1032));
+        Assert.False(CadLayerNameRules.IsValid("BAD/NAME", ACadVersion.AC1032));
+        Assert.False(CadLayerNameRules.IsValid("*BAD", ACadVersion.AC1032));
+        Assert.False(CadLayerNameRules.IsValid("   ", ACadVersion.AC1032));
+
+        var document = new CadDocument();
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        Assert.Throws<ArgumentException>(() => history.Execute(
+            new CadAddLayerCommand(new Layer("BAD/NAME"))));
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadAddLayerCommand(new Layer("XREF_NEW")
+            {
+                Flags = LayerFlags.XrefDependent,
+            })));
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(0, history.UndoCount);
+    }
+
+    [Fact]
+    public void RenameLayerCommandPreservesTableAndReferenceIdentity()
+    {
+        var document = new CadDocument();
+        var layer = new Layer("RENAMED_SOURCE");
+        document.Layers.Add(layer);
+        var line = new Line(XYZ.Zero, XYZ.AxisX) { Layer = layer };
+        document.Entities.Add(line);
+        document.SetCurrent(layer);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadRenameLayerCommand(
+            "renamed_source",
+            "RENAMED_TARGET"));
+
+        Assert.False(document.Layers.Contains("RENAMED_SOURCE"));
+        Assert.Same(layer, document.Layers["renamed_target"]);
+        Assert.Same(layer, line.Layer);
+        Assert.Same(layer, document.Header.CurrentLayer);
+        Assert.Equal("RENAMED_TARGET", document.Header.CurrentLayerName);
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Same(layer, document.Layers["RENAMED_SOURCE"]);
+        Assert.False(document.Layers.Contains("RENAMED_TARGET"));
+        Assert.Same(layer, line.Layer);
+        Assert.Equal("RENAMED_SOURCE", document.Header.CurrentLayerName);
+
+        Assert.True(history.TryRedo(out _));
+        Assert.Same(layer, document.Layers["RENAMED_TARGET"]);
+        Assert.Equal("RENAMED_TARGET", document.Header.CurrentLayerName);
+    }
+
+    [Fact]
+    public void RenameLayerCommandRejectsProtectedDependentDuplicateAndInvalidNames()
+    {
+        var document = new CadDocument();
+        var source = new Layer("SOURCE");
+        var duplicate = new Layer("DUPLICATE");
+        var dependent = new Layer("XREF|DEPENDENT")
+        {
+            Flags = LayerFlags.XrefDependent,
+        };
+        document.Layers.Add(source);
+        document.Layers.Add(duplicate);
+        document.Layers.Add(dependent);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadRenameLayerCommand("0", "ZERO_RENAMED")));
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadRenameLayerCommand("SOURCE", "DUPLICATE")));
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadRenameLayerCommand("SOURCE", "source")));
+        Assert.Throws<ArgumentException>(() => history.Execute(
+            new CadRenameLayerCommand("SOURCE", "BAD/NAME")));
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadRenameLayerCommand("XREF|DEPENDENT", "XREF_RENAMED")));
+
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(0, history.UndoCount);
+        Assert.Same(source, document.Layers["SOURCE"]);
+        Assert.Same(duplicate, document.Layers["DUPLICATE"]);
+        Assert.Same(dependent, document.Layers["XREF|DEPENDENT"]);
+    }
+
+    [Fact]
+    public void RemoveUnreferencedLayerCommandRoundTripsDetachedOwnership()
+    {
+        var document = new CadDocument();
+        var layer = new Layer("UNUSED");
+        document.Layers.Add(layer);
+        ulong originalHandle = layer.Handle;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadRemoveLayerCommand("unused");
+
+        history.Execute(command);
+
+        Assert.False(document.Layers.Contains("UNUSED"));
+        Assert.Null(layer.Owner);
+        Assert.Equal(0UL, command.CurrentHandle);
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Same(layer, document.Layers["UNUSED"]);
+        Assert.NotEqual(0UL, command.CurrentHandle);
+        Assert.NotEqual(originalHandle, command.CurrentHandle);
+
+        Assert.True(history.TryRedo(out _));
+        Assert.False(document.Layers.Contains("UNUSED"));
+        Assert.Null(layer.Owner);
+        Assert.Equal(0UL, command.CurrentHandle);
+    }
+
+    [Fact]
+    public void RemoveLayerCommandPreflightsEveryAdvertisedReferenceClass()
+    {
+        static void AssertRejected(CadDocument document, string layerName)
+        {
+            var session = new CadDocumentSession(document);
+            var history = new CadDocumentHistory(session);
+            Assert.Throws<InvalidOperationException>(() => history.Execute(
+                new CadRemoveLayerCommand(layerName)));
+            Assert.Equal(0UL, session.ContentGeneration);
+            Assert.Equal(0, history.UndoCount);
+            Assert.True(document.Layers.Contains(layerName));
+        }
+
+        var currentDocument = new CadDocument();
+        var current = new Layer("CURRENT");
+        currentDocument.Layers.Add(current);
+        currentDocument.SetCurrent(current);
+        AssertRejected(currentDocument, current.Name);
+
+        var modelDocument = new CadDocument();
+        var modelLayer = new Layer("MODEL_USED");
+        modelDocument.Layers.Add(modelLayer);
+        modelDocument.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX)
+        {
+            Layer = modelLayer,
+        });
+        AssertRejected(modelDocument, modelLayer.Name);
+
+        var blockDocument = new CadDocument();
+        var blockLayer = new Layer("BLOCK_USED");
+        blockDocument.Layers.Add(blockLayer);
+        var block = new BlockRecord("LAYER_REFERENCE_BLOCK");
+        block.Entities.Add(new Circle(XYZ.Zero, 1) { Layer = blockLayer });
+        blockDocument.BlockRecords.Add(block);
+        AssertRejected(blockDocument, blockLayer.Name);
+
+        var viewportDocument = new CadDocument();
+        var viewportLayer = new Layer("VIEWPORT_FROZEN");
+        viewportDocument.Layers.Add(viewportLayer);
+        var viewport = new Viewport();
+        viewport.FrozenLayers.Add(viewportLayer);
+        viewportDocument.PaperSpace.Entities.Add(viewport);
+        AssertRejected(viewportDocument, viewportLayer.Name);
+
+        AssertRejected(new CadDocument(), Layer.DefaultName);
+
+        var defpointsDocument = new CadDocument();
+        defpointsDocument.Layers.Add(Layer.Defpoints);
+        AssertRejected(defpointsDocument, Layer.DefpointsName);
+
+        var xrefDocument = new CadDocument();
+        var xrefLayer = new Layer("XREF|LAYER")
+        {
+            Flags = LayerFlags.XrefDependent,
+        };
+        xrefDocument.Layers.Add(xrefLayer);
+        AssertRejected(xrefDocument, xrefLayer.Name);
     }
 
     [Fact]

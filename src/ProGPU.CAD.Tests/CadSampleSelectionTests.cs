@@ -1241,6 +1241,155 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void SharedViewCreatesRenamesAndSafelyRemovesLayers()
+    {
+        var document = new CadDocument();
+        var dash = new LineType("LIFECYCLE_DASH");
+        dash.AddSegment(new LineType.Segment { Length = 2.0 });
+        dash.AddSegment(new LineType.Segment { Length = -1.0 });
+        document.LineTypes.Add(dash);
+        var template = new Layer("LIFECYCLE_SOURCE")
+        {
+            Color = new ACadSharp.Color(12, 34, 56),
+            LineWeight = LineWeightType.W70,
+            LineType = dash,
+            PlotFlag = false,
+            Flags = LayerFlags.Locked,
+        };
+        document.Layers.Add(template);
+        var line = new Line(new XYZ(-5, 0, 0), new XYZ(5, 0, 0))
+        {
+            Layer = template,
+            Color = ACadSharp.Color.ByLayer,
+            LineWeight = LineWeightType.ByLayer,
+            LineType = document.LineTypes.ByLayer,
+        };
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 980));
+            view.Canvas.Load(session);
+            view.LayerStateSelector.SelectedItem =
+                FindNamedPropertyChoice(
+                    view.LayerStateSelector,
+                    "LIFECYCLE_SOURCE");
+            Button create = FindButton(view, "New layer");
+            Button rename = FindButton(view, "Rename layer");
+            Button remove = FindButton(view, "Delete unused");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+
+            Assert.Equal("LIFECYCLE_SOURCE", view.LayerNameInput.Text);
+            Assert.False(create.IsEnabled);
+            Assert.False(rename.IsEnabled);
+            Assert.True(remove.IsEnabled);
+
+            view.LayerNameInput.Text = "BAD/NAME";
+            Assert.False(create.IsEnabled);
+            Assert.False(rename.IsEnabled);
+
+            view.LayerNameInput.Text = "LIFECYCLE_RENAMED";
+            Assert.True(rename.IsEnabled);
+            PressEnter(rename);
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.False(document.Layers.Contains("LIFECYCLE_SOURCE"));
+            Assert.Same(template, document.Layers["LIFECYCLE_RENAMED"]);
+            Assert.Same(template, line.Layer);
+            Assert.Equal("LIFECYCLE_RENAMED", view.LayerNameInput.Text);
+            Assert.Equal(
+                "LIFECYCLE_RENAMED",
+                SelectedPropertyText(view.LayerStateSelector));
+            Assert.Equal(
+                "LIFECYCLE_RENAMED",
+                Assert.Single(view.Canvas.CurrentSnapshot!.Layers.ToArray(),
+                    item => item.Name == "LIFECYCLE_RENAMED").Name);
+            CadRecordedPlanScene renamedScene = new CadPlanSceneCompiler().Compile(
+                view.Canvas.CurrentSnapshot);
+            using (GpuPicture picture = renamedScene.CreatePicture())
+            {
+                Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+                    picture,
+                    96U,
+                    view.Canvas.CurrentSnapshot.ContentGeneration,
+                    out NativeCompiledPicture? native,
+                    out NativePictureCompileFailure failure),
+                    failure.ToString());
+                Assert.NotNull(native);
+                Assert.True(native.SourceCommandCount > 0);
+                Assert.True(native.GeometryPrimitiveCount > 0);
+            }
+
+            view.LayerNameInput.Text = "LIFECYCLE_CREATED";
+            Assert.True(create.IsEnabled);
+            PressEnter(create);
+
+            Assert.Equal(2UL, session.ContentGeneration);
+            Layer created = document.Layers["LIFECYCLE_CREATED"];
+            Assert.Equal(template.Color, created.Color);
+            Assert.Equal(template.LineWeight, created.LineWeight);
+            Assert.Same(dash, created.LineType);
+            Assert.Equal(template.PlotFlag, created.PlotFlag);
+            Assert.True((created.Flags & LayerFlags.Locked) != 0);
+            Assert.Equal(
+                "LIFECYCLE_CREATED",
+                SelectedPropertyText(view.LayerStateSelector));
+
+            view.LayerNameInput.Text = "LIFECYCLE_FINAL";
+            PressEnter(rename);
+
+            Assert.Equal(3UL, session.ContentGeneration);
+            Assert.Same(created, document.Layers["LIFECYCLE_FINAL"]);
+            Assert.False(document.Layers.Contains("LIFECYCLE_CREATED"));
+
+            view.LayerStateSelector.SelectedItem =
+                FindNamedPropertyChoice(
+                    view.LayerStateSelector,
+                    "LIFECYCLE_RENAMED");
+            Assert.True(remove.IsEnabled);
+            PressEnter(remove);
+
+            Assert.Equal(3UL, session.ContentGeneration);
+            Assert.Same(template, document.Layers["LIFECYCLE_RENAMED"]);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "referenced by entity handle",
+                    StringComparison.Ordinal));
+
+            view.LayerStateSelector.SelectedItem =
+                FindNamedPropertyChoice(
+                    view.LayerStateSelector,
+                    "LIFECYCLE_FINAL");
+            PressEnter(remove);
+
+            Assert.Equal(4UL, session.ContentGeneration);
+            Assert.False(document.Layers.Contains("LIFECYCLE_FINAL"));
+            Assert.Equal(Layer.DefaultName, SelectedPropertyText(
+                view.LayerStateSelector));
+
+            PressEnter(undo);
+            Assert.True(document.Layers.Contains("LIFECYCLE_FINAL"));
+            Assert.Contains(
+                view.LayerStateSelector.Items.OfType<ComboBoxItem>(),
+                item => item.Tag is string name && name == "LIFECYCLE_FINAL");
+
+            PressEnter(redo);
+            Assert.False(document.Layers.Contains("LIFECYCLE_FINAL"));
+            Assert.DoesNotContain(
+                view.LayerStateSelector.Items.OfType<ComboBoxItem>(),
+                item => item.Tag is string name && name == "LIFECYCLE_FINAL");
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewRefreshesPropertyCatalogAcrossEqualGenerationDocuments()
     {
         var firstDocument = new CadDocument();

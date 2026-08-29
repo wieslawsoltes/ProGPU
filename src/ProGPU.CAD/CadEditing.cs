@@ -1,5 +1,6 @@
 using ACadSharp;
 using ACadSharp.Entities;
+using ACadSharp.Extensions;
 using ACadSharp.Tables;
 using CSMath;
 
@@ -20,6 +21,20 @@ public sealed class CadEditHistoryDivergedException : InvalidOperationException
     {
         ExpectedGeneration = expectedGeneration;
         ActualGeneration = actualGeneration;
+    }
+}
+
+/// <summary>Shared persisted-name rules for editable CAD layer records.</summary>
+public static class CadLayerNameRules
+{
+    public static bool IsValid(string? layerName, ACadVersion version)
+    {
+        if (string.IsNullOrWhiteSpace(layerName) ||
+            layerName.IndexOfAny(INamedCadObjectExtensions.InvalidCharacters) >= 0)
+        {
+            return false;
+        }
+        return new Layer(layerName).HasValidDxfName(version);
     }
 }
 
@@ -558,6 +573,87 @@ public abstract class CadEditCommand
             layers[i] = layer;
         }
         return layers;
+    }
+
+    protected static void ValidateLayerNameAvailable(
+        CadDocument document,
+        string layerName,
+        Layer? retainedLayer = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+        if (!CadLayerNameRules.IsValid(layerName, document.Header.Version))
+        {
+            throw new ArgumentException(
+                $"Layer name '{layerName}' is not valid for " +
+                $"{document.Header.Version} DXF/DWG persistence.",
+                nameof(layerName));
+        }
+        if (document.Layers.TryGetValue(layerName, out Layer? existing) &&
+            !ReferenceEquals(existing, retainedLayer))
+        {
+            throw new InvalidOperationException(
+                $"Document layer '{layerName}' already exists.");
+        }
+    }
+
+    protected static void ValidateLayerCanBeRenamed(Layer layer)
+    {
+        if (layer.Name.Equals(
+                Layer.DefaultName,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Default layer 0 cannot be renamed.");
+        }
+        if ((layer.Flags & LayerFlags.XrefDependent) != 0)
+        {
+            throw new InvalidOperationException(
+                $"Xref-dependent layer '{layer.Name}' cannot be renamed.");
+        }
+    }
+
+    protected static void ValidateLayerCanBeRemoved(
+        CadDocument document,
+        Layer layer)
+    {
+        if (layer.Name.Equals(
+                Layer.DefaultName,
+                StringComparison.OrdinalIgnoreCase) ||
+            layer.Name.Equals(
+                Layer.DefpointsName,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Protected layer '{layer.Name}' cannot be removed.");
+        }
+        if ((layer.Flags & LayerFlags.XrefDependent) != 0)
+        {
+            throw new InvalidOperationException(
+                $"Xref-dependent layer '{layer.Name}' cannot be removed.");
+        }
+        if (ReferenceEquals(document.Header.CurrentLayer, layer))
+        {
+            throw new InvalidOperationException(
+                $"Current layer '{layer.Name}' cannot be removed.");
+        }
+        foreach (Entity entity in document.GetCadObjects<Entity>())
+        {
+            if (ReferenceEquals(entity.Layer, layer))
+            {
+                throw new InvalidOperationException(
+                    $"Layer '{layer.Name}' is referenced by entity handle " +
+                    $"{entity.Handle:X} and cannot be removed.");
+            }
+        }
+        foreach (Viewport viewport in document.GetCadObjects<Viewport>())
+        {
+            if (viewport.FrozenLayers.Any(candidate =>
+                    ReferenceEquals(candidate, layer)))
+            {
+                throw new InvalidOperationException(
+                    $"Layer '{layer.Name}' is frozen in viewport handle " +
+                    $"{viewport.Handle:X} and cannot be removed.");
+            }
+        }
     }
 
     protected static string[] NormalizeLayerNames(
@@ -2079,6 +2175,12 @@ public sealed class CadAddLayerCommand : CadEditCommand
             throw new InvalidOperationException(
                 "The layer is not detached and cannot be added to the document.");
         }
+        ValidateLayerNameAvailable(document, Layer.Name);
+        if ((Layer.Flags & LayerFlags.XrefDependent) != 0)
+        {
+            throw new InvalidOperationException(
+                "A user-created layer cannot be xref-dependent.");
+        }
         document.Layers.Add(Layer);
     }
 
@@ -2091,6 +2193,137 @@ public sealed class CadAddLayerCommand : CadEditCommand
             throw new InvalidOperationException(
                 "The added layer could not be removed from the document.");
         }
+    }
+}
+
+/// <summary>Renames one retained layer while preserving table-entry identity.</summary>
+public sealed class CadRenameLayerCommand : CadEditCommand
+{
+    private Layer? _layer;
+    private string? _originalName;
+
+    public string LayerName { get; }
+
+    public string NewName { get; }
+
+    public CadRenameLayerCommand(
+        string layerName,
+        string newName,
+        string description = "Rename layer")
+        : base(description)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newName);
+        LayerName = layerName;
+        NewName = newName;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Layer layer;
+        if (isRedo)
+        {
+            layer = GetRetainedLayer(document);
+        }
+        else
+        {
+            layer = ResolveLayers(document, [LayerName])[0];
+            _layer = layer;
+            _originalName = layer.Name;
+        }
+
+        ValidateLayerCanBeRenamed(layer);
+        if (layer.Name.Equals(NewName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "The new layer name must differ from the current name.");
+        }
+        ValidateLayerNameAvailable(document, NewName, layer);
+        layer.Name = NewName;
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Layer layer = GetRetainedLayer(document);
+        string originalName = _originalName ??
+            throw new InvalidOperationException(
+                "The layer-rename command has not been applied.");
+        ValidateLayerCanBeRenamed(layer);
+        ValidateLayerNameAvailable(document, originalName, layer);
+        layer.Name = originalName;
+    }
+
+    private Layer GetRetainedLayer(CadDocument document)
+    {
+        Layer layer = _layer ??
+            throw new InvalidOperationException(
+                "The layer-rename command has not been applied.");
+        ValidateLayer(document, layer);
+        return layer;
+    }
+}
+
+/// <summary>
+/// Removes one unreferenced layer and restores the same detached table entry on
+/// Undo. Entity, current-layer, viewport-freeze, default, and xref references
+/// are rejected before the table is mutated.
+/// </summary>
+public sealed class CadRemoveLayerCommand : CadEditCommand
+{
+    private Layer? _layer;
+
+    public string LayerName { get; }
+
+    public ulong CurrentHandle => _layer?.Handle ?? 0;
+
+    public CadRemoveLayerCommand(
+        string layerName,
+        string description = "Remove layer")
+        : base(description)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+        LayerName = layerName;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Layer layer;
+        if (isRedo)
+        {
+            layer = _layer ??
+                throw new InvalidOperationException(
+                    "The layer-removal command has not been applied.");
+            ValidateLayer(document, layer);
+        }
+        else
+        {
+            layer = ResolveLayers(document, [LayerName])[0];
+            _layer = layer;
+        }
+
+        ValidateLayerCanBeRemoved(document, layer);
+        Layer removed = document.Layers.Remove(layer.Name) ??
+            throw new InvalidOperationException(
+                $"Layer '{layer.Name}' could not be removed.");
+        if (!ReferenceEquals(removed, layer))
+        {
+            throw new InvalidOperationException(
+                $"Removing layer '{layer.Name}' returned a different table entry.");
+        }
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Layer layer = _layer ??
+            throw new InvalidOperationException(
+                "The layer-removal command has not been applied.");
+        if (layer.Owner is not null || layer.Handle != 0)
+        {
+            throw new InvalidOperationException(
+                "The removed layer is not detached and cannot be restored.");
+        }
+        ValidateLayerNameAvailable(document, layer.Name);
+        document.Layers.Add(layer);
     }
 }
 

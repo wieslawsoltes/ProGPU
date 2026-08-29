@@ -1071,11 +1071,51 @@ an interactive browser picker/download smoke remains open.
   changes no startup, worker, upload, eviction, device-loss, shader, C++ path,
   native ABI, or renderer algorithm; both renderers consume the same rebuilt
   immutable picture.
-- Layer creation transfers one detached zero-handle `Layer` into the document
-  table and reverses that ownership on undo. LIFO history guarantees dependent
-  in-history edits are undone first; arbitrary populated-layer deletion remains
-  unsupported until entity/block reference reassignment has a complete semantic
-  transaction.
+- Layer-table lifecycle is a typed reversible contract. Creation copies the
+  selected layer's currently supported editable state (On/Off, Plot, Freeze,
+  Freeze-in-new-viewports, Lock, explicit Color, fixed/default Lineweight, and
+  drawing-resident Linetype) into a detached zero-handle `Layer`, then transfers
+  that entry to the document table. Rename mutates the retained entry name, so
+  entity, current-layer, and viewport references keep the same object identity.
+  Removal first rejects layer 0, Defpoints, the current layer, xref-dependent
+  layers, every registered entity reference across model space, paper space,
+  block definitions and owned child entities, and every viewport frozen-layer
+  reference. Only then does it detach the table entry; Undo restores the same
+  object with a newly assigned handle. Invalid or duplicate names and failed
+  removal preflights leave both the table and content generation unchanged.
+  Arbitrary populated-layer deletion/merge remains unsupported until target
+  reassignment and all affected semantic references form one complete command.
+- The shared desktop/browser shell exposes `New layer`, `Rename layer`, and
+  `Delete unused` on a dedicated row. A created layer uses the selected layer as
+  its template and becomes the selected table row; a renamed layer remains
+  selected under its new name; a removed selection falls back to layer 0. Name
+  validation uses the loaded document version, the 31/255-character persistence
+  limits, and the shared forbidden-character set. The Delete button performs no
+  registry scan while typing or selecting; the command performs the definitive
+  O(R + F) preflight on click for R registered entities and F viewport frozen
+  references. Create and rename table work is average O(1), followed by the
+  existing whole-generation O(E + G) immutable snapshot/picture replacement.
+- Autodesk's
+  [Layer Properties Manager](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-B297EBD9-D68C-47E1-87CE-1B3798496599.htm)
+  defines new-layer inheritance and create/rename/delete reachability. Its
+  [layer workflow](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-Core/files/GUID-28E52FA3-248E-4F65-94DD-7C47BE761D58.htm)
+  defines the persisted name limits and forbids deleting layer 0, Defpoints,
+  current, object/block-used, and xref layers. Autodesk's
+  [unreferenced-definition guidance](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-8411645E-618C-4081-8FE4-5E09B52BAEDF.htm)
+  additionally identifies paper-space, nested-block, current, permanent, and
+  xref references. ProGPU adopts those safety rules, while rejecting automatic
+  object reassignment as a different future merge/delete command. The clean
+  typed registry enumeration required for complete preflight is ProGPU-owned
+  ACadSharp feature commit `b83de724`; the dependency master branch remains
+  untouched.
+- This lifecycle slice changes the object table and shared host, then invokes
+  the existing generation rebuild. It changes no scene compiler, shader, cache,
+  GPU resource, native ABI, or managed/native renderer algorithm. Both renderers
+  consume the same post-edit immutable picture, and the native picture regression
+  covers a used-layer rename. Text shaping, fallback, bidi, variable-font,
+  DPI/subpixel, glyph-cache, atlas, startup, worker, upload, eviction, and
+  device-loss contracts are unchanged, so no paired renderer/text source change
+  applies.
 - Entity duplication uses ACadSharp's public detached-clone contract. The
   single-entity command applies an optional finite translation before ownership
   transfer and retains its cloned object across Undo/Redo handle reassignment.

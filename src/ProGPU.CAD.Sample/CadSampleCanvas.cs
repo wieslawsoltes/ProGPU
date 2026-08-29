@@ -38,6 +38,10 @@ public readonly record struct CadLayerGeneralProperties(
     bool IsPlottable,
     bool IsFrozen,
     bool IsLocked,
+    bool IsCurrent,
+    bool IsDefault,
+    bool IsDefpoints,
+    bool IsXrefDependent,
     ACadSharp.Color Color,
     LineWeightType LineWeight,
     string LineTypeName);
@@ -1032,10 +1036,121 @@ public sealed class CadSampleCanvas : FrameworkElement
                 layer.PlotFlag,
                 (layer.Flags & LayerFlags.Frozen) != 0,
                 (layer.Flags & LayerFlags.Locked) != 0,
+                ReferenceEquals(document.Header.CurrentLayer, layer),
+                layer.Name.Equals(
+                    Layer.DefaultName,
+                    StringComparison.OrdinalIgnoreCase),
+                layer.Name.Equals(
+                    Layer.DefpointsName,
+                    StringComparison.OrdinalIgnoreCase),
+                (layer.Flags & LayerFlags.XrefDependent) != 0,
                 layer.Color,
                 layer.LineWeight,
                 layer.LineType.Name);
         });
+    }
+
+    /// <summary>Returns whether a persisted layer name is available for creation.</summary>
+    public bool CanCreateLayer(string layerName)
+    {
+        CadDocumentSession? session = CurrentSession;
+        return session is not null && session.Read(document =>
+            CadLayerNameRules.IsValid(layerName, document.Header.Version) &&
+            !document.Layers.Contains(layerName));
+    }
+
+    /// <summary>Returns whether one retained layer can be renamed to a new name.</summary>
+    public bool CanRenameLayer(string layerName, string newName)
+    {
+        CadDocumentSession? session = CurrentSession;
+        return session is not null && session.Read(document =>
+        {
+            if (!document.Layers.TryGetValue(layerName, out Layer? layer) ||
+                layer.Name.Equals(
+                    Layer.DefaultName,
+                    StringComparison.OrdinalIgnoreCase) ||
+                (layer.Flags & LayerFlags.XrefDependent) != 0 ||
+                layer.Name.Equals(newName, StringComparison.OrdinalIgnoreCase) ||
+                !CadLayerNameRules.IsValid(newName, document.Header.Version))
+            {
+                return false;
+            }
+            return !document.Layers.Contains(newName);
+        });
+    }
+
+    /// <summary>
+    /// Creates a layer by copying the selected template layer's editable state.
+    /// The detached copy retains table names rather than mutable document objects.
+    /// </summary>
+    public bool CreateLayer(string layerName, string templateLayerName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(templateLayerName);
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        Layer detached = session.Read(document =>
+        {
+            if (!document.Layers.TryGetValue(templateLayerName, out Layer? template))
+            {
+                throw new InvalidOperationException(
+                    $"Document layer '{templateLayerName}' does not exist.");
+            }
+            return new Layer(layerName)
+            {
+                IsOn = template.IsOn,
+                PlotFlag = template.PlotFlag,
+                Flags = template.Flags &
+                    (LayerFlags.Frozen |
+                     LayerFlags.FrozenNewViewports |
+                     LayerFlags.Locked),
+                Color = template.Color,
+                LineWeight = template.LineWeight,
+                LineType = new LineType(template.LineType.Name),
+            };
+        });
+        history.Execute(new CadAddLayerCommand(
+            detached,
+            $"Create layer {layerName} from {templateLayerName}"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>Renames one retained document layer as one reversible edit.</summary>
+    public bool RenameLayer(string layerName, string newName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newName);
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadRenameLayerCommand(
+            layerName,
+            newName,
+            $"Rename layer {layerName} to {newName}"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>Removes one preflighted unreferenced layer as one reversible edit.</summary>
+    public bool RemoveLayer(string layerName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadRemoveLayerCommand(
+            layerName,
+            $"Remove unused layer {layerName}"));
+        RecompileAfterEdit(session);
+        return true;
     }
 
     /// <summary>Sets the complete selection to one CAD color as one edit.</summary>

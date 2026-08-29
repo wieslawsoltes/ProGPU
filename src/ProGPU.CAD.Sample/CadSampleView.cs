@@ -78,6 +78,10 @@ public sealed class CadSampleView : Grid
     private readonly Button _setLayerColorButton;
     private readonly Button _setLayerLineWeightButton;
     private readonly Button _setLayerLineTypeButton;
+    private readonly TextBox _layerNameInput;
+    private readonly Button _createLayerButton;
+    private readonly Button _renameLayerButton;
+    private readonly Button _removeLayerButton;
     private readonly TextBox _moveStepInput;
     private readonly TextBox _rotationStepInput;
     private readonly TextBox _scaleFactorInput;
@@ -91,6 +95,8 @@ public sealed class CadSampleView : Grid
     private bool _isRefreshingSelectionProperties;
     private bool _isSelectionEditable;
     private bool _isSolidThicknessSelection;
+    private bool _selectedLayerCanRename;
+    private bool _selectedLayerCanRemove;
     private CadDocumentSession? _selectionPropertyCatalogSession;
     private ulong _selectionPropertyCatalogGeneration = ulong.MaxValue;
 
@@ -141,6 +147,8 @@ public sealed class CadSampleView : Grid
 
     public ComboBox LayerLineTypeSelector => _layerLineTypeSelector;
 
+    public TextBox LayerNameInput => _layerNameInput;
+
     /// <summary>
     /// Ordered fully-qualified desktop support directories probed after the
     /// opened drawing's directory. Browser hosts should register bundled SHX
@@ -169,7 +177,7 @@ public sealed class CadSampleView : Grid
             Visibility = Visibility.Collapsed,
         };
         TtfFont font = InterFontFamily.Regular;
-        RowDefinitions.Add(new GridLength(362, GridUnitType.Absolute));
+        RowDefinitions.Add(new GridLength(396, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));
         RowDefinitions.Add(new GridLength(30, GridUnitType.Absolute));
 
@@ -225,6 +233,11 @@ public sealed class CadSampleView : Grid
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
+        var layerLifecycleActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
         var printActions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -243,6 +256,7 @@ public sealed class CadSampleView : Grid
         toolbarRows.AddChild(selectionStyleActions);
         toolbarRows.AddChild(layerStateActions);
         toolbarRows.AddChild(layerStyleActions);
+        toolbarRows.AddChild(layerLifecycleActions);
         toolbarRows.AddChild(printActions);
         toolbarRows.AddChild(pageSetupCreateActions);
         toolbar.Child = toolbarRows;
@@ -778,6 +792,32 @@ public sealed class CadSampleView : Grid
         layerStyleActions.AddChild(_layerLineTypeSelector);
         layerStyleActions.AddChild(_setLayerLineTypeButton);
 
+        layerLifecycleActions.AddChild(new TextBlock
+        {
+            Text = "Layer name (new / rename)",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _layerNameInput = new TextBox
+        {
+            Font = font,
+            WidthConstraint = 220,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        _createLayerButton = CreateButton("New layer", font, 92, 30);
+        _createLayerButton.Margin = new Thickness(0, 0, 8, 0);
+        _renameLayerButton = CreateButton("Rename layer", font, 108, 30);
+        _renameLayerButton.Margin = new Thickness(0, 0, 8, 0);
+        _removeLayerButton = CreateButton("Delete unused", font, 112, 30);
+        layerLifecycleActions.AddChild(_layerNameInput);
+        layerLifecycleActions.AddChild(_createLayerButton);
+        layerLifecycleActions.AddChild(_renameLayerButton);
+        layerLifecycleActions.AddChild(_removeLayerButton);
+
         printActions.AddChild(new TextBlock
         {
             Text = "Page setup",
@@ -996,6 +1036,13 @@ public sealed class CadSampleView : Grid
                 UpdateEditControls();
             }
         };
+        _layerNameInput.TextChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
         _setSelectionColorButton.Click += (_, _) => SetSelectionColor();
         _setSelectionLineWeightButton.Click += (_, _) =>
             SetSelectionLineWeight();
@@ -1016,6 +1063,9 @@ public sealed class CadSampleView : Grid
         _setLayerColorButton.Click += (_, _) => SetLayerColor();
         _setLayerLineWeightButton.Click += (_, _) => SetLayerLineWeight();
         _setLayerLineTypeButton.Click += (_, _) => SetLayerLineType();
+        _createLayerButton.Click += (_, _) => CreateLayer();
+        _renameLayerButton.Click += (_, _) => RenameLayer();
+        _removeLayerButton.Click += (_, _) => RemoveLayer();
         _createPageSetupButton.Click += (_, _) =>
             CreateNamedPageSetupFromModel();
         _updatePageSetupButton.Click += (_, _) =>
@@ -1750,6 +1800,9 @@ public sealed class CadSampleView : Grid
             _layerColorInput.Text = string.Empty;
             _layerLineWeightSelector.SelectedIndex = 0;
             _layerLineTypeSelector.SelectedIndex = 0;
+            _layerNameInput.Text = string.Empty;
+            _selectedLayerCanRename = false;
+            _selectedLayerCanRemove = false;
             return;
         }
 
@@ -1789,6 +1842,15 @@ public sealed class CadSampleView : Grid
         {
             _layerLineTypeSelector.SelectedIndex = 0;
         }
+        _layerNameInput.Text = properties.Name;
+        _selectedLayerCanRename =
+            !properties.IsDefault &&
+            !properties.IsXrefDependent;
+        _selectedLayerCanRemove =
+            !properties.IsDefault &&
+            !properties.IsDefpoints &&
+            !properties.IsCurrent &&
+            !properties.IsXrefDependent;
     }
 
     private static void SelectBooleanPropertyChoice(
@@ -2270,6 +2332,97 @@ public sealed class CadSampleView : Grid
         {
             UpdateEditControls();
         }
+    }
+
+    private void CreateLayer()
+    {
+        if (_isBusy ||
+            (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                string templateLayerName ||
+            !_canvas.CanCreateLayer(_layerNameInput.Text))
+        {
+            return;
+        }
+
+        string layerName = _layerNameInput.Text;
+        try
+        {
+            _canvas.CreateLayer(layerName, templateLayerName);
+            SelectLayerStateChoice(layerName);
+            SetStatus(
+                $"Created layer {layerName} from {templateLayerName} as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Create layer failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void RenameLayer()
+    {
+        if (_isBusy ||
+            (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                string layerName ||
+            !_canvas.CanRenameLayer(layerName, _layerNameInput.Text))
+        {
+            return;
+        }
+
+        string newName = _layerNameInput.Text;
+        try
+        {
+            _canvas.RenameLayer(layerName, newName);
+            SelectLayerStateChoice(newName);
+            SetStatus($"Renamed layer {layerName} to {newName} as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Rename layer failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void RemoveLayer()
+    {
+        if (_isBusy ||
+            !_selectedLayerCanRemove ||
+            (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                string layerName)
+        {
+            return;
+        }
+
+        try
+        {
+            _canvas.RemoveLayer(layerName);
+            SetStatus($"Deleted unused layer {layerName} as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Delete layer failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SelectLayerStateChoice(string layerName)
+    {
+        _layerStateSelector.SelectedItem =
+            _layerStateSelector.Items
+                .OfType<ComboBoxItem>()
+                .FirstOrDefault(item => item.Tag is string candidate &&
+                    candidate.Equals(
+                        layerName,
+                        StringComparison.OrdinalIgnoreCase));
     }
 
     private void MoveSelection(double xDirection, double yDirection)
@@ -2986,6 +3139,7 @@ public sealed class CadSampleView : Grid
         _layerColorInput.IsEnabled = canEditLayerState;
         _layerLineWeightSelector.IsEnabled = canEditLayerState;
         _layerLineTypeSelector.IsEnabled = canEditLayerState;
+        _layerNameInput.IsEnabled = canEditLayerState;
         _setLayerVisibilityButton.IsEnabled =
             canEditLayerState &&
             (_layerVisibilitySelector.SelectedItem as ComboBoxItem)?.Tag is bool;
@@ -3008,6 +3162,21 @@ public sealed class CadSampleView : Grid
         _setLayerLineTypeButton.IsEnabled =
             canEditLayerState &&
             (_layerLineTypeSelector.SelectedItem as ComboBoxItem)?.Tag is string;
+        string? selectedLayerName =
+            (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag as string;
+        _createLayerButton.IsEnabled =
+            canEditLayerState &&
+            _canvas.CanCreateLayer(_layerNameInput.Text);
+        _renameLayerButton.IsEnabled =
+            canEditLayerState &&
+            _selectedLayerCanRename &&
+            selectedLayerName is not null &&
+            _canvas.CanRenameLayer(
+                selectedLayerName,
+                _layerNameInput.Text);
+        _removeLayerButton.IsEnabled =
+            canEditLayerState &&
+            _selectedLayerCanRemove;
         _moveStepInput.IsEnabled = canUsePlanTools;
         _rotationStepInput.IsEnabled = canUsePlanTools;
         _scaleFactorInput.IsEnabled = canUsePlanTools;
