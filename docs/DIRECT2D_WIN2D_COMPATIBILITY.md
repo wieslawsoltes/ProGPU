@@ -119,6 +119,16 @@ Shapes, ArcOptions, and VectorArt sample bodies. It currently supports:
   typed texture lease, and render-target mutation also fails while a drawing
   session is active, so later writes cannot silently alter previously recorded
   Win2D work;
+- typed `CanvasBitmap.CreateFromColors(...)` plus full and subrectangle
+  `SetPixelColors(...)`. The exact upstream operation is an ARGB-to-BGRA byte
+  swizzle, not a premultiplication pass. `Automatic` selects AVX2/Vector256 for
+  eight or more pixels, portable Vector128 for four or more remaining pixels,
+  and scalar only for the bounded 1–3-pixel tail. `IntrinsicSimd` and
+  `ScalarReference` are explicit configurable modes; a forced intrinsic mode
+  fails closed when Vector128 hardware support is unavailable. The selected
+  path is published by `CanvasDevice.LastPixelConversionPath`. Conversion uses
+  a pooled buffer, writes directly to the same queue-upload path, and is
+  allocation-free after pool warmup;
 - single-recording `CanvasCommandList` creation, multi-chunk recording across
   `Flush()`, `ICanvasImage.GetBounds(...)`, and origin/offset or cropped and
   destination-scaled drawing as nested immutable pictures. The reusable
@@ -195,7 +205,7 @@ The current package is source compatible, not binary compatible with
 devices, straight/ignored alpha, non-BGRA render targets, Dawn/browser device
 factories, Direct2D COM wrapping, cross-device resources, self-referential
 texture feedback, anisotropic sampling, and high-quality cubic sampling.
-Bitmap file decoding, color-array/buffer creation and updates, GPU bitmap-copy
+Bitmap file decoding, buffer creation and updates, GPU bitmap-copy
 operations, `MiterOrBevel`, geometry query/stroke/outline operations,
 command-list/effect image brushes, opacity
 brush layers, text formats/layouts, effects, sprite batches, and XAML controls
@@ -303,6 +313,33 @@ The gate has a completed portable-core layer and three expanding oracle layers:
    `39C0FD9F5B13CF277581C64096668CAF3673742719B55D6C6252AC9EB009262D`;
    the pinned WinUI `generic.xaml` SHA-256 is
    `4C4085838721C0AFCB1A9EE17591C0655CDDDADB26D330788E08BCD7F1AF8285`.
+   Exact ProGPU `d51b289b` adds the Color overloads and intrinsic converter.
+   The 11-test contract suite verifies the four-byte WinRT ARGB layout,
+   automatic and forced SIMD output against the scalar oracle, an 11-pixel
+   non-vector-aligned input, destination canaries, and the 1–3-pixel automatic
+   scalar tail on macOS, Windows ARM64, and Linux ARM64. The live gate replaces
+   the checker with asymmetric Color values, records Vector128 for the
+   four-pixel update and ScalarReference for its 1x1 update, and retains `16+2`
+   draws. Metal SHA-256 is
+   `D72F667FCB6AC14B2C28A1C45001734C3B62B85B1816069521C9019985D1B39B`,
+   Parallels WDDM D3D12 is
+   `319939D4E5CC8544502BE837B04FDD8DD68D4F54ADB8D8AB83B49D86A4120122`,
+   and Ubuntu llvmpipe/Vulkan is
+   `D2410112CF400C826A4855C134AE93E236932C879F690F93AA5B4422075B09C8`.
+   The checker is exact across all three; the full-frame differential remains
+   two Metal/D3D12 pixels and 84 D3D12/Vulkan pixels, all at 1/255 with means
+   `0.0000173611` and `0.0005946181` respectively.
+
+   The allocation-free 262,144-pixel scalar/Vector128 p50 values are
+   `241.740/28.657 us` on Apple M3 Pro, `469.310/63.055 us` in the Windows ARM64
+   VM, and `237.920/29.545 us` in the Ubuntu ARM64 VM, with identical checksums.
+   Apple ARM64 also measures `1.742/0.240 us` at 256 pixels and
+   `2.601/0.320 us` at 4,096 pixels. These results qualify the automatic SIMD
+   default; VM timing remains correctness/dispatch evidence rather than a
+   physical Windows performance claim. The exact Windows archive SHA-256 is
+   `C8B1C7949EDE5BF18D85ED1B0E159E2C7B52056D4CA2721A4BDD493420B0477E`.
+   Native C++ is unchanged and continues to use the exact qualified DLL and
+   WinUI theme hashes recorded above.
    The frame includes full-opacity and half-opacity same-device bitmap draws;
    the source is publicly disposed before the destination session closes to
    prove that the typed GPU lease, rather than a CPU copy, owns deferred use.
@@ -349,7 +386,7 @@ Win2D execution.
    device/render-target/drawing-session API and pass pinned SimpleSample source
    plus live headless native pixels on Metal and D3D12.
 3. Add the remaining geometry operations/image and layer-opacity brushes,
-   bitmap file/color/buffer/copy APIs, text-format/layout, and existing-effect
+   bitmap file/buffer/copy APIs, text-format/layout, and existing-effect
    adapters;
    promote each pinned ExampleGallery group only after differential parity.
 4. Implement and qualify the Windows same-adapter Win2D/DXGI import adapter.
