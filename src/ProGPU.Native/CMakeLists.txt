@@ -1348,7 +1348,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
             NOMINMAX
             WIN32_LEAN_AND_MEAN)
         target_link_libraries(progpu_native_direct2d_tests PRIVATE
-            progpu_native_direct2d)
+            progpu_native_direct2d
+            runtimeobject)
         progpu_native_enable_warnings(progpu_native_direct2d_tests)
         add_test(
             NAME progpu_native_direct2d_tests
