@@ -135,6 +135,18 @@ Shapes, ArcOptions, and VectorArt sample bodies. It currently supports:
   ArcOptions-style drawing is allocation-free after warmup. Custom dashes take
   precedence over the standard dash enum. `MiterOrBevel` fails closed until it
   has a distinct retained semantic;
+- typed `ICanvasBrush`, `CanvasSolidColorBrush`,
+  `CanvasLinearGradientBrush`, and `CanvasRadialGradientBrush` resources plus
+  color/HDR gradient-stop DTOs. Primitive, geometry, stroke-style, and default
+  text overloads consume the same brush contract. Each mutable Canvas brush
+  caches an immutable ProGPU brush realization by version, while stroke pens
+  cache by realized brush identity and width, so steady drawing allocates no
+  new brush or pen and an earlier recorded picture cannot be changed by later
+  brush mutation or disposal. Opacity, affine brush transforms, clamp/wrap/
+  mirror spread, radial origin offset, and same-device ownership are typed.
+  The qualified portable gradient lane is premultiplied sRGB with 8-bit
+  normalized precision; straight alpha, scRGB/custom conversion, and other
+  precisions fail closed instead of changing interpolation;
 - target-preserving later drawing sessions and `Flush()` without retaining or
   replaying all earlier command lists;
 - Win2D-compatible `GetPixelBytes()` for validation and explicit diagnostics
@@ -152,10 +164,10 @@ The current package is source compatible, not binary compatible with
 devices, straight/ignored alpha, non-BGRA render targets, Dawn/browser device
 factories, Direct2D COM wrapping, cross-device resources, self-referential
 texture feedback, anisotropic sampling, and high-quality cubic sampling.
-Bitmap file/pixel creation and updates, brushes, `MiterOrBevel`, command-list
-bounds/scaling, geometry query/stroke/outline operations, opacity brushes, text
-formats/layouts, effects, sprite batches, and XAML controls remain the next
-incremental compatibility groups.
+Bitmap file/pixel creation and updates, image brushes, `MiterOrBevel`,
+command-list bounds/scaling, geometry query/stroke/outline operations, opacity
+brush layers, text formats/layouts, effects, sprite batches, and XAML controls
+remain the next incremental compatibility groups.
 Command-list `Clear` currently fails closed because portable unbounded-clear
 semantics have not been qualified. No portable API surfaces raw COM pointers.
 
@@ -192,8 +204,24 @@ The gate has a completed portable-core layer and three expanding oracle layers:
    Metal `0D9BB2695BF85767A0AFF3683392172D9A02EE1C17D5362C38EB060E848C69BB`,
    D3D12 `CA50647DD915E8D42B4F5DD724BC96DE74383689157824186C52BF12D6B1577E`,
    and Vulkan `AABC336A0F851925C70566E1CFFEC64BE943E29B41127CE7233386C930782FF2`.
-   The isolated typed/source contract suite passes 7/7 on macOS and Windows
-   ARM64.
+   The retained boolean-geometry frame at `d9431558` adds an exact
+   rectangle-minus-circle fill: Metal
+   `32F9926D292FB2A109268B42D5CC01B17EE7449EE69CEBC2CD7F2E14B24A063A`,
+   D3D12 `A48B37AE5DE4E77CE0FE8F69C0C7D4E9FCC93179CAA852B247D6C41B7072D9DD`,
+   and Vulkan `3191C015FF87F1FC4899DEFDFCBC5B518754B2908350E4BE47B81796C7D3C7E5`.
+   Exact ProGPU `ee84a0b3` adds retained linear and radial gradient draws and
+   advances the live frame to `13+2` native draws: Apple M3 Pro Metal
+   `25829098701BE31CADAD8A3306D0AE4E66D50088891CD446A2B35A568108A295`,
+   Parallels WDDM D3D12
+   `2B516B3243BEF0C59BD0428035B748E07E737679809B505F9FCF57AE3F74F005`,
+   and Ubuntu llvmpipe/Vulkan
+   `FAB68DBDD8997E364EBDA6833F8F825825945DE7230F110CABC4F653C0D91E46`.
+   D3D12 versus Metal still changes only two pixels by 1/255. Vulkan changes
+   84 pixels by 1/255 with mean absolute channel difference
+   `0.0005946181`; the added gradient interiors, endpoints, radial center,
+   geometry hole, and clips satisfy their exact probes.
+   The isolated typed/source contract suite passes 9/9 after the brush-source
+   contract is added.
    The frame includes full-opacity and half-opacity same-device bitmap draws;
    the source is publicly disposed before the destination session closes to
    prove that the typed GPU lease, rather than a CPU copy, owns deferred use.
@@ -239,8 +267,8 @@ Win2D execution.
 2. **Implemented:** add the minimal portable Canvas
    device/render-target/drawing-session API and pass pinned SimpleSample source
    plus live headless native pixels on Metal and D3D12.
-3. Add the remaining geometry operations/layer brushes, bitmap creation/update,
-   text-format/layout, and existing-effect adapters;
+3. Add the remaining geometry operations/image and layer-opacity brushes,
+   bitmap creation/update, text-format/layout, and existing-effect adapters;
    promote each pinned ExampleGallery group only after differential parity.
 4. Implement and qualify the Windows same-adapter Win2D/DXGI import adapter.
 5. Add WinUI, LibreWPF, and Avalonia controls as host adapters over the same
