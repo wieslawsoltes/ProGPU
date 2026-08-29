@@ -4926,9 +4926,16 @@ nested/unmatched draw rejection, the zero-key Dawn handoff, and generic
 GUID-based COM `QueryInterface` success plus `E_NOINTERFACE` failure, and
 optional registered Win2D CanvasDevice activation. The Windows build entry
 point now verifies all 13 exports and stages `progpu_native_direct2d.dll` for
-both Windows RIDs. Fresh ABI v4 hashes replace
-this archived baseline only after the native CTest runs on Windows; a merely
-booted VM or a stalled Guest Tools login is not recorded as a pass.
+both Windows RIDs. ABI v4 is now independently compiled and executed in the
+Windows 11 ARM64 Parallels VM with MSVC 19.44 and Windows SDK 26100. The
+regression exits zero and the exact 13-export audit passes. SHA-256 is
+`df5c0b8540fe6f25ac6fbe7691ad300f69aa3cca0fd0ef8aa901e85c0e3a7372`
+for the DLL and
+`a2ba7e30efbe4fa320de92afaf3a27c418f6843caed71acde5a57325dec3d683`
+for the executable. The VM has no registered Canvas/Win2D AppX package, so this
+run qualifies the explicit runtime-unavailable path; a package-deployed
+Win2D-success oracle remains a separate gate. A merely booted VM or a stalled
+Guest Tools login is not recorded as a pass.
 
 ## Managed glyph row-reuse SIMD checkpoint
 

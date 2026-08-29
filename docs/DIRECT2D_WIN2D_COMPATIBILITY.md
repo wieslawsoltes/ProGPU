@@ -393,10 +393,19 @@ the native test on runnable Windows x64/ARM64 agents, stages
 export drift against `eng/progpu-native-direct2d-exports.txt`.
 `Direct2DInteropContractTests` separately verifies the static AOT ABI, absence
 of reflection/dynamic native loading and CPU copies, lock-order boundary, and
-typed lease contract on every portable managed test host. The ABI v4 manual
-Parallels rerun must produce fresh hashes before replacing the archived ABI v1
-hashes above; a booted desktop or an unresponsive Guest Tools login is not
-accepted as qualification evidence.
+typed lease contract on every portable managed test host.
+
+ABI v4 is qualified in the Windows 11 ARM64 Parallels VM with MSVC 19.44 and
+Windows SDK 10.0.26100.0. The isolated provider and regression compile and
+link with `/W4 /WX`; the executable exits zero, including the registered-Win2D
+optional-runtime fail-closed branch because that VM has no Canvas/Win2D AppX
+registration, and `dumpbin` reports exactly the 13 allowed exports. SHA-256 is
+`df5c0b8540fe6f25ac6fbe7691ad300f69aa3cca0fd0ef8aa901e85c0e3a7372`
+for `progpu_native_direct2d.dll` and
+`a2ba7e30efbe4fa320de92afaf3a27c418f6843caed71acde5a57325dec3d683`
+for `progpu_native_direct2d_tests.exe`. A booted desktop or an unresponsive
+Guest Tools login is not accepted as qualification evidence; these hashes came
+from the executed regression in the guest.
 
 The pinned Win2D source audit also prevents us from calling this full Win2D
 binary compatibility prematurely. Its production library contains references
