@@ -82,12 +82,18 @@ public sealed class CadSampleView : Grid
     private readonly Button _createLayerButton;
     private readonly Button _renameLayerButton;
     private readonly Button _removeLayerButton;
+    private readonly Button _queueLayerMergeSourceButton;
+    private readonly Button _clearLayerMergeSourcesButton;
+    private readonly TextBlock _layerMergeSourceCountText;
     private readonly ComboBox _layerMergeTargetSelector;
     private readonly Button _mergeLayerButton;
     private readonly TextBox _moveStepInput;
     private readonly TextBox _rotationStepInput;
     private readonly TextBox _scaleFactorInput;
     private readonly List<string> _shxSupportDirectories = new();
+    private readonly List<string> _layerMergeSourceNames = new();
+    private readonly HashSet<string> _layerMergeSourceNameSet =
+        new(StringComparer.OrdinalIgnoreCase);
     private bool _isBusy;
     private string _currentDocumentName = "Representative analytic scene";
     private int _currentDiagnosticCount;
@@ -101,6 +107,8 @@ public sealed class CadSampleView : Grid
     private bool _selectedLayerCanRemove;
     private CadDocumentSession? _selectionPropertyCatalogSession;
     private ulong _selectionPropertyCatalogGeneration = ulong.MaxValue;
+    private CadDocumentSession? _layerMergeSourceSession;
+    private ulong _layerMergeSourceGeneration = ulong.MaxValue;
 
     public CadShxFontCatalog ShxFonts => _canvas.ShxFonts;
 
@@ -153,6 +161,8 @@ public sealed class CadSampleView : Grid
 
     public ComboBox LayerMergeTargetSelector => _layerMergeTargetSelector;
 
+    public TextBlock LayerMergeSourceCountText => _layerMergeSourceCountText;
+
     /// <summary>
     /// Ordered fully-qualified desktop support directories probed after the
     /// opened drawing's directory. Browser hosts should register bundled SHX
@@ -181,7 +191,7 @@ public sealed class CadSampleView : Grid
             Visibility = Visibility.Collapsed,
         };
         TtfFont font = InterFontFamily.Regular;
-        RowDefinitions.Add(new GridLength(396, GridUnitType.Absolute));
+        RowDefinitions.Add(new GridLength(430, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));
         RowDefinitions.Add(new GridLength(30, GridUnitType.Absolute));
 
@@ -242,6 +252,11 @@ public sealed class CadSampleView : Grid
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
+        var layerMergeActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
         var printActions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -261,6 +276,7 @@ public sealed class CadSampleView : Grid
         toolbarRows.AddChild(layerStateActions);
         toolbarRows.AddChild(layerStyleActions);
         toolbarRows.AddChild(layerLifecycleActions);
+        toolbarRows.AddChild(layerMergeActions);
         toolbarRows.AddChild(printActions);
         toolbarRows.AddChild(pageSetupCreateActions);
         toolbar.Child = toolbarRows;
@@ -818,9 +834,43 @@ public sealed class CadSampleView : Grid
         _renameLayerButton.Margin = new Thickness(0, 0, 8, 0);
         _removeLayerButton = CreateButton("Delete unused", font, 112, 30);
         _removeLayerButton.Margin = new Thickness(0, 0, 12, 0);
+        layerLifecycleActions.AddChild(_layerNameInput);
+        layerLifecycleActions.AddChild(_createLayerButton);
+        layerLifecycleActions.AddChild(_renameLayerButton);
+        layerLifecycleActions.AddChild(_removeLayerButton);
+
+        layerMergeActions.AddChild(new TextBlock
+        {
+            Text = "Layer merge sources",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _queueLayerMergeSourceButton = CreateButton(
+            "Queue selected",
+            font,
+            112,
+            30);
+        _queueLayerMergeSourceButton.Margin = new Thickness(0, 0, 8, 0);
+        _layerMergeSourceCountText = new TextBlock
+        {
+            Text = "Sources: 0",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            WidthConstraint = 76,
+            Margin = new Thickness(0, 6, 8, 0),
+        };
+        _clearLayerMergeSourcesButton = CreateButton(
+            "Clear sources",
+            font,
+            104,
+            30);
+        _clearLayerMergeSourcesButton.Margin = new Thickness(0, 0, 12, 0);
         var mergeTargetLabel = new TextBlock
         {
-            Text = "Merge to",
+            Text = "Target",
             Font = font,
             FontSize = 11,
             Foreground = new ThemeResourceBrush("TextSecondary"),
@@ -839,14 +889,13 @@ public sealed class CadSampleView : Grid
             _layerMergeTargetSelector,
             ReadOnlySpan<string>.Empty,
             previousName: null);
-        _mergeLayerButton = CreateButton("Merge layer", font, 104, 30);
-        layerLifecycleActions.AddChild(_layerNameInput);
-        layerLifecycleActions.AddChild(_createLayerButton);
-        layerLifecycleActions.AddChild(_renameLayerButton);
-        layerLifecycleActions.AddChild(_removeLayerButton);
-        layerLifecycleActions.AddChild(mergeTargetLabel);
-        layerLifecycleActions.AddChild(_layerMergeTargetSelector);
-        layerLifecycleActions.AddChild(_mergeLayerButton);
+        _mergeLayerButton = CreateButton("Merge queued", font, 112, 30);
+        layerMergeActions.AddChild(_queueLayerMergeSourceButton);
+        layerMergeActions.AddChild(_layerMergeSourceCountText);
+        layerMergeActions.AddChild(_clearLayerMergeSourcesButton);
+        layerMergeActions.AddChild(mergeTargetLabel);
+        layerMergeActions.AddChild(_layerMergeTargetSelector);
+        layerMergeActions.AddChild(_mergeLayerButton);
 
         printActions.AddChild(new TextBlock
         {
@@ -1103,6 +1152,9 @@ public sealed class CadSampleView : Grid
         _createLayerButton.Click += (_, _) => CreateLayer();
         _renameLayerButton.Click += (_, _) => RenameLayer();
         _removeLayerButton.Click += (_, _) => RemoveLayer();
+        _queueLayerMergeSourceButton.Click += (_, _) => QueueLayerMergeSource();
+        _clearLayerMergeSourcesButton.Click += (_, _) =>
+            ClearLayerMergeSources(setStatus: true);
         _mergeLayerButton.Click += (_, _) => MergeLayer();
         _createPageSetupButton.Click += (_, _) =>
             CreateNamedPageSetupFromModel();
@@ -1158,6 +1210,7 @@ public sealed class CadSampleView : Grid
         };
         _canvas.SnapshotChanged += (_, _) =>
         {
+            EnsureLayerMergeSourcesAreCurrent();
             RebuildMesh3DView();
             if (_isPrintPreview)
             {
@@ -1796,6 +1849,7 @@ public sealed class CadSampleView : Grid
 
     private void RefreshSelectionPropertyCatalog()
     {
+        EnsureLayerMergeSourcesAreCurrent();
         CadDocumentSnapshot? snapshot = _canvas.CurrentSnapshot;
         CadDocumentSession? session = _canvas.CurrentSession;
         if (snapshot is null || session is null ||
@@ -2460,22 +2514,27 @@ public sealed class CadSampleView : Grid
 
     private void MergeLayer()
     {
+        EnsureLayerMergeSourcesAreCurrent();
         if (_isBusy ||
-            (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is not
-                string sourceLayerName ||
+            _layerMergeSourceNames.Count == 0 ||
             (_layerMergeTargetSelector.SelectedItem as ComboBoxItem)?.Tag is not
                 string targetLayerName ||
-            !_canvas.CanMergeLayer(sourceLayerName, targetLayerName))
+            !_canvas.CanMergeLayers(_layerMergeSourceNames, targetLayerName))
         {
             return;
         }
 
+        string[] sourceLayerNames = _layerMergeSourceNames.ToArray();
         try
         {
-            _canvas.MergeLayer(sourceLayerName, targetLayerName);
+            _canvas.MergeLayers(sourceLayerNames, targetLayerName);
+            ClearLayerMergeSources(setStatus: false);
             SelectLayerStateChoice(targetLayerName);
-            SetStatus(
-                $"Merged layer {sourceLayerName} into {targetLayerName} as one edit.");
+            SetStatus(sourceLayerNames.Length == 1
+                ? $"Merged layer {sourceLayerNames[0]} into " +
+                    $"{targetLayerName} as one edit."
+                : $"Merged {sourceLayerNames.Length} layers into " +
+                    $"{targetLayerName} as one edit.");
         }
         catch (Exception exception)
         {
@@ -2485,6 +2544,61 @@ public sealed class CadSampleView : Grid
         {
             UpdateEditControls();
         }
+    }
+
+    private void QueueLayerMergeSource()
+    {
+        EnsureLayerMergeSourcesAreCurrent();
+        if (_isBusy ||
+            !_selectedLayerCanRemove ||
+            (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                string sourceLayerName ||
+            !_layerMergeSourceNameSet.Add(sourceLayerName))
+        {
+            return;
+        }
+
+        _layerMergeSourceNames.Add(sourceLayerName);
+        _layerMergeSourceCountText.Text =
+            $"Sources: {_layerMergeSourceNames.Count:N0}";
+        SetStatus(
+            $"Queued layer {sourceLayerName} for merge " +
+            $"({_layerMergeSourceNames.Count:N0} sources).");
+        UpdateEditControls();
+    }
+
+    private void ClearLayerMergeSources(bool setStatus)
+    {
+        bool hadSources = _layerMergeSourceNames.Count > 0;
+        _layerMergeSourceNames.Clear();
+        _layerMergeSourceNameSet.Clear();
+        _layerMergeSourceSession = _canvas.CurrentSession;
+        _layerMergeSourceGeneration =
+            _canvas.CurrentSnapshot?.ContentGeneration ?? ulong.MaxValue;
+        _layerMergeSourceCountText.Text = "Sources: 0";
+        if (setStatus && hadSources)
+        {
+            SetStatus("Cleared queued layer merge sources.");
+        }
+        UpdateEditControls();
+    }
+
+    private void EnsureLayerMergeSourcesAreCurrent()
+    {
+        CadDocumentSession? session = _canvas.CurrentSession;
+        ulong generation =
+            _canvas.CurrentSnapshot?.ContentGeneration ?? ulong.MaxValue;
+        if (ReferenceEquals(session, _layerMergeSourceSession) &&
+            generation == _layerMergeSourceGeneration)
+        {
+            return;
+        }
+
+        _layerMergeSourceNames.Clear();
+        _layerMergeSourceNameSet.Clear();
+        _layerMergeSourceSession = session;
+        _layerMergeSourceGeneration = generation;
+        _layerMergeSourceCountText.Text = "Sources: 0";
     }
 
     private void SelectLayerStateChoice(string layerName)
@@ -3115,6 +3229,7 @@ public sealed class CadSampleView : Grid
 
     private void UpdateEditControls()
     {
+        EnsureLayerMergeSourcesAreCurrent();
         bool isReferencePicking =
             _canvas.PendingDrawOrderPlacement is not null;
         bool canUsePlanTools =
@@ -3251,15 +3366,21 @@ public sealed class CadSampleView : Grid
         _removeLayerButton.IsEnabled =
             canEditLayerState &&
             _selectedLayerCanRemove;
-        string? mergeTargetLayerName =
-            (_layerMergeTargetSelector.SelectedItem as ComboBoxItem)?.Tag as string;
-        _mergeLayerButton.IsEnabled =
+        _queueLayerMergeSourceButton.IsEnabled =
             canEditLayerState &&
             _selectedLayerCanRemove &&
             selectedLayerName is not null &&
+            !_layerMergeSourceNameSet.Contains(selectedLayerName);
+        _clearLayerMergeSourcesButton.IsEnabled =
+            canUsePlanTools && _layerMergeSourceNames.Count > 0;
+        string? mergeTargetLayerName =
+            (_layerMergeTargetSelector.SelectedItem as ComboBoxItem)?.Tag as string;
+        _mergeLayerButton.IsEnabled =
+            canUsePlanTools &&
+            _layerMergeSourceNames.Count > 0 &&
             mergeTargetLayerName is not null &&
-            _canvas.CanMergeLayer(
-                selectedLayerName,
+            _canvas.CanMergeLayers(
+                _layerMergeSourceNames,
                 mergeTargetLayerName);
         _moveStepInput.IsEnabled = canUsePlanTools;
         _rotationStepInput.IsEnabled = canUsePlanTools;

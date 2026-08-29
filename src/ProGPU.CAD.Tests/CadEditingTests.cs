@@ -2,6 +2,7 @@ using ACadSharp;
 using ACadSharp.Blocks;
 using ACadSharp.Entities;
 using ACadSharp.Tables;
+using ACadSharp.Tables.Collections;
 using CSMath;
 using ProGPU.Backend.Native;
 using ProGPU.CAD.Native;
@@ -1179,17 +1180,22 @@ public sealed class CadEditingTests
             Color = ACadSharp.Color.Red,
             LineWeight = LineWeightType.W15,
         };
+        var mergeSourceTwo = new Layer("MERGE_SOURCE_TWO");
         document.Layers.Add(mergeTarget);
         document.Layers.Add(mergeSource);
+        document.Layers.Add(mergeSourceTwo);
         document.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX) { Layer = layer });
         document.Entities.Add(new Circle(XYZ.AxisY, 1) { Layer = mergeSource });
+        document.Entities.Add(new Circle(XYZ.AxisX, 2) { Layer = mergeSourceTwo });
         var session = new CadDocumentSession(document);
         var history = new CadDocumentHistory(session);
         history.Execute(new CadRenameLayerCommand(
             "PERSISTED_STATE",
             "PERSISTED_PROPERTIES"));
         history.Execute(new CadRemoveLayerCommand("REMOVE_BEFORE_SAVE"));
-        history.Execute(new CadMergeLayerCommand("MERGE_SOURCE", "MERGE_TARGET"));
+        history.Execute(new CadMergeLayerCommand(
+            ["MERGE_SOURCE", "MERGE_SOURCE_TWO"],
+            "MERGE_TARGET"));
         var store = new CadDocumentStore();
         using var stream = new MemoryStream();
 
@@ -1212,17 +1218,19 @@ public sealed class CadEditingTests
             source.Layers.Contains("REMOVE_BEFORE_SAVE")));
         Assert.False(loaded.Session.Read(source =>
             source.Layers.Contains("MERGE_SOURCE")));
+        Assert.False(loaded.Session.Read(source =>
+            source.Layers.Contains("MERGE_SOURCE_TWO")));
         Layer restoredMergeTarget = loaded.Session.Read(source =>
             source.Layers["MERGE_TARGET"]);
         Assert.False(restoredMergeTarget.IsOn);
         Assert.Equal(ACadSharp.Color.Green, restoredMergeTarget.Color);
         Assert.Equal(LineWeightType.W30, restoredMergeTarget.LineWeight);
-        Assert.Single(loaded.Session.Read(source =>
+        Assert.Equal(2, loaded.Session.Read(source =>
             source.GetCadObjects<Entity>()
                 .Where(entity => ReferenceEquals(
                     entity.Layer,
                     restoredMergeTarget))
-                .ToArray()));
+                .Count()));
         Assert.False(restored.IsOn);
         Assert.False(restored.PlotFlag);
         Assert.True((restored.Flags & LayerFlags.Frozen) != 0);
@@ -1635,6 +1643,7 @@ public sealed class CadEditingTests
             Color = ACadSharp.Color.Red,
             LineWeight = LineWeightType.W15,
         };
+        var secondSource = new Layer("MERGE_SOURCE_TWO");
         var target = new Layer("MERGE_TARGET")
         {
             Color = new ACadSharp.Color(12, 34, 56),
@@ -1643,16 +1652,18 @@ public sealed class CadEditingTests
             Flags = LayerFlags.Locked,
         };
         document.Layers.Add(source);
+        document.Layers.Add(secondSource);
         document.Layers.Add(target);
         var modelLine = new Line(XYZ.Zero, XYZ.AxisX) { Layer = source };
         document.Entities.Add(modelLine);
         var block = new BlockRecord("MERGE_BLOCK");
-        var nestedCircle = new Circle(XYZ.Zero, 2) { Layer = source };
+        var nestedCircle = new Circle(XYZ.Zero, 2) { Layer = secondSource };
         block.Entities.Add(nestedCircle);
         document.BlockRecords.Add(block);
         var viewport = new Viewport { Layer = source };
         viewport.FrozenLayers.Add(source);
         viewport.FrozenLayers.Add(target);
+        viewport.FrozenLayers.Add(secondSource);
         viewport.FrozenLayers.Add(source);
         document.PaperSpace.Entities.Add(viewport);
         ulong originalSourceHandle = source.Handle;
@@ -1660,16 +1671,18 @@ public sealed class CadEditingTests
         var session = new CadDocumentSession(document);
         var history = new CadDocumentHistory(session);
         var command = new CadMergeLayerCommand(
-            "merge_source",
+            ["merge_source", "MERGE_SOURCE_TWO"],
             "MERGE_TARGET");
 
         history.Execute(command);
 
         Assert.Equal(3, command.AffectedEntityCount);
+        Assert.Equal(2, command.SourceLayerCount);
         Assert.Equal(1, command.AffectedViewportCount);
-        Assert.Equal(2, command.AffectedViewportFrozenReferenceCount);
+        Assert.Equal(3, command.AffectedViewportFrozenReferenceCount);
         Assert.Equal(0UL, command.CurrentSourceHandle);
         Assert.False(document.Layers.Contains("MERGE_SOURCE"));
+        Assert.False(document.Layers.Contains("MERGE_SOURCE_TWO"));
         Assert.Null(source.Owner);
         Assert.Same(target, modelLine.Layer);
         Assert.Same(target, nestedCircle.Layer);
@@ -1683,16 +1696,18 @@ public sealed class CadEditingTests
 
         Assert.True(history.TryUndo(out _));
         Assert.Same(source, document.Layers["MERGE_SOURCE"]);
+        Assert.Same(secondSource, document.Layers["MERGE_SOURCE_TWO"]);
         Assert.NotEqual(0UL, command.CurrentSourceHandle);
         Assert.NotEqual(originalSourceHandle, command.CurrentSourceHandle);
         Assert.Same(source, modelLine.Layer);
-        Assert.Same(source, nestedCircle.Layer);
+        Assert.Same(secondSource, nestedCircle.Layer);
         Assert.Same(source, viewport.Layer);
-        Assert.Equal([source, target, source], viewport.FrozenLayers);
+        Assert.Equal([source, target, secondSource, source], viewport.FrozenLayers);
         Assert.Equal(targetHandle, target.Handle);
 
         Assert.True(history.TryRedo(out _));
         Assert.False(document.Layers.Contains("MERGE_SOURCE"));
+        Assert.False(document.Layers.Contains("MERGE_SOURCE_TWO"));
         Assert.Equal(0UL, command.CurrentSourceHandle);
         Assert.Same(target, modelLine.Layer);
         Assert.Same(target, nestedCircle.Layer);
@@ -1701,38 +1716,54 @@ public sealed class CadEditingTests
     }
 
     [Fact]
-    public void MergeLayerCommandKeepsLargeReferenceSetAtomicAndBounded()
+    public void MergeLayerCommandKeepsLargeMultiSourceReferenceSetAtomicAndBounded()
     {
         const int entityCount = 10_000;
+        const int sourceCount = 100;
         var document = new CadDocument();
-        var source = new Layer("SCALE_SOURCE");
+        Layer[] sources = Enumerable.Range(0, sourceCount)
+            .Select(index => new Layer($"SCALE_SOURCE_{index:D3}"))
+            .ToArray();
         var target = new Layer("SCALE_TARGET");
-        document.Layers.Add(source);
+        document.Layers.AddRange(sources);
         document.Layers.Add(target);
+        var entities = new Entity[entityCount];
         for (int i = 0; i < entityCount; i++)
         {
-            document.Entities.Add(new Line(
+            entities[i] = new Line(
                 new XYZ(i, 0, 0),
                 new XYZ(i, 1, 0))
             {
-                Layer = source,
-            });
+                Layer = sources[i % sourceCount],
+            };
+            document.Entities.Add(entities[i]);
         }
         var session = new CadDocumentSession(document);
         var history = new CadDocumentHistory(session);
-        var command = new CadMergeLayerCommand(source.Name, target.Name);
+        var command = new CadMergeLayerCommand(
+            sources.Select(static source => source.Name),
+            target.Name);
 
         history.Execute(command);
 
         Assert.Equal(1UL, session.ContentGeneration);
+        Assert.Equal(sourceCount, command.SourceLayerCount);
         Assert.Equal(entityCount, command.AffectedEntityCount);
         Assert.All(document.Entities, entity => Assert.Same(target, entity.Layer));
-        Assert.False(document.Layers.Contains(source.Name));
+        Assert.All(sources, source => Assert.False(document.Layers.Contains(source.Name)));
 
         Assert.True(history.TryUndo(out ulong generation));
         Assert.Equal(2UL, generation);
-        Assert.All(document.Entities, entity => Assert.Same(source, entity.Layer));
-        Assert.Same(source, document.Layers[source.Name]);
+        for (int i = 0; i < entities.Length; i++)
+        {
+            Assert.Same(sources[i % sourceCount], entities[i].Layer);
+        }
+        Assert.All(sources, source => Assert.Same(source, document.Layers[source.Name]));
+
+        Assert.True(history.TryRedo(out generation));
+        Assert.Equal(3UL, generation);
+        Assert.All(document.Entities, entity => Assert.Same(target, entity.Layer));
+        Assert.All(sources, source => Assert.False(document.Layers.Contains(source.Name)));
     }
 
     [Fact]
@@ -1751,14 +1782,14 @@ public sealed class CadEditingTests
         var session = new CadDocumentSession(document);
         var history = new CadDocumentHistory(session);
         var command = new CadMergeLayerCommand(source.Name, target.Name);
-        EventHandler<ACadSharp.CollectionChangedEventArgs> failRemoval = (_, args) =>
+        EventHandler<LayerCollectionChangedEventArgs> failRemoval = (_, args) =>
         {
-            if (ReferenceEquals(args.Item, source))
+            if (args.Contains(source))
             {
                 throw new InvalidOperationException("Injected remove failure.");
             }
         };
-        document.Layers.OnRemove += failRemoval;
+        document.Layers.OnRemoveRange += failRemoval;
         try
         {
             InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
@@ -1767,7 +1798,7 @@ public sealed class CadEditingTests
         }
         finally
         {
-            document.Layers.OnRemove -= failRemoval;
+            document.Layers.OnRemoveRange -= failRemoval;
         }
 
         Assert.Equal(0UL, session.ContentGeneration);
@@ -1830,6 +1861,34 @@ public sealed class CadEditingTests
             xrefSourceDocument,
             "XREF|SOURCE",
             Layer.DefaultName);
+
+        var mixedSourceDocument = new CadDocument();
+        var validSource = new Layer("VALID_SOURCE");
+        var dependentSource = new Layer("XREF|DEPENDENT_SOURCE")
+        {
+            Flags = LayerFlags.XrefDependent,
+        };
+        var mixedTarget = new Layer("MIXED_TARGET");
+        mixedSourceDocument.Layers.Add(validSource);
+        mixedSourceDocument.Layers.Add(dependentSource);
+        mixedSourceDocument.Layers.Add(mixedTarget);
+        var validLine = new Line(XYZ.Zero, XYZ.AxisX) { Layer = validSource };
+        mixedSourceDocument.Entities.Add(validLine);
+        var mixedSession = new CadDocumentSession(mixedSourceDocument);
+        var mixedHistory = new CadDocumentHistory(mixedSession);
+
+        Assert.Throws<InvalidOperationException>(() => mixedHistory.Execute(
+            new CadMergeLayerCommand(
+                [validSource.Name, dependentSource.Name],
+                mixedTarget.Name)));
+
+        Assert.Equal(0UL, mixedSession.ContentGeneration);
+        Assert.Equal(0, mixedHistory.UndoCount);
+        Assert.Same(validSource, mixedSourceDocument.Layers[validSource.Name]);
+        Assert.Same(
+            dependentSource,
+            mixedSourceDocument.Layers[dependentSource.Name]);
+        Assert.Same(validSource, validLine.Layer);
 
         var xrefTargetDocument = new CadDocument();
         xrefTargetDocument.Layers.Add(new Layer("LOCAL_SOURCE"));

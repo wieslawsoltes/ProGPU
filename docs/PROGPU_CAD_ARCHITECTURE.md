@@ -1084,35 +1084,43 @@ an interactive browser picker/download smoke remains open.
   object with a newly assigned handle. Invalid or duplicate names and failed
   removal preflights leave both the table and content generation unchanged.
 - Populated-layer merge is a separate typed command rather than an unsafe delete
-  option. It resolves one retained source and target before mutation, rejects
-  layer 0, Defpoints, current, and xref-dependent sources plus xref-dependent
-  targets, then captures every registered `Entity.Layer` reference across model
-  space, paper space, block definitions, and owned children. It also snapshots
-  every affected viewport's complete frozen-layer sequence. Apply reassigns all
-  captured entities to the target, removes every source occurrence from those
-  viewport sequences, and only then detaches the source table entry. The target
-  identity and all target properties remain unchanged. Undo re-adds the same
-  source object with a new handle, restores every entity to that exact layer
-  identity, and restores each viewport sequence including original ordering and
-  duplicate occurrences; Redo validates and repeats the retained transition.
-  Capture is capped at 1,000,000 entity plus affected-viewport snapshot
-  references. Preflight and the dependency's one layer-table removal notification
-  are O(R + F), mutation is O(A + Fv), and retained command storage is O(A + Fv)
-  for R registered entities, F inspected frozen references, A affected entities,
-  V affected viewports, and Fv frozen entries in affected viewports. The existing
-  whole-generation O(E + G) snapshot/picture replacement follows one successful
-  edit. Failed preflight, Apply, Undo, or Redo validation publishes no partial
-  document generation. Multi-source selection batching remains a future LAYMRG
-  interaction; repeated single-source merges retain the complete semantic result.
+  option. It resolves a bounded set of at most 65,536 retained sources and one
+  target before mutation, rejects layer 0, Defpoints, current, and xref-dependent
+  sources plus xref-dependent targets, then captures every registered
+  `Entity.Layer` reference across model space, paper space, block definitions,
+  and owned children together with its exact original source identity. It also
+  snapshots every affected viewport's complete frozen-layer sequence. Apply
+  reassigns all captured entities to the target, removes every occurrence of any
+  source from those viewport sequences, and only then performs one atomic source
+  table range removal. The target identity and all target properties remain
+  unchanged. Undo re-adds the same source objects with new handles, restores each
+  entity to its exact original source, and restores every viewport sequence,
+  including ordering and duplicate occurrences; Redo validates and repeats the
+  retained transition. Capture is capped at 1,000,000 entity plus affected-
+  viewport snapshot references. Complete work is O(S + R + F + A + Fv) and
+  retained command storage is O(S + A + Fv) for S sources, R registered entities,
+  F inspected frozen references, A affected entities, and Fv frozen entries in
+  affected viewports. ACadSharp validates the table set before mutation and emits
+  one immutable typed range notification; document unregistration plus exact-
+  identity entity repair is O(S + R), not O(SR). The existing whole-generation
+  O(E + G) snapshot/picture replacement follows one successful edit. Failed
+  preflight, Apply, Undo, or Redo validation publishes no partial document
+  generation.
 - The shared desktop/browser shell exposes `New layer`, `Rename layer`,
-  `Delete unused`, and an explicit `Merge to` target on a dedicated row. A
+  `Delete unused`, and a dedicated merge row with `Queue selected`, a source
+  count, `Clear sources`, one explicit target, and `Merge queued`. The source
+  queue is stamped with both document-session identity and content generation;
+  load, another edit, Undo, or Redo clears it before stale names can be committed.
+  Duplicate queue entries are suppressed case-insensitively, protected/current/
+  xref-dependent sources cannot be queued, and a queued source cannot also be the
+  target. A
   created layer uses the selected layer as its template and becomes the selected
   table row; a renamed layer remains
   selected under its new name; a removed selection falls back to layer 0. Name
   validation uses the loaded document version, the 31/255-character persistence
   limits, and the shared forbidden-character set. The Delete button performs no
   registry scan while typing or selecting; delete and merge commands perform the
-  definitive O(R + F) reference scan only on click. A successful merge selects
+  definitive O(S + R + F) reference scan only on click. A successful merge selects
   the retained target, preserves semantic entity handles and current selection,
   and replaces the shared managed/native picture once. Create and rename table
   work is average O(1), followed by the existing whole-generation O(E + G)
@@ -1127,16 +1135,22 @@ an interactive browser picker/download smoke remains open.
   additionally identifies paper-space, nested-block, current, permanent, and
   xref references. Autodesk's
   [LAYMRG contract](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-7D66940F-EC67-4DEC-89BC-82B887EABD6E.htm)
-  specifies that objects on merged layers move to a target and the original
-  layers are purged, while the
+  specifies Ctrl+click selection of multiple source layers, movement of their
+  objects to one target, and purge of the originals. The matching
+  [dialog workflow](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Core/files/GUID-D7F24669-483F-4589-96AC-557F08784E7E.htm)
+  likewise separates multiple selected sources from one target, while the
   [Merge to Layer contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-B7125CCB-A0DA-439F-BC43-A2F50CFFFAB7.htm)
   specifies that the target's properties are retained. ProGPU adopts those
-  observable semantics for one source per atomic command and explicitly removes
-  source viewport-freeze references instead of changing the target's independent
-  viewport state. The clean
-  typed registry enumeration required for complete preflight is ProGPU-owned
-  ACadSharp feature commit `b83de724`; the dependency master branch remains
-  untouched.
+  observable multi-source semantics and explicitly removes source viewport-
+  freeze references instead of changing the target's independent viewport state.
+  The shared host adapts Ctrl+click to an explicit queue because its portable
+  ComboBox contract is single-select; a modal picker and repeated single-source
+  transactions were rejected because they either diverge across hosts or expose
+  partial generations. No Autodesk or other engine implementation source was
+  copied. Complete typed registry enumeration is ProGPU-owned ACadSharp commit
+  `b83de724`; atomic range removal and its single O(S + R) immutable notification
+  are ProGPU-owned commits `5797dee5`, `48678eb8`, and `03c2d648`. The dependency
+  master branch remains untouched.
 - This lifecycle and merge slice changes the object table and shared host, then
   invokes the existing generation rebuild. It changes no scene compiler, shader, cache,
   GPU resource, native ABI, or managed/native renderer algorithm. Both renderers

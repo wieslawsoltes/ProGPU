@@ -1081,36 +1081,61 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     /// <summary>
     /// Returns whether one source layer can be merged into one retained target.
-    /// This O(1) host predicate omits the command's definitive reference scan.
     /// </summary>
-    public bool CanMergeLayer(string sourceLayerName, string targetLayerName)
+    public bool CanMergeLayer(string sourceLayerName, string targetLayerName) =>
+        CanMergeLayers([sourceLayerName], targetLayerName);
+
+    /// <summary>
+    /// Returns whether a bounded source set can be merged into one retained
+    /// target. This O(S) host predicate for S sources omits the command's
+    /// definitive registered-reference scan.
+    /// </summary>
+    public bool CanMergeLayers(
+        IEnumerable<string> sourceLayerNames,
+        string targetLayerName)
     {
-        if (string.IsNullOrWhiteSpace(sourceLayerName) ||
+        if (sourceLayerNames is null ||
             string.IsNullOrWhiteSpace(targetLayerName))
         {
             return false;
         }
+        string[] bounded = sourceLayerNames
+            .Take(CadMergeLayerCommand.MaximumSourceLayerCount + 1)
+            .ToArray();
+        if (bounded.Length == 0 ||
+            bounded.Length > CadMergeLayerCommand.MaximumSourceLayerCount ||
+            bounded.Any(string.IsNullOrWhiteSpace))
+        {
+            return false;
+        }
+        string[] sourceNames = bounded
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         CadDocumentSession? session = CurrentSession;
         return session is not null && session.Read(document =>
         {
             if (!document.Layers.TryGetValue(
-                    sourceLayerName,
-                    out Layer? source) ||
-                !document.Layers.TryGetValue(
                     targetLayerName,
                     out Layer? target) ||
-                ReferenceEquals(source, target) ||
-                source.Name.Equals(
-                    Layer.DefaultName,
-                    StringComparison.OrdinalIgnoreCase) ||
-                source.Name.Equals(
-                    Layer.DefpointsName,
-                    StringComparison.OrdinalIgnoreCase) ||
-                ReferenceEquals(document.Header.CurrentLayer, source) ||
-                (source.Flags & LayerFlags.XrefDependent) != 0 ||
                 (target.Flags & LayerFlags.XrefDependent) != 0)
             {
                 return false;
+            }
+            foreach (string sourceName in sourceNames)
+            {
+                if (!document.Layers.TryGetValue(sourceName, out Layer? source) ||
+                    ReferenceEquals(source, target) ||
+                    source.Name.Equals(
+                        Layer.DefaultName,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    source.Name.Equals(
+                        Layer.DefpointsName,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    ReferenceEquals(document.Header.CurrentLayer, source) ||
+                    (source.Flags & LayerFlags.XrefDependent) != 0)
+                {
+                    return false;
+                }
             }
             return true;
         });
@@ -1195,8 +1220,17 @@ public sealed class CadSampleCanvas : FrameworkElement
     /// the source layer as one reversible edit.
     /// </summary>
     public bool MergeLayer(string sourceLayerName, string targetLayerName)
+        => MergeLayers([sourceLayerName], targetLayerName);
+
+    /// <summary>
+    /// Reassigns every registered entity on any source layer to the target and
+    /// purges all sources as one reversible edit.
+    /// </summary>
+    public bool MergeLayers(
+        IEnumerable<string> sourceLayerNames,
+        string targetLayerName)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sourceLayerName);
+        ArgumentNullException.ThrowIfNull(sourceLayerNames);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetLayerName);
         ThrowIfDrawOrderReferencePickPending();
         CadDocumentSession session = CurrentSession ??
@@ -1204,9 +1238,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         CadDocumentHistory history = _history ??
             throw new InvalidOperationException("The CAD edit history is not initialized.");
         history.Execute(new CadMergeLayerCommand(
-            sourceLayerName,
-            targetLayerName,
-            $"Merge layer {sourceLayerName} into {targetLayerName}"));
+            sourceLayerNames,
+            targetLayerName));
         RecompileAfterEdit(session);
         return true;
     }

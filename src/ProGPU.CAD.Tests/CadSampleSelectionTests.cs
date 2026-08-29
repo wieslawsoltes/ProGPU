@@ -1390,7 +1390,7 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
-    public void SharedViewMergesPopulatedLayerIntoExplicitTargetWithUndoRedo()
+    public void SharedViewQueuesAndMergesMultipleLayersIntoExplicitTarget()
     {
         var document = new CadDocument();
         var source = new Layer("POPULATED_SOURCE")
@@ -1404,11 +1404,13 @@ public sealed class CadSampleSelectionTests
             LineWeight = LineWeightType.W70,
             PlotFlag = false,
         };
+        var secondSource = new Layer("MERGE_SECOND_SOURCE");
         var dependentTarget = new Layer("XREF|MERGE_TARGET")
         {
             Flags = LayerFlags.XrefDependent,
         };
         document.Layers.Add(source);
+        document.Layers.Add(secondSource);
         document.Layers.Add(target);
         document.Layers.Add(dependentTarget);
         var line = new Line(new XYZ(-5, 0, 0), new XYZ(5, 0, 0))
@@ -1417,14 +1419,21 @@ public sealed class CadSampleSelectionTests
             Color = ACadSharp.Color.ByLayer,
             LineWeight = LineWeightType.ByLayer,
         };
+        var circle = new Circle(new XYZ(20, 0, 0), 2)
+        {
+            Layer = secondSource,
+            Color = ACadSharp.Color.ByLayer,
+            LineWeight = LineWeightType.ByLayer,
+        };
         document.Entities.Add(line);
+        document.Entities.Add(circle);
         var session = new CadDocumentSession(document);
         var view = new CadSampleView();
         try
         {
             view.Arrange(new Rect(0, 0, 1_280, 900));
             view.Canvas.Load(session);
-            view.Canvas.Arrange(new Rect(0, 0, 1_280, 474));
+            view.Canvas.Arrange(new Rect(0, 0, 1_280, 440));
             Click(
                 view.Canvas,
                 view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
@@ -1432,9 +1441,25 @@ public sealed class CadSampleSelectionTests
             view.LayerStateSelector.SelectedItem = FindNamedPropertyChoice(
                 view.LayerStateSelector,
                 source.Name);
-            Button merge = FindButton(view, "Merge layer");
+            Button queue = FindButton(view, "Queue selected");
+            Button clearSources = FindButton(view, "Clear sources");
+            Button merge = FindButton(view, "Merge queued");
             Button undo = FindButton(view, "Undo");
             Button redo = FindButton(view, "Redo");
+
+            Assert.False(merge.IsEnabled);
+            Assert.True(queue.IsEnabled);
+            PressEnter(queue);
+            Assert.Equal("Sources: 1", view.LayerMergeSourceCountText.Text);
+            Assert.False(queue.IsEnabled);
+            Assert.True(clearSources.IsEnabled);
+            view.LayerStateSelector.SelectedItem = FindNamedPropertyChoice(
+                view.LayerStateSelector,
+                secondSource.Name);
+            Assert.True(queue.IsEnabled);
+            PressEnter(queue);
+            Assert.Equal("Sources: 2", view.LayerMergeSourceCountText.Text);
+            Assert.False(queue.IsEnabled);
 
             view.LayerMergeTargetSelector.SelectedItem =
                 FindNamedPropertyChoice(
@@ -1456,7 +1481,11 @@ public sealed class CadSampleSelectionTests
 
             Assert.Equal(1UL, session.ContentGeneration);
             Assert.False(document.Layers.Contains(source.Name));
+            Assert.False(document.Layers.Contains(secondSource.Name));
             Assert.Same(target, line.Layer);
+            Assert.Same(target, circle.Layer);
+            Assert.Equal("Sources: 0", view.LayerMergeSourceCountText.Text);
+            Assert.False(clearSources.IsEnabled);
             Assert.Equal(1, view.Canvas.SelectedHandleCount);
             Assert.Equal(
                 target.Name,
@@ -1472,7 +1501,7 @@ public sealed class CadSampleSelectionTests
             Assert.Contains(
                 DescendantsAndSelf(view).OfType<TextBlock>(),
                 text => text.Text.Contains(
-                    $"Merged layer {source.Name} into {target.Name} as one edit",
+                    $"Merged 2 layers into {target.Name} as one edit",
                     StringComparison.Ordinal));
             CadRecordedPlanScene mergedScene = new CadPlanSceneCompiler().Compile(
                 view.Canvas.CurrentSnapshot!);
@@ -1492,7 +1521,10 @@ public sealed class CadSampleSelectionTests
 
             PressEnter(undo);
             Assert.Same(source, document.Layers[source.Name]);
+            Assert.Same(secondSource, document.Layers[secondSource.Name]);
             Assert.Same(source, line.Layer);
+            Assert.Same(secondSource, circle.Layer);
+            Assert.Equal("Sources: 0", view.LayerMergeSourceCountText.Text);
             Assert.Equal(1, view.Canvas.SelectedHandleCount);
             Assert.Equal(
                 source.Name,
@@ -1503,10 +1535,58 @@ public sealed class CadSampleSelectionTests
 
             PressEnter(redo);
             Assert.False(document.Layers.Contains(source.Name));
+            Assert.False(document.Layers.Contains(secondSource.Name));
             Assert.Same(target, line.Layer);
+            Assert.Same(target, circle.Layer);
             Assert.DoesNotContain(
                 view.LayerMergeTargetSelector.Items.OfType<ComboBoxItem>(),
                 item => item.Tag is string name && name == source.Name);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewClearsLayerMergeQueueAcrossGenerationAndSessionChanges()
+    {
+        var firstDocument = new CadDocument();
+        var source = new Layer("QUEUE_SOURCE");
+        var target = new Layer("QUEUE_TARGET");
+        firstDocument.Layers.Add(source);
+        firstDocument.Layers.Add(target);
+        var firstSession = new CadDocumentSession(firstDocument);
+        var secondDocument = new CadDocument();
+        secondDocument.Layers.Add(new Layer("SECOND_SOURCE"));
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 900));
+            view.Canvas.Load(firstSession);
+            Button queue = FindButton(view, "Queue selected");
+            view.LayerStateSelector.SelectedItem = FindNamedPropertyChoice(
+                view.LayerStateSelector,
+                source.Name);
+
+            PressEnter(queue);
+            Assert.Equal("Sources: 1", view.LayerMergeSourceCountText.Text);
+
+            view.Canvas.CreateLayer("GENERATION_CHANGE", target.Name);
+
+            Assert.Equal(1UL, firstSession.ContentGeneration);
+            Assert.Equal("Sources: 0", view.LayerMergeSourceCountText.Text);
+            view.LayerStateSelector.SelectedItem = FindNamedPropertyChoice(
+                view.LayerStateSelector,
+                source.Name);
+            PressEnter(queue);
+            Assert.Equal("Sources: 1", view.LayerMergeSourceCountText.Text);
+
+            view.Canvas.Load(new CadDocumentSession(secondDocument));
+
+            Assert.Equal("Sources: 0", view.LayerMergeSourceCountText.Text);
+            Assert.False(FindButton(view, "Clear sources").IsEnabled);
         }
         finally
         {

@@ -21,6 +21,15 @@ path. This is a SkiaSharp front-end storage change: the managed and native scene
 compilers receive the same expanded commands, so no one-sided renderer change
 is required.
 
+The ProGPU.CAD continuation also adds atomic multi-source populated-layer merge.
+The shared desktop/browser shell queues generation-stamped source layers and
+commits them to one explicit target as one history generation; Undo restores
+every exact entity and viewport frozen-layer reference. DXF/DWG round trips and
+native picture replay cover the result. The ACadSharp feature branch supplies a
+preflighted range removal with one immutable typed notification, while its master
+branch remains synchronized with upstream. This is a document/UI transaction
+change, not a renderer optimization, and makes no performance-improvement claim.
+
 ## Preview.62 retained SaveLayer optimization closure
 
 The alternating three-process Release comparison uses official SkiaSharp

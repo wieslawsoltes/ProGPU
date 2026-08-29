@@ -2367,21 +2367,29 @@ public sealed class CadRemoveLayerCommand : CadEditCommand
 }
 
 /// <summary>
-/// Moves every registered entity reference from one source layer to one target
-/// layer, removes every source occurrence from viewport frozen-layer lists, and
-/// detaches the now-unreferenced source layer as one reversible edit. The target
-/// layer and all of its authored properties retain their original identity.
+/// Moves every registered entity reference from one or more source layers to one
+/// target layer, removes every source occurrence from viewport frozen-layer
+/// lists, and atomically detaches the now-unreferenced sources as one reversible
+/// edit. The target layer and all of its authored properties retain their
+/// original identity.
 /// </summary>
 public sealed class CadMergeLayerCommand : CadEditCommand
 {
     public const int MaximumCapturedReferences = 1_000_000;
+    public const int MaximumSourceLayerCount = 65_536;
 
-    private Layer? _sourceLayer;
+    private readonly string[] _sourceLayerNames;
+    private Layer[]? _sourceLayers;
     private Layer? _targetLayer;
     private Entity[]? _entities;
+    private Layer[]? _originalEntityLayers;
     private ViewportFrozenLayerState[]? _viewportStates;
 
-    public string SourceLayerName { get; }
+    public string SourceLayerName => _sourceLayerNames[0];
+
+    public ReadOnlyMemory<string> SourceLayerNames => _sourceLayerNames;
+
+    public int SourceLayerCount => _sourceLayerNames.Length;
 
     public string TargetLayerName { get; }
 
@@ -2391,17 +2399,37 @@ public sealed class CadMergeLayerCommand : CadEditCommand
 
     public int AffectedViewportFrozenReferenceCount { get; private set; }
 
-    public ulong CurrentSourceHandle => _sourceLayer?.Handle ?? 0;
+    public ulong CurrentSourceHandle => _sourceLayers?[0].Handle ?? 0;
 
     public CadMergeLayerCommand(
         string sourceLayerName,
         string targetLayerName,
         string description = "Merge layer")
+        : this([sourceLayerName], targetLayerName, description)
+    {
+    }
+
+    public CadMergeLayerCommand(
+        IEnumerable<string> sourceLayerNames,
+        string targetLayerName,
+        string description = "Merge layers")
         : base(description)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(sourceLayerName);
+        ArgumentNullException.ThrowIfNull(sourceLayerNames);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetLayerName);
-        SourceLayerName = sourceLayerName;
+        string[] boundedSourceLayerNames = sourceLayerNames
+            .Take(MaximumSourceLayerCount + 1)
+            .ToArray();
+        if (boundedSourceLayerNames.Length > MaximumSourceLayerCount)
+        {
+            throw new ArgumentException(
+                $"A layer merge supports at most " +
+                $"{MaximumSourceLayerCount:N0} source layers.",
+                nameof(sourceLayerNames));
+        }
+        _sourceLayerNames = NormalizeLayerNames(
+            boundedSourceLayerNames,
+            nameof(sourceLayerNames));
         TargetLayerName = targetLayerName;
     }
 
@@ -2412,18 +2440,19 @@ public sealed class CadMergeLayerCommand : CadEditCommand
             Capture(document);
         }
 
-        (Layer source, Layer target, Entity[] entities,
+        (Layer[] sources, Layer target, Entity[] entities,
+            Layer[] originalEntityLayers,
             ViewportFrozenLayerState[] viewportStates) = GetCapturedState();
         ValidateUnmergedState(
             document,
-            source,
+            sources,
             target,
             entities,
+            originalEntityLayers,
             viewportStates);
 
         int changedEntities = 0;
         int changedViewports = 0;
-        bool sourceRemoved = false;
         try
         {
             for (; changedEntities < entities.Length; changedEntities++)
@@ -2437,24 +2466,26 @@ public sealed class CadMergeLayerCommand : CadEditCommand
                     viewportStates[changedViewports].MergedLayers);
             }
 
-            Layer? removed = document.Layers.Remove(source.Name);
-            sourceRemoved = ReferenceEquals(removed, source);
-            if (!sourceRemoved)
+            Layer[] removed = document.Layers.RemoveRange(
+                sources.Select(static source => source.Name));
+            if (removed.Length != sources.Length)
             {
                 throw new InvalidOperationException(
-                    $"Layer '{source.Name}' could not be removed after reassignment.");
+                    "The layer table returned an incomplete merge-source set.");
+            }
+            for (int i = 0; i < sources.Length; i++)
+            {
+                if (!ReferenceEquals(removed[i], sources[i]))
+                {
+                    throw new InvalidOperationException(
+                        $"Removing merge source '{sources[i].Name}' returned " +
+                        "a different table entry.");
+                }
             }
         }
         catch
         {
-            sourceRemoved = sourceRemoved ||
-                (source.Owner is null &&
-                 source.Handle == 0 &&
-                 !document.Layers.Contains(source.Name));
-            if (sourceRemoved)
-            {
-                document.Layers.Add(source);
-            }
+            RestoreDetachedSources(document, sources);
             for (int i = changedViewports - 1; i >= 0; i--)
             {
                 RestoreFrozenLayers(
@@ -2463,7 +2494,7 @@ public sealed class CadMergeLayerCommand : CadEditCommand
             }
             for (int i = changedEntities - 1; i >= 0; i--)
             {
-                entities[i].Layer = source;
+                entities[i].Layer = originalEntityLayers[i];
             }
             throw;
         }
@@ -2471,26 +2502,33 @@ public sealed class CadMergeLayerCommand : CadEditCommand
 
     internal override void Revert(CadDocument document)
     {
-        (Layer source, Layer target, Entity[] entities,
+        (Layer[] sources, Layer target, Entity[] entities,
+            Layer[] originalEntityLayers,
             ViewportFrozenLayerState[] viewportStates) = GetCapturedState();
         ValidateMergedState(
             document,
-            source,
+            sources,
             target,
             entities,
             viewportStates);
-        ValidateLayerNameAvailable(document, source.Name);
+        foreach (Layer source in sources)
+        {
+            ValidateLayerNameAvailable(document, source.Name);
+        }
 
         int changedEntities = 0;
         int changedViewports = 0;
-        bool sourceAdded = false;
+        int addedSources = 0;
         try
         {
-            document.Layers.Add(source);
-            sourceAdded = true;
+            for (; addedSources < sources.Length; addedSources++)
+            {
+                document.Layers.Add(sources[addedSources]);
+            }
             for (; changedEntities < entities.Length; changedEntities++)
             {
-                entities[changedEntities].Layer = source;
+                entities[changedEntities].Layer =
+                    originalEntityLayers[changedEntities];
             }
             for (; changedViewports < viewportStates.Length; changedViewports++)
             {
@@ -2511,14 +2549,15 @@ public sealed class CadMergeLayerCommand : CadEditCommand
             {
                 entities[i].Layer = target;
             }
-            sourceAdded = sourceAdded ||
-                (document.Layers.TryGetValue(
-                    source.Name,
-                    out Layer? registered) &&
-                 ReferenceEquals(registered, source));
-            if (sourceAdded)
+            for (int i = sources.Length - 1; i >= 0; i--)
             {
-                document.Layers.Remove(source.Name);
+                if (document.Layers.TryGetValue(
+                        sources[i].Name,
+                        out Layer? registered) &&
+                    ReferenceEquals(registered, sources[i]))
+                {
+                    document.Layers.Remove(sources[i].Name);
+                }
             }
             throw;
         }
@@ -2526,14 +2565,21 @@ public sealed class CadMergeLayerCommand : CadEditCommand
 
     private void Capture(CadDocument document)
     {
-        Layer source = ResolveLayers(document, [SourceLayerName])[0];
+        Layer[] sources = ResolveLayers(document, _sourceLayerNames);
         Layer target = ResolveLayers(document, [TargetLayerName])[0];
-        ValidateLayerCanBeMerged(document, source, target);
+        var sourceSet = new HashSet<Layer>(
+            sources,
+            ReferenceEqualityComparer.Instance);
+        foreach (Layer source in sources)
+        {
+            ValidateLayerCanBeMerged(document, source, target);
+        }
 
         var entities = new List<Entity>();
+        var originalEntityLayers = new List<Layer>();
         foreach (Entity entity in document.GetCadObjects<Entity>())
         {
-            if (!ReferenceEquals(entity.Layer, source))
+            if (!sourceSet.Contains(entity.Layer))
             {
                 continue;
             }
@@ -2544,6 +2590,7 @@ public sealed class CadMergeLayerCommand : CadEditCommand
                     $"{MaximumCapturedReferences:N0} captured references.");
             }
             entities.Add(entity);
+            originalEntityLayers.Add(entity.Layer);
         }
 
         int capturedReferences = entities.Count;
@@ -2554,7 +2601,7 @@ public sealed class CadMergeLayerCommand : CadEditCommand
             int sourceReferenceCount = 0;
             foreach (Layer layer in viewport.FrozenLayers)
             {
-                if (ReferenceEquals(layer, source))
+                if (sourceSet.Contains(layer))
                 {
                     sourceReferenceCount++;
                 }
@@ -2576,7 +2623,7 @@ public sealed class CadMergeLayerCommand : CadEditCommand
             int mergedIndex = 0;
             foreach (Layer layer in original)
             {
-                if (!ReferenceEquals(layer, source))
+                if (!sourceSet.Contains(layer))
                 {
                     merged[mergedIndex++] = layer;
                 }
@@ -2589,36 +2636,49 @@ public sealed class CadMergeLayerCommand : CadEditCommand
             removedFrozenReferences += sourceReferenceCount;
         }
 
-        _sourceLayer = source;
+        _sourceLayers = sources;
         _targetLayer = target;
         _entities = entities.ToArray();
+        _originalEntityLayers = originalEntityLayers.ToArray();
         _viewportStates = viewportStates.ToArray();
         AffectedViewportFrozenReferenceCount = removedFrozenReferences;
     }
 
-    private (Layer Source, Layer Target, Entity[] Entities,
+    private (Layer[] Sources, Layer Target, Entity[] Entities,
+        Layer[] OriginalEntityLayers,
         ViewportFrozenLayerState[] ViewportStates) GetCapturedState() =>
-        (_sourceLayer ?? throw new InvalidOperationException(
+        (_sourceLayers ?? throw new InvalidOperationException(
             "The layer-merge command has not been applied."),
          _targetLayer ?? throw new InvalidOperationException(
             "The layer-merge command has not been applied."),
          _entities ?? throw new InvalidOperationException(
+            "The layer-merge command has not been applied."),
+         _originalEntityLayers ?? throw new InvalidOperationException(
             "The layer-merge command has not been applied."),
          _viewportStates ?? throw new InvalidOperationException(
             "The layer-merge command has not been applied."));
 
     private static void ValidateUnmergedState(
         CadDocument document,
-        Layer source,
+        ReadOnlySpan<Layer> sources,
         Layer target,
         ReadOnlySpan<Entity> entities,
+        ReadOnlySpan<Layer> originalEntityLayers,
         ReadOnlySpan<ViewportFrozenLayerState> viewportStates)
     {
-        ValidateLayerCanBeMerged(document, source, target);
-        foreach (Entity entity in entities)
+        if (entities.Length != originalEntityLayers.Length)
         {
-            if (!ReferenceEquals(entity.Document, document) ||
-                !ReferenceEquals(entity.Layer, source))
+            throw new InvalidOperationException(
+                "Retained merge entity state is inconsistent.");
+        }
+        foreach (Layer source in sources)
+        {
+            ValidateLayerCanBeMerged(document, source, target);
+        }
+        for (int i = 0; i < entities.Length; i++)
+        {
+            if (!ReferenceEquals(entities[i].Document, document) ||
+                !ReferenceEquals(entities[i].Layer, originalEntityLayers[i]))
             {
                 throw new InvalidOperationException(
                     "A retained source-layer entity reference has changed.");
@@ -2632,17 +2692,21 @@ public sealed class CadMergeLayerCommand : CadEditCommand
 
     private static void ValidateMergedState(
         CadDocument document,
-        Layer source,
+        ReadOnlySpan<Layer> sources,
         Layer target,
         ReadOnlySpan<Entity> entities,
         ReadOnlySpan<ViewportFrozenLayerState> viewportStates)
     {
         ValidateLayer(document, target);
-        if (source.Owner is not null || source.Handle != 0 ||
-            document.Layers.Contains(source.Name))
+        foreach (Layer source in sources)
         {
-            throw new InvalidOperationException(
-                "The retained source layer is not detached after merge.");
+            if (source.Owner is not null || source.Handle != 0 ||
+                document.Layers.Contains(source.Name))
+            {
+                throw new InvalidOperationException(
+                    $"Retained source layer '{source.Name}' is not detached " +
+                    "after merge.");
+            }
         }
         foreach (Entity entity in entities)
         {
@@ -2656,6 +2720,21 @@ public sealed class CadMergeLayerCommand : CadEditCommand
         foreach (ViewportFrozenLayerState state in viewportStates)
         {
             ValidateViewportState(document, state, state.MergedLayers);
+        }
+    }
+
+    private static void RestoreDetachedSources(
+        CadDocument document,
+        ReadOnlySpan<Layer> sources)
+    {
+        foreach (Layer source in sources)
+        {
+            if (source.Owner is null &&
+                source.Handle == 0 &&
+                !document.Layers.Contains(source.Name))
+            {
+                document.Layers.Add(source);
+            }
         }
     }
 
