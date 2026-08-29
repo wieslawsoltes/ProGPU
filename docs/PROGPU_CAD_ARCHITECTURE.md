@@ -1319,29 +1319,47 @@ non-planar 3DFACE normals, triangle sentinels, all-invisible edges, large-WCS
 rebasing, degenerate surfaces, exact side/lobe/gap/concave-notch selection,
 plan/print policy, DXF/DWG round trips, and managed/native stream counts.
 
-## Exact retained POINT dots
+## Exact retained POINT dots and regenerated markers
 
 `POINT` group 10/20/30 coordinates are already WCS. Snapshot capture validates
 finite coordinates and applies only ancestor INSERT/MINSERT affine transforms;
-it does not apply the entity normal as an OCS conversion. `PDMODE=0` retains one
-degenerate-bounds `CadPointPrimitive` and records it as the existing ProGPU
+it does not apply the entity normal as an OCS conversion. The primitive also
+retains the finite group-50 rotation and the affine image of the rotated OCS
+marker axes without moving the WCS location. `PDMODE=0` records the point as the existing ProGPU
 round hairline `DrawPointBatch`, whose radius is fixed to half a physical device
 pixel after the camera transform. `PDMODE=1` intentionally publishes no visible
-primitive and no unsupported diagnostic. Nonzero thickness and PDMODE values
-that require plus/X/tick/circle/square marker geometry remain explicit
-unsupported boundaries because their absolute or viewport-relative PDSIZE
-sizing cannot be represented by a guessed model-space radius.
+primitive and no unsupported diagnostic. Modes 2, 3, and 4 retain the documented
+plus, X, and vertical tick; enclosure bits 32 and 64 add the documented circle
+and square, including 96 as their combination. Base value 1 remains valid with
+an enclosure, so 33/65/97 render only their enclosing figures. Other bit
+patterns fail transactionally. Nonzero thickness remains explicit unsupported
+until retained extrusion geometry lands.
+
+`CadPointMarkerSceneCompiler` resolves PDSIZE only after the caller supplies a
+finite view. Positive values are drawing-unit diameters, zero is five percent
+of drawing-area height, and negative values use their absolute percentage of
+viewport height. The retained viewer rebuilds this small overlay on zoom or
+viewport-height changes; printing resolves the same contract against its
+finite placement area and model-units-per-output-pixel scale. Ordinary plan
+geometry remains camera independent. Rotated plus/X/tick/square figures are
+exact lines; orthogonal projected circle axes become two exact analytic arc
+segments, while the rare affine-sheared projection retains the existing exact
+transformed ellipse command rather than approximating it.
 
 Direct POINT capture is `O(1)` time and storage per visible entity. A one-index
 polyface record shares the same primitive and style contract; the mesh performs
 its complete topology/PDMODE validation pass before emitting any point or edge.
 Plan recording copies caller stack spans into one reusable point stream, so it
 uses `O(P)` retained storage for `P` points without one managed array per point.
-Managed drawing, GPU hit testing, picture nesting, native scene compilation,
-selection, print replay, and stable device-hairline behavior all resolve the
-same offset/count stream. The existing native point-batch C ABI and shaders did
-not change, and the C++ renderer already consumes that canonical command; no
-one-sided native implementation or generated-wire update applies.
+Compound regeneration is also `O(P)` and coalesces each contiguous style range
+into one retained path command; it uses at most five figures and seven segments
+per marker, with bounded exact-ellipse fallback commands only when projection
+introduces shear. Stable replay adds no marker regeneration or managed/native
+crossing. Managed drawing, picture nesting, native scene compilation, selection,
+and print replay resolve the same immutable primitive and ordinary retained
+commands. The existing native point/path/ellipse ABI and canonical shaders did
+not change, and the C++ renderer already consumes those commands; no one-sided
+native implementation or generated-wire update applies.
 
 ## Exact viewport-clipped RAY and XLINE construction geometry
 
@@ -2121,6 +2139,25 @@ improvement or release-acceptance claim. Point-command coalescing,
 representative viewport interaction, GPU counters, managed/native images, and
 required Instruments traces remain open gates.
 
+The 2026-08-29 compound-POINT feature-cost checkpoint used two separate final
+Apple Silicon/.NET 10.0.5 Release processes, 10,000 `PDMODE=98`, `PDSIZE=-5`
+POINT entities with rotating group-50 angles, a 1,080-pixel marker viewport at
+0.25 model unit per pixel, three warmups, 24 construction iterations, and
+10,000 spatial queries. Both runs reported exactly 10,000 source/expanded
+records, zero unsupported/invalid entities, and one contiguous-style retained
+marker command containing 50,000 exact figures. Snapshot p50/p95/p99 was
+`12.9299/37.0579/37.3837 ms` and `15.2497/44.5245/47.3621 ms`, allocating
+`7,899,914` and `7,900,452 B/op`. Marker regeneration was
+`21.7753/39.7722/44.5901 ms` and `20.6250/40.8564/43.1821 ms`, allocating
+`9,372,445 B/op` in both runs. Print planning, which includes the same overlay,
+was `25.6968/43.2771/53.4240 ms` and `15.4630/33.3415/35.3602 ms`; warm spatial
+queries remained zero-allocation. The ignored artifacts are
+`artifacts/progpu-cad/cad-point-marker-run2.json` and
+`cad-point-marker-run3.json`. This exposes feature cost and noisy process-level
+tails; it makes no latency improvement or regression claim and does not replace
+interactive multi-DPI pixels, GPU residency/submission counters, native
+differential images, or Instruments captures for a future optimization claim.
+
 The 2026-08-29 construction-geometry feature-cost run used one final Apple
 Silicon/.NET 10.0.5 Release process, 5,000 RAY plus 5,000 XLINE entities, one
 explicit `[-100,-100]` through `[12100,500]` plan/plot window, three warmups,
@@ -2480,26 +2517,30 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   [point-style guidance](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DidYouKnow/files/GUID-1823FF63-6952-47DD-89F8-29E4AA5B2582.htm)
   define the marker bit combinations, hidden mode, absolute/viewport-relative
   sizing, and the mode-zero single-pixel dot. Adopted exact WCS placement,
-  hidden mode, and single-device-pixel mode-zero coverage; rejected treating
-  POINT as OCS, inventing a model-space size, or approximating the larger
-  compound markers. The same contract now applies to Autodesk's documented
-  one-index PFACE point records.
+  rotated OCS marker axes, hidden mode, single-device-pixel mode-zero coverage,
+  every documented plus/X/tick/circle/square combination, five-percent zero
+  size, absolute positive size, and viewport-relative negative size. Rejected
+  treating the WCS location as OCS, inventing a model-space radius before a
+  view exists, flattening circles, or accepting undocumented bit patterns. The
+  same contract applies to Autodesk's documented one-index PFACE point records.
   [Skia `drawPoints`](https://api.skia.org/classSkCanvas.html),
   [Direct2D `DrawEllipse`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-drawellipse),
   [Win2D `DrawCircle`](https://microsoft.github.io/Win2D/WinUI3/html/Overload_Microsoft_Graphics_Canvas_CanvasDrawingSession_DrawCircle.htm),
   [WebRender's retained pipeline](https://searchfox.org/mozilla-central/source/gfx/docs/RenderingOverview.rst), and
   [Vello's retained scene](https://github.com/linebender/vello/blob/main/vello/src/scene.rs)
-  informed keeping point coverage analytic, device-scaled, retained, and shared
-  across consumers. ProGPU adapts those public contracts to its existing
-  original point-batch command and copies no foreign source or structure.
+  informed keeping point coverage analytic, explicitly transformed, retained,
+  and shared across consumers. ProGPU adapts those public contracts to its
+  existing original point, path, line, and ellipse commands; contiguous styles
+  coalesce while exact affine-sheared ellipses remain unflattened. No foreign
+  source or implementation structure was copied.
   SkParagraph, DirectWrite text layout, Parley, and HarfBuzz were rechecked and
   are not applicable because POINT changes no shaping, line layout, font
   fallback, glyph cache, variable-font, DPI/subpixel text, or text device-loss
   behavior. Managed/native applicability was audited explicitly: both renderers
-  already consume the same canonical point-batch ABI; the managed recorder,
-  hit tester, picture compiler, and native scene compiler now resolve the same
-  span-backed stream, with matched regressions and no C ABI, shader, generated
-  binding, or per-frame crossing change.
+  already consume the same canonical point, stroke, path, and ellipse ABI; the
+  managed viewer/print compilers and native picture compiler now resolve the
+  same retained overlay, with matched regressions and no C ABI, shader,
+  generated binding, per-marker P/Invoke, or per-frame crossing change.
 
 - For unbounded construction geometry, Autodesk's
   [RAY DXF contract](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-638B9F01-5D86-408E-A2DE-FA5D6ADBD415.htm)

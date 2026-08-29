@@ -352,15 +352,13 @@ public sealed partial class CadSnapshotCompiler
                 }
                 if (entity is ACadSharp.Entities.Point pointEntity)
                 {
-                    ValidatePoint(pointEntity);
+                    ValidatePoint(
+                        pointEntity,
+                        document.Header.PointDisplayMode,
+                        document.Header.PointDisplaySize);
                     if (document.Header.PointDisplayMode == 1)
                     {
                         return;
-                    }
-                    if (document.Header.PointDisplayMode != 0)
-                    {
-                        throw new CadUnsupportedEntityException(
-                            $"PDMODE {document.Header.PointDisplayMode} requires retained viewport-sized marker geometry.");
                     }
                 }
 
@@ -401,7 +399,9 @@ public sealed partial class CadSnapshotCompiler
                         hasTransform,
                         layerIndex,
                         styleIndex,
-                        points),
+                        points,
+                        document.Header.PointDisplayMode,
+                        document.Header.PointDisplaySize),
                     Ray ray => CompileConstructionLine(
                         ray.StartPoint,
                         ray.Direction,
@@ -1234,11 +1234,9 @@ public sealed partial class CadSnapshotCompiler
                         throw new ArgumentException(
                             "A polyface MESH point record references a coordinate vertex outside its 1-based array.");
                     }
-                    if (document.Header.PointDisplayMode is not (0 or 1))
-                    {
-                        throw new CadUnsupportedEntityException(
-                            $"PDMODE {document.Header.PointDisplayMode} requires retained viewport-sized marker geometry.");
-                    }
+                    ValidatePointDisplay(
+                        document.Header.PointDisplayMode,
+                        document.Header.PointDisplaySize);
                     continue;
                 }
                 for (int i = 0; i < (count == 2 ? 1 : count); i++)
@@ -1541,7 +1539,14 @@ public sealed partial class CadSnapshotCompiler
             }
             expandedCount++;
             int primitiveIndex = points.Count;
-            points.Add(new CadPointPrimitive(position));
+            CadCoordinateSystem markerBasis = CadCoordinateSystem.FromNormal(
+                new CadPoint3D(0.0, 0.0, 1.0));
+            points.Add(new CadPointPrimitive(
+                position,
+                markerBasis.XAxis,
+                markerBasis.YAxis,
+                document.Header.PointDisplayMode,
+                document.Header.PointDisplaySize));
             CadBounds3D bounds = CadBounds3D.FromPoint(position);
             entities.Add(new CadEntityHeader(
                 rootHandle,
@@ -1690,7 +1695,10 @@ public sealed partial class CadSnapshotCompiler
             CadBounds3D.Empty);
     }
 
-    private static void ValidatePoint(ACadSharp.Entities.Point point)
+    private static void ValidatePoint(
+        ACadSharp.Entities.Point point,
+        short displayMode,
+        double displaySize)
     {
         if (!double.IsFinite(point.Thickness))
         {
@@ -1701,7 +1709,30 @@ public sealed partial class CadSnapshotCompiler
             throw new CadUnsupportedEntityException(
                 "POINT thickness requires retained extrusion geometry.");
         }
+        if (!double.IsFinite(point.Rotation))
+        {
+            throw new ArgumentException("POINT rotation must be finite.");
+        }
+        ValidatePointDisplay(displayMode, displaySize);
+        _ = CadCoordinateSystem.FromNormal(ToPoint(point.Normal));
         EnsureFinite(ToPoint(point.Location));
+    }
+
+    private static void ValidatePointDisplay(short displayMode, double displaySize)
+    {
+        int baseMode = displayMode & 31;
+        int enclosureMode = displayMode & 96;
+        if (displayMode < 0 || baseMode > 4 ||
+            enclosureMode is not (0 or 32 or 64 or 96) ||
+            displayMode != baseMode + enclosureMode)
+        {
+            throw new CadUnsupportedEntityException(
+                $"PDMODE {displayMode} is outside the documented base and enclosure combinations.");
+        }
+        if (!double.IsFinite(displaySize))
+        {
+            throw new ArgumentException("PDSIZE must be finite.");
+        }
     }
 
     private static CadEntityHeader CompilePoint(
@@ -1711,15 +1742,34 @@ public sealed partial class CadSnapshotCompiler
         bool hasTransform,
         int layerIndex,
         int styleIndex,
-        List<CadPointPrimitive> destination)
+        List<CadPointPrimitive> destination,
+        short displayMode,
+        double displaySize)
     {
+        CadCoordinateSystem localBasis = CadCoordinateSystem.FromNormal(ToPoint(point.Normal));
+        double cosine = Math.Cos(point.Rotation);
+        double sine = Math.Sin(point.Rotation);
+        CadCoordinateSystem rotatedBasis = new(
+            (localBasis.XAxis * cosine) + (localBasis.YAxis * sine),
+            (localBasis.XAxis * -sine) + (localBasis.YAxis * cosine),
+            localBasis.ZAxis);
+        CadCoordinateSystem markerBasis = hasTransform
+            ? TransformBasis(transform, rotatedBasis)
+            : rotatedBasis;
         CadPoint3D position = TransformPoint(
             transform,
             hasTransform,
             ToPoint(point.Location));
         EnsureFinite(position);
+        EnsureFinite(markerBasis.XAxis);
+        EnsureFinite(markerBasis.YAxis);
         int primitiveIndex = destination.Count;
-        destination.Add(new CadPointPrimitive(position));
+        destination.Add(new CadPointPrimitive(
+            position,
+            markerBasis.XAxis,
+            markerBasis.YAxis,
+            displayMode,
+            displaySize));
         return new CadEntityHeader(
             handle,
             CadEntityKind.Point,

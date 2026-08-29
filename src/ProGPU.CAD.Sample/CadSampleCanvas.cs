@@ -31,6 +31,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     private readonly HashSet<ulong> _selectedHandleSet = new();
     private GpuPicture? _picture;
     private GpuPicture? _constructionPicture;
+    private GpuPicture? _pointMarkerPicture;
     private CadDocumentHistory? _history;
     private CadBounds3D _bounds;
     private CadBounds3D _selectedBounds;
@@ -227,6 +228,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (_constructionPicture is not null)
         {
             context.DrawPicture(_constructionPicture, viewport.CreateCameraMatrix());
+        }
+        if (_pointMarkerPicture is not null)
+        {
+            context.DrawPicture(_pointMarkerPicture, viewport.CreateCameraMatrix());
         }
         if (!_selectedBounds.IsEmpty)
         {
@@ -569,22 +574,39 @@ public sealed class CadSampleCanvas : FrameworkElement
     private void RefreshConstructionPicture()
     {
         CadDocumentSnapshot? snapshot = CurrentSnapshot;
-        if (snapshot is null || snapshot.ConstructionLines.IsEmpty ||
-            Size.X <= 0.0f || Size.Y <= 0.0f)
+        if (snapshot is null || Size.X <= 0.0f || Size.Y <= 0.0f)
         {
             _constructionPicture?.Dispose();
             _constructionPicture = null;
+            _pointMarkerPicture?.Dispose();
+            _pointMarkerPicture = null;
             return;
         }
 
         CadPlanViewport viewport = CreateViewport();
-        CadRecordedConstructionScene scene = new CadConstructionSceneCompiler().Compile(
-            snapshot,
-            viewport.CreatePlanClipBounds());
-        GpuPicture replacement = scene.CreatePicture();
-        GpuPicture? previous = _constructionPicture;
-        _constructionPicture = replacement;
-        previous?.Dispose();
+        GpuPicture? constructionReplacement = null;
+        if (!snapshot.ConstructionLines.IsEmpty)
+        {
+            CadRecordedConstructionScene scene =
+                new CadConstructionSceneCompiler().Compile(
+                    snapshot,
+                    viewport.CreatePlanClipBounds());
+            constructionReplacement = scene.CreatePicture();
+        }
+        GpuPicture? previousConstruction = _constructionPicture;
+        _constructionPicture = constructionReplacement;
+        previousConstruction?.Dispose();
+
+        CadRecordedPointMarkerScene markerScene =
+            new CadPointMarkerSceneCompiler().Compile(
+                snapshot,
+                CadPointMarkerView.FromViewport(viewport));
+        GpuPicture? markerReplacement = markerScene.Statistics.RecordedPointCount == 0
+            ? null
+            : markerScene.CreatePicture();
+        GpuPicture? previousMarkers = _pointMarkerPicture;
+        _pointMarkerPicture = markerReplacement;
+        previousMarkers?.Dispose();
     }
 
     private static Rect ToScreenRect(
@@ -609,6 +631,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         _picture = null;
         _constructionPicture?.Dispose();
         _constructionPicture = null;
+        _pointMarkerPicture?.Dispose();
+        _pointMarkerPicture = null;
     }
 
     private static CadDocumentSession CreateRepresentativeDocument()

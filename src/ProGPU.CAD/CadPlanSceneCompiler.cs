@@ -18,6 +18,7 @@ public sealed class CadPlanSceneOptions
     public float LineWeightScale { get; init; } = 1.0f;
     public bool IncludeNonPlottableLayers { get; init; } = true;
     public bool ReportDeferredConstructionGeometry { get; init; } = true;
+    public bool ReportDeferredPointMarkers { get; init; } = true;
     public int MaxLineTypeFigures { get; init; } = DefaultMaxLineTypeFigures;
     public int MaxLineTypePatternSteps { get; init; } = DefaultMaxLineTypePatternSteps;
     public int MaxLineTypeSourceSegments { get; init; } = DefaultMaxLineTypeSourceSegments;
@@ -135,6 +136,7 @@ public sealed class CadPlanSceneCompiler
         var warnedLineTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var warnedLineTypeSubstitutions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool warnedConstructionGeometry = false;
+        bool warnedPointMarkers = false;
         int recorded = 0;
         int unsupportedLineTypes = 0;
         int loweredLineTypeEntities = 0;
@@ -293,11 +295,24 @@ public sealed class CadPlanSceneCompiler
             switch (entity.Kind)
             {
                 case CadEntityKind.Point:
-                    RecordPoint(
-                        context,
-                        pen.Brush,
-                        snapshot.Points.Span[entity.PrimitiveIndex],
-                        snapshot.RebaseOrigin);
+                    CadPointPrimitive point =
+                        snapshot.Points.Span[entity.PrimitiveIndex];
+                    if (point.DisplayMode == 0)
+                    {
+                        RecordPoint(
+                            context,
+                            pen.Brush,
+                            point,
+                            snapshot.RebaseOrigin);
+                    }
+                    else if (options.ReportDeferredPointMarkers && !warnedPointMarkers)
+                    {
+                        diagnostics.Add(new CadDiagnostic(
+                            CadDiagnosticSeverity.Information,
+                            "CADSCENE005",
+                            "PDMODE marker geometry requires CadPointMarkerSceneCompiler and an explicit finite point-marker view."));
+                        warnedPointMarkers = true;
+                    }
                     break;
                 case CadEntityKind.Line:
                     RecordLine(context, pen, snapshot.Lines.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);

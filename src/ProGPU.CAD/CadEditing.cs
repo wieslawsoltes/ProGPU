@@ -192,6 +192,11 @@ public abstract class CadEditCommand
             ApplySolidRotation(solid, axis, radians);
             return;
         }
+        if (entity is Point point)
+        {
+            ApplyPointRotation(point, axis, radians);
+            return;
+        }
         if (entity is not Dimension dimension)
         {
             entity.ApplyRotation(axis, radians);
@@ -437,6 +442,28 @@ public abstract class CadEditCommand
             destinationBasis,
             rotation);
         solid.Normal = rotatedNormal;
+    }
+
+    private static void ApplyPointRotation(Point point, XYZ axis, double radians)
+    {
+        CadCoordinateSystem sourceBasis = CreateEntityBasis(point.Normal);
+        CadPoint3D sourceXAxis =
+            (sourceBasis.XAxis * Math.Cos(point.Rotation)) +
+            (sourceBasis.YAxis * Math.Sin(point.Rotation));
+        Transform rotation = Transform.CreateRotation(axis, radians);
+        XYZ rotatedXAxisValue = rotation.ApplyRotation(new XYZ(
+            sourceXAxis.X,
+            sourceXAxis.Y,
+            sourceXAxis.Z));
+        point.ApplyRotation(axis, radians);
+        CadCoordinateSystem destinationBasis = CreateEntityBasis(point.Normal);
+        var rotatedXAxis = new CadPoint3D(
+            rotatedXAxisValue.X,
+            rotatedXAxisValue.Y,
+            rotatedXAxisValue.Z).Normalize();
+        point.Rotation = Math.Atan2(
+            CadPoint3D.Dot(rotatedXAxis, destinationBasis.YAxis),
+            CadPoint3D.Dot(rotatedXAxis, destinationBasis.XAxis));
     }
 
     private static XYZ RotateSolidCorner(

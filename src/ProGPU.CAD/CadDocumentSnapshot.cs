@@ -133,7 +133,17 @@ public readonly record struct CadEntityHeader(
 
 public readonly record struct CadLinePrimitive(CadPoint3D Start, CadPoint3D End);
 
-public readonly record struct CadPointPrimitive(CadPoint3D Position);
+/// <summary>
+/// One POINT location plus the drawing-wide regenerated marker contract captured
+/// at snapshot time. Marker axes are the affine image of the entity's rotated
+/// OCS axes; consumers resolve PDSIZE against their own viewport or page.
+/// </summary>
+public readonly record struct CadPointPrimitive(
+    CadPoint3D Position,
+    CadPoint3D MarkerXAxis,
+    CadPoint3D MarkerYAxis,
+    short DisplayMode,
+    double DisplaySize);
 
 /// <summary>
 /// One unbounded WCS construction line. Rays use parameters [0,+infinity) and

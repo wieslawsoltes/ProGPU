@@ -274,48 +274,72 @@ public sealed class CadPrintPlanCompiler
                 LineWeightScale = options.LineWeightScale,
                 IncludeNonPlottableLayers = false,
                 ReportDeferredConstructionGeometry = false,
+                ReportDeferredPointMarkers = false,
             },
             cancellationToken);
+        var overlayOptions = new CadPlanSceneOptions
+        {
+            PhysicalDpi = options.OutputDpi,
+            LineWeightScale = options.LineWeightScale,
+            IncludeNonPlottableLayers = false,
+            ReportDeferredConstructionGeometry = false,
+            ReportDeferredPointMarkers = false,
+        };
+        CadRecordedPointMarkerScene pointMarkers =
+            new CadPointMarkerSceneCompiler().Compile(
+                snapshot,
+                new CadPointMarkerView(
+                    placementArea.Height,
+                    1.0 / pixelsPerModelUnit),
+                overlayOptions,
+                cancellationToken);
         GpuPicture contentPicture;
-        CadPlanSceneStatistics combinedStatistics = scene.Statistics;
+        CadPlanSceneStatistics combinedStatistics = scene.Statistics with
+        {
+            RecordedCommandCount = checked(
+                scene.Statistics.RecordedCommandCount +
+                pointMarkers.Statistics.RecordedCommandCount),
+        };
         CadDiagnostic[] diagnostics = scene.Diagnostics.ToArray();
-        if (snapshot.ConstructionLines.IsEmpty)
+        if (snapshot.ConstructionLines.IsEmpty &&
+            pointMarkers.Statistics.RecordedPointCount == 0)
         {
             contentPicture = scene.CreatePicture();
         }
         else
         {
-            var constructionOptions = new CadPlanSceneOptions
-            {
-                PhysicalDpi = options.OutputDpi,
-                LineWeightScale = options.LineWeightScale,
-                IncludeNonPlottableLayers = false,
-            };
-            CadRecordedConstructionScene construction =
-                new CadConstructionSceneCompiler().Compile(
-                    snapshot,
-                    plotBounds,
-                    constructionOptions,
-                    cancellationToken);
             var recorder = new GpuPictureRecorder();
             DrawingContext contentContext = recorder.BeginRecording(new Rect(0, 0, 1, 1));
             contentContext.Append(scene.DrawingContext);
-            contentContext.Append(construction.DrawingContext);
-            contentPicture = recorder.EndRecording();
-            combinedStatistics = scene.Statistics with
+            if (!snapshot.ConstructionLines.IsEmpty)
             {
-                RecordedEntityCount = checked(
-                    scene.Statistics.RecordedEntityCount +
-                    construction.Statistics.RecordedEntityCount),
-                RecordedCommandCount = checked(
-                    scene.Statistics.RecordedCommandCount +
-                    construction.Statistics.RecordedCommandCount),
-            };
-            diagnostics = new CadDiagnostic[
-                scene.Diagnostics.Length + construction.Diagnostics.Length];
-            scene.Diagnostics.Span.CopyTo(diagnostics);
-            construction.Diagnostics.Span.CopyTo(
-                diagnostics.AsSpan(scene.Diagnostics.Length));
+                CadRecordedConstructionScene construction =
+                    new CadConstructionSceneCompiler().Compile(
+                        snapshot,
+                        plotBounds,
+                        overlayOptions,
+                        cancellationToken);
+                contentContext.Append(construction.DrawingContext);
+                combinedStatistics = combinedStatistics with
+                {
+                    RecordedEntityCount = checked(
+                        combinedStatistics.RecordedEntityCount +
+                        construction.Statistics.RecordedEntityCount),
+                    RecordedCommandCount = checked(
+                        combinedStatistics.RecordedCommandCount +
+                        construction.Statistics.RecordedCommandCount),
+                };
+                diagnostics = new CadDiagnostic[
+                    scene.Diagnostics.Length + construction.Diagnostics.Length];
+                scene.Diagnostics.Span.CopyTo(diagnostics);
+                construction.Diagnostics.Span.CopyTo(
+                    diagnostics.AsSpan(scene.Diagnostics.Length));
+            }
+            if (pointMarkers.Statistics.RecordedPointCount != 0)
+            {
+                contentContext.Append(pointMarkers.DrawingContext);
+            }
+            contentPicture = recorder.EndRecording();
         }
         return new CadPrintPlan(
             contentPicture,

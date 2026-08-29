@@ -22,6 +22,7 @@ int meshSubdivisionLevel = ReadNonNegativeInt("--mesh-subdivision-level", 0);
 int polygonMeshEntityCount = ReadNonNegativeInt("--polygon-mesh-entities", 0);
 int polyfaceMeshEntityCount = ReadNonNegativeInt("--polyface-mesh-entities", 0);
 int pointEntityCount = ReadNonNegativeInt("--point-entities", 0);
+bool compoundPointMarkers = HasFlag("--compound-point-markers");
 int constructionLineCount = ReadNonNegativeInt("--construction-lines", 0);
 int solidHatchCount = ReadNonNegativeInt("--solid-hatches", 0);
 int patternHatchCount = ReadNonNegativeInt("--pattern-hatches", 0);
@@ -75,6 +76,11 @@ if (meshSubdivisionLevel != 0 && meshEntityCount == 0)
 {
     throw new ArgumentException(
         "--mesh-subdivision-level requires a positive --mesh-entities count.");
+}
+if (compoundPointMarkers && pointEntityCount == 0)
+{
+    throw new ArgumentException(
+        "--compound-point-markers requires a positive --point-entities count.");
 }
 
 if (measureSplineSelection &&
@@ -161,6 +167,7 @@ CadDocumentSession session = CreateDocument(
     polygonMeshEntityCount,
     polyfaceMeshEntityCount,
     pointEntityCount,
+    compoundPointMarkers,
     constructionLineCount,
     solidHatchCount,
     patternHatchCount,
@@ -181,6 +188,7 @@ CadDocumentSession session = CreateDocument(
 var snapshotCompiler = new CadSnapshotCompiler();
 var pageSetupCompiler = new CadPageSetupCatalogCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
+var pointMarkerSceneCompiler = new CadPointMarkerSceneCompiler();
 var mesh3DSceneCompiler = new CadMesh3DSceneCompiler();
 var printPlanCompiler = new CadPrintPlanCompiler();
 CadBounds3D? constructionClip = constructionLineCount == 0
@@ -231,6 +239,9 @@ for (int i = 0; i < warmupCount; i++)
     CadDocumentSnapshot warmSnapshot = snapshotCompiler.Compile(session, snapshotOptions);
     _ = pageSetupCompiler.Compile(session);
     _ = sceneCompiler.Compile(warmSnapshot);
+    _ = pointMarkerSceneCompiler.Compile(
+        warmSnapshot,
+        new CadPointMarkerView(1_080.0f, 0.25));
     _ = mesh3DSceneCompiler.Compile(warmSnapshot);
     using CadPrintPlan warmPrintPlan = printPlanCompiler.Compile(warmSnapshot, printOptions);
     using CadPrintPlan warmRotatedPrintPlan = printPlanCompiler.Compile(
@@ -263,6 +274,16 @@ Measurement sceneMeasurement = Measure(
     iterationCount,
     () => sceneCompiler.Compile(snapshot));
 CadRecordedPlanScene recordedScene = sceneCompiler.Compile(snapshot);
+Measurement pointMarkerSceneMeasurement = Measure(
+    "point-marker-scene",
+    iterationCount,
+    () => pointMarkerSceneCompiler.Compile(
+        snapshot,
+        new CadPointMarkerView(1_080.0f, 0.25)));
+CadRecordedPointMarkerScene recordedPointMarkerScene =
+    pointMarkerSceneCompiler.Compile(
+        snapshot,
+        new CadPointMarkerView(1_080.0f, 0.25));
 Measurement mesh3DSceneMeasurement = Measure(
     "mesh-3d-scene",
     iterationCount,
@@ -338,6 +359,7 @@ var report = new CadBenchmarkReport(
     polygonMeshEntityCount,
     polyfaceMeshEntityCount,
     pointEntityCount,
+    compoundPointMarkers,
     constructionLineCount,
     solidHatchCount,
     patternHatchCount,
@@ -366,11 +388,13 @@ var report = new CadBenchmarkReport(
     snapshot.SpatialIndex.NodeCount,
     recordedScene.Statistics.RecordedCommandCount,
     recordedScene.Statistics,
+    recordedPointMarkerScene.Statistics,
     recordedMesh3DScene.Statistics,
     recordedConstructionScene.Statistics,
     snapshotMeasurement,
     pageSetupMeasurement,
     sceneMeasurement,
+    pointMarkerSceneMeasurement,
     mesh3DSceneMeasurement,
     constructionSceneMeasurement,
     printPlanMeasurement,
@@ -473,6 +497,7 @@ CadDocumentSession CreateDocument(
     int polygonMeshCount,
     int polyfaceMeshCount,
     int pointCount,
+    bool useCompoundPointMarkers,
     int constructionCount,
     int hatchCount,
     int patternedHatchCount,
@@ -493,6 +518,11 @@ CadDocumentSession CreateDocument(
     CadDocumentSession result = CadDocumentSession.CreateNew();
     result.Edit("Build benchmark document", document =>
     {
+        if (useCompoundPointMarkers)
+        {
+            document.Header.PointDisplayMode = 98;
+            document.Header.PointDisplaySize = -5.0;
+        }
         LineType? benchmarkLineType = null;
         if (useLineTypes)
         {
@@ -864,7 +894,12 @@ CadDocumentSession CreateDocument(
             document.Entities.Add(new Point(new XYZ(
                 (i % 1_000) * 12.0,
                 (i / 1_000) * 12.0,
-                i % 17)));
+                i % 17))
+            {
+                Rotation = useCompoundPointMarkers
+                    ? (i % 360) * Math.PI / 180.0
+                    : 0.0,
+            });
         }
 
         for (int i = 0; i < constructionCount; i++)
@@ -1540,6 +1575,7 @@ internal sealed record CadBenchmarkReport(
     int PolygonMeshEntityCount,
     int PolyfaceMeshEntityCount,
     int PointEntityCount,
+    bool CompoundPointMarkers,
     int ConstructionLineCount,
     int SolidHatchCount,
     int PatternHatchCount,
@@ -1567,11 +1603,13 @@ internal sealed record CadBenchmarkReport(
     int SpatialNodeCount,
     int RecordedCommandCount,
     CadPlanSceneStatistics SceneStatistics,
+    CadPointMarkerSceneStatistics PointMarkerSceneStatistics,
     CadMesh3DSceneStatistics Mesh3DSceneStatistics,
     CadConstructionSceneStatistics ConstructionSceneStatistics,
     Measurement SnapshotMilliseconds,
     Measurement PageSetupCatalogMilliseconds,
     Measurement PlanSceneMilliseconds,
+    Measurement PointMarkerSceneMilliseconds,
     Measurement Mesh3DSceneMilliseconds,
     Measurement ConstructionSceneMilliseconds,
     Measurement PrintPlanMilliseconds,
