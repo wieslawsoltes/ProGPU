@@ -34,6 +34,8 @@ public sealed class CadSampleView : Grid
     private readonly Button _deletePageSetupButton;
     private readonly TextBlock _status;
     private readonly Button _openButton;
+    private readonly Button _loadLineTypesButton;
+    private readonly Button _reloadLineTypesButton;
     private readonly Button _importPageSetupsButton;
     private readonly Button _importReplacePageSetupsButton;
     private readonly Button _saveButton;
@@ -282,6 +284,8 @@ public sealed class CadSampleView : Grid
         toolbar.Child = toolbarRows;
 
         _openButton = CreateButton("Open DXF/DWG", font, 132);
+        _loadLineTypesButton = CreateButton("Load LIN", font, 88);
+        _reloadLineTypesButton = CreateButton("Reload LIN", font, 96);
         _importPageSetupsButton = CreateButton("Import setups", font, 112);
         _importReplacePageSetupsButton = CreateButton("Import / replace", font, 128);
         _saveButton = CreateButton("Save As", font, 92);
@@ -292,12 +296,16 @@ public sealed class CadSampleView : Grid
         _printPreviewText = (TextBlock)_printPreviewButton.Content!;
         _clearSelectionButton = CreateButton("Clear selection", font, 112);
         _openButton.Margin = new Thickness(0, 0, 8, 0);
+        _loadLineTypesButton.Margin = new Thickness(0, 0, 8, 0);
+        _reloadLineTypesButton.Margin = new Thickness(0, 0, 8, 0);
         _importPageSetupsButton.Margin = new Thickness(0, 0, 8, 0);
         _importReplacePageSetupsButton.Margin = new Thickness(0, 0, 8, 0);
         _saveButton.Margin = new Thickness(0, 0, 8, 0);
         _fitButton.Margin = new Thickness(0, 0, 8, 0);
         _viewModeButton.Margin = new Thickness(0, 0, 8, 0);
         actions.AddChild(_openButton);
+        actions.AddChild(_loadLineTypesButton);
+        actions.AddChild(_reloadLineTypesButton);
         actions.AddChild(_importPageSetupsButton);
         actions.AddChild(_importReplacePageSetupsButton);
         actions.AddChild(_saveButton);
@@ -979,6 +987,11 @@ public sealed class CadSampleView : Grid
         SetRow(statusBorder, 2);
 
         _openButton.Click += async (_, _) => await OpenAsync();
+        _loadLineTypesButton.Click += async (_, _) =>
+            await ImportLineTypesAsync(CadLineTypeImportConflictPolicy.Reject);
+        _reloadLineTypesButton.Click += async (_, _) =>
+            await ImportLineTypesAsync(
+                CadLineTypeImportConflictPolicy.ReplaceExisting);
         _importPageSetupsButton.Click += async (_, _) =>
             await ImportPageSetupsAsync(CadPageSetupImportConflictPolicy.Reject);
         _importReplacePageSetupsButton.Click += async (_, _) =>
@@ -3088,6 +3101,72 @@ public sealed class CadSampleView : Grid
         }
     }
 
+    private async Task ImportLineTypesAsync(
+        CadLineTypeImportConflictPolicy conflictPolicy)
+    {
+        if (_canvas.CurrentSession is null ||
+            !TryBeginOperation(
+                conflictPolicy == CadLineTypeImportConflictPolicy.Reject
+                    ? "Choose a LIN linetype library..."
+                    : "Choose a LIN linetype library to reload..."))
+        {
+            return;
+        }
+
+        try
+        {
+            var picker = new FileOpenPicker();
+            picker.FileTypeFilter.Add(".lin");
+            StorageFile? file = await picker.PickSingleFileAsync();
+            if (file is null)
+            {
+                SetStatus("LIN import cancelled.");
+                return;
+            }
+
+            SetStatus($"Reading linetypes from {file.Name}...");
+            byte[] bytes = await file.ReadBytesAsync();
+            ImportLineTypes(
+                CadLinFile.Parse(bytes),
+                conflictPolicy,
+                file.Name);
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"LIN import failed: {exception.Message}");
+        }
+        finally
+        {
+            EndOperation();
+        }
+    }
+
+    /// <summary>
+    /// Imports one parsed LIN library. This typed seam is shared by the
+    /// desktop/browser picker and deterministic host tests.
+    /// </summary>
+    public CadLineTypeImportResult ImportLineTypes(
+        CadLinFile file,
+        CadLineTypeImportConflictPolicy conflictPolicy,
+        string sourceName = "library.lin")
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceName);
+        CadLineTypeImportResult result = _canvas.ImportLineTypes(
+            file,
+            conflictPolicy);
+        SetStatus(
+            $"Imported {result.ImportedCount:N0} linetype(s) from " +
+            $"{sourceName} as one edit: {result.CreatedCount:N0} new, " +
+            $"{result.ReplacedCount:N0} reloaded" +
+            (result.UnsupportedCount == 0
+                ? "."
+                : $"; {result.UnsupportedCount:N0} upright U= definition(s) " +
+                  "were left unchanged."));
+        UpdateEditControls();
+        return result;
+    }
+
     /// <summary>
     /// Imports all named setups from a loaded source. This typed seam is shared
     /// by desktop/browser pickers and deterministic host tests.
@@ -3209,6 +3288,8 @@ public sealed class CadSampleView : Grid
 
         _isBusy = true;
         _openButton.IsEnabled = false;
+        _loadLineTypesButton.IsEnabled = false;
+        _reloadLineTypesButton.IsEnabled = false;
         _importPageSetupsButton.IsEnabled = false;
         _importReplacePageSetupsButton.IsEnabled = false;
         _saveButton.IsEnabled = false;
@@ -3221,6 +3302,8 @@ public sealed class CadSampleView : Grid
     {
         _isBusy = false;
         _openButton.IsEnabled = true;
+        _loadLineTypesButton.IsEnabled = true;
+        _reloadLineTypesButton.IsEnabled = true;
         _importPageSetupsButton.IsEnabled = true;
         _importReplacePageSetupsButton.IsEnabled = true;
         _saveButton.IsEnabled = true;
@@ -3235,6 +3318,10 @@ public sealed class CadSampleView : Grid
         bool canUsePlanTools =
             !_isBusy && !_isPrintPreview && !isReferencePicking;
         _openButton.IsEnabled = canUsePlanTools;
+        bool canImportLineTypes = canUsePlanTools &&
+            _canvas.CurrentSession is not null;
+        _loadLineTypesButton.IsEnabled = canImportLineTypes;
+        _reloadLineTypesButton.IsEnabled = canImportLineTypes;
         bool canImportPageSetups = canUsePlanTools &&
             _canvas.CurrentSession is not null;
         _importPageSetupsButton.IsEnabled = canImportPageSetups;

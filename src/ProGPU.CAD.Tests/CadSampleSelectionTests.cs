@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Text;
 using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.Tables;
@@ -1541,6 +1542,97 @@ public sealed class CadSampleSelectionTests
             Assert.DoesNotContain(
                 view.LayerMergeTargetSelector.Items.OfType<ComboBoxItem>(),
                 item => item.Tag is string name && name == source.Name);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewLoadsAndReloadsLinLibraryAsOneSynchronizedEdit()
+    {
+        var document = new CadDocument();
+        var retained = new LineType("VIEW_RELOAD") { Description = "Old" };
+        retained.AddSegment(new LineType.Segment { Length = 1.0 });
+        retained.AddSegment(new LineType.Segment { Length = -1.0 });
+        document.LineTypes.Add(retained);
+        var line = new Line(new XYZ(-5, 0, 0), new XYZ(5, 0, 0))
+        {
+            LineType = retained,
+        };
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 900));
+            view.Canvas.Load(session);
+            Button load = FindButton(view, "Load LIN");
+            Button reload = FindButton(view, "Reload LIN");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+            Assert.True(load.IsEnabled);
+            Assert.True(reload.IsEnabled);
+            CadLinFile library = CadLinFile.Parse(Encoding.ASCII.GetBytes(
+                "*VIEW_RELOAD,New definition\n" +
+                "A,4,-1,0,-1\n" +
+                "*VIEW_NEW,New text definition\n" +
+                "A,3,-1,[\"HW\",STANDARD,S=.5,R=15],-1\n" +
+                "*VIEW_UPRIGHT,Upright definition\n" +
+                "A,1,-.2,[\"U\",STANDARD,U=0],-.2\n"));
+
+            CadLineTypeImportResult result = view.ImportLineTypes(
+                library,
+                CadLineTypeImportConflictPolicy.ReplaceExisting,
+                "view.lin");
+
+            Assert.Equal(1UL, result.ContentGeneration);
+            Assert.Equal(2, result.ImportedCount);
+            Assert.Equal(1, result.CreatedCount);
+            Assert.Equal(1, result.ReplacedCount);
+            Assert.Equal(1, result.UnsupportedCount);
+            Assert.Same(retained, document.LineTypes[retained.Name]);
+            Assert.Same(retained, line.LineType);
+            Assert.Equal("New definition", retained.Description);
+            Assert.Contains(
+                view.SelectionLineTypeSelector.Items.OfType<ComboBoxItem>(),
+                item => item.Tag is string name && name == "VIEW_NEW");
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "2 linetype(s) from view.lin as one edit: 1 new, " +
+                    "1 reloaded; 1 upright U= definition(s) were left unchanged",
+                    StringComparison.Ordinal));
+            Assert.True(undo.IsEnabled);
+
+            CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+                view.Canvas.CurrentSnapshot!);
+            using (GpuPicture picture = scene.CreatePicture())
+            {
+                Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+                    picture,
+                    96U,
+                    view.Canvas.CurrentSnapshot!.ContentGeneration,
+                    out NativeCompiledPicture? native,
+                    out NativePictureCompileFailure failure),
+                    failure.ToString());
+                Assert.NotNull(native);
+                Assert.True(native.SourceCommandCount > 0);
+                Assert.True(native.GeometryPrimitiveCount > 0);
+            }
+
+            PressEnter(undo);
+            Assert.Equal("Old", retained.Description);
+            Assert.False(document.LineTypes.Contains("VIEW_NEW"));
+            Assert.Same(retained, line.LineType);
+            Assert.True(redo.IsEnabled);
+
+            PressEnter(redo);
+            Assert.Equal("New definition", retained.Description);
+            Assert.True(document.LineTypes.Contains("VIEW_NEW"));
+            Assert.Same(retained, line.LineType);
         }
         finally
         {

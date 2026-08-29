@@ -1244,6 +1244,36 @@ public sealed class CadSampleCanvas : FrameworkElement
         return true;
     }
 
+    /// <summary>
+    /// Imports the supported definitions from one detached LIN library as one
+    /// reversible document generation. Replace preserves registered linetype
+    /// identity so existing layer and entity references remain exact.
+    /// </summary>
+    public CadLineTypeImportResult ImportLineTypes(
+        CadLinFile file,
+        CadLineTypeImportConflictPolicy conflictPolicy)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        CadImportLineTypesCommand command =
+            CadImportLineTypesCommand.CaptureSupported(
+                file,
+                conflictPolicy,
+                ShxFonts);
+        ulong generation = history.Execute(command);
+        RecompileAfterEdit(session);
+        return new CadLineTypeImportResult(
+            generation,
+            command.ImportedCount,
+            command.CreatedCount,
+            command.ReplacedCount,
+            command.UnsupportedCount);
+    }
+
     /// <summary>Sets the complete selection to one CAD color as one edit.</summary>
     public bool SetSelectionColor(ACadSharp.Color color)
     {

@@ -30,6 +30,19 @@ preflighted range removal with one immutable typed notification, while its maste
 branch remains synchronized with upstream. This is a document/UI transaction
 change, not a renderer optimization, and makes no performance-improvement claim.
 
+The same continuation adds bounded external `.lin` library loading and reload to
+the shared desktop/browser shell. A clean-room ASCII parser retains simple,
+text, and SHX-shape descriptors; one reversible command rejects collisions or
+replaces existing definitions without changing their object identity, handles,
+or references. Upright `U=` entries remain typed and are reported as unchanged
+because the persisted dependency flags cannot distinguish them. Focused parser,
+rollback, Undo/Redo, DXF/DWG persistence, UI, and managed/native picture tests
+cover the workflow. ACadSharp feature commits `ff65795e` and `3d074ec4` provide
+atomic segment replacement and restore DXF complex-linetype STYLE handles, while
+ACadSharp `master` stays exactly synchronized with upstream. This is document IO
+and edit orchestration, changes no renderer hot path, and makes no performance
+claim.
+
 ## Preview.62 retained SaveLayer optimization closure
 
 The alternating three-process Release comparison uses official SkiaSharp

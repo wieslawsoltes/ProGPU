@@ -551,6 +551,82 @@ regression compiles the complex path plus vector glyph runs through
 `GpuPictureNativeSceneCompiler`; no shader, C ABI, atlas, or backend-specific
 renderer change is required.
 
+### Bounded external LIN library import and reload
+
+`CadLinFile` is a clean-room, browser-neutral ASCII parser for Autodesk's public
+LIN authoring grammar. It accepts comment/blank lines, two-line `*name,description`
+plus `A,...` definitions, positive dashes, negative gaps, zero dots, quoted text
+descriptors, shape descriptors, `S=/R=/A=/U=/X=/Y=` transforms, and `d/r/g`
+rotation units. Tokenization is one pass over top-level commas while respecting
+quoted strings, doubled quotes, and brackets. The default contract bounds input
+to 4 MiB, a physical line to 4,096 bytes, definitions to 4,096, descriptors per
+definition to 256, total descriptors to 65,536, and retained text to 1,048,576
+characters. Parsing is `O(B + E)` time and `O(B + E)` detached immutable storage
+for B bytes and E descriptors; invalid ASCII, duplicate names, incomplete pairs,
+unbalanced syntax, invalid numbers/names, and over-limit input fail before a
+document lock or table mutation.
+
+`CadImportLineTypesCommand` materializes those detached definitions against one
+document as a single generation. `Reject` refuses every name collision;
+`ReplaceExisting` swaps description and complete segment sequence in place, so
+the registered `LineType` object, handle, layer references, and entity references
+remain exact. Protected `ByBlock`, `ByLayer`, and `Continuous` entries and
+xref-dependent records cannot be replaced. Text descriptors resolve an existing
+STYLE by exact case-insensitive name. Shape descriptors resolve the requested
+shape name through `ICadShxShapeResolver` and create at most one deterministic,
+document-owned shape STYLE per normalized SHX basename. Missing text styles,
+unregistered SHX content, and unresolved shape names fail preflight without a
+partial generation. Apply/Undo/Redo are `O(D + E)` and retained command storage
+is `O(D + E)` for D definitions and E descriptors.
+
+Autodesk's LIN grammar distinguishes upright `U=` from relative `R=` and
+absolute `A=` rotation, but the persisted LTYPE group-74 flags exposed by the
+pinned document model distinguish only relative and absolute. The parser retains
+upright as a typed value; direct command construction rejects it, while the
+shared picker imports all other definitions and reports the exact upright count
+left unchanged. It never silently downgrades `U=` to `R=`. Shape imports require
+the host's existing registered SHX catalog; browser hosts use bundled bytes and
+desktop hosts use the existing drawing/support-directory discovery policy.
+
+The shared desktop/browser shell exposes `Load LIN` (`Reject`) and `Reload LIN`
+(`ReplaceExisting`) through one `.lin` picker and typed `ImportLineTypes` seam.
+One successful action publishes one history item, generation, immutable snapshot,
+selector refresh, and retained picture replacement. Simple and complex text
+definitions survive both DXF and DWG round trips. The persistence gate also
+found that ACadSharp's DXF writer emitted complex-segment STYLE handle group 340
+while its reader discarded that value; the ProGPU-owned feature branch now
+captures and resolves it with a direct round-trip regression.
+
+This work uses only Autodesk's public
+[simple LIN grammar](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-LT-Customization/files/GUID-EF1DF0A9-2088-487C-8085-16FEE6425405.htm),
+[text descriptor grammar](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-LT-Customization/files/GUID-FEDCE7EB-4919-43AE-A54E-F3A293DD60CA.htm),
+[shape descriptor grammar](https://help.autodesk.com/view/ACDLT/2026/ENU/?caas=caas%2Fdocumentation%2FACD%2F2014%2FENU%2Ffiles%2FGUID-AF0613E6-5C8B-47F0-800C-8B2524BF2015-htm.html),
+[library/load contract](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-Customization/files/GUID-5A6E6759-8A9A-4A8A-9AEE-EE9DB72F792D.htm),
+[load/reload selection behavior](https://help.autodesk.com/view/ACD/2026/ENU/?caas=caas%2Fdocumentation%2FACDLT%2F2014%2FENU%2Ffiles%2FGUID-8B84AA03-B157-4C5D-8B30-AB94C8890B2B-htm.html),
+and [linetype manager behavior](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Core/files/GUID-19A63E71-A551-4767-88FA-A6F54034C9DE.htm).
+Adopted the observable grammar, explicit library selection, load/reload conflict,
+and persisted STYLE-reference contracts; adapted them into bounded immutable
+records, typed failures, and one reversible ProGPU command. Rejected command-line
+search paths, runtime text-style invention, partial success after malformed input,
+and foreign parser/helper structure. Exact in-repository dependency provenance is
+ACadSharp feature commits
+[`ff65795e`](https://github.com/wieslawsoltes/ACadSharp/commit/ff65795e624a47b21e420344030c767215ec5af5)
+and [`3d074ec4`](https://github.com/wieslawsoltes/ACadSharp/commit/3d074ec4dd94ff7e1e89aaf540c45015ff27a9ff),
+which add atomic definition replacement and DXF complex-style restoration;
+ACadSharp `master` remains synchronized with upstream.
+
+The mandatory renderer/text applicability audit found no rendering algorithm or
+resource-policy change: imported entries become the same immutable
+`CadLineTypePattern`/element streams already consumed by managed recording and
+native picture compilation. The previously researched Skia/SkParagraph,
+DirectWrite/Direct2D and Win2D, WebRender, Vello/Parley, and HarfBuzz startup,
+layout reuse, retained-scene, cache, upload, batching, DPI/subpixel, fallback,
+variable-font, and device-loss contracts are unchanged. A paired regression
+compiles a reloaded referenced definition through both managed and native picture
+paths. No C ABI, shader, native document frontend, cache key, atlas generation,
+or managed/native boundary crossing was added, so a native C++ source change or
+performance claim would be inapplicable.
+
 Higher-degree spline fragments use the existing `DrawingContext.DrawSpline`
 contract and are copied into the same owned picture point/knot/weight streams.
 Paired weighted single- and multi-span regressions compile those fragments into
@@ -1040,8 +1116,9 @@ an interactive browser picker/download smoke remains open.
   layer selection. Color accepts ACI 1–255 or `#RRGGBB`; layer inheritance and
   header sentinels are never offered as layer values. Lineweight offers only
   `Default`, hairline, and the declared fixed CAD widths. Linetype lists only
-  drawing-resident entries and removes `ByLayer`/`ByBlock`, so this row does not
-  imply runtime LIN-file loading. Each Set action publishes one history item,
+  drawing-resident entries and removes `ByLayer`/`ByBlock`. The separate bounded
+  `Load LIN`/`Reload LIN` workflow now adds or identity-preservingly replaces
+  those table entries. Each Set action publishes one history item,
   generation, snapshot, and shared managed/native picture replacement while
   preserving the selected layer. Locked layers remain editable through the
   layer table because lock constrains member-entity mutation, not layer
@@ -1054,7 +1131,7 @@ an interactive browser picker/download smoke remains open.
   explicit object value overrides them. The
   [layer lineweight dialog](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-E30B3681-544D-4DA5-856D-B33497D005C0.htm)
   supplies fixed widths plus `Default`. ProGPU adopts those persisted semantics;
-  Color Book selection, LIN-file loading, viewport overrides, and plot-style
+  Color Book selection, viewport overrides, and plot-style
   editing remain separately typed future contracts.
 - The rendering applicability gate rechecked
   [SkPaint](https://api.skia.org/classSkPaint.html),
