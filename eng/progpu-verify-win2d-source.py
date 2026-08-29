@@ -90,6 +90,16 @@ def main() -> int:
         "Win2D path-builder contract",
     )
     require_text(
+        arguments.implementation / "winrt/lib/drawing/CanvasStrokeStyle.cpp",
+        (
+            "m_startCap(CanvasCapStyle::Flat)",
+            "m_dashCap(CanvasCapStyle::Square)",
+            "m_miterLimit(10.0f)",
+            "m_transformBehavior(CanvasStrokeTransformBehavior::Normal)",
+        ),
+        "Win2D stroke-style defaults",
+    )
+    require_text(
         arguments.samples / "ExampleGallery/ArcOptions.xaml.cs",
         (
             "new CanvasPathBuilder(sender)",
