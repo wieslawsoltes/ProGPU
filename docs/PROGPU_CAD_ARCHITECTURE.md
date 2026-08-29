@@ -854,9 +854,10 @@ The hosts remain an executable engine-integration baseline, not yet the complete
 CAD editor shell. They now share plan, Flat 3D, and retained print-preview modes
 with generation-safe layout/named-page-setup selection plus an explicit A4
 model-extents fallback and reversible creation/application of named page setups
-from Model; properties/layer panels, arbitrary-camera projected selection,
-broader editing tools, page-setup editing/import, printer/export
-adapters, and round-trip-certified output remain tracked application phases.
+from Model; dedicated dockable property/layer panels, arbitrary-camera projected
+selection, broader editing tools, field-level page-setup editing,
+printer/export adapters, and round-trip-certified output remain tracked
+application phases.
 
 The Release browser AOT publish succeeds. Its linker audit currently reports
 annotation warnings in ACadSharp's initialization/reflection utilities and in
@@ -1034,6 +1035,42 @@ an interactive browser picker/download smoke remains open.
   mutation and rejects entity-only `ByLayer`/`ByBlock` targets. Inherited entity
   styles retain the resolved name in the snapshot, while non-continuous pattern
   rendering remains behind the documented A-alignment fidelity gate.
+- The shared desktop/browser shell exposes those existing commands through one
+  additional detached layer-style row tied to the same generation-refreshed
+  layer selection. Color accepts ACI 1–255 or `#RRGGBB`; layer inheritance and
+  header sentinels are never offered as layer values. Lineweight offers only
+  `Default`, hairline, and the declared fixed CAD widths. Linetype lists only
+  drawing-resident entries and removes `ByLayer`/`ByBlock`, so this row does not
+  imply runtime LIN-file loading. Each Set action publishes one history item,
+  generation, snapshot, and shared managed/native picture replacement while
+  preserving the selected layer. Locked layers remain editable through the
+  layer table because lock constrains member-entity mutation, not layer
+  administration. DXF and DWG round trips retain all three authored values.
+- Autodesk's public
+  [Layer Properties Manager](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-B297EBD9-D68C-47E1-87CE-1B3798496599.htm)
+  exposes Color, Linetype, and Lineweight as layer properties, and its
+  [LAYER contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-LT/files/GUID-9123091A-2DCB-4DE8-983C-F7CA38FA67BE.htm)
+  specifies that `ByLayer` objects inherit those authored layer values while an
+  explicit object value overrides them. The
+  [layer lineweight dialog](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-E30B3681-544D-4DA5-856D-B33497D005C0.htm)
+  supplies fixed widths plus `Default`. ProGPU adopts those persisted semantics;
+  Color Book selection, LIN-file loading, viewport overrides, and plot-style
+  editing remain separately typed future contracts.
+- The rendering applicability gate rechecked
+  [SkPaint](https://api.skia.org/classSkPaint.html),
+  [Direct2D DrawGeometry](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/nf-d2d1-id2d1rendertarget-drawgeometry),
+  [Win2D DrawGeometry](https://microsoft.github.io/Win2D/WinUI2/html/M_Microsoft_Graphics_Canvas_CanvasDrawingSession_DrawGeometry_5.htm),
+  [WebRender's Scene-to-Frame boundary](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html),
+  and [Vello scene encoding](https://github.com/linebender/vello/blob/main/vello/src/scene.rs).
+  Their geometry APIs consume resolved brush/stroke state at retained recording,
+  matching ProGPU's existing immutable `CadStrokeStyle` table; no per-layer GPU
+  object or late property lookup is introduced. Skia/SkParagraph, DirectWrite,
+  Parley, and HarfBuzz were also rechecked for the required text applicability
+  gate: layer style changes neither shaped text, fallback, bidi, variable-font,
+  DPI/subpixel, glyph-cache, nor atlas identity. This host reachability slice
+  changes no startup, worker, upload, eviction, device-loss, shader, C++ path,
+  native ABI, or renderer algorithm; both renderers consume the same rebuilt
+  immutable picture.
 - Layer creation transfers one detached zero-handle `Layer` into the document
   table and reverses that ownership on undo. LIFO history guarantees dependent
   in-history edits are undone first; arbitrary populated-layer deletion remains

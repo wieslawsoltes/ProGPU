@@ -1149,15 +1149,22 @@ public sealed class CadEditingTests
     [Theory]
     [InlineData(CadDocumentFormat.Dxf)]
     [InlineData(CadDocumentFormat.Dwg)]
-    public async Task LayerStatesRoundTripThroughAdvertisedFormats(
+    public async Task LayerPropertiesRoundTripThroughAdvertisedFormats(
         CadDocumentFormat format)
     {
         var document = new CadDocument(ACadVersion.AC1032);
+        var lineType = new LineType("PERSISTED_DASH");
+        lineType.AddSegment(new LineType.Segment { Length = 2.0 });
+        lineType.AddSegment(new LineType.Segment { Length = -1.0 });
+        document.LineTypes.Add(lineType);
         var layer = new Layer("PERSISTED_STATE")
         {
             IsOn = false,
             PlotFlag = false,
             Flags = LayerFlags.Frozen | LayerFlags.Locked,
+            Color = new ACadSharp.Color(12, 34, 56),
+            LineWeight = LineWeightType.W70,
+            LineType = lineType,
         };
         document.Layers.Add(layer);
         document.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX) { Layer = layer });
@@ -1181,6 +1188,12 @@ public sealed class CadEditingTests
         Assert.False(restored.PlotFlag);
         Assert.True((restored.Flags & LayerFlags.Frozen) != 0);
         Assert.True((restored.Flags & LayerFlags.Locked) != 0);
+        Assert.True(restored.Color.IsTrueColor);
+        Assert.Equal((byte)12, restored.Color.R);
+        Assert.Equal((byte)34, restored.Color.G);
+        Assert.Equal((byte)56, restored.Color.B);
+        Assert.Equal(LineWeightType.W70, restored.LineWeight);
+        Assert.Equal("PERSISTED_DASH", restored.LineType.Name);
         Assert.Empty(new CadSnapshotCompiler()
             .Compile(loaded.Session)
             .Entities

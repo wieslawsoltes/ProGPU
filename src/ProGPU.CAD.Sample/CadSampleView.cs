@@ -68,10 +68,16 @@ public sealed class CadSampleView : Grid
     private readonly ComboBox _layerPlotSelector;
     private readonly ComboBox _layerFreezeSelector;
     private readonly ComboBox _layerLockSelector;
+    private readonly TextBox _layerColorInput;
+    private readonly ComboBox _layerLineWeightSelector;
+    private readonly ComboBox _layerLineTypeSelector;
     private readonly Button _setLayerVisibilityButton;
     private readonly Button _setLayerPlotButton;
     private readonly Button _setLayerFreezeButton;
     private readonly Button _setLayerLockButton;
+    private readonly Button _setLayerColorButton;
+    private readonly Button _setLayerLineWeightButton;
+    private readonly Button _setLayerLineTypeButton;
     private readonly TextBox _moveStepInput;
     private readonly TextBox _rotationStepInput;
     private readonly TextBox _scaleFactorInput;
@@ -129,6 +135,12 @@ public sealed class CadSampleView : Grid
 
     public ComboBox LayerLockSelector => _layerLockSelector;
 
+    public TextBox LayerColorInput => _layerColorInput;
+
+    public ComboBox LayerLineWeightSelector => _layerLineWeightSelector;
+
+    public ComboBox LayerLineTypeSelector => _layerLineTypeSelector;
+
     /// <summary>
     /// Ordered fully-qualified desktop support directories probed after the
     /// opened drawing's directory. Browser hosts should register bundled SHX
@@ -157,7 +169,7 @@ public sealed class CadSampleView : Grid
             Visibility = Visibility.Collapsed,
         };
         TtfFont font = InterFontFamily.Regular;
-        RowDefinitions.Add(new GridLength(328, GridUnitType.Absolute));
+        RowDefinitions.Add(new GridLength(362, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));
         RowDefinitions.Add(new GridLength(30, GridUnitType.Absolute));
 
@@ -208,6 +220,11 @@ public sealed class CadSampleView : Grid
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
+        var layerStyleActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
         var printActions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -225,6 +242,7 @@ public sealed class CadSampleView : Grid
         toolbarRows.AddChild(selectionEntityActions);
         toolbarRows.AddChild(selectionStyleActions);
         toolbarRows.AddChild(layerStateActions);
+        toolbarRows.AddChild(layerStyleActions);
         toolbarRows.AddChild(printActions);
         toolbarRows.AddChild(pageSetupCreateActions);
         toolbar.Child = toolbarRows;
@@ -678,6 +696,88 @@ public sealed class CadSampleView : Grid
         layerStateActions.AddChild(_layerLockSelector);
         layerStateActions.AddChild(_setLayerLockButton);
 
+        layerStyleActions.AddChild(new TextBlock
+        {
+            Text = "Layer style",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        layerStyleActions.AddChild(new TextBlock
+        {
+            Text = "Color",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _layerColorInput = new TextBox
+        {
+            Font = font,
+            WidthConstraint = 132,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        _setLayerColorButton = CreateButton("Set layer color", font, 112, 30);
+        _setLayerColorButton.Margin = new Thickness(0, 0, 12, 0);
+        layerStyleActions.AddChild(_layerColorInput);
+        layerStyleActions.AddChild(_setLayerColorButton);
+        layerStyleActions.AddChild(new TextBlock
+        {
+            Text = "Lineweight",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _layerLineWeightSelector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = 150,
+            HeightConstraint = 30,
+            MaxDropDownHeight = 256,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        PopulateLayerLineWeightChoices(_layerLineWeightSelector);
+        _setLayerLineWeightButton = CreateButton(
+            "Set layer lineweight",
+            font,
+            132,
+            30);
+        _setLayerLineWeightButton.Margin = new Thickness(0, 0, 12, 0);
+        layerStyleActions.AddChild(_layerLineWeightSelector);
+        layerStyleActions.AddChild(_setLayerLineWeightButton);
+        layerStyleActions.AddChild(new TextBlock
+        {
+            Text = "Linetype",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _layerLineTypeSelector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = 150,
+            HeightConstraint = 30,
+            MaxDropDownHeight = 256,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        PopulateLayerLineTypeChoices(
+            _layerLineTypeSelector,
+            ReadOnlySpan<string>.Empty);
+        _setLayerLineTypeButton = CreateButton(
+            "Set layer linetype",
+            font,
+            132,
+            30);
+        layerStyleActions.AddChild(_layerLineTypeSelector);
+        layerStyleActions.AddChild(_setLayerLineTypeButton);
+
         printActions.AddChild(new TextBlock
         {
             Text = "Page setup",
@@ -875,6 +975,27 @@ public sealed class CadSampleView : Grid
                 UpdateEditControls();
             }
         };
+        _layerColorInput.TextChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
+        _layerLineWeightSelector.SelectionChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
+        _layerLineTypeSelector.SelectionChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
         _setSelectionColorButton.Click += (_, _) => SetSelectionColor();
         _setSelectionLineWeightButton.Click += (_, _) =>
             SetSelectionLineWeight();
@@ -892,6 +1013,9 @@ public sealed class CadSampleView : Grid
         _setLayerPlotButton.Click += (_, _) => SetLayerPlotFlag();
         _setLayerFreezeButton.Click += (_, _) => SetLayerFreeze();
         _setLayerLockButton.Click += (_, _) => SetLayerLock();
+        _setLayerColorButton.Click += (_, _) => SetLayerColor();
+        _setLayerLineWeightButton.Click += (_, _) => SetLayerLineWeight();
+        _setLayerLineTypeButton.Click += (_, _) => SetLayerLineType();
         _createPageSetupButton.Click += (_, _) =>
             CreateNamedPageSetupFromModel();
         _updatePageSetupButton.Click += (_, _) =>
@@ -1603,6 +1727,9 @@ public sealed class CadSampleView : Grid
         PopulateNamedPropertyChoices(
             _selectionLineTypeSelector,
             catalog.LineTypeNames.Span);
+        PopulateLayerLineTypeChoices(
+            _layerLineTypeSelector,
+            catalog.LineTypeNames.Span);
         PopulateLayerStateChoices(
             _layerStateSelector,
             catalog.LayerNames.Span,
@@ -1620,6 +1747,9 @@ public sealed class CadSampleView : Grid
             _layerPlotSelector.SelectedIndex = 0;
             _layerFreezeSelector.SelectedIndex = 0;
             _layerLockSelector.SelectedIndex = 0;
+            _layerColorInput.Text = string.Empty;
+            _layerLineWeightSelector.SelectedIndex = 0;
+            _layerLineTypeSelector.SelectedIndex = 0;
             return;
         }
 
@@ -1637,6 +1767,28 @@ public sealed class CadSampleView : Grid
         SelectBooleanPropertyChoice(
             _layerLockSelector,
             properties.IsLocked);
+        _layerColorInput.Text = FormatSelectionColor(properties.Color);
+        _layerLineWeightSelector.SelectedItem =
+            _layerLineWeightSelector.Items
+                .OfType<ComboBoxItem>()
+                .FirstOrDefault(item =>
+                    item.Tag is ACadSharp.LineWeightType value &&
+                    value == properties.LineWeight);
+        if (_layerLineWeightSelector.SelectedItem is null)
+        {
+            _layerLineWeightSelector.SelectedIndex = 0;
+        }
+        _layerLineTypeSelector.SelectedItem =
+            _layerLineTypeSelector.Items
+                .OfType<ComboBoxItem>()
+                .FirstOrDefault(item => item.Tag is string name &&
+                    name.Equals(
+                        properties.LineTypeName,
+                        StringComparison.OrdinalIgnoreCase));
+        if (_layerLineTypeSelector.SelectedItem is null)
+        {
+            _layerLineTypeSelector.SelectedIndex = 0;
+        }
     }
 
     private static void SelectBooleanPropertyChoice(
@@ -2031,6 +2183,88 @@ public sealed class CadSampleView : Grid
         catch (Exception exception)
         {
             SetStatus($"Set layer lock failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetLayerColor()
+    {
+        if (_isBusy ||
+            (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                string layerName ||
+            !TryParseLayerColor(_layerColorInput.Text, out ACadSharp.Color color))
+        {
+            return;
+        }
+
+        try
+        {
+            _canvas.SetLayerColor(layerName, color);
+            SetStatus(
+                $"Set layer {layerName} color {FormatSelectionColor(color)} " +
+                "as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set layer color failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetLayerLineWeight()
+    {
+        if (_isBusy ||
+            (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                string layerName ||
+            (_layerLineWeightSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                ACadSharp.LineWeightType lineWeight)
+        {
+            return;
+        }
+
+        try
+        {
+            _canvas.SetLayerLineWeight(layerName, lineWeight);
+            SetStatus(
+                $"Set layer {layerName} lineweight " +
+                $"{FormatLineWeight(lineWeight)} as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set layer lineweight failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetLayerLineType()
+    {
+        if (_isBusy ||
+            (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                string layerName ||
+            (_layerLineTypeSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                string lineTypeName)
+        {
+            return;
+        }
+
+        try
+        {
+            _canvas.SetLayerLineType(layerName, lineTypeName);
+            SetStatus(
+                $"Set layer {layerName} linetype {lineTypeName} as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set layer linetype failed: {exception.Message}");
         }
         finally
         {
@@ -2749,6 +2983,9 @@ public sealed class CadSampleView : Grid
         _layerPlotSelector.IsEnabled = canEditLayerState;
         _layerFreezeSelector.IsEnabled = canEditLayerState;
         _layerLockSelector.IsEnabled = canEditLayerState;
+        _layerColorInput.IsEnabled = canEditLayerState;
+        _layerLineWeightSelector.IsEnabled = canEditLayerState;
+        _layerLineTypeSelector.IsEnabled = canEditLayerState;
         _setLayerVisibilityButton.IsEnabled =
             canEditLayerState &&
             (_layerVisibilitySelector.SelectedItem as ComboBoxItem)?.Tag is bool;
@@ -2761,6 +2998,16 @@ public sealed class CadSampleView : Grid
         _setLayerLockButton.IsEnabled =
             canEditLayerState &&
             (_layerLockSelector.SelectedItem as ComboBoxItem)?.Tag is bool;
+        _setLayerColorButton.IsEnabled =
+            canEditLayerState &&
+            TryParseLayerColor(_layerColorInput.Text, out _);
+        _setLayerLineWeightButton.IsEnabled =
+            canEditLayerState &&
+            (_layerLineWeightSelector.SelectedItem as ComboBoxItem)?.Tag is
+                ACadSharp.LineWeightType;
+        _setLayerLineTypeButton.IsEnabled =
+            canEditLayerState &&
+            (_layerLineTypeSelector.SelectedItem as ComboBoxItem)?.Tag is string;
         _moveStepInput.IsEnabled = canUsePlanTools;
         _rotationStepInput.IsEnabled = canUsePlanTools;
         _scaleFactorInput.IsEnabled = canUsePlanTools;
@@ -3020,6 +3267,32 @@ public sealed class CadSampleView : Grid
         selector.SelectedIndex = 0;
     }
 
+    private static void PopulateLayerLineTypeChoices(
+        ComboBox selector,
+        ReadOnlySpan<string> names)
+    {
+        selector.Items.Clear();
+        selector.Items.Add(new ComboBoxItem { Text = "—" });
+        foreach (string name in names)
+        {
+            if (name.Equals(
+                    ACadSharp.Tables.LineType.ByLayerName,
+                    StringComparison.OrdinalIgnoreCase) ||
+                name.Equals(
+                    ACadSharp.Tables.LineType.ByBlockName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            selector.Items.Add(new ComboBoxItem
+            {
+                Text = name,
+                Tag = name,
+            });
+        }
+        selector.SelectedIndex = 0;
+    }
+
     private static void PopulateLayerStateChoices(
         ComboBox selector,
         ReadOnlySpan<string> names,
@@ -3083,6 +3356,21 @@ public sealed class CadSampleView : Grid
         selector.Items.Add(new ComboBoxItem { Text = "ByDIPs (unsupported)" });
         AddLineWeightChoice(selector, ACadSharp.LineWeightType.ByLayer);
         AddLineWeightChoice(selector, ACadSharp.LineWeightType.ByBlock);
+        AddLineWeightChoice(selector, ACadSharp.LineWeightType.Default);
+        foreach (ACadSharp.LineWeightType value in
+            Enum.GetValues<ACadSharp.LineWeightType>())
+        {
+            if ((short)value >= 0)
+            {
+                AddLineWeightChoice(selector, value);
+            }
+        }
+        selector.SelectedIndex = 0;
+    }
+
+    private static void PopulateLayerLineWeightChoices(ComboBox selector)
+    {
+        selector.Items.Add(new ComboBoxItem { Text = "—" });
         AddLineWeightChoice(selector, ACadSharp.LineWeightType.Default);
         foreach (ACadSharp.LineWeightType value in
             Enum.GetValues<ACadSharp.LineWeightType>())
@@ -3246,6 +3534,22 @@ public sealed class CadSampleView : Grid
             index is >= 1 and <= 255)
         {
             color = new ACadSharp.Color(index);
+            return true;
+        }
+
+        color = default;
+        return false;
+    }
+
+    private static bool TryParseLayerColor(
+        string source,
+        out ACadSharp.Color color)
+    {
+        if (TryParseSelectionColor(source, out color) &&
+            !color.IsByLayer &&
+            !color.IsByBlock &&
+            (color.IsTrueColor || color.Index is >= 1 and <= 255))
+        {
             return true;
         }
 

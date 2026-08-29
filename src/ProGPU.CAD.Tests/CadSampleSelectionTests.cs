@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using ProGPU.CAD.Sample;
 using ProGPU.Scene;
+using ProGPU.Scene.Native;
 using Xunit;
 
 namespace ProGPU.CAD.Tests;
@@ -1041,6 +1042,7 @@ public sealed class CadSampleSelectionTests
                     "TARGET_BEHAVIOR");
             Button setFreeze = FindButton(view, "Set layer freeze");
             Button setLock = FindButton(view, "Set layer lock");
+            Button setLayerColor = FindButton(view, "Set layer color");
             Button undo = FindButton(view, "Undo");
             Button delete = FindButton(view, "Delete");
             Button movePositiveX = FindButton(view, "+X");
@@ -1081,6 +1083,7 @@ public sealed class CadSampleSelectionTests
             Assert.False(movePositiveX.IsEnabled);
             Assert.False(view.SelectionColorInput.IsEnabled);
             Assert.True(setLock.IsEnabled);
+            Assert.True(setLayerColor.IsEnabled);
             Assert.Throws<InvalidOperationException>(() =>
                 view.Canvas.TranslateSelection(new CadPoint3D(1, 0, 0)));
             Assert.Equal(new XYZ(-5, 0, 0), line.StartPoint);
@@ -1102,13 +1105,151 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void SharedViewEditsExplicitLayerStyleAndInheritedReplay()
+    {
+        var document = new CadDocument();
+        var dash = new LineType("TARGET_DASH");
+        dash.AddSegment(new LineType.Segment { Length = 2.0 });
+        dash.AddSegment(new LineType.Segment { Length = -1.0 });
+        document.LineTypes.Add(dash);
+        var targetLayer = new Layer("TARGET_STYLE")
+        {
+            Color = ACadSharp.Color.Red,
+            LineWeight = LineWeightType.W50,
+            LineType = document.LineTypes.Continuous,
+        };
+        document.Layers.Add(targetLayer);
+        document.Entities.Add(new Line(
+            new XYZ(-5, 0, 0),
+            new XYZ(5, 0, 0))
+        {
+            Layer = targetLayer,
+            Color = ACadSharp.Color.ByLayer,
+            LineWeight = LineWeightType.ByLayer,
+            LineType = document.LineTypes.ByLayer,
+        });
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 940));
+            view.Canvas.Load(session);
+            view.LayerStateSelector.SelectedItem =
+                FindNamedPropertyChoice(
+                    view.LayerStateSelector,
+                    "TARGET_STYLE");
+            Button setColor = FindButton(view, "Set layer color");
+            Button setLineWeight = FindButton(view, "Set layer lineweight");
+            Button setLineType = FindButton(view, "Set layer linetype");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+
+            CadLayerGeneralProperties initial =
+                view.Canvas.CaptureLayerGeneralProperties("target_style");
+            Assert.Equal(ACadSharp.Color.Red, initial.Color);
+            Assert.Equal(LineWeightType.W50, initial.LineWeight);
+            Assert.Equal(LineType.ContinuousName, initial.LineTypeName);
+            Assert.Equal("ACI 1", view.LayerColorInput.Text);
+            Assert.Equal("0.50 mm", SelectedPropertyText(
+                view.LayerLineWeightSelector));
+            Assert.Equal(LineType.ContinuousName, SelectedPropertyText(
+                view.LayerLineTypeSelector));
+            Assert.DoesNotContain(
+                view.LayerLineTypeSelector.Items.OfType<ComboBoxItem>(),
+                item => item.Tag is string name &&
+                    (name.Equals(LineType.ByLayerName, StringComparison.OrdinalIgnoreCase) ||
+                     name.Equals(LineType.ByBlockName, StringComparison.OrdinalIgnoreCase)));
+
+            view.LayerColorInput.Text = "#0C2238";
+            PressEnter(setColor);
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.True(targetLayer.Color.IsTrueColor);
+            Assert.Equal((byte)12, targetLayer.Color.R);
+            Assert.Equal((byte)34, targetLayer.Color.G);
+            Assert.Equal((byte)56, targetLayer.Color.B);
+            CadStrokeStyle colored = Assert.Single(
+                view.Canvas.CurrentSnapshot!.Styles.ToArray());
+            Assert.Equal((byte)12, colored.Red);
+            Assert.Equal((byte)34, colored.Green);
+            Assert.Equal((byte)56, colored.Blue);
+            Assert.Equal("#0C2238", view.LayerColorInput.Text);
+
+            view.LayerLineWeightSelector.SelectedItem =
+                view.LayerLineWeightSelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Tag is LineWeightType.W100);
+            PressEnter(setLineWeight);
+
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal(LineWeightType.W100, targetLayer.LineWeight);
+            Assert.Equal(
+                1.0,
+                Assert.Single(view.Canvas.CurrentSnapshot!.Styles.ToArray())
+                    .LineWeightMillimeters);
+
+            view.LayerLineTypeSelector.SelectedItem =
+                FindNamedPropertyChoice(
+                    view.LayerLineTypeSelector,
+                    "TARGET_DASH");
+            PressEnter(setLineType);
+
+            Assert.Equal(3UL, session.ContentGeneration);
+            Assert.Same(dash, targetLayer.LineType);
+            Assert.Equal(
+                "TARGET_DASH",
+                Assert.Single(view.Canvas.CurrentSnapshot!.Styles.ToArray())
+                    .LineTypeName);
+            CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+                view.Canvas.CurrentSnapshot);
+            using (GpuPicture picture = scene.CreatePicture())
+            {
+                Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+                    picture,
+                    96U,
+                    view.Canvas.CurrentSnapshot.ContentGeneration,
+                    out NativeCompiledPicture? native,
+                    out NativePictureCompileFailure failure),
+                    failure.ToString());
+                Assert.NotNull(native);
+                Assert.True(native.SourceCommandCount > 0);
+                Assert.True(native.GeometryPrimitiveCount > 0);
+            }
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Set layer TARGET_STYLE linetype TARGET_DASH as one edit",
+                    StringComparison.Ordinal));
+
+            PressEnter(undo);
+            Assert.Same(document.LineTypes.Continuous, targetLayer.LineType);
+            Assert.Equal(LineType.ContinuousName, SelectedPropertyText(
+                view.LayerLineTypeSelector));
+            PressEnter(redo);
+            Assert.Same(dash, targetLayer.LineType);
+            Assert.Equal("TARGET_DASH", SelectedPropertyText(
+                view.LayerLineTypeSelector));
+
+            view.LayerColorInput.Text = "ByLayer";
+            Assert.False(setColor.IsEnabled);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewRefreshesPropertyCatalogAcrossEqualGenerationDocuments()
     {
         var firstDocument = new CadDocument();
         firstDocument.Layers.Add(new Layer("FIRST_LAYER"));
+        firstDocument.LineTypes.Add(new LineType("FIRST_LINETYPE"));
         firstDocument.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
         var secondDocument = new CadDocument();
         secondDocument.Layers.Add(new Layer("SECOND_LAYER"));
+        secondDocument.LineTypes.Add(new LineType("SECOND_LINETYPE"));
         secondDocument.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
         var view = new CadSampleView();
         try
@@ -1121,6 +1262,9 @@ public sealed class CadSampleSelectionTests
             Assert.Contains(
                 view.LayerStateSelector.Items.OfType<ComboBoxItem>(),
                 item => item.Tag is string name && name == "FIRST_LAYER");
+            Assert.Contains(
+                view.LayerLineTypeSelector.Items.OfType<ComboBoxItem>(),
+                item => item.Tag is string name && name == "FIRST_LINETYPE");
 
             view.Canvas.Load(new CadDocumentSession(secondDocument));
 
@@ -1136,6 +1280,12 @@ public sealed class CadSampleSelectionTests
             Assert.Contains(
                 view.LayerStateSelector.Items.OfType<ComboBoxItem>(),
                 item => item.Tag is string name && name == "SECOND_LAYER");
+            Assert.DoesNotContain(
+                view.LayerLineTypeSelector.Items.OfType<ComboBoxItem>(),
+                item => item.Tag is string name && name == "FIRST_LINETYPE");
+            Assert.Contains(
+                view.LayerLineTypeSelector.Items.OfType<ComboBoxItem>(),
+                item => item.Tag is string name && name == "SECOND_LINETYPE");
         }
         finally
         {

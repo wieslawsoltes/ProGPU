@@ -37,7 +37,10 @@ public readonly record struct CadLayerGeneralProperties(
     bool IsOn,
     bool IsPlottable,
     bool IsFrozen,
-    bool IsLocked);
+    bool IsLocked,
+    ACadSharp.Color Color,
+    LineWeightType LineWeight,
+    string LineTypeName);
 
 /// <summary>
 /// Generation-tagged names that can be assigned by the shared property shell.
@@ -1028,7 +1031,10 @@ public sealed class CadSampleCanvas : FrameworkElement
                 layer.IsOn,
                 layer.PlotFlag,
                 (layer.Flags & LayerFlags.Frozen) != 0,
-                (layer.Flags & LayerFlags.Locked) != 0);
+                (layer.Flags & LayerFlags.Locked) != 0,
+                layer.Color,
+                layer.LineWeight,
+                layer.LineType.Name);
         });
     }
 
@@ -1280,6 +1286,58 @@ public sealed class CadSampleCanvas : FrameworkElement
             [layerName],
             isLocked,
             $"Set layer {layerName} {(isLocked ? "locked" : "unlocked")}"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>Sets one explicit persisted color for one document layer.</summary>
+    public bool SetLayerColor(string layerName, ACadSharp.Color color)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetLayerColorCommand(
+            [layerName],
+            color,
+            $"Set layer {layerName} color"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>Sets one fixed/default persisted lineweight for one document layer.</summary>
+    public bool SetLayerLineWeight(string layerName, LineWeightType lineWeight)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetLayerLineWeightCommand(
+            [layerName],
+            lineWeight,
+            $"Set layer {layerName} lineweight"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>Sets one drawing-resident explicit linetype for one document layer.</summary>
+    public bool SetLayerLineType(string layerName, string lineTypeName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(lineTypeName);
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetLayerLineTypeCommand(
+            [layerName],
+            lineTypeName,
+            $"Set layer {layerName} linetype"));
         RecompileAfterEdit(session);
         return true;
     }
