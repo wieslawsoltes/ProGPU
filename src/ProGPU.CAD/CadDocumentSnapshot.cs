@@ -25,6 +25,7 @@ public enum CadEntityKind : byte
     Ray = 18,
     XLine = 19,
     Mesh3D = 20,
+    Wipeout = 21,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -152,6 +153,28 @@ public readonly record struct CadPointPrimitive(
 public readonly record struct CadConstructionLinePrimitive(
     CadPoint3D BasePoint,
     CadPoint3D Direction);
+
+/// <summary>One immutable image-space WIPEOUT clipping vertex.</summary>
+public readonly record struct CadWipeoutClipPoint(double U, double V);
+
+/// <summary>
+/// One retained WIPEOUT image frame. Origin is the visual lower-left image
+/// corner; U/V are the WCS vectors of one persisted image pixel.
+/// </summary>
+public readonly record struct CadWipeoutPrimitive(
+    CadPoint3D Origin,
+    CadPoint3D UVector,
+    CadPoint3D VVector,
+    double Width,
+    double Height,
+    int ClipPointOffset,
+    int ClipPointCount,
+    bool IsClipped,
+    bool IsInverted,
+    bool DrawMask,
+    bool ShowWhenNotAligned,
+    bool DrawFrame,
+    CadColor32 MaskColor);
 
 /// <summary>One flat-shaded triangle vertex in rebased-independent WCS.</summary>
 public readonly record struct CadMesh3DVertex(
@@ -527,6 +550,8 @@ public sealed class CadDocumentSnapshot
     private readonly CadLinePrimitive[] _lines;
     private readonly CadPointPrimitive[] _points;
     private readonly CadConstructionLinePrimitive[] _constructionLines;
+    private readonly CadWipeoutPrimitive[] _wipeouts;
+    private readonly CadWipeoutClipPoint[] _wipeoutClipPoints;
     private readonly CadMesh3DPrimitive[] _meshes3D;
     private readonly CadMesh3DDrawRange[] _mesh3DDrawRanges;
     private readonly CadMesh3DVertex[] _mesh3DVertices;
@@ -600,6 +625,8 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadLinePrimitive> Lines => _lines;
     public ReadOnlyMemory<CadPointPrimitive> Points => _points;
     public ReadOnlyMemory<CadConstructionLinePrimitive> ConstructionLines => _constructionLines;
+    public ReadOnlyMemory<CadWipeoutPrimitive> Wipeouts => _wipeouts;
+    public ReadOnlyMemory<CadWipeoutClipPoint> WipeoutClipPoints => _wipeoutClipPoints;
     public ReadOnlyMemory<CadMesh3DPrimitive> Meshes3D => _meshes3D;
     public ReadOnlyMemory<CadMesh3DDrawRange> Mesh3DDrawRanges => _mesh3DDrawRanges;
     public ReadOnlyMemory<CadMesh3DVertex> Mesh3DVertices => _mesh3DVertices;
@@ -662,6 +689,8 @@ public sealed class CadDocumentSnapshot
         CadLinePrimitive[] lines,
         CadPointPrimitive[] points,
         CadConstructionLinePrimitive[] constructionLines,
+        CadWipeoutPrimitive[] wipeouts,
+        CadWipeoutClipPoint[] wipeoutClipPoints,
         CadMesh3DPrimitive[] meshes3D,
         CadMesh3DDrawRange[] mesh3DDrawRanges,
         CadMesh3DVertex[] mesh3DVertices,
@@ -721,6 +750,8 @@ public sealed class CadDocumentSnapshot
         _lines = lines;
         _points = points;
         _constructionLines = constructionLines;
+        _wipeouts = wipeouts;
+        _wipeoutClipPoints = wipeoutClipPoints;
         _meshes3D = meshes3D;
         _mesh3DDrawRanges = mesh3DDrawRanges;
         _mesh3DVertices = mesh3DVertices;

@@ -49,6 +49,7 @@ bool lowerPeriodicSplineLineTypes = HasFlag("--periodic-spline-linetypes");
 bool measureSplineSelection = HasFlag("--spline-selection");
 bool measureTextSelection = HasFlag("--text-selection");
 bool measureHatchSelection = HasFlag("--hatch-selection");
+bool useWipeouts = HasFlag("--wipeouts");
 int shxInterpretationCount = ReadNonNegativeInt("--shx-interpretations", 0);
 int shxLayoutCount = ReadNonNegativeInt("--shx-layouts", 0);
 int warmupCount = ReadNonNegativeInt("--warmup", 3);
@@ -65,7 +66,24 @@ if (entityCount == 0 && blockArrayColumnCount == 0 && textEntityCount == 0 &&
     solidHatchCount == 0 && patternHatchCount == 0)
 {
     throw new ArgumentException(
-        "At least one ordinary entity, block-array column, text entity, attributed INSERT, DIMENSION, thick SOLID, MESH, or HATCH is required.");
+        "At least one ordinary entity, block-array column, text entity, attributed INSERT, DIMENSION, thick SOLID, MESH, HATCH, or WIPEOUT is required.");
+}
+
+if (useWipeouts &&
+    (entityCount == 0 || blockArrayColumnCount != 0 || textEntityCount != 0 ||
+     mtextEntityCount != 0 || shxTextEntityCount != 0 || shxMTextEntityCount != 0 ||
+     attributeInsertCount != 0 || dimensionEntityCount != 0 ||
+     thickSolidEntityCount != 0 || meshEntityCount != 0 ||
+     polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 ||
+     pointEntityCount != 0 || constructionLineCount != 0 ||
+     solidHatchCount != 0 || patternHatchCount != 0 ||
+     lowerLineTypes || lowerComplexLineTypes || lowerLinearSplineLineTypes ||
+     lowerNurbsSplineLineTypes || lowerPeriodicSplineLineTypes ||
+     measureSplineSelection || measureTextSelection || measureHatchSelection ||
+     complexPatternGrammar || hatchIslandStyles || hatchSplineEdges))
+{
+    throw new ArgumentException(
+        "--wipeouts requires positive --entities and no additional fixture families.");
 }
 
 if (blockArrayColumnCount > ushort.MaxValue)
@@ -206,6 +224,7 @@ CadDocumentSession session = CreateDocument(
     lowerNurbsSplineLineTypes,
     lowerPeriodicSplineLineTypes,
     measureSplineSelection,
+    useWipeouts,
     resolveDrawOrder,
     freezeAlternatingEntityLayers);
 var snapshotCompiler = new CadSnapshotCompiler();
@@ -427,6 +446,7 @@ var report = new CadBenchmarkReport(
     measureSplineSelection,
     measureTextSelection,
     measureHatchSelection,
+    useWipeouts,
     shxInterpretationCount,
     shxLayoutCount,
     warmupCount,
@@ -573,6 +593,7 @@ CadDocumentSession CreateDocument(
     bool useNurbsSplineLineTypes,
     bool usePeriodicSplineLineTypes,
     bool useSplineSelection,
+    bool createWipeouts,
     bool useDrawOrder,
     bool freezeAlternatingLayers)
 {
@@ -627,6 +648,26 @@ CadDocumentSession CreateDocument(
         {
             double x = (i % 1_000) * 12.0;
             double y = (i / 1_000) * 12.0;
+            if (createWipeouts)
+            {
+                var wipeout = new Wipeout
+                {
+                    InsertPoint = new XYZ(x, y, i % 17),
+                    UVector = new XYZ(0.5, 0, 0),
+                    VVector = new XYZ(0, 0.5, 0),
+                    Size = new XY(20, 20),
+                    ClippingState = true,
+                    ClipMode = (i & 1) == 0 ? ClipMode.Outside : ClipMode.Inside,
+                };
+                wipeout.ClipBoundaryVertices.AddRange([
+                    new XY(-0.5, -0.5),
+                    new XY(19.5, -0.5),
+                    new XY(17.5, 19.5),
+                    new XY(1.5, 19.5),
+                ]);
+                document.Entities.Add(wipeout);
+                continue;
+            }
             if (usePeriodicSplineLineTypes)
             {
                 var spline = new Spline
@@ -1752,6 +1793,7 @@ internal sealed record CadBenchmarkReport(
     bool MeasuredSplineSelection,
     bool MeasuredTextSelection,
     bool MeasuredHatchSelection,
+    bool Wipeouts,
     int ShxInterpretationCount,
     int ShxLayoutCount,
     int WarmupCount,

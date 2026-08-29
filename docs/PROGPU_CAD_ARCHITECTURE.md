@@ -140,6 +140,40 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   edge/line. Above-cubic spline edges, gradient, annotative, paper-oriented,
   coincident, and malformed hatches remain explicit
   diagnostics rather than approximated fills.
+- WIPEOUT retains the WCS insertion point, independent one-pixel U/V vectors,
+  pixel dimensions, display flags, clipping state/mode, resolved screen-versus-
+  plot frame policy, and a bounded packed clip-point stream. DXF's documented
+  half-pixel coordinates are normalized once to a local `0..width` by
+  `0..height` image frame; a two-corner rectangle becomes four ordered corners,
+  while a polygon remains analytic. `ClipMode.Outside` removes the outside and
+  therefore displays the clip interior; `ClipMode.Inside` is the inverse hole
+  mode. A normal clipped WIPEOUT has clip bounds, while inactive or inverted
+  clipping has full-image bounds. Nested INSERT transforms map the insertion as
+  a point and U/V as directions, preserving rotation, scale, and translation
+  semantics without translation leakage.
+- Plan recording preserves source/SORTENTS order and emits one retained even-odd
+  fill path for a normal mask. An inverted mask emits one outer-plus-hole fill
+  followed by its clip frame. `ShowImage`, `ShowNotAlignedImage`, clipping flags,
+  drawing background color, and WIPEOUTFRAME values 0/1/2 are applied without
+  rasterizing during scene construction. FRAME needs no second retained field:
+  Autodesk defines setting FRAME as updating the object-specific frame variables,
+  while value 3 means those variables differ, so persisted WIPEOUTFRAME remains
+  the WIPEOUT authority. Frames use the resolved entity color, lineweight, and
+  bounded analytic linetype lowering after the opaque mask is recorded;
+  selection always includes the boundary because hidden frames temporarily
+  reappear for selection in AutoCAD. Point and Window/Crossing tests invert the
+  affine pixel frame and test the exact polygon without allocation. Snapshot,
+  continuous-frame recording, and exact selection are O(V) time for V clip
+  vertices. A patterned frame reuses the documented linetype cost
+  O(V + Q + (F + P) log V) for Q descriptor visits, F figures, and P placements.
+  Immutable WIPEOUT storage is O(V), and stable picture replay performs no CAD
+  work, upload, or managed allocation.
+- DXF WIPEOUT records do not contain an inverted-clip field. ProGPU therefore
+  rejects `ClipMode.Inside` with `CADSAVE001` before touching the destination or
+  saved generation instead of silently downgrading it; normal clips round-trip
+  in DXF and both modes round-trip in DWG. The ACadSharp submodule's original
+  ProGPU-owned affine transform, clone, and exact bounding-box fixes are pinned
+  on `feat/progpu-cad-entities` with matched focused tests.
 - Single-line TrueType TEXT resolves through a typed host font service, shapes
   during immutable snapshot construction with the existing ProGPU Unicode/
   OpenType pipeline, and stores packed glyph indices, positions, font runs, and
@@ -3073,6 +3107,25 @@ or release-acceptance claim. Representative interactive traces, managed/native
 images, GPU counters, non-continuous construction-linetype phase work, and the
 required matched Instruments captures remain open acceptance gates.
 
+Two sequential 2026-08-30 WIPEOUT feature-cost runs used the same final Apple
+Silicon/.NET 10.0.5 Release binary, 1,000 four-vertex clipped masks alternating
+normal and inverted mode, three warmups, 24 construction iterations, and 10,000
+spatial queries. Both runs reported exactly 1,000 source/expanded records with
+zero unsupported or invalid entities and retained 1,500 source-ordered path
+commands: one for each normal mask and two for each inverted mask/frame pair.
+Snapshot p50/p95/p99 was `14.0350/32.5573/45.2792 ms` and
+`11.3892/28.2573/35.1822 ms`, allocating `1,240,289` and `1,240,145 B/op`.
+Plan recording was `6.2409/23.0850/30.9200 ms` and
+`6.7190/41.8358/67.9036 ms`, allocating `2,904,938` and `2,904,975 B/op`.
+Print planning was `7.5370/28.2132/68.5645 ms` and
+`8.7677/20.2999/27.2710 ms`; spatial queries remained zero-allocation. The
+ignored artifacts are `artifacts/progpu-cad/wipeout-feature-run1.json` and
+`wipeout-feature-run2.json`. This is bounded feature-cost evidence, not a
+latency improvement or regression claim. Retained stable replay performs no
+CAD compilation by construction, but interactive GPU submission/residency,
+managed/native pixel differentials, multi-DPI output, and matched Instruments
+captures remain future optimization/acceptance gates.
+
 The 2026-08-28 simple-linetype feature-cost baseline used one final Release
 binary in two sequential processes, 1,000 mixed analytic entities, five
 warmups, and 30 measured iterations. Continuous input recorded 1,000 commands;
@@ -3405,7 +3458,41 @@ dotnet run --project src/ProGPU.CAD.Sample.Browser -c Debug
 
 ## Primary research record
 
-Sources consulted on 2026-08-27 through 2026-08-29:
+Sources consulted on 2026-08-27 through 2026-08-30:
+
+- For WIPEOUT, Autodesk's
+  [DXF entity contract](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-2229F9C4-3C80-4C67-9EDA-45ED684808DC.htm),
+  [WIPEOUT command contract](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-Core/files/GUID-4AD79F4F-A759-4310-A62D-4792FAA7B0EA.htm),
+  [WIPEOUTFRAME contract](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-LT/files/GUID-AF1A9E90-35FB-4A49-AA39-E3456B4F264D.htm),
+  [FRAME contract](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-29BD70BB-07BF-41A2-8C2F-AD41C9402486.htm),
+  [WIPEOUTVARIABLES record](https://help.autodesk.com/cloudhelp/2019/ENU/AutoCAD-DXF/files/GUID-CD28B95F-483C-4080-82A6-420606F88356.htm),
+  [IMAGECLIP boundary behavior](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-9D652E1A-29F8-49BC-ABCC-37B9F1C7A1D0.htm), and
+  [draw-order behavior](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-Core/files/GUID-8203C80A-3D51-49F0-B756-56FDF5D96697.htm)
+  establish the WCS pixel frame, half-pixel clip coordinates, sequential
+  boundary, display flags, background-colored masking, frame screen/plot policy,
+  selection-time hidden frame, and source-order compositing. Adopted a bounded
+  immutable affine frame plus packed analytic clip and explicit plot-purpose
+  frame resolution; rejected snapshot-time raster masks, depth geometry, and
+  lossy DXF inversion writes.
+  [Skia path fill types](https://api.skia.org/SkPathTypes_8h.html),
+  [Skia ordered canvas](https://api.skia.org/classSkCanvas.html),
+  [Direct2D alternate fill](https://learn.microsoft.com/en-us/windows/win32/api/d2d1/ne-d2d1-d2d1_fill_mode),
+  [Direct2D layers](https://learn.microsoft.com/en-us/windows/win32/direct2d/how-to-clip-with-layers),
+  [Win2D polygon geometry](https://microsoft.github.io/Win2D/WinUI3/html/M_Microsoft_Graphics_Canvas_Geometry_CanvasGeometry_CreatePolygon.htm),
+  [WebRender's retained display-list architecture](https://github.com/servo/servo/wiki/Webrender-Overview), and
+  [Vello's scene encoding](https://github.com/linebender/vello/blob/main/vello/src/scene.rs)
+  informed retaining analytic contours and resolving compositing order before
+  replay. The existing ProGPU managed and native picture compilers already
+  consume the same `DrawPath` command and canonical path rasterizers, so no new
+  C++ CAD frontend, C ABI, wire record, shader, cache, upload, or device-loss path
+  applies. The depth-aware mesh compiler is genuinely inapplicable because a
+  WIPEOUT is a 2D display/plot compositing entity, not a depth-tested surface.
+  SkParagraph's [staged text model](https://skia.org/docs/user/modules/quickstart/),
+  [DirectWrite's architecture](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite),
+  [Parley's layout model](https://github.com/linebender/parley/blob/main/doc/concept.md), and
+  [HarfBuzz shape plans](https://harfbuzz.github.io/shaping-and-shape-plans.html)
+  were rechecked and remain unaffected: WIPEOUT ordering reuses positioned glyph
+  streams and introduces no shaping, fallback, glyph-cache, DPI, or subpixel path.
 
 - For persisted compositing order, Autodesk's
   [SORTENTSTABLE DXF contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-462F4378-F850-4E89-90F2-3C1880F55779.htm),

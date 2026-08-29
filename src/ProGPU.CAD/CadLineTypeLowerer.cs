@@ -259,6 +259,15 @@ internal static class CadLineTypeLowerer
                 maxFigures,
                 maxPatternSteps,
                 maxPlacements),
+            CadEntityKind.Wipeout => LowerWipeoutFrame(
+                snapshot,
+                snapshot.Wipeouts.Span[entity.PrimitiveIndex],
+                elements,
+                pattern.PatternLength,
+                style.LineTypeScale,
+                maxFigures,
+                maxPatternSteps,
+                maxPlacements),
             _ => new CadLineTypeLoweringResult(
                 CadLineTypeLoweringStatus.UnsupportedEntity,
                 null,
@@ -286,6 +295,10 @@ internal static class CadLineTypeLowerer
                 GetPolylineSegmentCount(snapshot.Polylines3D.Span[entity.PrimitiveIndex]),
             CadEntityKind.Face3D => CountVisibleFaceEdges(
                 snapshot.Faces.Span[entity.PrimitiveIndex]),
+            CadEntityKind.Wipeout =>
+                snapshot.Wipeouts.Span[entity.PrimitiveIndex].IsClipped
+                    ? snapshot.Wipeouts.Span[entity.PrimitiveIndex].ClipPointCount
+                    : 4,
             _ => 0,
         };
 
@@ -864,6 +877,77 @@ internal static class CadLineTypeLowerer
             maxPatternSteps,
             maxPlacements,
             Matrix4x4.Identity);
+    }
+
+    private static CadLineTypeLoweringResult LowerWipeoutFrame(
+        CadDocumentSnapshot snapshot,
+        in CadWipeoutPrimitive wipeout,
+        ReadOnlySpan<CadLineTypeElement> elements,
+        double patternLength,
+        double scale,
+        int maxFigures,
+        int maxPatternSteps,
+        int maxPlacements)
+    {
+        Span<CadWipeoutClipPoint> outer = stackalloc CadWipeoutClipPoint[4]
+        {
+            new(0.0, 0.0),
+            new(wipeout.Width, 0.0),
+            new(wipeout.Width, wipeout.Height),
+            new(0.0, wipeout.Height),
+        };
+        ReadOnlySpan<CadWipeoutClipPoint> points = wipeout.IsClipped
+            ? snapshot.WipeoutClipPoints.Span.Slice(
+                wipeout.ClipPointOffset,
+                wipeout.ClipPointCount)
+            : outer;
+        MeasuredSegment[]? rented = null;
+        Span<MeasuredSegment> segments = points.Length <= 256
+            ? stackalloc MeasuredSegment[points.Length]
+            : (rented = ArrayPool<MeasuredSegment>.Shared.Rent(points.Length))
+                .AsSpan(0, points.Length);
+        try
+        {
+            double pathOffset = 0.0;
+            for (int i = 0; i < points.Length; i++)
+            {
+                CadWipeoutClipPoint start = points[i];
+                CadWipeoutClipPoint end = points[(i + 1) % points.Length];
+                CadPoint3D delta =
+                    (wipeout.UVector * (end.U - start.U)) +
+                    (wipeout.VVector * (end.V - start.V));
+                MeasuredSegment segment = MeasuredSegment.Line(
+                    new Vector2(ToFloat(start.U), ToFloat(start.V)),
+                    new Vector2(ToFloat(end.U), ToFloat(end.V)),
+                    delta.Length);
+                segments[i] = segment with { PathOffset = pathOffset };
+                pathOffset += segment.Length;
+            }
+
+            return LowerMeasuredPath(
+                segments,
+                ReadOnlySpan<double>.Empty,
+                isClosed: true,
+                resetAtEverySegment: false,
+                elements,
+                patternLength,
+                scale,
+                maxFigures,
+                maxPatternSteps,
+                maxPlacements,
+                CreateProjectionTransform(
+                    wipeout.Origin,
+                    wipeout.UVector,
+                    wipeout.VVector,
+                    snapshot.RebaseOrigin));
+        }
+        finally
+        {
+            if (rented is not null)
+            {
+                ArrayPool<MeasuredSegment>.Shared.Return(rented);
+            }
+        }
     }
 
     private static CadLineTypeLoweringResult LowerMeasuredPath(

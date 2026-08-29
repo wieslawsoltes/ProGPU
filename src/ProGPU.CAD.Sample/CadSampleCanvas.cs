@@ -2271,6 +2271,22 @@ public sealed class CadSampleCanvas : FrameworkElement
             pageSetups.Add(a4Portrait);
 
             document.Entities.Add(new Line(new XYZ(-80, -45, 0), new XYZ(80, -45, 0)));
+            var wipeout = new Wipeout
+            {
+                InsertPoint = new XYZ(-18, -50, 0),
+                UVector = new XYZ(1, 0, 0),
+                VVector = new XYZ(0, 1, 0),
+                Size = new XY(36, 12),
+                ClippingState = true,
+                ClipMode = ClipMode.Outside,
+            };
+            wipeout.ClipBoundaryVertices.AddRange([
+                new XY(-0.5, -0.5),
+                new XY(35.5, -0.5),
+                new XY(31.5, 11.5),
+                new XY(3.5, 11.5),
+            ]);
+            document.Entities.Add(wipeout);
             document.Entities.Add(new Circle(new XYZ(-38, 8, 0), 27));
             document.Entities.Add(new Arc(new XYZ(30, 8, 0), 30, 0.2, 5.1));
             document.Entities.Add(new Ray

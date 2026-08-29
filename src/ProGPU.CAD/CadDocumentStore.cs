@@ -1,5 +1,6 @@
 using System.Buffers;
 using ACadSharp;
+using ACadSharp.Entities;
 using ACadSharp.IO;
 
 namespace ProGPU.CAD;
@@ -270,6 +271,8 @@ public sealed class CadDocumentStore : ICadDocumentStore
                 "for explicit development or interoperability testing.");
         }
 
+        ValidateLosslessWriteContracts(document, format);
+
         progress?.Report(new CadOperationProgress(CadOperationStage.Writing, 0, null));
         var diagnostics = new List<CadDiagnostic>();
         using var lease = new NonDisposingStream(destination);
@@ -311,6 +314,20 @@ public sealed class CadDocumentStore : ICadDocumentStore
         cancellationToken.ThrowIfCancellationRequested();
         progress?.Report(new CadOperationProgress(CadOperationStage.Completed, 0, null));
         return new CadSaveResult(generation, diagnostics.ToArray());
+    }
+
+    private static void ValidateLosslessWriteContracts(
+        CadDocument document,
+        CadDocumentFormat format)
+    {
+        if (format == CadDocumentFormat.Dxf &&
+            document.GetCadObjects<Wipeout>().Any(
+                wipeout => wipeout.ClipMode == ClipMode.Inside))
+        {
+            throw new NotSupportedException(
+                "CADSAVE001: DXF WIPEOUT records do not encode inverted clipping. " +
+                "Save as DWG or change the WIPEOUT to an outside clip before saving.");
+        }
     }
 
     private static ICadReader CreateReader(

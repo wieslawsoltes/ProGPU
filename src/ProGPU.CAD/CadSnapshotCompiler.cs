@@ -3,6 +3,7 @@ using ACadSharp.Blocks;
 using ACadSharp.Entities;
 using ACadSharp.Extensions;
 using ACadSharp.Header;
+using ACadSharp.Objects;
 using ACadSharp.Tables;
 using CSMath;
 using ProGPU.Text;
@@ -30,6 +31,8 @@ public sealed class CadSnapshotOptions
     public const int DefaultMaxMeshFaceIndices = 10_000_000;
     public const int DefaultMaxMeshSubdivisionLevel = 6;
     public const int DefaultMaxMeshSubdivisionTopologyVisits = 1_000_000;
+    public const int DefaultMaxWipeoutClipVerticesPerEntity = 65_536;
+    public const int DefaultMaxWipeoutClipVertices = 1_000_000;
 
     public double DefaultLineWeightMillimeters { get; init; } = 0.25;
     public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
@@ -51,6 +54,10 @@ public sealed class CadSnapshotOptions
     public int MaxMeshSubdivisionLevel { get; init; } = DefaultMaxMeshSubdivisionLevel;
     public int MaxMeshSubdivisionTopologyVisits { get; init; } =
         DefaultMaxMeshSubdivisionTopologyVisits;
+    public int MaxWipeoutClipVerticesPerEntity { get; init; } =
+        DefaultMaxWipeoutClipVerticesPerEntity;
+    public int MaxWipeoutClipVertices { get; init; } =
+        DefaultMaxWipeoutClipVertices;
 
     /// <summary>
     /// Selects whether snapshot entity order represents interactive
@@ -118,6 +125,8 @@ public sealed partial class CadSnapshotCompiler
         var lines = new List<CadLinePrimitive>();
         var points = new List<CadPointPrimitive>();
         var constructionLines = new List<CadConstructionLinePrimitive>();
+        var wipeouts = new List<CadWipeoutPrimitive>();
+        var wipeoutClipPoints = new List<CadWipeoutClipPoint>();
         var meshes3D = new List<CadMesh3DPrimitive>();
         var mesh3DDrawRanges = new List<CadMesh3DDrawRange>();
         var mesh3DVertices = new List<CadMesh3DVertex>();
@@ -167,6 +176,7 @@ public sealed partial class CadSnapshotCompiler
         int remainingMeshFaceIndices = options.MaxMeshFaceIndices;
         int remainingMeshSubdivisionTopologyVisits =
             options.MaxMeshSubdivisionTopologyVisits;
+        WipeoutFrameType? resolvedWipeoutFrame = null;
         var hatchTopologyBudget = new CadHatchTopologyBudget(
             options.MaxHatchTopologyVisits);
         var hatchSplineSourceBudget = new CadHatchSplineSourceBudget(
@@ -240,6 +250,8 @@ public sealed partial class CadSnapshotCompiler
             lines.ToArray(),
             points.ToArray(),
             constructionLines.ToArray(),
+            wipeouts.ToArray(),
+            wipeoutClipPoints.ToArray(),
             meshes3D.ToArray(),
             mesh3DDrawRanges.ToArray(),
             mesh3DVertices.ToArray(),
@@ -450,6 +462,17 @@ public sealed partial class CadSnapshotCompiler
                         layerIndex,
                         styleIndex,
                         constructionLines),
+                    Wipeout wipeout => CompileWipeout(
+                        wipeout,
+                        GetResolvedWipeoutFrame(),
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        options,
+                        wipeouts,
+                        wipeoutClipPoints),
                     Arc arc => CompileArc(arc, rootHandle, transform, hasTransform, layerIndex, styleIndex, arcs),
                     Circle circle => CompileCircle(circle, rootHandle, transform, hasTransform, layerIndex, styleIndex, circles),
                     Ellipse ellipse => CompileEllipse(ellipse, rootHandle, transform, hasTransform, layerIndex, styleIndex, ellipses),
@@ -607,6 +630,12 @@ public sealed partial class CadSnapshotCompiler
                         "CADSNAP002",
                         $"Entity path {FormatEntityPath(rootHandle, entity.Handle)} ({entity.ObjectName}) was rejected: {exception.Message}"));
             }
+        }
+
+        WipeoutFrameType GetResolvedWipeoutFrame()
+        {
+            resolvedWipeoutFrame ??= ResolveWipeoutFrame(document);
+            return resolvedWipeoutFrame.Value;
         }
 
         void CompileInsert(
@@ -4585,6 +4614,12 @@ public sealed partial class CadSnapshotCompiler
         ArgumentOutOfRangeException.ThrowIfLessThan(
             options.MaxMeshSubdivisionTopologyVisits,
             1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxWipeoutClipVerticesPerEntity,
+            4);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxWipeoutClipVertices,
+            4);
     }
 
     private static void AddDiagnostic(

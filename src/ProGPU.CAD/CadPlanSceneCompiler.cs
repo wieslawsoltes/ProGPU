@@ -122,6 +122,7 @@ public sealed class CadPlanSceneCompiler
             Math.Max(
                 0,
                 entities.Length - snapshot.ConstructionLines.Length - snapshot.Meshes3D.Length) +
+            snapshot.Wipeouts.Length +
             Math.Max(0, snapshot.TextGlyphRuns.Length - snapshot.Texts.Length) +
             snapshot.TextDecorations.Length +
             snapshot.MTextGlyphRuns.Length +
@@ -179,7 +180,11 @@ public sealed class CadPlanSceneCompiler
             CadStrokeStyle style = styles[entity.StyleIndex];
             Pen pen = pens[entity.StyleIndex];
             bool recordedLineType = false;
-            if (UsesStroke(entity.Kind))
+            CadLineTypeLoweringResult? deferredWipeoutFrame = null;
+            CadLineTypePattern? deferredWipeoutPattern = null;
+            bool usesWipeoutFrame = entity.Kind == CadEntityKind.Wipeout &&
+                snapshot.Wipeouts.Span[entity.PrimitiveIndex].DrawFrame;
+            if (UsesStroke(entity.Kind) || usesWipeoutFrame)
             {
                 CadLineTypePattern pattern = lineTypePatterns[style.LineTypePatternIndex];
                 if (pattern.Kind is CadLineTypePatternKind.Simple or CadLineTypePatternKind.Complex)
@@ -223,18 +228,26 @@ public sealed class CadPlanSceneCompiler
                                 "CADSCENE003",
                                 $"Linetype '{pattern.Name}' uses a host-resolved text or SHX substitution."));
                         }
-                        if (result.Path is not null)
+                        if (entity.Kind == CadEntityKind.Wipeout)
                         {
-                            context.DrawPath(null, pen, result.Path, result.Transform);
+                            deferredWipeoutFrame = result;
+                            deferredWipeoutPattern = pattern;
                         }
-                        RecordLineTypeSplineFragments(context, pen, result);
-                        RecordLineTypePlacements(
-                            context,
-                            pen,
-                            snapshot,
-                            style,
-                            pattern,
-                            result);
+                        else
+                        {
+                            if (result.Path is not null)
+                            {
+                                context.DrawPath(null, pen, result.Path, result.Transform);
+                            }
+                            RecordLineTypeSplineFragments(context, pen, result);
+                            RecordLineTypePlacements(
+                                context,
+                                pen,
+                                snapshot,
+                                style,
+                                pattern,
+                                result);
+                        }
                         loweredLineTypeEntities++;
                         loweredLineTypeFigures = checked(
                             loweredLineTypeFigures + result.FigureCount);
@@ -286,7 +299,7 @@ public sealed class CadPlanSceneCompiler
                 }
             }
 
-            if (recordedLineType)
+            if (recordedLineType && entity.Kind != CadEntityKind.Wipeout)
             {
                 recorded++;
                 continue;
@@ -337,6 +350,36 @@ public sealed class CadPlanSceneCompiler
                         snapshot.Hatches.Span[entity.PrimitiveIndex],
                         options.MaxHatchPatternAuxiliaryRecords,
                         ref hatchPatternAuxiliaryRecords);
+                    break;
+                case CadEntityKind.Wipeout:
+                    RecordWipeout(
+                        context,
+                        pen,
+                        GetMTextBrush(
+                            mtextBrushes,
+                            snapshot.Wipeouts.Span[entity.PrimitiveIndex].MaskColor.Red,
+                            snapshot.Wipeouts.Span[entity.PrimitiveIndex].MaskColor.Green,
+                            snapshot.Wipeouts.Span[entity.PrimitiveIndex].MaskColor.Blue,
+                            snapshot.Wipeouts.Span[entity.PrimitiveIndex].MaskColor.Alpha),
+                        snapshot,
+                        snapshot.Wipeouts.Span[entity.PrimitiveIndex],
+                        drawContinuousFrame: deferredWipeoutFrame is null);
+                    if (deferredWipeoutFrame is CadLineTypeLoweringResult frame &&
+                        deferredWipeoutPattern is CadLineTypePattern framePattern)
+                    {
+                        if (frame.Path is not null)
+                        {
+                            context.DrawPath(null, pen, frame.Path, frame.Transform);
+                        }
+                        RecordLineTypeSplineFragments(context, pen, frame);
+                        RecordLineTypePlacements(
+                            context,
+                            pen,
+                            snapshot,
+                            style,
+                            framePattern,
+                            frame);
+                    }
                     break;
                 case CadEntityKind.Face3D:
                     RecordFace3D(context, pen, snapshot.Faces.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
@@ -929,6 +972,98 @@ public sealed class CadPlanSceneCompiler
                 maximumAuxiliaryRecords,
                 ref auxiliaryRecords);
         context.DrawPath(fill, null, path, transform);
+    }
+
+    private static void RecordWipeout(
+        DrawingContext context,
+        Pen pen,
+        Brush maskBrush,
+        CadDocumentSnapshot snapshot,
+        CadWipeoutPrimitive wipeout,
+        bool drawContinuousFrame)
+    {
+        CadPoint3D plane = CadPoint3D.Cross(wipeout.UVector, wipeout.VVector);
+        double planeLength = plane.Length;
+        bool alignedWithPlan =
+            Math.Abs(plane.X) <= planeLength * 1e-10 &&
+            Math.Abs(plane.Y) <= planeLength * 1e-10;
+        bool drawMask = wipeout.DrawMask &&
+            (wipeout.ShowWhenNotAligned || alignedWithPlan);
+        bool drawFrame = wipeout.DrawFrame && drawContinuousFrame;
+        if (!drawMask && !drawFrame)
+        {
+            return;
+        }
+
+        ReadOnlySpan<CadWipeoutClipPoint> clip = wipeout.IsClipped
+            ? snapshot.WipeoutClipPoints.Span.Slice(
+                wipeout.ClipPointOffset,
+                wipeout.ClipPointCount)
+            : ReadOnlySpan<CadWipeoutClipPoint>.Empty;
+        Matrix4x4 transform = CreateProjectionTransform(
+            wipeout.Origin,
+            wipeout.UVector,
+            wipeout.VVector,
+            snapshot.RebaseOrigin);
+        bool frameMatchesMask = !wipeout.IsInverted;
+        if (drawMask)
+        {
+            var maskPath = new PathGeometry { FillRule = FillRule.EvenOdd };
+            if (!wipeout.IsClipped || wipeout.IsInverted)
+            {
+                AddWipeoutRectangle(maskPath, wipeout.Width, wipeout.Height);
+            }
+            if (wipeout.IsClipped)
+            {
+                AddWipeoutClip(maskPath, clip);
+            }
+            context.DrawPath(
+                maskBrush,
+                drawFrame && frameMatchesMask ? pen : null,
+                maskPath,
+                transform);
+        }
+
+        if (drawFrame && (!drawMask || !frameMatchesMask))
+        {
+            var framePath = new PathGeometry();
+            if (wipeout.IsClipped)
+            {
+                AddWipeoutClip(framePath, clip);
+            }
+            else
+            {
+                AddWipeoutRectangle(framePath, wipeout.Width, wipeout.Height);
+            }
+            context.DrawPath(null, pen, framePath, transform);
+        }
+    }
+
+    private static void AddWipeoutRectangle(
+        PathGeometry path,
+        double width,
+        double height)
+    {
+        var figure = new PathFigure(Vector2.Zero, isClosed: true);
+        figure.Segments.Add(new LineSegment(new Vector2(ToFloat(width), 0.0f)));
+        figure.Segments.Add(new LineSegment(new Vector2(ToFloat(width), ToFloat(height))));
+        figure.Segments.Add(new LineSegment(new Vector2(0.0f, ToFloat(height))));
+        path.Figures.Add(figure);
+    }
+
+    private static void AddWipeoutClip(
+        PathGeometry path,
+        ReadOnlySpan<CadWipeoutClipPoint> points)
+    {
+        var figure = new PathFigure(
+            new Vector2(ToFloat(points[0].U), ToFloat(points[0].V)),
+            isClosed: true);
+        for (int i = 1; i < points.Length; i++)
+        {
+            figure.Segments.Add(new LineSegment(
+                new Vector2(ToFloat(points[i].U), ToFloat(points[i].V))));
+        }
+        path.Figures.Add(figure);
     }
 
     private static Brush CreateHatchPatternBrush(
@@ -1751,7 +1886,7 @@ public sealed class CadPlanSceneCompiler
     }
 
     private static bool UsesStroke(CadEntityKind kind) =>
-        kind is not (CadEntityKind.Point or CadEntityKind.Solid or CadEntityKind.Hatch or CadEntityKind.Text or CadEntityKind.ShxText or CadEntityKind.MText or CadEntityKind.ShxMText or CadEntityKind.ShxShape);
+        kind is not (CadEntityKind.Point or CadEntityKind.Solid or CadEntityKind.Hatch or CadEntityKind.Wipeout or CadEntityKind.Text or CadEntityKind.ShxText or CadEntityKind.MText or CadEntityKind.ShxMText or CadEntityKind.ShxShape);
 
     private static void ValidateOptions(CadPlanSceneOptions options)
     {

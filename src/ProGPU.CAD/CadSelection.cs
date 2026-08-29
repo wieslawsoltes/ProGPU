@@ -349,7 +349,7 @@ public static class CadSelectionHitTester
     /// <summary>Measures one retained primitive against a WCS point.</summary>
     /// <remarks>
     /// Mesh surfaces visit T retained triangles in O(T) time. Polyline, spline,
-    /// text, and hatch costs follow their retained segment counts; scalar
+    /// text, hatch, and WIPEOUT costs follow their retained segment counts; scalar
     /// primitives are O(1). The operation uses bounded stack storage and makes
     /// no warm-query allocation.
     /// </remarks>
@@ -448,6 +448,11 @@ public static class CadSelectionHitTester
                 snapshot.Hatches.Span[header.PrimitiveIndex],
                 point,
                 tolerance),
+            CadEntityKind.Wipeout => CadWipeoutSelection.HitTestPoint(
+                snapshot,
+                snapshot.Wipeouts.Span[header.PrimitiveIndex],
+                point,
+                tolerance),
             _ => new CadPointHitResult(
                 CadPointHitStatus.UnsupportedKind,
                 double.NaN),
@@ -464,9 +469,10 @@ public static class CadSelectionHitTester
     /// 3DFACE, and MESH surfaces use the convex triangle/box separating axes.
     /// Work is O(S) for S polyline segments,
     /// O(B * P^2 * R) for B degree-P spline spans, and O(G * T * R) for G glyphs with
-    /// T retained outline segments and bounded root work R, and O(F) for F retained
-    /// surface triangles. Other supported primitives are O(1); all paths use bounded
-    /// stack storage and no warm-query allocation.
+    /// T retained outline segments and bounded root work R, O(F) for F retained
+    /// surface triangles, and O(V) for V WIPEOUT clip vertices. Other supported
+    /// primitives are O(1); all paths use bounded stack storage and no warm-query
+    /// allocation.
     /// </remarks>
     public static CadBoundsHitResult HitTestBounds(
         CadDocumentSnapshot snapshot,
@@ -568,6 +574,12 @@ public static class CadSelectionHitTester
             CadEntityKind.Hatch => CadHatchSelection.HitTestBounds(
                 snapshot,
                 snapshot.Hatches.Span[header.PrimitiveIndex],
+                header.Bounds,
+                bounds,
+                mode),
+            CadEntityKind.Wipeout => CadWipeoutSelection.HitTestBounds(
+                snapshot,
+                snapshot.Wipeouts.Span[header.PrimitiveIndex],
                 header.Bounds,
                 bounds,
                 mode),
