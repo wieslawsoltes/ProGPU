@@ -157,6 +157,48 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    /// <summary>
+    /// Tries to create a genuine Microsoft Win2D CanvasDevice over this
+    /// surface's exact WinRT IDirect3DDevice. The installed Win2D component
+    /// must be registered in the process package graph, and the calling thread
+    /// must already be initialized for Windows Runtime use.
+    /// </summary>
+    public bool TryAcquireMicrosoftWin2DCanvasDevice(
+        out ProGpuDirect2DComReference? canvasDevice,
+        out int nativeHResult)
+    {
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            nint value = 0;
+            int resultHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceTryGetWin2DCanvasDevice(
+                    _nativeSurface,
+                    &value,
+                    &resultHResult);
+            nativeHResult = resultHResult;
+            if (status == ProGpuDirect2DStatus.Win2DRuntimeUnavailable)
+            {
+                canvasDevice = null;
+                return false;
+            }
+            ThrowIfFailed(
+                "Microsoft Win2D CanvasDevice activation",
+                status,
+                nativeHResult);
+            if (value == 0)
+            {
+                throw new InvalidOperationException(
+                    "Win2D activation succeeded without returning a CanvasDevice.");
+            }
+            canvasDevice = new ProGpuDirect2DComReference(
+                value,
+                ProGpuDirect2DInterfaceKind.Win2DCanvasDevice);
+            return true;
+        }
+    }
+
     public ProGpuDirect2DDrawingSession BeginDrawing(
         uint timeoutMilliseconds = DefaultMutexTimeoutMilliseconds)
     {

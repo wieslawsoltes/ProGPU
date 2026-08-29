@@ -42,11 +42,15 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 3U;",
+            "internal const uint AbiVersion = 4U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
             "progpu_native_direct2d_com_query_interface",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_try_get_win2d_canvas_device",
             native,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -104,7 +108,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 3U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 4U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -133,6 +137,18 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "CreateDirect3D11DeviceFromDXGIDevice(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "RoGetActivationFactory(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Microsoft.Graphics.Canvas.CanvasDevice",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "LoadLibrary",
             source,
             StringComparison.Ordinal);
         Assert.Contains(

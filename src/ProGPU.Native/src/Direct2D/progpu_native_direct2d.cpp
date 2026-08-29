@@ -3,8 +3,10 @@
 #include <d2d1_2.h>
 #include <d3d11.h>
 #include <dxgi1_2.h>
+#include <roapi.h>
 #include <windows.h>
 #include <windows.graphics.directx.direct3d11.interop.h>
+#include <winstring.h>
 #include <wrl/client.h>
 
 #include <atomic>
@@ -13,6 +15,14 @@
 #include <utility>
 
 using Microsoft::WRL::ComPtr;
+
+MIDL_INTERFACE("9B6E2B27-CD07-421A-8F69-0AE8A787FE8C")
+IProGpuWin2DCanvasDeviceStatics : public IInspectable {
+public:
+    virtual HRESULT STDMETHODCALLTYPE CreateFromDirect3D11Device(
+        IInspectable* direct3d_device,
+        IInspectable** canvas_device) = 0;
+};
 
 static_assert(
     sizeof(progpu_native_direct2d_guid) == sizeof(GUID),
@@ -27,6 +37,7 @@ struct progpu_native_direct2d_surface {
     ComPtr<IDXGISurface> dxgi_surface;
     ComPtr<IDXGIKeyedMutex> keyed_mutex;
     ComPtr<IInspectable> winrt_d3d_device;
+    ComPtr<IInspectable> win2d_canvas_device;
     ComPtr<ID2D1Factory2> d2d_factory;
     ComPtr<ID2D1Device1> d2d_device;
     ComPtr<ID2D1DeviceContext1> d2d_context;
@@ -362,6 +373,56 @@ HRESULT create_winrt_direct3d_device(
         surface.winrt_d3d_device.GetAddressOf());
 }
 
+HRESULT create_win2d_canvas_device(
+    progpu_native_direct2d_surface& surface)
+{
+    constexpr wchar_t runtime_class_name[] =
+        L"Microsoft.Graphics.Canvas.CanvasDevice";
+    HSTRING class_name = nullptr;
+    HRESULT hr = WindowsCreateString(
+        runtime_class_name,
+        static_cast<UINT32>(
+            sizeof(runtime_class_name) / sizeof(runtime_class_name[0]) - 1U),
+        &class_name);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    ComPtr<IProGpuWin2DCanvasDeviceStatics> factory;
+    hr = RoGetActivationFactory(
+        class_name,
+        __uuidof(IProGpuWin2DCanvasDeviceStatics),
+        reinterpret_cast<void**>(factory.GetAddressOf()));
+    static_cast<void>(WindowsDeleteString(class_name));
+    if (FAILED(hr)) {
+        return hr;
+    }
+    return factory->CreateFromDirect3D11Device(
+        surface.winrt_d3d_device.Get(),
+        surface.win2d_canvas_device.GetAddressOf());
+}
+
+progpu_native_direct2d_status status_from_win2d_hresult(HRESULT hr)
+{
+    if (hr == CO_E_NOTINITIALIZED) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_WINDOWS_RUNTIME_NOT_INITIALIZED;
+    }
+    if (hr == REGDB_E_CLASSNOTREG ||
+        hr == HRESULT_FROM_WIN32(ERROR_MOD_NOT_FOUND) ||
+        hr == HRESULT_FROM_WIN32(ERROR_DLL_NOT_FOUND)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_WIN2D_RUNTIME_UNAVAILABLE;
+    }
+    if (hr == E_NOINTERFACE) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED;
+    }
+    if (hr == DXGI_ERROR_DEVICE_REMOVED ||
+        hr == DXGI_ERROR_DEVICE_RESET ||
+        hr == D2DERR_RECREATE_TARGET) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DEVICE_LOST;
+    }
+    return PROGPU_NATIVE_DIRECT2D_STATUS_RESOURCE_CREATION_FAILED;
+}
+
 template<typename T>
 progpu_native_direct2d_status return_interface(
     const ComPtr<T>& source,
@@ -606,6 +667,36 @@ progpu_native_direct2d_status progpu_native_direct2d_com_query_interface(
     return hr == E_NOINTERFACE
         ? PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED
         : PROGPU_NATIVE_DIRECT2D_STATUS_RESOURCE_CREATION_FAILED;
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_try_get_win2d_canvas_device(
+    progpu_native_direct2d_surface* surface,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || value == nullptr || native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    HRESULT hr = S_OK;
+    if (!surface->win2d_canvas_device) {
+        hr = create_win2d_canvas_device(*surface);
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        surface->win2d_canvas_device.Reset();
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(surface->win2d_canvas_device, value);
 }
 
 progpu_native_direct2d_status progpu_native_direct2d_surface_acquire(
