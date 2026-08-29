@@ -15,6 +15,7 @@ progpu_portable_package_ids=(
   ProGPU.Text.Shaping
   ProGPU.Browser
   ProGPU.DirectX
+  ProGPU.Win2D
   ProGPU.Transpiler
   ProGPU.Compute
   ProGPU.Vector
@@ -58,6 +59,7 @@ progpu_portable_package_projects=(
   src/ProGPU.Text.Shaping/ProGPU.Text.Shaping.csproj
   src/ProGPU.Browser/ProGPU.Browser.csproj
   src/ProGPU.DirectX/ProGPU.DirectX.csproj
+  src/ProGPU.Win2D/ProGPU.Win2D.csproj
   src/ProGPU.Transpiler/ProGPU.Transpiler.csproj
   src/ProGPU.Compute/ProGPU.Compute.csproj
   src/ProGPU.Vector/ProGPU.Vector.csproj
@@ -101,6 +103,7 @@ progpu_portable_package_purposes=(
   "AOT-safe OpenType shaping contracts and execution primitives."
   "Batched .NET WebAssembly dispatcher and navigator.gpu browser host services."
   "DirectX-compatible facade and shader-oriented API surface implemented on ProGPU/WebGPU."
+  "Portable Win2D-compatible Canvas API compiled to the retained ProGPU C++ WebGPU renderer."
   "Shader/source transformation helpers used by generated GPU pipelines."
   "Compute pipeline helpers for GPU-side effects, acceleration, and future hit-test indexes."
   "Vector primitives, paths, geometry, brushes, pens, and rasterization data models."

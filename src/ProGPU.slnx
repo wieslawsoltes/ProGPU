@@ -15,6 +15,7 @@
   <Project Path="ProGPU.Browser/ProGPU.Browser.csproj" />
   <Project Path="ProGPU.Android/ProGPU.Android.csproj" />
   <Project Path="ProGPU.DirectX/ProGPU.DirectX.csproj" />
+  <Project Path="ProGPU.Win2D/ProGPU.Win2D.csproj" />
   <Project Path="ProGPU.Vector/ProGPU.Vector.csproj" />
   <Project Path="ProGPU.Text.Shaping/ProGPU.Text.Shaping.csproj" />
   <Project Path="ProGPU.Text/ProGPU.Text.csproj" />
