@@ -154,6 +154,10 @@ including winding leaves/additions and reflection negation. Backend unit tests
 cover validator rejection, signed GPU program tagging, portable row/offset
 alignment, and exact signed staging non-overlap. Managed interop tests preserve
 the appended enum values and validate public signed clip programs.
+`NativeSignedWindingExecutionPreference` exposes fastest, forced
+inline-vector-compute, and forced staged-vector-compute modes; the resolved
+path is reported in frame metrics and clip-chain state. Invalid forced values
+fail closed.
 
 The permanent native sample checks these pixels on the real GPU:
 
@@ -180,3 +184,40 @@ CTests passed before the live sample. The provider-free macOS build also passed
 10/10 CTests; managed shader-resource coverage passed 20/20 and the selected
 managed PathAtlas GPU cases passed 5/5. The collected qualification bundle has
 SHA-256 `2459e7141471ab2101b885fe51b95a6b041e82e60ac1aaf093ddd75ee0b78aef`.
+
+## Inline-versus-staged performance qualification
+
+The benchmark's `--signed-winding-paths --rerasterize-paths` scene builds four
+matched high-precision Nonzero paths. Native replay evaluates
+`Leaf(A), Leaf(B), Union, WindingLeaf(C), WindingAdd`; managed replay aggregates
+the same three oriented contours. Every measured frame forces rerasterization,
+uses an 8x8 sample grid, synchronizes completion, and compares all 518,400 RGBA
+pixels. `--signed-winding-execution inline|staged` selects the exact native
+path and the JSON report records the resolved mode.
+
+On Apple M3 Pro/Metal, four alternating Release runs per mode used three
+warm-ups and 30 measured frames. The median of run p50 values was `3.1407 ms`
+inline versus `7.7894 ms` staged; the median p95 was `3.3726 ms` versus
+`9.3647 ms`. Inline is therefore 2.48 times faster at p50 and 2.78 times faster
+at p95 for this rerasterization workload. Coverage staging was `165,888` bytes
+inline versus `119,844,576` bytes staged, a 722.44-fold reduction. Both modes
+allocated `0 B/frame` on the managed heap and produced exact hash
+`4026F1AF5062CEA5` with maximum channel difference zero. Matched Instruments
+Time Profiler traces and a Metal System Trace accompany the JSON evidence under
+`artifacts/performance/signed-winding-simd/`; these artifacts are deliberately
+not versioned.
+
+Checkpoint `cf0792aa` was also rebuilt from archive SHA-256
+`4606478e5e70db32d312186171d7816a60842335e862272ebfb143c971636e01`
+inside Windows 11 ARM64. Strict MSVC `/W4 /WX` completed all 315 build steps,
+11/11 native/Dawn CTests passed, and the native renderer reproduced all six
+exact winding pixels on `Parallels Display Adapter (WDDM)` through D3D12. The
+forced inline and staged differential runs both compared all 518,400 pixels
+exactly with hash `4026F1AF5062CEA5`, reported their requested execution path,
+allocated `0 B/frame`, and completed without device loss. Their staging byte
+counts matched Metal. The short VM timing samples (`10.699 ms` versus
+`35.3319 ms` p50) are correctness evidence only, not a physical-D3D12
+performance claim. The resulting `progpu_native.dll` and
+`progpu_native_dawn.dll` SHA-256 values are respectively
+`97D1D63AD750C4F7D2B44057119057ADBDADFF52CC96BB7C75E04B309706C0B4`
+and `4FE268BFD290385922E954E1DE2E7C7D5754E5A6931C60E8202563307FED66CC`.
