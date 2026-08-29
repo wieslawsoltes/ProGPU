@@ -47,38 +47,111 @@ if ($LASTEXITCODE -ne 0) {
     throw "The packaged genuine Win2D integration application failed to build."
 }
 
-$Manifest = Get-ChildItem `
-    -Path (Join-Path $RepoRoot "tests/ProGPU.Direct2D.Win2D.Integration/bin/$Platform/$Configuration") `
-    -Filter "AppxManifest.xml" `
+$Package = Get-ChildItem `
+    -Path (Join-Path $RepoRoot "tests/ProGPU.Direct2D.Win2D.Integration/AppPackages") `
+    -Filter "*.msix" `
     -Recurse |
     Sort-Object LastWriteTimeUtc -Descending |
     Select-Object -First 1
-if (-not $Manifest) {
-    throw "The Win2D integration package layout manifest was not produced."
+if (-not $Package) {
+    throw "The Win2D integration MSIX package was not produced."
 }
 
-Add-AppxPackage -Register $Manifest.FullName
-$InstalledPackage = Get-AppxPackage -Name $PackageName
-$ResultPath = Join-Path `
-    $env:LOCALAPPDATA `
-    "Packages/$($InstalledPackage.PackageFamilyName)/LocalState/direct2d-win2d-result.json"
-if (Test-Path $ResultPath) {
-    Remove-Item -LiteralPath $ResultPath -Force
+$SignTool = Get-ChildItem `
+    -Path (Join-Path ${env:ProgramFiles(x86)} "Windows Kits/10/bin") `
+    -Filter "signtool.exe" `
+    -Recurse |
+    Where-Object { $_.FullName -match "\\arm64\\signtool\.exe$" } |
+    Sort-Object FullName -Descending |
+    Select-Object -First 1
+if (-not $SignTool) {
+    throw "The ARM64 Windows SDK signtool.exe was not found."
 }
 
-Start-Process explorer.exe "shell:AppsFolder\$($InstalledPackage.PackageFamilyName)!App"
-$Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-while (-not (Test-Path $ResultPath)) {
-    if ([DateTime]::UtcNow -ge $Deadline) {
-        throw "The packaged genuine Win2D integration application did not produce evidence within $TimeoutSeconds seconds."
+$Certificate = $null
+$TrustedCertificate = $null
+$TemporaryDirectory = Join-Path `
+    ([System.IO.Path]::GetTempPath()) `
+    ("progpu-win2d-signing-" + [Guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $TemporaryDirectory | Out-Null
+$PfxPath = Join-Path $TemporaryDirectory "progpu-win2d-test.pfx"
+$CertificatePath = Join-Path $TemporaryDirectory "progpu-win2d-test.cer"
+$Password = [Guid]::NewGuid().ToString("N")
+$SecurePassword = ConvertTo-SecureString $Password -AsPlainText -Force
+try {
+    $Certificate = New-SelfSignedCertificate `
+        -Type Custom `
+        -Subject "CN=ProGPU" `
+        -KeyUsage DigitalSignature `
+        -KeyExportPolicy Exportable `
+        -KeySpec Signature `
+        -HashAlgorithm SHA256 `
+        -NotAfter ([DateTime]::Now.AddDays(1)) `
+        -CertStoreLocation "Cert:\CurrentUser\My" `
+        -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
+    Export-PfxCertificate `
+        -Cert $Certificate `
+        -FilePath $PfxPath `
+        -Password $SecurePassword | Out-Null
+    Export-Certificate `
+        -Cert $Certificate `
+        -FilePath $CertificatePath | Out-Null
+    $TrustedCertificate = Import-Certificate `
+        -FilePath $CertificatePath `
+        -CertStoreLocation "Cert:\CurrentUser\TrustedPeople"
+
+    & $SignTool.FullName sign `
+        /fd SHA256 `
+        /f $PfxPath `
+        /p $Password `
+        $Package.FullName
+    if ($LASTEXITCODE -ne 0) {
+        throw "Signing the genuine Win2D integration package failed."
     }
-    Start-Sleep -Milliseconds 250
-}
 
-$Evidence = Get-Content $ResultPath -Raw | ConvertFrom-Json
-$Evidence | ConvertTo-Json -Depth 8
-if ($Evidence.Status -ne "passed") {
-    throw "The genuine Win2D Direct2D/Dawn integration gate failed: $($Evidence.Error)"
-}
+    Add-AppxPackage -Path $Package.FullName
+    $InstalledPackage = Get-AppxPackage -Name $PackageName
+    $ResultPath = Join-Path `
+        $env:LOCALAPPDATA `
+        "Packages/$($InstalledPackage.PackageFamilyName)/LocalState/direct2d-win2d-result.json"
+    if (Test-Path $ResultPath) {
+        Remove-Item -LiteralPath $ResultPath -Force
+    }
 
-Write-Host "Qualified genuine Microsoft Win2D drawing on the ProGPU Direct2D/Dawn surface."
+    Start-Process explorer.exe "shell:AppsFolder\$($InstalledPackage.PackageFamilyName)!App"
+    $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while (-not (Test-Path $ResultPath)) {
+        if ([DateTime]::UtcNow -ge $Deadline) {
+            throw "The packaged genuine Win2D integration application did not produce evidence within $TimeoutSeconds seconds."
+        }
+        Start-Sleep -Milliseconds 250
+    }
+
+    $Evidence = Get-Content $ResultPath -Raw | ConvertFrom-Json
+    $Evidence | ConvertTo-Json -Depth 8
+    if ($Evidence.Status -ne "passed") {
+        throw "The genuine Win2D Direct2D/Dawn integration gate failed: $($Evidence.Error)"
+    }
+
+    Write-Host "Qualified genuine Microsoft Win2D drawing on the ProGPU Direct2D/Dawn surface."
+} finally {
+    Get-AppxPackage -Name $PackageName -ErrorAction SilentlyContinue |
+        Remove-AppxPackage -ErrorAction SilentlyContinue
+    if ($TrustedCertificate) {
+        Remove-Item `
+            -LiteralPath ("Cert:\CurrentUser\TrustedPeople\" + $TrustedCertificate.Thumbprint) `
+            -Force `
+            -ErrorAction SilentlyContinue
+    }
+    if ($Certificate) {
+        Remove-Item `
+            -LiteralPath ("Cert:\CurrentUser\My\" + $Certificate.Thumbprint) `
+            -Force `
+            -ErrorAction SilentlyContinue
+    }
+    Remove-Item `
+        -LiteralPath $TemporaryDirectory `
+        -Recurse `
+        -Force `
+        -ErrorAction SilentlyContinue
+}
