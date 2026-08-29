@@ -35,6 +35,25 @@ internal static class Win2DCanvasQualification
                 16,
                 Color.FromArgb(255, 255, 0, 255));
         }
+        using var commandList = new CanvasCommandList(device);
+        using (CanvasDrawingSession commandSession =
+               commandList.CreateDrawingSession())
+        {
+            commandSession.FillRectangle(
+                0,
+                0,
+                12,
+                12,
+                Color.FromArgb(255, 0, 255, 255));
+            commandSession.Flush();
+            commandSession.DrawLine(
+                0,
+                12,
+                12,
+                0,
+                Color.FromArgb(255, 255, 255, 255),
+                1);
+        }
 
         using (CanvasDrawingSession drawingSession =
                target.CreateDrawingSession())
@@ -56,10 +75,12 @@ internal static class Win2DCanvasQualification
                 new Windows.Foundation.Rect(0, 0, 16, 16),
                 0.5f,
                 CanvasImageInterpolation.NearestNeighbor);
+            drawingSession.DrawImage(commandList, 176, 8);
             // Win2D executes DrawImage eagerly. ProGPU records until session
             // close, so its typed texture lease must preserve the source
             // without a staging readback after the public resource is closed.
             source.Dispose();
+            commandList.Dispose();
         }
 
         ProGpuCanvasRenderMetrics first = target.LastRenderMetrics;
@@ -95,6 +116,7 @@ internal static class Win2DCanvasQualification
             maximum: 129,
             expectedBlue: true,
             expectedRed: true);
+        RequirePixel(pixels, 180, 12, 255, 255, 0, 255);
         Require(
             CountYellowPixels(pixels, 90, 90, 230, 140) > 20,
             "The pinned Win2D text draw did not produce a visible yellow glyph run.");
@@ -102,7 +124,7 @@ internal static class Win2DCanvasQualification
             first.ExecutionPath == ProGpuCanvasExecutionPath.NativeCppWebGpu &&
             second.ExecutionPath == ProGpuCanvasExecutionPath.NativeCppWebGpu &&
             first.SubmissionCount > 0 && second.SubmissionCount > 0 &&
-            first.NativeDrawCount >= 4 && second.NativeDrawCount >= 1,
+            first.NativeDrawCount >= 6 && second.NativeDrawCount >= 1,
             $"Unexpected native Canvas metrics: first={first}, second={second}.");
 
         string? outputDirectory = ReadOptionalArgument(

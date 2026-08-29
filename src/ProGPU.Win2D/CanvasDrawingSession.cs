@@ -16,7 +16,7 @@ public sealed class CanvasDrawingSession :
     ICanvasResourceCreatorWithDpi,
     IDisposable
 {
-    private readonly CanvasRenderTarget _target;
+    private readonly ICanvasDrawingSessionTarget _target;
     private readonly GpuPictureRecorder _recorder = new();
     private readonly Rect _bounds;
     private readonly Dictionary<uint, SolidColorBrush> _brushes = new();
@@ -31,17 +31,16 @@ public sealed class CanvasDrawingSession :
     private readonly record struct PenKey(uint Color, int WidthBits);
 
     internal CanvasDrawingSession(
-        CanvasRenderTarget target,
-        Windows.Foundation.Rect bounds,
-        float dpi)
+        ICanvasDrawingSessionTarget target)
     {
         _target = target;
+        Windows.Foundation.Rect bounds = target.DrawingBounds;
         _bounds = new Rect(
             (float)bounds.X,
             (float)bounds.Y,
             (float)bounds.Width,
             (float)bounds.Height);
-        Dpi = dpi;
+        Dpi = target.Dpi;
         _context = _recorder.BeginRecording(_bounds);
     }
 
@@ -80,6 +79,7 @@ public sealed class CanvasDrawingSession :
     public void Clear(Color color)
     {
         ThrowIfDisposed();
+        _target.ValidateClear();
         _context.Clear();
         _clearColor = ToPremultipliedVector(color);
         _hasClear = true;
@@ -94,6 +94,12 @@ public sealed class CanvasDrawingSession :
 
     public void DrawImage(ICanvasImage image, float x, float y)
     {
+        if (image is CanvasCommandList commandList)
+        {
+            DrawCommandList(commandList, x, y);
+            return;
+        }
+
         CanvasBitmap bitmap = GetBitmap(image);
         DrawBitmap(
             bitmap,
@@ -606,6 +612,33 @@ public sealed class CanvasDrawingSession :
         }
 
         return bitmap;
+    }
+
+    private void DrawCommandList(
+        CanvasCommandList commandList,
+        float x,
+        float y)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(commandList);
+        ValidateFinite(x, y);
+        if (!ReferenceEquals(commandList.Device, Device))
+        {
+            throw new ArgumentException(
+                "Canvas command lists must belong to the drawing-session device.",
+                nameof(commandList));
+        }
+
+        GpuPicture[] pictures = commandList.ClonePicturesForDrawing();
+        Matrix4x4 transform = Matrix4x4.CreateTranslation(x, y, 0f) *
+            ToMatrix4x4(_transform);
+        for (int index = 0; index < pictures.Length; index++)
+        {
+            GpuPicture picture = pictures[index];
+            _context.RetainResource(picture);
+            _context.DrawPictureTransformed(picture, transform);
+        }
+        _hasCommands |= pictures.Length > 0;
     }
 
     private void DrawBitmap(

@@ -11,7 +11,9 @@ namespace Microsoft.Graphics.Canvas;
 /// GPU-resident Canvas render target. Drawing sessions are compiled to the
 /// retained native C++ scene stream when they close or flush.
 /// </summary>
-public sealed class CanvasRenderTarget : CanvasBitmap
+public sealed class CanvasRenderTarget :
+    CanvasBitmap,
+    ICanvasDrawingSessionTarget
 {
     private readonly object _sessionLock = new();
     private readonly ulong _sceneId;
@@ -80,6 +82,9 @@ public sealed class CanvasRenderTarget : CanvasBitmap
 
     public ProGpuCanvasRenderMetrics LastRenderMetrics { get; private set; }
 
+    Windows.Foundation.Rect ICanvasDrawingSessionTarget.DrawingBounds =>
+        Bounds;
+
     public CanvasDrawingSession CreateDrawingSession()
     {
         ThrowIfDisposed();
@@ -92,11 +97,15 @@ public sealed class CanvasRenderTarget : CanvasBitmap
             }
 
             _hasActiveSession = true;
-            return new CanvasDrawingSession(this, Bounds, Dpi);
+            return new CanvasDrawingSession(this);
         }
     }
 
-    internal void Commit(
+    void ICanvasDrawingSessionTarget.ValidateClear()
+    {
+    }
+
+    void ICanvasDrawingSessionTarget.Commit(
         GpuPicture sessionPicture,
         bool hasClear,
         Vector4 clearColor)
@@ -123,7 +132,7 @@ public sealed class CanvasRenderTarget : CanvasBitmap
         }
     }
 
-    internal void EndSession()
+    void ICanvasDrawingSessionTarget.EndSession()
     {
         lock (_sessionLock)
         {
