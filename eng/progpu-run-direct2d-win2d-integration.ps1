@@ -76,9 +76,11 @@ $TemporaryDirectory = Join-Path `
 New-Item -ItemType Directory -Path $TemporaryDirectory | Out-Null
 $PfxPath = Join-Path $TemporaryDirectory "progpu-win2d-test.pfx"
 $CertificatePath = Join-Path $TemporaryDirectory "progpu-win2d-test.cer"
+$SignedPackagePath = Join-Path $TemporaryDirectory "integration.msix"
 $Password = [Guid]::NewGuid().ToString("N")
 $SecurePassword = ConvertTo-SecureString $Password -AsPlainText -Force
 try {
+    Copy-Item $Package.FullName $SignedPackagePath
     $Certificate = New-SelfSignedCertificate `
         -Type Custom `
         -Subject "CN=ProGPU" `
@@ -104,12 +106,12 @@ try {
         /fd SHA256 `
         /f $PfxPath `
         /p $Password `
-        $Package.FullName
+        $SignedPackagePath
     if ($LASTEXITCODE -ne 0) {
         throw "Signing the genuine Win2D integration package failed."
     }
 
-    Add-AppxPackage -Path $Package.FullName
+    Add-AppxPackage -Path $SignedPackagePath
     $InstalledPackage = Get-AppxPackage -Name $PackageName
     $ResultPath = Join-Path `
         $env:LOCALAPPDATA `
