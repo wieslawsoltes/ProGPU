@@ -11,6 +11,7 @@
 #include <iostream>
 
 using Microsoft::WRL::ComPtr;
+using Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess;
 
 namespace {
 
