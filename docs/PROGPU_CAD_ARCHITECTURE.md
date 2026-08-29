@@ -806,7 +806,8 @@ an interactive browser picker/download smoke remains open.
   unvalidated arbitrary command behind the history contract.
 - The first commands translate, rotate, or uniformly scale a deduplicated stable
   handle set, set entity visibility, assign an existing layer, and add or remove
-  one model-space entity. They resolve every model-space handle before mutation,
+  one model-space entity, or atomically remove a bounded semantic handle set.
+  They resolve every model-space handle before mutation,
   preserve the original visibility vector, apply the inverse transform for
   undo, and advance one document generation for execute, undo, or redo. The
   rotate command accepts a finite non-zero axis/radians plus a finite optional
@@ -825,7 +826,14 @@ an interactive browser picker/download smoke remains open.
   Transform commands roll back an already-applied entity prefix if a later
   entity fails. Add requires a detached zero-handle object; remove retains the
   same object for undo and treats a collection cancellation as a failed command
-  with no published generation.
+  with no published generation. Multi-remove deduplicates at most 65,536 handles,
+  resolves the complete set, and uses ACadSharp's ProGPU-owned preflighted
+  `TryRemoveRange` contract. Every cancellable callback runs before structural
+  mutation, all items detach before removal notifications publish, and one
+  retained object array survives handle reassignment across Undo/Redo. The
+  dependency implementation is original ProGPU work at
+  `external/ACadSharp/src/ACadSharp/CadObjectCollection.cs` (ACadSharp commit
+  `01ca5534`); no third-party implementation text or structure was used.
 - Layer assignment resolves the complete entity set and target table entry
   before mutation, retains each prior layer, and validates every retained table
   identity before undo/redo. A missing or externally replaced layer therefore
@@ -968,13 +976,14 @@ an interactive browser picker/download smoke remains open.
   O(1); selection-bound refresh is O(E) average through retained handle identity;
   complete snapshot/scene replacement remains O(E + G) and is an explicit
   foundation limitation rather than an incremental-rendering claim.
-  Multi-selection Delete is not exposed by this shell slice: the pinned public
-  ACadSharp collection contract provides cancellable single-item removal but no
-  atomic range removal. Sequential removal followed by public re-add rollback
-  can assign new handles after a mid-batch cancellation, so presenting that as
-  one atomic Delete/Undo action was rejected. A reviewed dependency transaction
-  contract or an independently safe ProGPU command boundary must land before the
-  UI enables multi-delete.
+  Multi-selection Delete uses the same selected semantic root handles and the
+  bounded atomic range command. The desktop/browser shared shell exposes both a
+  Delete button and the Delete key, clears the deleted selection because restored
+  ACadSharp objects receive new handles, and rebuilds exactly once for Delete,
+  Undo, or Redo. A missing handle or any cancelled item leaves every selected
+  object attached with its original handle and publishes no generation. Work is
+  O(N + E + G) for N deleted roots and the current whole-snapshot O(E + G)
+  replacement; no per-entity retained-scene mutation occurs.
 - Background compilation captures a generation and publishes only if it still
   matches; obsolete work is discarded. The UI may continue drawing the previous
   immutable snapshot while the next generation compiles.
@@ -2508,6 +2517,25 @@ dotnet run --project src/ProGPU.CAD.Sample.Browser -c Debug
 ## Primary research record
 
 Sources consulted on 2026-08-27 through 2026-08-29:
+
+- For atomic selected-object deletion, Autodesk's
+  [ERASE command contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-MAC-Core/files/GUID-6FC4AA9A-A3DC-49D0-A22B-CC0ED48C1310.htm),
+  [selection-set erase contract](https://help.autodesk.com/cloudhelp/2026/DEU/AutoCAD-LT-ActiveX-Reference/files/GUID-54A5C5A5-5156-4470-A057-12C222CE3DAE.htm), and
+  [SELECT contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-LT-MAC/files/GUID-0DD5DA73-9DC5-4424-8FED-7BBE3BE52A4D.htm)
+  establish that ERASE/DELETE acts on the complete selected object set and that
+  deleting objects clears the prior selection set. ProGPU adopts selection-set
+  erase, Delete-key access, cleared stale selection handles, and one reversible
+  history action. It adapts those observable contracts to its locked generation
+  transaction and an original preflighted ACadSharp collection primitive rather
+  than copying an implementation. Subobject erase, ALL/Last/Previous command-line
+  modes, locked-layer policy, draw-order restoration, and paper-space selection
+  remain separate future tool contracts. The slice changes only mutable
+  ACadSharp ownership and whole-generation publication: both managed and native
+  renderers consume the same next immutable snapshot, so no paired native edit
+  frontend, C ABI, shader, cache, upload, text, DPI/subpixel, or device-loss
+  change applies. Skia/SkParagraph, DirectWrite/Direct2D/Win2D, WebRender,
+  Vello/Parley, and HarfBuzz were reviewed for applicability and rejected because
+  no rendering, scene-command, shaping, layout, font, or GPU algorithm changes.
 
 - For POINT display, Autodesk's
   [POINT DXF contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-9C6AD32D-769D-4213-85A4-CA9CCB5C5317.htm)

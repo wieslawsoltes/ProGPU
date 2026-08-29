@@ -2304,6 +2304,126 @@ public sealed class CadRemoveModelSpaceEntityCommand : CadEditCommand
     }
 }
 
+/// <summary>
+/// Atomically removes a bounded stable set of model-space entities while
+/// retaining their object graphs for semantic Undo/Redo.
+/// </summary>
+/// <remarks>
+/// Initial resolution and every cancellable collection removal are preflighted
+/// before the ACadSharp collection is structurally mutated. One history action
+/// therefore publishes either the complete selection-set erase or no edit at
+/// all. Work and retained storage are O(N) for N unique handles; the default
+/// bound prevents an untrusted enumerable from creating unbounded edit state.
+/// </remarks>
+public sealed class CadRemoveModelSpaceEntitiesCommand : CadEditCommand
+{
+    public const int DefaultMaximumEntityCount = 65_536;
+
+    private readonly ulong[] _initialHandles;
+    private Entity[]? _entities;
+
+    public ReadOnlyMemory<ulong> InitialHandles => _initialHandles;
+
+    public int EntityCount => _initialHandles.Length;
+
+    public int MaximumEntityCount { get; }
+
+    public CadRemoveModelSpaceEntitiesCommand(
+        IEnumerable<ulong> handles,
+        string description = "Remove entities",
+        int maximumEntityCount = DefaultMaximumEntityCount)
+        : base(description)
+    {
+        ArgumentNullException.ThrowIfNull(handles);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumEntityCount);
+
+        var unique = new HashSet<ulong>();
+        var retainedHandles = new List<ulong>();
+        foreach (ulong handle in handles)
+        {
+            if (handle == 0)
+            {
+                throw new ArgumentException(
+                    "Every model-space entity handle must be non-zero.",
+                    nameof(handles));
+            }
+            if (!unique.Add(handle))
+            {
+                continue;
+            }
+            if (retainedHandles.Count == maximumEntityCount)
+            {
+                throw new ArgumentException(
+                    $"The removal set exceeds the configured limit of {maximumEntityCount} unique entities.",
+                    nameof(handles));
+            }
+            retainedHandles.Add(handle);
+        }
+
+        if (retainedHandles.Count == 0)
+        {
+            throw new ArgumentException(
+                "At least one non-zero model-space entity handle is required.",
+                nameof(handles));
+        }
+
+        MaximumEntityCount = maximumEntityCount;
+        _initialHandles = retainedHandles.ToArray();
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Entity[] entities;
+        if (isRedo)
+        {
+            entities = GetAttachedEntities(document);
+        }
+        else
+        {
+            // Resolve the complete semantic selection before invoking any
+            // cancellable collection-removal callback.
+            entities = ResolveModelSpaceEntities(document, _initialHandles);
+        }
+
+        if (!document.Entities.TryRemoveRange(entities))
+        {
+            throw new InvalidOperationException(
+                "The model-space removal batch was cancelled before mutation.");
+        }
+
+        if (!isRedo)
+        {
+            _entities = entities;
+        }
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Entity[] entities = _entities ??
+            throw new InvalidOperationException(
+                "The removal command has not been applied.");
+        foreach (Entity entity in entities)
+        {
+            if (entity.Owner is not null || entity.Handle != 0)
+            {
+                throw new InvalidOperationException(
+                    "A removed entity is not detached and the batch cannot be restored.");
+            }
+        }
+
+        document.Entities.AddRange(entities);
+    }
+
+    private Entity[] GetAttachedEntities(CadDocument document)
+    {
+        Entity[] entities = _entities ??
+            throw new InvalidOperationException(
+                "The removal command has not been applied.");
+        ValidateModelSpaceEntities(document, entities);
+        return entities;
+    }
+}
+
 /// <summary>Duplicates one model-space entity with optional translation.</summary>
 public sealed class CadDuplicateModelSpaceEntityCommand : CadEditCommand
 {

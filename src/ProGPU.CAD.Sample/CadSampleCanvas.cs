@@ -446,6 +446,33 @@ public sealed class CadSampleCanvas : FrameworkElement
         return true;
     }
 
+    /// <summary>
+    /// Deletes all selected semantic model-space roots as one reversible edit.
+    /// The selection is cleared because ACadSharp assigns new handles when Undo
+    /// restores detached objects.
+    /// </summary>
+    public bool DeleteSelection()
+    {
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        int removedCount = _selectedHandleCount;
+        history.Execute(new CadRemoveModelSpaceEntitiesCommand(
+            new ArraySegment<ulong>(_selectedHandles, 0, _selectedHandleCount),
+            removedCount == 1
+                ? "Delete selected entity"
+                : $"Delete {removedCount} selected entities"));
+        ResetSelectionState(notify: false);
+        RecompileAfterEdit(session);
+        return true;
+    }
+
     public bool TryUndo()
     {
         CadDocumentHistory? history = _history;

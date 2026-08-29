@@ -280,6 +280,67 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void DeleteSelectionClearsSemanticHandlesAndRoundTripsAsOneEdit()
+    {
+        var document = new CadDocument();
+        var first = new Line(new XYZ(-10, 0, 0), new XYZ(-5, 0, 0));
+        var second = new Line(new XYZ(5, 0, 0), new XYZ(10, 0, 0));
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Drag(
+                canvas,
+                viewport.WorldToScreen(new CadPoint3D(-12, 2, 0)),
+                viewport.WorldToScreen(new CadPoint3D(12, -2, 0)));
+            int selectionChanges = 0;
+            int editStateChanges = 0;
+            canvas.SelectionChanged += (_, _) => selectionChanges++;
+            canvas.EditStateChanged += (_, _) => editStateChanges++;
+
+            Assert.Equal(2, canvas.SelectedHandleCount);
+            Assert.True(canvas.DeleteSelection());
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(session.ContentGeneration, canvas.CurrentSnapshot!.ContentGeneration);
+            Assert.Equal(0, canvas.SelectedHandleCount);
+            Assert.Empty(canvas.CurrentSnapshot.Entities.ToArray());
+            Assert.Empty(document.Entities);
+            Assert.Equal(1, selectionChanges);
+            Assert.Equal(1, editStateChanges);
+            Assert.Equal(1, canvas.UndoCount);
+            Assert.Equal(0, canvas.RedoCount);
+
+            Assert.True(canvas.TryUndo());
+
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal(2, document.Entities.Count);
+            Assert.Equal(2, canvas.CurrentSnapshot.Entities.Length);
+            Assert.Equal(0, canvas.SelectedHandleCount);
+            Assert.Equal(0, canvas.UndoCount);
+            Assert.Equal(1, canvas.RedoCount);
+
+            Assert.True(canvas.TryRedo());
+
+            Assert.Equal(3UL, session.ContentGeneration);
+            Assert.Empty(document.Entities);
+            Assert.Empty(canvas.CurrentSnapshot.Entities.ToArray());
+            Assert.Equal(1, canvas.UndoCount);
+            Assert.Equal(0, canvas.RedoCount);
+            Assert.Equal(3, editStateChanges);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SelectedEntitiesRotateAndScaleAroundOneCompleteBoundsCenter()
     {
         var document = new CadDocument();
@@ -432,6 +493,59 @@ public sealed class CadSampleSelectionTests
             Assert.Equal(new XYZ(-1, 0, 0), line.StartPoint);
             Assert.True(undo.IsEnabled);
             Assert.False(redo.IsEnabled);
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewDeleteButtonAndKeyUseTheSameAtomicHistoryAction()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            Button delete = FindButton(view, "Delete");
+            Button undo = FindButton(view, "Undo");
+            Assert.False(delete.IsEnabled);
+
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            Click(
+                view.Canvas,
+                view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
+
+            Assert.True(delete.IsEnabled);
+            PressEnter(delete);
+
+            Assert.Empty(document.Entities);
+            Assert.Equal(0, view.Canvas.SelectedHandleCount);
+            Assert.True(undo.IsEnabled);
+            PressEnter(undo);
+
+            Assert.Single(document.Entities);
+            Assert.Equal(0, view.Canvas.SelectedHandleCount);
+            Line restored = Assert.IsType<Line>(document.Entities.Single());
+            Click(
+                view.Canvas,
+                view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
+            Assert.Equal(restored.Handle, view.Canvas.SelectedHandles.Span[0]);
+            var deleteKey = new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.Delete,
+            };
+
+            view.OnKeyDown(deleteKey);
+
+            Assert.True(deleteKey.Handled);
+            Assert.Empty(document.Entities);
+            Assert.Equal(3UL, session.ContentGeneration);
+            Assert.Equal(0, view.Canvas.SelectedHandleCount);
         }
         finally
         {

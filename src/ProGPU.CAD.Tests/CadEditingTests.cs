@@ -419,6 +419,115 @@ public sealed class CadEditingTests
     }
 
     [Fact]
+    public void MultiRemovePublishesOneGenerationAndRoundTripsTheCompleteSet()
+    {
+        var document = new CadDocument();
+        var first = new Line(new XYZ(0, 0, 0), new XYZ(1, 0, 0));
+        var retained = new Circle { Center = new XYZ(5, 5, 0), Radius = 2 };
+        var second = new Line(new XYZ(0, 2, 0), new XYZ(1, 2, 0));
+        document.Entities.Add(first);
+        document.Entities.Add(retained);
+        document.Entities.Add(second);
+        ulong firstHandle = first.Handle;
+        ulong secondHandle = second.Handle;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadRemoveModelSpaceEntitiesCommand(
+            [firstHandle, secondHandle, firstHandle],
+            "Delete selection");
+
+        ulong deleted = history.Execute(command);
+
+        Assert.Equal(1UL, deleted);
+        Assert.Equal(2, command.EntityCount);
+        Assert.Equal([firstHandle, secondHandle], command.InitialHandles.ToArray());
+        Assert.Equal(0UL, first.Handle);
+        Assert.Equal(0UL, second.Handle);
+        Assert.Same(document.ModelSpace, retained.Owner);
+        Assert.Single(document.Entities);
+        Assert.Single(new CadSnapshotCompiler().Compile(session).Entities.ToArray());
+        Assert.Equal(1, history.UndoCount);
+
+        Assert.True(history.TryUndo(out ulong restored));
+
+        Assert.Equal(2UL, restored);
+        Assert.Equal(3, document.Entities.Count);
+        Assert.NotEqual(0UL, first.Handle);
+        Assert.NotEqual(0UL, second.Handle);
+        Assert.Same(document.ModelSpace, first.Owner);
+        Assert.Same(document.ModelSpace, second.Owner);
+        Assert.Equal(3, new CadSnapshotCompiler().Compile(session).Entities.Length);
+
+        Assert.True(history.TryRedo(out ulong redeleted));
+
+        Assert.Equal(3UL, redeleted);
+        Assert.Single(document.Entities);
+        Assert.Equal(0UL, first.Handle);
+        Assert.Equal(0UL, second.Handle);
+        Assert.Single(new CadSnapshotCompiler().Compile(session).Entities.ToArray());
+    }
+
+    [Fact]
+    public void MultiRemovePreflightsMissingAndCancelledEntitiesWithoutPartialMutation()
+    {
+        var document = new CadDocument();
+        var first = new Line(XYZ.Zero, XYZ.AxisX);
+        var second = new Line(XYZ.AxisY, XYZ.AxisY + XYZ.AxisX);
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        ulong firstHandle = first.Handle;
+        ulong secondHandle = second.Handle;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadRemoveModelSpaceEntitiesCommand(
+                [firstHandle, ulong.MaxValue],
+                "Invalid delete")));
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(2, document.Entities.Count);
+        Assert.Equal(firstHandle, first.Handle);
+        Assert.Equal(secondHandle, second.Handle);
+
+        document.Entities.OnBeforeRemove += (_, args) =>
+        {
+            if (ReferenceEquals(args.Item, second))
+            {
+                args.Cancel = true;
+            }
+        };
+
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadRemoveModelSpaceEntitiesCommand(
+                [firstHandle, secondHandle],
+                "Cancelled delete")));
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(0, history.UndoCount);
+        Assert.Equal(2, document.Entities.Count);
+        Assert.Equal(firstHandle, first.Handle);
+        Assert.Equal(secondHandle, second.Handle);
+        Assert.Same(document.ModelSpace, first.Owner);
+        Assert.Same(document.ModelSpace, second.Owner);
+    }
+
+    [Fact]
+    public void MultiRemoveRejectsEmptyZeroAndOverBudgetInputs()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new CadRemoveModelSpaceEntitiesCommand(Array.Empty<ulong>()));
+        Assert.Throws<ArgumentException>(() =>
+            new CadRemoveModelSpaceEntitiesCommand([1UL, 0UL]));
+        Assert.Throws<ArgumentException>(() =>
+            new CadRemoveModelSpaceEntitiesCommand(
+                [1UL, 1UL, 2UL],
+                maximumEntityCount: 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadRemoveModelSpaceEntitiesCommand(
+                [1UL],
+                maximumEntityCount: 0));
+    }
+
+    [Fact]
     public void AddAndRemoveCommandsRejectInvalidInitialOwnership()
     {
         var document = new CadDocument();

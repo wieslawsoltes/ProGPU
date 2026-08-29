@@ -1,12 +1,14 @@
 using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media.Media3D;
 using ProGPU.Fonts.Inter;
 using ProGPU.Scene.Extensions;
 using ProGPU.Text;
 using ProGPU.Vector;
 using Windows.Storage;
+using Key = Silk.NET.Input.Key;
 
 namespace ProGPU.CAD.Sample;
 
@@ -23,6 +25,7 @@ public sealed class CadSampleView : Grid
     private readonly Button _saveButton;
     private readonly Button _undoButton;
     private readonly Button _redoButton;
+    private readonly Button _deleteButton;
     private readonly Button[] _moveButtons;
     private readonly Button[] _rotateButtons;
     private readonly Button[] _scaleButtons;
@@ -117,10 +120,13 @@ public sealed class CadSampleView : Grid
 
         _undoButton = CreateButton("Undo", font, 68, 30);
         _redoButton = CreateButton("Redo", font, 68, 30);
+        _deleteButton = CreateButton("Delete", font, 76, 30);
         _undoButton.Margin = new Thickness(0, 0, 8, 0);
-        _redoButton.Margin = new Thickness(0, 0, 12, 0);
+        _redoButton.Margin = new Thickness(0, 0, 8, 0);
+        _deleteButton.Margin = new Thickness(0, 0, 12, 0);
         editActions.AddChild(_undoButton);
         editActions.AddChild(_redoButton);
+        editActions.AddChild(_deleteButton);
         editActions.AddChild(new TextBlock
         {
             Text = "Move step (WCS)",
@@ -240,6 +246,7 @@ public sealed class CadSampleView : Grid
         clearSelectionButton.Click += (_, _) => _canvas.ClearSelection();
         _undoButton.Click += (_, _) => PerformUndo();
         _redoButton.Click += (_, _) => PerformRedo();
+        _deleteButton.Click += (_, _) => PerformDelete();
         moveNegativeX.Click += (_, _) => MoveSelection(-1, 0);
         movePositiveX.Click += (_, _) => MoveSelection(1, 0);
         moveNegativeY.Click += (_, _) => MoveSelection(0, -1);
@@ -262,6 +269,20 @@ public sealed class CadSampleView : Grid
         _canvas.SnapshotChanged += (_, _) => RebuildMesh3DView();
         RebuildMesh3DView();
         UpdateEditControls();
+    }
+
+    public override void OnKeyDown(KeyRoutedEventArgs e)
+    {
+        if (!e.Handled &&
+            e.Key == Key.Delete &&
+            FocusManager.GetFocusedElement() is not TextBox)
+        {
+            PerformDelete();
+            e.Handled = true;
+            return;
+        }
+
+        base.OnKeyDown(e);
     }
 
     private void ToggleViewMode()
@@ -536,6 +557,35 @@ public sealed class CadSampleView : Grid
         }
     }
 
+    private void PerformDelete()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+        try
+        {
+            int selectedCount = _canvas.SelectedHandleCount;
+            if (!_canvas.DeleteSelection())
+            {
+                SetStatus("Delete requires at least one selected entity.");
+                return;
+            }
+            SetStatus(
+                selectedCount == 1
+                    ? "Deleted one entity."
+                    : $"Deleted {selectedCount} entities as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Delete failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
     private void PerformRedo()
     {
         if (_isBusy)
@@ -729,6 +779,7 @@ public sealed class CadSampleView : Grid
         _redoButton.IsEnabled = !_isBusy && _canvas.RedoCount > 0;
         _viewModeButton.IsEnabled = !_isBusy && _viewport3D.Children.Count > 0;
         bool canTransform = !_isBusy && _canvas.SelectedHandleCount > 0;
+        _deleteButton.IsEnabled = canTransform;
         _moveStepInput.IsEnabled = !_isBusy;
         _rotationStepInput.IsEnabled = !_isBusy;
         _scaleFactorInput.IsEnabled = !_isBusy;
