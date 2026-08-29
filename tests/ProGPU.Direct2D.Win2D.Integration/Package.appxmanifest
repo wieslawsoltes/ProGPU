@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="ProGPU.Direct2D.Win2D.Integration"
+    Publisher="CN=ProGPU"
+    Version="1.0.0.0" />
+
+  <Properties>
+    <DisplayName>ProGPU Direct2D Win2D Integration</DisplayName>
+    <PublisherDisplayName>ProGPU</PublisherDisplayName>
+    <Logo>Assets\ProGpuIcon.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily
+      Name="Windows.Desktop"
+      MinVersion="10.0.19041.0"
+      MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="x-generate" />
+  </Resources>
+
+  <Applications>
+    <Application
+      Id="App"
+      Executable="$targetnametoken$.exe"
+      EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="ProGPU Direct2D Win2D Integration"
+        Description="Qualifies genuine Win2D drawing on a ProGPU Direct2D surface."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\ProGpuIcon.png"
+        Square44x44Logo="Assets\ProGpuIcon.png" />
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
