@@ -1917,6 +1917,7 @@ public sealed class CadSampleSelectionTests
                 view.Canvas,
                 view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
             Button setPrompt = FindButton(view, "Set prompt");
+            Button setTag = FindButton(view, "Set tag");
             Button undo = FindButton(view, "Undo");
             Button redo = FindButton(view, "Redo");
             ComboBoxItem definitionItem = view.SelectionAttributeSelector.Items
@@ -1938,10 +1939,14 @@ public sealed class CadSampleSelectionTests
             Assert.Empty(view.SelectionAttributePromptInput.Text);
             Assert.False(view.SelectionAttributePromptInput.IsEnabled);
             Assert.False(setPrompt.IsEnabled);
+            Assert.Empty(view.SelectionAttributeTagInput.Text);
+            Assert.False(view.SelectionAttributeTagInput.IsEnabled);
+            Assert.False(setTag.IsEnabled);
 
             view.SelectionAttributeSelector.SelectedItem = definitionItem;
             Assert.Equal("Part number", view.SelectionAttributePromptInput.Text);
             Assert.True(view.SelectionAttributePromptInput.IsEnabled);
+            Assert.Equal("PART", view.SelectionAttributeTagInput.Text);
             view.SelectionAttributePromptInput.Text = "Updated part number";
             PressEnter(setPrompt);
 
@@ -1965,6 +1970,31 @@ public sealed class CadSampleSelectionTests
             Assert.Equal(
                 "Updated part number",
                 view.SelectionAttributePromptInput.Text);
+            Assert.Equal("ASSIGNED", assigned.Value);
+
+            view.SelectionAttributeTagInput.Text = "item";
+            PressEnter(setTag);
+            Assert.Equal(4UL, session.ContentGeneration);
+            Assert.Equal("ITEM", definition.Tag);
+            Assert.Equal("PART", assigned.Tag);
+            Assert.Equal("ASSIGNED", assigned.Value);
+            Assert.Equal("ITEM", view.SelectionAttributeTagInput.Text);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Renamed definition tag PART #1 to ITEM as one edit",
+                    StringComparison.Ordinal));
+
+            PressEnter(undo);
+            Assert.Equal(5UL, session.ContentGeneration);
+            Assert.Equal("PART", definition.Tag);
+            Assert.Equal("PART", view.SelectionAttributeTagInput.Text);
+            Assert.Equal("PART", assigned.Tag);
+            PressEnter(redo);
+            Assert.Equal(6UL, session.ContentGeneration);
+            Assert.Equal("ITEM", definition.Tag);
+            Assert.Equal("ITEM", view.SelectionAttributeTagInput.Text);
+            Assert.Equal("PART", assigned.Tag);
             Assert.Equal("ASSIGNED", assigned.Value);
         }
         finally

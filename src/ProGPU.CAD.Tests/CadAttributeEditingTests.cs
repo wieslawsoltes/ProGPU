@@ -281,6 +281,102 @@ public sealed class CadAttributeEditingTests
     }
 
     [Fact]
+    public void DefinitionTagEditDefersReferenceRenameUntilSynchronization()
+    {
+        (CadDocument document, Insert insert, _, _) = CreateDocument();
+        AttributeDefinition definition = insert.Block.AttributeDefinitions.Single(
+            candidate => candidate.Tag == "PART");
+        AttributeEntity assigned = insert.Attributes.Single(
+            attribute => attribute.Tag == "PART");
+        assigned.Value = "ASSIGNED";
+        assigned.MText.Value = "ASSIGNED";
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        Assert.Equal(1UL, history.Execute(
+            new CadSetAttributeDefinitionTagCommand(
+                insert.Handle,
+                "part",
+                "item")));
+
+        Assert.Equal("ITEM", definition.Tag);
+        Assert.Equal("PART", assigned.Tag);
+        Assert.Equal("ASSIGNED", assigned.Value);
+        Assert.Same(definition, insert.Block.AttributeDefinitions.Single(
+            candidate => candidate.Tag == "ITEM"));
+
+        Assert.Equal(2UL, history.Execute(
+            new CadSynchronizeBlockAttributePropertiesCommand(insert.Handle)));
+        Assert.Equal("ITEM", assigned.Tag);
+        Assert.Equal("ASSIGNED", assigned.Value);
+
+        Assert.True(history.TryUndo(out ulong synchronizationUndone));
+        Assert.Equal(3UL, synchronizationUndone);
+        Assert.Equal("PART", assigned.Tag);
+        Assert.Equal("ASSIGNED", assigned.Value);
+        Assert.True(history.TryUndo(out ulong tagUndone));
+        Assert.Equal(4UL, tagUndone);
+        Assert.Equal("PART", definition.Tag);
+        Assert.Same(definition, insert.Block.AttributeDefinitions.Single(
+            candidate => candidate.Tag == "PART"));
+        Assert.True(history.TryRedo(out ulong tagRedone));
+        Assert.Equal(5UL, tagRedone);
+        Assert.Equal("ITEM", definition.Tag);
+        Assert.Equal("PART", assigned.Tag);
+    }
+
+    [Fact]
+    public void DefinitionTagUsesDuplicateOccurrenceAndValidatesToken()
+    {
+        (CadDocument document, Insert insert, AttributeDefinition label, _) =
+            CreateDocument();
+        var duplicate = new AttributeDefinition
+        {
+            Tag = "LABEL",
+            Value = "SECOND",
+        };
+        insert.Block.Entities.Add(duplicate);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetAttributeDefinitionTagCommand(
+            insert.Handle,
+            "label",
+            "renamed",
+            occurrence: 1));
+
+        Assert.Equal("LABEL", label.Tag);
+        Assert.Equal("RENAMED", duplicate.Tag);
+        Assert.Throws<ArgumentException>(() =>
+            new CadSetAttributeDefinitionTagCommand(
+                insert.Handle,
+                "LABEL",
+                "HAS SPACE"));
+        Assert.Throws<ArgumentException>(() =>
+            new CadSetAttributeDefinitionTagCommand(
+                insert.Handle,
+                "LABEL",
+                "BANG!"));
+        Assert.Throws<ArgumentException>(() =>
+            new CadSetAttributeDefinitionTagCommand(
+                insert.Handle,
+                "LABEL",
+                new string('T',
+                    CadSetAttributeDefinitionTagCommand.MaximumTagCodeUnits + 1)));
+
+        Assert.True(history.TryUndo(out _));
+        insert.Layer.Flags |= LayerFlags.Locked;
+        ulong generation = session.ContentGeneration;
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadSetAttributeDefinitionTagCommand(
+                insert.Handle,
+                "LABEL",
+                "BLOCKED")));
+        Assert.Equal(generation, session.ContentGeneration);
+        Assert.Equal("LABEL", label.Tag);
+    }
+
+    [Fact]
     public void ConstantMultilineEditSynchronizesPayloadAndRejectsVariableTarget()
     {
         (CadDocument document, Insert insert, _, AttributeDefinition notes) =
@@ -374,6 +470,11 @@ public sealed class CadAttributeEditingTests
                 insert.Handle,
                 "PART",
                 "Persisted part prompt"));
+        history.Execute(
+            new CadSetAttributeDefinitionTagCommand(
+                insert.Handle,
+                "PART",
+                "item"));
         using var stream = new MemoryStream();
         var store = new CadDocumentStore();
 
@@ -399,7 +500,7 @@ public sealed class CadAttributeEditingTests
             AttributeDefinition variable = loadedDocument.BlockRecords[
                     "EDITABLE_BLOCK"]
                 .AttributeDefinitions
-                .Single(candidate => candidate.Tag == "PART");
+                .Single(candidate => candidate.Tag == "ITEM");
             Assert.Equal(@"FUTURE\PDEFAULT", variable.Value);
             Assert.Equal(@"FUTURE\PDEFAULT", variable.MText.Value);
             Assert.Equal("Persisted part prompt", variable.Prompt);

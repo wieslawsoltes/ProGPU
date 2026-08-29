@@ -62,6 +62,7 @@ public sealed class CadSampleView : Grid
     private readonly ComboBox _selectionAttributeSelector;
     private readonly TextBox _selectionAttributeValueInput;
     private readonly TextBox _selectionAttributePromptInput;
+    private readonly TextBox _selectionAttributeTagInput;
     private readonly Button _setSelectionLayerButton;
     private readonly Button _setSelectionLineTypeButton;
     private readonly Button _setSelectionLineTypeScaleButton;
@@ -70,6 +71,7 @@ public sealed class CadSampleView : Grid
     private readonly Button _setSelectionSolidThicknessButton;
     private readonly Button _setSelectionAttributeValueButton;
     private readonly Button _setSelectionAttributePromptButton;
+    private readonly Button _setSelectionAttributeTagButton;
     private readonly Button _synchronizeSelectionAttributePropertiesButton;
     private readonly ComboBox _layerStateSelector;
     private readonly ComboBox _layerVisibilitySelector;
@@ -157,6 +159,9 @@ public sealed class CadSampleView : Grid
 
     public TextBox SelectionAttributePromptInput =>
         _selectionAttributePromptInput;
+
+    public TextBox SelectionAttributeTagInput =>
+        _selectionAttributeTagInput;
 
     public ComboBox LayerStateSelector => _layerStateSelector;
 
@@ -622,6 +627,19 @@ public sealed class CadSampleView : Grid
             font,
             96,
             30);
+        _selectionAttributeTagInput = new TextBox
+        {
+            Font = font,
+            WidthConstraint = 160,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        _setSelectionAttributeTagButton = CreateButton(
+            "Set tag",
+            font,
+            80,
+            30);
         _synchronizeSelectionAttributePropertiesButton = CreateButton(
             "Sync properties",
             font,
@@ -632,6 +650,8 @@ public sealed class CadSampleView : Grid
         selectionAttributeActions.AddChild(_setSelectionAttributeValueButton);
         selectionAttributeActions.AddChild(_selectionAttributePromptInput);
         selectionAttributeActions.AddChild(_setSelectionAttributePromptButton);
+        selectionAttributeActions.AddChild(_selectionAttributeTagInput);
+        selectionAttributeActions.AddChild(_setSelectionAttributeTagButton);
         selectionAttributeActions.AddChild(
             _synchronizeSelectionAttributePropertiesButton);
 
@@ -1163,6 +1183,13 @@ public sealed class CadSampleView : Grid
                 UpdateEditControls();
             }
         };
+        _selectionAttributeTagInput.TextChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
         _layerStateSelector.SelectionChanged += (_, _) =>
         {
             if (_isRefreshingSelectionProperties)
@@ -1260,6 +1287,8 @@ public sealed class CadSampleView : Grid
             SetSelectionAttributeValue();
         _setSelectionAttributePromptButton.Click += (_, _) =>
             SetSelectionAttributePrompt();
+        _setSelectionAttributeTagButton.Click += (_, _) =>
+            SetSelectionAttributeTag();
         _synchronizeSelectionAttributePropertiesButton.Click += (_, _) =>
             SynchronizeSelectionAttributeProperties();
         _setLayerVisibilityButton.Click += (_, _) => SetLayerVisibility();
@@ -1980,6 +2009,7 @@ public sealed class CadSampleView : Grid
         _selectionAttributeSelector.SelectedIndex = 0;
         _selectionAttributeValueInput.Text = string.Empty;
         _selectionAttributePromptInput.Text = string.Empty;
+        _selectionAttributeTagInput.Text = string.Empty;
 
         CadAttributeValueCatalog? catalog;
         try
@@ -2046,6 +2076,10 @@ public sealed class CadSampleView : Grid
         _selectionAttributePromptInput.Text = selected is
             { Owner: not CadAttributeValueOwner.Reference } definition
             ? definition.Prompt
+            : string.Empty;
+        _selectionAttributeTagInput.Text = selected is
+            { Owner: not CadAttributeValueOwner.Reference } definitionTag
+            ? definitionTag.Tag
             : string.Empty;
     }
 
@@ -2515,6 +2549,50 @@ public sealed class CadSampleView : Grid
         catch (Exception exception)
         {
             SetStatus($"Set attribute prompt failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetSelectionAttributeTag()
+    {
+        if (_isBusy ||
+            (_selectionAttributeSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                CadAttributeValueEntry
+                {
+                    Owner: not CadAttributeValueOwner.Reference,
+                } entry ||
+            !CadSetAttributeDefinitionTagCommand.IsValidNewTag(
+                _selectionAttributeTagInput.Text) ||
+            string.Equals(
+                entry.Tag,
+                _selectionAttributeTagInput.Text,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        string newTag = _selectionAttributeTagInput.Text.ToUpperInvariant();
+        try
+        {
+            if (!_canvas.SetSelectedAttributeDefinitionTag(
+                    entry.Tag,
+                    entry.Occurrence,
+                    newTag))
+            {
+                SetStatus(
+                    "Attribute tag editing requires exactly one selected INSERT.");
+                return;
+            }
+            SetStatus(
+                $"Renamed definition tag {entry.Tag} " +
+                $"#{entry.Occurrence + 1} to {newTag} as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set attribute tag failed: {exception.Message}");
         }
         finally
         {
@@ -3690,6 +3768,8 @@ public sealed class CadSampleView : Grid
             canTransform && hasSelectedAttribute;
         _selectionAttributePromptInput.IsEnabled =
             canTransform && hasSelectedDefinitionAttribute;
+        _selectionAttributeTagInput.IsEnabled =
+            canTransform && hasSelectedDefinitionAttribute;
         _setSelectionColorButton.IsEnabled =
             canTransform &&
             TryParseSelectionColor(
@@ -3734,6 +3814,15 @@ public sealed class CadSampleView : Grid
             hasSelectedDefinitionAttribute &&
             _selectionAttributePromptInput.Text.Length <=
                 CadSetAttributeDefinitionPromptCommand.MaximumPromptCodeUnits;
+        _setSelectionAttributeTagButton.IsEnabled =
+            canTransform &&
+            hasSelectedDefinitionAttribute &&
+            CadSetAttributeDefinitionTagCommand.IsValidNewTag(
+                _selectionAttributeTagInput.Text) &&
+            !string.Equals(
+                selectedAttribute?.Tag,
+                _selectionAttributeTagInput.Text,
+                StringComparison.OrdinalIgnoreCase);
         _synchronizeSelectionAttributePropertiesButton.IsEnabled =
             canTransform &&
             _canvas.CanSynchronizeSelectedBlockAttributeProperties;

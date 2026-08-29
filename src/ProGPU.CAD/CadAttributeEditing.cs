@@ -414,6 +414,198 @@ public sealed class CadSetAttributeDefinitionPromptCommand : CadEditCommand
 }
 
 /// <summary>
+/// Replaces one ATTDEF tag selected through a model-space INSERT, current tag,
+/// and zero-based duplicate-tag occurrence.
+/// </summary>
+/// <remarks>
+/// Initial resolution and retained identity validation are O(D) for D block
+/// definitions and storage is O(S) for the two owned tag strings. Existing
+/// ATTRIB tags and assigned values remain unchanged until an explicit attribute
+/// synchronization edit is requested.
+/// </remarks>
+public sealed class CadSetAttributeDefinitionTagCommand : CadEditCommand
+{
+    public const int MaximumAddressTagCodeUnits = 4_096;
+    public const int MaximumTagCodeUnits = 256;
+
+    private readonly ulong _insertHandle;
+    private Insert? _insert;
+    private BlockRecord? _block;
+    private AttributeDefinition? _definition;
+    private string? _previousTag;
+    private int _definitionIndex = -1;
+
+    public ulong InsertHandle => _insertHandle;
+
+    public string CurrentTag { get; }
+
+    public int Occurrence { get; }
+
+    public string NewTag { get; }
+
+    public CadSetAttributeDefinitionTagCommand(
+        ulong insertHandle,
+        string currentTag,
+        string newTag,
+        int occurrence = 0,
+        string description = "Set attribute definition tag")
+        : base(description)
+    {
+        if (insertHandle == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(insertHandle));
+        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(currentTag);
+        ArgumentNullException.ThrowIfNull(newTag);
+        ArgumentOutOfRangeException.ThrowIfNegative(occurrence);
+        string normalizedTag = newTag.ToUpperInvariant();
+        if (currentTag.Length > MaximumAddressTagCodeUnits)
+        {
+            throw new ArgumentException(
+                "The current attribute tag exceeds the command ownership budget.",
+                nameof(currentTag));
+        }
+        if (!IsValidNewTag(newTag) || !IsValidNewTag(normalizedTag))
+        {
+            throw new ArgumentException(
+                "An attribute tag must contain 1 to 256 code units and cannot " +
+                "contain whitespace or an exclamation mark.",
+                nameof(newTag));
+        }
+
+        _insertHandle = insertHandle;
+        CurrentTag = new string(currentTag.AsSpan());
+        NewTag = normalizedTag;
+        Occurrence = occurrence;
+    }
+
+    public static bool IsValidNewTag(string? tag)
+    {
+        if (string.IsNullOrWhiteSpace(tag) ||
+            tag.Length > MaximumTagCodeUnits ||
+            tag.Contains('!'))
+        {
+            return false;
+        }
+        foreach (char codeUnit in tag)
+        {
+            if (char.IsWhiteSpace(codeUnit))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        AttributeDefinition definition;
+        if (isRedo)
+        {
+            definition = GetRetainedDefinition(
+                document,
+                _previousTag ?? throw new InvalidOperationException(
+                    "The attribute-tag command has not been applied."));
+        }
+        else
+        {
+            Entity entity = ResolveModelSpaceEntity(document, _insertHandle);
+            Insert insert = entity as Insert ?? throw new InvalidOperationException(
+                $"Model-space entity handle {_insertHandle:X} is not an INSERT.");
+            BlockRecord block = insert.Block ?? throw new InvalidOperationException(
+                $"INSERT handle {_insertHandle:X} has no block definition.");
+            definition = ResolveDefinition(
+                block,
+                CurrentTag,
+                Occurrence,
+                out int definitionIndex);
+            _insert = insert;
+            _block = block;
+            _definition = definition;
+            _previousTag = definition.Tag ?? string.Empty;
+            _definitionIndex = definitionIndex;
+        }
+
+        definition.Tag = NewTag;
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        AttributeDefinition definition = GetRetainedDefinition(document, NewTag);
+        definition.Tag = _previousTag ?? throw new InvalidOperationException(
+            "The attribute-tag command has not been applied.");
+    }
+
+    private AttributeDefinition GetRetainedDefinition(
+        CadDocument document,
+        string expectedTag)
+    {
+        Insert insert = _insert ?? throw new InvalidOperationException(
+            "The attribute-tag command has not been applied.");
+        BlockRecord block = _block ?? throw new InvalidOperationException(
+            "The attribute-tag command has not been applied.");
+        AttributeDefinition definition = _definition ??
+            throw new InvalidOperationException(
+                "The attribute-tag command has not been applied.");
+        ValidateModelSpaceEntity(document, insert);
+        if (!ReferenceEquals(insert.Block, block))
+        {
+            throw new InvalidOperationException(
+                "The selected INSERT no longer references the retained block definition.");
+        }
+
+        int index = 0;
+        foreach (AttributeDefinition current in block.AttributeDefinitions)
+        {
+            if (index++ != _definitionIndex)
+            {
+                continue;
+            }
+            if (!ReferenceEquals(current, definition) ||
+                !string.Equals(
+                    current.Tag,
+                    expectedTag,
+                    StringComparison.Ordinal))
+            {
+                break;
+            }
+            return definition;
+        }
+        throw new InvalidOperationException(
+            "The retained attribute definition identity, order, or tag changed.");
+    }
+
+    private static AttributeDefinition ResolveDefinition(
+        BlockRecord block,
+        string tag,
+        int occurrence,
+        out int definitionIndex)
+    {
+        int index = 0;
+        int currentOccurrence = 0;
+        foreach (AttributeDefinition definition in block.AttributeDefinitions)
+        {
+            if (string.Equals(
+                    definition.Tag,
+                    tag,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (currentOccurrence == occurrence)
+                {
+                    definitionIndex = index;
+                    return definition;
+                }
+                currentOccurrence++;
+            }
+            index++;
+        }
+        throw new InvalidOperationException(
+            $"Block '{block.Name}' has no attribute definition '{tag}' " +
+            $"occurrence {occurrence}.");
+    }
+}
+
+/// <summary>
 /// Replaces one definition-owned constant ATTDEF value selected through a
 /// model-space INSERT, tag, and zero-based duplicate-tag occurrence.
 /// </summary>

@@ -77,6 +77,14 @@ survive DXF/DWG round trips and affect future insertion interaction only. This
 is document/history state, so managed/native picture replay, shaders, caches,
 uploads, DPI behavior, and device-loss contracts remain unchanged.
 
+The same definition-only surface can rename an ATTDEF tag. New tags use the
+DXF 256-code-unit boundary, reject whitespace and `!`, normalize to uppercase,
+and retain duplicate-occurrence addressing. Existing ATTRIB tags and assigned
+values stay exact until the separate `Sync properties` edit is requested; Sync
+then applies the new tag without changing the assigned value. Exact definition
+identity/order validation, locked-layer rejection, Undo/Redo, duplicate tags,
+DXF/DWG persistence, and shared-shell behavior are covered.
+
 The same selected-INSERT workflow now includes a bounded `Sync properties`
 edit. It synchronizes entity, text, tag, mode, and transform-baked geometry
 properties from the block definitions across every registered reference while

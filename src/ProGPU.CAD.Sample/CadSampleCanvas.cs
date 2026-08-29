@@ -1399,6 +1399,36 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Sets one definition-owned ATTDEF tag reached through the selected
+    /// INSERT without changing existing ATTRIB tags or assigned values.
+    /// </summary>
+    public bool SetSelectedAttributeDefinitionTag(
+        string currentTag,
+        int occurrence,
+        string newTag)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount != 1)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        var command = new CadSetAttributeDefinitionTagCommand(
+            _selectedHandles[0],
+            currentTag,
+            newTag,
+            occurrence,
+            $"Rename block attribute tag '{currentTag}'");
+        history.Execute(command);
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>
     /// Synchronizes definition-owned properties across every reference to the
     /// block selected through exactly one INSERT, preserving assigned values.
     /// </summary>
