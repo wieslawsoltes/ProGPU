@@ -20,6 +20,8 @@ public sealed class CanvasDevice : ICanvasResourceCreator, IDisposable
     private readonly bool _ownsContext;
     private readonly object _renderLock = new();
     private NativeCompositor? _bgraCompositor;
+    private int _pixelConversionMode;
+    private int _lastPixelConversionPath;
     private bool _isDisposed;
 
     public CanvasDevice()
@@ -58,6 +60,26 @@ public sealed class CanvasDevice : ICanvasResourceCreator, IDisposable
     public ProGpuCanvasExecutionPath ExecutionPath =>
         ProGpuCanvasExecutionPath.NativeCppWebGpu;
 
+    public ProGpuCanvasCpuConversionMode PixelConversionMode
+    {
+        get => (ProGpuCanvasCpuConversionMode)Volatile.Read(
+            ref _pixelConversionMode);
+        set
+        {
+            if (value is < ProGpuCanvasCpuConversionMode.Automatic or
+                > ProGpuCanvasCpuConversionMode.ScalarReference)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+
+            Volatile.Write(ref _pixelConversionMode, (int)value);
+        }
+    }
+
+    public ProGpuCanvasCpuConversionPath LastPixelConversionPath =>
+        (ProGpuCanvasCpuConversionPath)Volatile.Read(
+            ref _lastPixelConversionPath);
+
     public bool IsDisposed => _isDisposed;
 
     public static CanvasDevice GetSharedDevice() =>
@@ -93,6 +115,10 @@ public sealed class CanvasDevice : ICanvasResourceCreator, IDisposable
             ? checked((ulong)Interlocked.Increment(ref s_sceneId))
             : value;
     }
+
+    internal void RecordPixelConversionPath(
+        ProGpuCanvasCpuConversionPath path) =>
+        Volatile.Write(ref _lastPixelConversionPath, (int)path);
 
     internal ProGpuCanvasRenderMetrics Render(
         GpuPicture picture,

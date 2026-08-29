@@ -17,5 +17,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="ProGPU.Win2D.Tests, PublicKey=$(ProGPUPublicKey)" />
+    <InternalsVisibleTo Include="ProGPU.Native.Benchmarks, PublicKey=$(ProGPUPublicKey)" />
   </ItemGroup>
 </Project>
