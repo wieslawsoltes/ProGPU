@@ -1642,6 +1642,116 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void SharedViewEditsReferenceAndConstantBlockAttributesByOwnership()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("UI_ATTRIBUTE_BLOCK");
+        block.Entities.Add(new Line(new XYZ(-5, 0, 0), new XYZ(5, 0, 0)));
+        var constant = new AttributeDefinition
+        {
+            Tag = "LABEL",
+            Value = "FIXED",
+            Flags = AttributeFlags.Constant,
+            InsertPoint = new XYZ(0, 1, 0),
+            Height = 1,
+        };
+        var variableDefinition = new AttributeDefinition
+        {
+            Tag = "PART",
+            Value = "DEFAULT",
+            InsertPoint = new XYZ(0, -1, 0),
+            Height = 1,
+        };
+        block.Entities.Add(constant);
+        block.Entities.Add(variableDefinition);
+        var insert = new Insert(block);
+        AttributeEntity variable = insert.Attributes.Single(
+            attribute => attribute.Tag == "PART");
+        document.Entities.Add(insert);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 960));
+            view.Canvas.Load(session);
+            Click(
+                view.Canvas,
+                view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
+            Button setAttribute = FindButton(view, "Set attribute");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+
+            Assert.Equal(1, view.Canvas.SelectedHandleCount);
+            Assert.Equal(insert.Handle, view.Canvas.SelectedHandles.Span[0]);
+            Assert.Equal(3, view.SelectionAttributeSelector.Items.Count);
+            ComboBoxItem referenceItem = view.SelectionAttributeSelector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Tag is CadAttributeValueEntry
+                {
+                    Owner: CadAttributeValueOwner.Reference,
+                    Tag: "PART",
+                });
+            view.SelectionAttributeSelector.SelectedItem = referenceItem;
+            Assert.Equal("DEFAULT", view.SelectionAttributeValueInput.Text);
+            view.SelectionAttributeValueInput.Text = "REFERENCE EDIT";
+            PressEnter(setAttribute);
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal("REFERENCE EDIT", variable.Value);
+            Assert.Equal("REFERENCE EDIT", view.SelectionAttributeValueInput.Text);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Set reference attribute PART #1 as one edit",
+                    StringComparison.Ordinal));
+
+            ComboBoxItem constantItem = view.SelectionAttributeSelector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Tag is CadAttributeValueEntry
+                {
+                    Owner: CadAttributeValueOwner.Definition,
+                    Tag: "LABEL",
+                });
+            view.SelectionAttributeSelector.SelectedItem = constantItem;
+            view.SelectionAttributeValueInput.Text = "CONSTANT EDIT";
+            PressEnter(setAttribute);
+
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal("CONSTANT EDIT", constant.Value);
+            Assert.Equal("CONSTANT EDIT", view.SelectionAttributeValueInput.Text);
+            Assert.True(undo.IsEnabled);
+            CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+                view.Canvas.CurrentSnapshot!);
+            using (GpuPicture picture = scene.CreatePicture())
+            {
+                Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+                    picture,
+                    96U,
+                    view.Canvas.CurrentSnapshot!.ContentGeneration,
+                    out NativeCompiledPicture? native,
+                    out NativePictureCompileFailure failure),
+                    failure.ToString());
+                Assert.NotNull(native);
+                Assert.True(native.SourceCommandCount > 0);
+            }
+
+            PressEnter(undo);
+            Assert.Equal("FIXED", constant.Value);
+            Assert.Equal("FIXED", view.SelectionAttributeValueInput.Text);
+            Assert.Equal("REFERENCE EDIT", variable.Value);
+            Assert.True(redo.IsEnabled);
+            PressEnter(redo);
+            Assert.Equal("CONSTANT EDIT", constant.Value);
+            Assert.Equal("CONSTANT EDIT", view.SelectionAttributeValueInput.Text);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewClearsLayerMergeQueueAcrossGenerationAndSessionChanges()
     {
         var firstDocument = new CadDocument();

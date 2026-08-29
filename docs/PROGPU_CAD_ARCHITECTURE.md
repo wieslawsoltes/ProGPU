@@ -1533,8 +1533,37 @@ stacks, masks, decorations, glyph runs, paths, bounds, and exact selection.
 `CadSetAttributeValueCommand` resolves one model-space INSERT plus a
 case-insensitive tag and explicit duplicate-tag occurrence, updates the
 single-line and embedded-MTEXT values together, and retains exact prior values
-for generation-synchronized Undo/Redo. Constant values remain definition-owned
-and are rejected by that reference edit command.
+for generation-synchronized Undo/Redo. Both tag and value are bounded owned
+strings, with the value capped by the same 65,536-code-unit per-entity snapshot
+contract. Constant values remain definition-owned and are rejected by that
+reference edit command.
+
+`CadAttributeValueCatalogCompiler` copies the values reachable from one
+selected model-space INSERT into a bounded generation-tagged catalog. It emits
+reference-owned variable ATTRIB values and definition-owned constant ATTDEF
+values as distinct typed entries, preserving case-insensitive tag plus explicit
+duplicate-tag occurrence addressing, multiline and hidden metadata, and the
+selected block identity. Malformed multiline payloads are counted as
+unsupported rather than exposed as editable values. Catalog construction is
+`O(D + A + S)` time/storage for `D` definitions, `A` references, and `S` copied
+UTF-16 code units, capped at 4,096 entries, 65,536 code units per string, and
+1,048,576 total code units. It performs no font lookup, shaping, scene
+compilation, or GPU work under the document lock.
+
+`CadSetConstantAttributeDefinitionValueCommand` uses the selected INSERT only
+as the authorization and addressing root, then retains and edits the exact
+constant ATTDEF in its block. Single-line and embedded-MTEXT values change
+transactionally together. Undo/Redo validates the retained INSERT, block,
+definition, tag, and occurrence identities; it does not rewrite any INSERT
+reference because every instance reads the same definition-owned constant.
+The shared desktop/browser shell exposes both ownership paths through one
+selector and value editor. A commit advances one document generation, rebuilds
+one retained snapshot, preserves the selected INSERT and attribute key, and
+refreshes the displayed value. Locked INSERTs remain inspectable but cannot
+authorize either reference or definition mutation. The same regenerated
+TEXT/MTEXT commands feed managed replay, the native picture compiler, printing,
+and exact selection; no shader, native ABI, cache key, glyph upload, or
+device-loss contract changes.
 
 For `I` array cells, `B` non-attribute block children, `C` visible constant
 definitions, and `A` visible variable references, lowering is
@@ -1542,8 +1571,9 @@ definitions, and `A` visible variable references, lowering is
 array, nesting, expanded-entity, text-code-unit, and glyph limits. The traversal
 adds no per-frame work or native crossings; stable scene/print replay retains
 the same command and device-resource behavior. ATTDISP override state,
-annotative contexts, fields, dynamic-block evaluation, and a constant-definition
-editing command remain explicit future contracts.
+annotative contexts, fields, dynamic-block evaluation, prompt/tag/mode/geometry
+editing, and synchronized propagation of changed variable defaults into
+existing references remain explicit future contracts.
 
 The 2026-08-28 matched macOS Release checkpoint used .NET 10.0.5, three
 warmups, 24 samples, 100 variable attributed INSERTs with 21-character Inter
@@ -4193,7 +4223,7 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   The exact approved in-repository implementation provenance is
   `CadSnapshotCompiler.cs` (`CompileText` and INSERT traversal),
   `CadSnapshotCompiler.MText.cs`, `CadSnapshotCompiler.ShxMText.cs`,
-  `CadSelection.cs`, `CadPlanSceneCompiler.cs`, and
+  `CadSelection.cs`, `CadPlanSceneCompiler.cs`, `CadAttributeEditing.cs`, and
   `CadPrintPlan.cs`; these original ProGPU algorithms are directly reused.
   ACadSharp's public object model and pinned fixtures were inspected only to
   identify persisted contracts and independently observable placement; no

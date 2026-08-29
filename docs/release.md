@@ -43,6 +43,17 @@ ACadSharp `master` stays exactly synchronized with upstream. This is document IO
 and edit orchestration, changes no renderer hot path, and makes no performance
 claim.
 
+The CAD shell now exposes bounded block-attribute value editing for exactly one
+selected INSERT. A generation-tagged catalog distinguishes reference-owned
+variable ATTRIB values from definition-owned constant ATTDEF values, including
+explicit duplicate-tag occurrences and multiline/hidden metadata. Variable and
+constant commands update single-line plus embedded MTEXT payloads
+transactionally; constant edits retain the block definition identity and affect
+every INSERT instance without rewriting its references. Undo/Redo, DXF/DWG
+round trips, shared desktop/browser controls, and managed/native retained-text
+compilation are covered. The existing TEXT/MTEXT renderer, caches, shaders, and
+native ABI are unchanged, so this slice makes no rendering-performance claim.
+
 ## Preview.62 retained SaveLayer optimization closure
 
 The alternating three-process Release comparison uses official SkiaSharp

@@ -59,12 +59,15 @@ public sealed class CadSampleView : Grid
     private readonly TextBox _selectionTransparencyInput;
     private readonly ComboBox _selectionVisibilitySelector;
     private readonly TextBox _selectionSolidThicknessInput;
+    private readonly ComboBox _selectionAttributeSelector;
+    private readonly TextBox _selectionAttributeValueInput;
     private readonly Button _setSelectionLayerButton;
     private readonly Button _setSelectionLineTypeButton;
     private readonly Button _setSelectionLineTypeScaleButton;
     private readonly Button _setSelectionTransparencyButton;
     private readonly Button _setSelectionVisibilityButton;
     private readonly Button _setSelectionSolidThicknessButton;
+    private readonly Button _setSelectionAttributeValueButton;
     private readonly ComboBox _layerStateSelector;
     private readonly ComboBox _layerVisibilitySelector;
     private readonly ComboBox _layerPlotSelector;
@@ -143,6 +146,12 @@ public sealed class CadSampleView : Grid
     public TextBox SelectionSolidThicknessInput =>
         _selectionSolidThicknessInput;
 
+    public ComboBox SelectionAttributeSelector =>
+        _selectionAttributeSelector;
+
+    public TextBox SelectionAttributeValueInput =>
+        _selectionAttributeValueInput;
+
     public ComboBox LayerStateSelector => _layerStateSelector;
 
     public ComboBox LayerVisibilitySelector => _layerVisibilitySelector;
@@ -193,7 +202,7 @@ public sealed class CadSampleView : Grid
             Visibility = Visibility.Collapsed,
         };
         TtfFont font = InterFontFamily.Regular;
-        RowDefinitions.Add(new GridLength(430, GridUnitType.Absolute));
+        RowDefinitions.Add(new GridLength(464, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));
         RowDefinitions.Add(new GridLength(30, GridUnitType.Absolute));
 
@@ -239,6 +248,11 @@ public sealed class CadSampleView : Grid
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
+        var selectionAttributeActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
         var layerStateActions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -274,6 +288,7 @@ public sealed class CadSampleView : Grid
         toolbarRows.AddChild(transformActions);
         toolbarRows.AddChild(selectionPropertyActions);
         toolbarRows.AddChild(selectionEntityActions);
+        toolbarRows.AddChild(selectionAttributeActions);
         toolbarRows.AddChild(selectionStyleActions);
         toolbarRows.AddChild(layerStateActions);
         toolbarRows.AddChild(layerStyleActions);
@@ -555,6 +570,42 @@ public sealed class CadSampleView : Grid
             30);
         selectionEntityActions.AddChild(_selectionSolidThicknessInput);
         selectionEntityActions.AddChild(_setSelectionSolidThicknessButton);
+
+        selectionAttributeActions.AddChild(new TextBlock
+        {
+            Text = "Block attribute",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _selectionAttributeSelector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = 260,
+            HeightConstraint = 30,
+            MaxDropDownHeight = 256,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        _selectionAttributeSelector.Items.Add(new ComboBoxItem { Text = "—" });
+        _selectionAttributeSelector.SelectedIndex = 0;
+        _selectionAttributeValueInput = new TextBox
+        {
+            Font = font,
+            WidthConstraint = 320,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        _setSelectionAttributeValueButton = CreateButton(
+            "Set attribute",
+            font,
+            108,
+            30);
+        selectionAttributeActions.AddChild(_selectionAttributeSelector);
+        selectionAttributeActions.AddChild(_selectionAttributeValueInput);
+        selectionAttributeActions.AddChild(_setSelectionAttributeValueButton);
 
         selectionStyleActions.AddChild(new TextBlock
         {
@@ -1062,6 +1113,21 @@ public sealed class CadSampleView : Grid
                 UpdateEditControls();
             }
         };
+        _selectionAttributeSelector.SelectionChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                RefreshSelectedAttributeValue();
+                UpdateEditControls();
+            }
+        };
+        _selectionAttributeValueInput.TextChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
         _layerStateSelector.SelectionChanged += (_, _) =>
         {
             if (_isRefreshingSelectionProperties)
@@ -1155,6 +1221,8 @@ public sealed class CadSampleView : Grid
             SetSelectionVisibility();
         _setSelectionSolidThicknessButton.Click += (_, _) =>
             SetSelectionSolidThickness();
+        _setSelectionAttributeValueButton.Click += (_, _) =>
+            SetSelectionAttributeValue();
         _setLayerVisibilityButton.Click += (_, _) => SetLayerVisibility();
         _setLayerPlotButton.Click += (_, _) => SetLayerPlotFlag();
         _setLayerFreezeButton.Click += (_, _) => SetLayerFreeze();
@@ -1852,12 +1920,86 @@ public sealed class CadSampleView : Grid
                     : properties.CommonSolidThickness is double thickness
                         ? thickness.ToString("G17", CultureInfo.InvariantCulture)
                         : "*VARIES*";
+            RefreshSelectionAttributeControls();
             RefreshLayerStateControls();
         }
         finally
         {
             _isRefreshingSelectionProperties = false;
         }
+    }
+
+    private void RefreshSelectionAttributeControls()
+    {
+        CadAttributeValueEntry? previous =
+            (_selectionAttributeSelector.SelectedItem as ComboBoxItem)?.Tag is
+                CadAttributeValueEntry entry
+                ? entry
+                : null;
+        _selectionAttributeSelector.Items.Clear();
+        _selectionAttributeSelector.Items.Add(new ComboBoxItem { Text = "—" });
+        _selectionAttributeSelector.SelectedIndex = 0;
+        _selectionAttributeValueInput.Text = string.Empty;
+
+        CadAttributeValueCatalog? catalog;
+        try
+        {
+            catalog = _canvas.CaptureSelectedAttributeValueCatalog();
+        }
+        catch (Exception exception)
+        {
+            _selectionAttributeSelector.Items.Add(new ComboBoxItem
+            {
+                Text = $"Unavailable: {exception.Message}",
+            });
+            return;
+        }
+        if (catalog is null)
+        {
+            return;
+        }
+
+        foreach (CadAttributeValueEntry candidate in catalog.Entries.Span)
+        {
+            string ownership = candidate.Owner ==
+                CadAttributeValueOwner.Definition
+                ? "constant"
+                : "reference";
+            string multiline = candidate.IsMultiline ? ", multiline" : string.Empty;
+            string hidden = candidate.IsInvisible ? ", hidden" : string.Empty;
+            var item = new ComboBoxItem
+            {
+                Text = $"{candidate.Tag} #{candidate.Occurrence + 1} " +
+                    $"[{ownership}{multiline}{hidden}]",
+                Tag = candidate,
+            };
+            _selectionAttributeSelector.Items.Add(item);
+            if (previous is CadAttributeValueEntry prior &&
+                prior.Owner == candidate.Owner &&
+                prior.Occurrence == candidate.Occurrence &&
+                string.Equals(
+                    prior.Tag,
+                    candidate.Tag,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                _selectionAttributeSelector.SelectedItem = item;
+            }
+        }
+        if (_selectionAttributeSelector.SelectedIndex == 0 &&
+            _selectionAttributeSelector.Items.Count > 1)
+        {
+            _selectionAttributeSelector.SelectedIndex = 1;
+        }
+        RefreshSelectedAttributeValue();
+    }
+
+    private void RefreshSelectedAttributeValue()
+    {
+        _selectionAttributeValueInput.Text =
+            (_selectionAttributeSelector.SelectedItem as ComboBoxItem)?.Tag is
+                CadAttributeValueEntry entry
+                ? entry.Value
+                : string.Empty;
     }
 
     private void RefreshSelectionPropertyCatalog()
@@ -2245,6 +2387,45 @@ public sealed class CadSampleView : Grid
         catch (Exception exception)
         {
             SetStatus($"Set SOLID thickness failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetSelectionAttributeValue()
+    {
+        if (_isBusy ||
+            (_selectionAttributeSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                CadAttributeValueEntry entry ||
+            _selectionAttributeValueInput.Text.Length >
+                CadSetAttributeValueCommand.MaximumValueCodeUnits)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!_canvas.SetSelectedAttributeValue(
+                    entry.Owner,
+                    entry.Tag,
+                    entry.Occurrence,
+                    _selectionAttributeValueInput.Text))
+            {
+                SetStatus("Attribute editing requires exactly one selected INSERT.");
+                return;
+            }
+            string ownership = entry.Owner == CadAttributeValueOwner.Definition
+                ? "constant definition"
+                : "reference";
+            SetStatus(
+                $"Set {ownership} attribute {entry.Tag} " +
+                $"#{entry.Occurrence + 1} as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set attribute failed: {exception.Message}");
         }
         finally
         {
@@ -3369,6 +3550,15 @@ public sealed class CadSampleView : Grid
         _selectionVisibilitySelector.IsEnabled = canTransform;
         _selectionSolidThicknessInput.IsEnabled =
             canTransform && _isSolidThicknessSelection;
+        bool hasSelectedAttribute =
+            (_selectionAttributeSelector.SelectedItem as ComboBoxItem)?.Tag is
+                CadAttributeValueEntry;
+        _selectionAttributeSelector.IsEnabled =
+            canUsePlanTools &&
+            _canvas.SelectedHandleCount == 1 &&
+            _selectionAttributeSelector.Items.Count > 1;
+        _selectionAttributeValueInput.IsEnabled =
+            canTransform && hasSelectedAttribute;
         _setSelectionColorButton.IsEnabled =
             canTransform &&
             TryParseSelectionColor(
@@ -3403,6 +3593,11 @@ public sealed class CadSampleView : Grid
             TryParseFiniteInvariantDouble(
                 _selectionSolidThicknessInput.Text,
                 out _);
+        _setSelectionAttributeValueButton.IsEnabled =
+            canTransform &&
+            hasSelectedAttribute &&
+            _selectionAttributeValueInput.Text.Length <=
+                CadSetAttributeValueCommand.MaximumValueCodeUnits;
         bool canEditLayerState =
             canUsePlanTools &&
             (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is string;

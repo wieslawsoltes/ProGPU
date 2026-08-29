@@ -1274,6 +1274,75 @@ public sealed class CadSampleCanvas : FrameworkElement
             command.UnsupportedCount);
     }
 
+    /// <summary>
+    /// Captures editable values when the complete selection is one INSERT.
+    /// </summary>
+    public CadAttributeValueCatalog? CaptureSelectedAttributeValueCatalog()
+    {
+        if (_selectedHandleCount != 1)
+        {
+            return null;
+        }
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        try
+        {
+            return new CadAttributeValueCatalogCompiler().Compile(
+                session,
+                _selectedHandles[0]);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Sets one selected INSERT attribute through its explicit ownership path.
+    /// </summary>
+    public bool SetSelectedAttributeValue(
+        CadAttributeValueOwner owner,
+        string tag,
+        int occurrence,
+        string value)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount != 1)
+        {
+            return false;
+        }
+        if (!Enum.IsDefined(owner))
+        {
+            throw new ArgumentOutOfRangeException(nameof(owner));
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        ulong insertHandle = _selectedHandles[0];
+        CadEditCommand command = owner switch
+        {
+            CadAttributeValueOwner.Reference => new CadSetAttributeValueCommand(
+                insertHandle,
+                tag,
+                value,
+                occurrence,
+                $"Set INSERT attribute '{tag}'"),
+            CadAttributeValueOwner.Definition =>
+                new CadSetConstantAttributeDefinitionValueCommand(
+                    insertHandle,
+                    tag,
+                    value,
+                    occurrence,
+                    $"Set constant block attribute '{tag}'"),
+            _ => throw new ArgumentOutOfRangeException(nameof(owner)),
+        };
+        history.Execute(command);
+        RecompileAfterEdit(session);
+        return true;
+    }
+
     /// <summary>Sets the complete selection to one CAD color as one edit.</summary>
     public bool SetSelectionColor(ACadSharp.Color color)
     {

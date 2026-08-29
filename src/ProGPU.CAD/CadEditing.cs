@@ -3657,6 +3657,10 @@ public sealed class CadDuplicateModelSpaceEntityCommand : CadEditCommand
 /// </summary>
 public sealed class CadSetAttributeValueCommand : CadEditCommand
 {
+    public const int MaximumTagCodeUnits = 4_096;
+    public const int MaximumValueCodeUnits =
+        CadSnapshotOptions.DefaultMaxTextCodeUnitsPerEntity;
+
     private readonly ulong _insertHandle;
     private Insert? _insert;
     private AttributeEntity? _attribute;
@@ -3688,10 +3692,22 @@ public sealed class CadSetAttributeValueCommand : CadEditCommand
         ArgumentException.ThrowIfNullOrWhiteSpace(tag);
         ArgumentNullException.ThrowIfNull(value);
         ArgumentOutOfRangeException.ThrowIfNegative(occurrence);
+        if (tag.Length > MaximumTagCodeUnits)
+        {
+            throw new ArgumentException(
+                "The attribute tag exceeds the command ownership budget.",
+                nameof(tag));
+        }
+        if (value.Length > MaximumValueCodeUnits)
+        {
+            throw new ArgumentException(
+                "The attribute value exceeds the snapshot per-entity text budget.",
+                nameof(value));
+        }
 
         _insertHandle = insertHandle;
-        Tag = tag;
-        Value = value;
+        Tag = new string(tag.AsSpan());
+        Value = new string(value.AsSpan());
         Occurrence = occurrence;
     }
 
