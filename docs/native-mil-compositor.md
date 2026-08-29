@@ -4806,6 +4806,12 @@ identity fail closed. Native CTest coverage verifies copied-to-external mode
 replacement, dimensions, row bytes, generation, zero payload, and invalid
 bindings; the managed native backend builds with zero warnings.
 
+The base native export allowlist pins both
+`progpu_native_mil_channel_set_bitmap_source_external_image` and
+`progpu_native_mil_channel_set_d3d_image_external_image`. Every Linux, macOS,
+and Windows native package lane therefore rejects an implementation that
+compiles these canonical sidebands but omits them from the public ABI.
+
 The exact tracked delta from the prior qualified archive through documentation
 head `4ece2969` rebuilds and relinks on both Parallels guests. Ubuntu 24.04
 ARM64 passes the native MIL CTest 1/1 in 0.03 seconds, exposes the new export,
