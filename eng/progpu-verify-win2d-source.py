@@ -80,6 +80,30 @@ def main() -> int:
         ("ds.DrawLine", "ds.DrawRectangle", "ds.DrawRoundedRectangle", "ds.DrawCircle"),
         "Win2D shapes oracle",
     )
+    require_text(
+        arguments.implementation / "winrt/lib/geometry/CanvasPathBuilder.cpp",
+        (
+            "CanvasPathBuilder::AddArcAroundEllipse",
+            "XMConvertToDegrees(rotationAngle)",
+            "CanvasPathBuilder::CloseAndReturnPath",
+        ),
+        "Win2D path-builder contract",
+    )
+    require_text(
+        arguments.samples / "ExampleGallery/ArcOptions.xaml.cs",
+        (
+            "new CanvasPathBuilder(sender)",
+            "builder.AddArc",
+            "CanvasGeometry.CreatePath(builder)",
+            "ds.DrawGeometry",
+        ),
+        "Win2D geometry oracle",
+    )
+    require_text(
+        arguments.samples / "ExampleGallery/VectorArt.xaml.cs",
+        ("args.DrawingSession.CreateLayer", "new Rect(0, 0, sceneSize.X, sceneSize.Y)"),
+        "Win2D layer oracle",
+    )
 
     print(
         "Verified Win2D "
