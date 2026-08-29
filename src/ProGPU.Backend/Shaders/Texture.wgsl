@@ -198,13 +198,45 @@ fn cubic_weight(x: f32, b: f32, c: f32) -> f32 {
     return 0.0;
 }
 
-fn sample_bicubic(uv: vec2<f32>, resampler: vec2<f32>) -> vec4<f32> {
+fn address_texture_coordinate(value: f32, mode: f32) -> f32 {
+    if (mode < 0.5) {
+        return value;
+    }
+    if (mode < 1.5) {
+        return fract(value);
+    }
+    let mirrored = fract(value * 0.5) * 2.0;
+    return select(mirrored, 2.0 - mirrored, mirrored > 1.0);
+}
+
+fn address_texture_coordinates(uv: vec2<f32>, modes: vec2<f32>) -> vec2<f32> {
+    return vec2<f32>(
+        address_texture_coordinate(uv.x, modes.x),
+        address_texture_coordinate(uv.y, modes.y));
+}
+
+fn address_texture_index(coordinate: i32, size: i32, mode: f32) -> i32 {
+    if (mode < 0.5) {
+        return clamp(coordinate, 0, size - 1);
+    }
+    if (mode < 1.5) {
+        return ((coordinate % size) + size) % size;
+    }
+    let period = size * 2;
+    let wrapped = ((coordinate % period) + period) % period;
+    return select(wrapped, period - 1 - wrapped, wrapped >= size);
+}
+
+fn sample_bicubic(
+    uv: vec2<f32>,
+    resampler: vec2<f32>,
+    addressModes: vec2<f32>) -> vec4<f32> {
     let size = textureDimensions(texTexture);
     let sizef = vec2<f32>(f32(size.x), f32(size.y));
     let texel = uv * sizef - vec2<f32>(0.5, 0.5);
     let base = floor(texel);
     let f = texel - base;
-    let maxCoord = vec2<i32>(i32(size.x) - 1, i32(size.y) - 1);
+    let sizei = vec2<i32>(i32(size.x), i32(size.y));
     var color = vec4<f32>(0.0);
     var total = 0.0;
 
@@ -213,10 +245,15 @@ fn sample_bicubic(uv: vec2<f32>, resampler: vec2<f32>) -> vec4<f32> {
         for (var x: i32 = -1; x <= 2; x = x + 1) {
             let wx = cubic_weight(f.x - f32(x), resampler.x, resampler.y);
             let weight = wx * wy;
-            let coord = clamp(
-                vec2<i32>(i32(base.x) + x, i32(base.y) + y),
-                vec2<i32>(0, 0),
-                maxCoord);
+            let coord = vec2<i32>(
+                address_texture_index(
+                    i32(base.x) + x,
+                    sizei.x,
+                    addressModes.x),
+                address_texture_index(
+                    i32(base.y) + y,
+                    sizei.y,
+                    addressModes.y));
             color = color + textureLoad(texTexture, coord, 0) * weight;
             total = total + weight;
         }
@@ -442,6 +479,13 @@ fn blend_atlas_color(source: vec4<f32>, destinationPremultiplied: vec4<f32>, mod
 fn texture_fs_main_with_mask(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
     let textureCoordDx = dpdx(input.texCoord);
     let textureCoordDy = dpdy(input.texCoord);
+    let addressModes = select(
+        vec2<f32>(0.0),
+        vec2<f32>(input.colorBlendMode, input.patchOpacity),
+        input.patchKind < 0.5);
+    let addressedTexCoord = address_texture_coordinates(
+        input.texCoord,
+        addressModes);
     if (maskAlpha <= 0.0) {
         discard;
     }
@@ -454,14 +498,22 @@ fn texture_fs_main_with_mask(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
         return vec4<f32>(input.color.rgb, input.color.a * maskAlpha);
     }
 
-    var texColor = textureSampleGrad(texTexture, texSampler, input.texCoord, textureCoordDx, textureCoordDy);
+    var texColor = textureSampleGrad(
+        texTexture,
+        texSampler,
+        addressedTexCoord,
+        textureCoordDx,
+        textureCoordDy);
     if (input.patchKind < -0.5 || input.cubicResampler.x < -16.5) {
         texColor = sample_fant_prefilter(
-            input.texCoord,
+            addressedTexCoord,
             textureCoordDx,
             textureCoordDy);
     } else if (input.color.a < 0.0 || (input.patchKind > 2.5 && input.patchOpacity < 0.0)) {
-        texColor = sample_bicubic(input.texCoord, input.cubicResampler);
+        texColor = sample_bicubic(
+            addressedTexCoord,
+            input.cubicResampler,
+            addressModes);
     }
 
     // patchKind 3 carries straight atlas samples; 4 carries premultiplied atlas samples.
@@ -530,14 +582,24 @@ fn color_matrix_fs_main_with_mask(
     maskAlpha: f32) -> vec4<f32> {
     let textureCoordDx = dpdx(input.texCoord);
     let textureCoordDy = dpdy(input.texCoord);
+    let addressModes = select(
+        vec2<f32>(0.0),
+        vec2<f32>(input.colorBlendMode, input.patchOpacity),
+        input.patchKind < 0.5);
+    let addressedTexCoord = address_texture_coordinates(
+        input.texCoord,
+        addressModes);
     var source = textureSampleGrad(
         texTexture,
         texSampler,
-        input.texCoord,
+        addressedTexCoord,
         textureCoordDx,
         textureCoordDy);
     if (input.color.a < 0.0) {
-        source = sample_bicubic(input.texCoord, input.cubicResampler);
+        source = sample_bicubic(
+            addressedTexCoord,
+            input.cubicResampler,
+            addressModes);
     }
     if (input.color.g > 0.5) {
         source = atlas_unpremultiply(source);

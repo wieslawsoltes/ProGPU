@@ -13,6 +13,23 @@ namespace ProGPU.Tests;
 
 public class ShaderResourceTests
 {
+    [Fact]
+    public void TextureShaderKeepsAddressFallbackOnGpu()
+    {
+        Assert.Contains(
+            "fn address_texture_coordinate(value: f32, mode: f32)",
+            Shaders.TextureShader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "fn address_texture_index(coordinate: i32, size: i32, mode: f32)",
+            Shaders.TextureShader,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "let addressedTexCoord = address_texture_coordinates(",
+            Shaders.TextureShader,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(0.02f)]
     [InlineData(0.25f)]

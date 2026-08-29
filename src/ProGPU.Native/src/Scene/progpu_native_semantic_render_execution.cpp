@@ -2809,8 +2809,14 @@ progpu_native_status render_scene(
                             image.transform);
                     float color[4]{};
                     float patch_kind = 0.0F;
-                    float color_blend_mode = 0.0F;
-                    float patch_opacity = 1.0F;
+                    float color_blend_mode = static_cast<float>(
+                        (image.flags &
+                            PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_MASK) >>
+                        PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT);
+                    float patch_opacity = static_cast<float>(
+                        (image.flags &
+                            PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_MASK) >>
+                        PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT);
                     if (patch == nullptr) {
                         semantic::resolve_image_vertex_color(
                             image,
