@@ -2967,7 +2967,8 @@ progpu_native_status render_scene(
                     semantic::resolve_semantic_image_sampler(
                         *engine,
                         image.sampling,
-                        image.max_anisotropy);
+                        image.max_anisotropy,
+                        image.flags);
                 if (draw.view != nullptr && image_sampler != nullptr) {
                     draw.texture_bind_group = create_image_texture_bind_group(
                         *engine,

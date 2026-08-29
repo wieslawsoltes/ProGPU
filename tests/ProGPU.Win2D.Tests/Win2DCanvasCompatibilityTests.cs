@@ -42,6 +42,15 @@ public sealed class Win2DCanvasCompatibilityTests
     }
 
     [Fact]
+    public void PinnedImageBrushDrawingBodyCompilesUnchanged()
+    {
+        Action<ICanvasResourceCreator, CanvasBitmap, CanvasDrawingSession> body =
+            DrawPinnedImageBrushSample;
+
+        Assert.NotNull(body);
+    }
+
+    [Fact]
     public void DpiConversionMatchesWin2DRoundingContract()
     {
         Assert.Equal(
@@ -192,6 +201,12 @@ public sealed class Win2DCanvasCompatibilityTests
         Assert.NotNull(type.GetMethod(
             nameof(CanvasDrawingSession.CreateLayer),
             [typeof(float), typeof(CanvasGeometry), typeof(Matrix3x2)]));
+        Assert.NotNull(typeof(CanvasImageBrush).GetConstructor(
+            [typeof(ICanvasResourceCreator), typeof(ICanvasImage)]));
+        Assert.Equal(CanvasEdgeBehavior.Clamp,
+            default(CanvasEdgeBehavior));
+        Assert.Equal(CanvasImageInterpolation.Linear,
+            (CanvasImageInterpolation)1);
     }
 
     [Fact]
@@ -345,5 +360,27 @@ public sealed class Win2DCanvasCompatibilityTests
             RadiusY = 25
         };
         drawingSession.FillCircle(50, 50, 25, radial);
+    }
+
+    private static void DrawPinnedImageBrushSample(
+        ICanvasResourceCreator resourceCreator,
+        CanvasBitmap checks,
+        CanvasDrawingSession drawingSession)
+    {
+        using var checkedFillPattern = new CanvasImageBrush(
+            resourceCreator,
+            checks)
+        {
+            ExtendX = CanvasEdgeBehavior.Wrap,
+            ExtendY = CanvasEdgeBehavior.Wrap,
+            Transform = Matrix3x2.CreateScale(16),
+            Interpolation = CanvasImageInterpolation.NearestNeighbor
+        };
+        drawingSession.FillRectangle(
+            0,
+            0,
+            100,
+            100,
+            checkedFillPattern);
     }
 }

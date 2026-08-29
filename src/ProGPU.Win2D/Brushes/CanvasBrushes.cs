@@ -1,4 +1,5 @@
 using System.Numerics;
+using ProGPU.Scene;
 using ProGPU.Vector;
 using Color = Windows.UI.Color;
 using NativeBrush = ProGPU.Vector.Brush;
@@ -32,7 +33,9 @@ public struct CanvasGradientStopHdr
 
 internal interface ICanvasBrushInternal
 {
-    NativeBrush GetNativeBrush(CanvasDevice requiredDevice);
+    NativeBrush GetNativeBrush(
+        CanvasDevice requiredDevice,
+        DrawingContext drawingContext);
 }
 
 internal sealed class CanvasBrushState
@@ -206,7 +209,8 @@ public sealed class CanvasSolidColorBrush : ICanvasBrush, ICanvasBrushInternal
     }
 
     NativeBrush ICanvasBrushInternal.GetNativeBrush(
-        CanvasDevice requiredDevice)
+        CanvasDevice requiredDevice,
+        DrawingContext drawingContext)
     {
         _state.ValidateDevice(requiredDevice);
         if (_cachedBrush is not null && _cachedVersion == _state.Version)
@@ -438,7 +442,8 @@ public sealed class CanvasLinearGradientBrush :
     }
 
     NativeBrush ICanvasBrushInternal.GetNativeBrush(
-        CanvasDevice requiredDevice)
+        CanvasDevice requiredDevice,
+        DrawingContext drawingContext)
     {
         _state.ValidateDevice(requiredDevice);
         if (_cachedBrush is not null && _cachedVersion == _state.Version)
@@ -709,7 +714,8 @@ public sealed class CanvasRadialGradientBrush :
     }
 
     NativeBrush ICanvasBrushInternal.GetNativeBrush(
-        CanvasDevice requiredDevice)
+        CanvasDevice requiredDevice,
+        DrawingContext drawingContext)
     {
         _state.ValidateDevice(requiredDevice);
         if (_radiusX <= 0f || _radiusY <= 0f)

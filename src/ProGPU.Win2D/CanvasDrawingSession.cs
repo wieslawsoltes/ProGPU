@@ -1152,7 +1152,7 @@ public sealed class CanvasDrawingSession :
                 nameof(brush));
         }
 
-        return source.GetNativeBrush(Device);
+        return source.GetNativeBrush(Device, _context);
     }
 
     private Pen GetPen(Color color, float width)

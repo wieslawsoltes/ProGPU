@@ -131,6 +131,40 @@ bool semantic_image_sampling_payload_is_exact_and_bounded() {
         return false;
     }
 
+    image.flags =
+        static_cast<std::uint32_t>(PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT) <<
+        PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT;
+    if (semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+    image.flags =
+        (static_cast<std::uint32_t>(PROGPU_NATIVE_IMAGE_ADDRESS_REPEAT) <<
+            PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_SHIFT) |
+        (static_cast<std::uint32_t>(
+            PROGPU_NATIVE_IMAGE_ADDRESS_MIRROR_REPEAT) <<
+            PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_V_SHIFT) |
+        PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT;
+    image.source_rect = {-2.0F, -1.0F, 8.0F, 6.0F};
+    if (!semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+    image.flags = PROGPU_NATIVE_SCENE_IMAGE_ADDRESS_U_MASK |
+        PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT;
+    if (semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+    image.flags = PROGPU_NATIVE_SCENE_IMAGE_PATCH_BATCH |
+        PROGPU_NATIVE_SCENE_IMAGE_EXTENDED_SOURCE_RECT;
+    if (semantic::validate_image_draw_payload(
+            bytes.data(), command, image, 16U, parsed)) {
+        return false;
+    }
+    image.flags = 0U;
+    image.source_rect = {0.0F, 0.0F, 2.0F, 2.0F};
+
     image.flags = PROGPU_NATIVE_SCENE_IMAGE_COLOR_MATRIX;
     progpu_native_scene_image_color_matrix matrix{};
     matrix.struct_size = sizeof(matrix);

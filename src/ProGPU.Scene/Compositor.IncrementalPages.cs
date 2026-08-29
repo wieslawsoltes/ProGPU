@@ -111,6 +111,8 @@ public unsafe partial class Compositor
             BlendMode = drawCall.BlendMode;
             TextureSamplingMode = drawCall.TextureSamplingMode;
             TextureMaxAnisotropy = drawCall.TextureMaxAnisotropy;
+            TextureAddressModeU = drawCall.TextureAddressModeU;
+            TextureAddressModeV = drawCall.TextureAddressModeV;
             TextureAlphaMode = drawCall.TextureAlphaMode;
         }
 
@@ -124,6 +126,8 @@ public unsafe partial class Compositor
         internal GpuBlendMode BlendMode { get; }
         internal TextureSamplingMode TextureSamplingMode { get; }
         internal byte TextureMaxAnisotropy { get; }
+        internal TextureAddressMode TextureAddressModeU { get; }
+        internal TextureAddressMode TextureAddressModeV { get; }
         internal GpuTextureAlphaMode TextureAlphaMode { get; }
 
         internal CompositorDrawCall Expand(uint indexBase)
@@ -140,6 +144,8 @@ public unsafe partial class Compositor
                 BlendMode = BlendMode,
                 TextureSamplingMode = TextureSamplingMode,
                 TextureMaxAnisotropy = TextureMaxAnisotropy,
+                TextureAddressModeU = TextureAddressModeU,
+                TextureAddressModeV = TextureAddressModeV,
                 TextureAlphaMode = TextureAlphaMode
             };
         }
