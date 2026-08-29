@@ -2091,6 +2091,19 @@ entry after the synchronous generation replacement, disables case-insensitive
 duplicates, and uses the existing history. Matched ownership, duplicate,
 selection, Undo/Redo, DXF, and DWG regressions cover the contract.
 
+`CadUpdateNamedPageSetupFromLayoutCommand` adds the first bounded Modify action.
+It resolves a source layout and existing named setup under the session lock,
+rejects model/paper target mismatches before mutation, and replaces only the
+named object's fixed plot contract. The target object, document handle,
+dictionary ownership, dictionary key, `Name`, and page-setup name stay stable;
+the source layout remains unchanged. Previous and applied plot states are fixed
+value records, so Apply, Undo, and Redo are transactional O(1) work/storage
+after O(N) bounded name ownership. The shared `Update selected` action is
+enabled only for model-compatible named entries, preserves catalog selection
+across each generation replacement, and does not implicitly apply the modified
+record to any layout. Matched identity, target-space, UI, Undo/Redo, DXF, and
+DWG regressions cover this behavior.
+
 This slice changes document metadata and the shared host only. It changes no
 scene compiler, shader, render command, cache, GPU resource, native ABI, or
 managed/native renderer behavior, so a paired native rendering implementation
@@ -3462,6 +3475,7 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   the same existing picture/overlay commands.
 - [Autodesk page setup](https://help.autodesk.com/cloudhelp/2025/ENU/DWGTrueView/files/GUID-0D72CF75-DA37-4937-9D9A-D93AA9BDF8D3.htm),
   [Page Setup Manager](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-Core/files/GUID-B06031A0-EF7E-4287-8E34-ABDCC40FF8C4.htm),
+  [named page-setup modification](https://help.autodesk.com/cloudhelp/2023/ENU/DWGTrueView/files/GUID-F8893121-2855-441D-B8EC-B388AAA96645.htm),
   [named page-setup workflow](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-62B163D7-92F5-4793-85C2-246BDDA81470.htm),
   [Plot Settings and Page Setups (.NET)](https://help.autodesk.com/cloudhelp/2017/ENU/AutoCAD-NET/files/GUID-56BD3247-471C-4471-A238-FFDFDC3BD2E4.htm),
   [plot-area choices](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-MAC-Core/files/GUID-7F356502-16EC-4371-86A9-2A58968762DD.htm),
@@ -3509,7 +3523,12 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   name, and inserts it into the drawing's plot-settings dictionary. ProGPU
   adopts those observable semantics with an original fixed-field copy,
   case-insensitive duplicate preflight, bounded ownership, exact retained-object
-  Undo/Redo, and no foreign transaction or helper structure.
+  Undo/Redo, and no foreign transaction or helper structure. Autodesk exposes
+  Modify as an operation on the selected named record and keeps applying it to
+  a layout as a separate action. ProGPU adapts that separation: `Update
+  selected` replaces the named record from Model without changing object/name
+  identity or propagating to layouts; the existing explicit Apply command owns
+  layout mutation and its independent history entry.
 - [Skia PDF pages](https://skia.org/docs/user/sample/pdf/),
   [Skia canvas backends](https://skia.org/docs/user/api/skcanvas_creation/),
   [Skia canvas transforms and clips](https://skia.org/docs/user/api/skcanvas_overview/),

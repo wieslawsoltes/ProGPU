@@ -568,6 +568,26 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Replaces one named page setup's plot contract from a layout through the
+    /// generation-safe reversible document history.
+    /// </summary>
+    public void UpdateNamedPageSetupFromLayout(
+        string sourceLayoutName,
+        string targetPageSetupName)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadUpdateNamedPageSetupFromLayoutCommand(
+            sourceLayoutName,
+            targetPageSetupName,
+            $"Update page setup '{targetPageSetupName}' from layout '{sourceLayoutName}'"));
+        RecompileAfterEdit(session);
+    }
+
+    /// <summary>
     /// Compiles one retained page from a generation-matched drawing page setup.
     /// Unsupported page policies fail with their typed CADPAGE diagnostic.
     /// </summary>

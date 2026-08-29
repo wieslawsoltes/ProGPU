@@ -60,7 +60,7 @@ public sealed class CadApplyNamedPageSetupCommand : CadEditCommand
             CadPlotSettingsState redoState = _appliedState ??
                 throw new InvalidOperationException(
                     "The page-setup command has not been applied.");
-            ApplyTransactional(retainedLayout, redoState);
+            CadPlotSettingsState.ApplyTransactional(retainedLayout, redoState);
             return;
         }
 
@@ -83,7 +83,7 @@ public sealed class CadApplyNamedPageSetupCommand : CadEditCommand
         CadPlotSettingsState previous = CadPlotSettingsState.Capture(layout);
         CadPlotSettingsState appliedState = CadPlotSettingsState.Capture(namedPageSetup)
             .WithModelType(layoutTargetsModel);
-        ApplyTransactional(layout, appliedState);
+        CadPlotSettingsState.ApplyTransactional(layout, appliedState);
         _layout = layout;
         _previousState = previous;
         _appliedState = appliedState;
@@ -95,7 +95,7 @@ public sealed class CadApplyNamedPageSetupCommand : CadEditCommand
         CadPlotSettingsState previous = _previousState ??
             throw new InvalidOperationException(
                 "The page-setup command has not been applied.");
-        ApplyTransactional(layout, previous);
+        CadPlotSettingsState.ApplyTransactional(layout, previous);
     }
 
     private Layout GetRetainedLayout(CadDocument document)
@@ -140,31 +140,144 @@ public sealed class CadApplyNamedPageSetupCommand : CadEditCommand
         return pageSetup;
     }
 
-    private static void ApplyTransactional(
-        PlotSettings target,
-        CadPlotSettingsState desired)
+}
+
+/// <summary>
+/// Replaces one named page setup's fixed plot contract from an existing layout
+/// while preserving the named setup's identity.
+/// </summary>
+/// <remarks>
+/// Construction is O(N) time and storage for at most 8,192 copied name code
+/// units. Apply, Undo, and Redo are transactional O(1) operations retaining two
+/// fixed plot-value records and existing immutable strings.
+/// </remarks>
+public sealed class CadUpdateNamedPageSetupFromLayoutCommand : CadEditCommand
+{
+    public const int MaximumNameCodeUnits = 4_096;
+
+    private readonly string _sourceLayoutName;
+    private readonly string _targetPageSetupName;
+    private PlotSettings? _targetPageSetup;
+    private CadPlotSettingsState? _previousState;
+    private CadPlotSettingsState? _appliedState;
+
+    public string SourceLayoutName => _sourceLayoutName;
+
+    public string TargetPageSetupName => _targetPageSetupName;
+
+    public CadUpdateNamedPageSetupFromLayoutCommand(
+        string sourceLayoutName,
+        string targetPageSetupName,
+        string description = "Update named page setup from layout")
+        : base(description)
     {
-        CadPlotSettingsState rollback = CadPlotSettingsState.Capture(target);
-        try
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceLayoutName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetPageSetupName);
+        if (sourceLayoutName.Length > MaximumNameCodeUnits)
         {
-            desired.ApplyTo(target);
+            throw new ArgumentException(
+                "The source layout name exceeds the command ownership budget.",
+                nameof(sourceLayoutName));
         }
-        catch (Exception applyException)
+        if (targetPageSetupName.Length > MaximumNameCodeUnits)
         {
-            try
-            {
-                rollback.ApplyTo(target);
-            }
-            catch (Exception rollbackException)
-            {
-                throw new InvalidOperationException(
-                    "Applying page setup failed and its rollback also failed.",
-                    new AggregateException(applyException, rollbackException));
-            }
-            throw;
+            throw new ArgumentException(
+                "The target page-setup name exceeds the command ownership budget.",
+                nameof(targetPageSetupName));
         }
+        _sourceLayoutName = new string(sourceLayoutName.AsSpan());
+        _targetPageSetupName = new string(targetPageSetupName.AsSpan());
     }
 
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        if (isRedo)
+        {
+            PlotSettings retained = GetRetainedPageSetup(document);
+            CadPlotSettingsState redoState = _appliedState ??
+                throw new InvalidOperationException(
+                    "The page-setup update command has not been applied.");
+            CadPlotSettingsState.ApplyTransactional(retained, redoState);
+            return;
+        }
+
+        Layout source = ResolveLayout(document, _sourceLayoutName);
+        PlotSettings target = ResolveNamedPageSetup(
+            document,
+            _targetPageSetupName);
+        bool sourceTargetsModel = !source.IsPaperSpace;
+        bool targetTargetsModel = (target.Flags & PlotFlags.ModelType) != 0;
+        if (sourceTargetsModel != targetTargetsModel)
+        {
+            throw new InvalidOperationException(
+                $"Named page setup '{_targetPageSetupName}' targets " +
+                $"{(targetTargetsModel ? "model" : "paper")} space and cannot be " +
+                $"updated from {(sourceTargetsModel ? "model" : "paper")}-space " +
+                $"layout '{_sourceLayoutName}'.");
+        }
+
+        CadPlotSettingsState previous = CadPlotSettingsState.Capture(target);
+        CadPlotSettingsState applied = CadPlotSettingsState.Capture(source)
+            .WithModelType(sourceTargetsModel)
+            .WithPageName(target.PageName);
+        CadPlotSettingsState.ApplyTransactional(target, applied);
+        _targetPageSetup = target;
+        _previousState = previous;
+        _appliedState = applied;
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        PlotSettings retained = GetRetainedPageSetup(document);
+        CadPlotSettingsState previous = _previousState ??
+            throw new InvalidOperationException(
+                "The page-setup update command has not been applied.");
+        CadPlotSettingsState.ApplyTransactional(retained, previous);
+    }
+
+    private PlotSettings GetRetainedPageSetup(CadDocument document)
+    {
+        PlotSettings retained = _targetPageSetup ??
+            throw new InvalidOperationException(
+                "The page-setup update command has not been applied.");
+        PlotSettings current = ResolveNamedPageSetup(
+            document,
+            _targetPageSetupName);
+        if (!ReferenceEquals(retained, current))
+        {
+            throw new InvalidOperationException(
+                $"Named page setup '{_targetPageSetupName}' is no longer the retained setup.");
+        }
+        return retained;
+    }
+
+    private static Layout ResolveLayout(CadDocument document, string name)
+    {
+        if (document.Layouts is null ||
+            !document.Layouts.TryGet(name, out Layout layout))
+        {
+            throw new InvalidOperationException(
+                $"Layout '{name}' does not exist.");
+        }
+        return layout;
+    }
+
+    private static PlotSettings ResolveNamedPageSetup(
+        CadDocument document,
+        string name)
+    {
+        if (document.RootDictionary is null ||
+            !document.RootDictionary.TryGetEntry(
+                CadDictionary.AcadPlotSettings,
+                out CadDictionary pageSetups) ||
+            !pageSetups.TryGetEntry(name, out PlotSettings pageSetup) ||
+            pageSetup is Layout)
+        {
+            throw new InvalidOperationException(
+                $"Named page setup '{name}' does not exist.");
+        }
+        return pageSetup;
+    }
 }
 
 /// <summary>
@@ -403,6 +516,31 @@ internal readonly record struct CadPlotSettingsState(
     {
         PageName = pageName,
     };
+
+    public static void ApplyTransactional(
+        PlotSettings target,
+        CadPlotSettingsState desired)
+    {
+        CadPlotSettingsState rollback = Capture(target);
+        try
+        {
+            desired.ApplyTo(target);
+        }
+        catch (Exception applyException)
+        {
+            try
+            {
+                rollback.ApplyTo(target);
+            }
+            catch (Exception rollbackException)
+            {
+                throw new InvalidOperationException(
+                    "Applying page setup failed and its rollback also failed.",
+                    new AggregateException(applyException, rollbackException));
+            }
+            throw;
+        }
+    }
 
     public void ApplyTo(PlotSettings target)
     {

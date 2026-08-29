@@ -29,6 +29,7 @@ public sealed class CadSampleView : Grid
     private readonly Button _applyPageSetupButton;
     private readonly TextBox _pageSetupNameInput;
     private readonly Button _createPageSetupButton;
+    private readonly Button _updatePageSetupButton;
     private readonly TextBlock _status;
     private readonly Button _openButton;
     private readonly Button _saveButton;
@@ -306,8 +307,11 @@ public sealed class CadSampleView : Grid
             Margin = new Thickness(0, 0, 8, 0),
         };
         _createPageSetupButton = CreateButton("Save named setup", font, 132, 30);
+        _createPageSetupButton.Margin = new Thickness(0, 0, 8, 0);
+        _updatePageSetupButton = CreateButton("Update selected", font, 120, 30);
         pageSetupCreateActions.AddChild(_pageSetupNameInput);
         pageSetupCreateActions.AddChild(_createPageSetupButton);
+        pageSetupCreateActions.AddChild(_updatePageSetupButton);
 
         _status = new TextBlock
         {
@@ -348,6 +352,8 @@ public sealed class CadSampleView : Grid
         _pageSetupNameInput.TextChanged += (_, _) => UpdateEditControls();
         _createPageSetupButton.Click += (_, _) =>
             CreateNamedPageSetupFromModel();
+        _updatePageSetupButton.Click += (_, _) =>
+            UpdateSelectedPageSetupFromModel();
         _clearSelectionButton.Click += (_, _) => _canvas.ClearSelection();
         _undoButton.Click += (_, _) => PerformUndo();
         _redoButton.Click += (_, _) => PerformRedo();
@@ -558,6 +564,41 @@ public sealed class CadSampleView : Grid
         catch (Exception exception)
         {
             SetStatus($"Create page setup failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void UpdateSelectedPageSetupFromModel()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        var item = _pageSetupSelector.SelectedItem as ComboBoxItem;
+        var choice = item?.Tag as PageSetupChoice;
+        if (choice?.PageSetup is not CadPageSetupSnapshot pageSetup ||
+            !choice.CanApplyToModel)
+        {
+            SetStatus("Updating from Model requires a model-compatible named setup selection.");
+            UpdateEditControls();
+            return;
+        }
+
+        try
+        {
+            _canvas.UpdateNamedPageSetupFromLayout(
+                ACadLayout.ModelLayoutName,
+                pageSetup.Name);
+            SetStatus(
+                $"Updated named page setup '{pageSetup.Name}' from Model as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Update page setup failed: {exception.Message}");
         }
         finally
         {
@@ -1345,6 +1386,10 @@ public sealed class CadSampleView : Grid
         _pageSetupNameInput.IsEnabled = canUsePlanTools;
         _createPageSetupButton.IsEnabled =
             canUsePlanTools && CanCreateNamedPageSetup(_pageSetupNameInput.Text);
+        _updatePageSetupButton.IsEnabled =
+            canUsePlanTools &&
+            (_pageSetupSelector.SelectedItem as ComboBoxItem)?.Tag is
+                PageSetupChoice { CanApplyToModel: true };
         _undoButton.IsEnabled =
             canUsePlanTools && _canvas.UndoCount > 0;
         _redoButton.IsEnabled =

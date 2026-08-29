@@ -539,6 +539,90 @@ public sealed class CadSamplePrintPreviewTests
         }
     }
 
+    [Fact]
+    public void SharedViewUpdatesSelectedNamedPageSetupFromModelWithUndoRedo()
+    {
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_000, 800));
+            ComboBox selector = view.PageSetupSelector;
+            selector.SelectedItem = selector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Text.StartsWith(
+                    "Named: A4 portrait",
+                    StringComparison.Ordinal));
+            Button update = FindButton(view, "Update selected");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+            CadPageSetupSnapshot model = view.Canvas.CreatePageSetupCatalog()
+                .FindLayout(ACadLayout.ModelLayoutName)!;
+            CadPageSetupSnapshot original = view.Canvas.CreatePageSetupCatalog()
+                .FindNamedOverride("A4 portrait")!;
+            ulong originalGeneration = view.Canvas.CurrentSession!.ContentGeneration;
+
+            Assert.True(update.IsEnabled);
+            Assert.NotEqual(model.PaperWidthMillimeters, original.PaperWidthMillimeters);
+            PressEnter(update);
+
+            Assert.Equal(
+                checked(originalGeneration + 1),
+                view.Canvas.CurrentSession.ContentGeneration);
+            CadPageSetupSnapshot updated = view.Canvas.CreatePageSetupCatalog()
+                .FindNamedOverride("A4 portrait")!;
+            Assert.Equal("A4 portrait", updated.Name);
+            Assert.Equal("A4 portrait", updated.PageSetupName);
+            Assert.Equal(model.PaperWidthMillimeters, updated.PaperWidthMillimeters);
+            Assert.Equal(model.PaperHeightMillimeters, updated.PaperHeightMillimeters);
+            Assert.Equal(model.Rotation, updated.Rotation);
+            Assert.StartsWith(
+                "Named: A4 portrait",
+                Assert.IsType<ComboBoxItem>(selector.SelectedItem).Text,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Updated named page setup 'A4 portrait' from Model",
+                    StringComparison.Ordinal));
+
+            PressEnter(undo);
+
+            CadPageSetupSnapshot undone = view.Canvas.CreatePageSetupCatalog()
+                .FindNamedOverride("A4 portrait")!;
+            Assert.Equal(original.PaperWidthMillimeters, undone.PaperWidthMillimeters);
+            Assert.Equal(original.PaperHeightMillimeters, undone.PaperHeightMillimeters);
+            Assert.Equal(original.Rotation, undone.Rotation);
+            Assert.StartsWith(
+                "Named: A4 portrait",
+                Assert.IsType<ComboBoxItem>(selector.SelectedItem).Text,
+                StringComparison.Ordinal);
+
+            PressEnter(redo);
+
+            CadPageSetupSnapshot redone = view.Canvas.CreatePageSetupCatalog()
+                .FindNamedOverride("A4 portrait")!;
+            Assert.Equal(model.PaperWidthMillimeters, redone.PaperWidthMillimeters);
+            Assert.Equal(model.PaperHeightMillimeters, redone.PaperHeightMillimeters);
+            Assert.Equal(model.Rotation, redone.Rotation);
+            Assert.StartsWith(
+                "Named: A4 portrait",
+                Assert.IsType<ComboBoxItem>(selector.SelectedItem).Text,
+                StringComparison.Ordinal);
+
+            selector.SelectedItem = selector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Text.StartsWith(
+                    "Layout: Model",
+                    StringComparison.Ordinal));
+            Assert.False(update.IsEnabled);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
     private static Button FindButton(Visual root, string label) =>
         DescendantsAndSelf(root)
             .OfType<Button>()
