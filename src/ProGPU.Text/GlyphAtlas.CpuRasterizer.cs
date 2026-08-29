@@ -8,8 +8,6 @@ namespace ProGPU.Text;
 
 public unsafe partial class GlyphAtlas
 {
-    private readonly record struct CpuCrossing(float X, int Direction);
-
     private static readonly Vector128<float> s_simdLaneIndices128 =
         Vector128.Create(0F, 1F, 2F, 3F);
 
@@ -48,8 +46,8 @@ public unsafe partial class GlyphAtlas
         int maximumCrossingsPerScanline =
             checked((int)record.SegmentCount * 3);
         int maximumCrossings = checked(maximumCrossingsPerScanline * 8);
-        CpuCrossing[] crossingArray =
-            ArrayPool<CpuCrossing>.Shared.Rent(Math.Max(maximumCrossings, 1));
+        float[] crossingArray =
+            ArrayPool<float>.Shared.Rent(Math.Max(maximumCrossings, 1));
         try
         {
             float inverseScale = 1f / scale;
@@ -69,26 +67,35 @@ public unsafe partial class GlyphAtlas
                 sampleOffsetsHigh128 = sampleOffsetsLow128 +
                     Vector128.Create(4F * glyphSampleStep);
             }
-            Span<int> scanlineOffsets = stackalloc int[9];
+            Span<int> positiveCrossingCounts = stackalloc int[8];
+            Span<int> negativeCrossingStarts = stackalloc int[8];
+            ref float crossingArrayStart = ref System.Runtime.InteropServices
+                .MemoryMarshal.GetArrayDataReference(crossingArray);
             for (uint y = 0; y < height; y++)
             {
                 float pixelY = yStart + y;
                 Span<byte> coveredRow = coverage.AsSpan(
                     checked((int)(y * width)),
                     checked((int)width));
-                int crossingCount = 0;
                 for (uint sampleY = 0; sampleY < 8; sampleY++)
                 {
-                    scanlineOffsets[checked((int)sampleY)] = crossingCount;
+                    int sampleIndex = checked((int)sampleY);
+                    int scanlineStart = checked(
+                        sampleIndex * maximumCrossingsPerScanline);
                     float glyphY = -(
                         pixelY + 0.0625f + sampleY * 0.125f) * inverseScale;
-                    crossingCount += CollectGlyphCrossingsCpu(
+                    CollectGlyphCrossingsCpu(
                         glyphY,
                         record,
                         segments,
-                        crossingArray.AsSpan(crossingCount));
+                        crossingArray.AsSpan(
+                            scanlineStart,
+                            maximumCrossingsPerScanline),
+                        out positiveCrossingCounts[sampleIndex],
+                        out int negativeCrossingStart);
+                    negativeCrossingStarts[sampleIndex] = checked(
+                        scanlineStart + negativeCrossingStart);
                 }
-                scanlineOffsets[8] = crossingCount;
 
                 for (uint x = 0; x < width; x++)
                 {
@@ -101,14 +108,17 @@ public unsafe partial class GlyphAtlas
                             Vector256.Create(firstGlyphX) + sampleOffsets256;
                         for (int sampleY = 0; sampleY < 8; sampleY++)
                         {
-                            ReadOnlySpan<CpuCrossing> crossings =
-                                crossingArray.AsSpan(
-                                    scanlineOffsets[sampleY],
-                                    scanlineOffsets[sampleY + 1] -
-                                        scanlineOffsets[sampleY]);
+                            int scanlineStart = checked(
+                                sampleY * maximumCrossingsPerScanline);
                             coveredSamples += CountCoveredSamplesSimd256(
                                 sampleXs,
-                                crossings);
+                                ref crossingArrayStart,
+                                scanlineStart,
+                                positiveCrossingCounts[sampleY],
+                                negativeCrossingStarts[sampleY],
+                                scanlineStart +
+                                    maximumCrossingsPerScanline -
+                                    negativeCrossingStarts[sampleY]);
                         }
                     }
                     else
@@ -121,15 +131,18 @@ public unsafe partial class GlyphAtlas
                             firstSample + sampleOffsetsHigh128;
                         for (int sampleY = 0; sampleY < 8; sampleY++)
                         {
-                            ReadOnlySpan<CpuCrossing> crossings =
-                                crossingArray.AsSpan(
-                                    scanlineOffsets[sampleY],
-                                    scanlineOffsets[sampleY + 1] -
-                                        scanlineOffsets[sampleY]);
+                            int scanlineStart = checked(
+                                sampleY * maximumCrossingsPerScanline);
                             coveredSamples += CountCoveredSamplesSimd128(
                                 samplesLow,
                                 samplesHigh,
-                                crossings);
+                                ref crossingArrayStart,
+                                scanlineStart,
+                                positiveCrossingCounts[sampleY],
+                                negativeCrossingStarts[sampleY],
+                                scanlineStart +
+                                    maximumCrossingsPerScanline -
+                                    negativeCrossingStarts[sampleY]);
                         }
                     }
 
@@ -140,7 +153,7 @@ public unsafe partial class GlyphAtlas
         }
         finally
         {
-            ArrayPool<CpuCrossing>.Shared.Return(crossingArray);
+            ArrayPool<float>.Shared.Return(crossingArray);
         }
 
         return coverage;
@@ -148,17 +161,36 @@ public unsafe partial class GlyphAtlas
 
     private static uint CountCoveredSamplesSimd256(
         Vector256<float> sampleXs,
-        ReadOnlySpan<CpuCrossing> crossings)
+        ref float crossings,
+        int positiveCrossingStart,
+        int positiveCrossingCount,
+        int negativeCrossingStart,
+        int negativeCrossingCount)
     {
         Vector256<int> windings = Vector256<int>.Zero;
-        foreach (CpuCrossing crossing in crossings)
+        int positiveCrossingEnd = checked(
+            positiveCrossingStart + positiveCrossingCount);
+        for (int index = positiveCrossingStart;
+             index < positiveCrossingEnd;
+             index++)
         {
+            float crossingX = Unsafe.Add(ref crossings, index);
             Vector256<int> mask = Vector256.LessThan(
                 sampleXs,
-                Vector256.Create(crossing.X)).AsInt32();
-            windings = crossing.Direction > 0
-                ? windings - mask
-                : windings + mask;
+                Vector256.Create(crossingX)).AsInt32();
+            windings -= mask;
+        }
+        int negativeCrossingEnd = checked(
+            negativeCrossingStart + negativeCrossingCount);
+        for (int index = negativeCrossingStart;
+             index < negativeCrossingEnd;
+             index++)
+        {
+            float crossingX = Unsafe.Add(ref crossings, index);
+            Vector256<int> mask = Vector256.LessThan(
+                sampleXs,
+                Vector256.Create(crossingX)).AsInt32();
+            windings += mask;
         }
 
         uint zeroMask = Vector256.ExtractMostSignificantBits(
@@ -169,28 +201,45 @@ public unsafe partial class GlyphAtlas
     private static uint CountCoveredSamplesSimd128(
         Vector128<float> samplesLow,
         Vector128<float> samplesHigh,
-        ReadOnlySpan<CpuCrossing> crossings)
+        ref float crossings,
+        int positiveCrossingStart,
+        int positiveCrossingCount,
+        int negativeCrossingStart,
+        int negativeCrossingCount)
     {
         Vector128<int> windingsLow = Vector128<int>.Zero;
         Vector128<int> windingsHigh = Vector128<int>.Zero;
-        foreach (CpuCrossing crossing in crossings)
+        int positiveCrossingEnd = checked(
+            positiveCrossingStart + positiveCrossingCount);
+        for (int index = positiveCrossingStart;
+             index < positiveCrossingEnd;
+             index++)
         {
+            float crossingX = Unsafe.Add(ref crossings, index);
             Vector128<int> lowMask = Vector128.LessThan(
                 samplesLow,
-                Vector128.Create(crossing.X)).AsInt32();
+                Vector128.Create(crossingX)).AsInt32();
             Vector128<int> highMask = Vector128.LessThan(
                 samplesHigh,
-                Vector128.Create(crossing.X)).AsInt32();
-            if (crossing.Direction > 0)
-            {
-                windingsLow -= lowMask;
-                windingsHigh -= highMask;
-            }
-            else
-            {
-                windingsLow += lowMask;
-                windingsHigh += highMask;
-            }
+                Vector128.Create(crossingX)).AsInt32();
+            windingsLow -= lowMask;
+            windingsHigh -= highMask;
+        }
+        int negativeCrossingEnd = checked(
+            negativeCrossingStart + negativeCrossingCount);
+        for (int index = negativeCrossingStart;
+             index < negativeCrossingEnd;
+             index++)
+        {
+            float crossingX = Unsafe.Add(ref crossings, index);
+            Vector128<int> lowMask = Vector128.LessThan(
+                samplesLow,
+                Vector128.Create(crossingX)).AsInt32();
+            Vector128<int> highMask = Vector128.LessThan(
+                samplesHigh,
+                Vector128.Create(crossingX)).AsInt32();
+            windingsLow += lowMask;
+            windingsHigh += highMask;
         }
 
         uint lowZeroMask = Vector128.ExtractMostSignificantBits(
@@ -209,13 +258,16 @@ public unsafe partial class GlyphAtlas
         return (byte)((coveredSamples * 255U + 32U) >> 6);
     }
 
-    private static int CollectGlyphCrossingsCpu(
+    private static void CollectGlyphCrossingsCpu(
         float sampleY,
         GpuGlyphRecord record,
         ReadOnlySpan<GpuSegment> segments,
-        Span<CpuCrossing> crossings)
+        Span<float> crossings,
+        out int positiveCrossingCount,
+        out int negativeCrossingStart)
     {
-        int crossingCount = 0;
+        positiveCrossingCount = 0;
+        negativeCrossingStart = crossings.Length;
         uint end = checked(record.StartSegment + record.SegmentCount);
         for (uint index = record.StartSegment; index < end; index++)
         {
@@ -227,14 +279,14 @@ public unsafe partial class GlyphAtlas
                 if (a.Y <= sampleY && b.Y > sampleY)
                 {
                     float t = (sampleY - a.Y) / (b.Y - a.Y);
-                    crossings[crossingCount++] = new(
-                        a.X + t * (b.X - a.X), 1);
+                    crossings[positiveCrossingCount++] =
+                        a.X + t * (b.X - a.X);
                 }
                 else if (a.Y > sampleY && b.Y <= sampleY)
                 {
                     float t = (sampleY - a.Y) / (b.Y - a.Y);
-                    crossings[crossingCount++] = new(
-                        a.X + t * (b.X - a.X), -1);
+                    crossings[--negativeCrossingStart] =
+                        a.X + t * (b.X - a.X);
                 }
                 continue;
             }
@@ -275,8 +327,12 @@ public unsafe partial class GlyphAtlas
                         : derivativeY < 0f ? -1 : 0;
                     if (direction != 0)
                     {
-                        crossings[crossingCount++] = new(
-                            crossingX, direction);
+                        AddGlyphCrossing(
+                            crossingX,
+                            direction,
+                            crossings,
+                            ref positiveCrossingCount,
+                            ref negativeCrossingStart);
                     }
                 }
                 continue;
@@ -326,11 +382,33 @@ public unsafe partial class GlyphAtlas
                     : derivativeY < 0f ? -1 : 0;
                 if (direction != 0)
                 {
-                    crossings[crossingCount++] = new(crossingX, direction);
+                    AddGlyphCrossing(
+                        crossingX,
+                        direction,
+                        crossings,
+                        ref positiveCrossingCount,
+                        ref negativeCrossingStart);
                 }
             }
         }
-        return crossingCount;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void AddGlyphCrossing(
+        float crossingX,
+        int direction,
+        Span<float> crossings,
+        ref int positiveCrossingCount,
+        ref int negativeCrossingStart)
+    {
+        if (direction > 0)
+        {
+            crossings[positiveCrossingCount++] = crossingX;
+        }
+        else
+        {
+            crossings[--negativeCrossingStart] = crossingX;
+        }
     }
 
     private static void RasterizeGlyphCoverageScalar(
