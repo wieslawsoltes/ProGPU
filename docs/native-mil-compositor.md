@@ -4841,6 +4841,21 @@ image drawing, invalid type/dimensions/version, and raw handle rejection. The
 Apple Silicon native MIL CTest passes, the shared library links and exports the
 new ABI, and the managed canonical packet test passes.
 
+The exact `1f1d921b` source checkpoint also rebuilt and relinked the focused
+native targets on both Parallels guests. Ubuntu 24.04 ARM64 passes the native
+MIL CTest 1/1 in 0.02 seconds and exports
+`progpu_native_mil_channel_set_d3d_image_external_image`; SHA-256 is
+`21798600a4c5d4f4a58d6ea456b5919fa782164d4ebf0ab9f40f1949dcb0ea2e`
+for `libprogpu_native.so` and
+`c485873cf4d532ab956a44ed729a399486805ba83d815b624fe1c64c8844f3bb`
+for `progpu_native_mil_tests`. Windows 11 ARM64 rebuilds under MSVC, passes the
+same CTest 1/1 in 7.28 seconds, and exposes the ABI as export ordinal 36;
+SHA-256 is
+`81f1078e89d9f9f8e4bfdcead25ebc8a84e3d6c425350c865217ff74cb50bd5d`
+for `progpu_native.dll` and
+`d94382db3f1087573615c91ff983cd2343b6144b68c4f3db160f7c59f0f8568f`
+for `progpu_native_mil_tests.exe`.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
