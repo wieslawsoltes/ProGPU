@@ -85,7 +85,7 @@ The portable API will be a thin recording layer rather than a second renderer:
 | `CanvasDrawingSession` | allocation-conscious recorder over `ProGPU.Scene.DrawingContext` |
 | `CanvasCommandList` | immutable/retained `RenderCommandList` picture |
 | `CanvasBitmap` | typed same-device texture source/lease with deferred lifetime ownership |
-| `CanvasGeometry` | reusable `VectorPathGeometry`, stroke, boolean, bounds, and hit-test paths |
+| `CanvasGeometry` | reusable `PathGeometry` retained directly by native vector draw and clip commands |
 | brushes and stroke styles | existing typed brush/gradient/pen resources and native material pages |
 | text formats/layouts | reusable ProGPU shaping, glyph-run, atlas, and text-style resources |
 | layers and clips | retained layer/mask/clip resources in the shared compositor |
@@ -94,10 +94,10 @@ The portable API will be a thin recording layer rather than a second renderer:
 
 The first shipping subset is in the `ProGPU.Win2D` package. It implements
 `ICanvasResourceCreator`, `ICanvasResourceCreatorWithDpi`, `CanvasDevice`,
-`CanvasBitmap`, `CanvasRenderTarget`, `CanvasCommandList`, and
-`CanvasDrawingSession`, with the Win2D
-namespace and overload shapes used by the pinned SimpleSample and basic shapes
-sample. It currently supports:
+`CanvasBitmap`, `CanvasRenderTarget`, `CanvasCommandList`, `CanvasGeometry`,
+`CanvasPathBuilder`, `CanvasActiveLayer`, and `CanvasDrawingSession`, with the
+Win2D namespace and overload shapes used by the pinned SimpleSample and selected
+Shapes, ArcOptions, and VectorArt sample bodies. It currently supports:
 
 - BGRA8-unorm premultiplied render targets, exact Win2D DIP/pixel rounding,
   full-target clear, transforms, and typed same-device texture exposure;
@@ -113,6 +113,14 @@ sample. It currently supports:
   `Flush()`, and origin/offset drawing as nested immutable pictures; command
   lists are cloned into the destination ownership graph, so no intermediate
   bitmap is allocated and public disposal before submission remains safe;
+- reusable rectangle, rounded-rectangle, ellipse, circle, polygon, and consumed
+  path-builder geometries; path figures support line, quadratic, cubic, both
+  Win2D arc forms, fill-rule, filled-figure, segment-stroke, and smooth-join
+  state, and lower directly to retained native vector commands;
+- color `DrawGeometry`/`FillGeometry` overloads with origin or offset, plus
+  scoped opacity layers with exact rectangle or path-geometry clips; layers
+  must close LIFO and cannot cross a `Flush`, so malformed retained stacks fail
+  before native submission;
 - target-preserving later drawing sessions and `Flush()` without retaining or
   replaying all earlier command lists;
 - Win2D-compatible `GetPixelBytes()` for validation and explicit diagnostics
@@ -130,9 +138,10 @@ The current package is source compatible, not binary compatible with
 devices, straight/ignored alpha, non-BGRA render targets, Dawn/browser device
 factories, Direct2D COM wrapping, cross-device resources, self-referential
 texture feedback, anisotropic sampling, and high-quality cubic sampling.
-Bitmap file/pixel creation and updates, brushes, command-list bounds/scaling,
-arbitrary geometry, clips/layers, text formats/layouts, effects, sprite
-batches, and XAML controls remain the next incremental compatibility groups.
+Bitmap file/pixel creation and updates, brushes/stroke styles, command-list
+bounds/scaling, geometry boolean/query operations, opacity brushes, text
+formats/layouts, effects, sprite batches, and XAML controls remain the next
+incremental compatibility groups.
 Command-list `Clear` currently fails closed because portable unbounded-clear
 semantics have not been qualified. No portable API surfaces raw COM pointers.
 
@@ -149,19 +158,31 @@ The gate has a completed portable-core layer and three expanding oracle layers:
 0. `eng/progpu-prepare-win2d-source.py` fetches the two exact locked commits,
    refuses modified tracked checkouts, and runs
    `eng/progpu-verify-win2d-source.py`. The native build then compiles the pinned
-   SimpleSample drawing body unchanged, checks DPI/fail-closed contracts, and
+   SimpleSample plus pinned geometry/layer bodies unchanged, checks
+   DPI/fail-closed contracts, and
    renders two live sessions through `ProGPU.Win2D` plus the C++ engine. The
    second session omits `Clear`, proving that the first session remains in the
    GPU target without display-list growth or CPU copies. The Apple M3 Pro
-   Metal result and Windows 11 ARM64 Parallels Display Adapter D3D12 result are
-   byte-identical BGRA8 premultiplied frames with SHA-256
-   `92D04C71F9DF04983106F3BE3CBDEC1179CB2ACDB5B28A5A38667D2BF013B001`.
+   pre-geometry Metal and Windows 11 ARM64 Parallels Display Adapter D3D12
+   result was byte-identical BGRA8 premultiplied output. The expanded geometry
+   frame is exact except for two antialiased curve-edge pixels differing by one
+   channel level: Metal SHA-256 `BE7227D7224576EC3C74963CD18CA9736FAC67657350CC739170E496AE28991A`
+   and D3D12 SHA-256 `6FEC0F3EF3F628E18395542383E487C5D8CDA6FE0B49906299A6CDB9D19BE502`.
    The frame includes full-opacity and half-opacity same-device bitmap draws;
    the source is publicly disposed before the destination session closes to
    prove that the typed GPU lease, rather than a CPU copy, owns deferred use.
    It also records a command list in two chunks separated by `Flush()`, draws
-   it with an offset, and disposes the public list before target submission.
+   it with an offset, disposes the public list before target submission, draws
+   a retained quadratic/cubic path, and validates exact circle and rectangle
+   layer clipping.
    VM timing is not treated as physical D3D12 performance evidence.
+
+   CI uploads the D3D12, Metal, and Vulkan Canvas frames and runs
+   `eng/progpu-compare-win2d-canvas.py`. The named differential requires at
+   most 3/255 channel error, at most 0.5% changed pixels, at most 0.1% pixels
+   beyond 1/255, and mean absolute channel error at most 0.01. This keeps solid
+   interiors and clips exact while allowing only bounded shader rounding on
+   antialiased edges.
 
 1. Build and capture the pinned unmodified SimpleSample plus selected
    ExampleGallery scenes with real Win2D on Windows. Shapes, geometry
@@ -192,7 +213,7 @@ Win2D execution.
 2. **Implemented:** add the minimal portable Canvas
    device/render-target/drawing-session API and pass pinned SimpleSample source
    plus live headless native pixels on Metal and D3D12.
-3. Add the remaining shapes, geometry, layers, bitmap creation/update,
+3. Add the remaining geometry operations/layer brushes, bitmap creation/update,
    text-format/layout, and existing-effect adapters;
    promote each pinned ExampleGallery group only after differential parity.
 4. Implement and qualify the Windows same-adapter Win2D/DXGI import adapter.
