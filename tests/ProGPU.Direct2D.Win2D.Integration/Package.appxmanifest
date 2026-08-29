@@ -41,6 +41,17 @@
     </Application>
   </Applications>
 
+  <Extensions>
+    <Extension Category="windows.activatableClass.inProcessServer">
+      <InProcessServer>
+        <Path>Microsoft.Graphics.Canvas.dll</Path>
+        <ActivatableClass
+          ActivatableClassId="Microsoft.Graphics.Canvas.CanvasDevice"
+          ThreadingModel="both" />
+      </InProcessServer>
+    </Extension>
+  </Extensions>
+
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
   </Capabilities>

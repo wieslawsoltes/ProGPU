@@ -48,10 +48,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $Manifest = Get-ChildItem `
-    -Path (Join-Path $RepoRoot "tests/ProGPU.Direct2D.Win2D.Integration/obj") `
+    -Path (Join-Path $RepoRoot "tests/ProGPU.Direct2D.Win2D.Integration/bin/$Platform/$Configuration") `
     -Filter "AppxManifest.xml" `
     -Recurse |
-    Where-Object { $_.FullName -match "PackageLayout" } |
     Sort-Object LastWriteTimeUtc -Descending |
     Select-Object -First 1
 if (-not $Manifest) {
