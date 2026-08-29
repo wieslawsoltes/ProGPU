@@ -5,46 +5,43 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
-Preview.60 advances the successfully published preview.59 boundary with a
-cross-platform Avalonia integration hardening pass. The Silk.NET windowing host
-now keeps Windows client, pointer, and framebuffer coordinates in the correct
-DPI domains; updates layout and rendering throughout modal resizing; and uses
-native caption dragging for custom title bars. Routed input now covers repeat
-keys, UTF-32 text, symbols and modifiers, pointer leave, five mouse buttons,
-two-axis wheels, Win32 touch, XInput 2.2 touch, and AppKit gestures.
+Preview.62 advances the successfully published preview.61 boundary with a
+second measured optimization round for the ProGPU-backed SkiaSharp compatibility
+layer. Avalonia's common bounded SaveLayer containing one analytic rounded
+rectangle now retains the exact `PushClip`, `DrawRoundedRect`, `PopClip` stream
+in typed fields instead of allocating a general picture-command collection,
+transform table, and per-layer typed arrays. A single cleared canvas-local
+transient context can be reused by sequential layers; nested layers cannot
+borrow an active context and the slot cannot grow into an unbounded pool.
 
-The Avalonia rendering packages also protect retained glyph-atlas entries while
-incremental pages and pictures replay. Native ControlCatalog lanes validate
-Win32/D3D12, Avalonia.Native/Metal, and X11/Vulkan presentation together with
-layout and geometry clips, bitmap caches, effects, opacity masks, inherited
-drawing options, and adorners. The opt-in SkiaSharp 2.x-4.x and Avalonia
-11.x-12.x binary-compatibility boundary from preview.59 remains intact.
+The optimized path preserves geometry, clip and draw transforms, presentation
+dependencies, antialiasing, pen semantics, effect ownership, and command order.
+All other layer shapes continue through the existing exact compact picture
+path. This is a SkiaSharp front-end storage change: the managed and native scene
+compilers receive the same expanded commands, so no one-sided renderer change
+is required.
 
-## Preview.60 Avalonia integration closure
+## Preview.62 retained SaveLayer optimization closure
 
-The windowing and input contracts pass 115 tests against Avalonia 12.1.1 and
-102 against Avalonia 11.3.20. The rendering integration passes 99 focused
-contracts, while 84 retained-rendering regressions cover incremental glyph
-residency, clips, effects, layers, and compiled-scene reuse. The complete local
-managed suites pass 3,806 renderer tests and 240 headless tests.
+The alternating three-process Release comparison uses official SkiaSharp
+4.151.0 with 32 warmups and 24 samples in each process. All 62 semantic
+checksums match. The `avalonia-layer-recording` median improves from 3,847.625
+to 2,673.188 ns/op (-30.5%), p95 from 14,958.313 to 4,333.313 ns/op (-71.0%),
+and managed allocation from 8,189 to 6,131 B/op (-25.1%). The ProGPU-to-official
+median ratio improves from 6.808 to 4.512; official allocation counters exclude
+native Skia command storage, so they are not treated as equal total-memory
+accounting.
 
-Interactive validation covers Windows 11 ARM64 at 200% scaling and Ubuntu X11
-at 200% in Parallels, plus the macOS host at Retina scaling. Windows verifies
-physical-coordinate title dragging, gradual edge resizing with matching layout
-observations, keyboard shortcuts and text, pointer and five-button mouse input,
-and a 1024x800 logical / 2048x1600 physical Dawn D3D12 ControlCatalog capture.
-Linux verifies the same live keyboard and pointer surface with XI2 contracts and
-native Dawn/Vulkan catalog rendering. macOS verifies key/text/pointer routing,
-command shortcuts, AppKit gesture contracts, and native Dawn/Metal catalog
-rendering. Physical multitouch and trackpad injection remain hardware
-boundaries; their native ABI, phase, suppression, and mapping paths are covered
-by focused contracts.
-
-All 28 pull-request checks pass, including the managed platform matrix, native
-C++ renderer and compiler matrix, browser WebGPU, image parity, mobile packing,
-portable and native package creation, and six native package consumers. The
-tagged Release workflow repeats repository, native, package-consumer, mobile,
-and Avalonia integration validation before publishing.
+Matched 50,000-operation Xcode Allocations/VM Tracker, Time Profiler, and Metal
+System Trace captures preserve the checksum. Managed allocation falls from
+3,309 to 1,205 B/op (-63.6%); persistent heap plus anonymous VM changes by
++0.16%, with zero target Metal resources, submissions, waits, spills, potential
+hangs, hang risks, or command-buffer errors. The Release validation includes
+the 110-test `SkCanvasStateTests` suite, 3,809 core tests, 240 headless tests,
+Avalonia and Silk.NET contract lanes, all 307 XAML tests, and the official
+SkiaSharp metadata gate at 4,222/4,222 with zero missing declarations. Detailed
+research, complexity, rejected experiments, and profiler evidence are recorded
+in `docs/AVALONIA_SKIA_RETAINED_COMMAND_STREAM_RESEARCH.md`.
 
 ## Compatibility and continuation
 
@@ -108,19 +105,19 @@ pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 
 ## Avalonia Integration Packages
 
-- `ProGPU.Avalonia.Rendering` `12.1.1-preview.60`
-- `ProGPU.Avalonia.SilkNet` `12.1.1-preview.60`
-- `ProGPU.Avalonia.Rendering` `11.3.20-preview.60`
-- `ProGPU.Avalonia.SilkNet` `11.3.20-preview.60`
+- `ProGPU.Avalonia.Rendering` `12.1.1-preview.62`
+- `ProGPU.Avalonia.SilkNet` `12.1.1-preview.62`
+- `ProGPU.Avalonia.Rendering` `11.3.20-preview.62`
+- `ProGPU.Avalonia.SilkNet` `11.3.20-preview.62`
 
 These packages are packed on the portable runner and published after the
-`0.1.0-preview.60` runtime package set so their exact ProGPU dependencies are
+`0.1.0-preview.62` runtime package set so their exact ProGPU dependencies are
 available first.
 
 ## Local Package Build
 
 ```bash
-PROGPU_PACKAGE_VERSION=0.1.0-preview.60 ./eng/progpu-pack.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.62 ./eng/progpu-pack.sh
 PROGPU_PACKAGE_OUTPUT=artifacts/packages-avalonia/Release ./scripts/progpu-pack.sh
 ```
 
@@ -138,7 +135,7 @@ release workflow combines and re-verifies both outputs before publishing.
 ```bash
 read -rsp "NuGet API key: " NUGET_API_KEY
 export NUGET_API_KEY
-PROGPU_PACKAGE_VERSION=0.1.0-preview.60 ./eng/progpu-publish.sh
+PROGPU_PACKAGE_VERSION=0.1.0-preview.62 ./eng/progpu-publish.sh
 ./scripts/progpu-publish.sh
 unset NUGET_API_KEY
 ```
@@ -156,7 +153,7 @@ feed.
 - `Release` validates and packs portable packages and the Avalonia integration lanes on Linux, packs mobile packages on macOS, verifies the combined runtime dependency closure, publishes runtime packages followed by Avalonia packages, and creates a tag-driven GitHub Release.
 
 Manual releases use `workflow_dispatch` with a package version. Tag releases use tags named `v*`,
-for example `v0.1.0-preview.60`.
+for example `v0.1.0-preview.62`.
 
 ## NuGet Publishing
 

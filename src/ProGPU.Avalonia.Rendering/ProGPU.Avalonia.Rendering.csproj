@@ -10,8 +10,8 @@
     <Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>true</Avalonia_I_Want_To_Use_Private_Apis_IN_NUGET_PACKAGE>
     <Avalonia_I_Want_To_Use_Private_Apis_In_Nuget_Package_And_Promise_To_Pin_The_Exact_Avalonia_Version_In_Package_Dependency>true</Avalonia_I_Want_To_Use_Private_Apis_In_Nuget_Package_And_Promise_To_Pin_The_Exact_Avalonia_Version_In_Package_Dependency>
     <PackageId>ProGPU.Avalonia.Rendering</PackageId>
-    <Version>12.1.1-preview.60</Version>
-    <PackageVersion>12.1.1-preview.60</PackageVersion>
+    <Version>12.1.1-preview.62</Version>
+    <PackageVersion>12.1.1-preview.62</PackageVersion>
     <Title>ProGPU rendering platform for Avalonia</Title>
     <Description>GPU-accelerated Avalonia rendering platform backed by ProGPU, Silk.NET, and WebGPU.</Description>
     <PackageTags>progpu;avalonia;rendering;webgpu;silk.net;gpu</PackageTags>

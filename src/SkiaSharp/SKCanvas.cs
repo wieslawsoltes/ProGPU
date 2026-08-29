@@ -134,6 +134,7 @@ public class SKCanvas : SKObject
     private ClipState _clipState;
     private readonly List<GpuTexture> _ownedLayerTextures = new();
     private readonly List<GpuTexture> _filterScratchTexturePool = new();
+    private DrawingContext? _availableLayerContext;
     private const int FilterScratchTextureRetentionLimit = 4;
     private const ulong FilterScratchTextureByteLimit = 64UL * 1024UL * 1024UL;
     private List<SKRect>? _cpuReadbackRegions;
@@ -364,6 +365,55 @@ public class SKCanvas : SKObject
         }
     }
 
+    /// <summary>
+    /// Stores Avalonia's common clipped, single-round-rectangle save layer
+    /// directly in typed fields. This avoids constructing a general picture
+    /// command collection while preserving the same three-command replay.
+    /// </summary>
+    private sealed class RetainedClippedRoundedRectangleLayerVisual :
+        Visual,
+        IOwnedRenderCommandCache,
+        IDisposable
+    {
+        private readonly RetainedRectangleClipCommand _clip;
+        private readonly RetainedSimpleRoundedRectangleCommand _draw;
+        private readonly Matrix4x4 _clipTransform;
+        private readonly Matrix4x4 _drawTransform;
+
+        public RetainedClippedRoundedRectangleLayerVisual(
+            in RenderCommand clip,
+            in RenderCommand draw)
+        {
+            _clip = new RetainedRectangleClipCommand(in clip, 0);
+            _draw = new RetainedSimpleRoundedRectangleCommand(in draw, 0);
+            _clipTransform = clip.Transform;
+            _drawTransform = draw.Transform;
+        }
+
+        public DrawingContext GetOrUpdateRenderCommandCache() =>
+            s_emptyRetainedLayerResourceContext;
+
+        public int RenderCommandCount => 3;
+
+        public RenderCommand GetRenderCommand(int index) => index switch
+        {
+            0 => _clip.Expand(in _clipTransform),
+            1 => _draw.Expand(in _drawTransform),
+            2 => new RenderCommand { Type = RenderCommandType.PopClip },
+            _ => throw new ArgumentOutOfRangeException(nameof(index))
+        };
+
+        public override void OnRender(DrawingContext context)
+        {
+            // IOwnedRenderCommandCache supplies the inline immutable stream.
+        }
+
+        public void Dispose()
+        {
+            Effect = null;
+        }
+    }
+
     public SKMatrix TotalMatrix => _currentMatrix;
 
     public int SaveCount
@@ -502,7 +552,7 @@ public class SKCanvas : SKObject
 
         var parentContext = _context;
         parentContext.Commands.RemoveAt(commandIndex);
-        var layerContext = new DrawingContext();
+        var layerContext = RentLayerContext();
         layerContext.Commands.Add(command);
         var imageFilter = filter.CreateImageFilter(_currentMatrix);
         var layerPaint = new SKPaint { ImageFilter = imageFilter };
@@ -687,18 +737,20 @@ public class SKCanvas : SKObject
         Save();
 
         var parentContext = _context;
-        var layerContext = new DrawingContext();
+        var layerContext = RentLayerContext();
         var activeClipPushes = SnapshotActiveClipPushes();
         if (_isPictureRecording)
         {
-            // A retained SaveLayer normally records at least one draw and may
-            // add the layer-bounds clip at restore. Reserve that exact common
-            // shape so the intentionally wide RenderCommand never pays the
-            // general four-command first-allocation cost.
+            // Retained clip wrappers are packed from canvas-local scratch at
+            // restore time. Reserve only the expected body command here so a
+            // common one-draw layer does not retain three wide commands while
+            // it is being recorded.
             var expectedCommandCount = checked(
-                activeClipPushes.Length +
-                (IsFullCanvasLayerBounds(bounds) ? 0 : 2) +
-                1);
+                activeClipPushes.Length == 0 ?
+                    1 :
+                    activeClipPushes.Length +
+                    (IsFullCanvasLayerBounds(bounds) ? 0 : 2) +
+                    1);
             layerContext.EnsureCommandCapacity(expectedCommandCount);
         }
         layerContext.SetCommandInterceptor(_commandInterceptor);
@@ -740,7 +792,9 @@ public class SKCanvas : SKObject
     {
         if (_savedStateCount > 0)
         {
-            var layerFrame = _layerStack.Count > 0 && _layerStack.Peek().StateDepth == _savedStateCount
+            var layerFrame =
+                _layerStack.Count > 0 &&
+                _layerStack.Peek().StateDepth == _savedStateCount
                 ? _layerStack.Pop()
                 : null;
 
@@ -799,9 +853,27 @@ public class SKCanvas : SKObject
         {
             layerFrame.LayerContext.ClearCommandInterceptor(_commandInterceptor);
             layerFrame.LayerContext.Clear();
+            ReturnLayerContext(layerFrame.LayerContext);
             layerFrame.PreviousContext?.Clear();
             layerFrame.Paint?.Dispose();
         }
+    }
+
+    private DrawingContext RentLayerContext()
+    {
+        var context = _availableLayerContext;
+        if (context == null)
+        {
+            return new DrawingContext();
+        }
+
+        _availableLayerContext = null;
+        return context;
+    }
+
+    private void ReturnLayerContext(DrawingContext context)
+    {
+        _availableLayerContext ??= context;
     }
 
     private void RestoreLayerCore(LayerFrame layerFrame)
@@ -895,10 +967,7 @@ public class SKCanvas : SKObject
         }
         else
         {
-            PrepareCompactLayerCommands(layerFrame);
-            var compactVisual = new RetainedLayerVisual(layerFrame.LayerContext);
-            visual = compactVisual;
-            ownedVisual = compactVisual;
+            (visual, ownedVisual) = CreateRetainedLayerVisual(layerFrame);
         }
 
         visual.Size = new Vector2(
@@ -922,6 +991,43 @@ public class SKCanvas : SKObject
                 ownedVisual.Dispose();
             }
         }
+    }
+
+    private (Visual Visual, IDisposable Owned) CreateRetainedLayerVisual(
+        LayerFrame layerFrame)
+    {
+        var commands = layerFrame.LayerContext.Commands;
+        if (layerFrame.ActiveClipPushes.Length == 0)
+        {
+            if (IsFullCanvasLayerBounds(layerFrame.Bounds))
+            {
+                var fullCanvasVisual =
+                    new RetainedLayerVisual(layerFrame.LayerContext);
+                return (fullCanvasVisual, fullCanvasVisual);
+            }
+
+            if (commands.Count == 1 &&
+                layerFrame.LayerContext.RetainedResourceCount == 0)
+            {
+                ref readonly RenderCommand draw = ref commands.AsSpan()[0];
+                // SKCanvas has one analytic rounded-rectangle recorder and its
+                // full command shape is represented by the typed record below.
+                // Other rounded forms are lowered to paths before this point.
+                if (draw.Type == RenderCommandType.DrawRoundedRect)
+                {
+                    var clip = CreateLayerBoundsClipCommand(layerFrame);
+                    var roundedVisual =
+                        new RetainedClippedRoundedRectangleLayerVisual(
+                            in clip,
+                            in draw);
+                    return (roundedVisual, roundedVisual);
+                }
+            }
+        }
+
+        PrepareCompactLayerCommands(layerFrame);
+        var visual = new RetainedLayerVisual(layerFrame.LayerContext);
+        return (visual, visual);
     }
 
     private void PrepareCompactLayerCommands(LayerFrame layerFrame)
