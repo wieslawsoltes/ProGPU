@@ -103,6 +103,7 @@ public sealed partial class CadSnapshotCompiler
         var lineTypeShapeResources = new List<CadLineTypeShapeResource>();
         var entities = new List<CadEntityHeader>(document.Entities.Count);
         var lines = new List<CadLinePrimitive>();
+        var points = new List<CadPointPrimitive>();
         var circles = new List<CadCirclePrimitive>();
         var arcs = new List<CadArcPrimitive>();
         var ellipses = new List<CadEllipsePrimitive>();
@@ -198,6 +199,7 @@ public sealed partial class CadSnapshotCompiler
             lineTypeShapeResources.ToArray(),
             entities.ToArray(),
             lines.ToArray(),
+            points.ToArray(),
             circles.ToArray(),
             arcs.ToArray(),
             ellipses.ToArray(),
@@ -331,6 +333,19 @@ public sealed partial class CadSnapshotCompiler
                         resolvedStyle);
                     return;
                 }
+                if (entity is ACadSharp.Entities.Point pointEntity)
+                {
+                    ValidatePoint(pointEntity);
+                    if (document.Header.PointDisplayMode == 1)
+                    {
+                        return;
+                    }
+                    if (document.Header.PointDisplayMode != 0)
+                    {
+                        throw new CadUnsupportedEntityException(
+                            $"PDMODE {document.Header.PointDisplayMode} requires retained viewport-sized marker geometry.");
+                    }
+                }
 
                 int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
                 int styleIndex = InternStyle(
@@ -362,6 +377,14 @@ public sealed partial class CadSnapshotCompiler
                         resolvedStyle,
                         effectiveLayer.Color),
                     Line line => CompileLine(line, rootHandle, transform, hasTransform, layerIndex, styleIndex, lines),
+                    ACadSharp.Entities.Point point => CompilePoint(
+                        point,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        points),
                     Arc arc => CompileArc(arc, rootHandle, transform, hasTransform, layerIndex, styleIndex, arcs),
                     Circle circle => CompileCircle(circle, rootHandle, transform, hasTransform, layerIndex, styleIndex, circles),
                     Ellipse ellipse => CompileEllipse(ellipse, rootHandle, transform, hasTransform, layerIndex, styleIndex, ellipses),
@@ -996,10 +1019,10 @@ public sealed partial class CadSnapshotCompiler
             CadResolvedStyle resolvedStyle)
         {
             ValidateLegacyMeshHeader(mesh);
-            if (mesh.Vertices.Count < 2 || mesh.Faces.Count == 0)
+            if (mesh.Vertices.Count == 0 || mesh.Faces.Count == 0)
             {
                 throw new ArgumentException(
-                    "A polyface MESH requires at least two coordinate vertices and one face record.");
+                    "A polyface MESH requires at least one coordinate vertex and one face record.");
             }
 
             var worldVertices = new CadPoint3D[mesh.Vertices.Count];
@@ -1024,6 +1047,21 @@ public sealed partial class CadSnapshotCompiler
                 cancellationToken.ThrowIfCancellationRequested();
                 int count = ReadLegacyFace(face, raw);
                 ConsumeMeshTopology(raw.Length);
+                if (count == 1)
+                {
+                    int vertexIndex = Math.Abs(raw[0]) - 1;
+                    if ((uint)vertexIndex >= (uint)worldVertices.Length)
+                    {
+                        throw new ArgumentException(
+                            "A polyface MESH point record references a coordinate vertex outside its 1-based array.");
+                    }
+                    if (document.Header.PointDisplayMode is not (0 or 1))
+                    {
+                        throw new CadUnsupportedEntityException(
+                            $"PDMODE {document.Header.PointDisplayMode} requires retained viewport-sized marker geometry.");
+                    }
+                    continue;
+                }
                 for (int i = 0; i < (count == 2 ? 1 : count); i++)
                 {
                     int next = count == 2 ? 1 : (i + 1) % count;
@@ -1045,9 +1083,14 @@ public sealed partial class CadSnapshotCompiler
             }
 
             var styledEdges = new HashSet<(ulong Edge, int Layer, int Style)>();
+            var styledPoints = new HashSet<(int Vertex, int Layer, int Style)>();
             var orderedEdges = new List<(
                 CadPoint3D Start,
                 CadPoint3D End,
+                int Layer,
+                int Style)>();
+            var orderedPoints = new List<(
+                CadPoint3D Position,
                 int Layer,
                 int Style)>();
             foreach (VertexFaceRecord face in mesh.Faces)
@@ -1058,6 +1101,10 @@ public sealed partial class CadSnapshotCompiler
                 Layer faceLayer = IsLayerZero(face.Layer) ? effectiveLayer : face.Layer;
                 if (face.IsInvisible || !faceLayer.IsOn ||
                     (!options.IncludeNonPlottableLayers && !faceLayer.PlotFlag))
+                {
+                    continue;
+                }
+                if (count == 1 && document.Header.PointDisplayMode == 1)
                 {
                     continue;
                 }
@@ -1086,6 +1133,23 @@ public sealed partial class CadSnapshotCompiler
                     shxFontResolver,
                     options);
 
+                if (count == 1)
+                {
+                    int vertexIndex = Math.Abs(raw[0]) - 1;
+                    if (!styledPoints.Add((vertexIndex, layerIndex, styleIndex)))
+                    {
+                        continue;
+                    }
+                    if (orderedEdges.Count + orderedPoints.Count >=
+                        options.MaxExpandedEntities - expandedCount)
+                    {
+                        throw new CadSnapshotExpansionLimitException(
+                            $"Expanded entity count exceeds the configured limit of {options.MaxExpandedEntities}.");
+                    }
+                    orderedPoints.Add((worldVertices[vertexIndex], layerIndex, styleIndex));
+                    continue;
+                }
+
                 for (int i = 0; i < (count == 2 ? 1 : count); i++)
                 {
                     int next = count == 2 ? 1 : (i + 1) % count;
@@ -1102,7 +1166,8 @@ public sealed partial class CadSnapshotCompiler
                     {
                         continue;
                     }
-                    if (orderedEdges.Count >= options.MaxExpandedEntities - expandedCount)
+                    if (orderedEdges.Count + orderedPoints.Count >=
+                        options.MaxExpandedEntities - expandedCount)
                     {
                         throw new CadSnapshotExpansionLimitException(
                             $"Expanded entity count exceeds the configured limit of {options.MaxExpandedEntities}.");
@@ -1115,10 +1180,14 @@ public sealed partial class CadSnapshotCompiler
                 }
             }
 
-            EnsureDerivedEdgeCapacity(orderedEdges.Count);
+            EnsureDerivedEdgeCapacity(checked(orderedEdges.Count + orderedPoints.Count));
             foreach ((CadPoint3D start, CadPoint3D end, int layer, int style) in orderedEdges)
             {
                 EmitEdge(start, end, rootHandle, layer, style);
+            }
+            foreach ((CadPoint3D position, int layer, int style) in orderedPoints)
+            {
+                EmitPoint(position, rootHandle, layer, style);
             }
         }
 
@@ -1138,10 +1207,10 @@ public sealed partial class CadSnapshotCompiler
                 throw new ArgumentException(
                     "A polyface MESH face contains a nonzero index after its terminating zero.");
             }
-            if (count < 2)
+            if (count == 0)
             {
-                throw new CadUnsupportedEntityException(
-                    "One-vertex polyface records require retained POINT display semantics.");
+                throw new ArgumentException(
+                    "A polyface MESH face record requires at least one coordinate-vertex index.");
             }
             return count;
         }
@@ -1233,6 +1302,31 @@ public sealed partial class CadSnapshotCompiler
             entities.Add(new CadEntityHeader(
                 rootHandle,
                 CadEntityKind.Line,
+                layerIndex,
+                styleIndex,
+                primitiveIndex,
+                bounds));
+            documentBounds = documentBounds.Union(bounds);
+        }
+
+        void EmitPoint(
+            CadPoint3D position,
+            ulong rootHandle,
+            int layerIndex,
+            int styleIndex)
+        {
+            if (expandedCount >= options.MaxExpandedEntities)
+            {
+                throw new CadSnapshotExpansionLimitException(
+                    $"Expanded entity count exceeds the configured limit of {options.MaxExpandedEntities}.");
+            }
+            expandedCount++;
+            int primitiveIndex = points.Count;
+            points.Add(new CadPointPrimitive(position));
+            CadBounds3D bounds = CadBounds3D.FromPoint(position);
+            entities.Add(new CadEntityHeader(
+                rootHandle,
+                CadEntityKind.Point,
                 layerIndex,
                 styleIndex,
                 primitiveIndex,
@@ -1336,6 +1430,45 @@ public sealed partial class CadSnapshotCompiler
             styleIndex,
             primitiveIndex,
             CadBounds3D.FromPoint(start).Include(end));
+    }
+
+    private static void ValidatePoint(ACadSharp.Entities.Point point)
+    {
+        if (!double.IsFinite(point.Thickness))
+        {
+            throw new ArgumentException("POINT thickness must be finite.");
+        }
+        if (point.Thickness != 0.0)
+        {
+            throw new CadUnsupportedEntityException(
+                "POINT thickness requires retained extrusion geometry.");
+        }
+        EnsureFinite(ToPoint(point.Location));
+    }
+
+    private static CadEntityHeader CompilePoint(
+        ACadSharp.Entities.Point point,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        List<CadPointPrimitive> destination)
+    {
+        CadPoint3D position = TransformPoint(
+            transform,
+            hasTransform,
+            ToPoint(point.Location));
+        EnsureFinite(position);
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadPointPrimitive(position));
+        return new CadEntityHeader(
+            handle,
+            CadEntityKind.Point,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            CadBounds3D.FromPoint(position));
     }
 
     private static CadEntityHeader CompileCircle(

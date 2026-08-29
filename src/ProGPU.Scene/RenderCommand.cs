@@ -4544,19 +4544,26 @@ public class DrawingContext :
 
     public void DrawPointBatch(
         Brush brush,
-        Vector2[] points,
+        ReadOnlySpan<Vector2> points,
         float radius,
         bool round,
         Matrix4x4 transform = default,
         bool isEdgeAliased = false)
     {
         ArgumentNullException.ThrowIfNull(brush);
-        ArgumentNullException.ThrowIfNull(points);
+        int offset = PointBuffer.Count;
+        int count = points.Length;
+        int required = checked(offset + count);
+        if (PointBuffer.Capacity < required)
+            PointBuffer.Capacity = Math.Max(required, PointBuffer.Capacity * 2);
+        CollectionsMarshal.SetCount(PointBuffer, required);
+        points.CopyTo(CollectionsMarshal.AsSpan(PointBuffer).Slice(offset, count));
         Commands.Add(new RenderCommand
         {
             Type = RenderCommandType.DrawPointBatch,
             Brush = brush,
-            PolylinePoints = points,
+            PointBufferOffset = offset,
+            PointBufferCount = count,
             RadiusX = radius,
             IntParam = round ? 1 : 0,
             Transform = transform,
@@ -4815,6 +4822,27 @@ public class DrawingContext :
     }
 
     // --- Backward Compatible Overloads (Forward to Spans) ---
+
+    public void DrawPointBatch(
+        Brush brush,
+        Vector2[] points,
+        float radius,
+        bool round,
+        Matrix4x4 transform = default,
+        bool isEdgeAliased = false)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        DrawPointBatch(
+            brush,
+            new ReadOnlySpan<Vector2>(points),
+            radius,
+            round,
+            transform,
+            isEdgeAliased);
+        RenderCommand command = Commands[^1];
+        command.PolylinePoints = points;
+        Commands[^1] = command;
+    }
 
     public void DrawPolyline(Pen pen, Vector2[] points, bool isClosed = false)
     {

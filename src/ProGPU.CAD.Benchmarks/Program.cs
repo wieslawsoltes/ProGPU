@@ -19,6 +19,7 @@ int dimensionEntityCount = ReadNonNegativeInt("--dimension-entities", 0);
 int meshEntityCount = ReadNonNegativeInt("--mesh-entities", 0);
 int polygonMeshEntityCount = ReadNonNegativeInt("--polygon-mesh-entities", 0);
 int polyfaceMeshEntityCount = ReadNonNegativeInt("--polyface-mesh-entities", 0);
+int pointEntityCount = ReadNonNegativeInt("--point-entities", 0);
 int solidHatchCount = ReadNonNegativeInt("--solid-hatches", 0);
 int patternHatchCount = ReadNonNegativeInt("--pattern-hatches", 0);
 bool complexPatternGrammar = HasFlag("--complex-pattern-grammar");
@@ -47,6 +48,7 @@ if (entityCount == 0 && blockArrayColumnCount == 0 && textEntityCount == 0 &&
     mtextEntityCount == 0 && shxTextEntityCount == 0 && shxMTextEntityCount == 0 &&
     attributeInsertCount == 0 && dimensionEntityCount == 0 && meshEntityCount == 0 &&
     polygonMeshEntityCount == 0 && polyfaceMeshEntityCount == 0 &&
+    pointEntityCount == 0 &&
     solidHatchCount == 0 && patternHatchCount == 0)
 {
     throw new ArgumentException(
@@ -65,7 +67,7 @@ if (measureSplineSelection &&
      textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
      shxMTextEntityCount != 0 || attributeInsertCount != 0 ||
      dimensionEntityCount != 0 || meshEntityCount != 0 ||
-     polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 ||
+     polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 || pointEntityCount != 0 ||
      solidHatchCount != 0 || patternHatchCount != 0))
 {
     throw new ArgumentException(
@@ -74,7 +76,7 @@ if (measureSplineSelection &&
 if (measureTextSelection &&
     (entityCount != 0 || blockArrayColumnCount != 0 || solidHatchCount != 0 ||
      patternHatchCount != 0 || dimensionEntityCount != 0 || meshEntityCount != 0 ||
-     polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 ||
+     polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 || pointEntityCount != 0 ||
      new[]
      {
          textEntityCount,
@@ -94,7 +96,7 @@ if (measureHatchSelection &&
      textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
      shxMTextEntityCount != 0 || attributeInsertCount != 0 ||
      dimensionEntityCount != 0 || meshEntityCount != 0 ||
-     polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0))
+     polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 || pointEntityCount != 0))
 {
     throw new ArgumentException(
         "--hatch-selection requires exactly one positive --solid-hatches or --pattern-hatches count and no other fixtures.");
@@ -137,6 +139,7 @@ CadDocumentSession session = CreateDocument(
     meshEntityCount,
     polygonMeshEntityCount,
     polyfaceMeshEntityCount,
+    pointEntityCount,
     solidHatchCount,
     patternHatchCount,
     complexPatternGrammar,
@@ -281,6 +284,7 @@ var report = new CadBenchmarkReport(
     meshEntityCount,
     polygonMeshEntityCount,
     polyfaceMeshEntityCount,
+    pointEntityCount,
     solidHatchCount,
     patternHatchCount,
     complexPatternGrammar,
@@ -346,6 +350,7 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         meshEntityCount +
         polygonMeshEntityCount +
         polyfaceMeshEntityCount +
+        pointEntityCount +
         solidHatchCount +
         patternHatchCount);
     int expectedExpanded = checked(
@@ -360,6 +365,7 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         (meshEntityCount * 7) +
         (polygonMeshEntityCount * 13) +
         (polyfaceMeshEntityCount * 7) +
+        pointEntityCount +
         solidHatchCount +
         patternHatchCount);
     if (source.Statistics.SourceEntityCount == expectedSource &&
@@ -394,6 +400,7 @@ CadDocumentSession CreateDocument(
     int meshCount,
     int polygonMeshCount,
     int polyfaceMeshCount,
+    int pointCount,
     int hatchCount,
     int patternedHatchCount,
     bool useComplexPatternGrammar,
@@ -762,6 +769,14 @@ CadDocumentSession CreateDocument(
             mesh.Faces.Add(new VertexFaceRecord { Index1 = 2, Index2 = 4, Index3 = 3 });
             mesh.Faces.Add(new VertexFaceRecord { Index1 = 3, Index2 = 4, Index3 = 1 });
             document.Entities.Add(mesh);
+        }
+
+        for (int i = 0; i < pointCount; i++)
+        {
+            document.Entities.Add(new Point(new XYZ(
+                (i % 1_000) * 12.0,
+                (i / 1_000) * 12.0,
+                i % 17)));
         }
 
         for (int i = 0; i < hatchCount; i++)
@@ -1379,6 +1394,7 @@ internal sealed record CadBenchmarkReport(
     int MeshEntityCount,
     int PolygonMeshEntityCount,
     int PolyfaceMeshEntityCount,
+    int PointEntityCount,
     int SolidHatchCount,
     int PatternHatchCount,
     bool ComplexPatternGrammar,

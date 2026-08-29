@@ -339,6 +339,9 @@ public static class CadSelectionHitTester
 
         return header.Kind switch
         {
+            CadEntityKind.Point => FromDistance(
+                (point - snapshot.Points.Span[header.PrimitiveIndex].Position).Length,
+                tolerance),
             CadEntityKind.Line => FromDistance(
                 DistanceToSegment(
                     point,
@@ -428,6 +431,10 @@ public static class CadSelectionHitTester
 
         return header.Kind switch
         {
+            CadEntityKind.Point => FromBoundsHit(
+                !bounds.IsEmpty && ContainsPoint(
+                    bounds,
+                    snapshot.Points.Span[header.PrimitiveIndex].Position)),
             CadEntityKind.Line => HitLineBounds(
                 snapshot.Lines.Span[header.PrimitiveIndex],
                 bounds,

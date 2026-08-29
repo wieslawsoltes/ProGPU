@@ -269,6 +269,13 @@ public sealed class CadPlanSceneCompiler
 
             switch (entity.Kind)
             {
+                case CadEntityKind.Point:
+                    RecordPoint(
+                        context,
+                        pen.Brush,
+                        snapshot.Points.Span[entity.PrimitiveIndex],
+                        snapshot.RebaseOrigin);
+                    break;
                 case CadEntityKind.Line:
                     RecordLine(context, pen, snapshot.Lines.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
                     break;
@@ -618,6 +625,17 @@ public sealed class CadPlanSceneCompiler
         CadLinePrimitive line,
         CadPoint3D origin) =>
         context.DrawLine(pen, Project(line.Start, origin), Project(line.End, origin));
+
+    private static void RecordPoint(
+        DrawingContext context,
+        Brush brush,
+        CadPointPrimitive point,
+        CadPoint3D origin)
+    {
+        Span<Vector2> positions = stackalloc Vector2[1];
+        positions[0] = Project(point.Position, origin);
+        context.DrawPointBatch(brush, positions, radius: 0.0f, round: true);
+    }
 
     private static void RecordCircle(
         DrawingContext context,
@@ -1594,7 +1612,7 @@ public sealed class CadPlanSceneCompiler
     }
 
     private static bool UsesStroke(CadEntityKind kind) =>
-        kind is not (CadEntityKind.Solid or CadEntityKind.Hatch or CadEntityKind.Text or CadEntityKind.ShxText or CadEntityKind.MText or CadEntityKind.ShxMText or CadEntityKind.ShxShape);
+        kind is not (CadEntityKind.Point or CadEntityKind.Solid or CadEntityKind.Hatch or CadEntityKind.Text or CadEntityKind.ShxText or CadEntityKind.MText or CadEntityKind.ShxMText or CadEntityKind.ShxShape);
 
     private static void ValidateOptions(CadPlanSceneOptions options)
     {

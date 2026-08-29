@@ -253,8 +253,6 @@ public sealed class CadLegacyMeshSnapshotTests
             diagnostic.Message.Contains("Fitted", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
             diagnostic.Message.Contains("topology", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
-            diagnostic.Message.Contains("POINT", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

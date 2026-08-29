@@ -574,6 +574,36 @@ public sealed class GpuHitTestingTests
     }
 
     [Fact]
+    public void RenderCommandCacheConsumesSpanBackedPointBatch()
+    {
+        var context = new DrawingContext();
+        Span<Vector2> source = stackalloc Vector2[1] { new(4f, 5f) };
+        context.DrawPointBatch(
+            new SolidColorBrush(Vector4.One),
+            source,
+            radius: 2f,
+            round: true);
+        RenderCommand command = Assert.Single(context.Commands);
+        Assert.Null(command.PolylinePoints);
+        using var builder = new GpuRenderCommandHitTestCacheBuilder();
+
+        builder.AddCommand(
+            command,
+            Matrix4x4.CreateTranslation(3f, 4f, 0f),
+            context,
+            id: 4324);
+        GpuHitTestIndex index = builder.BuildIndex(
+            maxDepth: 2,
+            maxPrimitivesPerNode: 1);
+
+        GpuHitTestPrimitive primitive = Assert.Single(index.Primitives);
+        Assert.Equal(4324, primitive.Id);
+        Assert.Equal(GpuHitTestPrimitiveKind.EllipseFill, primitive.Kind);
+        Assert.Equal(new Vector2(5f, 7f), primitive.BoundsMin);
+        Assert.Equal(new Vector2(9f, 11f), primitive.BoundsMax);
+    }
+
+    [Fact]
     public void HairlineArcHitGeometryAdaptsToFramebufferRadius()
     {
         var path = new PathGeometry();

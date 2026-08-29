@@ -178,7 +178,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                 AddVertexMesh(command, activeTransform, primitiveId, zIndex);
                 break;
             case RenderCommandType.DrawPointBatch:
-                AddPointBatch(command, activeTransform, primitiveId, zIndex);
+                AddPointBatch(command, activeTransform, primitiveId, zIndex, provider);
                 break;
             case RenderCommandType.FillQuad:
                 AddQuadFill(command, activeTransform, primitiveId, zIndex);
@@ -1575,9 +1575,15 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
         }
     }
 
-    private void AddPointBatch(RenderCommand command, Matrix4x4 transform, int id, float zIndex)
+    private void AddPointBatch(
+        RenderCommand command,
+        Matrix4x4 transform,
+        int id,
+        float zIndex,
+        IRenderDataProvider? provider)
     {
-        if (command.Brush is null || command.PolylinePoints is not { Length: > 0 } points)
+        ReadOnlySpan<Vector2> points = GetPointBuffer(command, provider);
+        if (command.Brush is null || points.IsEmpty)
         {
             return;
         }

@@ -3202,7 +3202,7 @@ public unsafe partial class Compositor : IDisposable
                             CompileVertexMeshCommand(cmd, activeTransform);
                             break;
                         case RenderCommandType.DrawPointBatch:
-                            CompilePointBatchCommand(cmd, activeTransform);
+                            CompilePointBatchCommand(diagContext, cmd, activeTransform);
                             break;
                         case RenderCommandType.FillQuad:
                             CompileFillQuadCommand(cmd, activeTransform);
@@ -5630,7 +5630,7 @@ SceneStateUploadComplete:
                     CompileVertexMeshCommand(command, activeTransform);
                     break;
                 case RenderCommandType.DrawPointBatch:
-                    CompilePointBatchCommand(command, activeTransform);
+                    CompilePointBatchCommand(context, command, activeTransform);
                     break;
                 case RenderCommandType.FillQuad:
                     CompileFillQuadCommand(command, activeTransform);
@@ -6078,7 +6078,7 @@ SceneStateUploadComplete:
                     CompileVertexMeshCommand(cmd, activeTransform);
                     break;
                 case RenderCommandType.DrawPointBatch:
-                    CompilePointBatchCommand(cmd, activeTransform);
+                    CompilePointBatchCommand(picture, cmd, activeTransform);
                     break;
                 case RenderCommandType.FillQuad:
                     CompileFillQuadCommand(cmd, activeTransform);
@@ -11628,9 +11628,17 @@ SceneStateUploadComplete:
         }
     }
 
-    private void CompilePointBatchCommand(RenderCommand cmd, Matrix4x4 transform)
+    private void CompilePointBatchCommand(
+        IRenderDataProvider? provider,
+        RenderCommand cmd,
+        Matrix4x4 transform)
     {
-        if (cmd.Brush is null || cmd.PolylinePoints is not { Length: > 0 } points)
+        ReadOnlySpan<Vector2> points = cmd.PolylinePoints is { Length: > 0 } inlinePoints
+            ? inlinePoints
+            : provider is not null && cmd.PointBufferCount > 0
+                ? provider.GetPoints(cmd.PointBufferOffset, cmd.PointBufferCount)
+                : ReadOnlySpan<Vector2>.Empty;
+        if (cmd.Brush is null || points.IsEmpty)
         {
             return;
         }
@@ -18048,7 +18056,7 @@ SceneStateUploadComplete:
                         CompileVertexMeshCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawPointBatch:
-                        CompilePointBatchCommand(cmd, activeTransform);
+                        CompilePointBatchCommand(null, cmd, activeTransform);
                         break;
                     case RenderCommandType.FillQuad:
                         CompileFillQuadCommand(cmd, activeTransform);
@@ -18514,7 +18522,7 @@ SceneStateUploadComplete:
                         CompileVertexMeshCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawPointBatch:
-                        CompilePointBatchCommand(cmd, activeTransform);
+                        CompilePointBatchCommand(context, cmd, activeTransform);
                         break;
                     case RenderCommandType.FillQuad:
                         CompileFillQuadCommand(cmd, activeTransform);

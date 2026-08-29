@@ -21,6 +21,7 @@ public enum CadEntityKind : byte
     ShxMText = 14,
     Hatch = 15,
     ShxShape = 16,
+    Point = 17,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -128,6 +129,8 @@ public readonly record struct CadEntityHeader(
     CadBounds3D Bounds);
 
 public readonly record struct CadLinePrimitive(CadPoint3D Start, CadPoint3D End);
+
+public readonly record struct CadPointPrimitive(CadPoint3D Position);
 
 public readonly record struct CadCirclePrimitive(
     CadPoint3D Center,
@@ -465,6 +468,7 @@ public sealed class CadDocumentSnapshot
     private readonly CadLineTypeShapeResource[] _lineTypeShapeResources;
     private readonly CadEntityHeader[] _entities;
     private readonly CadLinePrimitive[] _lines;
+    private readonly CadPointPrimitive[] _points;
     private readonly CadCirclePrimitive[] _circles;
     private readonly CadArcPrimitive[] _arcs;
     private readonly CadEllipsePrimitive[] _ellipses;
@@ -517,6 +521,7 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadLineTypeShapeResource> LineTypeShapeResources => _lineTypeShapeResources;
     public ReadOnlyMemory<CadEntityHeader> Entities => _entities;
     public ReadOnlyMemory<CadLinePrimitive> Lines => _lines;
+    public ReadOnlyMemory<CadPointPrimitive> Points => _points;
     public ReadOnlyMemory<CadCirclePrimitive> Circles => _circles;
     public ReadOnlyMemory<CadArcPrimitive> Arcs => _arcs;
     public ReadOnlyMemory<CadEllipsePrimitive> Ellipses => _ellipses;
@@ -570,6 +575,7 @@ public sealed class CadDocumentSnapshot
         CadLineTypeShapeResource[] lineTypeShapeResources,
         CadEntityHeader[] entities,
         CadLinePrimitive[] lines,
+        CadPointPrimitive[] points,
         CadCirclePrimitive[] circles,
         CadArcPrimitive[] arcs,
         CadEllipsePrimitive[] ellipses,
@@ -620,6 +626,7 @@ public sealed class CadDocumentSnapshot
         _lineTypeShapeResources = lineTypeShapeResources;
         _entities = entities;
         _lines = lines;
+        _points = points;
         _circles = circles;
         _arcs = arcs;
         _ellipses = ellipses;

@@ -1156,14 +1156,15 @@ Collapsed edges, vertex width/bulge, thickness, and fitted quadratic, cubic, or
 Bezier surfaces are rejected instead of being silently shown as a control cage.
 
 A polyface mesh first validates every signed, one-based face index in a complete
-transactional pass. The first zero terminates a two-, three-, or four-index
+transactional pass. The first zero terminates a one-, two-, three-, or four-index
 record and all following values must also be zero. A negative index suppresses
 the edge beginning at that index; it does not erase another face's visible use
-of the same edge. Two-index records therefore retain their documented line
-semantics, while one-index records are diagnosed until POINT display semantics
-exist. A second pass resolves face layer/visibility/style and emits visible
-edges. Deduplication includes the canonical edge, resolved layer, and resolved
-style, preserving coincident edges whose face properties differ.
+of the same edge. Two-index records retain their documented line semantics;
+one-index records retain a styled POINT using the document PDMODE contract. A
+second pass resolves face layer/visibility/style and emits visible points and
+edges. Deduplication includes the coordinate vertex plus resolved layer/style
+for points, or the canonical edge plus resolved layer/style for edges,
+preserving coincident geometry whose face properties differ.
 
 For `V = M*N` polygon vertices, construction visits exactly `2V` candidate grid
 directions and uses `O(V + E)` temporary/output storage for `E` unique edges.
@@ -1173,9 +1174,33 @@ with `O(V + E)` temporary/output storage. Hash-table worst case is quadratic in
 the number of candidate edges. Both forms charge topology visits to
 `MaxMeshFaceIndices`, preflight the global expanded-entity budget, keep vertices
 in double-precision WCS through editing and ancestor INSERT transforms, and
-reuse the existing retained line, BVH, exact selection, native-picture, and
-print-plan paths. No C ABI, shader, upload, or renderer-specific contract was
-added; managed and native renderers consume the same canonical line commands.
+reuse the existing retained line/point, BVH, exact selection, native-picture,
+and print-plan paths. No C ABI, shader, upload, or renderer-specific contract
+was added; managed and native renderers consume the same canonical commands.
+
+## Exact retained POINT dots
+
+`POINT` group 10/20/30 coordinates are already WCS. Snapshot capture validates
+finite coordinates and applies only ancestor INSERT/MINSERT affine transforms;
+it does not apply the entity normal as an OCS conversion. `PDMODE=0` retains one
+degenerate-bounds `CadPointPrimitive` and records it as the existing ProGPU
+round hairline `DrawPointBatch`, whose radius is fixed to half a physical device
+pixel after the camera transform. `PDMODE=1` intentionally publishes no visible
+primitive and no unsupported diagnostic. Nonzero thickness and PDMODE values
+that require plus/X/tick/circle/square marker geometry remain explicit
+unsupported boundaries because their absolute or viewport-relative PDSIZE
+sizing cannot be represented by a guessed model-space radius.
+
+Direct POINT capture is `O(1)` time and storage per visible entity. A one-index
+polyface record shares the same primitive and style contract; the mesh performs
+its complete topology/PDMODE validation pass before emitting any point or edge.
+Plan recording copies caller stack spans into one reusable point stream, so it
+uses `O(P)` retained storage for `P` points without one managed array per point.
+Managed drawing, GPU hit testing, picture nesting, native scene compilation,
+selection, print replay, and stable device-hairline behavior all resolve the
+same offset/count stream. The existing native point-batch C ABI and shaders did
+not change, and the C++ renderer already consumes that canonical command; no
+one-sided native implementation or generated-wire update applies.
 
 ## Retained TrueType TEXT lowering
 
@@ -1792,6 +1817,7 @@ dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --patt
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --dimension-entities 1000 --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --mesh-entities 1000 --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --polygon-mesh-entities 1000 --polyface-mesh-entities 1000 --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 0 --point-entities 10000 --warmup 3 --iterations 24 --queries 10000
 ```
 
 The initial 2026-08-27 Apple Silicon/.NET 10 baseline for 10,000 mixed analytic
@@ -1848,6 +1874,20 @@ transparent feature/cost baseline with noisy tails and deliberately overlapping
 3D-to-plan projections, not an improvement or release-acceptance claim. Indexed
 edge batches, representative orbit/depth workloads, GPU counters,
 managed/native images, and required Instruments traces remain open gates.
+
+The 2026-08-29 retained-POINT feature-cost run used one final Apple
+Silicon/.NET 10.0.5 Release process, 10,000 PDMODE-zero POINT entities, three
+warmups, 24 construction iterations, and 10,000 spatial queries. The snapshot
+reported exactly 10,000 source/expanded records, 10,000 retained point-batch
+commands, and zero unsupported or invalid entities. Snapshot p50/p95/p99 was
+`15.4765/96.0577/98.3715 ms` at `5,162,431 B/op`; plan-scene recording was
+`2.5843/5.8061/6.6926 ms` at `6,023,216 B/op`; print planning was
+`6.4834/21.7627/25.2050 ms` at `11,987,292 B/op`; and warm spatial-query
+p50/p95/p99 was `3.8/7.1/17.2 us` with zero managed allocation. This is a
+transparent feature-cost baseline with noisy construction tails, not an
+improvement or release-acceptance claim. Point-command coalescing,
+representative viewport interaction, GPU counters, managed/native images, and
+required Instruments traces remain open gates.
 
 The 2026-08-28 simple-linetype feature-cost baseline used one final Release
 binary in two sequential processes, 1,000 mixed analytic entities, five
@@ -2148,6 +2188,35 @@ dotnet run --project src/ProGPU.CAD.Sample.Browser -c Debug
 ## Primary research record
 
 Sources consulted on 2026-08-27 through 2026-08-29:
+
+- For POINT display, Autodesk's
+  [POINT DXF contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-9C6AD32D-769D-4213-85A4-CA9CCB5C5317.htm)
+  establishes WCS location, thickness, normal, and rotation fields;
+  [PDMODE](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-Core/files/GUID-82F9BB52-D026-4D6A-ABA6-BF29641F459B.htm),
+  [PDSIZE](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-826CA91D-704B-400B-B784-7FCC9619AFB9.htm), and Autodesk's
+  [point-style guidance](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DidYouKnow/files/GUID-1823FF63-6952-47DD-89F8-29E4AA5B2582.htm)
+  define the marker bit combinations, hidden mode, absolute/viewport-relative
+  sizing, and the mode-zero single-pixel dot. Adopted exact WCS placement,
+  hidden mode, and single-device-pixel mode-zero coverage; rejected treating
+  POINT as OCS, inventing a model-space size, or approximating the larger
+  compound markers. The same contract now applies to Autodesk's documented
+  one-index PFACE point records.
+  [Skia `drawPoints`](https://api.skia.org/classSkCanvas.html),
+  [Direct2D `DrawEllipse`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1rendertarget-drawellipse),
+  [Win2D `DrawCircle`](https://microsoft.github.io/Win2D/WinUI3/html/Overload_Microsoft_Graphics_Canvas_CanvasDrawingSession_DrawCircle.htm),
+  [WebRender's retained pipeline](https://searchfox.org/mozilla-central/source/gfx/docs/RenderingOverview.rst), and
+  [Vello's retained scene](https://github.com/linebender/vello/blob/main/vello/src/scene.rs)
+  informed keeping point coverage analytic, device-scaled, retained, and shared
+  across consumers. ProGPU adapts those public contracts to its existing
+  original point-batch command and copies no foreign source or structure.
+  SkParagraph, DirectWrite text layout, Parley, and HarfBuzz were rechecked and
+  are not applicable because POINT changes no shaping, line layout, font
+  fallback, glyph cache, variable-font, DPI/subpixel text, or text device-loss
+  behavior. Managed/native applicability was audited explicitly: both renderers
+  already consume the same canonical point-batch ABI; the managed recorder,
+  hit tester, picture compiler, and native scene compiler now resolve the same
+  span-backed stream, with matched regressions and no C ABI, shader, generated
+  binding, or per-frame crossing change.
 
 - For legacy polygon/polyface meshes, Autodesk's
   [POLYLINE DXF contract](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-DXF/files/GUID-ABF6B778-BE20-4B49-9B58-A94E64CEFFF3.htm)

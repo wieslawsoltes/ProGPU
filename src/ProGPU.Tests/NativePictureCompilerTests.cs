@@ -1559,6 +1559,40 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerConsumesSpanBackedPointBatchWithoutInlineArray()
+    {
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 64f, 48f));
+        Span<Vector2> source = stackalloc Vector2[2]
+        {
+            new(7f, 11f),
+            new(19f, 23f),
+        };
+        drawing.DrawPointBatch(
+            new SolidColorBrush(Vector4.One),
+            source,
+            radius: 0f,
+            round: true);
+        RenderCommand command = Assert.Single(drawing.Commands);
+        Assert.Null(command.PolylinePoints);
+        Assert.Equal(0, command.PointBufferOffset);
+        Assert.Equal(2, command.PointBufferCount);
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            94U,
+            6U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.PointBatchCount);
+        Assert.Equal(2, compiled.PointCount);
+    }
+
+    [Fact]
     public void CompilerCoalescesVertexMeshesAndPreservesPackedAttributes()
     {
         var recorder = new GpuPictureRecorder();

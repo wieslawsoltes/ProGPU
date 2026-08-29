@@ -2283,6 +2283,7 @@ public static partial class GpuPictureNativeSceneCompiler
                     out error);
             case RenderCommandType.DrawPointBatch:
                 return TryAppendPointBatch(
+                    picture,
                     command,
                     transform,
                     pointBatches,
@@ -3056,6 +3057,7 @@ public static partial class GpuPictureNativeSceneCompiler
     }
 
     private static bool TryAppendPointBatch(
+        GpuPicture picture,
         in RenderCommand command,
         Matrix3x2 transform,
         List<NativeScenePointBatch> nativeBatches,
@@ -3067,8 +3069,15 @@ public static partial class GpuPictureNativeSceneCompiler
         out NativePictureCompileError error)
     {
         error = NativePictureCompileError.None;
-        if (command.Brush is null ||
-            command.PolylinePoints is not { Length: > 0 } sourcePoints ||
+        ReadOnlySpan<Vector2> sourcePoints =
+            command.PolylinePoints is { Length: > 0 } inlinePoints
+                ? inlinePoints
+                : command.PointBufferCount > 0
+                    ? picture.GetPoints(
+                        command.PointBufferOffset,
+                        command.PointBufferCount)
+                    : ReadOnlySpan<Vector2>.Empty;
+        if (command.Brush is null || sourcePoints.IsEmpty ||
             !float.IsFinite(command.RadiusX))
         {
             error = NativePictureCompileError.InvalidGeometry;
