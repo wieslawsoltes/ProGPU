@@ -344,6 +344,46 @@ public abstract class CanvasBitmap :
         }
     }
 
+    public void CopyPixelsFromBitmap(CanvasBitmap otherBitmap) =>
+        CopyPixelsFromBitmapCore(
+            otherBitmap,
+            destinationX: 0,
+            destinationY: 0,
+            sourceX: 0,
+            sourceY: 0,
+            width: null,
+            height: null);
+
+    public void CopyPixelsFromBitmap(
+        CanvasBitmap otherBitmap,
+        int destinationX,
+        int destinationY) =>
+        CopyPixelsFromBitmapCore(
+            otherBitmap,
+            destinationX,
+            destinationY,
+            sourceX: 0,
+            sourceY: 0,
+            width: null,
+            height: null);
+
+    public void CopyPixelsFromBitmap(
+        CanvasBitmap otherBitmap,
+        int destinationX,
+        int destinationY,
+        int sourceRectangleLeft,
+        int sourceRectangleTop,
+        int sourceRectangleWidth,
+        int sourceRectangleHeight) =>
+        CopyPixelsFromBitmapCore(
+            otherBitmap,
+            destinationX,
+            destinationY,
+            sourceRectangleLeft,
+            sourceRectangleTop,
+            sourceRectangleWidth,
+            sourceRectangleHeight);
+
     public Rect GetBounds(ICanvasResourceCreator resourceCreator) =>
         GetBounds(resourceCreator, Matrix3x2.Identity);
 
@@ -414,6 +454,11 @@ public abstract class CanvasBitmap :
             throw new InvalidOperationException(
                 "Canvas bitmap pixels cannot be changed while deferred drawing owns a texture lease.");
         }
+    }
+
+    protected virtual void ValidateCanCopySource()
+    {
+        ThrowIfDisposed();
     }
 
     public void Dispose()
@@ -504,6 +549,74 @@ public abstract class CanvasBitmap :
                 format,
                 alphaMode)
         {
+        }
+    }
+
+    private void CopyPixelsFromBitmapCore(
+        CanvasBitmap otherBitmap,
+        int destinationX,
+        int destinationY,
+        int sourceX,
+        int sourceY,
+        int? width,
+        int? height)
+    {
+        ArgumentNullException.ThrowIfNull(otherBitmap);
+        if (ReferenceEquals(this, otherBitmap))
+        {
+            throw new NotSupportedException(
+                "Portable Canvas bitmap self-copy fails closed until overlapping WebGPU texture-copy semantics are qualified.");
+        }
+        if (!ReferenceEquals(Device, otherBitmap.Device))
+        {
+            throw new ArgumentException(
+                "Portable Canvas bitmap copies must remain on one WebGPU device; cross-device CPU readback is not permitted.",
+                nameof(otherBitmap));
+        }
+
+        using IProGpuTextureLease sourceLease =
+            otherBitmap.AcquireCopySourceLease();
+        GpuTexture sourceTexture = sourceLease.Texture;
+        int copyWidth = width ?? checked((int)sourceTexture.Width);
+        int copyHeight = height ?? checked((int)sourceTexture.Height);
+        ValidatePixelCopyRectangle(
+            sourceX,
+            sourceY,
+            destinationX,
+            destinationY,
+            copyWidth,
+            copyHeight,
+            sourceTexture.Width,
+            sourceTexture.Height,
+            Texture.Width,
+            Texture.Height);
+
+        lock (_lifetimeLock)
+        {
+            ValidateCanMutate();
+            Texture.CopyBaseLevelRegionFrom(
+                sourceTexture,
+                (uint)sourceX,
+                (uint)sourceY,
+                (uint)destinationX,
+                (uint)destinationY,
+                (uint)copyWidth,
+                (uint)copyHeight);
+        }
+    }
+
+    private IProGpuTextureLease AcquireCopySourceLease()
+    {
+        lock (_lifetimeLock)
+        {
+            ValidateCanCopySource();
+            if (Texture.IsDisposed)
+            {
+                throw new ObjectDisposedException(GetType().Name);
+            }
+
+            _leaseCount = checked(_leaseCount + 1);
+            return new CanvasBitmapTextureLease(this, Texture);
         }
     }
 
@@ -629,6 +742,36 @@ public abstract class CanvasBitmap :
             throw new ArgumentOutOfRangeException(
                 nameof(width),
                 "The pixel subrectangle must fit inside the bitmap.");
+        }
+    }
+
+    private static void ValidatePixelCopyRectangle(
+        int sourceX,
+        int sourceY,
+        int destinationX,
+        int destinationY,
+        int width,
+        int height,
+        uint sourceWidth,
+        uint sourceHeight,
+        uint destinationWidth,
+        uint destinationHeight)
+    {
+        if (sourceX < 0 || sourceY < 0 ||
+            destinationX < 0 || destinationY < 0 ||
+            width <= 0 || height <= 0 ||
+            (uint)sourceX > sourceWidth ||
+            (uint)sourceY > sourceHeight ||
+            (uint)width > sourceWidth - (uint)sourceX ||
+            (uint)height > sourceHeight - (uint)sourceY ||
+            (uint)destinationX > destinationWidth ||
+            (uint)destinationY > destinationHeight ||
+            (uint)width > destinationWidth - (uint)destinationX ||
+            (uint)height > destinationHeight - (uint)destinationY)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(width),
+                "The source and destination copy rectangles must fit their bitmaps.");
         }
     }
 }

@@ -308,6 +308,23 @@ public sealed class Win2DCanvasCompatibilityTests
                 typeof(int),
                 typeof(int)
             ]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CopyPixelsFromBitmap),
+            [typeof(CanvasBitmap)]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CopyPixelsFromBitmap),
+            [typeof(CanvasBitmap), typeof(int), typeof(int)]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CopyPixelsFromBitmap),
+            [
+                typeof(CanvasBitmap),
+                typeof(int),
+                typeof(int),
+                typeof(int),
+                typeof(int),
+                typeof(int),
+                typeof(int)
+            ]));
         Assert.True(typeof(ICanvasImage).IsAssignableFrom(
             typeof(CanvasCommandList)));
         Assert.NotNull(typeof(ICanvasImage).GetMethod(

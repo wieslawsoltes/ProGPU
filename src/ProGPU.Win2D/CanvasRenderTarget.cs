@@ -165,6 +165,19 @@ public sealed class CanvasRenderTarget :
         }
     }
 
+    protected override void ValidateCanCopySource()
+    {
+        base.ValidateCanCopySource();
+        lock (_sessionLock)
+        {
+            if (_hasActiveSession)
+            {
+                throw new InvalidOperationException(
+                    "A Canvas render target cannot be copied while its drawing session is active.");
+            }
+        }
+    }
+
     private static CanvasDevice GetDevice(
         ICanvasResourceCreator resourceCreator)
     {
