@@ -690,6 +690,92 @@ public sealed class CadSamplePrintPreviewTests
         }
     }
 
+    [Fact]
+    public void SharedViewRenamesAssignedNamedPageSetupWithUndoRedo()
+    {
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_000, 800));
+            ComboBox selector = view.PageSetupSelector;
+            ComboBoxItem FindNamed(string name) => selector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Text.StartsWith(
+                    $"Named: {name}",
+                    StringComparison.Ordinal));
+            selector.SelectedItem = FindNamed("A4 portrait");
+            TextBox nameInput = view.PageSetupNameInput;
+            Button apply = FindButton(view, "Apply to Model");
+            Button rename = FindButton(view, "Rename selected");
+            Button delete = FindButton(view, "Delete setup");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+            ulong originalGeneration = view.Canvas.CurrentSession!.ContentGeneration;
+
+            PressEnter(apply);
+            nameInput.Text = "Published A4 output";
+            Assert.True(rename.IsEnabled);
+            Assert.False(delete.IsEnabled);
+            PressEnter(rename);
+
+            Assert.Equal(
+                checked(originalGeneration + 2),
+                view.Canvas.CurrentSession.ContentGeneration);
+            Assert.Null(view.Canvas.CreatePageSetupCatalog()
+                .FindNamedOverride("A4 portrait"));
+            Assert.NotNull(view.Canvas.CreatePageSetupCatalog()
+                .FindNamedOverride("Published A4 output"));
+            Assert.Equal(
+                "Published A4 output",
+                view.Canvas.CreatePageSetupCatalog()
+                    .FindLayout(ACadLayout.ModelLayoutName)!
+                    .PageSetupName);
+            Assert.StartsWith(
+                "Named: Published A4 output",
+                Assert.IsType<ComboBoxItem>(selector.SelectedItem).Text,
+                StringComparison.Ordinal);
+            Assert.False(rename.IsEnabled);
+            Assert.False(delete.IsEnabled);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Renamed page setup 'A4 portrait' to 'Published A4 output'",
+                    StringComparison.Ordinal));
+
+            PressEnter(undo);
+
+            Assert.NotNull(view.Canvas.CreatePageSetupCatalog()
+                .FindNamedOverride("A4 portrait"));
+            Assert.Null(view.Canvas.CreatePageSetupCatalog()
+                .FindNamedOverride("Published A4 output"));
+            Assert.Equal(
+                "A4 portrait",
+                view.Canvas.CreatePageSetupCatalog()
+                    .FindLayout(ACadLayout.ModelLayoutName)!
+                    .PageSetupName);
+            selector.SelectedItem = FindNamed("A4 portrait");
+            Assert.True(rename.IsEnabled);
+
+            PressEnter(redo);
+
+            Assert.NotNull(view.Canvas.CreatePageSetupCatalog()
+                .FindNamedOverride("Published A4 output"));
+            Assert.Equal(
+                "Published A4 output",
+                view.Canvas.CreatePageSetupCatalog()
+                    .FindLayout(ACadLayout.ModelLayoutName)!
+                    .PageSetupName);
+            selector.SelectedItem = FindNamed("Published A4 output");
+            Assert.False(rename.IsEnabled);
+            Assert.False(delete.IsEnabled);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
     private static Button FindButton(Visual root, string label) =>
         DescendantsAndSelf(root)
             .OfType<Button>()

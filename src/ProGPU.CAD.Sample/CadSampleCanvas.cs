@@ -605,6 +605,24 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Renames one named page setup and its referring layout markers through
+    /// the generation-safe reversible document history.
+    /// </summary>
+    public void RenameNamedPageSetup(string oldName, string newName)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadRenameNamedPageSetupCommand(
+            oldName,
+            newName,
+            $"Rename page setup '{oldName}' to '{newName}'"));
+        RecompileAfterEdit(session);
+    }
+
+    /// <summary>
     /// Compiles one retained page from a generation-matched drawing page setup.
     /// Unsupported page policies fail with their typed CADPAGE diagnostic.
     /// </summary>

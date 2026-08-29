@@ -57,6 +57,24 @@ public sealed class CadPageSetupEditingTests
             new CadDeleteNamedPageSetupCommand(new string(
                 'P',
                 CadDeleteNamedPageSetupCommand.MaximumNameCodeUnits + 1)));
+        Assert.Throws<ArgumentException>(() =>
+            new CadRenameNamedPageSetupCommand(" ", "New"));
+        Assert.Throws<ArgumentException>(() =>
+            new CadRenameNamedPageSetupCommand("Old", " "));
+        Assert.Throws<ArgumentException>(() =>
+            new CadRenameNamedPageSetupCommand(
+                new string(
+                    'P',
+                    CadRenameNamedPageSetupCommand.MaximumNameCodeUnits + 1),
+                "New"));
+        Assert.Throws<ArgumentException>(() =>
+            new CadRenameNamedPageSetupCommand(
+                "Old",
+                new string(
+                    'P',
+                    CadRenameNamedPageSetupCommand.MaximumNameCodeUnits + 1)));
+        Assert.Throws<ArgumentException>(() =>
+            new CadRenameNamedPageSetupCommand("Old", "OLD"));
     }
 
     [Fact]
@@ -361,6 +379,152 @@ public sealed class CadPageSetupEditingTests
 
         Assert.Null(catalog.FindNamedOverride("Deleted output"));
         Assert.NotNull(catalog.FindNamedOverride("Retained output"));
+    }
+
+    [Fact]
+    public void RenameNamedPageSetupPreservesIdentityAndLayoutAssociations()
+    {
+        var document = new CadDocument();
+        var named = new PlotSettings("Shared output");
+        Configure(
+            named,
+            pageName: named.Name,
+            width: 210,
+            height: 297,
+            rotation: PlotRotation.Degrees90,
+            modelType: true);
+        CadDictionary dictionary = document.RootDictionary
+            .GetEntry<CadDictionary>(CadDictionary.AcadPlotSettings);
+        dictionary.Add(named);
+        ACadLayout model = document.Layouts[ACadLayout.ModelLayoutName];
+        ACadLayout paper = document.Layouts[ACadLayout.PaperLayoutName];
+        model.PageName = named.Name;
+        paper.PageName = "SHARED OUTPUT";
+        PlotState original = PlotState.Capture(named);
+        ulong originalHandle = named.Handle;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadRenameNamedPageSetupCommand(
+            named.Name,
+            "Published output");
+
+        ulong renamedGeneration = history.Execute(command);
+
+        Assert.Equal(1UL, renamedGeneration);
+        Assert.False(dictionary.ContainsKey("Shared output"));
+        Assert.Same(
+            named,
+            dictionary.GetEntry<PlotSettings>("Published output"));
+        Assert.Same(named, command.RenamedPageSetup);
+        Assert.Same(dictionary, named.Owner);
+        Assert.Equal(originalHandle, named.Handle);
+        Assert.Equal("Published output", named.Name);
+        Assert.Equal("Published output", named.PageName);
+        Assert.Equal("Published output", model.PageName);
+        Assert.Equal("Published output", paper.PageName);
+        Assert.Equal(
+            original with { PageName = "Published output" },
+            PlotState.Capture(named));
+
+        Assert.True(history.TryUndo(out ulong undoGeneration));
+
+        Assert.Equal(2UL, undoGeneration);
+        Assert.Same(named, dictionary.GetEntry<PlotSettings>("Shared output"));
+        Assert.False(dictionary.ContainsKey("Published output"));
+        Assert.Equal(original, PlotState.Capture(named));
+        Assert.Equal("Shared output", model.PageName);
+        Assert.Equal("SHARED OUTPUT", paper.PageName);
+        Assert.Equal(originalHandle, named.Handle);
+
+        Assert.True(history.TryRedo(out ulong redoGeneration));
+
+        Assert.Equal(3UL, redoGeneration);
+        Assert.Same(named, dictionary.GetEntry<PlotSettings>("Published output"));
+        Assert.Equal("Published output", model.PageName);
+        Assert.Equal("Published output", paper.PageName);
+        Assert.Equal(originalHandle, named.Handle);
+        Assert.Equal(1, history.UndoCount);
+        Assert.Equal(0, history.RedoCount);
+    }
+
+    [Fact]
+    public void RenameNamedPageSetupRejectsCollisionAndMissingSetupTransactionally()
+    {
+        var document = new CadDocument();
+        var source = new PlotSettings("Source output");
+        var collision = new PlotSettings("Existing output");
+        CadDictionary dictionary = document.RootDictionary
+            .GetEntry<CadDictionary>(CadDictionary.AcadPlotSettings);
+        dictionary.Add(source);
+        dictionary.Add(collision);
+        ulong sourceHandle = source.Handle;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        InvalidOperationException duplicate = Assert.Throws<InvalidOperationException>(
+            () => history.Execute(new CadRenameNamedPageSetupCommand(
+                source.Name,
+                "EXISTING OUTPUT")));
+        InvalidOperationException missing = Assert.Throws<InvalidOperationException>(
+            () => history.Execute(new CadRenameNamedPageSetupCommand(
+                "Missing output",
+                "New output")));
+
+        Assert.Contains("already exists", duplicate.Message, StringComparison.Ordinal);
+        Assert.Contains("does not exist", missing.Message, StringComparison.Ordinal);
+        Assert.Same(source, dictionary.GetEntry<PlotSettings>("Source output"));
+        Assert.Same(collision, dictionary.GetEntry<PlotSettings>("Existing output"));
+        Assert.Equal(sourceHandle, source.Handle);
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(0, history.UndoCount);
+        Assert.Equal(0, history.RedoCount);
+    }
+
+    [Theory]
+    [InlineData(CadDocumentFormat.Dxf)]
+    [InlineData(CadDocumentFormat.Dwg)]
+    public async Task RenamedNamedPageSetupAndAssociationSurviveRoundTrip(
+        CadDocumentFormat format)
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        var named = new PlotSettings("Original output");
+        Configure(
+            named,
+            pageName: named.Name,
+            width: 210,
+            height: 297,
+            rotation: PlotRotation.Degrees90,
+            modelType: true);
+        document.RootDictionary
+            .GetEntry<CadDictionary>(CadDictionary.AcadPlotSettings)
+            .Add(named);
+        document.Layouts[ACadLayout.ModelLayoutName].PageName = named.Name;
+        var session = new CadDocumentSession(document);
+        new CadDocumentHistory(session).Execute(
+            new CadRenameNamedPageSetupCommand(
+                named.Name,
+                "Renamed output"));
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+
+        await store.SaveAsync(
+            session,
+            stream,
+            format,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            format,
+            sourceName: $"renamed-page-setup.{format.ToString().ToLowerInvariant()}");
+        CadPageSetupCatalog catalog = new CadPageSetupCatalogCompiler()
+            .Compile(loaded.Session);
+
+        Assert.Null(catalog.FindNamedOverride("Original output"));
+        Assert.NotNull(catalog.FindNamedOverride("Renamed output"));
+        Assert.Equal(
+            "Renamed output",
+            catalog.FindLayout(ACadLayout.ModelLayoutName)!.PageSetupName);
     }
 
     [Fact]

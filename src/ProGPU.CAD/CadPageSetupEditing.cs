@@ -281,6 +281,295 @@ public sealed class CadUpdateNamedPageSetupFromLayoutCommand : CadEditCommand
 }
 
 /// <summary>
+/// Renames one named page setup and its referring layout markers atomically.
+/// </summary>
+/// <remarks>
+/// Construction is O(N) for two bounded owned names. First Apply scans O(L)
+/// layouts and retains at most 4,096 exact layout references and their existing
+/// immutable page-name strings. Undo and Redo are O(R), where R is the number
+/// of referring layouts. Plot values, layout geometry, ownership, and document
+/// handles remain unchanged.
+/// </remarks>
+public sealed class CadRenameNamedPageSetupCommand : CadEditCommand
+{
+    public const int MaximumNameCodeUnits = 4_096;
+    public const int MaximumReferencedLayoutCount = 4_096;
+
+    private readonly string _oldName;
+    private readonly string _newName;
+    private CadDictionary? _pageSetups;
+    private PlotSettings? _pageSetup;
+    private string? _previousPageName;
+    private Layout[]? _referencedLayouts;
+    private string[]? _previousLayoutPageNames;
+
+    public string OldName => _oldName;
+
+    public string NewName => _newName;
+
+    /// <summary>The retained setup after the command is first applied.</summary>
+    public PlotSettings? RenamedPageSetup => _pageSetup;
+
+    public CadRenameNamedPageSetupCommand(
+        string oldName,
+        string newName,
+        string description = "Rename named page setup")
+        : base(description)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(oldName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newName);
+        if (oldName.Length > MaximumNameCodeUnits)
+        {
+            throw new ArgumentException(
+                "The current page-setup name exceeds the command ownership budget.",
+                nameof(oldName));
+        }
+        if (newName.Length > MaximumNameCodeUnits)
+        {
+            throw new ArgumentException(
+                "The new page-setup name exceeds the command ownership budget.",
+                nameof(newName));
+        }
+        if (string.Equals(oldName, newName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "The new page-setup name must be distinct from the current name.",
+                nameof(newName));
+        }
+        _oldName = new string(oldName.AsSpan());
+        _newName = new string(newName.AsSpan());
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        CadDictionary pageSetups = ResolvePageSetupDictionary(document);
+        PlotSettings pageSetup = ResolveNamedPageSetup(pageSetups, _oldName);
+        EnsureNameAvailable(pageSetups, _newName);
+
+        if (isRedo)
+        {
+            ValidateRetainedState(
+                document,
+                pageSetups,
+                pageSetup,
+                expectRenamed: false);
+            RenameTransactional(forward: true);
+            return;
+        }
+
+        Layout[] layouts = FindReferencedLayouts(document, pageSetup);
+        var layoutPageNames = new string[layouts.Length];
+        for (int i = 0; i < layouts.Length; i++)
+        {
+            layoutPageNames[i] = layouts[i].PageName;
+        }
+        _pageSetups = pageSetups;
+        _pageSetup = pageSetup;
+        _previousPageName = pageSetup.PageName;
+        _referencedLayouts = layouts;
+        _previousLayoutPageNames = layoutPageNames;
+        RenameTransactional(forward: true);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        CadDictionary pageSetups = ResolvePageSetupDictionary(document);
+        PlotSettings pageSetup = ResolveNamedPageSetup(pageSetups, _newName);
+        EnsureNameAvailable(pageSetups, _oldName);
+        ValidateRetainedState(
+            document,
+            pageSetups,
+            pageSetup,
+            expectRenamed: true);
+        RenameTransactional(forward: false);
+    }
+
+    private void RenameTransactional(bool forward)
+    {
+        PlotSettings pageSetup = _pageSetup ??
+            throw new InvalidOperationException(
+                "The page-setup rename command has not been applied.");
+        Layout[] layouts = _referencedLayouts ??
+            throw new InvalidOperationException(
+                "The page-setup rename command has not captured its layouts.");
+        string[] previousLayoutPageNames = _previousLayoutPageNames ??
+            throw new InvalidOperationException(
+                "The page-setup rename command has not captured layout names.");
+        string desiredObjectName = forward ? _newName : _oldName;
+        string desiredPageName = forward
+            ? _newName
+            : _previousPageName!;
+        int changedLayoutCount = 0;
+        bool objectNameChanged = false;
+        bool pageNameChanged = false;
+        try
+        {
+            pageSetup.Name = desiredObjectName;
+            objectNameChanged = true;
+            pageSetup.PageName = desiredPageName;
+            pageNameChanged = true;
+            for (; changedLayoutCount < layouts.Length; changedLayoutCount++)
+            {
+                layouts[changedLayoutCount].PageName = forward
+                    ? _newName
+                    : previousLayoutPageNames[changedLayoutCount];
+            }
+        }
+        catch (Exception renameException)
+        {
+            try
+            {
+                for (int i = changedLayoutCount - 1; i >= 0; i--)
+                {
+                    layouts[i].PageName = forward
+                        ? previousLayoutPageNames[i]
+                        : _newName;
+                }
+                if (pageNameChanged)
+                {
+                    pageSetup.PageName = forward
+                        ? _previousPageName!
+                        : _newName;
+                }
+                if (objectNameChanged)
+                {
+                    pageSetup.Name = forward ? _oldName : _newName;
+                }
+            }
+            catch (Exception rollbackException)
+            {
+                throw new InvalidOperationException(
+                    "Renaming the page setup failed and its rollback also failed.",
+                    new AggregateException(renameException, rollbackException));
+            }
+            throw;
+        }
+    }
+
+    private void ValidateRetainedState(
+        CadDocument document,
+        CadDictionary pageSetups,
+        PlotSettings pageSetup,
+        bool expectRenamed)
+    {
+        if (!ReferenceEquals(_pageSetups, pageSetups) ||
+            !ReferenceEquals(_pageSetup, pageSetup))
+        {
+            throw new InvalidOperationException(
+                "The named page setup is no longer the retained setup.");
+        }
+        Layout[] layouts = _referencedLayouts ??
+            throw new InvalidOperationException(
+                "The page-setup rename command has not captured its layouts.");
+        string[] previousLayoutPageNames = _previousLayoutPageNames ??
+            throw new InvalidOperationException(
+                "The page-setup rename command has not captured layout names.");
+        string expectedPageName = expectRenamed
+            ? _newName
+            : _previousPageName!;
+        if (!string.Equals(
+            pageSetup.PageName,
+            expectedPageName,
+            StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The retained page setup's page name changed outside the edit history.");
+        }
+        for (int i = 0; i < layouts.Length; i++)
+        {
+            Layout layout = layouts[i];
+            if (document.Layouts is null ||
+                !document.Layouts.TryGet(layout.Name, out Layout current) ||
+                !ReferenceEquals(layout, current))
+            {
+                throw new InvalidOperationException(
+                    $"Layout '{layout.Name}' is no longer the retained layout.");
+            }
+            string expectedLayoutPageName = expectRenamed
+                ? _newName
+                : previousLayoutPageNames[i];
+            if (!string.Equals(
+                layout.PageName,
+                expectedLayoutPageName,
+                StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Layout '{layout.Name}' changed its page setup outside the edit history.");
+            }
+        }
+    }
+
+    private static Layout[] FindReferencedLayouts(
+        CadDocument document,
+        PlotSettings pageSetup)
+    {
+        if (document.Layouts is null)
+        {
+            return [];
+        }
+        var layouts = new List<Layout>();
+        foreach (Layout layout in document.Layouts)
+        {
+            if (!string.Equals(
+                    layout.PageName,
+                    pageSetup.Name,
+                    StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(
+                    layout.PageName,
+                    pageSetup.PageName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (layouts.Count == MaximumReferencedLayoutCount)
+            {
+                throw new InvalidOperationException(
+                    $"Named page setup '{pageSetup.Name}' exceeds the retained-layout budget.");
+            }
+            layouts.Add(layout);
+        }
+        return layouts.ToArray();
+    }
+
+    private static void EnsureNameAvailable(
+        CadDictionary pageSetups,
+        string name)
+    {
+        if (pageSetups.ContainsKey(name))
+        {
+            throw new InvalidOperationException(
+                $"Named page setup '{name}' already exists.");
+        }
+    }
+
+    private static PlotSettings ResolveNamedPageSetup(
+        CadDictionary pageSetups,
+        string name)
+    {
+        if (!pageSetups.TryGetEntry(name, out PlotSettings pageSetup) ||
+            pageSetup is Layout)
+        {
+            throw new InvalidOperationException(
+                $"Named page setup '{name}' does not exist.");
+        }
+        return pageSetup;
+    }
+
+    private static CadDictionary ResolvePageSetupDictionary(CadDocument document)
+    {
+        if (document.RootDictionary is null ||
+            !document.RootDictionary.TryGetEntry(
+                CadDictionary.AcadPlotSettings,
+                out CadDictionary pageSetups))
+        {
+            throw new InvalidOperationException(
+                "The document has no ACAD_PLOTSETTINGS dictionary.");
+        }
+        return pageSetups;
+    }
+}
+
+/// <summary>
 /// Removes one unassigned named page setup as a reversible document edit.
 /// </summary>
 /// <remarks>

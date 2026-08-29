@@ -30,6 +30,7 @@ public sealed class CadSampleView : Grid
     private readonly TextBox _pageSetupNameInput;
     private readonly Button _createPageSetupButton;
     private readonly Button _updatePageSetupButton;
+    private readonly Button _renamePageSetupButton;
     private readonly Button _deletePageSetupButton;
     private readonly TextBlock _status;
     private readonly Button _openButton;
@@ -292,7 +293,7 @@ public sealed class CadSampleView : Grid
 
         pageSetupCreateActions.AddChild(new TextBlock
         {
-            Text = "New setup from Model",
+            Text = "Setup name (Model / rename)",
             Font = font,
             FontSize = 11,
             Foreground = new ThemeResourceBrush("TextSecondary"),
@@ -311,10 +312,13 @@ public sealed class CadSampleView : Grid
         _createPageSetupButton.Margin = new Thickness(0, 0, 8, 0);
         _updatePageSetupButton = CreateButton("Update selected", font, 120, 30);
         _updatePageSetupButton.Margin = new Thickness(0, 0, 8, 0);
+        _renamePageSetupButton = CreateButton("Rename selected", font, 116, 30);
+        _renamePageSetupButton.Margin = new Thickness(0, 0, 8, 0);
         _deletePageSetupButton = CreateButton("Delete setup", font, 104, 30);
         pageSetupCreateActions.AddChild(_pageSetupNameInput);
         pageSetupCreateActions.AddChild(_createPageSetupButton);
         pageSetupCreateActions.AddChild(_updatePageSetupButton);
+        pageSetupCreateActions.AddChild(_renamePageSetupButton);
         pageSetupCreateActions.AddChild(_deletePageSetupButton);
 
         _status = new TextBlock
@@ -358,6 +362,8 @@ public sealed class CadSampleView : Grid
             CreateNamedPageSetupFromModel();
         _updatePageSetupButton.Click += (_, _) =>
             UpdateSelectedPageSetupFromModel();
+        _renamePageSetupButton.Click += (_, _) =>
+            RenameSelectedNamedPageSetup();
         _deletePageSetupButton.Click += (_, _) =>
             DeleteSelectedNamedPageSetup();
         _clearSelectionButton.Click += (_, _) => _canvas.ClearSelection();
@@ -638,6 +644,44 @@ public sealed class CadSampleView : Grid
         catch (Exception exception)
         {
             SetStatus($"Delete page setup failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void RenameSelectedNamedPageSetup()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        var item = _pageSetupSelector.SelectedItem as ComboBoxItem;
+        var choice = item?.Tag as PageSetupChoice;
+        if (choice?.PageSetup is not CadPageSetupSnapshot pageSetup ||
+            pageSetup.SourceKind != CadPageSetupSourceKind.NamedOverride)
+        {
+            SetStatus("Renaming a page setup requires a named setup selection.");
+            UpdateEditControls();
+            return;
+        }
+
+        string newName = _pageSetupNameInput.Text;
+        try
+        {
+            _canvas.RenameNamedPageSetup(pageSetup.Name, newName);
+            SelectPageSetup(new PageSetupKey(
+                false,
+                CadPageSetupSourceKind.NamedOverride,
+                newName));
+            SetStatus(
+                $"Renamed page setup '{pageSetup.Name}' to '{newName}' as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Rename page setup failed: {exception.Message}");
         }
         finally
         {
@@ -1431,6 +1475,8 @@ public sealed class CadSampleView : Grid
                 PageSetupChoice { CanApplyToModel: true };
         _deletePageSetupButton.IsEnabled =
             canUsePlanTools && CanDeleteSelectedNamedPageSetup();
+        _renamePageSetupButton.IsEnabled =
+            canUsePlanTools && CanRenameSelectedNamedPageSetup();
         _undoButton.IsEnabled =
             canUsePlanTools && _canvas.UndoCount > 0;
         _redoButton.IsEnabled =
@@ -1507,6 +1553,42 @@ public sealed class CadSampleView : Grid
             } && string.Equals(
                 layout.PageSetupName,
                 named.Name,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool CanRenameSelectedNamedPageSetup()
+    {
+        if ((_pageSetupSelector.SelectedItem as ComboBoxItem)?.Tag is not
+            PageSetupChoice
+            {
+                PageSetup:
+                {
+                    SourceKind: CadPageSetupSourceKind.NamedOverride,
+                } named,
+            })
+        {
+            return false;
+        }
+
+        string newName = _pageSetupNameInput.Text;
+        if (string.IsNullOrWhiteSpace(newName) ||
+            newName.Length > CadRenameNamedPageSetupCommand.MaximumNameCodeUnits ||
+            string.Equals(named.Name, newName, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return !_pageSetupSelector.Items
+            .OfType<ComboBoxItem>()
+            .Any(item => item.Tag is PageSetupChoice
+            {
+                PageSetup:
+                {
+                    SourceKind: CadPageSetupSourceKind.NamedOverride,
+                } candidate,
+            } && string.Equals(
+                candidate.Name,
+                newName,
                 StringComparison.OrdinalIgnoreCase));
     }
 

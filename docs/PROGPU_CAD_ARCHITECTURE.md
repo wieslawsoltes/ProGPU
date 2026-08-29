@@ -2118,6 +2118,21 @@ removal, and participates in the existing generation-safe Undo/Redo history.
 Matched assignment preflight, identity, UI, Undo/Redo, DXF, and DWG regressions
 cover the contract.
 
+`CadRenameNamedPageSetupCommand` changes a named setup without replacing its
+object. The command preflights a case-insensitive target-name collision, retains
+at most 4,096 exact layout references whose current page-setup marker matches
+the setup dictionary name or page name, and then changes the dictionary key,
+named `PageName`, and referring layout markers transactionally. This preserves
+the setup object, owner, handle, fixed plot values, layout geometry, and the
+observable association shown by Page Setup Manager. Initial Apply is O(L) for
+L layouts; Undo/Redo are O(R) for R retained referring layouts, and command
+storage is O(R + N) for bounded names and prior immutable marker strings.
+Case-only/no-op renames are rejected because the drawing dictionary is
+case-insensitive. The shared `Rename selected` action consumes the bounded name
+input, selects the renamed catalog entry, and uses the same history generation.
+Matched collision, identity, association, UI, Undo/Redo, DXF, and DWG
+regressions cover the contract.
+
 This slice changes document metadata and the shared host only. It changes no
 scene compiler, shader, render command, cache, GPU resource, native ABI, or
 managed/native renderer behavior, so a paired native rendering implementation
@@ -3547,7 +3562,11 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   only for named entries and specifies that a setup assigned to a layout cannot
   be removed. ProGPU adopts that observable guard with an original bounded
   layout preflight and retained-object history action; it does not copy foreign
-  transaction, dictionary, or UI implementation structure.
+  transaction, dictionary, or UI implementation structure. Autodesk also
+  exposes Rename only for named entries while Page Setup Manager reports the
+  current named association on layouts. ProGPU preserves that association by
+  changing the named dictionary identity and referring layout markers in one
+  original bounded reversible action.
 - [Skia PDF pages](https://skia.org/docs/user/sample/pdf/),
   [Skia canvas backends](https://skia.org/docs/user/api/skcanvas_creation/),
   [Skia canvas transforms and clips](https://skia.org/docs/user/api/skcanvas_overview/),
