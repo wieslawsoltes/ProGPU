@@ -623,6 +623,73 @@ public sealed class CadSamplePrintPreviewTests
         }
     }
 
+    [Fact]
+    public void SharedViewDeletesUnassignedNamedPageSetupWithUndoRedo()
+    {
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_000, 800));
+            ComboBox selector = view.PageSetupSelector;
+            ComboBoxItem FindNamed() => selector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Text.StartsWith(
+                    "Named: A4 portrait",
+                    StringComparison.Ordinal));
+            selector.SelectedItem = FindNamed();
+            Button delete = FindButton(view, "Delete setup");
+            Button apply = FindButton(view, "Apply to Model");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+            int originalCount = selector.Items.Count;
+            ulong originalGeneration = view.Canvas.CurrentSession!.ContentGeneration;
+
+            Assert.True(delete.IsEnabled);
+            PressEnter(delete);
+
+            Assert.Equal(originalCount - 1, selector.Items.Count);
+            Assert.Equal(
+                checked(originalGeneration + 1),
+                view.Canvas.CurrentSession.ContentGeneration);
+            Assert.Null(view.Canvas.CreatePageSetupCatalog()
+                .FindNamedOverride("A4 portrait"));
+            Assert.StartsWith(
+                "Layout: Model",
+                Assert.IsType<ComboBoxItem>(selector.SelectedItem).Text,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Deleted named page setup 'A4 portrait'",
+                    StringComparison.Ordinal));
+
+            PressEnter(undo);
+
+            Assert.Equal(originalCount, selector.Items.Count);
+            Assert.NotNull(view.Canvas.CreatePageSetupCatalog()
+                .FindNamedOverride("A4 portrait"));
+            selector.SelectedItem = FindNamed();
+            Assert.True(delete.IsEnabled);
+
+            PressEnter(redo);
+
+            Assert.Equal(originalCount - 1, selector.Items.Count);
+            Assert.Null(view.Canvas.CreatePageSetupCatalog()
+                .FindNamedOverride("A4 portrait"));
+
+            PressEnter(undo);
+            selector.SelectedItem = FindNamed();
+            Assert.True(delete.IsEnabled);
+            PressEnter(apply);
+            Assert.False(delete.IsEnabled);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
     private static Button FindButton(Visual root, string label) =>
         DescendantsAndSelf(root)
             .OfType<Button>()

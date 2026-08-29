@@ -30,6 +30,7 @@ public sealed class CadSampleView : Grid
     private readonly TextBox _pageSetupNameInput;
     private readonly Button _createPageSetupButton;
     private readonly Button _updatePageSetupButton;
+    private readonly Button _deletePageSetupButton;
     private readonly TextBlock _status;
     private readonly Button _openButton;
     private readonly Button _saveButton;
@@ -309,9 +310,12 @@ public sealed class CadSampleView : Grid
         _createPageSetupButton = CreateButton("Save named setup", font, 132, 30);
         _createPageSetupButton.Margin = new Thickness(0, 0, 8, 0);
         _updatePageSetupButton = CreateButton("Update selected", font, 120, 30);
+        _updatePageSetupButton.Margin = new Thickness(0, 0, 8, 0);
+        _deletePageSetupButton = CreateButton("Delete setup", font, 104, 30);
         pageSetupCreateActions.AddChild(_pageSetupNameInput);
         pageSetupCreateActions.AddChild(_createPageSetupButton);
         pageSetupCreateActions.AddChild(_updatePageSetupButton);
+        pageSetupCreateActions.AddChild(_deletePageSetupButton);
 
         _status = new TextBlock
         {
@@ -354,6 +358,8 @@ public sealed class CadSampleView : Grid
             CreateNamedPageSetupFromModel();
         _updatePageSetupButton.Click += (_, _) =>
             UpdateSelectedPageSetupFromModel();
+        _deletePageSetupButton.Click += (_, _) =>
+            DeleteSelectedNamedPageSetup();
         _clearSelectionButton.Click += (_, _) => _canvas.ClearSelection();
         _undoButton.Click += (_, _) => PerformUndo();
         _redoButton.Click += (_, _) => PerformRedo();
@@ -599,6 +605,39 @@ public sealed class CadSampleView : Grid
         catch (Exception exception)
         {
             SetStatus($"Update page setup failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void DeleteSelectedNamedPageSetup()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        var item = _pageSetupSelector.SelectedItem as ComboBoxItem;
+        var choice = item?.Tag as PageSetupChoice;
+        if (choice?.PageSetup is not CadPageSetupSnapshot pageSetup ||
+            pageSetup.SourceKind != CadPageSetupSourceKind.NamedOverride)
+        {
+            SetStatus("Deleting a page setup requires a named setup selection.");
+            UpdateEditControls();
+            return;
+        }
+
+        try
+        {
+            _canvas.DeleteNamedPageSetup(pageSetup.Name);
+            SetStatus(
+                $"Deleted named page setup '{pageSetup.Name}' as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Delete page setup failed: {exception.Message}");
         }
         finally
         {
@@ -1390,6 +1429,8 @@ public sealed class CadSampleView : Grid
             canUsePlanTools &&
             (_pageSetupSelector.SelectedItem as ComboBoxItem)?.Tag is
                 PageSetupChoice { CanApplyToModel: true };
+        _deletePageSetupButton.IsEnabled =
+            canUsePlanTools && CanDeleteSelectedNamedPageSetup();
         _undoButton.IsEnabled =
             canUsePlanTools && _canvas.UndoCount > 0;
         _redoButton.IsEnabled =
@@ -1438,6 +1479,34 @@ public sealed class CadSampleView : Grid
             } && string.Equals(
                 pageSetup.Name,
                 name,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool CanDeleteSelectedNamedPageSetup()
+    {
+        if ((_pageSetupSelector.SelectedItem as ComboBoxItem)?.Tag is not
+            PageSetupChoice
+            {
+                PageSetup:
+                {
+                    SourceKind: CadPageSetupSourceKind.NamedOverride,
+                } named,
+            })
+        {
+            return false;
+        }
+
+        return !_pageSetupSelector.Items
+            .OfType<ComboBoxItem>()
+            .Any(item => item.Tag is PageSetupChoice
+            {
+                PageSetup:
+                {
+                    SourceKind: CadPageSetupSourceKind.Layout,
+                } layout,
+            } && string.Equals(
+                layout.PageSetupName,
+                named.Name,
                 StringComparison.OrdinalIgnoreCase));
     }
 

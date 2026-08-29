@@ -51,6 +51,12 @@ public sealed class CadPageSetupEditingTests
                 new string(
                     'P',
                     CadUpdateNamedPageSetupFromLayoutCommand.MaximumNameCodeUnits + 1)));
+        Assert.Throws<ArgumentException>(() =>
+            new CadDeleteNamedPageSetupCommand(" "));
+        Assert.Throws<ArgumentException>(() =>
+            new CadDeleteNamedPageSetupCommand(new string(
+                'P',
+                CadDeleteNamedPageSetupCommand.MaximumNameCodeUnits + 1)));
     }
 
     [Fact]
@@ -241,6 +247,120 @@ public sealed class CadPageSetupEditingTests
         Assert.Equal(CadPageRotation.CounterClockwise270, setup.Rotation);
         Assert.Equal("Updated ProGPU PDF", setup.DeviceName);
         Assert.Equal("ISO_A3", setup.MediaName);
+    }
+
+    [Fact]
+    public void DeleteNamedPageSetupRetainsObjectAcrossUndoRedo()
+    {
+        var document = new CadDocument();
+        var named = new PlotSettings("Retained output");
+        Configure(
+            named,
+            pageName: named.Name,
+            width: 210,
+            height: 297,
+            rotation: PlotRotation.Degrees90,
+            modelType: true);
+        CadDictionary dictionary = document.RootDictionary
+            .GetEntry<CadDictionary>(CadDictionary.AcadPlotSettings);
+        dictionary.Add(named);
+        ulong originalHandle = named.Handle;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadDeleteNamedPageSetupCommand(named.Name);
+
+        ulong deletedGeneration = history.Execute(command);
+
+        Assert.Equal(1UL, deletedGeneration);
+        Assert.Same(named, command.DeletedPageSetup);
+        Assert.False(dictionary.ContainsKey(named.Name));
+        Assert.Null(named.Owner);
+        Assert.Equal(0UL, named.Handle);
+        Assert.False(document.TryGetCadObject<CadObject>(originalHandle, out _));
+        Assert.Equal(1, history.UndoCount);
+        Assert.Equal(0, history.RedoCount);
+
+        Assert.True(history.TryUndo(out ulong undoGeneration));
+
+        Assert.Equal(2UL, undoGeneration);
+        Assert.True(dictionary.TryGetEntry(named.Name, out PlotSettings restored));
+        Assert.Same(named, restored);
+        Assert.Same(dictionary, restored.Owner);
+        Assert.NotEqual(0UL, restored.Handle);
+        Assert.Equal(0, history.UndoCount);
+        Assert.Equal(1, history.RedoCount);
+
+        Assert.True(history.TryRedo(out ulong redoGeneration));
+
+        Assert.Equal(3UL, redoGeneration);
+        Assert.False(dictionary.ContainsKey(named.Name));
+        Assert.Null(named.Owner);
+        Assert.Equal(0UL, named.Handle);
+        Assert.Equal(1, history.UndoCount);
+        Assert.Equal(0, history.RedoCount);
+    }
+
+    [Fact]
+    public void DeleteNamedPageSetupRejectsAssignedAndMissingSetupsTransactionally()
+    {
+        var document = new CadDocument();
+        var named = new PlotSettings("Assigned output");
+        named.Flags |= PlotFlags.ModelType;
+        CadDictionary dictionary = document.RootDictionary
+            .GetEntry<CadDictionary>(CadDictionary.AcadPlotSettings);
+        dictionary.Add(named);
+        document.Layouts[ACadLayout.ModelLayoutName].PageName =
+            "ASSIGNED OUTPUT";
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        InvalidOperationException assigned = Assert.Throws<InvalidOperationException>(
+            () => history.Execute(new CadDeleteNamedPageSetupCommand(named.Name)));
+        InvalidOperationException missing = Assert.Throws<InvalidOperationException>(
+            () => history.Execute(new CadDeleteNamedPageSetupCommand("Missing output")));
+
+        Assert.Contains("assigned to layout 'Model'", assigned.Message, StringComparison.Ordinal);
+        Assert.Contains("does not exist", missing.Message, StringComparison.Ordinal);
+        Assert.Same(named, dictionary.GetEntry<PlotSettings>(named.Name));
+        Assert.Same(dictionary, named.Owner);
+        Assert.NotEqual(0UL, named.Handle);
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(0, history.UndoCount);
+        Assert.Equal(0, history.RedoCount);
+    }
+
+    [Theory]
+    [InlineData(CadDocumentFormat.Dxf)]
+    [InlineData(CadDocumentFormat.Dwg)]
+    public async Task DeletedNamedPageSetupStaysAbsentAfterDxfAndDwgRoundTrip(
+        CadDocumentFormat format)
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        CadDictionary dictionary = document.RootDictionary
+            .GetEntry<CadDictionary>(CadDictionary.AcadPlotSettings);
+        dictionary.Add(new PlotSettings("Deleted output"));
+        dictionary.Add(new PlotSettings("Retained output"));
+        var session = new CadDocumentSession(document);
+        new CadDocumentHistory(session).Execute(
+            new CadDeleteNamedPageSetupCommand("Deleted output"));
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+
+        await store.SaveAsync(
+            session,
+            stream,
+            format,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            format,
+            sourceName: $"deleted-page-setup.{format.ToString().ToLowerInvariant()}");
+        CadPageSetupCatalog catalog = new CadPageSetupCatalogCompiler()
+            .Compile(loaded.Session);
+
+        Assert.Null(catalog.FindNamedOverride("Deleted output"));
+        Assert.NotNull(catalog.FindNamedOverride("Retained output"));
     }
 
     [Fact]

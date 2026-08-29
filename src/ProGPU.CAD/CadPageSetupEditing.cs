@@ -281,6 +281,167 @@ public sealed class CadUpdateNamedPageSetupFromLayoutCommand : CadEditCommand
 }
 
 /// <summary>
+/// Removes one unassigned named page setup as a reversible document edit.
+/// </summary>
+/// <remarks>
+/// Construction is O(N) time and storage for one bounded owned name. Apply and
+/// Redo preflight O(L) layouts before O(1) dictionary removal, where L is the
+/// layout count. Undo is O(1). The detached setup object is retained exactly;
+/// ACadSharp assigns it a fresh document handle when Undo reattaches it.
+/// </remarks>
+public sealed class CadDeleteNamedPageSetupCommand : CadEditCommand
+{
+    public const int MaximumNameCodeUnits = 4_096;
+
+    private readonly string _pageSetupName;
+    private CadDictionary? _pageSetups;
+    private PlotSettings? _deletedPageSetup;
+
+    public string PageSetupName => _pageSetupName;
+
+    /// <summary>The retained detached setup after Apply or Redo.</summary>
+    public PlotSettings? DeletedPageSetup => _deletedPageSetup;
+
+    public CadDeleteNamedPageSetupCommand(
+        string pageSetupName,
+        string description = "Delete named page setup")
+        : base(description)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(pageSetupName);
+        if (pageSetupName.Length > MaximumNameCodeUnits)
+        {
+            throw new ArgumentException(
+                "The page-setup name exceeds the command ownership budget.",
+                nameof(pageSetupName));
+        }
+        _pageSetupName = new string(pageSetupName.AsSpan());
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        CadDictionary pageSetups = ResolvePageSetupDictionary(document);
+        PlotSettings pageSetup = ResolveNamedPageSetup(
+            pageSetups,
+            _pageSetupName);
+        if (isRedo)
+        {
+            if (!ReferenceEquals(_pageSetups, pageSetups) ||
+                !ReferenceEquals(_deletedPageSetup, pageSetup))
+            {
+                throw new InvalidOperationException(
+                    $"Named page setup '{_pageSetupName}' is no longer the retained setup.");
+            }
+        }
+
+        EnsureNotAssignedToLayout(document, _pageSetupName);
+        if (!pageSetups.Remove(_pageSetupName, out NonGraphicalObject removed) ||
+            !ReferenceEquals(pageSetup, removed))
+        {
+            throw new InvalidOperationException(
+                $"Named page setup '{_pageSetupName}' could not be removed.");
+        }
+
+        if (!isRedo)
+        {
+            _pageSetups = pageSetups;
+            _deletedPageSetup = pageSetup;
+        }
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        CadDictionary pageSetups = ResolvePageSetupDictionary(document);
+        if (!ReferenceEquals(_pageSetups, pageSetups))
+        {
+            throw new InvalidOperationException(
+                "The ACAD_PLOTSETTINGS dictionary is no longer the retained dictionary.");
+        }
+        if (pageSetups.ContainsKey(_pageSetupName))
+        {
+            throw new InvalidOperationException(
+                $"Named page setup '{_pageSetupName}' already exists.");
+        }
+        PlotSettings retained = _deletedPageSetup ??
+            throw new InvalidOperationException(
+                "The page-setup delete command has not been applied.");
+        if (retained.Owner is not null || retained.Handle != 0)
+        {
+            throw new InvalidOperationException(
+                $"Named page setup '{_pageSetupName}' is not detached.");
+        }
+
+        AddTransactional(pageSetups, retained);
+    }
+
+    private static void EnsureNotAssignedToLayout(
+        CadDocument document,
+        string pageSetupName)
+    {
+        if (document.Layouts is null)
+        {
+            return;
+        }
+        foreach (Layout layout in document.Layouts)
+        {
+            if (string.Equals(
+                layout.PageName,
+                pageSetupName,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Named page setup '{pageSetupName}' is assigned to layout " +
+                    $"'{layout.Name}' and cannot be deleted.");
+            }
+        }
+    }
+
+    private static PlotSettings ResolveNamedPageSetup(
+        CadDictionary pageSetups,
+        string name)
+    {
+        if (!pageSetups.TryGetEntry(name, out PlotSettings pageSetup) ||
+            pageSetup is Layout)
+        {
+            throw new InvalidOperationException(
+                $"Named page setup '{name}' does not exist.");
+        }
+        return pageSetup;
+    }
+
+    private static CadDictionary ResolvePageSetupDictionary(CadDocument document)
+    {
+        if (document.RootDictionary is null ||
+            !document.RootDictionary.TryGetEntry(
+                CadDictionary.AcadPlotSettings,
+                out CadDictionary pageSetups))
+        {
+            throw new InvalidOperationException(
+                "The document has no ACAD_PLOTSETTINGS dictionary.");
+        }
+        return pageSetups;
+    }
+
+    private static void AddTransactional(
+        CadDictionary pageSetups,
+        PlotSettings pageSetup)
+    {
+        try
+        {
+            pageSetups.Add(pageSetup);
+        }
+        catch
+        {
+            if (pageSetups.TryGetEntry(pageSetup.Name, out PlotSettings current) &&
+                ReferenceEquals(pageSetup, current))
+            {
+                pageSetups.Remove(pageSetup.Name);
+            }
+            throw;
+        }
+    }
+}
+
+/// <summary>
 /// Creates one named page setup from an existing layout as a reversible edit.
 /// </summary>
 /// <remarks>

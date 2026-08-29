@@ -2104,6 +2104,20 @@ across each generation replacement, and does not implicitly apply the modified
 record to any layout. Matched identity, target-space, UI, Undo/Redo, DXF, and
 DWG regressions cover this behavior.
 
+`CadDeleteNamedPageSetupCommand` removes only a standalone named setup. It
+resolves the exact `ACAD_PLOTSETTINGS` entry, scans the bounded layout catalog,
+and rejects deletion before mutation when any layout's page-setup name refers
+to that entry. Apply and Redo are O(L) time for L layouts plus O(1) dictionary
+work; Undo is O(1), and retained command storage is one bounded name and the
+detached object reference. Undo restores the same `PlotSettings` instance and
+dictionary ownership; consistent with ACadSharp collection removal, detach
+clears the document handle and reattachment assigns a fresh handle. No layout
+plot state is modified. The shared `Delete setup` action is available only for
+an unassigned named selection, falls back to the Model layout selection after
+removal, and participates in the existing generation-safe Undo/Redo history.
+Matched assignment preflight, identity, UI, Undo/Redo, DXF, and DWG regressions
+cover the contract.
+
 This slice changes document metadata and the shared host only. It changes no
 scene compiler, shader, render command, cache, GPU resource, native ABI, or
 managed/native renderer behavior, so a paired native rendering implementation
@@ -3475,6 +3489,7 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   the same existing picture/overlay commands.
 - [Autodesk page setup](https://help.autodesk.com/cloudhelp/2025/ENU/DWGTrueView/files/GUID-0D72CF75-DA37-4937-9D9A-D93AA9BDF8D3.htm),
   [Page Setup Manager](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-Core/files/GUID-B06031A0-EF7E-4287-8E34-ABDCC40FF8C4.htm),
+  [macOS Page Setup Manager deletion constraints](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-MAC-Core/files/GUID-5E728224-8273-4416-8BBA-CDBC87160F6F.htm),
   [named page-setup modification](https://help.autodesk.com/cloudhelp/2023/ENU/DWGTrueView/files/GUID-F8893121-2855-441D-B8EC-B388AAA96645.htm),
   [named page-setup workflow](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-62B163D7-92F5-4793-85C2-246BDDA81470.htm),
   [Plot Settings and Page Setups (.NET)](https://help.autodesk.com/cloudhelp/2017/ENU/AutoCAD-NET/files/GUID-56BD3247-471C-4471-A238-FFDFDC3BD2E4.htm),
@@ -3528,7 +3543,11 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   a layout as a separate action. ProGPU adapts that separation: `Update
   selected` replaces the named record from Model without changing object/name
   identity or propagating to layouts; the existing explicit Apply command owns
-  layout mutation and its independent history entry.
+  layout mutation and its independent history entry. Autodesk exposes Delete
+  only for named entries and specifies that a setup assigned to a layout cannot
+  be removed. ProGPU adopts that observable guard with an original bounded
+  layout preflight and retained-object history action; it does not copy foreign
+  transaction, dictionary, or UI implementation structure.
 - [Skia PDF pages](https://skia.org/docs/user/sample/pdf/),
   [Skia canvas backends](https://skia.org/docs/user/api/skcanvas_creation/),
   [Skia canvas transforms and clips](https://skia.org/docs/user/api/skcanvas_overview/),
