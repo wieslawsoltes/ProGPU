@@ -1,3 +1,4 @@
+using System.Numerics;
 using ProGPU.Backend;
 using Windows.Foundation;
 using Windows.Graphics.DirectX;
@@ -75,6 +76,20 @@ public abstract class CanvasBitmap :
         ThrowIfDisposed();
         Device.Context.WaitIdle();
         return Texture.ReadPixels();
+    }
+
+    public Rect GetBounds(ICanvasResourceCreator resourceCreator) =>
+        GetBounds(resourceCreator, Matrix3x2.Identity);
+
+    public Rect GetBounds(
+        ICanvasResourceCreator resourceCreator,
+        Matrix3x2 transform)
+    {
+        ThrowIfDisposed();
+        CanvasContract.ValidateImageResourceCreator(
+            resourceCreator,
+            Device);
+        return CanvasContract.TransformBounds(Bounds, transform);
     }
 
     public bool TryGetGpuTexture(out GpuTexture texture)

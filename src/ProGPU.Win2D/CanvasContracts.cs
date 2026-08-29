@@ -1,3 +1,4 @@
+using System.Numerics;
 using Windows.Graphics.DirectX;
 
 namespace Microsoft.Graphics.Canvas;
@@ -55,6 +56,12 @@ public interface ICanvasResourceCreatorWithDpi : ICanvasResourceCreator
 
 public interface ICanvasImage
 {
+    Windows.Foundation.Rect GetBounds(
+        ICanvasResourceCreator resourceCreator);
+
+    Windows.Foundation.Rect GetBounds(
+        ICanvasResourceCreator resourceCreator,
+        Matrix3x2 transform);
 }
 
 public enum CanvasImageInterpolation
@@ -85,6 +92,75 @@ internal static class CanvasContract
 {
     public const float DefaultDpi = 96f;
     public const int MaximumBitmapSizeInPixels = 16_384;
+
+    public static void ValidateImageResourceCreator(
+        ICanvasResourceCreator resourceCreator,
+        CanvasDevice requiredDevice)
+    {
+        ArgumentNullException.ThrowIfNull(resourceCreator);
+        CanvasDevice device = resourceCreator.Device ??
+            throw new ArgumentException(
+                "The resource creator did not provide a CanvasDevice.",
+                nameof(resourceCreator));
+        if (device.IsDisposed)
+        {
+            throw new ObjectDisposedException(nameof(resourceCreator));
+        }
+        if (!ReferenceEquals(device, requiredDevice))
+        {
+            throw new ArgumentException(
+                "Canvas image bounds must be queried with their creation device.",
+                nameof(resourceCreator));
+        }
+    }
+
+    public static Windows.Foundation.Rect TransformBounds(
+        Windows.Foundation.Rect bounds,
+        Matrix3x2 transform)
+    {
+        if (!IsFinite(transform))
+        {
+            throw new ArgumentOutOfRangeException(nameof(transform));
+        }
+
+        Vector2 topLeft = Vector2.Transform(
+            new Vector2((float)bounds.X, (float)bounds.Y),
+            transform);
+        Vector2 topRight = Vector2.Transform(
+            new Vector2(
+                (float)(bounds.X + bounds.Width),
+                (float)bounds.Y),
+            transform);
+        Vector2 bottomLeft = Vector2.Transform(
+            new Vector2(
+                (float)bounds.X,
+                (float)(bounds.Y + bounds.Height)),
+            transform);
+        Vector2 bottomRight = Vector2.Transform(
+            new Vector2(
+                (float)(bounds.X + bounds.Width),
+                (float)(bounds.Y + bounds.Height)),
+            transform);
+        Vector2 minimum = Vector2.Min(
+            Vector2.Min(topLeft, topRight),
+            Vector2.Min(bottomLeft, bottomRight));
+        Vector2 maximum = Vector2.Max(
+            Vector2.Max(topLeft, topRight),
+            Vector2.Max(bottomLeft, bottomRight));
+        return new Windows.Foundation.Rect(
+            minimum.X,
+            minimum.Y,
+            maximum.X - minimum.X,
+            maximum.Y - minimum.Y);
+    }
+
+    public static bool IsFinite(in Matrix3x2 value) =>
+        float.IsFinite(value.M11) &&
+        float.IsFinite(value.M12) &&
+        float.IsFinite(value.M21) &&
+        float.IsFinite(value.M22) &&
+        float.IsFinite(value.M31) &&
+        float.IsFinite(value.M32);
 
     public static void ValidateDpi(float dpi)
     {

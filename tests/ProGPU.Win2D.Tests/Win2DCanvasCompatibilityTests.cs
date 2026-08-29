@@ -148,11 +148,20 @@ public sealed class Win2DCanvasCompatibilityTests
             typeof(CanvasBitmap)));
         Assert.True(typeof(ICanvasImage).IsAssignableFrom(
             typeof(CanvasCommandList)));
+        Assert.NotNull(typeof(ICanvasImage).GetMethod(
+            nameof(ICanvasImage.GetBounds),
+            [typeof(ICanvasResourceCreator)]));
+        Assert.NotNull(typeof(ICanvasImage).GetMethod(
+            nameof(ICanvasImage.GetBounds),
+            [typeof(ICanvasResourceCreator), typeof(Matrix3x2)]));
         Assert.NotNull(typeof(CanvasCommandList).GetConstructor(
             [typeof(ICanvasResourceCreator)]));
         Assert.NotNull(typeof(CanvasCommandList).GetMethod(
             nameof(CanvasCommandList.CreateDrawingSession),
             Type.EmptyTypes));
+        Assert.NotNull(typeof(CanvasCommandList).GetMethod(
+            nameof(CanvasCommandList.GetBounds),
+            [typeof(ICanvasResourceCreator), typeof(Matrix3x2)]));
         Assert.NotNull(typeof(CanvasGeometry).GetMethod(
             nameof(CanvasGeometry.CreatePath),
             [typeof(CanvasPathBuilder)]));

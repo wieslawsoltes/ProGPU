@@ -152,6 +152,21 @@ public sealed class CanvasDrawingSession :
         float y,
         Windows.Foundation.Rect sourceRectangle)
     {
+        if (image is CanvasCommandList commandList)
+        {
+            DrawCommandList(
+                commandList,
+                new Rect(
+                    x,
+                    y,
+                    (float)sourceRectangle.Width,
+                    (float)sourceRectangle.Height),
+                ValidateCommandListSourceRect(sourceRectangle),
+                1f,
+                CanvasImageInterpolation.Linear);
+            return;
+        }
+
         CanvasBitmap bitmap = GetBitmap(image);
         Rect source = ValidateSourceRect(bitmap, sourceRectangle);
         DrawBitmap(
@@ -264,6 +279,21 @@ public sealed class CanvasDrawingSession :
         float opacity,
         CanvasImageInterpolation interpolation)
     {
+        if (image is CanvasCommandList commandList)
+        {
+            DrawCommandList(
+                commandList,
+                ValidateRect(
+                    (float)destinationRectangle.X,
+                    (float)destinationRectangle.Y,
+                    (float)destinationRectangle.Width,
+                    (float)destinationRectangle.Height),
+                ValidateCommandListSourceRect(sourceRectangle),
+                opacity,
+                interpolation);
+            return;
+        }
+
         CanvasBitmap bitmap = GetBitmap(image);
         DrawBitmap(
             bitmap,
@@ -1296,6 +1326,62 @@ public sealed class CanvasDrawingSession :
         _hasCommands |= pictures.Length > 0;
     }
 
+    private void DrawCommandList(
+        CanvasCommandList commandList,
+        Rect destination,
+        Rect source,
+        float opacity,
+        CanvasImageInterpolation interpolation)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(commandList);
+        if (!ReferenceEquals(commandList.Device, Device))
+        {
+            throw new ArgumentException(
+                "Canvas command lists must belong to the drawing-session device.",
+                nameof(commandList));
+        }
+        if (!float.IsFinite(opacity) || opacity < 0f || opacity > 1f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(opacity));
+        }
+        ValidateCommandListInterpolation(interpolation);
+
+        GpuPicture[] pictures = commandList.ClonePicturesForDrawing();
+        float scaleX = destination.Width / source.Width;
+        float scaleY = destination.Height / source.Height;
+        Matrix3x2 imageTransform =
+            Matrix3x2.CreateTranslation(-source.X, -source.Y) *
+            Matrix3x2.CreateScale(scaleX, scaleY) *
+            Matrix3x2.CreateTranslation(destination.X, destination.Y) *
+            _transform;
+
+        _context.PushClip(destination, ToMatrix4x4(_transform));
+        if (opacity < 1f)
+        {
+            _context.PushOpacity(opacity);
+        }
+        try
+        {
+            Matrix4x4 transform = ToMatrix4x4(imageTransform);
+            for (int index = 0; index < pictures.Length; index++)
+            {
+                GpuPicture picture = pictures[index];
+                _context.RetainResource(picture);
+                _context.DrawPictureTransformed(picture, transform);
+            }
+        }
+        finally
+        {
+            if (opacity < 1f)
+            {
+                _context.PopOpacity();
+            }
+            _context.PopClip();
+        }
+        _hasCommands |= pictures.Length > 0;
+    }
+
     private void DrawBitmap(
         CanvasBitmap bitmap,
         Rect destination,
@@ -1384,6 +1470,37 @@ public sealed class CanvasDrawingSession :
             y * scale,
             width * scale,
             height * scale);
+    }
+
+    private static Rect ValidateCommandListSourceRect(
+        Windows.Foundation.Rect sourceRectangle)
+    {
+        float x = (float)sourceRectangle.X;
+        float y = (float)sourceRectangle.Y;
+        float width = (float)sourceRectangle.Width;
+        float height = (float)sourceRectangle.Height;
+        ValidateFinite(x, y, width, height);
+        if (width <= 0f || height <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sourceRectangle));
+        }
+        return new Rect(x, y, width, height);
+    }
+
+    private static void ValidateCommandListInterpolation(
+        CanvasImageInterpolation interpolation)
+    {
+        if (interpolation is CanvasImageInterpolation.Anisotropic or
+            CanvasImageInterpolation.HighQualityCubic)
+        {
+            throw new NotSupportedException(
+                $"Canvas command-list interpolation {interpolation} is not qualified by the portable retained-picture lane.");
+        }
+        if ((uint)interpolation >
+            (uint)CanvasImageInterpolation.HighQualityCubic)
+        {
+            throw new ArgumentOutOfRangeException(nameof(interpolation));
+        }
     }
 
     private Rect ValidateRect(
