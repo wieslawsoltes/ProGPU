@@ -127,6 +127,15 @@ public sealed class CadDocumentSession
         CadDocumentEdit edit) =>
         EditCore(reason, expectedGeneration, edit);
 
+    internal void Maintain(CadDocumentEdit maintenance)
+    {
+        ArgumentNullException.ThrowIfNull(maintenance);
+        lock (_gate)
+        {
+            maintenance(_document);
+        }
+    }
+
     private ulong EditCore(
         string reason,
         ulong? expectedGeneration,

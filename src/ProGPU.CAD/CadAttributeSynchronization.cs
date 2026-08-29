@@ -12,18 +12,21 @@ namespace ProGPU.CAD;
 public readonly record struct CadAttributeSynchronizationResult(
     ulong ContentGeneration,
     int InsertCount,
-    int AttributeCount);
+    int AttributeCount,
+    int AddedAttributeCount,
+    int RemovedAttributeCount);
 
 /// <summary>
 /// Synchronizes the retained ATTRIB properties of every reference to the block
 /// selected through one model-space INSERT, while preserving assigned values.
 /// </summary>
 /// <remarks>
-/// The first apply performs O(D + I + A) work and owns O(I + A) state for D
-/// definitions, I registered INSERTs, and A retained attributes. Undo and Redo
-/// are O(I + A). Counts are bounded before mutation. Structural definition/
-/// reference count changes are rejected because ACadSharp does not yet expose a
-/// handle-preserving reversible sequence replacement contract.
+/// The first apply performs O(D * I + A) work and owns O(D * I + A) bounded
+/// state for D definitions, I registered INSERTs, and A original attributes.
+/// Undo and Redo are O(D * I + A). Existing reference values are retained by
+/// case-insensitive tag and then stable unmatched order; new references use
+/// definition defaults. Removed references keep exact handles in bounded leases
+/// until this command leaves undo/redo history.
 /// </remarks>
 public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditCommand
 {
@@ -36,12 +39,17 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
     private BlockRecord? _block;
     private Insert[]? _inserts;
     private AttributeOperation[]? _operations;
+    private StructuralOperation[]? _structuralOperations;
 
     public ulong SelectedInsertHandle => _selectedInsertHandle;
 
     public int InsertCount { get; private set; }
 
     public int AttributeCount { get; private set; }
+
+    public int AddedAttributeCount { get; private set; }
+
+    public int RemovedAttributeCount { get; private set; }
 
     public CadSynchronizeBlockAttributePropertiesCommand(
         ulong selectedInsertHandle,
@@ -60,8 +68,8 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
     {
         if (isRedo)
         {
-            ValidateRetainedState(document);
-            ApplyStates(useSynchronizedState: true);
+            ValidateRetainedState(document, expectStructuralApplied: false);
+            ApplySynchronizedState();
             return;
         }
 
@@ -77,11 +85,6 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
         ValidateBlock(block);
 
         AttributeDefinition[] definitions = block.AttributeDefinitions.ToArray();
-        if (definitions.Length == 0)
-        {
-            throw new InvalidOperationException(
-                $"Block '{block.Name}' contains no attribute definitions.");
-        }
         if (definitions.Length > MaximumDefinitionCount)
         {
             throw new InvalidOperationException(
@@ -121,6 +124,10 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
 
         var operations = new List<AttributeOperation>(
             checked((int)totalAttributeCount));
+        var preparedInserts = new List<PreparedInsert>(inserts.Length);
+        long originalAttributeCount = 0;
+        int addedAttributeCount = 0;
+        int removedAttributeCount = 0;
         foreach (Insert insert in inserts)
         {
             if (HasLayerFlag(insert.Layer, LayerFlags.Locked))
@@ -131,24 +138,37 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
             }
 
             AttributeEntity[] attributes = insert.Attributes.ToArray();
-            if (attributes.Length != definitions.Length)
+            originalAttributeCount = checked(
+                originalAttributeCount + attributes.Length);
+            if (originalAttributeCount > MaximumAttributeCount)
             {
                 throw new InvalidOperationException(
-                    $"INSERT handle {insert.Handle:X} has {attributes.Length:N0} " +
-                    $"attribute reference(s), but block '{block.Name}' has " +
-                    $"{definitions.Length:N0} definition(s). Structural attribute " +
-                    "reconciliation requires the handle-preserving sequence contract.");
+                    $"Block '{block.Name}' exceeds the {MaximumAttributeCount:N0}-source " +
+                    "attribute synchronization limit.");
             }
 
             int[] attributeIndices = MatchDefinitions(
                 definitions,
                 attributes);
+            var replacement = new AttributeEntity[definitions.Length];
+            var retainedAttributes = new bool[attributes.Length];
             for (int definitionIndex = 0;
                 definitionIndex < definitions.Length;
                 definitionIndex++)
             {
-                AttributeEntity attribute =
-                    attributes[attributeIndices[definitionIndex]];
+                int attributeIndex = attributeIndices[definitionIndex];
+                if (attributeIndex < 0)
+                {
+                    replacement[definitionIndex] = CreateDefaultAttribute(
+                        definitions[definitionIndex],
+                        insert);
+                    addedAttributeCount = checked(addedAttributeCount + 1);
+                    continue;
+                }
+
+                AttributeEntity attribute = attributes[attributeIndex];
+                retainedAttributes[attributeIndex] = true;
+                replacement[definitionIndex] = attribute;
                 AttributeState original = AttributeState.Capture(attribute);
                 AttributeState synchronized = CreateSynchronizedState(
                     definitions[definitionIndex],
@@ -160,24 +180,99 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
                     original,
                     synchronized));
             }
+
+            for (int index = 0; index < retainedAttributes.Length; index++)
+            {
+                if (!retainedAttributes[index])
+                {
+                    removedAttributeCount = checked(removedAttributeCount + 1);
+                }
+            }
+
+            preparedInserts.Add(new PreparedInsert(
+                insert,
+                attributes,
+                replacement));
+        }
+
+        var structuralOperations = new List<StructuralOperation>();
+        try
+        {
+            foreach (PreparedInsert prepared in preparedInserts)
+            {
+                if (!HasStructuralChange(
+                        prepared.Original,
+                        prepared.Replacement))
+                {
+                    continue;
+                }
+
+                structuralOperations.Add(new StructuralOperation(
+                    prepared.Insert,
+                    prepared.Insert.Attributes.CreateReversibleReplacement(
+                        prepared.Replacement)));
+            }
+        }
+        catch
+        {
+            ReleaseStructuralOperations(structuralOperations);
+            throw;
         }
 
         _selectedInsert = selectedInsert;
         _block = block;
         _inserts = inserts;
         _operations = operations.ToArray();
+        _structuralOperations = structuralOperations.ToArray();
         InsertCount = inserts.Length;
-        AttributeCount = operations.Count;
-        ApplyStates(useSynchronizedState: true);
+        AttributeCount = checked((int)totalAttributeCount);
+        AddedAttributeCount = addedAttributeCount;
+        RemovedAttributeCount = removedAttributeCount;
+        try
+        {
+            ApplySynchronizedState();
+        }
+        catch
+        {
+            ReleaseStructuralOperations(structuralOperations);
+            _selectedInsert = null;
+            _block = null;
+            _inserts = null;
+            _operations = null;
+            _structuralOperations = null;
+            InsertCount = 0;
+            AttributeCount = 0;
+            AddedAttributeCount = 0;
+            RemovedAttributeCount = 0;
+            throw;
+        }
     }
 
     internal override void Revert(CadDocument document)
     {
-        ValidateRetainedState(document);
-        ApplyStates(useSynchronizedState: false);
+        ValidateRetainedState(document, expectStructuralApplied: true);
+        SetStructuralState(applied: false);
+        try
+        {
+            ApplyStates(useSynchronizedState: false);
+        }
+        catch
+        {
+            SetStructuralState(applied: true);
+            throw;
+        }
     }
 
-    private void ValidateRetainedState(CadDocument document)
+    internal override void Discard(CadDocument document)
+    {
+        StructuralOperation[] operations = _structuralOperations ?? [];
+        ReleaseStructuralOperations(operations);
+        _structuralOperations = [];
+    }
+
+    private void ValidateRetainedState(
+        CadDocument document,
+        bool expectStructuralApplied)
     {
         Insert selectedInsert = _selectedInsert ??
             throw new InvalidOperationException(
@@ -238,6 +333,116 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
                     $"A synchronized attribute on INSERT handle " +
                     $"{operation.Insert.Handle:X} no longer retains its identity.");
             }
+        }
+
+        foreach (StructuralOperation operation in _structuralOperations ?? [])
+        {
+            if (operation.Replacement.IsApplied != expectStructuralApplied)
+            {
+                throw new InvalidOperationException(
+                    $"The attribute sequence on INSERT handle " +
+                    $"{operation.Insert.Handle:X} no longer matches command state.");
+            }
+        }
+    }
+
+    private void ApplySynchronizedState()
+    {
+        ApplyStates(useSynchronizedState: true);
+        try
+        {
+            SetStructuralState(applied: true);
+        }
+        catch
+        {
+            ApplyStates(useSynchronizedState: false);
+            throw;
+        }
+    }
+
+    private void SetStructuralState(bool applied)
+    {
+        StructuralOperation[] operations = _structuralOperations ??
+            throw new InvalidOperationException(
+                "The attribute synchronization command has not been applied.");
+        var originalStates = new bool[operations.Length];
+        for (int index = 0; index < operations.Length; index++)
+        {
+            originalStates[index] = operations[index].Replacement.IsApplied;
+        }
+
+        try
+        {
+            if (applied)
+            {
+                for (int index = 0; index < operations.Length; index++)
+                {
+                    if (!operations[index].Replacement.TryApply())
+                    {
+                        throw new InvalidOperationException(
+                            "Attribute sequence replacement was cancelled.");
+                    }
+                }
+            }
+            else
+            {
+                for (int index = operations.Length - 1; index >= 0; index--)
+                {
+                    if (!operations[index].Replacement.TryRevert())
+                    {
+                        throw new InvalidOperationException(
+                            "Attribute sequence restoration was cancelled.");
+                    }
+                }
+            }
+        }
+        catch
+        {
+            for (int index = operations.Length - 1; index >= 0; index--)
+            {
+                bool current = operations[index].Replacement.IsApplied;
+                if (current == originalStates[index])
+                {
+                    continue;
+                }
+
+                bool restored = originalStates[index]
+                    ? operations[index].Replacement.TryApply()
+                    : operations[index].Replacement.TryRevert();
+                if (!restored)
+                {
+                    throw new InvalidOperationException(
+                        "Attribute sequence rollback was cancelled.");
+                }
+            }
+            throw;
+        }
+    }
+
+    private static bool HasStructuralChange(
+        ReadOnlySpan<AttributeEntity> original,
+        ReadOnlySpan<AttributeEntity> replacement)
+    {
+        if (original.Length != replacement.Length)
+        {
+            return true;
+        }
+        for (int index = 0; index < original.Length; index++)
+        {
+            if (!ReferenceEquals(original[index], replacement[index]))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void ReleaseStructuralOperations(
+        IEnumerable<StructuralOperation> operations)
+    {
+        foreach (StructuralOperation operation in operations)
+        {
+            operation.Replacement.Release();
         }
     }
 
@@ -310,6 +515,18 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
         return AttributeState.Capture(synchronized);
     }
 
+    private static AttributeEntity CreateDefaultAttribute(
+        AttributeDefinition definition,
+        Insert insert)
+    {
+        var attribute = new AttributeEntity(definition)
+        {
+            BookColor = definition.BookColor,
+        };
+        attribute.ApplyTransform(insert.GetTransform());
+        return attribute;
+    }
+
     private static int[] MatchDefinitions(
         ReadOnlySpan<AttributeDefinition> definitions,
         ReadOnlySpan<AttributeEntity> attributes)
@@ -358,7 +575,10 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
         {
             if (result[definitionIndex] < 0)
             {
-                result[definitionIndex] = unmatchedAttributes.Dequeue();
+                result[definitionIndex] = unmatchedAttributes.TryDequeue(
+                    out int attributeIndex)
+                    ? attributeIndex
+                    : -1;
             }
         }
         return result;
@@ -413,6 +633,15 @@ public sealed class CadSynchronizeBlockAttributePropertiesCommand : CadEditComma
         AttributeEntity Attribute,
         AttributeState Original,
         AttributeState Synchronized);
+
+    private sealed record PreparedInsert(
+        Insert Insert,
+        AttributeEntity[] Original,
+        AttributeEntity[] Replacement);
+
+    private sealed record StructuralOperation(
+        Insert Insert,
+        CadObjectCollection<AttributeEntity>.ReversibleReplacement Replacement);
 
     private sealed class AttributeState
     {

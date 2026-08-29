@@ -137,6 +137,24 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public int SelectedHandleCount => _selectedHandleCount;
 
+    public bool CanSynchronizeSelectedBlockAttributeProperties
+    {
+        get
+        {
+            CadDocumentSession? session = CurrentSession;
+            if (_selectedHandleCount != 1 || session is null)
+            {
+                return false;
+            }
+
+            ulong handle = _selectedHandles[0];
+            return session.Read(document =>
+                document.TryGetCadObject(handle, out Insert? insert) &&
+                insert is not null &&
+                ReferenceEquals(insert.Owner, document.ModelSpace));
+        }
+    }
+
     public ReadOnlyMemory<ulong> DrawOrderReferenceHandles =>
         _drawOrderReferenceHandles.AsMemory(0, _drawOrderReferenceHandleCount);
 
@@ -1374,7 +1392,9 @@ public sealed class CadSampleCanvas : FrameworkElement
         return new CadAttributeSynchronizationResult(
             generation,
             command.InsertCount,
-            command.AttributeCount);
+            command.AttributeCount,
+            command.AddedAttributeCount,
+            command.RemovedAttributeCount);
     }
 
     /// <summary>Sets the complete selection to one CAD color as one edit.</summary>

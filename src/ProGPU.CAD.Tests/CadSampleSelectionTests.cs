@@ -1792,7 +1792,7 @@ public sealed class CadSampleSelectionTests
                 DescendantsAndSelf(view).OfType<TextBlock>(),
                 text => text.Text.Contains(
                     "Synchronized 2 attribute(s) across 1 INSERT(s) as one edit; " +
-                    "assigned values were preserved",
+                    "added 0, removed 0; assigned values were preserved",
                     StringComparison.Ordinal));
             CadRecordedPlanScene synchronizedScene =
                 new CadPlanSceneCompiler().Compile(view.Canvas.CurrentSnapshot!);
@@ -1821,6 +1821,56 @@ public sealed class CadSampleSelectionTests
         finally
         {
             view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewCanSynchronizeAnInsertAfterAllDefinitionsAreRemoved()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("UI_EMPTY_ATTRIBUTE_BLOCK");
+        block.Entities.Add(new Line(new XYZ(-5, 0, 0), new XYZ(5, 0, 0)));
+        var definition = new AttributeDefinition
+        {
+            Tag = "OBSOLETE",
+            Value = "DEFAULT",
+            InsertPoint = new XYZ(0, 1, 0),
+            Height = 1,
+        };
+        block.Entities.Add(definition);
+        var insert = new Insert(block);
+        document.Entities.Add(insert);
+        Assert.True(block.Entities.Remove(definition));
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 960));
+            view.Canvas.Load(session);
+            Click(
+                view.Canvas,
+                view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
+            Button synchronize = FindButton(view, "Sync properties");
+
+            Assert.Equal(1, view.Canvas.SelectedHandleCount);
+            Assert.Equal(2, view.SelectionAttributeSelector.Items.Count);
+            Assert.True(synchronize.IsEnabled);
+            PressEnter(synchronize);
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Empty(insert.Attributes);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Synchronized 0 attribute(s) across 1 INSERT(s) as one edit; " +
+                    "added 0, removed 1; assigned values were preserved",
+                    StringComparison.Ordinal));
+            Assert.True(view.Canvas.TryUndo());
+            Assert.Single(insert.Attributes);
+        }
+        finally
+        {
             view.Canvas.FireUnloaded();
         }
     }

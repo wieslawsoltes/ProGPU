@@ -74,10 +74,13 @@ properties from the block definitions across every registered reference while
 preserving assigned values. Duplicate tags and tag renames retain deterministic
 value ownership; the complete batch is preflighted and exactly reversible.
 Locked references, XRef/unloaded or dynamic blocks, malformed multiline data,
-and structural definition/reference count differences are rejected before any
-mutation. Structural add/remove synchronization remains gated on an ACadSharp
-handle-preserving reversible sequence contract. Focused semantic, persistence,
-shared-shell, and managed/native retained-picture regressions cover the slice.
+and source/target collections above the bounded limits are rejected before any
+mutation. Structural differences now add default-valued references, remove
+obsolete references, and restore exact ATTRIB/SEQEND identities and handles
+through Undo/Redo. Inactive handles live only in private history-owned leases;
+capacity eviction, redo replacement, divergence reset, and Clear release them.
+Focused semantic, lease-lifecycle, persistence, shared-shell, and managed/native
+retained-picture regressions cover the slice.
 
 ## Preview.62 retained SaveLayer optimization closure
 

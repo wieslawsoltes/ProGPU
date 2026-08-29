@@ -208,7 +208,7 @@ public sealed class CadAttributeSynchronizationTests
     }
 
     [Fact]
-    public void StructuralMismatchRejectsCompleteBatchBeforeMutation()
+    public void AddsMissingReferencesAcrossEveryInsertWithDefaultsAndExactUndoRedo()
     {
         var document = new CadDocument();
         var block = new BlockRecord("STRUCTURAL_SYNC_BLOCK");
@@ -225,18 +225,205 @@ public sealed class CadAttributeSynchronizationTests
         document.Entities.Add(second);
         AttributeEntity firstAttribute = Assert.Single(first.Attributes);
         AttributeEntity secondAttribute = Assert.Single(second.Attributes);
-        Assert.True(second.Attributes.Remove(secondAttribute));
-        definition.Height = 5;
+        firstAttribute.Value = "FIRST ASSIGNED";
+        secondAttribute.Value = "SECOND ASSIGNED";
+        ulong firstHandle = firstAttribute.Handle;
+        ulong secondHandle = secondAttribute.Handle;
+        var addedDefinition = new AttributeDefinition
+        {
+            Tag = "SERIAL",
+            Value = "SERIAL DEFAULT",
+            Height = 2,
+        };
+        block.Entities.Add(addedDefinition);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadSynchronizeBlockAttributePropertiesCommand(
+            first.Handle);
+
+        history.Execute(command);
+
+        Assert.Equal(2, command.InsertCount);
+        Assert.Equal(4, command.AttributeCount);
+        Assert.Equal(2, command.AddedAttributeCount);
+        Assert.Equal(0, command.RemovedAttributeCount);
+        AttributeEntity[] firstSynchronized = first.Attributes.ToArray();
+        AttributeEntity[] secondSynchronized = second.Attributes.ToArray();
+        Assert.Same(firstAttribute, firstSynchronized[0]);
+        Assert.Same(secondAttribute, secondSynchronized[0]);
+        Assert.Equal(firstHandle, firstAttribute.Handle);
+        Assert.Equal(secondHandle, secondAttribute.Handle);
+        Assert.Equal("FIRST ASSIGNED", firstAttribute.Value);
+        Assert.Equal("SECOND ASSIGNED", secondAttribute.Value);
+        Assert.Equal("SERIAL", firstSynchronized[1].Tag);
+        Assert.Equal("SERIAL DEFAULT", firstSynchronized[1].Value);
+        Assert.Equal("SERIAL DEFAULT", secondSynchronized[1].Value);
+        ulong firstAddedHandle = firstSynchronized[1].Handle;
+        ulong secondAddedHandle = secondSynchronized[1].Handle;
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Same(firstAttribute, Assert.Single(first.Attributes));
+        Assert.Same(secondAttribute, Assert.Single(second.Attributes));
+        Assert.Null(document.GetCadObject<AttributeEntity>(firstAddedHandle));
+        Assert.Null(document.GetCadObject<AttributeEntity>(secondAddedHandle));
+        Assert.Equal(firstAddedHandle, firstSynchronized[1].Handle);
+        Assert.Equal(secondAddedHandle, secondSynchronized[1].Handle);
+
+        Assert.True(history.TryRedo(out _));
+        Assert.Same(firstSynchronized[1], first.Attributes.ToArray()[1]);
+        Assert.Same(secondSynchronized[1], second.Attributes.ToArray()[1]);
+        Assert.Equal(firstAddedHandle, firstSynchronized[1].Handle);
+        Assert.Equal(secondAddedHandle, secondSynchronized[1].Handle);
+    }
+
+    [Fact]
+    public void RemovingAllDefinitionsLeasesExactReferencesUntilHistoryClear()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("EMPTY_STRUCTURAL_SYNC_BLOCK");
+        var definition = new AttributeDefinition
+        {
+            Tag = "OBSOLETE",
+            Value = "DEFAULT",
+        };
+        block.Entities.Add(definition);
+        var insert = new Insert(block);
+        document.Entities.Add(insert);
+        AttributeEntity attribute = Assert.Single(insert.Attributes);
+        Seqend seqend = insert.Attributes.Seqend;
+        ulong attributeHandle = attribute.Handle;
+        ulong seqendHandle = seqend.Handle;
+        Assert.True(block.Entities.Remove(definition));
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var command = new CadSynchronizeBlockAttributePropertiesCommand(
+            insert.Handle);
+
+        history.Execute(command);
+
+        Assert.Equal(0, command.AttributeCount);
+        Assert.Equal(0, command.AddedAttributeCount);
+        Assert.Equal(1, command.RemovedAttributeCount);
+        Assert.Empty(insert.Attributes);
+        Assert.Null(document.GetCadObject<AttributeEntity>(attributeHandle));
+        Assert.Null(document.GetCadObject<Seqend>(seqendHandle));
+        Assert.Same(document, attribute.Document);
+        Assert.Same(document, seqend.Document);
+        Assert.Equal(attributeHandle, attribute.Handle);
+        Assert.Equal(seqendHandle, seqend.Handle);
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Same(attribute, Assert.Single(insert.Attributes));
+        Assert.Same(seqend, insert.Attributes.Seqend);
+        Assert.Equal(attributeHandle, attribute.Handle);
+        Assert.Equal(seqendHandle, seqend.Handle);
+
+        Assert.True(history.TryRedo(out _));
+        history.Clear();
+        Assert.Null(attribute.Document);
+        Assert.Null(seqend.Document);
+        Assert.Equal(0UL, attribute.Handle);
+        Assert.Equal(0UL, seqend.Handle);
+        document.RestoreHandles();
+    }
+
+    [Fact]
+    public void HistoryEvictionAndRedoReplacementReleaseInactiveReferenceLeases()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("LEASE_LIFETIME_SYNC_BLOCK");
+        var obsoleteDefinition = new AttributeDefinition
+        {
+            Tag = "OBSOLETE",
+            Value = "OLD DEFAULT",
+        };
+        block.Entities.Add(obsoleteDefinition);
+        var insert = new Insert(block);
+        document.Entities.Add(insert);
+        AttributeEntity obsolete = Assert.Single(insert.Attributes);
+        Assert.True(block.Entities.Remove(obsoleteDefinition));
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session, capacity: 1);
+
+        history.Execute(new CadSynchronizeBlockAttributePropertiesCommand(
+            insert.Handle));
+        Assert.Same(document, obsolete.Document);
+
+        var replacementDefinition = new AttributeDefinition
+        {
+            Tag = "CURRENT",
+            Value = "CURRENT DEFAULT",
+        };
+        block.Entities.Add(replacementDefinition);
+        history.Execute(new CadSynchronizeBlockAttributePropertiesCommand(
+            insert.Handle));
+        AttributeEntity firstReplacement = Assert.Single(insert.Attributes);
+
+        Assert.Null(obsolete.Document);
+        Assert.Equal(0UL, obsolete.Handle);
+        Assert.True(history.TryUndo(out _));
+        Assert.Empty(insert.Attributes);
+        Assert.Same(document, firstReplacement.Document);
+
+        history.Execute(new CadSynchronizeBlockAttributePropertiesCommand(
+            insert.Handle));
+
+        AttributeEntity secondReplacement = Assert.Single(insert.Attributes);
+        Assert.NotSame(firstReplacement, secondReplacement);
+        Assert.Null(firstReplacement.Document);
+        Assert.Equal(0UL, firstReplacement.Handle);
+        Assert.Equal(0, history.RedoCount);
+        history.Clear();
+        document.RestoreHandles();
+    }
+
+    [Fact]
+    public void ClearingLaterRedoKeepsSeqendRequiredByOlderUndo()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("SHARED_SEQEND_SYNC_BLOCK");
+        var originalDefinition = new AttributeDefinition
+        {
+            Tag = "ORIGINAL",
+            Value = "ORIGINAL DEFAULT",
+        };
+        block.Entities.Add(originalDefinition);
+        var insert = new Insert(block);
+        document.Entities.Add(insert);
+        AttributeEntity original = Assert.Single(insert.Attributes);
+        Seqend seqend = insert.Attributes.Seqend;
+        ulong originalHandle = original.Handle;
+        ulong seqendHandle = seqend.Handle;
+        Assert.True(block.Entities.Remove(originalDefinition));
         var session = new CadDocumentSession(document);
         var history = new CadDocumentHistory(session);
 
-        Assert.Throws<InvalidOperationException>(() => history.Execute(
-            new CadSynchronizeBlockAttributePropertiesCommand(first.Handle)));
+        history.Execute(new CadSynchronizeBlockAttributePropertiesCommand(
+            insert.Handle));
+        block.Entities.Add(new AttributeDefinition
+        {
+            Tag = "LATER",
+            Value = "LATER DEFAULT",
+        });
+        history.Execute(new CadSynchronizeBlockAttributePropertiesCommand(
+            insert.Handle));
+        Assert.True(history.TryUndo(out _));
+        Assert.Empty(insert.Attributes);
 
-        Assert.Equal(0UL, session.ContentGeneration);
-        Assert.Equal(1, firstAttribute.Height);
-        Assert.Equal("DEFAULT", firstAttribute.Value);
-        Assert.Empty(second.Attributes);
+        history.Execute(new CadSetEntityVisibilityCommand(
+            new[] { insert.Handle },
+            isInvisible: true));
+
+        Assert.Equal(0, history.RedoCount);
+        Assert.Same(document, seqend.Document);
+        Assert.Equal(seqendHandle, seqend.Handle);
+        Assert.True(history.TryUndo(out _));
+        Assert.True(history.TryUndo(out _));
+        Assert.Same(original, Assert.Single(insert.Attributes));
+        Assert.Same(seqend, insert.Attributes.Seqend);
+        Assert.Equal(originalHandle, original.Handle);
+        Assert.Equal(seqendHandle, seqend.Handle);
+        Assert.Same(seqend, document.GetCadObject<Seqend>(seqendHandle));
     }
 
     [Fact]
@@ -300,6 +487,13 @@ public sealed class CadAttributeSynchronizationTests
         attribute.Height = 0.5;
         definition.Height = 2.75;
         definition.Color = new ACadSharp.Color(12, 34, 56);
+        var addedDefinition = new AttributeDefinition
+        {
+            Tag = "SERIAL",
+            Value = "SERIAL DEFAULT",
+            Height = 1.5,
+        };
+        block.Entities.Add(addedDefinition);
         var session = new CadDocumentSession(document);
         new CadDocumentHistory(session).Execute(
             new CadSynchronizeBlockAttributePropertiesCommand(insert.Handle));
@@ -320,15 +514,19 @@ public sealed class CadAttributeSynchronizationTests
 
         loaded.Session.Read(loadedDocument =>
         {
-            AttributeEntity restored = loadedDocument.Entities
+            AttributeEntity[] restored = loadedDocument.Entities
                 .OfType<Insert>()
                 .Single()
                 .Attributes
-                .Single();
-            Assert.Equal("ASSIGNED", restored.Value);
-            Assert.Equal(2.75, restored.Height);
-            Assert.Equal(new ACadSharp.Color(12, 34, 56), restored.Color);
-            Assert.Equal(synchronizedPoint, restored.InsertPoint);
+                .ToArray();
+            Assert.Equal(2, restored.Length);
+            Assert.Equal("ASSIGNED", restored[0].Value);
+            Assert.Equal(2.75, restored[0].Height);
+            Assert.Equal(new ACadSharp.Color(12, 34, 56), restored[0].Color);
+            Assert.Equal(synchronizedPoint, restored[0].InsertPoint);
+            Assert.Equal("SERIAL", restored[1].Tag);
+            Assert.Equal("SERIAL DEFAULT", restored[1].Value);
+            Assert.Equal(1.5, restored[1].Height);
             return true;
         });
     }

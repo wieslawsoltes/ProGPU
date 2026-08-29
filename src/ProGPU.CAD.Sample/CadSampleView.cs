@@ -2468,7 +2468,8 @@ public sealed class CadSampleView : Grid
             SetStatus(
                 $"Synchronized {synchronized.AttributeCount:N0} attribute(s) " +
                 $"across {synchronized.InsertCount:N0} INSERT(s) as one edit; " +
-                "assigned values were preserved.");
+                $"added {synchronized.AddedAttributeCount:N0}, removed " +
+                $"{synchronized.RemovedAttributeCount:N0}; assigned values were preserved.");
         }
         catch (Exception exception)
         {
@@ -3647,8 +3648,7 @@ public sealed class CadSampleView : Grid
                 CadSetAttributeValueCommand.MaximumValueCodeUnits;
         _synchronizeSelectionAttributePropertiesButton.IsEnabled =
             canTransform &&
-            _canvas.SelectedHandleCount == 1 &&
-            _selectionAttributeSelector.Items.Count > 1;
+            _canvas.CanSynchronizeSelectedBlockAttributeProperties;
         bool canEditLayerState =
             canUsePlanTools &&
             (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is string;

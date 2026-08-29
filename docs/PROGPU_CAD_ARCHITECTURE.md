@@ -1614,8 +1614,8 @@ INSERTs remain unchanged; INSERTs created later inherit the current default.
 Undo/Redo therefore changes the default inherited by still-later INSERTs without
 rewriting any existing reference.
 
-`CadSynchronizeBlockAttributePropertiesCommand` implements the bounded,
-property-only portion of block attribute synchronization. One selected,
+`CadSynchronizeBlockAttributePropertiesCommand` implements bounded property and
+structural block attribute synchronization. One selected,
 unlocked model-space INSERT authorizes the edit; the command finds every
 registered INSERT that retains the same block identity, copies each ATTDEF's
 entity, text, mode, tag, and starting geometry properties into its matching
@@ -1623,19 +1623,27 @@ ATTRIB, and applies that INSERT's block transform. Existing assigned single-line
 and embedded-MTEXT values are preserved. Case-insensitive tag matches consume
 references in retained order, including duplicate tags; unmatched definitions
 and references are then paired in retained order so definition tag renames do
-not move the corresponding assigned value.
+not move the corresponding assigned value. Remaining unmatched definitions
+create ATTRIBs from definition defaults in definition order; remaining unmatched
+references are removed.
 
 The complete batch is preflighted before mutation and retains the exact
-ATTRIB/MText object states needed for transactional Undo/Redo. It rejects
+ATTRIB/MText object states and ordered collection replacements needed for
+transactional Undo/Redo. Removed ATTRIB/SEQEND objects move out of the active
+document registry but keep exact identity, handle, owner-linked data, and
+document membership in bounded private leases. Undo restores those objects;
+history eviction, redo invalidation, divergence reset, and explicit clear
+release the inactive side permanently. Ordered replacement plans compose in
+strict history order and reject a sequence that no longer matches the expected
+identity/order. It rejects
 locked target references, XRef/unloaded or dynamic blocks, malformed multiline
 payloads, and more than 4,096 definitions, 65,536 INSERTs, or 1,048,576
-attributes. Definition/reference count differences are rejected explicitly:
-the pinned ACadSharp collection removal contract clears object handles, so an
-exact reversible structural add/remove reconciliation needs a future
-handle-preserving sequence-replacement dependency contract. For `D`
-definitions, `I` references, and `A = D * I` retained attributes, first apply is
-`O(D + I + A)` time with `O(I + A)` owned history state; Undo and Redo are
-`O(I + A)`.
+source or target attributes. For `D` definitions, `I` references, and `A`
+original attributes, first apply is `O(D * I + A)` time with
+`O(D * I + A)` bounded owned history state; Undo and Redo have the same bound.
+Normal active registry lookup and rendering exclude leased objects. Handle
+reassignment is rejected while any lease exists and succeeds after history
+disposal.
 
 The shared desktop/browser shell exposes all three value-ownership paths
 through one selector and value editor, plus the selected block's property-sync
@@ -1654,8 +1662,7 @@ array, nesting, expanded-entity, text-code-unit, and glyph limits. The traversal
 adds no per-frame work or native crossings; stable scene/print replay retains
 the same command and device-resource behavior. ATTDISP override state,
 annotative contexts, fields, dynamic-block evaluation, prompt/definition
-editing, structural reference add/remove reconciliation, and per-reference
-XData cleanup remain explicit future contracts.
+editing and per-reference XData cleanup remain explicit future contracts.
 
 The 2026-08-28 matched macOS Release checkpoint used .NET 10.0.5, three
 warmups, 24 samples, 100 variable attributed INSERTs with 21-character Inter
@@ -4295,11 +4302,14 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   propagation with assigned-value preservation. Existing assigned references
   stay unchanged while future INSERTs inherit an edited default; property sync
   instead rebuilds reference properties from each definition and INSERT
-  transform without replacing the assigned value. Adapted structural behavior
-  to an explicit rejection until a handle-preserving reversible collection
-  contract exists. Rejected rendering replaceable defaults, rewriting existing
-  reference values during either edit, nontransactional structural repair,
-  duplicating malformed constant references, and applying INSERT geometry twice.
+  transform without replacing the assigned value. Adapted ATTREDEF's structural
+  behavior to an original ordered replacement contract: retained/renamed
+  references preserve assigned values, new references use current definition
+  defaults, removed references retain exact handles only while Undo/Redo owns
+  them, and every INSERT changes as one transaction. Rejected rendering
+  replaceable defaults, rewriting retained reference values during either edit,
+  nontransactional structural repair, duplicating malformed constant references,
+  and applying INSERT geometry twice.
   [Skia's shaped-text stages](https://docs.skia.org/docs/dev/design/text_shaper/),
   [DirectWrite/Direct2D separation and reusable layouts](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite),
   [Win2D retained text layout](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_Text_CanvasTextLayout.htm),
@@ -4319,7 +4329,10 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   `CadSnapshotCompiler.MText.cs`, `CadSnapshotCompiler.ShxMText.cs`,
   `CadSelection.cs`, `CadPlanSceneCompiler.cs`, `CadAttributeEditing.cs`,
   `CadAttributeSynchronization.cs`, and `CadPrintPlan.cs`; these original
-  ProGPU algorithms are directly reused.
+  ProGPU algorithms are directly reused. The approved dependency provenance for
+  exact ordered replacement and handle leasing is the ProGPU-owned ACadSharp
+  feature-branch work in commits `2a3df82a`, `b95db6b2`, and `d4104e03`; no
+  third-party implementation supplied that contract.
   ACadSharp's public object model and pinned fixtures were inspected only to
   identify persisted contracts and independently observable placement; no
   dependency implementation text or structure was copied. The native C++ tree

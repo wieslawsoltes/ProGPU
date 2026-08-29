@@ -88,6 +88,10 @@ public abstract class CadEditCommand
 
     internal abstract void Revert(CadDocument document);
 
+    internal virtual void Discard(CadDocument document)
+    {
+    }
+
     protected static Entity[] ResolveModelSpaceEntities(
         CadDocument document,
         ReadOnlySpan<ulong> handles)
@@ -918,10 +922,13 @@ public sealed class CadDocumentHistory
                     command.Description,
                     _expectedGeneration,
                     command.ExecuteFirst);
+
+                DiscardCommands(_redo);
                 _redo.Clear();
                 _undo.Add(command);
                 if (_undo.Count > _capacity)
                 {
+                    DiscardCommand(_undo[0]);
                     _undo.RemoveAt(0);
                 }
 
@@ -1029,10 +1036,31 @@ public sealed class CadDocumentHistory
 
     private void ResetToCurrentGeneration()
     {
+        DiscardCommands(_undo);
+        DiscardCommands(_redo);
         _undo.Clear();
         _redo.Clear();
         _expectedGeneration = _session.ContentGeneration;
     }
+
+    private void DiscardCommands(List<CadEditCommand> commands)
+    {
+        if (commands.Count == 0)
+        {
+            return;
+        }
+
+        _session.Maintain(document =>
+        {
+            foreach (CadEditCommand command in commands)
+            {
+                command.Discard(document);
+            }
+        });
+    }
+
+    private void DiscardCommand(CadEditCommand command) =>
+        _session.Maintain(command.Discard);
 }
 
 /// <summary>Translates a stable set of entity handles with exact inverse undo.</summary>
