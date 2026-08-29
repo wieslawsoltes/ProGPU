@@ -3,6 +3,7 @@
 #include <d2d1_2.h>
 #include <d3d11_1.h>
 #include <dxgi1_2.h>
+#include <roapi.h>
 #include <windows.h>
 #include <windows.graphics.directx.direct3d11.interop.h>
 #include <wrl/client.h>
@@ -62,6 +63,10 @@ progpu_native_direct2d_guid to_portable_guid(const GUID& value)
 
 int main()
 {
+    HRESULT runtime_initialization = RoInitialize(RO_INIT_MULTITHREADED);
+    require(SUCCEEDED(runtime_initialization),
+        "Windows Runtime initialization failed");
+
     require(
         progpu_native_direct2d_get_abi_version() ==
             PROGPU_NATIVE_DIRECT2D_ABI_VERSION,
@@ -177,6 +182,40 @@ int main()
             SUCCEEDED(unwrapped_d3d_device.As(&unwrapped_device_identity)) &&
             original_device_identity.Get() == unwrapped_device_identity.Get(),
         "WinRT IDirect3DDevice did not preserve COM device identity");
+
+    void* win2d_canvas_device_value = nullptr;
+    native_hresult = E_FAIL;
+    progpu_native_direct2d_status win2d_status =
+        progpu_native_direct2d_surface_try_get_win2d_canvas_device(
+            surface,
+            &win2d_canvas_device_value,
+            &native_hresult);
+    if (win2d_status == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS) {
+        require(win2d_canvas_device_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D activation returned invalid success state");
+        ComPtr<IInspectable> win2d_canvas_device;
+        win2d_canvas_device.Attach(
+            static_cast<IInspectable*>(win2d_canvas_device_value));
+        constexpr GUID canvas_device_interface_id = {
+            0xA27F0B5D,
+            0xEC2C,
+            0x4D4F,
+            {0x94, 0x8F, 0x0A, 0xA1, 0xE9, 0x5E, 0x33, 0xE6}
+        };
+        ComPtr<IUnknown> canvas_device_interface;
+        require(SUCCEEDED(win2d_canvas_device->QueryInterface(
+                    canvas_device_interface_id,
+                    &canvas_device_interface)),
+            "activated Win2D object omitted ICanvasDevice");
+    } else {
+        require(
+            win2d_status ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_WIN2D_RUNTIME_UNAVAILABLE &&
+                win2d_canvas_device_value == nullptr &&
+                FAILED(native_hresult),
+            "optional Win2D activation did not fail closed");
+    }
 
     progpu_native_direct2d_guid context1_id =
         to_portable_guid(__uuidof(ID2D1DeviceContext1));
@@ -337,5 +376,6 @@ int main()
     factory2.Reset();
     factory1.Reset();
     progpu_native_direct2d_surface_destroy(surface);
+    RoUninitialize();
     return EXIT_SUCCESS;
 }

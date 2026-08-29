@@ -33,7 +33,9 @@ typedef enum progpu_native_direct2d_status {
     PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_ALREADY_ACTIVE = 10,
     PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE = 11,
     PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_FAILED = 12,
-    PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED = 13
+    PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED = 13,
+    PROGPU_NATIVE_DIRECT2D_STATUS_WIN2D_RUNTIME_UNAVAILABLE = 14,
+    PROGPU_NATIVE_DIRECT2D_STATUS_WINDOWS_RUNTIME_NOT_INITIALIZED = 15
 } progpu_native_direct2d_status;
 
 typedef enum progpu_native_direct2d_surface_flags {
@@ -70,7 +72,8 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT1 = 13,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_BITMAP = 14,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_BITMAP1 = 15,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_WINRT_DIRECT3D11_DEVICE = 16
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WINRT_DIRECT3D11_DEVICE = 16,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_DEVICE = 17
 } progpu_native_direct2d_interface_kind;
 
 typedef struct progpu_native_direct2d_surface_options {
@@ -112,7 +115,7 @@ typedef struct progpu_native_direct2d_guid {
 } progpu_native_direct2d_guid;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 3U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 4U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -150,6 +153,17 @@ progpu_native_direct2d_com_query_interface(
     void* value,
     const progpu_native_direct2d_guid* interface_id,
     void** result,
+    int32_t* native_hresult);
+
+/* Uses the registered Microsoft.Graphics.Canvas.CanvasDevice WinRT factory to
+ * wrap this surface's exact IDirect3DDevice. The returned pointer is a genuine
+ * Win2D CanvasDevice with one caller-owned reference. This function does not
+ * initialize the caller's Windows Runtime apartment and does not load or
+ * impersonate Microsoft.Graphics.Canvas.dll. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_try_get_win2d_canvas_device(
+    progpu_native_direct2d_surface* surface,
+    void** value,
     int32_t* native_hresult);
 
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status

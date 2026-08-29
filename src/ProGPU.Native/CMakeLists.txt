@@ -986,7 +986,8 @@ if(WIN32)
     target_link_libraries(progpu_native_direct2d PRIVATE
         d2d1
         d3d11
-        dxgi)
+        dxgi
+        runtimeobject)
     progpu_native_enable_warnings(progpu_native_direct2d)
 endif()
 

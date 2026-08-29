@@ -37,7 +37,8 @@ public enum ProGpuDirect2DInterfaceKind
     D2D1DeviceContext1 = 13,
     D2D1Bitmap = 14,
     D2D1Bitmap1 = 15,
-    WinRtDirect3D11Device = 16
+    WinRtDirect3D11Device = 16,
+    Win2DCanvasDevice = 17
 }
 
 public enum ProGpuDirect2DStatus
@@ -55,7 +56,9 @@ public enum ProGpuDirect2DStatus
     DrawAlreadyActive = 10,
     DrawNotActive = 11,
     DrawFailed = 12,
-    InterfaceNotSupported = 13
+    InterfaceNotSupported = 13,
+    Win2DRuntimeUnavailable = 14,
+    WindowsRuntimeNotInitialized = 15
 }
 
 public sealed record ProGpuDirect2DSurfaceOptions(
