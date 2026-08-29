@@ -81,19 +81,12 @@ internal static class CadMesh3DTopology
                 CadPoint3D first = points[triangles[triangle]];
                 CadPoint3D second = points[triangles[triangle + 1]];
                 CadPoint3D third = points[triangles[triangle + 2]];
-                CadPoint3D normal = CadPoint3D.Cross(
-                    second - first,
-                    third - first);
-                double length = normal.Length;
-                double scale = FaceScale(first, second, third);
-                if (!double.IsFinite(length) ||
-                    length <= Math.Max(1.0, scale * scale) * RelativeTolerance)
+                if (!TryComputeFlatNormal(first, second, third, out CadPoint3D normal))
                 {
                     throw new ArgumentException(
                         "A retained mesh triangle is geometrically degenerate.",
                         nameof(faces));
                 }
-                normal /= length;
 
                 AppendVertex(triangles[triangle], first, normal);
                 AppendVertex(triangles[triangle + 1], second, normal);
@@ -150,6 +143,25 @@ internal static class CadMesh3DTopology
             DrawRanges = ranges.ToArray(),
             Bounds = bounds,
         };
+    }
+
+    internal static bool TryComputeFlatNormal(
+        CadPoint3D first,
+        CadPoint3D second,
+        CadPoint3D third,
+        out CadPoint3D normal)
+    {
+        normal = CadPoint3D.Cross(second - first, third - first);
+        double length = normal.Length;
+        double scale = FaceScale(first, second, third);
+        if (!double.IsFinite(length) ||
+            length <= Math.Max(1.0, scale * scale) * RelativeTolerance)
+        {
+            normal = default;
+            return false;
+        }
+        normal /= length;
+        return true;
     }
 
     private static int[] Triangulate(

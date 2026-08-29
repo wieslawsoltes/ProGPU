@@ -256,6 +256,128 @@ public sealed class CadMeshSnapshotTests
     }
 
     [Fact]
+    public void InvisibleTriangularFaceRetainsOneRebasedNativeSurface()
+    {
+        const double world = 1_000_000_000_000.0;
+        var face = new Face3D
+        {
+            FirstCorner = new XYZ(world, world, 17),
+            SecondCorner = new XYZ(world + 4, world, 17),
+            ThirdCorner = new XYZ(world, world + 3, 17),
+            FourthCorner = new XYZ(world, world + 3, 17),
+            Flags = InvisibleEdgeFlags.First |
+                InvisibleEdgeFlags.Second |
+                InvisibleEdgeFlags.Third |
+                InvisibleEdgeFlags.Fourth,
+        };
+        var document = new CadDocument();
+        document.Entities.Add(face);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        CadRecordedPlanScene planScene = new CadPlanSceneCompiler().Compile(snapshot);
+        CadRecordedMesh3DScene scene = new CadMesh3DSceneCompiler().Compile(snapshot);
+        CadMesh3DDrawBatch batch = Assert.Single(scene.DrawBatches.ToArray());
+
+        Assert.Empty(planScene.DrawingContext.Commands.ToArray());
+        Assert.Equal(0, scene.Statistics.SourceMeshCount);
+        Assert.Equal(1, scene.Statistics.SourceFaceCount);
+        Assert.Equal(1, scene.Statistics.FaceRangeCount);
+        Assert.Equal(1, scene.Statistics.TriangleCount);
+        Assert.Equal(1, scene.Statistics.DrawBatchCount);
+        Assert.Equal(face.Handle, batch.Handle);
+        Assert.Equal([0U, 1U, 2U], batch.Indices.ToArray());
+        Assert.All(batch.Normals.ToArray(), normal =>
+            Assert.Equal(System.Numerics.Vector3.UnitZ, normal));
+        Assert.Equal(
+            world,
+            batch.Positions.Span[0].X + snapshot.RebaseOrigin.X,
+            6);
+        Assert.Equal(
+            world,
+            batch.Positions.Span[0].Y + snapshot.RebaseOrigin.Y,
+            6);
+
+        var camera = new CadNativeMesh3DCamera(
+            System.Numerics.Matrix4x4.Identity,
+            System.Numerics.Matrix4x4.Identity,
+            new System.Numerics.Vector3(0, 0, 5),
+            new NativeImageRect(0, 0, 640, 480));
+        CadNativeMesh3DScene native = new CadNativeMesh3DSceneCompiler().Compile(
+            scene,
+            camera,
+            sceneId: 42U);
+        Assert.Equal(1, native.DrawBatchCount);
+        Assert.Equal(3, native.VertexCount);
+        Assert.Equal(3, native.IndexCount);
+    }
+
+    [Fact]
+    public void DegenerateFaceHasNoSurfaceAndDoesNotConsumeBatchBudget()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Face3D
+        {
+            FirstCorner = XYZ.Zero,
+            SecondCorner = XYZ.AxisX,
+            ThirdCorner = new XYZ(2, 0, 0),
+            FourthCorner = new XYZ(3, 0, 0),
+        });
+        document.Entities.Add(new Face3D
+        {
+            FirstCorner = new XYZ(0, 1, 0),
+            SecondCorner = new XYZ(1, 1, 0),
+            ThirdCorner = new XYZ(0, 2, 0),
+            FourthCorner = new XYZ(0, 2, 0),
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        CadRecordedMesh3DScene scene = new CadMesh3DSceneCompiler().Compile(
+            snapshot,
+            new CadMesh3DSceneOptions { MaxDrawBatches = 1 });
+
+        Assert.Equal(2, scene.Statistics.SourceFaceCount);
+        Assert.Equal(2, scene.Statistics.FaceRangeCount);
+        Assert.Equal(1, scene.Statistics.TriangleCount);
+        Assert.Equal(1, scene.Statistics.DrawBatchCount);
+        Assert.Single(scene.DrawBatches.ToArray());
+    }
+
+    [Fact]
+    public void ConsecutiveSameRootFaceRecordsShareOneManagedAndNativeBatch()
+    {
+        var block = new BlockRecord("FACE_GROUP");
+        block.Entities.Add(new Solid(
+            XYZ.Zero,
+            XYZ.AxisX,
+            XYZ.AxisY));
+        block.Entities.Add(new Face3D
+        {
+            FirstCorner = new XYZ(0, 0, 1),
+            SecondCorner = new XYZ(1, 0, 1),
+            ThirdCorner = new XYZ(0, 1, 1),
+            FourthCorner = new XYZ(0, 1, 1),
+        });
+        var insert = new Insert(block) { InsertPoint = new XYZ(10, 20, 30) };
+        var document = new CadDocument();
+        document.Entities.Add(insert);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        CadRecordedMesh3DScene scene = new CadMesh3DSceneCompiler().Compile(snapshot);
+        CadMesh3DDrawBatch batch = Assert.Single(scene.DrawBatches.ToArray());
+
+        Assert.Equal(2, scene.Statistics.SourceFaceCount);
+        Assert.Equal(2, scene.Statistics.FaceRangeCount);
+        Assert.Equal(2, scene.Statistics.TriangleCount);
+        Assert.Equal(1, scene.Statistics.DrawBatchCount);
+        Assert.Equal(insert.Handle, batch.Handle);
+        Assert.Equal(6, batch.Positions.Length);
+        Assert.Equal(6, batch.Indices.Length);
+    }
+
+    [Fact]
     public void Mesh3DSceneCanExcludeNonPlottableFaceBatches()
     {
         var document = new CadDocument();
@@ -264,6 +386,14 @@ public sealed class CadMeshSnapshotTests
         Mesh mesh = CreateTriangleMesh();
         mesh.Layer = noPlot;
         document.Entities.Add(mesh);
+        document.Entities.Add(new Face3D
+        {
+            Layer = noPlot,
+            FirstCorner = new XYZ(5, 0, 0),
+            SecondCorner = new XYZ(6, 0, 0),
+            ThirdCorner = new XYZ(5, 1, 0),
+            FourthCorner = new XYZ(5, 1, 0),
+        });
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
             new CadDocumentSession(document));
 
@@ -272,10 +402,11 @@ public sealed class CadMeshSnapshotTests
             snapshot,
             new CadMesh3DSceneOptions { IncludeNonPlottableLayers = false });
 
-        Assert.Single(screen.DrawBatches.ToArray());
+        Assert.Equal(2, screen.DrawBatches.Length);
         Assert.Empty(plotFiltered.DrawBatches.ToArray());
         Assert.Equal(1, plotFiltered.Statistics.SourceMeshCount);
-        Assert.Equal(1, plotFiltered.Statistics.FaceRangeCount);
+        Assert.Equal(1, plotFiltered.Statistics.SourceFaceCount);
+        Assert.Equal(2, plotFiltered.Statistics.FaceRangeCount);
         Assert.Equal(0, plotFiltered.Statistics.TriangleCount);
     }
 

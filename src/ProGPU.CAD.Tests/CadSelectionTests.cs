@@ -718,13 +718,13 @@ public sealed class CadSelectionTests
     }
 
     [Fact]
-    public void PointHitTesterMatchesFilledSolidAndVisibleFaceEdges()
+    public void PointHitTesterMatchesFilledSolidAndFaceSurfaces()
     {
         var solid = new Solid(
             new XYZ(0, 0, 0),
             new XYZ(4, 0, 0),
-            new XYZ(4, 3, 0),
-            new XYZ(0, 3, 0));
+            new XYZ(0, 3, 0),
+            new XYZ(4, 3, 0));
         CadPointHitResult solidInterior = Hit(
             solid,
             new CadPoint3D(2, 1, 0.25),
@@ -757,13 +757,14 @@ public sealed class CadSelectionTests
             (Entity)face.Clone(),
             new CadPoint3D(14, 1.5, 2.5),
             0.25);
-        Assert.Equal(CadPointHitStatus.Miss, invisibleEdge.Status);
+        Assert.Equal(CadPointHitStatus.Hit, invisibleEdge.Status);
 
         CadPointHitResult faceInterior = Hit(
             (Entity)face.Clone(),
-            new CadPoint3D(12, 1.5, 2.5),
-            0.25);
-        Assert.Equal(CadPointHitStatus.Miss, faceInterior.Status);
+            new CadPoint3D(11, 2, 2.75),
+            1e-10);
+        Assert.Equal(CadPointHitStatus.Hit, faceInterior.Status);
+        Assert.Equal(0.0, faceInterior.Distance, 10);
     }
 
     [Fact]
@@ -1042,7 +1043,7 @@ public sealed class CadSelectionTests
     }
 
     [Fact]
-    public void BoundsHitTesterUsesFilledSolidsAndOnlyVisibleFaceEdges()
+    public void BoundsHitTesterUsesFilledSolidAndFaceSurfaces()
     {
         var solid = new Solid(
             new XYZ(0, 0, 0),
@@ -1080,7 +1081,7 @@ public sealed class CadSelectionTests
             new CadPoint3D(11.9, -0.1, -0.1),
             new CadPoint3D(12.1, 0.1, 0.1));
         Assert.Equal(
-            CadBoundsHitStatus.Miss,
+            CadBoundsHitStatus.Hit,
             HitBounds(face, invisibleEdgeBox, CadBoundsSelectionMode.Crossing).Status);
         Assert.Equal(
             CadBoundsHitStatus.Hit,
@@ -1088,6 +1089,18 @@ public sealed class CadSelectionTests
                 (Entity)face.Clone(),
                 visibleEdgeBox,
                 CadBoundsSelectionMode.Crossing).Status);
+
+        var allInvisibleFace = (Face3D)face.Clone();
+        allInvisibleFace.Flags = InvisibleEdgeFlags.First |
+            InvisibleEdgeFlags.Second |
+            InvisibleEdgeFlags.Third |
+            InvisibleEdgeFlags.Fourth;
+        var interiorBox = new CadBounds3D(
+            new CadPoint3D(11.9, 1.9, -0.1),
+            new CadPoint3D(12.1, 2.1, 0.1));
+        Assert.Equal(
+            CadBoundsHitStatus.Hit,
+            HitBounds(allInvisibleFace, interiorBox, CadBoundsSelectionMode.Crossing).Status);
     }
 
     [Fact]

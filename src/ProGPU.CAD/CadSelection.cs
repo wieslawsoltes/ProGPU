@@ -440,9 +440,9 @@ public static class CadSelectionHitTester
                 point,
                 tolerance),
             CadEntityKind.Solid =>
-                HitSolid(snapshot.Faces.Span[header.PrimitiveIndex], point, tolerance),
+                HitFaceSurface(snapshot.Faces.Span[header.PrimitiveIndex], point, tolerance),
             CadEntityKind.Face3D =>
-                HitFaceEdges(snapshot.Faces.Span[header.PrimitiveIndex], point, tolerance),
+                HitFaceSurface(snapshot.Faces.Span[header.PrimitiveIndex], point, tolerance),
             CadEntityKind.Hatch => CadHatchSelection.HitTestPoint(
                 snapshot,
                 snapshot.Hatches.Span[header.PrimitiveIndex],
@@ -460,11 +460,12 @@ public static class CadSelectionHitTester
     /// <remarks>
     /// Window mode requires the complete selectable geometry to lie inside the box.
     /// Crossing mode accepts any geometric intersection. Curved crossing tests partition
-    /// their bounded parameter interval at exact box-plane roots; filled SOLIDs use the
-    /// convex triangle/box separating axes. Work is O(S) for S polyline segments,
+    /// their bounded parameter interval at exact box-plane roots; filled SOLID,
+    /// 3DFACE, and MESH surfaces use the convex triangle/box separating axes.
+    /// Work is O(S) for S polyline segments,
     /// O(B * P^2 * R) for B degree-P spline spans, and O(G * T * R) for G glyphs with
     /// T retained outline segments and bounded root work R, and O(F) for F retained
-    /// mesh triangles. Other supported primitives are O(1); all paths use bounded
+    /// surface triangles. Other supported primitives are O(1); all paths use bounded
     /// stack storage and no warm-query allocation.
     /// </remarks>
     public static CadBoundsHitResult HitTestBounds(
@@ -554,11 +555,11 @@ public static class CadSelectionHitTester
                 snapshot.ShxShapes.Span[header.PrimitiveIndex],
                 bounds,
                 mode),
-            CadEntityKind.Solid => HitSolidBounds(
+            CadEntityKind.Solid => HitFaceSurfaceBounds(
                 snapshot.Faces.Span[header.PrimitiveIndex],
                 bounds,
                 mode),
-            CadEntityKind.Face3D => HitFaceBounds(
+            CadEntityKind.Face3D => HitFaceSurfaceBounds(
                 snapshot.Faces.Span[header.PrimitiveIndex],
                 bounds,
                 mode),
@@ -919,7 +920,7 @@ public static class CadSelectionHitTester
         return BoundsMiss();
     }
 
-    private static CadBoundsHitResult HitSolidBounds(
+    private static CadBoundsHitResult HitFaceSurfaceBounds(
         CadFacePrimitive face,
         CadBounds3D bounds,
         CadBoundsSelectionMode mode)
@@ -951,46 +952,6 @@ public static class CadSelectionHitTester
                 bounds);
         }
         return FromBoundsHit(intersects);
-    }
-
-    private static CadBoundsHitResult HitFaceBounds(
-        CadFacePrimitive face,
-        CadBounds3D bounds,
-        CadBoundsSelectionMode mode)
-    {
-        if (bounds.IsEmpty)
-        {
-            return BoundsMiss();
-        }
-
-        bool hasVisibleEdge = false;
-        if (!TestFaceEdge(face.First, face.Second, face.InvisibleEdgeMask, 1, bounds, mode, ref hasVisibleEdge) ||
-            !TestFaceEdge(face.Second, face.Third, face.InvisibleEdgeMask, 2, bounds, mode, ref hasVisibleEdge) ||
-            !TestFaceEdge(face.Third, face.Fourth, face.InvisibleEdgeMask, 4, bounds, mode, ref hasVisibleEdge) ||
-            !TestFaceEdge(face.Fourth, face.First, face.InvisibleEdgeMask, 8, bounds, mode, ref hasVisibleEdge))
-        {
-            return mode == CadBoundsSelectionMode.Crossing ? BoundsHit() : BoundsMiss();
-        }
-        return FromBoundsHit(hasVisibleEdge && mode == CadBoundsSelectionMode.Window);
-    }
-
-    private static bool TestFaceEdge(
-        CadPoint3D start,
-        CadPoint3D end,
-        byte invisibleEdgeMask,
-        byte edgeFlag,
-        CadBounds3D bounds,
-        CadBoundsSelectionMode mode,
-        ref bool hasVisibleEdge)
-    {
-        if ((invisibleEdgeMask & edgeFlag) != 0 || start == end)
-        {
-            return true;
-        }
-        hasVisibleEdge = true;
-        return mode == CadBoundsSelectionMode.Window
-            ? ContainsPoint(bounds, start) && ContainsPoint(bounds, end)
-            : !SegmentIntersectsBounds(start, end, bounds);
     }
 
     private static CadPointHitResult HitCircle(
@@ -1232,7 +1193,7 @@ public static class CadSelectionHitTester
         return FromDistance(minimum, tolerance);
     }
 
-    private static CadPointHitResult HitSolid(
+    private static CadPointHitResult HitFaceSurface(
         CadFacePrimitive face,
         CadPoint3D point,
         double tolerance)
@@ -1253,33 +1214,6 @@ public static class CadSelectionHitTester
                     face.Fourth));
         }
         return FromDistance(distance, tolerance);
-    }
-
-    private static CadPointHitResult HitFaceEdges(
-        CadFacePrimitive face,
-        CadPoint3D point,
-        double tolerance)
-    {
-        double minimum = double.PositiveInfinity;
-        IncludeVisibleEdge(ref minimum, point, face.First, face.Second, face.InvisibleEdgeMask, 1);
-        IncludeVisibleEdge(ref minimum, point, face.Second, face.Third, face.InvisibleEdgeMask, 2);
-        IncludeVisibleEdge(ref minimum, point, face.Third, face.Fourth, face.InvisibleEdgeMask, 4);
-        IncludeVisibleEdge(ref minimum, point, face.Fourth, face.First, face.InvisibleEdgeMask, 8);
-        return FromDistance(minimum, tolerance);
-    }
-
-    private static void IncludeVisibleEdge(
-        ref double minimum,
-        CadPoint3D point,
-        CadPoint3D start,
-        CadPoint3D end,
-        byte invisibleEdgeMask,
-        byte edgeFlag)
-    {
-        if ((invisibleEdgeMask & edgeFlag) == 0 && start != end)
-        {
-            minimum = Math.Min(minimum, DistanceToSegment(point, start, end));
-        }
     }
 
     private static CadPoint3D ToWorld(

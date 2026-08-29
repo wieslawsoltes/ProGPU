@@ -201,6 +201,11 @@ public readonly record struct CadEllipsePrimitive(
     public CadPoint3D EndPoint => PointAt(StartParameter + SweepParameter);
 }
 
+/// <summary>
+/// One triangle or quadrilateral in perimeter order. SOLID's persisted
+/// zig-zag third/fourth corner order is normalized when the snapshot is built;
+/// 3DFACE invisible-edge bits still address these consecutive perimeter edges.
+/// </summary>
 public readonly record struct CadFacePrimitive(
     CadPoint3D First,
     CadPoint3D Second,

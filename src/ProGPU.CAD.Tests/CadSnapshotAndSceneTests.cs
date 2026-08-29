@@ -139,8 +139,8 @@ public sealed class CadSnapshotAndSceneTests
             document.Entities.Add(new Solid(
                 new XYZ(0, 0, 0),
                 new XYZ(4, 0, 0),
-                new XYZ(4, 3, 0),
-                new XYZ(0, 3, 0)));
+                new XYZ(0, 3, 0),
+                new XYZ(4, 3, 0)));
             document.Entities.Add(new Face3D
             {
                 FirstCorner = new XYZ(10, 0, 1),
@@ -153,6 +153,7 @@ public sealed class CadSnapshotAndSceneTests
 
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
         CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        CadRecordedMesh3DScene meshScene = new CadMesh3DSceneCompiler().Compile(snapshot);
 
         Assert.Equal(2, snapshot.Faces.Length);
         Assert.Equal(CadEntityKind.Solid, snapshot.Entities.Span[0].Kind);
@@ -160,6 +161,9 @@ public sealed class CadSnapshotAndSceneTests
         AssertPoint(new CadPoint3D(0, 0, 0), snapshot.Bounds.Min);
         AssertPoint(new CadPoint3D(14, 3, 4), snapshot.Bounds.Max);
         Assert.Equal(2, scene.DrawingContext.Commands.Count);
+        CadFacePrimitive normalizedSolid = snapshot.Faces.Span[0];
+        AssertPoint(new CadPoint3D(4, 3, 0), normalizedSolid.Third);
+        AssertPoint(new CadPoint3D(0, 3, 0), normalizedSolid.Fourth);
         RenderCommand solid = scene.DrawingContext.Commands[0];
         Assert.Equal(RenderCommandType.DrawPath, solid.Type);
         Assert.NotNull(solid.Brush);
@@ -169,6 +173,15 @@ public sealed class CadSnapshotAndSceneTests
         Assert.Null(face.Brush);
         Assert.NotNull(face.Pen);
         Assert.Equal(2, face.Path!.Figures.Count);
+        Assert.Equal(2, meshScene.Statistics.SourceFaceCount);
+        Assert.Equal(2, meshScene.Statistics.FaceRangeCount);
+        Assert.Equal(4, meshScene.Statistics.TriangleCount);
+        Assert.Equal(2, meshScene.Statistics.DrawBatchCount);
+        CadMesh3DDrawBatch[] surfaceBatches = meshScene.DrawBatches.ToArray();
+        Assert.All(surfaceBatches, batch => Assert.Equal(6, batch.Indices.Length));
+        Assert.NotEqual(
+            surfaceBatches[1].Normals.Span[0],
+            surfaceBatches[1].Normals.Span[3]);
     }
 
     [Fact]

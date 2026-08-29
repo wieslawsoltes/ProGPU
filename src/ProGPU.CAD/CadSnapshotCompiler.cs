@@ -1824,8 +1824,8 @@ public sealed partial class CadSnapshotCompiler
             destination,
             first,
             second,
-            third,
             fourth,
+            third,
             0);
     }
 

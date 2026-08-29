@@ -114,11 +114,14 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
 - Ellipses and elliptical arcs preserve their WCS major/minor basis, parameter
   sweep, and exact double-precision extrema. The plan compiler records one unit
   analytic ellipse or arc under an affine transform, never a sampled polygon.
-- SOLID entities retain exact OCS-normalized corners and render as filled paths.
-  3DFACE entities retain WCS corners and invisible-edge flags; the plan
-  wireframe records only visible edges while preserving the same face record
-  for the later shaded/depth compiler. Nonzero ellipse/SOLID thickness is
-  reported until complete 3D side-surface lowering is available.
+- SOLID entities retain exact OCS-normalized corners, normalize Autodesk's
+  persisted zig-zag `first,second,third,fourth` order to perimeter
+  `first,second,fourth,third`, and render as filled paths. 3DFACE entities
+  retain perimeter-ordered WCS corners and invisible-edge flags. The plan
+  wireframe records only visible 3DFACE edges, while both records also compile
+  to exact Flat triangle surfaces for the shared managed/native depth path.
+  Nonzero ellipse/SOLID thickness is reported until complete 3D side-surface
+  lowering is available.
 - Normal/Outer/Ignore solid and exact DXF/PAT patterned HATCH entities retain
   bounded packed loops and analytic line/circular-arc/elliptic-arc plus exact
   degree-one-through-three polynomial and positive-weight rational-quadratic/
@@ -904,9 +907,9 @@ an interactive browser picker/download smoke remains open.
   exact rational Bezier spans of the canonical open, closed, or periodic NURBS,
   forms the degree-`3P-1` squared-distance stationary polynomial in homogeneous
   Bernstein form, and evaluates every isolated real root plus both endpoints.
-  Filled SOLID proximity uses the retained triangle union, while
-  stroke-only 3DFACE proximity tests only non-degenerate edges not masked by
-  its invisible-edge flags. It validates candidate generation and
+  Filled SOLID and 3DFACE proximity uses the retained triangle union;
+  3DFACE invisible-edge flags affect only wireframe presentation, not the
+  selectable or shaded surface. It validates candidate generation and
   immutable header identity before indexing primitive buffers. Inclusive
   world-space box tests add distinct Window (whole selectable geometry) and
   Crossing (any intersection) semantics. Window containment consumes the exact
@@ -914,9 +917,8 @@ an interactive browser picker/download smoke remains open.
   partitioning at box-plane roots for affine circles/arcs/ellipses and bulges,
   exact rational spline partitioning at every real root against all six box
   planes, and the complete convex triangle/box separating-axis set for filled
-  SOLIDs.
-  3DFACE box tests again ignore masked and degenerate edges. These tests remain
-  O(S) for S polyline/face segments, O(B * P^2 * R) for B spline spans and
+  SOLIDs and 3DFACEs. These tests remain O(S) for S polyline segments,
+  O(B * P^2 * R) for B spline spans and
   degree P, and O(G * T * R) for G retained glyphs with T analytic outline
   segments and bounded root-isolation work R; analytic non-spline primitives
   remain O(1). Filled Crossing additionally tests the exact intersection polygon
@@ -1233,6 +1235,40 @@ Exact approved in-repository provenance is
 `src/ProGPU.Scene/Shaders/Native3D.wgsl`. The new code consumes those original
 ProGPU contracts directly; the CAD topology/triangulation and adapters are new
 clean-room implementations with matched managed/native boundary tests.
+
+## Exact SOLID and 3DFACE Flat surfaces
+
+The same immutable `CadFacePrimitive` now drives plan, selection, and depth
+rendering without a second entity adapter. Snapshot capture converts SOLID's
+OCS corners to WCS and swaps its persisted third/fourth corners once so the
+record always follows the geometric perimeter. 3DFACE already persists WCS
+corners around its perimeter. A repeated fourth/third corner emits one triangle;
+a quadrilateral emits the stable `0-2` pair. Each emitted triangle owns three
+vertices and one exact double-precision cross-product normal before float
+rebasing. A zero-area triangle has no surface and is skipped without consuming a
+draw-batch budget; any remaining non-degenerate half of a malformed quad stays
+visible and selectable through its exact triangle.
+
+Invisible 3DFACE edge bits continue to suppress only the corresponding plan,
+linetype, native-picture, and print wire. They never suppress the retained Flat
+surface, including when all four edges are invisible. Point selection measures
+distance to the triangle union, and Window/Crossing selection uses the same
+triangle/box separating-axis test as SOLID and MESH. This keeps shaded output
+and semantic surface selection aligned while leaving existing 2D wire/print
+policy unchanged.
+
+`CadMesh3DSceneCompiler` now runs in `O(M + F + R + V + I)` for mesh instances
+`M`, retained SOLID/3DFACE records `F`, mesh/style ranges `R`, output vertices
+`V`, and indices `I`. Consecutive faces sharing a semantic root handle, layer,
+and style coalesce into one exactly sized allocation set and one draw batch;
+the existing global batch budget remains authoritative.
+Managed `Viewport3D` and optional native replay consume the same expanded batch
+arrays, existing pointer-free Mesh3D stream, stable C ABI, and canonical
+`Native3D.wgsl`. Native C++ has no ACadSharp frontend and requires no parallel
+semantic implementation, C ABI, generated binding, shader, or crossing change.
+Matched tests cover planar SOLID order, non-planar 3DFACE normals, triangle
+sentinels, all-invisible edges, large-WCS rebasing, degenerate surfaces, exact
+selection, and native stream counts.
 
 ## Exact retained POINT dots
 
@@ -2299,6 +2335,24 @@ claim; this is the first feature-cost baseline and does not replace image
 quality, GPU residency/submission counters, native differential pixels, or the
 required Instruments capture for a future optimization claim.
 
+Two consecutive 2026-08-29 Release feature-cost runs used one final binary,
+1,000 persisted DIMENSION roots, three warmups, 24 construction iterations,
+and 1,000 spatial queries. The persisted pictures contributed exactly 2,000
+triangular SOLID arrowheads, which compiled to 2,000 source faces, face ranges,
+triangles, and 1,000 same-root/style draw batches with no unsupported or invalid
+entities.
+Camera-independent 3D scene p50/p95/p99 was
+`0.363/4.909/8.999 ms` and `0.364/7.136/9.192 ms`, allocating
+`464,785` bytes per generation in both runs. Snapshot p50/p95/p99 was
+`14.590/102.415/161.786 ms` and `19.146/191.191/247.491 ms`; plan replay was
+`7.379/18.078/20.540 ms` and `4.694/31.247/31.648 ms`. The JSON artifacts are
+`artifacts/progpu-cad/cad-face-surface-run1.json` and
+`cad-face-surface-run2.json`. Variable construction tails and the mixed
+DIMENSION/text workload preclude a latency or regression claim; this is a
+feature-cost baseline and does not replace matched viewer pixels, GPU
+residency/submission counters, native differential images, or the required
+Instruments capture for a future optimization claim.
+
 Run the standalone samples with:
 
 ```bash
@@ -2492,6 +2546,41 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   eviction, fallback and variable-font state, DPI/subpixel snapping, and text
   device-loss invalidation do not change. No foreign implementation text,
   structure, tables, names, or control flow was used.
+
+- For exact SOLID/3DFACE shaded surfaces, Autodesk's
+  [SOLID DXF record](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DXF/files/GUID-E0C5F04E-D0C5-48F5-AC09-32733E8848F2.htm),
+  [SOLID command geometry](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Core/files/GUID-0998E0EE-7829-4AA4-9282-4FC703F9B1F4.htm),
+  [3DFACE DXF record](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-747865D5-51F0-45F2-BEFE-9572DBC5B151.htm), and
+  [3DFACE display contract](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-5E88BB23-9110-45FB-B54A-3FF2E2002585.htm)
+  establish OCS versus WCS storage, repeated-fourth-corner triangles, SOLID's
+  diagonal third/fourth point convention, consecutive 3DFACE edge flags, and
+  the rule that an all-invisible-edge 3DFACE remains present when shaded.
+  Adopted one perimeter-normalized immutable face record, fixed triangle lists,
+  exact Flat normals, and surface selection independent of wire visibility;
+  rejected treating SOLID's persisted order as a perimeter, hiding a shaded
+  face with its wire edges, or inventing area for degenerate triangles.
+  [WebGPU's triangle/depth contracts](https://gpuweb.github.io/gpuweb/),
+  [Direct3D triangle lists](https://learn.microsoft.com/en-us/windows/win32/direct3d9/triangle-lists), and
+  [Direct2D/Direct3D interoperation](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-direct3d-interoperation-overview)
+  reinforce reuse of the existing depth-aware batch and same-device resource
+  boundary. [Skia Canvas](https://api.skia.org/classSkCanvas.html),
+  [WebRender's retained pipeline](https://firefox-source-docs.mozilla.org/gfx/webrender/overview.html), and
+  [Vello's retained scene](https://github.com/linebender/vello/blob/main/vello/src/scene.rs)
+  were rechecked for startup/lazy initialization, retained-scene reuse,
+  visibility, demand upload, worker preparation, batching, cache/device
+  generations, and loss recovery. The existing ProGPU camera-independent CPU
+  batch plus managed/native Mesh3D resource remains the applicable design.
+  [SkParagraph shaping](https://docs.skia.org/docs/dev/design/text_shaper/),
+  [DirectWrite architecture](https://learn.microsoft.com/en-us/windows/win32/directwrite/introducing-directwrite),
+  [Win2D text drawing](https://microsoft.github.io/Win2D/WinUI3/html/M_Microsoft_Graphics_Canvas_CanvasDrawingSession_DrawText.htm),
+  [Parley layout](https://github.com/linebender/parley/blob/main/doc/concept.md), and
+  [HarfBuzz shape plans](https://harfbuzz.github.io/shaping-and-shape-plans.html)
+  are not applicable because this slice changes no shaping/layout reuse,
+  fallback, variable-font state, glyph/texture cache, DPI/subpixel policy, or
+  text invalidation. Native applicability was audited: native C++ already
+  consumes the same canonical Mesh3D ABI/shader and has no ACadSharp frontend,
+  so a second implementation or shader fork would be incorrect. No foreign
+  source text, structure, tables, names, or control flow was used.
 
 - For persisted DIMENSION pictures, Autodesk's
   [common DIMENSION DXF contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-EDD54EAC-A339-4EBA-AEA6-EC8066505E2B.htm),

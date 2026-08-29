@@ -14,7 +14,11 @@ public readonly record struct CadMesh3DSceneStatistics(
     int SourceMeshCount,
     int FaceRangeCount,
     int TriangleCount,
-    int DrawBatchCount);
+    int DrawBatchCount)
+{
+    /// <summary>Retained SOLID and 3DFACE source-record count.</summary>
+    public int SourceFaceCount { get; init; }
+}
 
 /// <summary>One immutable, contiguous, same-style triangle-list draw.</summary>
 public sealed class CadMesh3DDrawBatch
@@ -84,14 +88,16 @@ public sealed class CadRecordedMesh3DScene
 }
 
 /// <summary>
-/// Compiles exact flat-shaded CAD triangle streams into camera-independent,
-/// float-rebased draw batches shared by managed and native 3D adapters.
+/// Compiles exact flat-shaded CAD mesh and face streams into
+/// camera-independent, float-rebased draw batches shared by managed and native
+/// 3D adapters.
 /// </summary>
 /// <remarks>
-/// Compilation is O(M + R + V + I) time for M mesh instances, R face/style
-/// ranges, V expanded flat vertices, and I triangle indices. Storage is O(V + I
-/// + B) for B consecutive same-style batches. No camera projection, clipping,
-/// tessellation, or GPU resource creation occurs here.
+/// Compilation is O(M + F + R + V + I) time for M mesh instances, F retained
+/// SOLID/3DFACE records, R face/style ranges, V expanded flat vertices, and I
+/// triangle indices. Storage is O(V + I + B) for B consecutive same-style
+/// batches. No camera projection, clipping, tessellation, or GPU resource
+/// creation occurs here.
 /// </remarks>
 public sealed class CadMesh3DSceneCompiler
 {
@@ -109,10 +115,12 @@ public sealed class CadMesh3DSceneCompiler
         ReadOnlySpan<CadMesh3DDrawRange> ranges = snapshot.Mesh3DDrawRanges.Span;
         ReadOnlySpan<CadMesh3DVertex> vertices = snapshot.Mesh3DVertices.Span;
         ReadOnlySpan<uint> indices = snapshot.Mesh3DIndices.Span;
+        ReadOnlySpan<CadFacePrimitive> faces = snapshot.Faces.Span;
         ReadOnlySpan<CadLayerSnapshot> layers = snapshot.Layers.Span;
         ReadOnlySpan<CadStrokeStyle> styles = snapshot.Styles.Span;
         var batches = new List<CadMesh3DDrawBatch>();
         int sourceMeshCount = 0;
+        int sourceFaceCount = 0;
         int faceRangeCount = 0;
         int triangleCount = 0;
 
@@ -120,6 +128,58 @@ public sealed class CadMesh3DSceneCompiler
         {
             cancellationToken.ThrowIfCancellationRequested();
             CadEntityHeader entity = entities[entityIndex];
+            if (entity.Kind is CadEntityKind.Solid or CadEntityKind.Face3D)
+            {
+                int groupStart = entityIndex;
+                int groupEnd = entityIndex + 1;
+                while (groupEnd < entities.Length)
+                {
+                    CadEntityHeader next = entities[groupEnd];
+                    if (next.Kind is not (CadEntityKind.Solid or CadEntityKind.Face3D) ||
+                        next.Handle != entity.Handle ||
+                        next.LayerIndex != entity.LayerIndex ||
+                        next.StyleIndex != entity.StyleIndex)
+                    {
+                        break;
+                    }
+                    groupEnd++;
+                }
+                int groupCount = groupEnd - entityIndex;
+                sourceFaceCount = checked(sourceFaceCount + groupCount);
+                faceRangeCount = checked(faceRangeCount + groupCount);
+                entityIndex = groupEnd - 1;
+                if (!options.IncludeNonPlottableLayers &&
+                    !layers[entity.LayerIndex].IsPlottable)
+                {
+                    continue;
+                }
+
+                ReadOnlySpan<CadEntityHeader> faceGroup = entities.Slice(
+                    groupStart,
+                    groupCount);
+                int groupTriangleCount = CountFaceTriangles(
+                    faceGroup,
+                    faces,
+                    cancellationToken);
+                if (groupTriangleCount == 0)
+                {
+                    continue;
+                }
+                if (batches.Count >= options.MaxDrawBatches)
+                {
+                    throw new InvalidOperationException(
+                        $"CAD 3D draw batches exceed the configured limit of {options.MaxDrawBatches}.");
+                }
+                triangleCount = checked(triangleCount + groupTriangleCount);
+                batches.Add(CreateFaceBatch(
+                    snapshot,
+                    faceGroup,
+                    faces,
+                    styles[entity.StyleIndex],
+                    groupTriangleCount,
+                    cancellationToken));
+                continue;
+            }
             if (entity.Kind != CadEntityKind.Mesh3D)
             {
                 continue;
@@ -155,7 +215,7 @@ public sealed class CadMesh3DSceneCompiler
                 if (batches.Count >= options.MaxDrawBatches)
                 {
                     throw new InvalidOperationException(
-                        $"Mesh 3D draw batches exceed the configured limit of {options.MaxDrawBatches}.");
+                        $"CAD 3D draw batches exceed the configured limit of {options.MaxDrawBatches}.");
                 }
 
                 int vertexCount = 0;
@@ -229,8 +289,123 @@ public sealed class CadMesh3DSceneCompiler
                 sourceMeshCount,
                 faceRangeCount,
                 triangleCount,
-                batches.Count),
+                batches.Count)
+            {
+                SourceFaceCount = sourceFaceCount,
+            },
             batches.ToArray());
+    }
+
+    private static CadMesh3DDrawBatch CreateFaceBatch(
+        CadDocumentSnapshot snapshot,
+        ReadOnlySpan<CadEntityHeader> entities,
+        ReadOnlySpan<CadFacePrimitive> faces,
+        CadStrokeStyle style,
+        int triangleCount,
+        CancellationToken cancellationToken)
+    {
+        int vertexCount = checked(triangleCount * 3);
+        var positions = new Vector3[vertexCount];
+        var normals = new Vector3[vertexCount];
+        var textureCoordinates = new Vector2[vertexCount];
+        var indices = new uint[vertexCount];
+        CadBounds3D bounds = CadBounds3D.Empty;
+        int destination = 0;
+        for (int entityIndex = 0; entityIndex < entities.Length; entityIndex++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            AppendFace(faces[entities[entityIndex].PrimitiveIndex]);
+        }
+
+        CadEntityHeader firstEntity = entities[0];
+        return new CadMesh3DDrawBatch(
+            firstEntity.Handle,
+            firstEntity.LayerIndex,
+            firstEntity.StyleIndex,
+            ToColor(style),
+            bounds,
+            positions,
+            normals,
+            textureCoordinates,
+            indices);
+
+        void AppendFace(CadFacePrimitive face)
+        {
+            if (CadMesh3DTopology.TryComputeFlatNormal(
+                    face.First,
+                    face.Second,
+                    face.Third,
+                    out CadPoint3D firstNormal))
+            {
+                AppendTriangle(face.First, face.Second, face.Third, firstNormal);
+            }
+            if (face.Fourth != face.Third &&
+                CadMesh3DTopology.TryComputeFlatNormal(
+                    face.First,
+                    face.Third,
+                    face.Fourth,
+                    out CadPoint3D secondNormal))
+            {
+                AppendTriangle(face.First, face.Third, face.Fourth, secondNormal);
+            }
+        }
+
+        void AppendTriangle(
+            CadPoint3D first,
+            CadPoint3D second,
+            CadPoint3D third,
+            CadPoint3D normal)
+        {
+            AppendVertex(first, normal);
+            AppendVertex(second, normal);
+            AppendVertex(third, normal);
+        }
+
+        void AppendVertex(CadPoint3D position, CadPoint3D normal)
+        {
+            positions[destination] = ToRebasedVector(
+                position,
+                snapshot.RebaseOrigin);
+            normals[destination] = ToNormal(normal);
+            indices[destination] = checked((uint)destination);
+            bounds = bounds.Include(position);
+            destination++;
+        }
+    }
+
+    private static int CountFaceTriangles(
+        ReadOnlySpan<CadEntityHeader> entities,
+        ReadOnlySpan<CadFacePrimitive> faces,
+        CancellationToken cancellationToken)
+    {
+        int count = 0;
+        for (int entityIndex = 0; entityIndex < entities.Length; entityIndex++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            count = checked(
+                count + CountFaceTriangles(
+                    faces[entities[entityIndex].PrimitiveIndex]));
+        }
+        return count;
+    }
+
+    private static int CountFaceTriangles(CadFacePrimitive face)
+    {
+        int count = CadMesh3DTopology.TryComputeFlatNormal(
+            face.First,
+            face.Second,
+            face.Third,
+            out _) ? 1 : 0;
+        if (face.Fourth != face.Third &&
+            CadMesh3DTopology.TryComputeFlatNormal(
+                face.First,
+                face.Third,
+                face.Fourth,
+                out _))
+        {
+            count++;
+        }
+        return count;
     }
 
     private static Vector3 ToRebasedVector(
