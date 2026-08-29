@@ -13,7 +13,10 @@ $Project = Join-Path $RepoRoot "tests/ProGPU.Direct2D.Win2D.Integration/ProGPU.D
 $PackageName = "ProGPU.Direct2D.Win2D.Integration"
 $Platform = if ($Rid -eq "win-arm64") { "ARM64" } else { "x64" }
 
-if (-not $IsWindows) {
+$RunningOnWindows =
+    [System.Environment]::OSVersion.Platform -eq
+        [System.PlatformID]::Win32NT
+if (-not $RunningOnWindows) {
     throw "The genuine Win2D integration gate requires Windows."
 }
 if (-not $NativeBinaryDirectory) {
