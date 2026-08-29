@@ -33,7 +33,7 @@ binary.
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
 | Direct2D `ID2D1*` API | Not implemented | Windows system COM runtime only; ProGPU will not publish a fake `d2d1.dll` |
 | Native Win2D binary interop | Planned | Real Win2D renders to a same-adapter shared DXGI texture; ProGPU imports/composites it |
-| Portable Win2D-style Canvas source API | Planned | Clean typed facade over reusable ProGPU Scene/Vector/Text/Effects; no WinRT/COM dependency |
+| Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Arbitrary Win2D native-resource wrapping (`GetOrCreate(IUnknown*)`) off Windows | Unsupported by design | Fail closed; there is no portable COM object identity to preserve |
 
 This split follows Win2D's published architecture. Its repository describes an
@@ -92,12 +92,37 @@ The portable API will be a thin recording layer rather than a second renderer:
 | effects | retained typed effect graph using GPU compute first, compatible GPU shader second, intrinsic SIMD CPU third |
 | sprite batches | one typed span upload and bounded batched submission |
 
-The initial source-compatible subset is `CanvasDevice`, `CanvasRenderTarget`,
-`CanvasDrawingSession`, `CanvasCommandList`, solid/gradient brushes, bitmap
-drawing, lines, rectangles, rounded rectangles, ellipses, paths, text, clips,
-layers, transforms, opacity, and the effects already implemented by ProGPU.
-Unsupported overloads and native-resource interop fail closed. No portable API
-may surface raw COM pointers or Windows-only structs.
+The first shipping subset is in the `ProGPU.Win2D` package. It implements
+`ICanvasResourceCreator`, `ICanvasResourceCreatorWithDpi`, `CanvasDevice`,
+`CanvasBitmap`, `CanvasRenderTarget`, and `CanvasDrawingSession`, with the Win2D
+namespace and overload shapes used by the pinned SimpleSample and basic shapes
+sample. It currently supports:
+
+- BGRA8-unorm premultiplied render targets, exact Win2D DIP/pixel rounding,
+  full-target clear, transforms, and typed same-device texture exposure;
+- stroked lines, rectangles, rounded rectangles, ellipses, and circles;
+- filled rectangles, rounded rectangles, ellipses, and circles;
+- point-origin default text using deterministic Inter 20 DIP glyphs until the
+  Segoe UI/native-font selection contract is added;
+- target-preserving later drawing sessions and `Flush()` without retaining or
+  replaying all earlier command lists;
+- Win2D-compatible `GetPixelBytes()` for validation and explicit diagnostics
+  proving `NativeCppWebGpu` execution.
+
+Every closed or flushed session becomes an immutable `GpuPicture`, is compiled
+by `GpuPictureNativeSceneCompiler`, and is installed/rendered by
+`NativeCompositor`. Stable rendering therefore crosses the managed/native
+boundary through the same pointer-free scene ABI as native MIL. The normal path
+does not read pixels back, copy through the CPU, or use the managed compositor.
+Readback is requested only by `GetPixelBytes()` and the validation gate.
+
+The current package is source compatible, not binary compatible with
+`Microsoft.Graphics.Canvas.dll`. It intentionally fails closed for software
+devices, straight/ignored alpha, non-BGRA render targets, Dawn/browser device
+factories, Direct2D COM wrapping, and cross-device resources. Brushes,
+`CanvasCommandList`, bitmap drawing, arbitrary geometry, clips/layers, text
+formats/layouts, effects, sprite batches, and XAML controls remain the next
+incremental compatibility groups. No portable API surfaces raw COM pointers.
 
 ## Validation gate
 
@@ -107,7 +132,19 @@ their exact commits, selected source hashes, the native Direct2D/Direct3D
 interop contract, and the SimpleSample/shapes drawing contract before any
 oracle capture or source-compatibility test.
 
-The completed gate will have four layers:
+The gate has a completed portable-core layer and three expanding oracle layers:
+
+0. `eng/progpu-prepare-win2d-source.py` fetches the two exact locked commits,
+   refuses modified tracked checkouts, and runs
+   `eng/progpu-verify-win2d-source.py`. The native build then compiles the pinned
+   SimpleSample drawing body unchanged, checks DPI/fail-closed contracts, and
+   renders two live sessions through `ProGPU.Win2D` plus the C++ engine. The
+   second session omits `Clear`, proving that the first session remains in the
+   GPU target without display-list growth or CPU copies. The Apple M3 Pro
+   Metal result and Windows 11 ARM64 Parallels Display Adapter D3D12 result are
+   byte-identical BGRA8 premultiplied frames with SHA-256
+   `404F1313FD713A516CAA69D685D47F6B7F472F787EF40C90D1AE0F965F640AD6`.
+   VM timing is not treated as physical D3D12 performance evidence.
 
 1. Build and capture the pinned unmodified SimpleSample plus selected
    ExampleGallery scenes with real Win2D on Windows. Shapes, geometry
@@ -135,9 +172,11 @@ Win2D execution.
 ## Delivery order
 
 1. Keep the dependency classifier and resolver fail-closed invariants green.
-2. Add the minimal portable Canvas device/render-target/drawing-session API and
-   pass pinned SimpleSample source plus headless pixel tests.
-3. Add shapes, geometry, layers, bitmap, text, and existing-effect adapters;
+2. **Implemented:** add the minimal portable Canvas
+   device/render-target/drawing-session API and pass pinned SimpleSample source
+   plus live headless native pixels on Metal and D3D12.
+3. Add the remaining shapes, geometry, layers, bitmap, text-format/layout, and
+   existing-effect adapters;
    promote each pinned ExampleGallery group only after differential parity.
 4. Implement and qualify the Windows same-adapter Win2D/DXGI import adapter.
 5. Add WinUI, LibreWPF, and Avalonia controls as host adapters over the same

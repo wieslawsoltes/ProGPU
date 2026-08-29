@@ -4,7 +4,7 @@ using Microsoft.UI;
 using Windows.Graphics.DirectX;
 using Xunit;
 
-namespace ProGPU.Tests;
+namespace ProGPU.Win2D.Tests;
 
 public sealed class Win2DCanvasCompatibilityTests
 {
@@ -51,6 +51,11 @@ public sealed class Win2DCanvasCompatibilityTests
     [Fact]
     public void UnsupportedPortableCanvasModesFailClosed()
     {
+        Assert.DoesNotContain(
+            typeof(CanvasRenderTarget).GetConstructors(),
+            static constructor => constructor.GetParameters().Any(
+                static parameter =>
+                    parameter.ParameterType == typeof(nint)));
         Assert.Throws<NotSupportedException>(() =>
             CanvasContract.ValidateFormat(
                 DirectXPixelFormat.R8G8B8A8UIntNormalized));
@@ -58,6 +63,9 @@ public sealed class Win2DCanvasCompatibilityTests
             CanvasContract.ValidateAlphaMode(CanvasAlphaMode.Straight));
         Assert.Throws<NotSupportedException>(() =>
             CanvasDevice.GetSharedDevice(forceSoftwareRenderer: true));
+        Assert.Equal(
+            (int)DirectXPixelFormat.B8G8R8A8UIntNormalized,
+            87);
     }
 
     [Fact]

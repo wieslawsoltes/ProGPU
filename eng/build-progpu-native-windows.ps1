@@ -355,6 +355,15 @@ if ($CurrentArchitecture -eq $RunnableArchitecture) {
         Invoke-NativeBenchmark `
             --directx-hello-texture-oracle `
             --directx-oracle-output $DirectXOracleDirectory
+        dotnet test (Join-Path $RepoRoot "tests/ProGPU.Win2D.Tests/ProGPU.Win2D.Tests.csproj") `
+            -c Release --filter FullyQualifiedName~Win2DCanvasCompatibilityTests
+        if ($LASTEXITCODE -ne 0) {
+            throw "The portable Win2D Canvas contract tests failed."
+        }
+        $Win2DOracleDirectory = Join-Path $RepoRoot "artifacts/progpu-native/win2d-oracle"
+        Invoke-NativeBenchmark `
+            --win2d-canvas `
+            --win2d-output $Win2DOracleDirectory
         if ($IsParallelsDisplayAdapter) {
             # The Parallels D3D12 driver removes the device in the legacy managed
             # renderer's dense mixed-picture path. Keep the full 384-command

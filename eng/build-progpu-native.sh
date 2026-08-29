@@ -35,6 +35,9 @@ command -v python3 >/dev/null 2>&1 || {
   exit 1
 }
 python3 "${repo_root}/eng/progpu-generate-mil-protocol.py" --check
+if [[ "${PROGPU_NATIVE_SKIP_EXTENDED_INTEGRATION:-0}" != "1" ]]; then
+  python3 "${repo_root}/eng/progpu-prepare-win2d-source.py"
+fi
 
 dotnet restore \
   "${repo_root}/src/ProGPU.Backend.Native/ProGPU.Backend.Native.csproj"
@@ -585,6 +588,16 @@ run_common_mask_benchmark \
 run_common_mask_benchmark \
   --directx-hello-texture-oracle \
   --directx-oracle-output "${directx_oracle_dir}"
+
+# Compile the pinned SimpleSample drawing body against ProGPU.Win2D, then
+# render the portable Canvas contract through the retained native C++ engine.
+dotnet test \
+  "${repo_root}/tests/ProGPU.Win2D.Tests/ProGPU.Win2D.Tests.csproj" \
+  -c Release --filter FullyQualifiedName~Win2DCanvasCompatibilityTests
+win2d_oracle_dir="${repo_root}/artifacts/progpu-native/win2d-oracle"
+run_common_mask_benchmark \
+  --win2d-canvas \
+  --win2d-output "${win2d_oracle_dir}"
 
 echo "ProGPU native renderer built from ${actual_commit}."
 echo "Sample: ${sample_dir}/progpu-native-sample.ppm"
