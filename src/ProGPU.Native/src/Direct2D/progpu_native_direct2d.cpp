@@ -33,12 +33,18 @@ struct progpu_native_direct2d_surface {
     float dpi_y = 96.0F;
     bool software_adapter = false;
     bool access_acquired = false;
+    bool draw_active = false;
     std::mutex access_mutex;
-    std::atomic<uint64_t> content_version{1U};
+    std::atomic<uint64_t> content_version{0U};
     std::atomic<int32_t> last_hresult{S_OK};
 
     ~progpu_native_direct2d_surface()
     {
+        if (draw_active && d2d_context) {
+            D2D1_TAG tag1 = 0U;
+            D2D1_TAG tag2 = 0U;
+            static_cast<void>(d2d_context->EndDraw(&tag1, &tag2));
+        }
         if (access_acquired && keyed_mutex) {
             static_cast<void>(keyed_mutex->ReleaseSync(0U));
         }
@@ -78,6 +84,53 @@ progpu_native_direct2d_status status_from_synchronization_hresult(HRESULT hr)
         return PROGPU_NATIVE_DIRECT2D_STATUS_DEVICE_LOST;
     }
     return PROGPU_NATIVE_DIRECT2D_STATUS_SYNCHRONIZATION_FAILED;
+}
+
+progpu_native_direct2d_status acquire_locked(
+    progpu_native_direct2d_surface& surface,
+    uint64_t acquire_key,
+    uint32_t timeout_milliseconds)
+{
+    if (surface.draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_ALREADY_ACTIVE;
+    }
+    if (surface.access_acquired) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_ACCESS_ALREADY_ACQUIRED;
+    }
+    HRESULT hr = surface.keyed_mutex->AcquireSync(
+        acquire_key,
+        timeout_milliseconds);
+    surface.last_hresult.store(hr, std::memory_order_release);
+    if (FAILED(hr)) {
+        return status_from_synchronization_hresult(hr);
+    }
+    surface.access_acquired = true;
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status release_locked(
+    progpu_native_direct2d_surface& surface,
+    uint64_t release_key,
+    bool advance_content_version)
+{
+    if (surface.draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_ALREADY_ACTIVE;
+    }
+    if (!surface.access_acquired) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_ACCESS_NOT_ACQUIRED;
+    }
+    HRESULT hr = surface.keyed_mutex->ReleaseSync(release_key);
+    surface.last_hresult.store(hr, std::memory_order_release);
+    if (FAILED(hr)) {
+        return status_from_synchronization_hresult(hr);
+    }
+    surface.access_acquired = false;
+    if (advance_content_version) {
+        static_cast<void>(surface.content_version.fetch_add(
+            1U,
+            std::memory_order_acq_rel));
+    }
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
 }
 
 HRESULT select_adapter(
@@ -416,7 +469,7 @@ progpu_native_direct2d_surface_get_descriptor(
     descriptor->shared_nt_handle =
         reinterpret_cast<uintptr_t>(surface->shared_handle);
     descriptor->initial_acquire_key = 0U;
-    descriptor->initial_release_key = 1U;
+    descriptor->initial_release_key = 0U;
     descriptor->content_version =
         surface->content_version.load(std::memory_order_acquire);
     return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
@@ -487,6 +540,13 @@ progpu_native_direct2d_status progpu_native_direct2d_surface_get_interface(
     }
 }
 
+uint32_t progpu_native_direct2d_com_release(void* value)
+{
+    return value == nullptr
+        ? 0U
+        : reinterpret_cast<IUnknown*>(value)->Release();
+}
+
 progpu_native_direct2d_status progpu_native_direct2d_surface_acquire(
     progpu_native_direct2d_surface* surface,
     uint64_t acquire_key,
@@ -496,18 +556,10 @@ progpu_native_direct2d_status progpu_native_direct2d_surface_acquire(
         return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
     }
     std::scoped_lock lock(surface->access_mutex);
-    if (surface->access_acquired) {
-        return PROGPU_NATIVE_DIRECT2D_STATUS_ACCESS_ALREADY_ACQUIRED;
-    }
-    HRESULT hr = surface->keyed_mutex->AcquireSync(
+    return acquire_locked(
+        *surface,
         acquire_key,
         timeout_milliseconds);
-    surface->last_hresult.store(hr, std::memory_order_release);
-    if (FAILED(hr)) {
-        return status_from_synchronization_hresult(hr);
-    }
-    surface->access_acquired = true;
-    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
 }
 
 progpu_native_direct2d_status progpu_native_direct2d_surface_release(
@@ -518,19 +570,80 @@ progpu_native_direct2d_status progpu_native_direct2d_surface_release(
         return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
     }
     std::scoped_lock lock(surface->access_mutex);
-    if (!surface->access_acquired) {
-        return PROGPU_NATIVE_DIRECT2D_STATUS_ACCESS_NOT_ACQUIRED;
+    return release_locked(*surface, release_key, true);
+}
+
+progpu_native_direct2d_status progpu_native_direct2d_surface_begin_draw(
+    progpu_native_direct2d_surface* surface,
+    uint64_t acquire_key,
+    uint32_t timeout_milliseconds)
+{
+    if (surface == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
     }
-    HRESULT hr = surface->keyed_mutex->ReleaseSync(release_key);
-    surface->last_hresult.store(hr, std::memory_order_release);
-    if (FAILED(hr)) {
-        return status_from_synchronization_hresult(hr);
+    std::scoped_lock lock(surface->access_mutex);
+    progpu_native_direct2d_status status = acquire_locked(
+        *surface,
+        acquire_key,
+        timeout_milliseconds);
+    if (status != PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS) {
+        return status;
     }
-    surface->access_acquired = false;
-    static_cast<void>(surface->content_version.fetch_add(
-        1U,
-        std::memory_order_acq_rel));
+    surface->d2d_context->BeginDraw();
+    surface->draw_active = true;
     return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status progpu_native_direct2d_surface_end_draw(
+    progpu_native_direct2d_surface* surface,
+    uint64_t release_key,
+    uint64_t* tag1,
+    uint64_t* tag2,
+    int32_t* native_hresult)
+{
+    if (tag1 != nullptr) {
+        *tag1 = 0U;
+    }
+    if (tag2 != nullptr) {
+        *tag2 = 0U;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || tag1 == nullptr || tag2 == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    D2D1_TAG native_tag1 = 0U;
+    D2D1_TAG native_tag2 = 0U;
+    HRESULT draw_hr = surface->d2d_context->EndDraw(
+        &native_tag1,
+        &native_tag2);
+    surface->draw_active = false;
+    *tag1 = native_tag1;
+    *tag2 = native_tag2;
+    *native_hresult = draw_hr;
+
+    progpu_native_direct2d_status release_status =
+        release_locked(*surface, release_key, SUCCEEDED(draw_hr));
+    if (release_status != PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS) {
+        return release_status;
+    }
+    surface->last_hresult.store(draw_hr, std::memory_order_release);
+    if (SUCCEEDED(draw_hr)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+    }
+    if (draw_hr == D2DERR_RECREATE_TARGET ||
+        draw_hr == DXGI_ERROR_DEVICE_REMOVED ||
+        draw_hr == DXGI_ERROR_DEVICE_RESET) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DEVICE_LOST;
+    }
+    return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_FAILED;
 }
 
 int32_t progpu_native_direct2d_surface_get_last_hresult(

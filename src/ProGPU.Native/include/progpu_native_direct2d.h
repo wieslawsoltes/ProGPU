@@ -29,7 +29,10 @@ typedef enum progpu_native_direct2d_status {
     PROGPU_NATIVE_DIRECT2D_STATUS_SYNCHRONIZATION_FAILED = 6,
     PROGPU_NATIVE_DIRECT2D_STATUS_ACCESS_ALREADY_ACQUIRED = 7,
     PROGPU_NATIVE_DIRECT2D_STATUS_ACCESS_NOT_ACQUIRED = 8,
-    PROGPU_NATIVE_DIRECT2D_STATUS_DEVICE_LOST = 9
+    PROGPU_NATIVE_DIRECT2D_STATUS_DEVICE_LOST = 9,
+    PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_ALREADY_ACTIVE = 10,
+    PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE = 11,
+    PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_FAILED = 12
 } progpu_native_direct2d_status;
 
 typedef enum progpu_native_direct2d_surface_flags {
@@ -97,7 +100,7 @@ typedef struct progpu_native_direct2d_surface_descriptor {
 } progpu_native_direct2d_surface_descriptor;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 1U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 2U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -124,6 +127,9 @@ progpu_native_direct2d_surface_get_interface(
     progpu_native_direct2d_interface_kind kind,
     void** value);
 
+PROGPU_NATIVE_DIRECT2D_API uint32_t
+progpu_native_direct2d_com_release(void* value);
+
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_surface_acquire(
     progpu_native_direct2d_surface* surface,
@@ -134,6 +140,25 @@ PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_surface_release(
     progpu_native_direct2d_surface* surface,
     uint64_t release_key);
+
+/* Transactional Direct2D producer scope. begin_draw acquires the keyed mutex
+ * before ID2D1DeviceContext::BeginDraw. end_draw always calls EndDraw and then
+ * releases the keyed mutex; content_version advances only if both operations
+ * succeed. Direct2D commands are issued through the genuine device-context
+ * interface returned by surface_get_interface while the scope is active. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_begin_draw(
+    progpu_native_direct2d_surface* surface,
+    uint64_t acquire_key,
+    uint32_t timeout_milliseconds);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_end_draw(
+    progpu_native_direct2d_surface* surface,
+    uint64_t release_key,
+    uint64_t* tag1,
+    uint64_t* tag2,
+    int32_t* native_hresult);
 
 PROGPU_NATIVE_DIRECT2D_API int32_t
 progpu_native_direct2d_surface_get_last_hresult(

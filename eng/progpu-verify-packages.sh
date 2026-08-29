@@ -125,7 +125,9 @@ for package_id in "${selected_package_ids[@]}"; do
       runtimes/osx-x64/native/libprogpu_native.dylib \
       runtimes/osx-arm64/native/libprogpu_native.dylib \
       runtimes/win-x64/native/progpu_native.dll \
+      runtimes/win-x64/native/progpu_native_direct2d.dll \
       runtimes/win-arm64/native/progpu_native.dll \
+      runtimes/win-arm64/native/progpu_native_direct2d.dll \
       build/native/include/progpu_native.h; do
       if ! unzip -Z1 "${package}" | grep -Fx "${native_entry}" >/dev/null; then
         echo "${package_id} is missing ${native_entry}." >&2
