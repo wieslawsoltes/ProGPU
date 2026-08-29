@@ -925,6 +925,176 @@ public sealed class CadEditingTests
     }
 
     [Fact]
+    public void LayerFreezeCommandExcludesNestedContentAndRestoresPriorFlags()
+    {
+        var document = new CadDocument();
+        var frozenLayer = new Layer("DETAIL")
+        {
+            Flags = LayerFlags.FrozenNewViewports | LayerFlags.Referenced,
+        };
+        document.Layers.Add(frozenLayer);
+        var block = new BlockRecord("DETAIL_BLOCK");
+        block.Entities.Add(new Line(XYZ.Zero, new XYZ(100, 100, 0)));
+        var insert = new Insert(block) { Layer = frozenLayer };
+        var visible = new Line(XYZ.Zero, XYZ.AxisX);
+        document.Entities.Add(insert);
+        document.Entities.Add(visible);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        Assert.Equal(2, new CadSnapshotCompiler().Compile(session).Entities.Length);
+        history.Execute(new CadSetLayerFreezeCommand(["detail"], isFrozen: true));
+
+        Assert.Equal(
+            LayerFlags.FrozenNewViewports |
+                LayerFlags.Referenced |
+                LayerFlags.Frozen,
+            frozenLayer.Flags);
+        CadDocumentSnapshot frozen = new CadSnapshotCompiler().Compile(
+            session,
+            new CadSnapshotOptions { IncludeNonPlottableLayers = true });
+        CadEntityHeader remaining = Assert.Single(frozen.Entities.ToArray());
+        Assert.Equal(visible.Handle, remaining.Handle);
+        Assert.Equal(new CadPoint3D(0, 0, 0), frozen.Bounds.Min);
+        Assert.Equal(new CadPoint3D(1, 0, 0), frozen.Bounds.Max);
+        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(frozen);
+        Assert.Single(scene.DrawingContext.Commands.ToArray());
+        using (GpuPicture picture = scene.CreatePicture())
+        {
+            Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+                picture,
+                96U,
+                frozen.ContentGeneration,
+                out NativeCompiledPicture? native,
+                out NativePictureCompileFailure failure),
+                failure.ToString());
+            Assert.NotNull(native);
+            Assert.Equal(1, native.SourceCommandCount);
+            Assert.Equal(1, native.GeometryPrimitiveCount);
+        }
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(
+            LayerFlags.FrozenNewViewports | LayerFlags.Referenced,
+            frozenLayer.Flags);
+        Assert.Equal(2, new CadSnapshotCompiler().Compile(session).Entities.Length);
+        Assert.True(history.TryRedo(out _));
+        Assert.Equal(
+            LayerFlags.FrozenNewViewports |
+                LayerFlags.Referenced |
+                LayerFlags.Frozen,
+            frozenLayer.Flags);
+    }
+
+    [Fact]
+    public void MissingLayerFreezeTargetFailsBeforeMutation()
+    {
+        var document = new CadDocument();
+        var layer = new Layer("EXISTING") { Flags = LayerFlags.Referenced };
+        document.Layers.Add(layer);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadSetLayerFreezeCommand(
+                ["EXISTING", "MISSING"],
+                isFrozen: true)));
+
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(0, history.UndoCount);
+        Assert.Equal(LayerFlags.Referenced, layer.Flags);
+    }
+
+    [Fact]
+    public void LayerLockCommandPreservesReplayAndPreflightsEntityEdits()
+    {
+        var document = new CadDocument();
+        var editableLayer = new Layer("EDITABLE");
+        var protectedLayer = new Layer("PROTECTED")
+        {
+            Flags = LayerFlags.FrozenNewViewports | LayerFlags.Referenced,
+        };
+        document.Layers.Add(editableLayer);
+        document.Layers.Add(protectedLayer);
+        var first = new Line(XYZ.Zero, XYZ.AxisX) { Layer = editableLayer };
+        var second = new Line(XYZ.AxisY, new XYZ(1, 1, 0))
+        {
+            Layer = protectedLayer,
+        };
+        document.Entities.Add(first);
+        document.Entities.Add(second);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetLayerLockCommand(
+            ["protected"],
+            isLocked: true));
+
+        Assert.Equal(
+            LayerFlags.FrozenNewViewports |
+                LayerFlags.Referenced |
+                LayerFlags.Locked,
+            protectedLayer.Flags);
+        Assert.Equal(2, new CadSnapshotCompiler().Compile(session).Entities.Length);
+        XYZ firstStart = first.StartPoint;
+        XYZ secondStart = second.StartPoint;
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
+            () => history.Execute(new CadTranslateEntitiesCommand(
+                [first.Handle, second.Handle],
+                new CadPoint3D(10, 0, 0))));
+        Assert.Contains("locked layer 'PROTECTED'", exception.Message);
+        Assert.Equal(firstStart, first.StartPoint);
+        Assert.Equal(secondStart, second.StartPoint);
+        Assert.Equal(1UL, session.ContentGeneration);
+        Assert.Equal(1, history.UndoCount);
+
+        history.Execute(new CadSetEntityLayerCommand(
+            [first.Handle],
+            protectedLayer.Name));
+        Assert.Same(protectedLayer, first.Layer);
+        Assert.True(history.TryUndo(out _));
+        Assert.Same(editableLayer, first.Layer);
+
+        var added = new Line(new XYZ(2, 0, 0), new XYZ(3, 0, 0))
+        {
+            Layer = protectedLayer,
+        };
+        history.Execute(new CadAddModelSpaceEntityCommand(added));
+        Assert.Same(document.ModelSpace, added.Owner);
+        Assert.True(history.TryUndo(out _));
+        Assert.Null(added.Owner);
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(
+            LayerFlags.FrozenNewViewports | LayerFlags.Referenced,
+            protectedLayer.Flags);
+        Assert.True(history.TryRedo(out _));
+        Assert.Equal(
+            LayerFlags.FrozenNewViewports |
+                LayerFlags.Referenced |
+                LayerFlags.Locked,
+            protectedLayer.Flags);
+    }
+
+    [Fact]
+    public void MissingLayerLockTargetFailsBeforeMutation()
+    {
+        var document = new CadDocument();
+        var layer = new Layer("EXISTING") { Flags = LayerFlags.Referenced };
+        document.Layers.Add(layer);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadSetLayerLockCommand(
+                ["EXISTING", "MISSING"],
+                isLocked: true)));
+
+        Assert.Equal(0UL, session.ContentGeneration);
+        Assert.Equal(0, history.UndoCount);
+        Assert.Equal(LayerFlags.Referenced, layer.Flags);
+    }
+
+    [Fact]
     public void LayerPlotFlagCommandRetainsScreenVisibilityAndRestoresPriorStates()
     {
         var document = new CadDocument();
@@ -979,7 +1149,7 @@ public sealed class CadEditingTests
     [Theory]
     [InlineData(CadDocumentFormat.Dxf)]
     [InlineData(CadDocumentFormat.Dwg)]
-    public async Task LayerVisibilityAndPlotFlagRoundTripThroughAdvertisedFormats(
+    public async Task LayerStatesRoundTripThroughAdvertisedFormats(
         CadDocumentFormat format)
     {
         var document = new CadDocument(ACadVersion.AC1032);
@@ -987,6 +1157,7 @@ public sealed class CadEditingTests
         {
             IsOn = false,
             PlotFlag = false,
+            Flags = LayerFlags.Frozen | LayerFlags.Locked,
         };
         document.Layers.Add(layer);
         document.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX) { Layer = layer });
@@ -1008,6 +1179,8 @@ public sealed class CadEditingTests
             source.Layers["PERSISTED_STATE"]);
         Assert.False(restored.IsOn);
         Assert.False(restored.PlotFlag);
+        Assert.True((restored.Flags & LayerFlags.Frozen) != 0);
+        Assert.True((restored.Flags & LayerFlags.Locked) != 0);
         Assert.Empty(new CadSnapshotCompiler()
             .Compile(loaded.Session)
             .Entities

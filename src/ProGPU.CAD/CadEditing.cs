@@ -90,6 +90,34 @@ public abstract class CadEditCommand
         CadDocument document,
         ulong handle)
     {
+        Entity entity = ResolveModelSpaceEntityForReference(document, handle);
+        if (HasLayerFlag(entity.Layer, LayerFlags.Locked))
+        {
+            throw new InvalidOperationException(
+                $"Model-space entity handle {handle:X} is on locked layer " +
+                $"'{entity.Layer.Name}' and cannot be edited.");
+        }
+        return entity;
+    }
+
+    protected static Entity[] ResolveModelSpaceEntitiesForReference(
+        CadDocument document,
+        ReadOnlySpan<ulong> handles)
+    {
+        var entities = new Entity[handles.Length];
+        for (int i = 0; i < handles.Length; i++)
+        {
+            entities[i] = ResolveModelSpaceEntityForReference(
+                document,
+                handles[i]);
+        }
+        return entities;
+    }
+
+    protected static Entity ResolveModelSpaceEntityForReference(
+        CadDocument document,
+        ulong handle)
+    {
         Entity? entity = document.GetCadObject<Entity>(handle);
         if (entity is null || !ReferenceEquals(entity.Owner, document.ModelSpace))
         {
@@ -566,6 +594,17 @@ public abstract class CadEditCommand
                 $"Retained document layer '{layer.Name}' is no longer registered.");
         }
     }
+
+    protected static bool HasLayerFlag(Layer layer, LayerFlags flag) =>
+        (layer.Flags & flag) != 0;
+
+    protected static void SetLayerFlag(
+        Layer layer,
+        LayerFlags flag,
+        bool value) =>
+        layer.Flags = value
+            ? layer.Flags | flag
+            : layer.Flags & ~flag;
 
     protected static LineType ResolveLineType(
         CadDocument document,
@@ -1573,6 +1612,142 @@ public sealed class CadSetLayerVisibilityCommand : CadEditCommand
         Layer[] layers = _layers ??
             throw new InvalidOperationException(
                 "The layer-visibility command has not been applied.");
+        ValidateLayers(document, layers);
+        return layers;
+    }
+}
+
+/// <summary>Sets model-space regeneration eligibility for existing layers.</summary>
+public sealed class CadSetLayerFreezeCommand : CadEditCommand
+{
+    private readonly string[] _layerNames;
+    private Layer[]? _layers;
+    private bool[]? _previousValues;
+
+    public ReadOnlyMemory<string> LayerNames => _layerNames;
+
+    public bool IsFrozen { get; }
+
+    public CadSetLayerFreezeCommand(
+        IEnumerable<string> layerNames,
+        bool isFrozen,
+        string description = "Set layer freeze state")
+        : base(description)
+    {
+        _layerNames = NormalizeLayerNames(layerNames, nameof(layerNames));
+        IsFrozen = isFrozen;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Layer[] layers;
+        if (isRedo)
+        {
+            layers = GetRetainedLayers(document);
+        }
+        else
+        {
+            layers = ResolveLayers(document, _layerNames);
+            _layers = layers;
+            _previousValues = CaptureValues(
+                layers,
+                static layer => HasLayerFlag(layer, LayerFlags.Frozen));
+        }
+        SetValuesTransactional(
+            layers,
+            IsFrozen,
+            static layer => HasLayerFlag(layer, LayerFlags.Frozen),
+            static (layer, value) =>
+                SetLayerFlag(layer, LayerFlags.Frozen, value));
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Layer[] layers = GetRetainedLayers(document);
+        bool[] previous = _previousValues ??
+            throw new InvalidOperationException(
+                "The layer-freeze command has not been applied.");
+        SetValuesTransactional(
+            layers,
+            previous,
+            static layer => HasLayerFlag(layer, LayerFlags.Frozen),
+            static (layer, value) =>
+                SetLayerFlag(layer, LayerFlags.Frozen, value));
+    }
+
+    private Layer[] GetRetainedLayers(CadDocument document)
+    {
+        Layer[] layers = _layers ??
+            throw new InvalidOperationException(
+                "The layer-freeze command has not been applied.");
+        ValidateLayers(document, layers);
+        return layers;
+    }
+}
+
+/// <summary>Sets entity-edit authorization for existing layers.</summary>
+public sealed class CadSetLayerLockCommand : CadEditCommand
+{
+    private readonly string[] _layerNames;
+    private Layer[]? _layers;
+    private bool[]? _previousValues;
+
+    public ReadOnlyMemory<string> LayerNames => _layerNames;
+
+    public bool IsLocked { get; }
+
+    public CadSetLayerLockCommand(
+        IEnumerable<string> layerNames,
+        bool isLocked,
+        string description = "Set layer lock state")
+        : base(description)
+    {
+        _layerNames = NormalizeLayerNames(layerNames, nameof(layerNames));
+        IsLocked = isLocked;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        Layer[] layers;
+        if (isRedo)
+        {
+            layers = GetRetainedLayers(document);
+        }
+        else
+        {
+            layers = ResolveLayers(document, _layerNames);
+            _layers = layers;
+            _previousValues = CaptureValues(
+                layers,
+                static layer => HasLayerFlag(layer, LayerFlags.Locked));
+        }
+        SetValuesTransactional(
+            layers,
+            IsLocked,
+            static layer => HasLayerFlag(layer, LayerFlags.Locked),
+            static (layer, value) =>
+                SetLayerFlag(layer, LayerFlags.Locked, value));
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        Layer[] layers = GetRetainedLayers(document);
+        bool[] previous = _previousValues ??
+            throw new InvalidOperationException(
+                "The layer-lock command has not been applied.");
+        SetValuesTransactional(
+            layers,
+            previous,
+            static layer => HasLayerFlag(layer, LayerFlags.Locked),
+            static (layer, value) =>
+                SetLayerFlag(layer, LayerFlags.Locked, value));
+    }
+
+    private Layer[] GetRetainedLayers(CadDocument document)
+    {
+        Layer[] layers = _layers ??
+            throw new InvalidOperationException(
+                "The layer-lock command has not been applied.");
         ValidateLayers(document, layers);
         return layers;
     }

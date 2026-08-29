@@ -194,6 +194,7 @@ public sealed partial class CadSnapshotCompiler
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (entity.IsInvisible || !entity.Layer.IsOn ||
+                IsLayerFrozen(entity.Layer) ||
                 (!options.IncludeNonPlottableLayers && !entity.Layer.PlotFlag) ||
                 IsHiddenAttribute(entity))
             {
@@ -291,6 +292,7 @@ public sealed partial class CadSnapshotCompiler
                 ? inheritedLayer
                 : entity.Layer;
             if (entity.IsInvisible || !effectiveLayer.IsOn ||
+                IsLayerFrozen(effectiveLayer) ||
                 (!options.IncludeNonPlottableLayers && !effectiveLayer.PlotFlag))
             {
                 return;
@@ -1301,6 +1303,7 @@ public sealed partial class CadSnapshotCompiler
 
                 Layer faceLayer = IsLayerZero(face.Layer) ? effectiveLayer : face.Layer;
                 if (face.IsInvisible || !faceLayer.IsOn ||
+                    IsLayerFrozen(faceLayer) ||
                     (!options.IncludeNonPlottableLayers && !faceLayer.PlotFlag))
                 {
                     continue;
@@ -3766,6 +3769,9 @@ public sealed partial class CadSnapshotCompiler
         layers.Add(new CadLayerSnapshot(name, layer.IsOn, layer.PlotFlag));
         return index;
     }
+
+    private static bool IsLayerFrozen(Layer layer) =>
+        (layer.Flags & LayerFlags.Frozen) != 0;
 
     private static int InternStyle(
         CadResolvedStyle resolved,

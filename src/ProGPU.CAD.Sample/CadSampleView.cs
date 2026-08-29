@@ -66,8 +66,12 @@ public sealed class CadSampleView : Grid
     private readonly ComboBox _layerStateSelector;
     private readonly ComboBox _layerVisibilitySelector;
     private readonly ComboBox _layerPlotSelector;
+    private readonly ComboBox _layerFreezeSelector;
+    private readonly ComboBox _layerLockSelector;
     private readonly Button _setLayerVisibilityButton;
     private readonly Button _setLayerPlotButton;
+    private readonly Button _setLayerFreezeButton;
+    private readonly Button _setLayerLockButton;
     private readonly TextBox _moveStepInput;
     private readonly TextBox _rotationStepInput;
     private readonly TextBox _scaleFactorInput;
@@ -79,6 +83,7 @@ public sealed class CadSampleView : Grid
     private bool _isPrintPreview;
     private bool _isRefreshingPageSetups;
     private bool _isRefreshingSelectionProperties;
+    private bool _isSelectionEditable;
     private bool _isSolidThicknessSelection;
     private CadDocumentSession? _selectionPropertyCatalogSession;
     private ulong _selectionPropertyCatalogGeneration = ulong.MaxValue;
@@ -119,6 +124,10 @@ public sealed class CadSampleView : Grid
     public ComboBox LayerVisibilitySelector => _layerVisibilitySelector;
 
     public ComboBox LayerPlotSelector => _layerPlotSelector;
+
+    public ComboBox LayerFreezeSelector => _layerFreezeSelector;
+
+    public ComboBox LayerLockSelector => _layerLockSelector;
 
     /// <summary>
     /// Ordered fully-qualified desktop support directories probed after the
@@ -577,10 +586,10 @@ public sealed class CadSampleView : Grid
         {
             Font = font,
             FontSize = 11,
-            WidthConstraint = 150,
+            WidthConstraint = 130,
             HeightConstraint = 30,
             MaxDropDownHeight = 256,
-            Margin = new Thickness(0, 0, 12, 0),
+            Margin = new Thickness(0, 0, 8, 0),
         };
         _layerStateSelector.Items.Add(new ComboBoxItem { Text = "—" });
         _layerStateSelector.SelectedIndex = 0;
@@ -596,13 +605,14 @@ public sealed class CadSampleView : Grid
         _layerVisibilitySelector = CreateBooleanPropertySelector(
             font,
             "On",
-            "Off");
+            "Off",
+            84);
         _setLayerVisibilityButton = CreateButton(
             "Set layer visibility",
             font,
-            136,
+            118,
             30);
-        _setLayerVisibilityButton.Margin = new Thickness(0, 0, 12, 0);
+        _setLayerVisibilityButton.Margin = new Thickness(0, 0, 8, 0);
         layerStateActions.AddChild(_layerVisibilitySelector);
         layerStateActions.AddChild(_setLayerVisibilityButton);
         layerStateActions.AddChild(new TextBlock
@@ -616,14 +626,57 @@ public sealed class CadSampleView : Grid
         _layerPlotSelector = CreateBooleanPropertySelector(
             font,
             "Plot",
-            "No plot");
+            "No plot",
+            84);
         _setLayerPlotButton = CreateButton(
             "Set layer plot",
             font,
-            112,
+            96,
             30);
+        _setLayerPlotButton.Margin = new Thickness(0, 0, 8, 0);
         layerStateActions.AddChild(_layerPlotSelector);
         layerStateActions.AddChild(_setLayerPlotButton);
+        layerStateActions.AddChild(new TextBlock
+        {
+            Text = "Freeze",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _layerFreezeSelector = CreateBooleanPropertySelector(
+            font,
+            "Frozen",
+            "Thawed",
+            88);
+        _setLayerFreezeButton = CreateButton(
+            "Set layer freeze",
+            font,
+            106,
+            30);
+        _setLayerFreezeButton.Margin = new Thickness(0, 0, 8, 0);
+        layerStateActions.AddChild(_layerFreezeSelector);
+        layerStateActions.AddChild(_setLayerFreezeButton);
+        layerStateActions.AddChild(new TextBlock
+        {
+            Text = "Lock",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _layerLockSelector = CreateBooleanPropertySelector(
+            font,
+            "Locked",
+            "Unlocked",
+            88);
+        _setLayerLockButton = CreateButton(
+            "Set layer lock",
+            font,
+            96,
+            30);
+        layerStateActions.AddChild(_layerLockSelector);
+        layerStateActions.AddChild(_setLayerLockButton);
 
         printActions.AddChild(new TextBlock
         {
@@ -808,6 +861,20 @@ public sealed class CadSampleView : Grid
                 UpdateEditControls();
             }
         };
+        _layerFreezeSelector.SelectionChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
+        _layerLockSelector.SelectionChanged += (_, _) =>
+        {
+            if (!_isRefreshingSelectionProperties)
+            {
+                UpdateEditControls();
+            }
+        };
         _setSelectionColorButton.Click += (_, _) => SetSelectionColor();
         _setSelectionLineWeightButton.Click += (_, _) =>
             SetSelectionLineWeight();
@@ -823,6 +890,8 @@ public sealed class CadSampleView : Grid
             SetSelectionSolidThickness();
         _setLayerVisibilityButton.Click += (_, _) => SetLayerVisibility();
         _setLayerPlotButton.Click += (_, _) => SetLayerPlotFlag();
+        _setLayerFreezeButton.Click += (_, _) => SetLayerFreeze();
+        _setLayerLockButton.Click += (_, _) => SetLayerLock();
         _createPageSetupButton.Click += (_, _) =>
             CreateNamedPageSetupFromModel();
         _updatePageSetupButton.Click += (_, _) =>
@@ -1495,6 +1564,9 @@ public sealed class CadSampleView : Grid
             _isSolidThicknessSelection =
                 properties.SelectionCount > 0 &&
                 properties.AllSelectedEntitiesAreSolids;
+            _isSelectionEditable =
+                properties.SelectionCount > 0 &&
+                properties.AllSelectedEntitiesAreUnlocked;
             _selectionSolidThicknessInput.Text = properties.SelectionCount == 0
                 ? string.Empty
                 : !_isSolidThicknessSelection
@@ -1546,6 +1618,8 @@ public sealed class CadSampleView : Grid
         {
             _layerVisibilitySelector.SelectedIndex = 0;
             _layerPlotSelector.SelectedIndex = 0;
+            _layerFreezeSelector.SelectedIndex = 0;
+            _layerLockSelector.SelectedIndex = 0;
             return;
         }
 
@@ -1557,6 +1631,12 @@ public sealed class CadSampleView : Grid
         SelectBooleanPropertyChoice(
             _layerPlotSelector,
             properties.IsPlottable);
+        SelectBooleanPropertyChoice(
+            _layerFreezeSelector,
+            properties.IsFrozen);
+        SelectBooleanPropertyChoice(
+            _layerLockSelector,
+            properties.IsLocked);
     }
 
     private static void SelectBooleanPropertyChoice(
@@ -1895,6 +1975,62 @@ public sealed class CadSampleView : Grid
         catch (Exception exception)
         {
             SetStatus($"Set layer plot failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetLayerFreeze()
+    {
+        if (_isBusy ||
+            (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                string layerName ||
+            (_layerFreezeSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                bool isFrozen)
+        {
+            return;
+        }
+
+        try
+        {
+            _canvas.SetLayerFreeze(layerName, isFrozen);
+            SetStatus(
+                $"Set layer {layerName} " +
+                $"{(isFrozen ? "Frozen" : "Thawed")} as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set layer freeze failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetLayerLock()
+    {
+        if (_isBusy ||
+            (_layerStateSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                string layerName ||
+            (_layerLockSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                bool isLocked)
+        {
+            return;
+        }
+
+        try
+        {
+            _canvas.SetLayerLock(layerName, isLocked);
+            SetStatus(
+                $"Set layer {layerName} " +
+                $"{(isLocked ? "Locked" : "Unlocked")} as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set layer lock failed: {exception.Message}");
         }
         finally
         {
@@ -2559,7 +2695,8 @@ public sealed class CadSampleView : Grid
         _viewModeButton.IsEnabled =
             canUsePlanTools && _viewport3D.Children.Count > 0;
         bool canTransform = canUsePlanTools &&
-            _canvas.SelectedHandleCount > 0;
+            _canvas.SelectedHandleCount > 0 &&
+            _isSelectionEditable;
         _deleteButton.IsEnabled = canTransform;
         _selectionColorInput.IsEnabled = canTransform;
         _selectionLineWeightSelector.IsEnabled = canTransform;
@@ -2610,12 +2747,20 @@ public sealed class CadSampleView : Grid
         _layerStateSelector.IsEnabled = canUsePlanTools;
         _layerVisibilitySelector.IsEnabled = canEditLayerState;
         _layerPlotSelector.IsEnabled = canEditLayerState;
+        _layerFreezeSelector.IsEnabled = canEditLayerState;
+        _layerLockSelector.IsEnabled = canEditLayerState;
         _setLayerVisibilityButton.IsEnabled =
             canEditLayerState &&
             (_layerVisibilitySelector.SelectedItem as ComboBoxItem)?.Tag is bool;
         _setLayerPlotButton.IsEnabled =
             canEditLayerState &&
             (_layerPlotSelector.SelectedItem as ComboBoxItem)?.Tag is bool;
+        _setLayerFreezeButton.IsEnabled =
+            canEditLayerState &&
+            (_layerFreezeSelector.SelectedItem as ComboBoxItem)?.Tag is bool;
+        _setLayerLockButton.IsEnabled =
+            canEditLayerState &&
+            (_layerLockSelector.SelectedItem as ComboBoxItem)?.Tag is bool;
         _moveStepInput.IsEnabled = canUsePlanTools;
         _rotationStepInput.IsEnabled = canUsePlanTools;
         _scaleFactorInput.IsEnabled = canUsePlanTools;
@@ -2761,8 +2906,11 @@ public sealed class CadSampleView : Grid
         string selectedUnsupportedStatus = _canvas.LastUnsupportedPrimitiveCount == 0
             ? string.Empty
             : $" | {_canvas.LastUnsupportedPrimitiveCount:N0} unsupported selection candidates";
+        string lockedStatus = _isSelectionEditable
+            ? string.Empty
+            : " | locked layer: inspection only";
         return $" | {_canvas.SelectedHandleCount:N0} selected ({mode})" +
-            selectedUnsupportedStatus + truncated;
+            selectedUnsupportedStatus + lockedStatus + truncated;
     }
 
     private void SetStatus(string value) => _status.Text = value;
@@ -2910,13 +3058,14 @@ public sealed class CadSampleView : Grid
     private static ComboBox CreateBooleanPropertySelector(
         TtfFont font,
         string trueText,
-        string falseText)
+        string falseText,
+        float width)
     {
         var selector = new ComboBox
         {
             Font = font,
             FontSize = 11,
-            WidthConstraint = 100,
+            WidthConstraint = width,
             HeightConstraint = 30,
             Margin = new Thickness(0, 0, 8, 0),
         };

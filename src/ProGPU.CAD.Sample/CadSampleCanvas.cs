@@ -27,6 +27,7 @@ public readonly record struct CadSelectionGeneralProperties(
     double? CommonLineTypeScale,
     Transparency? CommonTransparency,
     bool? CommonIsInvisible,
+    bool AllSelectedEntitiesAreUnlocked,
     bool AllSelectedEntitiesAreSolids,
     double? CommonSolidThickness);
 
@@ -34,7 +35,9 @@ public readonly record struct CadSelectionGeneralProperties(
 public readonly record struct CadLayerGeneralProperties(
     string Name,
     bool IsOn,
-    bool IsPlottable);
+    bool IsPlottable,
+    bool IsFrozen,
+    bool IsLocked);
 
 /// <summary>
 /// Generation-tagged names that can be assigned by the shared property shell.
@@ -878,6 +881,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             double? commonLineTypeScale = null;
             Transparency? commonTransparency = null;
             bool? commonIsInvisible = null;
+            bool allSelectedEntitiesAreUnlocked = true;
             bool allSelectedEntitiesAreSolids = true;
             double? commonSolidThickness = null;
             for (int i = 0; i < _selectedHandleCount; i++)
@@ -889,6 +893,10 @@ public sealed class CadSampleCanvas : FrameworkElement
                 {
                     throw new InvalidOperationException(
                         $"Selected model-space entity handle {handle:X} no longer exists.");
+                }
+                if ((entity.Layer.Flags & LayerFlags.Locked) != 0)
+                {
+                    allSelectedEntitiesAreUnlocked = false;
                 }
 
                 if (i == 0)
@@ -969,6 +977,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                 commonLineTypeScale,
                 commonTransparency,
                 commonIsInvisible,
+                allSelectedEntitiesAreUnlocked,
                 allSelectedEntitiesAreSolids,
                 allSelectedEntitiesAreSolids ? commonSolidThickness : null);
         });
@@ -1017,7 +1026,9 @@ public sealed class CadSampleCanvas : FrameworkElement
             return new CadLayerGeneralProperties(
                 layer.Name,
                 layer.IsOn,
-                layer.PlotFlag);
+                layer.PlotFlag,
+                (layer.Flags & LayerFlags.Frozen) != 0,
+                (layer.Flags & LayerFlags.Locked) != 0);
         });
     }
 
@@ -1235,6 +1246,40 @@ public sealed class CadSampleCanvas : FrameworkElement
             [layerName],
             isPlottable,
             $"Set layer {layerName} {(isPlottable ? "plottable" : "non-plottable")}"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>Sets persisted freeze state for one document layer.</summary>
+    public bool SetLayerFreeze(string layerName, bool isFrozen)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetLayerFreezeCommand(
+            [layerName],
+            isFrozen,
+            $"Set layer {layerName} {(isFrozen ? "frozen" : "thawed")}"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>Sets persisted edit-lock state for one document layer.</summary>
+    public bool SetLayerLock(string layerName, bool isLocked)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(layerName);
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetLayerLockCommand(
+            [layerName],
+            isLocked,
+            $"Set layer {layerName} {(isLocked ? "locked" : "unlocked")}"));
         RecompileAfterEdit(session);
         return true;
     }

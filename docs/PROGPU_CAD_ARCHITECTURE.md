@@ -935,7 +935,8 @@ an interactive browser picker/download smoke remains open.
   plotting-purpose snapshot excludes the layer. Each Set action is one existing
   transactional command, generation, retained-scene rebuild, and Undo/Redo item.
   Missing layer names fail during detached capture or complete command preflight.
-  DXF and DWG regressions retain both states.
+  DXF and DWG regressions retain visibility, plot eligibility, freeze, and lock
+  states.
 - Autodesk's public
   [LAYER DXF record](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-D94802B0-8BE8-4AC9-8054-17197688AFDB.htm)
   defines a negative group-62 color as Off and group 290 zero as Do Not Plot;
@@ -943,11 +944,83 @@ an interactive browser picker/download smoke remains open.
   [Layer Properties Manager contract](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-B297EBD9-D68C-47E1-87CE-1B3798496599.htm)
   further specifies that an Off layer is invisible and never plotted even when
   its Plot flag is on. ProGPU adopts that distinction and rejects conflating
-  `PlotFlag` with screen visibility. Freeze/Thaw and Lock/Unlock remain
-  unexposed until compilation and edit authorization consume those states.
-  This UI-only reachability slice changes no shader, renderer algorithm, C++
-  path, native ABI, cache/upload behavior, text system, or device-loss rule;
-  both renderers continue to consume the same immutable snapshot streams.
+  `PlotFlag` with screen visibility.
+- The same detached shared row now exposes persisted `Freeze`/`Thaw` and
+  `Lock`/`Unlock` using ACadSharp's existing `LayerFlags.Frozen` and
+  `LayerFlags.Locked` bits. The exact approved in-repository source provenance
+  is `external/ACadSharp/src/ACadSharp/Tables/LayerFlags.cs`, with its existing
+  DXF/DWG readers and writers; ProGPU does not duplicate the wire values.
+  Commands change only the requested bit and preserve `FrozenNewViewports`,
+  XRef, and referenced-state bits. Complete layer lookup precedes mutation,
+  and Undo/Redo retains exact prior flags.
+- Freeze is a semantic snapshot-compilation filter, not an opacity or late GPU
+  discard. Top-level entities, inherited layer-zero block content, explicit
+  nested layers, and per-face polyface layers are rejected before bounds,
+  style, geometry, text shaping, spatial-index, plan/3D/native-picture, upload,
+  or print streams are built. A frozen primary INSERT therefore hides its
+  complete expansion, and frozen geometry does not affect fit/zoom extents.
+  Snapshot traversal remains `O(E)` for E visited entities and can only reduce
+  downstream work and storage.
+- Lock leaves screen and plot replay unchanged. Initial resolution of every
+  handle-targeted entity mutation rejects a locked source layer after the
+  complete target set is resolved and before mutation, so mixed locked/unlocked
+  batches publish neither partial state nor history. Ownership-only retained
+  validation remains separate so Undo/Redo can reverse an edit that placed an
+  entity onto a locked layer. Adding a new entity to a locked layer and using a
+  locked entity as a read-only Above/Under reference remain allowed; layer-table
+  property commands also remain available. The shared shell retains locked
+  selections for inspection but disables entity transforms, style edits, draw
+  order, copy, and delete until the layer is unlocked.
+- Autodesk's public
+  [Freeze/Thaw contract](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Core/files/GUID-09F5021E-1348-424E-866D-A0B07681286B.htm)
+  states that frozen objects are excluded from display, regeneration, and Zoom
+  Extents. Its
+  [layer-state definition](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Architecture/files/GUID-40795C0B-53A1-4696-88E0-5D3A078D6280.htm)
+  requires a frozen primary object's subcomponents to be invisible. The public
+  [locked-layer contract](https://help.autodesk.com/cloudhelp/2015/ENU/AutoCAD-Core/files/GUID-415798D2-818A-42CE-A052-B1C80B650575.htm)
+  forbids object modification while retaining inquiry, object-snap/reference,
+  addition, display, and normal plot behavior. ProGPU adopts those semantics.
+  Configurable `LAYLOCKFADECTL` screen fading is intentionally deferred rather
+  than hard-coding an approximation that could leak into print output.
+- The cross-engine applicability gate compared retained boundaries in
+  [SkPicture](https://api.skia.org/classSkPicture.html),
+  [Direct2D command lists](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/nn-d2d1_1-id2d1commandlist),
+  [Win2D CanvasCommandList](https://microsoft.github.io/Win2D/WinUI3/html/T_Microsoft_Graphics_Canvas_CanvasCommandList.htm),
+  [WebRender's Scene-to-Frame culling](https://firefox-source-docs.mozilla.org/gfx/RenderingOverview.html),
+  and [Vello Scene encoding](https://github.com/linebender/vello/blob/main/vello/src/scene.rs).
+  ProGPU adopts early omission before its reusable retained recording rather
+  than recording transparent commands or creating per-layer GPU resources.
+  [DirectWrite text layout](https://learn.microsoft.com/en-us/windows/win32/api/dwrite/nn-dwrite-idwritetextlayout),
+  [Skia shaped text](https://skia.org/docs/dev/design/text_shaper/),
+  [Parley](https://docs.rs/parley/latest/parley/), and
+  [HarfBuzz shaping](https://github.com/harfbuzz/harfbuzz/blob/main/src/hb-shape.cc)
+  confirm that reusable shaping/layout results are independent of the drawing
+  model; this slice changes none of their inputs, caches, fallback, bidi,
+  variable-font, DPI, or subpixel contracts because frozen entities are rejected
+  before ProGPU invokes text lowering. There is no startup/lazy initialization,
+  worker scheduling, atlas eviction, demand-upload, viewport culling, cache-key,
+  device-loss, shader, C++ path, or native ABI change. Both renderers consume
+  the same filtered immutable streams.
+- A reproducible Release feature-cost lane compares the same 10,000-entity
+  binary with all entities thawed and with alternating entities assigned to one
+  frozen layer:
+
+  ```text
+  dotnet run --project src/ProGPU.CAD.Benchmarks -c Release --no-build -- --entities 10000 --warmup 3 --iterations 12 --queries 1000 --output-json cad-layer-thawed.json
+  dotnet run --project src/ProGPU.CAD.Benchmarks -c Release --no-build -- --entities 10000 --alternating-frozen-layers --warmup 3 --iterations 12 --queries 1000 --output-json cad-layer-frozen.json
+  ```
+
+  On the 2026-08-29 Apple Silicon/.NET 10 run, the thawed/frozen fixtures
+  produced 10,000/5,000 visible and expanded entities, 10,000/5,000 retained
+  commands, and 4,095/2,047 spatial nodes. Snapshot p50/p95/p99 was
+  30.683/45.219/45.219 ms with 10,895,475 managed bytes per operation versus
+  22.227/60.006/60.006 ms with 5,040,061 bytes. Plan-scene recording was
+  12.303/26.993/26.993 ms with 9,280,690 bytes versus
+  2.333/12.740/12.740 ms with 5,160,688 bytes. This short run validates exact
+  early omission and establishes a reproducible feature-cost baseline; its
+  process-level latency tails are noisy, so it makes no performance-improvement
+  claim and does not substitute for Instruments evidence when optimization is
+  claimed.
 - Layer color assignment accepts indexed and true explicit colors, rejecting
   `ByLayer`, `ByBlock`, and the header-only `ByEntity` sentinel. It restores each
   prior table value and updates inherited entity RGB through the same immutable

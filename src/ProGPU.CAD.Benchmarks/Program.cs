@@ -11,6 +11,7 @@ using ProGPU.Fonts.Inter;
 using ProGPU.Text;
 
 int entityCount = ReadNonNegativeInt("--entities", 10_000);
+bool freezeAlternatingEntityLayers = HasFlag("--alternating-frozen-layers");
 bool resolveDrawOrder = HasFlag("--draw-order");
 int drawOrderEditEntityCount = ReadNonNegativeInt(
     "--draw-order-edit-entities",
@@ -71,6 +72,18 @@ if (blockArrayColumnCount > ushort.MaxValue)
     throw new ArgumentOutOfRangeException(
         nameof(blockArrayColumnCount),
         $"--block-array-columns cannot exceed {ushort.MaxValue}.");
+}
+if (freezeAlternatingEntityLayers &&
+    (entityCount == 0 || blockArrayColumnCount != 0 || textEntityCount != 0 ||
+     mtextEntityCount != 0 || shxTextEntityCount != 0 || shxMTextEntityCount != 0 ||
+     attributeInsertCount != 0 || dimensionEntityCount != 0 ||
+     thickSolidEntityCount != 0 || meshEntityCount != 0 ||
+     polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 ||
+     pointEntityCount != 0 || constructionLineCount != 0 ||
+     solidHatchCount != 0 || patternHatchCount != 0))
+{
+    throw new ArgumentException(
+        "--alternating-frozen-layers requires positive --entities and no additional fixture families.");
 }
 if (meshSubdivisionLevel > CadSnapshotOptions.DefaultMaxMeshSubdivisionLevel)
 {
@@ -191,7 +204,8 @@ CadDocumentSession session = CreateDocument(
     lowerNurbsSplineLineTypes,
     lowerPeriodicSplineLineTypes,
     measureSplineSelection,
-    resolveDrawOrder);
+    resolveDrawOrder,
+    freezeAlternatingEntityLayers);
 var snapshotCompiler = new CadSnapshotCompiler();
 var pageSetupCompiler = new CadPageSetupCatalogCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
@@ -374,6 +388,7 @@ var report = new CadBenchmarkReport(
     Environment.OSVersion.ToString(),
     System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
     entityCount,
+    freezeAlternatingEntityLayers,
     resolveDrawOrder,
     drawOrderEditEntityCount,
     blockArrayColumnCount,
@@ -486,8 +501,15 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         constructionLineCount +
         solidHatchCount +
         patternHatchCount);
+    int expectedVisible = freezeAlternatingEntityLayers
+        ? (entityCount + 1) / 2
+        : expectedSource;
+    if (freezeAlternatingEntityLayers)
+    {
+        expectedExpanded = expectedVisible;
+    }
     if (source.Statistics.SourceEntityCount == expectedSource &&
-        source.Statistics.VisibleEntityCount == expectedSource &&
+        source.Statistics.VisibleEntityCount == expectedVisible &&
         source.Statistics.ExpandedEntityCount == expectedExpanded &&
         source.Statistics.UnsupportedEntityCount == 0 &&
         source.Statistics.InvalidEntityCount == 0)
@@ -502,6 +524,7 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         $"The benchmark fixture did not compile exactly: expected {expectedSource} source entities, " +
         $"observed {source.Statistics.SourceEntityCount}, unsupported " +
         $"{source.Statistics.UnsupportedEntityCount}, invalid {source.Statistics.InvalidEntityCount}, " +
+        $"expected/observed visible {expectedVisible}/{source.Statistics.VisibleEntityCount}, " +
         $"expected/observed expanded {expectedExpanded}/{source.Statistics.ExpandedEntityCount}." +
         (diagnostics.Length == 0 ? string.Empty : Environment.NewLine + diagnostics));
 }
@@ -545,7 +568,8 @@ CadDocumentSession CreateDocument(
     bool useNurbsSplineLineTypes,
     bool usePeriodicSplineLineTypes,
     bool useSplineSelection,
-    bool useDrawOrder)
+    bool useDrawOrder,
+    bool freezeAlternatingLayers)
 {
     CadDocumentSession result = CadDocumentSession.CreateNew();
     result.Edit("Build benchmark document", document =>
@@ -556,6 +580,15 @@ CadDocumentSession CreateDocument(
             document.Header.PointDisplaySize = -5.0;
         }
         LineType? benchmarkLineType = null;
+        Layer? frozenLayer = null;
+        if (freezeAlternatingLayers)
+        {
+            frozenLayer = new Layer("BENCHMARK_FROZEN")
+            {
+                Flags = LayerFlags.Frozen,
+            };
+            document.Layers.Add(frozenLayer);
+        }
         if (useLineTypes)
         {
             TextStyle? lineTypeTextStyle = null;
@@ -686,6 +719,18 @@ CadDocumentSession CreateDocument(
                     polyline.Vertices.Add(new LwPolyline.Vertex(x + 10, y));
                     document.Entities.Add(polyline);
                     break;
+            }
+        }
+
+        if (frozenLayer is not null)
+        {
+            int ordinal = 0;
+            foreach (Entity entity in document.Entities.Take(count))
+            {
+                if ((ordinal++ & 1) != 0)
+                {
+                    entity.Layer = frozenLayer;
+                }
             }
         }
 
@@ -1652,6 +1697,7 @@ internal sealed record CadBenchmarkReport(
     string OperatingSystem,
     string Runtime,
     int EntityCount,
+    bool AlternatingFrozenLayers,
     bool ResolvedDrawOrder,
     int DrawOrderEditEntityCount,
     int BlockArrayColumnCount,

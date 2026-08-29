@@ -143,7 +143,7 @@ public sealed class CadSetModelSpaceDrawOrderCommand : CadEditCommand
         }
 
         Entity[] selected = ResolveModelSpaceEntities(document, _handles);
-        Entity[] references = ResolveModelSpaceEntities(
+        Entity[] references = ResolveModelSpaceEntitiesForReference(
             document,
             _referenceHandles);
         CadDrawOrderResolution resolution = CadDrawOrderResolver.Resolve(

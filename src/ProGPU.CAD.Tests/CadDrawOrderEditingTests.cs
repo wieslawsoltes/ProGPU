@@ -2,6 +2,7 @@ using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.Header;
 using ACadSharp.Objects;
+using ACadSharp.Tables;
 using CSMath;
 using ProGPU.Scene;
 using ProGPU.Scene.Native;
@@ -68,6 +69,39 @@ public sealed class CadDrawOrderEditingTests
         Assert.True(history.TryUndo(out _));
         Assert.Equal(new double[] { 10, 20, 30, 40, 50 },
             SnapshotStartXs(session));
+    }
+
+    [Fact]
+    public void LockedEntityCanBeReferenceButCannotBeReordered()
+    {
+        (CadDocumentSession session, Line[] lines) = CreateLineSession(3);
+        session.Edit("Lock reference layer", document =>
+        {
+            var locked = new Layer("LOCKED_REFERENCE")
+            {
+                Flags = LayerFlags.Locked,
+            };
+            document.Layers.Add(locked);
+            lines[1].Layer = locked;
+        });
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetModelSpaceDrawOrderCommand(
+            [lines[0].Handle],
+            CadDrawOrderPlacement.BringAbove,
+            [lines[1].Handle]));
+
+        Assert.Equal(2UL, session.ContentGeneration);
+        Assert.Equal(1, history.UndoCount);
+        double[] applied = SnapshotStartXs(session);
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
+            () => history.Execute(new CadSetModelSpaceDrawOrderCommand(
+                [lines[1].Handle],
+                CadDrawOrderPlacement.BringToFront)));
+        Assert.Contains("locked layer 'LOCKED_REFERENCE'", exception.Message);
+        Assert.Equal(2UL, session.ContentGeneration);
+        Assert.Equal(1, history.UndoCount);
+        Assert.Equal(applied, SnapshotStartXs(session));
     }
 
     [Fact]

@@ -944,6 +944,8 @@ public sealed class CadSampleSelectionTests
             Assert.Equal("TARGET_STATE", initial.Name);
             Assert.True(initial.IsOn);
             Assert.True(initial.IsPlottable);
+            Assert.False(initial.IsFrozen);
+            Assert.False(initial.IsLocked);
             Assert.Equal("On", SelectedPropertyText(
                 view.LayerVisibilitySelector));
             Assert.Equal("Plot", SelectedPropertyText(view.LayerPlotSelector));
@@ -1000,6 +1002,97 @@ public sealed class CadSampleSelectionTests
 
             Assert.Throws<InvalidOperationException>(() =>
                 view.Canvas.CaptureLayerGeneralProperties("MISSING"));
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewEditsLayerFreezeAndLockWithSelectionAuthorization()
+    {
+        var document = new CadDocument();
+        var targetLayer = new Layer("TARGET_BEHAVIOR");
+        document.Layers.Add(targetLayer);
+        var line = new Line(new XYZ(-5, 0, 0), new XYZ(5, 0, 0))
+        {
+            Layer = targetLayer,
+        };
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_280, 900));
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 1_280, 542));
+            Click(
+                view.Canvas,
+                view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
+            Assert.Equal(1, view.Canvas.SelectedHandleCount);
+            Assert.True(view.Canvas
+                .CaptureSelectionGeneralProperties()
+                .AllSelectedEntitiesAreUnlocked);
+            view.LayerStateSelector.SelectedItem =
+                FindNamedPropertyChoice(
+                    view.LayerStateSelector,
+                    "TARGET_BEHAVIOR");
+            Button setFreeze = FindButton(view, "Set layer freeze");
+            Button setLock = FindButton(view, "Set layer lock");
+            Button undo = FindButton(view, "Undo");
+            Button delete = FindButton(view, "Delete");
+            Button movePositiveX = FindButton(view, "+X");
+
+            Assert.Equal("Thawed", SelectedPropertyText(
+                view.LayerFreezeSelector));
+            Assert.Equal("Unlocked", SelectedPropertyText(
+                view.LayerLockSelector));
+            view.LayerFreezeSelector.SelectedItem =
+                view.LayerFreezeSelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Tag is true);
+            PressEnter(setFreeze);
+
+            Assert.True((targetLayer.Flags & LayerFlags.Frozen) != 0);
+            Assert.Empty(view.Canvas.CurrentSnapshot!.Entities.ToArray());
+            Assert.Equal(1, view.Canvas.SelectedHandleCount);
+            Assert.Equal("TARGET_BEHAVIOR", SelectedPropertyText(
+                view.LayerStateSelector));
+            Assert.Equal("Frozen", SelectedPropertyText(
+                view.LayerFreezeSelector));
+            PressEnter(undo);
+            Assert.False((targetLayer.Flags & LayerFlags.Frozen) != 0);
+            Assert.Single(view.Canvas.CurrentSnapshot!.Entities.ToArray());
+
+            view.LayerLockSelector.SelectedItem =
+                view.LayerLockSelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Tag is true);
+            PressEnter(setLock);
+
+            Assert.True((targetLayer.Flags & LayerFlags.Locked) != 0);
+            Assert.Single(view.Canvas.CurrentSnapshot!.Entities.ToArray());
+            Assert.False(view.Canvas
+                .CaptureSelectionGeneralProperties()
+                .AllSelectedEntitiesAreUnlocked);
+            Assert.False(delete.IsEnabled);
+            Assert.False(movePositiveX.IsEnabled);
+            Assert.False(view.SelectionColorInput.IsEnabled);
+            Assert.True(setLock.IsEnabled);
+            Assert.Throws<InvalidOperationException>(() =>
+                view.Canvas.TranslateSelection(new CadPoint3D(1, 0, 0)));
+            Assert.Equal(new XYZ(-5, 0, 0), line.StartPoint);
+
+            view.LayerLockSelector.SelectedItem =
+                view.LayerLockSelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Tag is false);
+            PressEnter(setLock);
+            Assert.False((targetLayer.Flags & LayerFlags.Locked) != 0);
+            Assert.True(delete.IsEnabled);
+            Assert.True(movePositiveX.IsEnabled);
         }
         finally
         {

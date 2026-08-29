@@ -139,6 +139,39 @@ public sealed class CadLegacyMeshSnapshotTests
     }
 
     [Fact]
+    public void PolyfaceFrozenFaceLayerIsExcludedBeforeTopologyLowering()
+    {
+        var document = new CadDocument();
+        var frozenLayer = new Layer("FROZEN_FACE")
+        {
+            Flags = LayerFlags.Frozen,
+        };
+        var visibleLayer = new Layer("VISIBLE_FACE");
+        document.Layers.Add(frozenLayer);
+        document.Layers.Add(visibleLayer);
+        PolyfaceMesh mesh = CreatePolyfaceMesh();
+        mesh.MatchVerticesEntityProperties = false;
+        VertexFaceRecord frozen = AddFace(mesh, 1, 2, 3, 0);
+        frozen.Layer = frozenLayer;
+        VertexFaceRecord visible = AddFace(mesh, 1, 3, 4, 0);
+        visible.Layer = visibleLayer;
+        document.Entities.Add(mesh);
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        Assert.Equal(3, snapshot.Lines.Length);
+        Assert.Single(snapshot.Mesh3DDrawRanges.ToArray());
+        Assert.Equal(3, snapshot.Mesh3DVertices.Length);
+        Assert.DoesNotContain(
+            snapshot.Layers.ToArray(),
+            layer => layer.Name == "FROZEN_FACE");
+        Assert.Contains(
+            snapshot.Layers.ToArray(),
+            layer => layer.Name == "VISIBLE_FACE");
+    }
+
+    [Fact]
     public void PolyfaceReusesSelectionSceneNativeAndPrintPipelines()
     {
         PolyfaceMesh mesh = CreatePolyfaceMesh();
