@@ -129,6 +129,14 @@ Shapes, ArcOptions, and VectorArt sample bodies. It currently supports:
   path is published by `CanvasDevice.LastPixelConversionPath`. Conversion uses
   a pooled buffer, writes directly to the same queue-upload path, and is
   allocation-free after pool warmup;
+- all three `CopyPixelsFromBitmap(...)` overloads lower whole, destination-
+  offset, and source-subrectangle copies to one same-device base-level WebGPU
+  texture-to-texture command. A typed source lease covers submission and the
+  destination uses the same mutation guard as pixel uploads. Active source or
+  destination render sessions, destination deferred leases, cross-device
+  copies, and self-copy fail closed. ProGPU does not reproduce Win2D's
+  cross-device system-memory fallback because that would introduce a GPU
+  readback/upload round trip;
 - single-recording `CanvasCommandList` creation, multi-chunk recording across
   `Flush()`, `ICanvasImage.GetBounds(...)`, and origin/offset or cropped and
   destination-scaled drawing as nested immutable pictures. The reusable
@@ -205,8 +213,8 @@ The current package is source compatible, not binary compatible with
 devices, straight/ignored alpha, non-BGRA render targets, Dawn/browser device
 factories, Direct2D COM wrapping, cross-device resources, self-referential
 texture feedback, anisotropic sampling, and high-quality cubic sampling.
-Bitmap file decoding, buffer creation and updates, GPU bitmap-copy
-operations, `MiterOrBevel`, geometry query/stroke/outline operations,
+Bitmap file decoding, buffer creation and updates, `MiterOrBevel`, geometry
+query/stroke/outline operations,
 command-list/effect image brushes, opacity
 brush layers, text formats/layouts, effects, sprite batches, and XAML controls
 remain the next incremental compatibility groups.
@@ -340,6 +348,18 @@ The gate has a completed portable-core layer and three expanding oracle layers:
    `C8B1C7949EDE5BF18D85ED1B0E159E2C7B52056D4CA2721A4BDD493420B0477E`.
    Native C++ is unchanged and continues to use the exact qualified DLL and
    WinUI theme hashes recorded above.
+   Exact ProGPU `3dad29a9` adds the three typed GPU bitmap-copy overloads. The
+   live checker now reaches its destination through a whole-texture copy, a
+   destination-offset 1x1 copy, and a source-subrectangle 1x1 copy before the
+   same retained image-brush draw. It also verifies self-copy rejection and
+   rejects destination mutation after the brush owns a deferred texture lease.
+   macOS, Windows ARM64, and Linux ARM64 each pass 11/11 contracts and a
+   warning-free benchmark build. Their live frame hashes remain the exact
+   `d51b289b` Metal, D3D12, and Vulkan hashes above, so the asymmetric checker
+   is exact and the named 2-pixel/84-pixel differential is unchanged. The
+   exact Windows source archive SHA-256 is
+   `C545A591DBBE3FFBE274BF6D11DED211BCC5DA41CF34107E14E2A78A9434BD01`.
+   Native C++/ABI, the qualified ARM64 DLL, and the WinUI theme are unchanged.
    The frame includes full-opacity and half-opacity same-device bitmap draws;
    the source is publicly disposed before the destination session closes to
    prove that the typed GPU lease, rather than a CPU copy, owns deferred use.
@@ -386,7 +406,7 @@ Win2D execution.
    device/render-target/drawing-session API and pass pinned SimpleSample source
    plus live headless native pixels on Metal and D3D12.
 3. Add the remaining geometry operations/image and layer-opacity brushes,
-   bitmap file/buffer/copy APIs, text-format/layout, and existing-effect
+   bitmap file/buffer APIs, text-format/layout, and existing-effect
    adapters;
    promote each pinned ExampleGallery group only after differential parity.
 4. Implement and qualify the Windows same-adapter Win2D/DXGI import adapter.
