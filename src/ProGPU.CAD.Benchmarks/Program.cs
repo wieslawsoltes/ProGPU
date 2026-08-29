@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using ACadSharp.Entities;
+using ACadSharp.Header;
+using ACadSharp.Objects;
 using ACadSharp.Tables;
 using CSMath;
 using ProGPU.CAD;
@@ -9,6 +11,7 @@ using ProGPU.Fonts.Inter;
 using ProGPU.Text;
 
 int entityCount = ReadNonNegativeInt("--entities", 10_000);
+bool resolveDrawOrder = HasFlag("--draw-order");
 int blockArrayColumnCount = ReadNonNegativeInt("--block-array-columns", 0);
 int textEntityCount = ReadNonNegativeInt("--text-entities", 0);
 int mtextEntityCount = ReadNonNegativeInt("--mtext-entities", 0);
@@ -184,7 +187,8 @@ CadDocumentSession session = CreateDocument(
     lowerLinearSplineLineTypes,
     lowerNurbsSplineLineTypes,
     lowerPeriodicSplineLineTypes,
-    measureSplineSelection);
+    measureSplineSelection,
+    resolveDrawOrder);
 var snapshotCompiler = new CadSnapshotCompiler();
 var pageSetupCompiler = new CadPageSetupCatalogCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
@@ -346,6 +350,7 @@ var report = new CadBenchmarkReport(
     Environment.OSVersion.ToString(),
     System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
     entityCount,
+    resolveDrawOrder,
     blockArrayColumnCount,
     textEntityCount,
     mtextEntityCount,
@@ -513,7 +518,8 @@ CadDocumentSession CreateDocument(
     bool useLinearSplineLineTypes,
     bool useNurbsSplineLineTypes,
     bool usePeriodicSplineLineTypes,
-    bool useSplineSelection)
+    bool useSplineSelection,
+    bool useDrawOrder)
 {
     CadDocumentSession result = CadDocumentSession.CreateNew();
     result.Edit("Build benchmark document", document =>
@@ -1020,6 +1026,17 @@ CadDocumentSession CreateDocument(
                     (x + 9, y + 11)));
             }
             document.Entities.Add(hatch);
+        }
+
+        if (useDrawOrder)
+        {
+            document.Header.EntitySortingFlags = ObjectSortingFlags.All;
+            Entity[] authored = document.Entities.ToArray();
+            SortEntitiesTable order = document.ModelSpace.CreateSortEntitiesTable();
+            for (int i = 0; i < authored.Length; i++)
+            {
+                order.Add(authored[i], checked((ulong)(authored.Length - i)));
+            }
         }
     });
     return result;
@@ -1562,6 +1579,7 @@ internal sealed record CadBenchmarkReport(
     string OperatingSystem,
     string Runtime,
     int EntityCount,
+    bool ResolvedDrawOrder,
     int BlockArrayColumnCount,
     int TextEntityCount,
     int MTextEntityCount,

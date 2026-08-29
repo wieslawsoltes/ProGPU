@@ -569,6 +569,21 @@ public sealed class CadDocumentSnapshot
     private readonly CadDiagnostic[] _diagnostics;
 
     public ulong ContentGeneration { get; }
+
+    /// <summary>Gets the ordering purpose captured by this immutable snapshot.</summary>
+    public CadDrawOrderPurpose DrawOrderPurpose { get; }
+
+    /// <summary>
+    /// Gets whether any visited model/block collection contained active sparse
+    /// SORTENTSTABLE overrides.
+    /// </summary>
+    public bool HasDrawOrderOverrides { get; }
+
+    /// <summary>
+    /// Gets whether this snapshot can be consumed by the print planner without
+    /// changing persisted object order.
+    /// </summary>
+    public bool IsPlotOrderCompatible { get; }
     public double GlobalLineTypeScale { get; }
     public CadBounds3D Bounds { get; }
     public CadPoint3D RebaseOrigin { get; }
@@ -631,6 +646,9 @@ public sealed class CadDocumentSnapshot
 
     internal CadDocumentSnapshot(
         ulong contentGeneration,
+        CadDrawOrderPurpose drawOrderPurpose,
+        bool hasDrawOrderOverrides,
+        bool isPlotOrderCompatible,
         double globalLineTypeScale,
         CadBounds3D bounds,
         CadSnapshotStatistics statistics,
@@ -686,6 +704,9 @@ public sealed class CadDocumentSnapshot
         CadDiagnostic[] diagnostics)
     {
         ContentGeneration = contentGeneration;
+        DrawOrderPurpose = drawOrderPurpose;
+        HasDrawOrderOverrides = hasDrawOrderOverrides;
+        IsPlotOrderCompatible = isPlotOrderCompatible;
         GlobalLineTypeScale = globalLineTypeScale;
         Bounds = bounds;
         RebaseOrigin = bounds.Center;

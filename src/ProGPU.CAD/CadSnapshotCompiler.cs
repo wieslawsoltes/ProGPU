@@ -2,6 +2,7 @@ using ACadSharp;
 using ACadSharp.Blocks;
 using ACadSharp.Entities;
 using ACadSharp.Extensions;
+using ACadSharp.Header;
 using ACadSharp.Tables;
 using CSMath;
 using ProGPU.Text;
@@ -50,6 +51,13 @@ public sealed class CadSnapshotOptions
     public int MaxMeshSubdivisionLevel { get; init; } = DefaultMaxMeshSubdivisionLevel;
     public int MaxMeshSubdivisionTopologyVisits { get; init; } =
         DefaultMaxMeshSubdivisionTopologyVisits;
+
+    /// <summary>
+    /// Selects whether snapshot entity order represents interactive
+    /// regeneration or persisted plotting semantics.
+    /// </summary>
+    public CadDrawOrderPurpose DrawOrderPurpose { get; init; } =
+        CadDrawOrderPurpose.Regeneration;
     public bool IncludeNonPlottableLayers { get; init; } = true;
     public ICadTextFontResolver? TextFontResolver { get; init; }
     public ICadShxFontResolver? ShxFontResolver { get; init; }
@@ -164,6 +172,16 @@ public sealed partial class CadSnapshotCompiler
         var hatchSplineSourceBudget = new CadHatchSplineSourceBudget(
             options.MaxHatchSplineSourceValues);
         var activeBlocks = new HashSet<BlockRecord>(ReferenceEqualityComparer.Instance);
+        var orderedBlockEntities = new Dictionary<BlockRecord, Entity[]>(
+            ReferenceEqualityComparer.Instance);
+        bool hasDrawOrderOverrides = false;
+        bool applySortOrder = options.DrawOrderPurpose switch
+        {
+            CadDrawOrderPurpose.Regeneration => true,
+            CadDrawOrderPurpose.Plotting =>
+                (document.Header.EntitySortingFlags & ObjectSortingFlags.Plotting) != 0,
+            _ => throw new ArgumentOutOfRangeException(nameof(options)),
+        };
         double globalLineTypeScale = document.Header.LineTypeScale;
         if (!double.IsFinite(globalLineTypeScale) || globalLineTypeScale <= 0.0)
         {
@@ -172,7 +190,7 @@ public sealed partial class CadSnapshotCompiler
                 nameof(document));
         }
 
-        foreach (Entity entity in document.Entities)
+        foreach (Entity entity in GetOrderedEntities(document.ModelSpace))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (entity.IsInvisible || !entity.Layer.IsOn ||
@@ -195,6 +213,11 @@ public sealed partial class CadSnapshotCompiler
 
         return new CadDocumentSnapshot(
             generation,
+            options.DrawOrderPurpose,
+            hasDrawOrderOverrides,
+            options.DrawOrderPurpose == CadDrawOrderPurpose.Plotting ||
+                !hasDrawOrderOverrides ||
+                (document.Header.EntitySortingFlags & ObjectSortingFlags.Plotting) != 0,
             globalLineTypeScale,
             documentBounds,
             new CadSnapshotStatistics(
@@ -668,7 +691,7 @@ public sealed partial class CadSnapshotCompiler
                             baseInstanceTransform.YAxis,
                             baseInstanceTransform.ZAxis,
                             translation);
-                        foreach (Entity child in block.Entities)
+                        foreach (Entity child in GetOrderedEntities(block))
                         {
                             if (child is AttributeDefinition definition &&
                                 !IsConstantAttribute(definition))
@@ -793,7 +816,7 @@ public sealed partial class CadSnapshotCompiler
                 EnsureFinite(pictureTransform);
                 bool pictureHasTransform = parentHasTransform || displacement != CadPoint3D.Zero;
 
-                foreach (Entity child in block.Entities)
+                foreach (Entity child in GetOrderedEntities(block))
                 {
                     // Anonymous dimension pictures persist definition/control
                     // points as non-plotting POINT records. They are construction
@@ -1556,6 +1579,21 @@ public sealed partial class CadSnapshotCompiler
                 primitiveIndex,
                 bounds));
             documentBounds = documentBounds.Union(bounds);
+        }
+
+        Entity[] GetOrderedEntities(BlockRecord block)
+        {
+            if (orderedBlockEntities.TryGetValue(block, out Entity[]? cached))
+            {
+                return cached;
+            }
+
+            CadDrawOrderResolution resolution = CadDrawOrderResolver.Resolve(
+                block,
+                applySortOrder);
+            hasDrawOrderOverrides |= resolution.HasOverrides;
+            orderedBlockEntities.Add(block, resolution.Entities);
+            return resolution.Entities;
         }
 
         CadEntityHeader CompileAttribute(
@@ -4421,6 +4459,14 @@ public sealed partial class CadSnapshotCompiler
 
     private static void ValidateOptions(CadSnapshotOptions options)
     {
+        if (options.DrawOrderPurpose is not
+            (CadDrawOrderPurpose.Regeneration or CadDrawOrderPurpose.Plotting))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "Draw-order purpose is not defined.");
+        }
+
         if (!double.IsFinite(options.DefaultLineWeightMillimeters) ||
             options.DefaultLineWeightMillimeters <= 0.0)
         {

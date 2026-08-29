@@ -719,6 +719,44 @@ validated for version, size, alignment, offsets, ranges, and device domain.
   not uniform across versions. Round-trip conformance is required before a
   version is advertised as production save support.
 
+## Persisted draw order
+
+ACadSharp remains the authority for DXF/DWG `SORTENTSTABLE` persistence. During
+snapshot capture, the original ProGPU `CadDrawOrderResolver` materializes each
+distinct model-space or referenced block collection once, validates that every
+sparse sorter belongs to that exact block and appears only once, and resolves
+ascending effective sort handles. Entities without an override retain their
+authored handle as the effective key; malformed equal keys retain collection
+order as a deterministic recovery tie-break. A foreign, duplicate, or
+wrong-owner entry rejects the complete snapshot before publication.
+
+`CadDrawOrderPurpose.Regeneration` is the default and follows modern AutoCAD's
+always-sorted REGEN behavior. `Plotting` applies the table only when the drawing's
+persisted `SORTENTS` Plotting bit is enabled. The snapshot records its purpose,
+whether active overrides were present, and whether its order is plot-compatible;
+`CadPrintPlanCompiler` rejects an incompatible display snapshot rather than
+silently producing the wrong plot. Callers compile a plotting snapshot when the
+document deliberately disables plot sorting.
+
+Resolution costs O(E + S + E log E) time and O(E) bounded snapshot storage for
+E entities and S sparse entries in each distinct visited block. Cached child
+orders are reused across every MINSERT cell and repeated INSERT, avoiding both
+per-instance sorting and ACadSharp's convenience API's per-entity sparse-table
+scan. One INSERT or persisted DIMENSION picture stays a contiguous parent draw
+unit while its children follow the definition's own table. Visibility and plot
+eligibility filter after ordering, so removing hidden commands cannot reorder
+the remaining commands. Steady camera replay still performs no ordering work or
+managed allocation.
+
+The managed plan compiler emits commands in resolved snapshot order. Its shared
+`GpuPicture` is the sole planar input to both managed replay and the native scene
+packer; the native path may combine adjacent strokes into one resource/draw but
+retains record order. No new C ABI, native CAD compiler fork, shader, glyph,
+atlas, DPI/subpixel, cache-generation, upload, or device-loss contract applies.
+DXF/DWG round trips, managed command order, native picture compilation, nested
+block contiguity, plot policy, and malformed-table regressions cover the shared
+behavior.
+
 ## Standalone sample hosts
 
 The shared interactive viewer lives in `ProGPU.CAD.Sample` and is hosted
@@ -958,7 +996,7 @@ an interactive browser picker/download smoke remains open.
   applies the same WCS rebase, Y inversion, zoom, pan, and viewport center to
   rendering and inverse pointer mapping, and creates an inclusive WCS-XY
   selection column spanning the snapshot's complete Z range. Text selection,
-  arbitrary-camera projected selection volumes, draw-order resolution, and
+  arbitrary-camera projected selection volumes, and
   AutoCAD's viewport-visible dashed-linetype Window exception remain explicit
   work; the current Window contract intentionally evaluates complete retained
   source geometry.
@@ -2014,6 +2052,7 @@ recording, retained physical print-plan construction in both zero- and
 
 ```bash
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 20000 --draw-order --warmup 3 --iterations 12 --queries 100
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --linetypes --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --complex-linetypes --warmup 3 --iterations 24 --queries 10000
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --linear-spline-linetypes --warmup 3 --iterations 24 --queries 10000
@@ -2048,6 +2087,19 @@ respectively. These are transparent starting measurements, not an improvement or
 release-acceptance claim. Full representative viewer workloads, GPU counters,
 matched managed/native results, and required macOS Instruments traces remain
 open gates before performance acceptance.
+
+The 2026-08-29 draw-order feature-cost pair used the same final Apple
+Silicon/.NET 10.0.5 Release binary, 20,000 mixed analytic entities, three
+warmups, 12 construction iterations, and 100 queries. Both fixtures retained
+exactly 20,000 source/visible/expanded entities and 20,000 plan commands with no
+unsupported or invalid content. The no-override regeneration lane measured
+snapshot p50/p95/p99 `17.2352/60.5667/60.5667 ms` at `18,986,344 B/op`; a
+complete reverse-order table measured `23.9463/70.6382/70.6382 ms` at
+`21,326,312 B/op`. Plan-scene allocation stayed effectively identical at
+`18,560,692` versus `18,560,690 B/op`, confirming that the feature cost is
+bounded to snapshot resolution and stable replay does not inherit ordering
+work. The noisy construction tails and absent Instruments/GPU trace make this a
+transparent cost baseline, not a release-performance claim.
 
 The 2026-08-29 persisted-DIMENSION feature-cost run used one final Apple
 Silicon/.NET 10.0.5 Release process, 1,000 DIMENSION roots, three warmups, 24
@@ -2517,6 +2569,35 @@ dotnet run --project src/ProGPU.CAD.Sample.Browser -c Debug
 ## Primary research record
 
 Sources consulted on 2026-08-27 through 2026-08-29:
+
+- For persisted compositing order, Autodesk's
+  [SORTENTSTABLE DXF contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-462F4378-F850-4E89-90F2-3C1880F55779.htm),
+  [DRAWORDER contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-LT/files/GUID-3DC76D6E-8F81-4803-8D0A-AA7541D6357E.htm), and
+  [SORTENTS contract](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-56B7D915-515B-4A9C-BCB5-EF2D43C05FE5.htm)
+  establish sparse entity/sort-handle pairs, ascending regeneration order,
+  complete-object-set front/back/above/under operations, modern always-sorted
+  REGEN, and the remaining Plotting bit. ProGPU adopts persisted ascending order,
+  nested block-local tables, and explicit plot policy; it adapts them into one
+  bounded immutable CPU snapshot step and rejects malformed ownership rather
+  than copying an implementation. Skia's
+  [ordered canvas/picture model](https://skia.org/docs/user/api/), Direct2D's
+  [retained command-list model](https://learn.microsoft.com/en-us/windows/win32/api/d2d1_1/nn-d2d1_1-id2d1commandlist), Win2D's
+  [CanvasCommandList drawing-session model](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/quick-start), WebRender's
+  [display-list/stacking-context architecture](https://github.com/servo/servo/wiki/Webrender-Overview), and Vello's
+  [append-only scene encoding](https://github.com/linebender/vello/blob/main/vello/src/scene.rs)
+  confirm that semantic paint order is resolved before replay and survives
+  backend batching. ProGPU adopts that separation and rejects GPU sorting because
+  transparent CAD compositing is order-sensitive. Skia/SkParagraph's
+  [shape-then-render split](https://docs.skia.org/docs/dev/design/text_shaper/),
+  DirectWrite's
+  [layout/render separation](https://learn.microsoft.com/en-us/windows/win32/directwrite/programming-guide),
+  Parley's [itemization and shaping pipeline](https://github.com/linebender/parley/blob/main/doc/concept.md), and
+  HarfBuzz's [positioned-glyph contract](https://harfbuzz.github.io/what-does-harfbuzz-do.html)
+  were examined and rejected as draw-order owners: retained glyph runs stay
+  reusable and are ordered only as already compiled entity commands. The change
+  does not alter startup/font discovery, shaping/layout reuse, visibility policy,
+  glyph/path/texture keys or eviction, demand upload, worker preparation, DPI or
+  subpixel behavior, fallback/variable-font state, or device-loss invalidation.
 
 - For atomic selected-object deletion, Autodesk's
   [ERASE command contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-MAC-Core/files/GUID-6FC4AA9A-A3DC-49D0-A22B-CC0ED48C1310.htm),

@@ -238,6 +238,11 @@ public sealed class CadPrintPlanCompiler
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         cancellationToken.ThrowIfCancellationRequested();
+        if (!snapshot.IsPlotOrderCompatible)
+        {
+            throw new InvalidOperationException(
+                "The snapshot contains persisted draw-order overrides but was not compiled with a plot-compatible ordering purpose. Recompile it with CadDrawOrderPurpose.Plotting.");
+        }
         options ??= new CadPrintPlanOptions();
         ValidateOptions(options);
 
