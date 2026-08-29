@@ -1,5 +1,6 @@
 using System.Numerics;
 using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Brushes;
 using Microsoft.Graphics.Canvas.Geometry;
 using Microsoft.UI;
 using ProGPU.Backend;
@@ -27,6 +28,15 @@ public sealed class Win2DCanvasCompatibilityTests
     {
         Action<ICanvasResourceCreator, CanvasDrawingSession> body =
             DrawPinnedGeometrySample;
+
+        Assert.NotNull(body);
+    }
+
+    [Fact]
+    public void PinnedBrushDrawingBodyCompilesUnchanged()
+    {
+        Action<ICanvasResourceCreator, CanvasDrawingSession> body =
+            DrawPinnedBrushSample;
 
         Assert.NotNull(body);
     }
@@ -165,6 +175,18 @@ public sealed class Win2DCanvasCompatibilityTests
             nameof(CanvasDrawingSession.FillGeometry),
             [typeof(CanvasGeometry), typeof(Windows.UI.Color)]));
         Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.FillGeometry),
+            [typeof(CanvasGeometry), typeof(ICanvasBrush)]));
+        Assert.NotNull(type.GetMethod(
+            nameof(CanvasDrawingSession.FillRectangle),
+            [
+                typeof(float),
+                typeof(float),
+                typeof(float),
+                typeof(float),
+                typeof(ICanvasBrush)
+            ]));
+        Assert.NotNull(type.GetMethod(
             nameof(CanvasDrawingSession.CreateLayer),
             [typeof(float), typeof(Windows.Foundation.Rect)]));
         Assert.NotNull(type.GetMethod(
@@ -219,6 +241,37 @@ public sealed class Win2DCanvasCompatibilityTests
                 2f));
     }
 
+    [Fact]
+    public void CanvasGradientValidationCopiesStopsAndFailsClosed()
+    {
+        CanvasGradientStopHdr[] source =
+        [
+            new() { Position = 0f, Color = Vector4.One },
+            new() { Position = 1f, Color = Vector4.Zero }
+        ];
+
+        CanvasGradientStopHdr[] copy =
+            CanvasBrushUtilities.ValidateAndCopyStops(source);
+        source[0].Position = 0.5f;
+        Assert.Equal(0f, copy[0].Position);
+        Assert.Equal(
+            ProGPU.Vector.GradientSpreadMethod.Repeat,
+            CanvasBrushUtilities.MapEdgeBehavior(CanvasEdgeBehavior.Wrap));
+        Assert.Throws<ArgumentException>(() =>
+            CanvasBrushUtilities.ValidateAndCopyStops(
+            [
+                new() { Position = 1f, Color = Vector4.One },
+                new() { Position = 0f, Color = Vector4.One }
+            ]));
+        Assert.Throws<NotSupportedException>(() =>
+            CanvasBrushUtilities.ValidateGradientOptions(
+                CanvasEdgeBehavior.Clamp,
+                CanvasAlphaMode.Straight,
+                CanvasColorSpace.Srgb,
+                CanvasColorSpace.Srgb,
+                CanvasBufferPrecision.Precision8UIntNormalized));
+    }
+
     private static void DrawPinnedSimpleSample(CanvasDrawingSession drawingSession)
     {
         drawingSession.DrawEllipse(155, 115, 80, 30, Colors.Black, 3);
@@ -265,5 +318,32 @@ public sealed class Win2DCanvasCompatibilityTests
             1,
             new Windows.Foundation.Rect(8, 8, 20, 40));
         drawingSession.FillGeometry(geometry, Colors.Red);
+    }
+
+
+    private static void DrawPinnedBrushSample(
+        ICanvasResourceCreator resourceCreator,
+        CanvasDrawingSession drawingSession)
+    {
+        using var linear = new CanvasLinearGradientBrush(
+            resourceCreator,
+            Colors.Red,
+            Colors.Blue)
+        {
+            StartPoint = new Vector2(0, 0),
+            EndPoint = new Vector2(100, 0)
+        };
+        drawingSession.FillRectangle(0, 0, 100, 20, linear);
+
+        using var radial = new CanvasRadialGradientBrush(
+            resourceCreator,
+            Colors.White,
+            Colors.Black)
+        {
+            Center = new Vector2(50, 50),
+            RadiusX = 25,
+            RadiusY = 25
+        };
+        drawingSession.FillCircle(50, 50, 25, radial);
     }
 }

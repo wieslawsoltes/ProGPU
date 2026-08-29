@@ -9,6 +9,29 @@ public enum CanvasAlphaMode
     Ignore = 2
 }
 
+public enum CanvasBufferPrecision
+{
+    Precision8UIntNormalized = 0,
+    Precision8UIntNormalizedSrgb = 1,
+    Precision16UIntNormalized = 2,
+    Precision16Float = 3,
+    Precision32Float = 4
+}
+
+public enum CanvasColorSpace
+{
+    Custom = 0,
+    Srgb = 1,
+    ScRgb = 2
+}
+
+public enum CanvasEdgeBehavior
+{
+    Clamp = 0,
+    Wrap = 1,
+    Mirror = 2
+}
+
 public enum CanvasDpiRounding
 {
     Floor = 0,
