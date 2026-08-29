@@ -1,0 +1,144 @@
+#pragma once
+
+#include <stdint.h>
+
+#if !defined(_WIN32)
+#  error "progpu_native_direct2d.h is a Windows-only native interop contract"
+#endif
+
+#if defined(PROGPU_NATIVE_DIRECT2D_BUILD)
+#  define PROGPU_NATIVE_DIRECT2D_API __declspec(dllexport)
+#else
+#  define PROGPU_NATIVE_DIRECT2D_API __declspec(dllimport)
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct progpu_native_direct2d_surface
+    progpu_native_direct2d_surface;
+
+typedef enum progpu_native_direct2d_status {
+    PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS = 0,
+    PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT = 1,
+    PROGPU_NATIVE_DIRECT2D_STATUS_OUT_OF_MEMORY = 2,
+    PROGPU_NATIVE_DIRECT2D_STATUS_ADAPTER_NOT_FOUND = 3,
+    PROGPU_NATIVE_DIRECT2D_STATUS_DEVICE_CREATION_FAILED = 4,
+    PROGPU_NATIVE_DIRECT2D_STATUS_RESOURCE_CREATION_FAILED = 5,
+    PROGPU_NATIVE_DIRECT2D_STATUS_SYNCHRONIZATION_FAILED = 6,
+    PROGPU_NATIVE_DIRECT2D_STATUS_ACCESS_ALREADY_ACQUIRED = 7,
+    PROGPU_NATIVE_DIRECT2D_STATUS_ACCESS_NOT_ACQUIRED = 8,
+    PROGPU_NATIVE_DIRECT2D_STATUS_DEVICE_LOST = 9
+} progpu_native_direct2d_status;
+
+typedef enum progpu_native_direct2d_surface_flags {
+    PROGPU_NATIVE_DIRECT2D_SURFACE_FLAG_NONE = 0,
+    PROGPU_NATIVE_DIRECT2D_SURFACE_FLAG_ENABLE_DEBUG = 1U << 0U,
+    PROGPU_NATIVE_DIRECT2D_SURFACE_FLAG_ALLOW_WARP_FALLBACK = 1U << 1U,
+    PROGPU_NATIVE_DIRECT2D_SURFACE_FLAG_FORCE_WARP = 1U << 2U
+} progpu_native_direct2d_surface_flags;
+
+typedef enum progpu_native_direct2d_descriptor_flags {
+    PROGPU_NATIVE_DIRECT2D_DESCRIPTOR_FLAG_NONE = 0,
+    PROGPU_NATIVE_DIRECT2D_DESCRIPTOR_FLAG_KEYED_MUTEX = 1U << 0U,
+    PROGPU_NATIVE_DIRECT2D_DESCRIPTOR_FLAG_NT_HANDLE = 1U << 1U,
+    PROGPU_NATIVE_DIRECT2D_DESCRIPTOR_FLAG_SOFTWARE_ADAPTER = 1U << 2U
+} progpu_native_direct2d_descriptor_flags;
+
+/* Every returned pointer is a genuine Windows COM interface with one caller-
+ * owned reference. Release it through IUnknown::Release. These pointers are
+ * process-local Windows interop state and must never enter ProGPU's portable
+ * scene, MIL, WebGPU, or package-neutral ABI. */
+typedef enum progpu_native_direct2d_interface_kind {
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D3D11_DEVICE = 1,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D3D11_DEVICE_CONTEXT = 2,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_DXGI_ADAPTER1 = 3,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_DXGI_DEVICE = 4,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_DXGI_SURFACE = 5,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_DXGI_KEYED_MUTEX = 6,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D3D11_TEXTURE2D = 7,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_FACTORY1 = 8,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_FACTORY2 = 9,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE = 10,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE1 = 11,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT = 12,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT1 = 13,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_BITMAP = 14,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_BITMAP1 = 15
+} progpu_native_direct2d_interface_kind;
+
+typedef struct progpu_native_direct2d_surface_options {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t width;
+    uint32_t height;
+    float dpi_x;
+    float dpi_y;
+    uint32_t adapter_luid_low;
+    int32_t adapter_luid_high;
+} progpu_native_direct2d_surface_options;
+
+typedef struct progpu_native_direct2d_surface_descriptor {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t width;
+    uint32_t height;
+    float dpi_x;
+    float dpi_y;
+    uint32_t dxgi_format;
+    uint32_t alpha_mode;
+    uint32_t adapter_luid_low;
+    int32_t adapter_luid_high;
+    uintptr_t shared_nt_handle;
+    uint64_t initial_acquire_key;
+    uint64_t initial_release_key;
+    uint64_t content_version;
+} progpu_native_direct2d_surface_descriptor;
+
+enum {
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 1U
+};
+
+PROGPU_NATIVE_DIRECT2D_API uint32_t
+progpu_native_direct2d_get_abi_version(void);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create(
+    const progpu_native_direct2d_surface_options* options,
+    progpu_native_direct2d_surface** surface,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API void
+progpu_native_direct2d_surface_destroy(
+    progpu_native_direct2d_surface* surface);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_descriptor(
+    const progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_surface_descriptor* descriptor);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_interface(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_interface_kind kind,
+    void** value);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_acquire(
+    progpu_native_direct2d_surface* surface,
+    uint64_t acquire_key,
+    uint32_t timeout_milliseconds);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_release(
+    progpu_native_direct2d_surface* surface,
+    uint64_t release_key);
+
+PROGPU_NATIVE_DIRECT2D_API int32_t
+progpu_native_direct2d_surface_get_last_hresult(
+    const progpu_native_direct2d_surface* surface);
+
+#ifdef __cplusplus
+}
+#endif

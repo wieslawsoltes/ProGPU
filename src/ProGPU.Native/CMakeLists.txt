@@ -972,6 +972,24 @@ set_target_properties(progpu_native_mil PROPERTIES
 progpu_native_enable_warnings(progpu_native_mil)
 progpu_native_enable_sanitizers(progpu_native_mil)
 
+if(WIN32)
+    add_library(progpu_native_direct2d SHARED
+        include/progpu_native_direct2d.h
+        src/Direct2D/progpu_native_direct2d.cpp)
+    target_compile_features(progpu_native_direct2d PRIVATE cxx_std_20)
+    target_compile_definitions(progpu_native_direct2d PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+        PROGPU_NATIVE_DIRECT2D_BUILD=1)
+    target_include_directories(progpu_native_direct2d
+        PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    target_link_libraries(progpu_native_direct2d PRIVATE
+        d2d1
+        d3d11
+        dxgi)
+    progpu_native_enable_warnings(progpu_native_direct2d)
+endif()
+
 if(NOT EMSCRIPTEN AND PROGPU_NATIVE_BUILD_WGPU_TARGET)
 add_library(progpu_native SHARED
     ${PROGPU_NATIVE_RENDERER_SOURCES})
@@ -1321,6 +1339,22 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_test(NAME progpu_native_mil_tests COMMAND progpu_native_mil_tests)
     set_tests_properties(progpu_native_mil_tests PROPERTIES TIMEOUT 60)
 
+    if(WIN32)
+        add_executable(progpu_native_direct2d_tests
+            tests/progpu_native_direct2d_tests.cpp)
+        target_compile_features(progpu_native_direct2d_tests PRIVATE cxx_std_20)
+        target_compile_definitions(progpu_native_direct2d_tests PRIVATE
+            NOMINMAX
+            WIN32_LEAN_AND_MEAN)
+        target_link_libraries(progpu_native_direct2d_tests PRIVATE
+            progpu_native_direct2d)
+        progpu_native_enable_warnings(progpu_native_direct2d_tests)
+        add_test(
+            NAME progpu_native_direct2d_tests
+            COMMAND progpu_native_direct2d_tests)
+        set_tests_properties(progpu_native_direct2d_tests PROPERTIES TIMEOUT 60)
+    endif()
+
     if(PROGPU_NATIVE_ENABLE_CPP_MODULES)
         add_executable(progpu_native_compression_module_tests
             tests/progpu_native_compression_module_tests.cpp)
@@ -1647,6 +1681,14 @@ if(NOT EMSCRIPTEN)
             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
             LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
             ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+    endif()
+    if(TARGET progpu_native_direct2d)
+        install(TARGETS progpu_native_direct2d
+            RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+            LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+            ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+        install(FILES include/progpu_native_direct2d.h
+            DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
     endif()
     install(FILES
         src/Compression/progpu_native_compression.cppm
