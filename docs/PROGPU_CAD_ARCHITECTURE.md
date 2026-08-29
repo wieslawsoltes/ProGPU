@@ -851,10 +851,11 @@ write succeeds, so a failed native write or browser download cannot mark the
 session clean.
 
 The hosts remain an executable engine-integration baseline, not yet the complete
-CAD editor shell. They now share plan, Flat 3D, and retained A4 model-extents
-print-preview modes; properties/layer panels, arbitrary-camera projected
-selection, broader editing tools, page-setup selection, printer/export adapters,
-and round-trip-certified output remain tracked application phases.
+CAD editor shell. They now share plan, Flat 3D, and retained print-preview modes
+with generation-safe layout/named-page-setup selection plus an explicit A4
+model-extents fallback; properties/layer panels, arbitrary-camera projected
+selection, broader editing tools, page-setup editing/import, printer/export
+adapters, and round-trip-certified output remain tracked application phases.
 
 The Release browser AOT publish succeeds. Its linker audit currently reports
 annotation warnings in ACadSharp's initialization/reflection utilities and in
@@ -2049,24 +2050,37 @@ The first model-space print-plan foundation is implemented by
   allocated.
 
 The shared desktop/browser shell now consumes that contract through a retained
-A4 model-extents preview. Entering preview compiles a separate generation-tagged
-snapshot with `CadDrawOrderPurpose.Plotting`, so a drawing whose SORTENTS
-Plotting bit differs from interactive regeneration is never previewed in the
-wrong order. The print snapshot resolves against a white physical-page
-background. In particular, indexed ACI 7 is deterministically white on the dark
-model canvas and black on the light page, while explicitly authored true white
-remains white. The switch uses integer Rec. 709 luminance weights and a midpoint
-light/dark threshold; no other indexed or true color is changed.
+page-setup-driven preview. Its selector is rebuilt from the detached catalog on
+each content generation and lists layout-owned settings, named overrides, and
+one explicit A4 model-extents fallback. It prefers the first supported
+model-space layout, preserves a selection by source kind and name across a
+generation replacement, and never silently substitutes the fallback for an
+unsupported setup. Unsupported entries remain visible with their first typed
+`CADPAGE` diagnostic; selecting one releases any old preview and reports the
+unsupported contract. This is preview selection only: it does not mutate which
+page setup is current in the ACadSharp document.
+
+Entering preview compiles a separate generation-tagged snapshot with
+`CadDrawOrderPurpose.Plotting`, so a drawing whose SORTENTS Plotting bit differs
+from interactive regeneration is never previewed in the wrong order. The print
+snapshot resolves against a white physical-page background. In particular,
+indexed ACI 7 is deterministically white on the dark model canvas and black on
+the light page, while explicitly authored true white remains white. The switch
+uses integer Rec. 709 luminance weights and a midpoint light/dark threshold; no
+other indexed or true color is changed.
 
 `CadPrintPreviewCanvas` chooses an output DPI from the available logical
-viewport and the physical A4 dimensions, capped at 300 DPI, then displays the
-resulting page at one page pixel per logical pixel. That 1:1 contract is
+viewport and the selected setup's oriented physical media dimensions, capped at
+300 DPI, then displays the resulting page at one page pixel per logical pixel.
+Quarter-turn page rotations exchange the fit axes. That 1:1 contract is
 intentional: the page compiler's fixed-device strokes already express physical
 lineweights at its output DPI, and a second fit transform would incorrectly
 leave those widths unscaled. The control owns only the independently retained
 page picture and page metadata, centers it with a translation, draws a transient
 dynamic-theme paper/printable-area frame, performs no CAD traversal or print
-compilation during `OnRender`, and disposes the retained page on exit. Entering
+compilation during `OnRender`, and disposes the retained page on exit. Catalog
+refresh and compatibility labeling are O(L log L + S) capture plus O(L)
+constant-size lowering for L setups and S owned string code units. Entering
 preview costs the existing plotting snapshot O(E log E) plus print-plan O(E + C)
 work and O(E + C) generation storage; stable preview replay is O(C) retained
 commands with no semantic-document access or retained upload after the compiled
@@ -2075,8 +2089,9 @@ preview instead of presenting the old page.
 
 Catalog extraction and model-space page rotation are now implemented, but this
 foundation does not claim layout/paper-space viewport lowering, DCS camera/view
-lowering, a page-setup selection UI, CTB/STB overrides, shaded-viewport policies,
-transparency flattening, PDF/SVG, raster encoding, printer
+lowering, page-setup editing/import or applying a named setup to a layout,
+CTB/STB overrides, shaded-viewport policies, transparency flattening, PDF/SVG,
+raster encoding, printer
 enumeration/spooling, or multi-page collation. Those remain explicit typed
 compilers/adapters and conformance gates; unsupported features are not silently
 rasterized or dropped. The preview adds no shader, stable C ABI, native renderer,
@@ -3403,6 +3418,9 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   atlas, or managed/native renderer contract; both backends continue receiving
   the same existing picture/overlay commands.
 - [Autodesk page setup](https://help.autodesk.com/cloudhelp/2025/ENU/DWGTrueView/files/GUID-0D72CF75-DA37-4937-9D9A-D93AA9BDF8D3.htm),
+  [Page Setup Manager](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-Core/files/GUID-B06031A0-EF7E-4287-8E34-ABDCC40FF8C4.htm),
+  [named page-setup workflow](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-62B163D7-92F5-4793-85C2-246BDDA81470.htm),
+  [plot-area choices](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-MAC-Core/files/GUID-7F356502-16EC-4371-86A9-2A58968762DD.htm),
   [plot-rotation enum](https://help.autodesk.com/cloudhelp/2019/ENU/OARX-RefGuide/files/OREF-AcDbPlotSettings__plotRotation.html),
   [drawing-orientation behavior](https://help.autodesk.com/cloudhelp/2025/ENU/DWGTrueView/files/GUID-E05BF1C8-3C44-4E0C-917C-5A95C860A98E.htm),
   [`PLOTROTMODE` rotated-origin behavior](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-B376D968-4346-4D7E-9AE5-3888317B5730.htm),
@@ -3430,7 +3448,14 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   layout viewports/UCS limits, device pixel scale, style-table,
   disabled/scaled lineweight, shaded-output, or transparency policy. Paper image
   origin remains retained device metadata; the documented plot origin inside
-  the paper margins is the current geometric offset authority.
+  the paper margins is the current geometric offset authority. The shared host
+  now adopts AutoCAD's observable list contract by presenting both layout-owned
+  and named setups with selected-setup details encoded in the label. It adapts
+  selection to a non-mutating preview choice because applying a named setup to a
+  layout is an editing command with separate undo/save semantics. Unsupported
+  source policies remain selectable for their precise diagnostic, and the
+  sample-only A4 option is visibly labeled as a fallback rather than pretending
+  to be a drawing-owned page setup.
 - [Skia PDF pages](https://skia.org/docs/user/sample/pdf/),
   [Skia canvas backends](https://skia.org/docs/user/api/skcanvas_creation/),
   [Skia canvas transforms and clips](https://skia.org/docs/user/api/skcanvas_overview/),

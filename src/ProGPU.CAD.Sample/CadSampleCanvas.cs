@@ -1,6 +1,7 @@
 using System.Numerics;
 using ACadSharp;
 using ACadSharp.Entities;
+using ACadSharp.Objects;
 using ACadSharp.Tables;
 using CSMath;
 using Microsoft.UI.Xaml;
@@ -8,6 +9,7 @@ using Microsoft.UI.Xaml.Input;
 using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Vector;
+using ACadLayout = ACadSharp.Objects.Layout;
 
 namespace ProGPU.CAD.Sample;
 
@@ -505,9 +507,60 @@ public sealed class CadSampleCanvas : FrameworkElement
                 "Print-preview DPI must be finite and positive.");
         }
 
+        CadDocumentSnapshot snapshot = CreatePlottingSnapshot();
+        return new CadPrintPlanCompiler().Compile(
+            snapshot,
+            new CadPrintPlanOptions
+            {
+                OutputDpi = outputDpi,
+            });
+    }
+
+    /// <summary>
+    /// Captures the current drawing's detached layout and named page-setup
+    /// catalog for shared desktop/browser selection UI.
+    /// </summary>
+    public CadPageSetupCatalog CreatePageSetupCatalog()
+    {
         CadDocumentSession session = CurrentSession ??
             throw new InvalidOperationException("No CAD document is loaded.");
-        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+        return new CadPageSetupCatalogCompiler().Compile(session);
+    }
+
+    /// <summary>
+    /// Compiles one retained page from a generation-matched drawing page setup.
+    /// Unsupported page policies fail with their typed CADPAGE diagnostic.
+    /// </summary>
+    public CadPrintPlan CreatePageSetupPrintPlan(
+        CadPageSetupSnapshot pageSetup,
+        float outputDpi)
+    {
+        ArgumentNullException.ThrowIfNull(pageSetup);
+        ThrowIfDrawOrderReferencePickPending();
+        if (!float.IsFinite(outputDpi) || outputDpi <= 0.0f)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(outputDpi),
+                "Print-preview DPI must be finite and positive.");
+        }
+
+        CadPageSetupPrintOptionsResult lowering =
+            new CadPageSetupPrintOptionsCompiler().Compile(
+                pageSetup,
+                new CadPageSetupPrintOptionsCompilerOptions
+                {
+                    OutputDpi = outputDpi,
+                });
+        return new CadPrintPlanCompiler().CompileFromPageSetup(
+            CreatePlottingSnapshot(),
+            lowering);
+    }
+
+    private CadDocumentSnapshot CreatePlottingSnapshot()
+    {
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        return new CadSnapshotCompiler().Compile(
             session,
             new CadSnapshotOptions
             {
@@ -519,12 +572,6 @@ public sealed class CadSampleCanvas : FrameworkElement
                     byte.MaxValue,
                     byte.MaxValue,
                     byte.MaxValue),
-            });
-        return new CadPrintPlanCompiler().Compile(
-            snapshot,
-            new CadPrintPlanOptions
-            {
-                OutputDpi = outputDpi,
             });
     }
 
@@ -958,6 +1005,25 @@ public sealed class CadSampleCanvas : FrameworkElement
         CadDocumentSession session = CadDocumentSession.CreateNew(ACadVersion.AC1032);
         session.Edit("Create representative CAD scene", document =>
         {
+            ConfigureRepresentativePageSetup(
+                document.Layouts[ACadLayout.ModelLayoutName],
+                name: "ProGPU A3 landscape",
+                paperWidthMillimeters: 420,
+                paperHeightMillimeters: 297,
+                rotation: PlotRotation.NoRotation);
+            CadDictionary pageSetups =
+                document.RootDictionary.GetEntry<CadDictionary>(
+                    CadDictionary.AcadPlotSettings);
+            var a4Portrait = new PlotSettings("A4 portrait");
+            ConfigureRepresentativePageSetup(
+                a4Portrait,
+                name: "A4 portrait",
+                paperWidthMillimeters: 210,
+                paperHeightMillimeters: 297,
+                rotation: PlotRotation.NoRotation);
+            a4Portrait.Flags |= PlotFlags.ModelType;
+            pageSetups.Add(a4Portrait);
+
             document.Entities.Add(new Line(new XYZ(-80, -45, 0), new XYZ(80, -45, 0)));
             document.Entities.Add(new Circle(new XYZ(-38, 8, 0), 27));
             document.Entities.Add(new Arc(new XYZ(30, 8, 0), 30, 0.2, 5.1));
@@ -1060,5 +1126,34 @@ public sealed class CadSampleCanvas : FrameworkElement
             });
         });
         return session;
+    }
+
+    private static void ConfigureRepresentativePageSetup(
+        PlotSettings pageSetup,
+        string name,
+        double paperWidthMillimeters,
+        double paperHeightMillimeters,
+        PlotRotation rotation)
+    {
+        pageSetup.PageName = name;
+        pageSetup.SystemPrinterName = "ProGPU retained preview";
+        pageSetup.PaperSize = name;
+        pageSetup.PaperWidth = paperWidthMillimeters;
+        pageSetup.PaperHeight = paperHeightMillimeters;
+        pageSetup.UnprintableMargin = new PaperMargin(5, 5, 5, 5);
+        pageSetup.PlotOriginX = 0;
+        pageSetup.PlotOriginY = 0;
+        pageSetup.PaperUnits = PlotPaperUnits.Millimeters;
+        pageSetup.PaperRotation = rotation;
+        pageSetup.PlotType = PlotType.DrawingExtents;
+        pageSetup.NumeratorScale = 1;
+        pageSetup.DenominatorScale = 1;
+        pageSetup.ScaledFit = ScaledType.ScaledToFit;
+        pageSetup.ShadePlotMode = ShadePlotMode.Wireframe;
+        pageSetup.StyleSheet = string.Empty;
+        pageSetup.Flags |=
+            PlotFlags.PrintLineweights |
+            PlotFlags.PlotCentered |
+            PlotFlags.UseStandardScale;
     }
 }

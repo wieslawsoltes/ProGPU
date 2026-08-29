@@ -17,12 +17,14 @@ public sealed class CadSampleView : Grid
 {
     private readonly CadDocumentStore _store = new();
     private readonly CadSampleCanvas _canvas;
+    private readonly Grid _contentHost;
     private readonly Viewport3D _viewport3D;
     private readonly CadPrintPreviewCanvas _printPreview;
     private readonly Button _viewModeButton;
     private readonly TextBlock _viewModeText;
     private readonly Button _printPreviewButton;
     private readonly TextBlock _printPreviewText;
+    private readonly ComboBox _pageSetupSelector;
     private readonly TextBlock _status;
     private readonly Button _openButton;
     private readonly Button _saveButton;
@@ -44,12 +46,15 @@ public sealed class CadSampleView : Grid
     private int _currentDiagnosticCount;
     private bool _is3DView;
     private bool _isPrintPreview;
+    private bool _isRefreshingPageSetups;
 
     public CadShxFontCatalog ShxFonts => _canvas.ShxFonts;
 
     public CadSampleCanvas Canvas => _canvas;
 
     public CadPrintPreviewCanvas PrintPreview => _printPreview;
+
+    public ComboBox PageSetupSelector => _pageSetupSelector;
 
     /// <summary>
     /// Ordered fully-qualified desktop support directories probed after the
@@ -79,7 +84,7 @@ public sealed class CadSampleView : Grid
             Visibility = Visibility.Collapsed,
         };
         TtfFont font = InterFontFamily.Regular;
-        RowDefinitions.Add(new GridLength(124, GridUnitType.Absolute));
+        RowDefinitions.Add(new GridLength(158, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));
         RowDefinitions.Add(new GridLength(30, GridUnitType.Absolute));
 
@@ -110,9 +115,15 @@ public sealed class CadSampleView : Grid
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
+        var printActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
         toolbarRows.AddChild(actions);
         toolbarRows.AddChild(editActions);
         toolbarRows.AddChild(transformActions);
+        toolbarRows.AddChild(printActions);
         toolbar.Child = toolbarRows;
 
         _openButton = CreateButton("Open DXF/DWG", font, 132);
@@ -127,12 +138,10 @@ public sealed class CadSampleView : Grid
         _saveButton.Margin = new Thickness(0, 0, 8, 0);
         _fitButton.Margin = new Thickness(0, 0, 8, 0);
         _viewModeButton.Margin = new Thickness(0, 0, 8, 0);
-        _printPreviewButton.Margin = new Thickness(0, 0, 8, 0);
         actions.AddChild(_openButton);
         actions.AddChild(_saveButton);
         actions.AddChild(_fitButton);
         actions.AddChild(_viewModeButton);
-        actions.AddChild(_printPreviewButton);
         actions.AddChild(_clearSelectionButton);
 
         _undoButton = CreateButton("Undo", font, 68, 30);
@@ -243,6 +252,27 @@ public sealed class CadSampleView : Grid
         transformActions.AddChild(scaleUp);
         transformActions.AddChild(scaleDown);
 
+        printActions.AddChild(new TextBlock
+        {
+            Text = "Page setup",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _pageSetupSelector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = 320,
+            HeightConstraint = 30,
+            MaxDropDownHeight = 256,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        _printPreviewButton.Margin = new Thickness(0, 0, 8, 0);
+        printActions.AddChild(_pageSetupSelector);
+        printActions.AddChild(_printPreviewButton);
+
         _status = new TextBlock
         {
             Font = font,
@@ -259,15 +289,15 @@ public sealed class CadSampleView : Grid
             Child = _status,
         };
 
-        var contentHost = new Grid();
-        contentHost.AddChild(_canvas);
-        contentHost.AddChild(_viewport3D);
-        contentHost.AddChild(_printPreview);
+        _contentHost = new Grid();
+        _contentHost.AddChild(_canvas);
+        _contentHost.AddChild(_viewport3D);
+        _contentHost.AddChild(_printPreview);
         AddChild(toolbar);
-        AddChild(contentHost);
+        AddChild(_contentHost);
         AddChild(statusBorder);
         SetRow(toolbar, 0);
-        SetRow(contentHost, 1);
+        SetRow(_contentHost, 1);
         SetRow(statusBorder, 2);
 
         _openButton.Click += async (_, _) => await OpenAsync();
@@ -275,6 +305,8 @@ public sealed class CadSampleView : Grid
         _fitButton.Click += (_, _) => _canvas.FitToView();
         _viewModeButton.Click += (_, _) => ToggleViewMode();
         _printPreviewButton.Click += (_, _) => TogglePrintPreview();
+        _pageSetupSelector.SelectionChanged += (_, _) =>
+            OnPageSetupSelectionChanged();
         _clearSelectionButton.Click += (_, _) => _canvas.ClearSelection();
         _undoButton.Click += (_, _) => PerformUndo();
         _redoButton.Click += (_, _) => PerformRedo();
@@ -321,8 +353,10 @@ public sealed class CadSampleView : Grid
             {
                 ShowPlanView(clearPreview: true);
             }
+            RefreshPageSetups(preserveSelection: true);
         };
         RebuildMesh3DView();
+        RefreshPageSetups(preserveSelection: false);
         UpdateEditControls();
     }
 
@@ -406,23 +440,78 @@ public sealed class CadSampleView : Grid
             return;
         }
 
+        ShowSelectedPrintPreview();
+    }
+
+    private void OnPageSetupSelectionChanged()
+    {
+        if (_isRefreshingPageSetups)
+        {
+            return;
+        }
+        if (_isPrintPreview)
+        {
+            ShowSelectedPrintPreview();
+        }
+        else
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void ShowSelectedPrintPreview()
+    {
+        var item = _pageSetupSelector.SelectedItem as ComboBoxItem;
+        var choice = item?.Tag as PageSetupChoice;
+        if (choice is null)
+        {
+            ShowPlanView(clearPreview: true);
+            SetStatus("Print preview failed: no page setup is selected.");
+            UpdateEditControls();
+            return;
+        }
+
         try
         {
-            float outputDpi = CadPrintPreviewCanvas.CalculateFitOutputDpi(
-                _canvas.Size);
-            using CadPrintPlan plan = _canvas.CreateA4PrintPlan(outputDpi);
-            _printPreview.Load(plan);
-            _is3DView = false;
-            _isPrintPreview = true;
-            _canvas.Visibility = Visibility.Collapsed;
-            _viewport3D.Visibility = Visibility.Collapsed;
-            _printPreview.Visibility = Visibility.Visible;
-            _viewModeText.Text = "3D surfaces";
-            _printPreviewText.Text = "Plan view";
-            SetStatus(
-                $"A4 model-extents print preview | {plan.OutputDpi:N1} DPI | " +
-                $"{plan.PageSizePixels.Width:N0} × {plan.PageSizePixels.Height:N0} px | " +
-                $"generation {plan.ContentGeneration:N0}");
+            CadPrintPlan plan;
+            if (choice.IsFallback)
+            {
+                float outputDpi = CadPrintPreviewCanvas.CalculateFitOutputDpi(
+                    _contentHost.Size);
+                plan = _canvas.CreateA4PrintPlan(outputDpi);
+            }
+            else
+            {
+                CadPageSetupPrintOptionsResult lowering = choice.Lowering!;
+                if (!lowering.IsSupported || lowering.PrintOptions is null)
+                {
+                    CadDiagnostic diagnostic = lowering.Diagnostics.Span[0];
+                    throw new NotSupportedException(
+                        $"{diagnostic.Code}: {diagnostic.Message}");
+                }
+                float outputDpi = CadPrintPreviewCanvas.CalculateFitOutputDpi(
+                    _contentHost.Size,
+                    lowering.PrintOptions);
+                plan = _canvas.CreatePageSetupPrintPlan(
+                    choice.PageSetup!,
+                    outputDpi);
+            }
+            using (plan)
+            {
+                _printPreview.Load(plan);
+                _is3DView = false;
+                _isPrintPreview = true;
+                _canvas.Visibility = Visibility.Collapsed;
+                _viewport3D.Visibility = Visibility.Collapsed;
+                _printPreview.Visibility = Visibility.Visible;
+                _viewModeText.Text = "3D surfaces";
+                _printPreviewText.Text = "Plan view";
+                SetStatus(
+                    $"{choice.StatusName} print preview | " +
+                    $"{plan.OutputDpi:N1} DPI | " +
+                    $"{plan.PageSizePixels.Width:N0} × {plan.PageSizePixels.Height:N0} px | " +
+                    $"generation {plan.ContentGeneration:N0}");
+            }
         }
         catch (Exception exception)
         {
@@ -433,6 +522,83 @@ public sealed class CadSampleView : Grid
         {
             UpdateEditControls();
         }
+    }
+
+    private void RefreshPageSetups(bool preserveSelection)
+    {
+        PageSetupKey? previousKey = preserveSelection
+            ? (_pageSetupSelector.SelectedItem as ComboBoxItem)?.Tag is
+                PageSetupChoice previous
+                ? previous.Key
+                : null
+            : null;
+
+        _isRefreshingPageSetups = true;
+        try
+        {
+            _pageSetupSelector.Items.Clear();
+            var fallback = PageSetupChoice.CreateFallback();
+            var fallbackItem = CreatePageSetupItem(fallback);
+            _pageSetupSelector.Items.Add(fallbackItem);
+            ComboBoxItem? preferredItem = null;
+            ComboBoxItem? preservedItem = previousKey == fallback.Key
+                ? fallbackItem
+                : null;
+
+            CadPageSetupCatalog catalog = _canvas.CreatePageSetupCatalog();
+            var loweringCompiler = new CadPageSetupPrintOptionsCompiler();
+            foreach (CadPageSetupSnapshot pageSetup in catalog.Setups.Span)
+            {
+                CadPageSetupPrintOptionsResult lowering =
+                    loweringCompiler.Compile(pageSetup);
+                var choice = PageSetupChoice.Create(pageSetup, lowering);
+                ComboBoxItem item = CreatePageSetupItem(choice);
+                _pageSetupSelector.Items.Add(item);
+                if (previousKey == choice.Key)
+                {
+                    preservedItem = item;
+                }
+                if (preferredItem is null &&
+                    lowering.IsSupported &&
+                    pageSetup.SourceKind == CadPageSetupSourceKind.Layout &&
+                    pageSetup.TargetSpace == CadPageTargetSpace.Model)
+                {
+                    preferredItem = item;
+                }
+            }
+
+            _pageSetupSelector.SelectedItem =
+                preservedItem ?? preferredItem ?? fallbackItem;
+        }
+        catch (Exception exception)
+        {
+            var fallback = PageSetupChoice.CreateFallback();
+            var fallbackItem = CreatePageSetupItem(fallback);
+            _pageSetupSelector.Items.Clear();
+            _pageSetupSelector.Items.Add(fallbackItem);
+            _pageSetupSelector.SelectedItem = fallbackItem;
+            SetStatus($"Page setup discovery failed: {exception.Message}");
+        }
+        finally
+        {
+            _isRefreshingPageSetups = false;
+        }
+    }
+
+    private static ComboBoxItem CreatePageSetupItem(PageSetupChoice choice)
+    {
+        var item = new ComboBoxItem(choice.DisplayName)
+        {
+            Tag = choice,
+            Content = new TextBlock
+            {
+                Text = choice.DisplayName,
+                Font = InterFontFamily.Regular,
+                FontSize = 11,
+                Foreground = new ThemeResourceBrush("TextPrimary"),
+            },
+        };
+        return item;
     }
 
     private void ShowPlanView(bool clearPreview)
@@ -1051,6 +1217,9 @@ public sealed class CadSampleView : Grid
         _printPreviewButton.IsEnabled =
             !_isBusy && !isReferencePicking &&
             (_isPrintPreview || _canvas.CurrentSnapshot is not null);
+        _pageSetupSelector.IsEnabled =
+            !_isBusy && !isReferencePicking &&
+            _canvas.CurrentSession is not null;
         _undoButton.IsEnabled =
             canUsePlanTools && _canvas.UndoCount > 0;
         _redoButton.IsEnabled =
@@ -1121,6 +1290,71 @@ public sealed class CadSampleView : Grid
     }
 
     private void SetStatus(string value) => _status.Text = value;
+
+    private readonly record struct PageSetupKey(
+        bool IsFallback,
+        CadPageSetupSourceKind SourceKind,
+        string Name);
+
+    private sealed class PageSetupChoice
+    {
+        public PageSetupKey Key { get; }
+
+        public CadPageSetupSnapshot? PageSetup { get; }
+
+        public CadPageSetupPrintOptionsResult? Lowering { get; }
+
+        public bool IsFallback => PageSetup is null;
+
+        public string DisplayName { get; }
+
+        public string StatusName { get; }
+
+        private PageSetupChoice(
+            PageSetupKey key,
+            CadPageSetupSnapshot? pageSetup,
+            CadPageSetupPrintOptionsResult? lowering,
+            string displayName,
+            string statusName)
+        {
+            Key = key;
+            PageSetup = pageSetup;
+            Lowering = lowering;
+            DisplayName = displayName;
+            StatusName = statusName;
+        }
+
+        public static PageSetupChoice CreateFallback() => new(
+            new PageSetupKey(true, default, string.Empty),
+            pageSetup: null,
+            lowering: null,
+            "A4 model extents (fallback)",
+            "A4 model-extents fallback");
+
+        public static PageSetupChoice Create(
+            CadPageSetupSnapshot pageSetup,
+            CadPageSetupPrintOptionsResult lowering)
+        {
+            string source = pageSetup.SourceKind ==
+                CadPageSetupSourceKind.Layout
+                ? "Layout"
+                : "Named";
+            string applied = pageSetup.SourceKind ==
+                    CadPageSetupSourceKind.Layout &&
+                !string.IsNullOrWhiteSpace(pageSetup.PageSetupName)
+                ? $" ({pageSetup.PageSetupName})"
+                : string.Empty;
+            string unsupported = lowering.IsSupported
+                ? string.Empty
+                : $" [unsupported {lowering.Diagnostics.Span[0].Code}]";
+            return new PageSetupChoice(
+                new PageSetupKey(false, pageSetup.SourceKind, pageSetup.Name),
+                pageSetup,
+                lowering,
+                $"{source}: {pageSetup.Name}{applied}{unsupported}",
+                $"{source} {pageSetup.Name}");
+        }
+    }
 
     private static Button CreateButton(
         string label,

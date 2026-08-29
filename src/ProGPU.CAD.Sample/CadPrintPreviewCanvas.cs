@@ -57,6 +57,8 @@ public sealed class CadPrintPreviewCanvas : FrameworkElement
 
     public float OutputDpi { get; private set; }
 
+    public string? SourcePageSetupName { get; private set; }
+
     public CadPrintPixelSize PageSizePixels => _pageSizePixels;
 
     public CadPrintPixelRect PrintableAreaPixels => _printableAreaPixels;
@@ -155,6 +157,33 @@ public sealed class CadPrintPreviewCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Chooses a 1:1 preview DPI for an already validated print contract,
+    /// accounting for page rotations that exchange the physical media axes.
+    /// </summary>
+    public static float CalculateFitOutputDpi(
+        Vector2 viewportSize,
+        CadPrintPlanOptions printOptions,
+        float inset = 24.0f,
+        float maximumDpi = 300.0f)
+    {
+        ArgumentNullException.ThrowIfNull(printOptions);
+        double width = printOptions.PaperWidthMillimeters;
+        double height = printOptions.PaperHeightMillimeters;
+        if (printOptions.Rotation is
+            CadPageRotation.CounterClockwise90 or
+            CadPageRotation.CounterClockwise270)
+        {
+            (width, height) = (height, width);
+        }
+        return CalculateFitOutputDpi(
+            viewportSize,
+            width,
+            height,
+            inset,
+            maximumDpi);
+    }
+
+    /// <summary>
     /// Replaces the preview with an independently retained page picture. The
     /// caller continues to own and may immediately dispose the source plan.
     /// </summary>
@@ -168,6 +197,7 @@ public sealed class CadPrintPreviewCanvas : FrameworkElement
         _printableAreaPixels = plan.PrintableAreaPixels;
         ContentGeneration = plan.ContentGeneration;
         OutputDpi = plan.OutputDpi;
+        SourcePageSetupName = plan.SourcePageSetupName;
         previous?.Dispose();
         Invalidate();
     }
@@ -180,6 +210,7 @@ public sealed class CadPrintPreviewCanvas : FrameworkElement
         _printableAreaPixels = default;
         ContentGeneration = 0;
         OutputDpi = 0.0f;
+        SourcePageSetupName = null;
         previous?.Dispose();
         Invalidate();
     }

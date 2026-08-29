@@ -11,6 +11,7 @@ using ProGPU.Scene;
 using ProGPU.Scene.Native;
 using ProGPU.Vector;
 using Xunit;
+using ACadLayout = ACadSharp.Objects.Layout;
 
 namespace ProGPU.CAD.Tests;
 
@@ -159,6 +160,7 @@ public sealed class CadSamplePrintPreviewTests
 
             Assert.False(preview.HasPage);
             Assert.Equal(0.0f, preview.OutputDpi);
+            Assert.Null(preview.SourcePageSetupName);
         }
         finally
         {
@@ -178,6 +180,13 @@ public sealed class CadSamplePrintPreviewTests
             Button openButton = FindButton(view, "Open DXF/DWG");
             Button fitButton = FindButton(view, "Fit");
             ulong generation = view.Canvas.CurrentSession!.ContentGeneration;
+            ComboBox selector = view.PageSetupSelector;
+
+            Assert.Equal(4, selector.Items.Count);
+            Assert.Contains(
+                "Layout: Model (ProGPU A3 landscape)",
+                Assert.IsType<ComboBoxItem>(selector.SelectedItem).Text,
+                StringComparison.Ordinal);
 
             Assert.True(previewButton.IsEnabled);
             PressEnter(previewButton);
@@ -186,15 +195,50 @@ public sealed class CadSamplePrintPreviewTests
             Assert.Equal(Visibility.Visible, view.PrintPreview.Visibility);
             Assert.True(view.PrintPreview.HasPage);
             Assert.Equal(generation, view.PrintPreview.ContentGeneration);
+            Assert.Equal("Model", view.PrintPreview.SourcePageSetupName);
+            Assert.True(
+                view.PrintPreview.PageSizePixels.Width >
+                view.PrintPreview.PageSizePixels.Height);
             Assert.Equal("Plan view", ((TextBlock)previewButton.Content!).Text);
             Assert.False(openButton.IsEnabled);
             Assert.False(fitButton.IsEnabled);
+            Assert.True(selector.IsEnabled);
             Assert.Contains(
                 DescendantsAndSelf(view).OfType<TextBlock>(),
                 text => text.Text.Contains(
-                    "A4 model-extents print preview",
+                    "Layout Model print preview",
                     StringComparison.Ordinal));
             Assert.Equal(generation, view.Canvas.CurrentSession.ContentGeneration);
+
+            selector.SelectedItem = selector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Text.Contains(
+                    "unsupported CADPAGE101",
+                    StringComparison.Ordinal));
+
+            Assert.Equal(Visibility.Visible, view.Canvas.Visibility);
+            Assert.False(view.PrintPreview.HasPage);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains("CADPAGE101", StringComparison.Ordinal));
+
+            selector.SelectedItem = selector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Text.StartsWith(
+                    "Named: A4 portrait",
+                    StringComparison.Ordinal));
+            PressEnter(previewButton);
+
+            Assert.True(view.PrintPreview.HasPage);
+            Assert.Equal("A4 portrait", view.PrintPreview.SourcePageSetupName);
+            Assert.True(
+                view.PrintPreview.PageSizePixels.Height >
+                view.PrintPreview.PageSizePixels.Width);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Named A4 portrait print preview",
+                    StringComparison.Ordinal));
             var escape = new KeyRoutedEventArgs
             {
                 Key = Silk.NET.Input.Key.Escape,
@@ -210,6 +254,140 @@ public sealed class CadSamplePrintPreviewTests
             Assert.True(openButton.IsEnabled);
             Assert.True(fitButton.IsEnabled);
             Assert.Equal(generation, view.Canvas.CurrentSession.ContentGeneration);
+
+            selector.SelectedItem = selector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Text == "A4 model extents (fallback)");
+            PressEnter(previewButton);
+
+            Assert.True(view.PrintPreview.HasPage);
+            Assert.Null(view.PrintPreview.SourcePageSetupName);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "A4 model-extents fallback print preview",
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void CanvasCompilesGenerationMatchedPageSetupAndRejectsStaleSelection()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 10, 0)));
+        ConfigureSupported(
+            document.Layouts[ACadLayout.ModelLayoutName],
+            paperWidth: 120,
+            paperHeight: 80);
+        var session = new CadDocumentSession(document);
+        session.Edit("initialize page-setup generation", static _ => { });
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            CadPageSetupSnapshot setup = canvas.CreatePageSetupCatalog()
+                .FindLayout(ACadLayout.ModelLayoutName)!;
+
+            using CadPrintPlan plan = canvas.CreatePageSetupPrintPlan(setup, 254);
+
+            Assert.Equal(ACadLayout.ModelLayoutName, plan.SourcePageSetupName);
+            Assert.Equal(new CadPrintPixelSize(1200, 800), plan.PageSizePixels);
+            Assert.Equal(session.ContentGeneration, plan.ContentGeneration);
+            using GpuPicture page = plan.CreatePagePicture();
+            GpuPicture content = page.GetCommand(1).Picture!;
+            var lineBrush = Assert.IsType<SolidColorBrush>(
+                content.GetCommand(0).Pen!.Brush);
+            Assert.Equal(new Vector4(0, 0, 0, 1), lineBrush.Color);
+            Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+                content,
+                254U,
+                plan.ContentGeneration,
+                out NativeCompiledPicture? native,
+                out NativePictureCompileFailure failure),
+                failure.ToString());
+            Assert.NotNull(native);
+
+            session.Edit("advance page-setup generation", static _ => { });
+
+            Assert.Throws<InvalidOperationException>(() =>
+                canvas.CreatePageSetupPrintPlan(setup, 254).Dispose());
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void UnsupportedPageSetupIsVisibleAndNeverSilentlyFallsBack()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Line(XYZ.Zero, XYZ.AxisX));
+        ACadLayout model = document.Layouts[ACadLayout.ModelLayoutName];
+        ConfigureSupported(model, paperWidth: 210, paperHeight: 297);
+        model.ShadePlotMode = ShadePlotMode.Rendered;
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_000, 800));
+            view.Canvas.Load(new CadDocumentSession(document));
+            ComboBox selector = view.PageSetupSelector;
+            ComboBoxItem unsupported = selector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Text.Contains(
+                    "unsupported CADPAGE110",
+                    StringComparison.Ordinal));
+
+            selector.SelectedItem = unsupported;
+            PressEnter(FindButton(view, "Print preview"));
+
+            Assert.Equal(Visibility.Visible, view.Canvas.Visibility);
+            Assert.Equal(Visibility.Collapsed, view.PrintPreview.Visibility);
+            Assert.False(view.PrintPreview.HasPage);
+            Assert.Null(view.PrintPreview.SourcePageSetupName);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains("CADPAGE110", StringComparison.Ordinal));
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void NamedPageSetupSelectionSurvivesGenerationReplacement()
+    {
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_000, 800));
+            ComboBox selector = view.PageSetupSelector;
+            ComboBoxItem named = selector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Text.StartsWith(
+                    "Named: A4 portrait",
+                    StringComparison.Ordinal));
+            selector.SelectedItem = named;
+            CadDocumentSession session = view.Canvas.CurrentSession!;
+
+            session.Edit("advance representative generation", static _ => { });
+            view.Canvas.Load(session);
+
+            var selected = Assert.IsType<ComboBoxItem>(selector.SelectedItem);
+            Assert.StartsWith(
+                "Named: A4 portrait",
+                selected.Text,
+                StringComparison.Ordinal);
+            PressEnter(FindButton(view, "Print preview"));
+            Assert.Equal(session.ContentGeneration, view.PrintPreview.ContentGeneration);
+            Assert.Equal("A4 portrait", view.PrintPreview.SourcePageSetupName);
         }
         finally
         {
@@ -258,5 +436,28 @@ public sealed class CadSamplePrintPreviewTests
         Assert.Equal(red, style.Red);
         Assert.Equal(green, style.Green);
         Assert.Equal(blue, style.Blue);
+    }
+
+    private static void ConfigureSupported(
+        PlotSettings setup,
+        double paperWidth,
+        double paperHeight)
+    {
+        setup.Flags =
+            (setup.Flags & PlotFlags.ModelType) |
+            PlotFlags.PrintLineweights |
+            PlotFlags.PlotCentered |
+            PlotFlags.UseStandardScale;
+        setup.PaperWidth = paperWidth;
+        setup.PaperHeight = paperHeight;
+        setup.UnprintableMargin = new PaperMargin(5, 5, 5, 5);
+        setup.PaperUnits = PlotPaperUnits.Millimeters;
+        setup.PaperRotation = PlotRotation.NoRotation;
+        setup.PlotType = PlotType.DrawingExtents;
+        setup.ScaledFit = ScaledType.ScaledToFit;
+        setup.NumeratorScale = 1;
+        setup.DenominatorScale = 1;
+        setup.ShadePlotMode = ShadePlotMode.Wireframe;
+        setup.StyleSheet = string.Empty;
     }
 }
