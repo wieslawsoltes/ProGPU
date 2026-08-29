@@ -85,6 +85,17 @@ then applies the new tag without changing the assigned value. Exact definition
 identity/order validation, locked-layer rejection, Undo/Redo, duplicate tags,
 DXF/DWG persistence, and shared-shell behavior are covered.
 
+Definition-only mode editing now covers Invisible, Verify, Preset, and Lock
+position while preserving constant and multiline ownership. Variable reference
+modes change only through the explicit synchronization edit; assigned values
+remain exact. Invisible changes flow through the existing snapshot visibility,
+printing, managed picture, and native-picture paths with no new shader or cache.
+ACadSharp feature commit `faf19483` adds version-aware DXF group-280 position
+lock persistence for both ATTDEF and ATTRIB; DWG already carried that field.
+Focused mode, duplicate-occurrence, locked-layer, Undo/Redo, synchronization,
+managed/native retained-output, shared-shell, and DXF/DWG regressions cover the
+slice.
+
 The same selected-INSERT workflow now includes a bounded `Sync properties`
 edit. It synchronizes entity, text, tag, mode, and transform-baked geometry
 properties from the block definitions across every registered reference while

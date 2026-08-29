@@ -1429,6 +1429,42 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Sets the non-structural modes of one ATTDEF reached through the selected
+    /// INSERT without changing constant or multiline ownership.
+    /// </summary>
+    public bool SetSelectedAttributeDefinitionModes(
+        string tag,
+        int occurrence,
+        bool isInvisible,
+        bool isVerifiable,
+        bool isPreset,
+        bool isPositionLocked)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount != 1)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        var command = new CadSetAttributeDefinitionModesCommand(
+            _selectedHandles[0],
+            tag,
+            isInvisible,
+            isVerifiable,
+            isPreset,
+            isPositionLocked,
+            occurrence,
+            $"Set block attribute modes '{tag}'");
+        history.Execute(command);
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>
     /// Synchronizes definition-owned properties across every reference to the
     /// block selected through exactly one INSERT, preserving assigned values.
     /// </summary>

@@ -1590,7 +1590,8 @@ selected model-space INSERT into a bounded generation-tagged catalog. It emits
 reference-owned variable ATTRIB values, definition-owned constant ATTDEF
 values, and variable ATTDEF defaults as distinct typed entries, preserving
 case-insensitive tag plus explicit duplicate-tag occurrence addressing,
-multiline and hidden metadata, the copied definition prompt, and the selected
+multiline, hidden, verify, preset, and position-lock metadata, the copied
+definition prompt, and the selected
 block identity. Reference entries expose no prompt because prompts belong to
 ATTDEF rather than assigned ATTRIB state. Malformed
 multiline payloads are counted as unsupported rather than exposed as editable
@@ -1636,6 +1637,18 @@ silently merged. Existing ATTRIB tags and assigned values are deliberately
 unchanged until the user invokes the separate synchronization command. Initial
 resolution and retained identity/order validation are `O(D)` and owned storage
 is `O(S)` for the old/address and new tags.
+
+`CadSetAttributeDefinitionModesCommand` edits only the non-structural ATTDEF
+modes: invisible, verify-on-input, preset/no-prompt, and lock-position. It
+retains the exact definition identity and prior flags/lock state, preserves the
+constant flag and multiline payload kind, and rejects a selected INSERT on a
+locked layer before mutation. Existing variable ATTRIB modes remain unchanged
+until explicit synchronization; constant ATTDEF visibility affects retained
+output immediately because constants remain definition-owned. Resolution is
+`O(D)` and retained Apply/Undo/Redo mutation is `O(1)`. ACadSharp feature commit
+`faf19483` adds the missing DXF position-lock round trip with version-sensitive
+group-280 handling: R2007+ carries the lock and R2010+ independently carries the
+preceding ATTDEF/ATTRIB version value.
 
 `CadSynchronizeBlockAttributePropertiesCommand` implements bounded property and
 structural block attribute synchronization. One selected,
@@ -4342,6 +4355,8 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   with the 256-code-unit command limit and constant-mode prompt suppression,
   group-2 tag edits with uppercase/no-whitespace/no-`!` normalization and
   explicit duplicate occurrence addressing,
+  non-structural group-70 invisible/verify/preset mode edits, group-280
+  position locking, and explicit definition-to-reference synchronization,
   and ATTSYNC's all-reference property
   propagation with assigned-value preservation. Existing assigned references
   stay unchanged while future INSERTs inherit an edited default; property sync
@@ -4350,7 +4365,10 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   every assigned ATTRIB value untouched and affect future insertion interaction,
   not rendering. Definition tag edits also preserve existing ATTRIB tags and
   values until an explicit synchronization applies the new tag while retaining
-  the assigned value. Adapted ATTREDEF's structural
+  the assigned value. Mode edits preserve constant/multiline ownership and do
+  not rewrite variable references until synchronization; invisible mode uses
+  the existing snapshot visibility gate and retained managed/native picture
+  path rather than a new renderer branch. Adapted ATTREDEF's structural
   behavior to an original ordered replacement contract: retained/renamed
   references preserve assigned values, new references use current definition
   defaults, removed references retain exact handles only while Undo/Redo owns
@@ -4385,7 +4403,8 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   exact ordered replacement and handle leasing is the ProGPU-owned ACadSharp
   feature-branch work in commits `2a3df82a`, `b95db6b2`, and `d4104e03`;
   `ac9301e5` exposes the constant-time XData entry count used by bounded
-  preflight. No third-party implementation supplied those contracts.
+  preflight, and `faf19483` supplies the version-aware DXF position-lock
+  read/write contract. No third-party implementation supplied those contracts.
   ACadSharp's public object model and pinned fixtures were inspected only to
   identify persisted contracts and independently observable placement; no
   dependency implementation text or structure was copied. The native C++ tree

@@ -289,6 +289,77 @@ public sealed class CadAttributeSnapshotTests
     }
 
     [Fact]
+    public void DefinitionVisibilityModeRecompilesAfterExplicitSynchronization()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        ulong insertHandle = 0;
+        session.Edit("Add mode-edit attribute", document =>
+        {
+            TextStyle style = AddTextStyle(document);
+            var block = new BlockRecord("MODE_EDIT_ATTRIBUTE");
+            block.Entities.Add(new AttributeDefinition
+            {
+                Tag = "SERIAL",
+                Value = "VISIBLE",
+                Style = style,
+                Height = 1,
+                InsertPoint = new XYZ(2, 1, 0),
+            });
+            var insert = new Insert(block);
+            document.Entities.Add(insert);
+            document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 0, 0)));
+            insertHandle = insert.Handle;
+        });
+        var history = new CadDocumentHistory(session);
+
+        CadDocumentSnapshot initiallyVisible = Compile(session);
+        Assert.Single(initiallyVisible.Texts.ToArray());
+        CadRecordedPlanScene visibleScene =
+            new CadPlanSceneCompiler().Compile(initiallyVisible);
+        using GpuPicture visiblePicture = visibleScene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            visiblePicture,
+            96U,
+            visibleScene.ContentGeneration,
+            out NativeCompiledPicture? visibleNative,
+            out NativePictureCompileFailure visibleFailure),
+            visibleFailure.ToString());
+        Assert.NotNull(visibleNative);
+
+        history.Execute(new CadSetAttributeDefinitionModesCommand(
+            insertHandle,
+            "SERIAL",
+            isInvisible: true,
+            isVerifiable: true,
+            isPreset: true,
+            isPositionLocked: true));
+        Assert.Single(Compile(session).Texts.ToArray());
+
+        history.Execute(new CadSynchronizeBlockAttributePropertiesCommand(
+            insertHandle));
+        CadDocumentSnapshot synchronizedHidden = Compile(session);
+        Assert.Empty(synchronizedHidden.Texts.ToArray());
+        CadRecordedPlanScene hiddenScene =
+            new CadPlanSceneCompiler().Compile(synchronizedHidden);
+        using GpuPicture hiddenPicture = hiddenScene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            hiddenPicture,
+            96U,
+            hiddenScene.ContentGeneration,
+            out NativeCompiledPicture? hiddenNative,
+            out NativePictureCompileFailure hiddenFailure),
+            hiddenFailure.ToString());
+        Assert.NotNull(hiddenNative);
+        Assert.True(
+            visibleNative.SourceCommandCount > hiddenNative.SourceCommandCount);
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Single(Compile(session).Texts.ToArray());
+        Assert.True(history.TryUndo(out _));
+        Assert.Single(Compile(session).Texts.ToArray());
+    }
+
+    [Fact]
     public async Task EditedAttributeValueSurvivesDxfSaveAndReload()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew(ACadVersion.AC1032);

@@ -1918,6 +1918,7 @@ public sealed class CadSampleSelectionTests
                 view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
             Button setPrompt = FindButton(view, "Set prompt");
             Button setTag = FindButton(view, "Set tag");
+            Button setModes = FindButton(view, "Set modes");
             Button undo = FindButton(view, "Undo");
             Button redo = FindButton(view, "Redo");
             ComboBoxItem definitionItem = view.SelectionAttributeSelector.Items
@@ -1942,11 +1943,23 @@ public sealed class CadSampleSelectionTests
             Assert.Empty(view.SelectionAttributeTagInput.Text);
             Assert.False(view.SelectionAttributeTagInput.IsEnabled);
             Assert.False(setTag.IsEnabled);
+            Assert.False(view.SelectionAttributeInvisibleCheckBox.IsEnabled);
+            Assert.False(view.SelectionAttributeVerifyCheckBox.IsEnabled);
+            Assert.False(view.SelectionAttributePresetCheckBox.IsEnabled);
+            Assert.False(
+                view.SelectionAttributePositionLockedCheckBox.IsEnabled);
+            Assert.False(setModes.IsEnabled);
 
             view.SelectionAttributeSelector.SelectedItem = definitionItem;
             Assert.Equal("Part number", view.SelectionAttributePromptInput.Text);
             Assert.True(view.SelectionAttributePromptInput.IsEnabled);
             Assert.Equal("PART", view.SelectionAttributeTagInput.Text);
+            Assert.True(view.SelectionAttributeInvisibleCheckBox.IsEnabled);
+            Assert.False(view.SelectionAttributeInvisibleCheckBox.IsChecked);
+            Assert.False(view.SelectionAttributeVerifyCheckBox.IsChecked);
+            Assert.False(view.SelectionAttributePresetCheckBox.IsChecked);
+            Assert.False(
+                view.SelectionAttributePositionLockedCheckBox.IsChecked);
             view.SelectionAttributePromptInput.Text = "Updated part number";
             PressEnter(setPrompt);
 
@@ -1995,6 +2008,48 @@ public sealed class CadSampleSelectionTests
             Assert.Equal("ITEM", definition.Tag);
             Assert.Equal("ITEM", view.SelectionAttributeTagInput.Text);
             Assert.Equal("PART", assigned.Tag);
+            Assert.Equal("ASSIGNED", assigned.Value);
+
+            view.SelectionAttributeInvisibleCheckBox.IsChecked = true;
+            view.SelectionAttributeVerifyCheckBox.IsChecked = true;
+            view.SelectionAttributePresetCheckBox.IsChecked = true;
+            view.SelectionAttributePositionLockedCheckBox.IsChecked = true;
+            PressEnter(setModes);
+            Assert.Equal(7UL, session.ContentGeneration);
+            Assert.Equal(
+                AttributeFlags.Hidden |
+                    AttributeFlags.Verify |
+                    AttributeFlags.Preset,
+                definition.Flags);
+            Assert.True(definition.IsLocked);
+            Assert.Equal(AttributeFlags.None, assigned.Flags);
+            Assert.False(assigned.IsLocked);
+            Assert.Equal("ASSIGNED", assigned.Value);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Set definition modes ITEM #1 as one edit",
+                    StringComparison.Ordinal));
+
+            PressEnter(undo);
+            Assert.Equal(8UL, session.ContentGeneration);
+            Assert.Equal(AttributeFlags.None, definition.Flags);
+            Assert.False(definition.IsLocked);
+            Assert.False(view.SelectionAttributeInvisibleCheckBox.IsChecked);
+            PressEnter(redo);
+            Assert.Equal(9UL, session.ContentGeneration);
+            Assert.Equal(
+                AttributeFlags.Hidden |
+                    AttributeFlags.Verify |
+                    AttributeFlags.Preset,
+                definition.Flags);
+            Assert.True(definition.IsLocked);
+            Assert.True(view.SelectionAttributeInvisibleCheckBox.IsChecked);
+            Assert.True(view.SelectionAttributeVerifyCheckBox.IsChecked);
+            Assert.True(view.SelectionAttributePresetCheckBox.IsChecked);
+            Assert.True(
+                view.SelectionAttributePositionLockedCheckBox.IsChecked);
+            Assert.Equal(AttributeFlags.None, assigned.Flags);
             Assert.Equal("ASSIGNED", assigned.Value);
         }
         finally

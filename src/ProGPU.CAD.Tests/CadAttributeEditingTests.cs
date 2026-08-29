@@ -36,6 +36,9 @@ public sealed class CadAttributeEditingTests
                 "CONSTANT VALUE",
                 false,
                 false,
+                false,
+                false,
+                false,
                 "Label prompt"),
             entries[0]);
         Assert.Equal(CadAttributeValueOwner.Definition, entries[1].Owner);
@@ -43,11 +46,17 @@ public sealed class CadAttributeEditingTests
         Assert.Equal("CONSTANT MTEXT", entries[1].Value);
         Assert.True(entries[1].IsMultiline);
         Assert.True(entries[1].IsInvisible);
+        Assert.False(entries[1].IsVerifiable);
+        Assert.False(entries[1].IsPreset);
+        Assert.False(entries[1].IsPositionLocked);
         Assert.Equal("Notes prompt", entries[1].Prompt);
         Assert.Equal(CadAttributeValueOwner.VariableDefinition, entries[2].Owner);
         Assert.Equal("PART", entries[2].Tag);
         Assert.Equal("DEFAULT", entries[2].Value);
         Assert.True(entries[2].IsMultiline);
+        Assert.False(entries[2].IsVerifiable);
+        Assert.False(entries[2].IsPreset);
+        Assert.False(entries[2].IsPositionLocked);
         Assert.Equal("Part prompt", entries[2].Prompt);
         Assert.Equal(CadAttributeValueOwner.Reference, entries[3].Owner);
         Assert.Equal("PART", entries[3].Tag);
@@ -377,6 +386,111 @@ public sealed class CadAttributeEditingTests
     }
 
     [Fact]
+    public void DefinitionModesPreserveOwnershipAndSynchronizeExplicitly()
+    {
+        (CadDocument document, Insert insert, AttributeDefinition label, _) =
+            CreateDocument();
+        AttributeDefinition part = insert.Block.AttributeDefinitions.Single(
+            candidate => candidate.Tag == "PART");
+        AttributeEntity assigned = insert.Attributes.Single(
+            attribute => attribute.Tag == "PART");
+        assigned.Value = "ASSIGNED";
+        assigned.MText.Value = "ASSIGNED";
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetAttributeDefinitionModesCommand(
+            insert.Handle,
+            "PART",
+            isInvisible: true,
+            isVerifiable: true,
+            isPreset: true,
+            isPositionLocked: true));
+
+        Assert.Equal(
+            AttributeFlags.Hidden | AttributeFlags.Verify | AttributeFlags.Preset,
+            part.Flags);
+        Assert.True(part.IsLocked);
+        Assert.Equal(AttributeFlags.None, assigned.Flags);
+        Assert.False(assigned.IsLocked);
+        Assert.Equal("ASSIGNED", assigned.Value);
+
+        history.Execute(new CadSynchronizeBlockAttributePropertiesCommand(
+            insert.Handle));
+        Assert.Equal(part.Flags, assigned.Flags);
+        Assert.True(assigned.IsLocked);
+        Assert.Equal("ASSIGNED", assigned.Value);
+
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(AttributeFlags.None, assigned.Flags);
+        Assert.False(assigned.IsLocked);
+        Assert.Equal("ASSIGNED", assigned.Value);
+        Assert.True(history.TryUndo(out _));
+        Assert.Equal(AttributeFlags.None, part.Flags);
+        Assert.False(part.IsLocked);
+
+        history.Execute(new CadSetAttributeDefinitionModesCommand(
+            insert.Handle,
+            "LABEL",
+            isInvisible: true,
+            isVerifiable: true,
+            isPreset: true,
+            isPositionLocked: true));
+        Assert.Equal(
+            AttributeFlags.Constant |
+                AttributeFlags.Hidden |
+                AttributeFlags.Verify |
+                AttributeFlags.Preset,
+            label.Flags);
+        Assert.True(label.IsLocked);
+    }
+
+    [Fact]
+    public void DefinitionModesUseOccurrenceAndRejectLockedInsert()
+    {
+        (CadDocument document, Insert insert, AttributeDefinition label, _) =
+            CreateDocument();
+        var duplicate = new AttributeDefinition
+        {
+            Tag = "LABEL",
+            Value = "SECOND",
+        };
+        insert.Block.Entities.Add(duplicate);
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        history.Execute(new CadSetAttributeDefinitionModesCommand(
+            insert.Handle,
+            "label",
+            isInvisible: true,
+            isVerifiable: false,
+            isPreset: true,
+            isPositionLocked: true,
+            occurrence: 1));
+
+        Assert.Equal(AttributeFlags.Constant, label.Flags);
+        Assert.False(label.IsLocked);
+        Assert.Equal(
+            AttributeFlags.Hidden | AttributeFlags.Preset,
+            duplicate.Flags);
+        Assert.True(duplicate.IsLocked);
+
+        Assert.True(history.TryUndo(out _));
+        insert.Layer.Flags |= LayerFlags.Locked;
+        ulong generation = session.ContentGeneration;
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadSetAttributeDefinitionModesCommand(
+                insert.Handle,
+                "LABEL",
+                isInvisible: true,
+                isVerifiable: true,
+                isPreset: true,
+                isPositionLocked: true)));
+        Assert.Equal(generation, session.ContentGeneration);
+        Assert.Equal(AttributeFlags.Constant, label.Flags);
+    }
+
+    [Fact]
     public void ConstantMultilineEditSynchronizesPayloadAndRejectsVariableTarget()
     {
         (CadDocument document, Insert insert, _, AttributeDefinition notes) =
@@ -475,6 +589,14 @@ public sealed class CadAttributeEditingTests
                 insert.Handle,
                 "PART",
                 "item"));
+        history.Execute(
+            new CadSetAttributeDefinitionModesCommand(
+                insert.Handle,
+                "ITEM",
+                isInvisible: false,
+                isVerifiable: true,
+                isPreset: true,
+                isPositionLocked: true));
         using var stream = new MemoryStream();
         var store = new CadDocumentStore();
 
@@ -504,6 +626,10 @@ public sealed class CadAttributeEditingTests
             Assert.Equal(@"FUTURE\PDEFAULT", variable.Value);
             Assert.Equal(@"FUTURE\PDEFAULT", variable.MText.Value);
             Assert.Equal("Persisted part prompt", variable.Prompt);
+            Assert.Equal(
+                AttributeFlags.Verify | AttributeFlags.Preset,
+                variable.Flags);
+            Assert.True(variable.IsLocked);
             AttributeEntity existing = loadedDocument.Entities
                 .OfType<Insert>()
                 .Single()

@@ -19,6 +19,9 @@ public readonly record struct CadAttributeValueEntry(
     string Value,
     bool IsMultiline,
     bool IsInvisible,
+    bool IsVerifiable,
+    bool IsPreset,
+    bool IsPositionLocked,
     string Prompt);
 
 public sealed class CadAttributeValueCatalogOptions
@@ -162,6 +165,9 @@ public sealed class CadAttributeValueCatalogCompiler
                 Copy(value, "attribute value"),
                 isMultiline,
                 (definition.Flags & AttributeFlags.Hidden) != 0,
+                (definition.Flags & AttributeFlags.Verify) != 0,
+                (definition.Flags & AttributeFlags.Preset) != 0,
+                definition.IsLocked,
                 Copy(definition.Prompt ?? string.Empty, "attribute prompt")));
         }
 
@@ -193,6 +199,9 @@ public sealed class CadAttributeValueCatalogCompiler
                 Copy(value, "attribute value"),
                 isMultiline,
                 (attribute.Flags & AttributeFlags.Hidden) != 0,
+                (attribute.Flags & AttributeFlags.Verify) != 0,
+                (attribute.Flags & AttributeFlags.Preset) != 0,
+                attribute.IsLocked,
                 string.Empty));
         }
 
@@ -602,6 +611,208 @@ public sealed class CadSetAttributeDefinitionTagCommand : CadEditCommand
         throw new InvalidOperationException(
             $"Block '{block.Name}' has no attribute definition '{tag}' " +
             $"occurrence {occurrence}.");
+    }
+}
+
+/// <summary>
+/// Replaces the non-structural ATTDEF modes selected through a model-space
+/// INSERT, tag, and zero-based duplicate-tag occurrence.
+/// </summary>
+/// <remarks>
+/// Resolution is O(D) for D definitions. Apply, Undo, and Redo retain the exact
+/// definition identity and mutate O(1) state. Constant and multiline ownership
+/// bits are preserved; changing either requires a separate structural command.
+/// Existing variable ATTRIB modes remain unchanged until explicit synchronization.
+/// </remarks>
+public sealed class CadSetAttributeDefinitionModesCommand : CadEditCommand
+{
+    public const int MaximumTagCodeUnits = 4_096;
+
+    private const AttributeFlags EditableFlags =
+        AttributeFlags.Hidden |
+        AttributeFlags.Verify |
+        AttributeFlags.Preset;
+
+    private readonly ulong _insertHandle;
+    private Insert? _insert;
+    private BlockRecord? _block;
+    private AttributeDefinition? _definition;
+    private AttributeFlags _previousFlags;
+    private AttributeFlags _updatedFlags;
+    private bool _previousPositionLocked;
+
+    public ulong InsertHandle => _insertHandle;
+
+    public string Tag { get; }
+
+    public int Occurrence { get; }
+
+    public bool IsInvisible { get; }
+
+    public bool IsVerifiable { get; }
+
+    public bool IsPreset { get; }
+
+    public bool IsPositionLocked { get; }
+
+    public CadSetAttributeDefinitionModesCommand(
+        ulong insertHandle,
+        string tag,
+        bool isInvisible,
+        bool isVerifiable,
+        bool isPreset,
+        bool isPositionLocked,
+        int occurrence = 0,
+        string description = "Set attribute definition modes")
+        : base(description)
+    {
+        if (insertHandle == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(insertHandle));
+        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(tag);
+        ArgumentOutOfRangeException.ThrowIfNegative(occurrence);
+        if (tag.Length > MaximumTagCodeUnits)
+        {
+            throw new ArgumentException(
+                "The attribute tag exceeds the command ownership budget.",
+                nameof(tag));
+        }
+
+        _insertHandle = insertHandle;
+        Tag = new string(tag.AsSpan());
+        Occurrence = occurrence;
+        IsInvisible = isInvisible;
+        IsVerifiable = isVerifiable;
+        IsPreset = isPreset;
+        IsPositionLocked = isPositionLocked;
+    }
+
+    internal override void Apply(CadDocument document, bool isRedo)
+    {
+        AttributeDefinition definition;
+        if (isRedo)
+        {
+            definition = GetRetainedDefinition(document);
+        }
+        else
+        {
+            Entity entity = ResolveModelSpaceEntity(document, _insertHandle);
+            Insert insert = entity as Insert ?? throw new InvalidOperationException(
+                $"Model-space entity handle {_insertHandle:X} is not an INSERT.");
+            BlockRecord block = insert.Block ?? throw new InvalidOperationException(
+                $"INSERT handle {_insertHandle:X} has no block definition.");
+            definition = ResolveDefinition(block, Tag, Occurrence);
+            _insert = insert;
+            _block = block;
+            _definition = definition;
+            _previousFlags = definition.Flags;
+            _previousPositionLocked = definition.IsLocked;
+            _updatedFlags = BuildFlags(definition.Flags);
+        }
+
+        SetModesTransactional(
+            definition,
+            _updatedFlags,
+            IsPositionLocked);
+    }
+
+    internal override void Revert(CadDocument document)
+    {
+        AttributeDefinition definition = GetRetainedDefinition(document);
+        SetModesTransactional(
+            definition,
+            _previousFlags,
+            _previousPositionLocked);
+    }
+
+    private AttributeFlags BuildFlags(AttributeFlags current)
+    {
+        AttributeFlags updated = current & ~EditableFlags;
+        if (IsInvisible)
+        {
+            updated |= AttributeFlags.Hidden;
+        }
+        if (IsVerifiable)
+        {
+            updated |= AttributeFlags.Verify;
+        }
+        if (IsPreset)
+        {
+            updated |= AttributeFlags.Preset;
+        }
+        return updated;
+    }
+
+    private AttributeDefinition GetRetainedDefinition(CadDocument document)
+    {
+        Insert insert = _insert ?? throw new InvalidOperationException(
+            "The attribute-modes command has not been applied.");
+        BlockRecord block = _block ?? throw new InvalidOperationException(
+            "The attribute-modes command has not been applied.");
+        AttributeDefinition definition = _definition ??
+            throw new InvalidOperationException(
+                "The attribute-modes command has not been applied.");
+        ValidateModelSpaceEntity(document, insert);
+        if (!ReferenceEquals(insert.Block, block))
+        {
+            throw new InvalidOperationException(
+                "The selected INSERT no longer references the retained block definition.");
+        }
+        AttributeDefinition current = ResolveDefinition(block, Tag, Occurrence);
+        if (!ReferenceEquals(current, definition))
+        {
+            throw new InvalidOperationException(
+                $"Attribute definition '{Tag}' occurrence {Occurrence} is no " +
+                "longer the retained definition.");
+        }
+        return definition;
+    }
+
+    private static AttributeDefinition ResolveDefinition(
+        BlockRecord block,
+        string tag,
+        int occurrence)
+    {
+        int currentOccurrence = 0;
+        foreach (AttributeDefinition definition in block.AttributeDefinitions)
+        {
+            if (!string.Equals(
+                    definition.Tag,
+                    tag,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (currentOccurrence == occurrence)
+            {
+                return definition;
+            }
+            currentOccurrence++;
+        }
+        throw new InvalidOperationException(
+            $"Block '{block.Name}' has no attribute definition '{tag}' " +
+            $"occurrence {occurrence}.");
+    }
+
+    private static void SetModesTransactional(
+        AttributeDefinition definition,
+        AttributeFlags flags,
+        bool isPositionLocked)
+    {
+        AttributeFlags rollbackFlags = definition.Flags;
+        bool rollbackPositionLocked = definition.IsLocked;
+        try
+        {
+            definition.Flags = flags;
+            definition.IsLocked = isPositionLocked;
+        }
+        catch
+        {
+            definition.Flags = rollbackFlags;
+            definition.IsLocked = rollbackPositionLocked;
+            throw;
+        }
     }
 }
 

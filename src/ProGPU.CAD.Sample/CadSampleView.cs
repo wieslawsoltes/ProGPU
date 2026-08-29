@@ -63,6 +63,10 @@ public sealed class CadSampleView : Grid
     private readonly TextBox _selectionAttributeValueInput;
     private readonly TextBox _selectionAttributePromptInput;
     private readonly TextBox _selectionAttributeTagInput;
+    private readonly CheckBox _selectionAttributeInvisibleCheckBox;
+    private readonly CheckBox _selectionAttributeVerifyCheckBox;
+    private readonly CheckBox _selectionAttributePresetCheckBox;
+    private readonly CheckBox _selectionAttributePositionLockedCheckBox;
     private readonly Button _setSelectionLayerButton;
     private readonly Button _setSelectionLineTypeButton;
     private readonly Button _setSelectionLineTypeScaleButton;
@@ -72,6 +76,7 @@ public sealed class CadSampleView : Grid
     private readonly Button _setSelectionAttributeValueButton;
     private readonly Button _setSelectionAttributePromptButton;
     private readonly Button _setSelectionAttributeTagButton;
+    private readonly Button _setSelectionAttributeModesButton;
     private readonly Button _synchronizeSelectionAttributePropertiesButton;
     private readonly ComboBox _layerStateSelector;
     private readonly ComboBox _layerVisibilitySelector;
@@ -162,6 +167,18 @@ public sealed class CadSampleView : Grid
 
     public TextBox SelectionAttributeTagInput =>
         _selectionAttributeTagInput;
+
+    public CheckBox SelectionAttributeInvisibleCheckBox =>
+        _selectionAttributeInvisibleCheckBox;
+
+    public CheckBox SelectionAttributeVerifyCheckBox =>
+        _selectionAttributeVerifyCheckBox;
+
+    public CheckBox SelectionAttributePresetCheckBox =>
+        _selectionAttributePresetCheckBox;
+
+    public CheckBox SelectionAttributePositionLockedCheckBox =>
+        _selectionAttributePositionLockedCheckBox;
 
     public ComboBox LayerStateSelector => _layerStateSelector;
 
@@ -640,6 +657,23 @@ public sealed class CadSampleView : Grid
             font,
             80,
             30);
+        _selectionAttributeInvisibleCheckBox = CreateAttributeModeCheckBox(
+            "Invisible",
+            font);
+        _selectionAttributeVerifyCheckBox = CreateAttributeModeCheckBox(
+            "Verify",
+            font);
+        _selectionAttributePresetCheckBox = CreateAttributeModeCheckBox(
+            "Preset",
+            font);
+        _selectionAttributePositionLockedCheckBox = CreateAttributeModeCheckBox(
+            "Lock position",
+            font);
+        _setSelectionAttributeModesButton = CreateButton(
+            "Set modes",
+            font,
+            92,
+            30);
         _synchronizeSelectionAttributePropertiesButton = CreateButton(
             "Sync properties",
             font,
@@ -652,6 +686,12 @@ public sealed class CadSampleView : Grid
         selectionAttributeActions.AddChild(_setSelectionAttributePromptButton);
         selectionAttributeActions.AddChild(_selectionAttributeTagInput);
         selectionAttributeActions.AddChild(_setSelectionAttributeTagButton);
+        selectionAttributeActions.AddChild(_selectionAttributeInvisibleCheckBox);
+        selectionAttributeActions.AddChild(_selectionAttributeVerifyCheckBox);
+        selectionAttributeActions.AddChild(_selectionAttributePresetCheckBox);
+        selectionAttributeActions.AddChild(
+            _selectionAttributePositionLockedCheckBox);
+        selectionAttributeActions.AddChild(_setSelectionAttributeModesButton);
         selectionAttributeActions.AddChild(
             _synchronizeSelectionAttributePropertiesButton);
 
@@ -1190,6 +1230,14 @@ public sealed class CadSampleView : Grid
                 UpdateEditControls();
             }
         };
+        _selectionAttributeInvisibleCheckBox.CheckedChanged += (_, _) =>
+            UpdateAttributeModeControls();
+        _selectionAttributeVerifyCheckBox.CheckedChanged += (_, _) =>
+            UpdateAttributeModeControls();
+        _selectionAttributePresetCheckBox.CheckedChanged += (_, _) =>
+            UpdateAttributeModeControls();
+        _selectionAttributePositionLockedCheckBox.CheckedChanged += (_, _) =>
+            UpdateAttributeModeControls();
         _layerStateSelector.SelectionChanged += (_, _) =>
         {
             if (_isRefreshingSelectionProperties)
@@ -1289,6 +1337,8 @@ public sealed class CadSampleView : Grid
             SetSelectionAttributePrompt();
         _setSelectionAttributeTagButton.Click += (_, _) =>
             SetSelectionAttributeTag();
+        _setSelectionAttributeModesButton.Click += (_, _) =>
+            SetSelectionAttributeModes();
         _synchronizeSelectionAttributePropertiesButton.Click += (_, _) =>
             SynchronizeSelectionAttributeProperties();
         _setLayerVisibilityButton.Click += (_, _) => SetLayerVisibility();
@@ -2010,6 +2060,7 @@ public sealed class CadSampleView : Grid
         _selectionAttributeValueInput.Text = string.Empty;
         _selectionAttributePromptInput.Text = string.Empty;
         _selectionAttributeTagInput.Text = string.Empty;
+        SetAttributeModeChecks(null);
 
         CadAttributeValueCatalog? catalog;
         try
@@ -2081,6 +2132,10 @@ public sealed class CadSampleView : Grid
             { Owner: not CadAttributeValueOwner.Reference } definitionTag
             ? definitionTag.Tag
             : string.Empty;
+        SetAttributeModeChecks(selected is
+            { Owner: not CadAttributeValueOwner.Reference } definitionModes
+            ? definitionModes
+            : null);
     }
 
     private void RefreshSelectionPropertyCatalog()
@@ -2599,6 +2654,75 @@ public sealed class CadSampleView : Grid
             UpdateEditControls();
         }
     }
+
+    private void SetSelectionAttributeModes()
+    {
+        if (_isBusy ||
+            (_selectionAttributeSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                CadAttributeValueEntry
+                {
+                    Owner: not CadAttributeValueOwner.Reference,
+                } entry ||
+            !HaveSelectedAttributeModesChanged(entry))
+        {
+            return;
+        }
+
+        try
+        {
+            if (!_canvas.SetSelectedAttributeDefinitionModes(
+                    entry.Tag,
+                    entry.Occurrence,
+                    _selectionAttributeInvisibleCheckBox.IsChecked,
+                    _selectionAttributeVerifyCheckBox.IsChecked,
+                    _selectionAttributePresetCheckBox.IsChecked,
+                    _selectionAttributePositionLockedCheckBox.IsChecked))
+            {
+                SetStatus(
+                    "Attribute mode editing requires exactly one selected INSERT.");
+                return;
+            }
+            SetStatus(
+                $"Set definition modes {entry.Tag} " +
+                $"#{entry.Occurrence + 1} as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set attribute modes failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void UpdateAttributeModeControls()
+    {
+        if (!_isRefreshingSelectionProperties)
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void SetAttributeModeChecks(CadAttributeValueEntry? entry)
+    {
+        _selectionAttributeInvisibleCheckBox.IsChecked =
+            entry?.IsInvisible == true;
+        _selectionAttributeVerifyCheckBox.IsChecked =
+            entry?.IsVerifiable == true;
+        _selectionAttributePresetCheckBox.IsChecked =
+            entry?.IsPreset == true;
+        _selectionAttributePositionLockedCheckBox.IsChecked =
+            entry?.IsPositionLocked == true;
+    }
+
+    private bool HaveSelectedAttributeModesChanged(
+        CadAttributeValueEntry entry) =>
+        _selectionAttributeInvisibleCheckBox.IsChecked != entry.IsInvisible ||
+        _selectionAttributeVerifyCheckBox.IsChecked != entry.IsVerifiable ||
+        _selectionAttributePresetCheckBox.IsChecked != entry.IsPreset ||
+        _selectionAttributePositionLockedCheckBox.IsChecked !=
+            entry.IsPositionLocked;
 
     private void SynchronizeSelectionAttributeProperties()
     {
@@ -3770,6 +3894,14 @@ public sealed class CadSampleView : Grid
             canTransform && hasSelectedDefinitionAttribute;
         _selectionAttributeTagInput.IsEnabled =
             canTransform && hasSelectedDefinitionAttribute;
+        _selectionAttributeInvisibleCheckBox.IsEnabled =
+            canTransform && hasSelectedDefinitionAttribute;
+        _selectionAttributeVerifyCheckBox.IsEnabled =
+            canTransform && hasSelectedDefinitionAttribute;
+        _selectionAttributePresetCheckBox.IsEnabled =
+            canTransform && hasSelectedDefinitionAttribute;
+        _selectionAttributePositionLockedCheckBox.IsEnabled =
+            canTransform && hasSelectedDefinitionAttribute;
         _setSelectionColorButton.IsEnabled =
             canTransform &&
             TryParseSelectionColor(
@@ -3823,6 +3955,11 @@ public sealed class CadSampleView : Grid
                 selectedAttribute?.Tag,
                 _selectionAttributeTagInput.Text,
                 StringComparison.OrdinalIgnoreCase);
+        _setSelectionAttributeModesButton.IsEnabled =
+            canTransform &&
+            hasSelectedDefinitionAttribute &&
+            selectedAttribute is CadAttributeValueEntry modesEntry &&
+            HaveSelectedAttributeModesChanged(modesEntry);
         _synchronizeSelectionAttributePropertiesButton.IsEnabled =
             canTransform &&
             _canvas.CanSynchronizeSelectedBlockAttributeProperties;
@@ -4457,6 +4594,23 @@ public sealed class CadSampleView : Grid
                 FontSize = 11,
                 Foreground = new ThemeResourceBrush("TextPrimary"),
                 HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
+
+    private static CheckBox CreateAttributeModeCheckBox(
+        string label,
+        TtfFont font) =>
+        new()
+        {
+            HeightConstraint = 30,
+            Margin = new Thickness(0, 0, 8, 0),
+            Content = new TextBlock
+            {
+                Text = label,
+                Font = font,
+                FontSize = 11,
+                Foreground = new ThemeResourceBrush("TextPrimary"),
                 VerticalAlignment = VerticalAlignment.Center,
             },
         };
