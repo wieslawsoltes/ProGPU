@@ -30,6 +30,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     private readonly CadSnapshotOptions _snapshotOptions;
     private readonly HashSet<ulong> _selectedHandleSet = new();
     private GpuPicture? _picture;
+    private GpuPicture? _constructionPicture;
     private CadDocumentHistory? _history;
     private CadBounds3D _bounds;
     private CadBounds3D _selectedBounds;
@@ -188,6 +189,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             _selectedHandleCount = preservedHandleCount;
             RefreshSelectionBounds(snapshot);
         }
+        RefreshConstructionPicture();
         previous?.Dispose();
         Invalidate();
         SelectionChanged?.Invoke(this, EventArgs.Empty);
@@ -200,6 +202,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (_needsFit && Size.X > 0 && Size.Y > 0)
         {
             FitToView();
+        }
+        else
+        {
+            RefreshConstructionPicture();
         }
     }
 
@@ -214,6 +220,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         CadPlanViewport viewport = CreateViewport();
         context.PushClip(new Rect(0, 0, Size.X, Size.Y));
         context.DrawPicture(_picture, viewport.CreateCameraMatrix());
+        if (_constructionPicture is not null)
+        {
+            context.DrawPicture(_constructionPicture, viewport.CreateCameraMatrix());
+        }
         if (!_selectedBounds.IsEmpty)
         {
             context.DrawRectangle(
@@ -246,6 +256,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         _zoom = Math.Clamp(_zoom, 0.00001f, 1_000_000f);
         _pan = Vector2.Zero;
         _needsFit = false;
+        RefreshConstructionPicture();
         Invalidate();
     }
 
@@ -281,6 +292,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (_isPanning)
         {
             _pan = _panOrigin + (args.Position - _pointerOrigin);
+            RefreshConstructionPicture();
             Invalidate();
             args.Handled = true;
             return;
@@ -339,6 +351,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         Vector2 local = (args.Position - center - _pan) / _zoom;
         _zoom = Math.Clamp(_zoom * factor, 0.00001f, 1_000_000f);
         _pan = args.Position - center - (local * _zoom);
+        RefreshConstructionPicture();
         Invalidate();
         args.Handled = true;
     }
@@ -478,10 +491,9 @@ public sealed class CadSampleCanvas : FrameworkElement
             ? CadBoundsSelectionMode.Window
             : CadBoundsSelectionMode.Crossing;
         float inflation = _hasSelectionDrag ? 0.0f : PointSelectionTolerance;
-        CadBounds3D selectionBounds = CreateViewport().CreateSelectionBounds(
+        CadBounds3D selectionBounds = CreateViewport().CreatePlanSelectionBounds(
             _pointerOrigin,
             _selectionCurrent,
-            snapshot.Bounds,
             inflation);
         CadBoundsSelectionQueryResult result = CadSelectionQuery.QueryExactBounds(
             snapshot,
@@ -550,6 +562,27 @@ public sealed class CadSampleCanvas : FrameworkElement
         return new CadPlanViewport(rebaseOrigin, Size, _pan, _zoom);
     }
 
+    private void RefreshConstructionPicture()
+    {
+        CadDocumentSnapshot? snapshot = CurrentSnapshot;
+        if (snapshot is null || snapshot.ConstructionLines.IsEmpty ||
+            Size.X <= 0.0f || Size.Y <= 0.0f)
+        {
+            _constructionPicture?.Dispose();
+            _constructionPicture = null;
+            return;
+        }
+
+        CadPlanViewport viewport = CreateViewport();
+        CadRecordedConstructionScene scene = new CadConstructionSceneCompiler().Compile(
+            snapshot,
+            viewport.CreatePlanClipBounds());
+        GpuPicture replacement = scene.CreatePicture();
+        GpuPicture? previous = _constructionPicture;
+        _constructionPicture = replacement;
+        previous?.Dispose();
+    }
+
     private static Rect ToScreenRect(
         CadPlanViewport viewport,
         CadBounds3D bounds)
@@ -570,6 +603,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         ReleasePointerCaptures();
         _picture?.Dispose();
         _picture = null;
+        _constructionPicture?.Dispose();
+        _constructionPicture = null;
     }
 
     private static CadDocumentSession CreateRepresentativeDocument()
@@ -580,6 +615,16 @@ public sealed class CadSampleCanvas : FrameworkElement
             document.Entities.Add(new Line(new XYZ(-80, -45, 0), new XYZ(80, -45, 0)));
             document.Entities.Add(new Circle(new XYZ(-38, 8, 0), 27));
             document.Entities.Add(new Arc(new XYZ(30, 8, 0), 30, 0.2, 5.1));
+            document.Entities.Add(new Ray
+            {
+                StartPoint = new XYZ(-38, 8, 0),
+                Direction = new XYZ(1, 0.2, 0),
+            });
+            document.Entities.Add(new XLine
+            {
+                FirstPoint = new XYZ(30, 8, 0),
+                Direction = new XYZ(-0.15, 1, 0),
+            });
             document.Entities.Add(new Ellipse
             {
                 Center = new XYZ(30, 8, 0),

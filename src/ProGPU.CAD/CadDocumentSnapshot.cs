@@ -22,6 +22,8 @@ public enum CadEntityKind : byte
     Hatch = 15,
     ShxShape = 16,
     Point = 17,
+    Ray = 18,
+    XLine = 19,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -131,6 +133,14 @@ public readonly record struct CadEntityHeader(
 public readonly record struct CadLinePrimitive(CadPoint3D Start, CadPoint3D End);
 
 public readonly record struct CadPointPrimitive(CadPoint3D Position);
+
+/// <summary>
+/// One unbounded WCS construction line. Rays use parameters [0,+infinity) and
+/// XLINEs use (-infinity,+infinity); Direction is always unit length.
+/// </summary>
+public readonly record struct CadConstructionLinePrimitive(
+    CadPoint3D BasePoint,
+    CadPoint3D Direction);
 
 public readonly record struct CadCirclePrimitive(
     CadPoint3D Center,
@@ -469,6 +479,7 @@ public sealed class CadDocumentSnapshot
     private readonly CadEntityHeader[] _entities;
     private readonly CadLinePrimitive[] _lines;
     private readonly CadPointPrimitive[] _points;
+    private readonly CadConstructionLinePrimitive[] _constructionLines;
     private readonly CadCirclePrimitive[] _circles;
     private readonly CadArcPrimitive[] _arcs;
     private readonly CadEllipsePrimitive[] _ellipses;
@@ -522,6 +533,7 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadEntityHeader> Entities => _entities;
     public ReadOnlyMemory<CadLinePrimitive> Lines => _lines;
     public ReadOnlyMemory<CadPointPrimitive> Points => _points;
+    public ReadOnlyMemory<CadConstructionLinePrimitive> ConstructionLines => _constructionLines;
     public ReadOnlyMemory<CadCirclePrimitive> Circles => _circles;
     public ReadOnlyMemory<CadArcPrimitive> Arcs => _arcs;
     public ReadOnlyMemory<CadEllipsePrimitive> Ellipses => _ellipses;
@@ -576,6 +588,7 @@ public sealed class CadDocumentSnapshot
         CadEntityHeader[] entities,
         CadLinePrimitive[] lines,
         CadPointPrimitive[] points,
+        CadConstructionLinePrimitive[] constructionLines,
         CadCirclePrimitive[] circles,
         CadArcPrimitive[] arcs,
         CadEllipsePrimitive[] ellipses,
@@ -627,6 +640,7 @@ public sealed class CadDocumentSnapshot
         _entities = entities;
         _lines = lines;
         _points = points;
+        _constructionLines = constructionLines;
         _circles = circles;
         _arcs = arcs;
         _ellipses = ellipses;
@@ -758,8 +772,17 @@ public sealed class CadSpatialIndex
                 Array.Empty<CadBounds3D>());
         }
 
-        int[] indices = Enumerable.Range(0, entities.Length).ToArray();
+        int[] indices = Enumerable.Range(0, entities.Length)
+            .Where(index => !entities[index].Bounds.IsEmpty)
+            .ToArray();
         CadBounds3D[] entityBounds = entities.Select(entity => entity.Bounds).ToArray();
+        if (indices.Length == 0)
+        {
+            return new CadSpatialIndex(
+                Array.Empty<Node>(),
+                indices,
+                entityBounds);
+        }
         var nodes = new List<Node>(checked(entities.Length * 2));
         BuildNode(nodes, indices, entities, 0, indices.Length);
         return new CadSpatialIndex(nodes.ToArray(), indices, entityBounds);

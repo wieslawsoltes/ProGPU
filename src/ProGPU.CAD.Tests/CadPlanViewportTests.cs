@@ -65,6 +65,28 @@ public sealed class CadPlanViewportTests
     }
 
     [Fact]
+    public void PlanSelectionBoundsSpanEveryFiniteDepth()
+    {
+        var viewport = new CadPlanViewport(
+            CadPoint3D.Zero,
+            new Vector2(200, 100),
+            Vector2.Zero,
+            2);
+
+        CadBounds3D bounds = viewport.CreatePlanSelectionBounds(
+            new Vector2(80, 40),
+            new Vector2(120, 60),
+            inflationPixels: 2);
+
+        Assert.Equal(-11, bounds.Min.X, 10);
+        Assert.Equal(-6, bounds.Min.Y, 10);
+        Assert.Equal(11, bounds.Max.X, 10);
+        Assert.Equal(6, bounds.Max.Y, 10);
+        Assert.Equal(-double.MaxValue, bounds.Min.Z);
+        Assert.Equal(double.MaxValue, bounds.Max.Z);
+    }
+
+    [Fact]
     public void RebaseCompensationPreservesEveryProjectedWorldPosition()
     {
         var viewport = new CadPlanViewport(

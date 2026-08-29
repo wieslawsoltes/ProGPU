@@ -20,6 +20,7 @@ int meshEntityCount = ReadNonNegativeInt("--mesh-entities", 0);
 int polygonMeshEntityCount = ReadNonNegativeInt("--polygon-mesh-entities", 0);
 int polyfaceMeshEntityCount = ReadNonNegativeInt("--polyface-mesh-entities", 0);
 int pointEntityCount = ReadNonNegativeInt("--point-entities", 0);
+int constructionLineCount = ReadNonNegativeInt("--construction-lines", 0);
 int solidHatchCount = ReadNonNegativeInt("--solid-hatches", 0);
 int patternHatchCount = ReadNonNegativeInt("--pattern-hatches", 0);
 bool complexPatternGrammar = HasFlag("--complex-pattern-grammar");
@@ -48,7 +49,7 @@ if (entityCount == 0 && blockArrayColumnCount == 0 && textEntityCount == 0 &&
     mtextEntityCount == 0 && shxTextEntityCount == 0 && shxMTextEntityCount == 0 &&
     attributeInsertCount == 0 && dimensionEntityCount == 0 && meshEntityCount == 0 &&
     polygonMeshEntityCount == 0 && polyfaceMeshEntityCount == 0 &&
-    pointEntityCount == 0 &&
+    pointEntityCount == 0 && constructionLineCount == 0 &&
     solidHatchCount == 0 && patternHatchCount == 0)
 {
     throw new ArgumentException(
@@ -68,6 +69,7 @@ if (measureSplineSelection &&
      shxMTextEntityCount != 0 || attributeInsertCount != 0 ||
      dimensionEntityCount != 0 || meshEntityCount != 0 ||
      polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 || pointEntityCount != 0 ||
+     constructionLineCount != 0 ||
      solidHatchCount != 0 || patternHatchCount != 0))
 {
     throw new ArgumentException(
@@ -77,6 +79,7 @@ if (measureTextSelection &&
     (entityCount != 0 || blockArrayColumnCount != 0 || solidHatchCount != 0 ||
      patternHatchCount != 0 || dimensionEntityCount != 0 || meshEntityCount != 0 ||
      polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 || pointEntityCount != 0 ||
+     constructionLineCount != 0 ||
      new[]
      {
          textEntityCount,
@@ -96,7 +99,8 @@ if (measureHatchSelection &&
      textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
      shxMTextEntityCount != 0 || attributeInsertCount != 0 ||
      dimensionEntityCount != 0 || meshEntityCount != 0 ||
-     polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 || pointEntityCount != 0))
+     polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 || pointEntityCount != 0 ||
+     constructionLineCount != 0))
 {
     throw new ArgumentException(
         "--hatch-selection requires exactly one positive --solid-hatches or --pattern-hatches count and no other fixtures.");
@@ -140,6 +144,7 @@ CadDocumentSession session = CreateDocument(
     polygonMeshEntityCount,
     polyfaceMeshEntityCount,
     pointEntityCount,
+    constructionLineCount,
     solidHatchCount,
     patternHatchCount,
     complexPatternGrammar,
@@ -160,9 +165,19 @@ var snapshotCompiler = new CadSnapshotCompiler();
 var pageSetupCompiler = new CadPageSetupCatalogCompiler();
 var sceneCompiler = new CadPlanSceneCompiler();
 var printPlanCompiler = new CadPrintPlanCompiler();
+CadBounds3D? constructionClip = constructionLineCount == 0
+    ? null
+    : new CadBounds3D(
+        new CadPoint3D(-100, -100, -100),
+        new CadPoint3D(12_100, 500, 100));
+var printOptions = new CadPrintPlanOptions
+{
+    PlotBounds = constructionClip,
+};
 var rotatedPrintOptions = new CadPrintPlanOptions
 {
     Rotation = CadPageRotation.CounterClockwise270,
+    PlotBounds = constructionClip,
 };
 CadShxFont? shxFont = shxInterpretationCount == 0 && shxLayoutCount == 0 &&
     shxTextEntityCount == 0 && shxMTextEntityCount == 0
@@ -198,7 +213,7 @@ for (int i = 0; i < warmupCount; i++)
     CadDocumentSnapshot warmSnapshot = snapshotCompiler.Compile(session, snapshotOptions);
     _ = pageSetupCompiler.Compile(session);
     _ = sceneCompiler.Compile(warmSnapshot);
-    using CadPrintPlan warmPrintPlan = printPlanCompiler.Compile(warmSnapshot);
+    using CadPrintPlan warmPrintPlan = printPlanCompiler.Compile(warmSnapshot, printOptions);
     using CadPrintPlan warmRotatedPrintPlan = printPlanCompiler.Compile(
         warmSnapshot,
         rotatedPrintOptions);
@@ -229,15 +244,27 @@ Measurement sceneMeasurement = Measure(
     iterationCount,
     () => sceneCompiler.Compile(snapshot));
 CadRecordedPlanScene recordedScene = sceneCompiler.Compile(snapshot);
+var constructionCompiler = new CadConstructionSceneCompiler();
+CadBounds3D overlayClip = constructionClip ?? snapshot.Bounds;
+Measurement constructionSceneMeasurement = Measure(
+    "construction-scene",
+    iterationCount,
+    () => constructionCompiler.Compile(snapshot, overlayClip));
+CadRecordedConstructionScene recordedConstructionScene =
+    constructionCompiler.Compile(snapshot, overlayClip);
 Measurement printPlanMeasurement = Measure(
     "print-plan",
     iterationCount,
-    () => printPlanCompiler.Compile(snapshot));
+    () => printPlanCompiler.Compile(snapshot, printOptions));
 Measurement rotatedPrintPlanMeasurement = Measure(
     "rotated-print-plan",
     iterationCount,
     () => printPlanCompiler.Compile(snapshot, rotatedPrintOptions));
 Measurement queryMeasurement = MeasureQueries(snapshot, queryCount);
+Measurement constructionQueryMeasurement = MeasureConstructionQueries(
+    snapshot,
+    overlayClip,
+    queryCount);
 Measurement? splinePointSelectionMeasurement = measureSplineSelection
     ? MeasureSplinePointSelections(snapshot, queryCount)
     : null;
@@ -285,6 +312,7 @@ var report = new CadBenchmarkReport(
     polygonMeshEntityCount,
     polyfaceMeshEntityCount,
     pointEntityCount,
+    constructionLineCount,
     solidHatchCount,
     patternHatchCount,
     complexPatternGrammar,
@@ -312,12 +340,15 @@ var report = new CadBenchmarkReport(
     snapshot.SpatialIndex.NodeCount,
     recordedScene.Statistics.RecordedCommandCount,
     recordedScene.Statistics,
+    recordedConstructionScene.Statistics,
     snapshotMeasurement,
     pageSetupMeasurement,
     sceneMeasurement,
+    constructionSceneMeasurement,
     printPlanMeasurement,
     rotatedPrintPlanMeasurement,
     queryMeasurement,
+    constructionQueryMeasurement,
     splinePointSelectionMeasurement,
     splineBoundsSelectionMeasurement,
     textPointSelectionMeasurement,
@@ -351,6 +382,7 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         polygonMeshEntityCount +
         polyfaceMeshEntityCount +
         pointEntityCount +
+        constructionLineCount +
         solidHatchCount +
         patternHatchCount);
     int expectedExpanded = checked(
@@ -366,6 +398,7 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         (polygonMeshEntityCount * 13) +
         (polyfaceMeshEntityCount * 7) +
         pointEntityCount +
+        constructionLineCount +
         solidHatchCount +
         patternHatchCount);
     if (source.Statistics.SourceEntityCount == expectedSource &&
@@ -401,6 +434,7 @@ CadDocumentSession CreateDocument(
     int polygonMeshCount,
     int polyfaceMeshCount,
     int pointCount,
+    int constructionCount,
     int hatchCount,
     int patternedHatchCount,
     bool useComplexPatternGrammar,
@@ -779,6 +813,24 @@ CadDocumentSession CreateDocument(
                 i % 17)));
         }
 
+        for (int i = 0; i < constructionCount; i++)
+        {
+            double x = (i % 1_000) * 12.0;
+            double y = (i / 1_000) * 12.0;
+            Entity entity = (i & 1) == 0
+                ? new Ray
+                {
+                    StartPoint = new XYZ(x, y, i % 17),
+                    Direction = new XYZ(1, 0.25, 0.05),
+                }
+                : new XLine
+                {
+                    FirstPoint = new XYZ(x, y, i % 17),
+                    Direction = new XYZ(-0.25, 1, -0.05),
+                };
+            document.Entities.Add(entity);
+        }
+
         for (int i = 0; i < hatchCount; i++)
         {
             double x = (i % 100) * 24.0;
@@ -1049,6 +1101,43 @@ Measurement MeasureQueries(CadDocumentSnapshot source, int count)
     long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedStart;
     GC.KeepAlive(checksum);
     return Summarize("spatial-query-ns", elapsed, allocated / count);
+}
+
+Measurement MeasureConstructionQueries(
+    CadDocumentSnapshot source,
+    CadBounds3D bounds,
+    int count)
+{
+    var elapsed = new double[count];
+    int capacity = Math.Min(source.Entities.Length, 512);
+    var entityIndices = new int[capacity];
+    var candidates = new CadSelectionCandidate[capacity];
+    _ = CadSelectionQuery.QueryBounds(source, bounds, entityIndices, candidates);
+    _ = GC.GetAllocatedBytesForCurrentThread();
+    long allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+    int checksum = 0;
+    double width = bounds.Max.X - bounds.Min.X;
+    double height = bounds.Max.Y - bounds.Min.Y;
+    for (int i = 0; i < count; i++)
+    {
+        double phase = (i % 997) / 997.0;
+        double x = bounds.Min.X + (width * phase);
+        double y = bounds.Min.Y + (height * (1.0 - phase));
+        var query = new CadBounds3D(
+            new CadPoint3D(x, y, bounds.Min.Z),
+            new CadPoint3D(x + 120, y + 120, bounds.Max.Z));
+        long started = Stopwatch.GetTimestamp();
+        checksum += CadSelectionQuery.QueryBounds(
+            source,
+            query,
+            entityIndices,
+            candidates).TotalCount;
+        elapsed[i] = Stopwatch.GetElapsedTime(started).TotalNanoseconds;
+    }
+
+    long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedStart;
+    GC.KeepAlive(checksum);
+    return Summarize("construction-query-ns", elapsed, allocated / count);
 }
 
 Measurement MeasureSplinePointSelections(CadDocumentSnapshot source, int count)
@@ -1395,6 +1484,7 @@ internal sealed record CadBenchmarkReport(
     int PolygonMeshEntityCount,
     int PolyfaceMeshEntityCount,
     int PointEntityCount,
+    int ConstructionLineCount,
     int SolidHatchCount,
     int PatternHatchCount,
     bool ComplexPatternGrammar,
@@ -1421,12 +1511,15 @@ internal sealed record CadBenchmarkReport(
     int SpatialNodeCount,
     int RecordedCommandCount,
     CadPlanSceneStatistics SceneStatistics,
+    CadConstructionSceneStatistics ConstructionSceneStatistics,
     Measurement SnapshotMilliseconds,
     Measurement PageSetupCatalogMilliseconds,
     Measurement PlanSceneMilliseconds,
+    Measurement ConstructionSceneMilliseconds,
     Measurement PrintPlanMilliseconds,
     Measurement RotatedPrintPlanMilliseconds,
     Measurement SpatialQueryNanoseconds,
+    Measurement ConstructionQueryNanoseconds,
     Measurement? SplinePointSelectionNanoseconds,
     Measurement? SplineBoundsSelectionNanoseconds,
     Measurement? TextPointSelectionNanoseconds,

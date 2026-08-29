@@ -273,9 +273,50 @@ public sealed class CadPrintPlanCompiler
                 PhysicalDpi = options.OutputDpi,
                 LineWeightScale = options.LineWeightScale,
                 IncludeNonPlottableLayers = false,
+                ReportDeferredConstructionGeometry = false,
             },
             cancellationToken);
-        GpuPicture contentPicture = scene.CreatePicture();
+        GpuPicture contentPicture;
+        CadPlanSceneStatistics combinedStatistics = scene.Statistics;
+        CadDiagnostic[] diagnostics = scene.Diagnostics.ToArray();
+        if (snapshot.ConstructionLines.IsEmpty)
+        {
+            contentPicture = scene.CreatePicture();
+        }
+        else
+        {
+            var constructionOptions = new CadPlanSceneOptions
+            {
+                PhysicalDpi = options.OutputDpi,
+                LineWeightScale = options.LineWeightScale,
+                IncludeNonPlottableLayers = false,
+            };
+            CadRecordedConstructionScene construction =
+                new CadConstructionSceneCompiler().Compile(
+                    snapshot,
+                    plotBounds,
+                    constructionOptions,
+                    cancellationToken);
+            var recorder = new GpuPictureRecorder();
+            DrawingContext contentContext = recorder.BeginRecording(new Rect(0, 0, 1, 1));
+            contentContext.Append(scene.DrawingContext);
+            contentContext.Append(construction.DrawingContext);
+            contentPicture = recorder.EndRecording();
+            combinedStatistics = scene.Statistics with
+            {
+                RecordedEntityCount = checked(
+                    scene.Statistics.RecordedEntityCount +
+                    construction.Statistics.RecordedEntityCount),
+                RecordedCommandCount = checked(
+                    scene.Statistics.RecordedCommandCount +
+                    construction.Statistics.RecordedCommandCount),
+            };
+            diagnostics = new CadDiagnostic[
+                scene.Diagnostics.Length + construction.Diagnostics.Length];
+            scene.Diagnostics.Span.CopyTo(diagnostics);
+            construction.Diagnostics.Span.CopyTo(
+                diagnostics.AsSpan(scene.Diagnostics.Length));
+        }
         return new CadPrintPlan(
             contentPicture,
             snapshot.ContentGeneration,
@@ -286,8 +327,8 @@ public sealed class CadPrintPlanCompiler
             pixelsPerModelUnit,
             modelUnitsPerMillimeter,
             contentToPage,
-            scene.Statistics,
-            scene.Diagnostics.ToArray());
+            combinedStatistics,
+            diagnostics);
     }
 
     private static CadPrintPixelSize CreatePageSize(CadPrintPlanOptions options)

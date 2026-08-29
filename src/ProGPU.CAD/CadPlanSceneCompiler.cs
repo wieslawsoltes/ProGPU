@@ -17,6 +17,7 @@ public sealed class CadPlanSceneOptions
     public float PhysicalDpi { get; init; } = 96.0f;
     public float LineWeightScale { get; init; } = 1.0f;
     public bool IncludeNonPlottableLayers { get; init; } = true;
+    public bool ReportDeferredConstructionGeometry { get; init; } = true;
     public int MaxLineTypeFigures { get; init; } = DefaultMaxLineTypeFigures;
     public int MaxLineTypePatternSteps { get; init; } = DefaultMaxLineTypePatternSteps;
     public int MaxLineTypeSourceSegments { get; init; } = DefaultMaxLineTypeSourceSegments;
@@ -117,7 +118,7 @@ public sealed class CadPlanSceneCompiler
         ReadOnlySpan<CadLineTypePattern> lineTypePatterns = snapshot.LineTypePatterns.Span;
         var context = new DrawingContext();
         context.EnsureCommandCapacity(checked(
-            entities.Length +
+            Math.Max(0, entities.Length - snapshot.ConstructionLines.Length) +
             Math.Max(0, snapshot.TextGlyphRuns.Length - snapshot.Texts.Length) +
             snapshot.TextDecorations.Length +
             snapshot.MTextGlyphRuns.Length +
@@ -131,6 +132,7 @@ public sealed class CadPlanSceneCompiler
         var diagnostics = new List<CadDiagnostic>();
         var warnedLineTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var warnedLineTypeSubstitutions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool warnedConstructionGeometry = false;
         int recorded = 0;
         int unsupportedLineTypes = 0;
         int loweredLineTypeEntities = 0;
@@ -148,6 +150,19 @@ public sealed class CadPlanSceneCompiler
             if (!options.IncludeNonPlottableLayers &&
                 !layers[entity.LayerIndex].IsPlottable)
             {
+                continue;
+            }
+            if (entity.Kind is CadEntityKind.Ray or CadEntityKind.XLine)
+            {
+                if (options.ReportDeferredConstructionGeometry &&
+                    !warnedConstructionGeometry)
+                {
+                    diagnostics.Add(new CadDiagnostic(
+                        CadDiagnosticSeverity.Information,
+                        "CADSCENE004",
+                        "Unbounded RAY/XLINE geometry requires CadConstructionSceneCompiler and an explicit plan clip."));
+                    warnedConstructionGeometry = true;
+                }
                 continue;
             }
 

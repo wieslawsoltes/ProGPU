@@ -152,6 +152,27 @@ public readonly record struct CadPlanViewport
             z);
     }
 
+    /// <summary>Returns the finite WCS-XY window represented by this viewport.</summary>
+    public CadBounds3D CreatePlanClipBounds(double z = 0.0)
+    {
+        EnsureInitialized();
+        if (!double.IsFinite(z))
+        {
+            throw new ArgumentOutOfRangeException(nameof(z));
+        }
+        CadPoint3D first = ScreenToWorld(Vector2.Zero, z);
+        CadPoint3D second = ScreenToWorld(ViewportSize, z);
+        return new CadBounds3D(
+            new CadPoint3D(
+                Math.Min(first.X, second.X),
+                Math.Min(first.Y, second.Y),
+                z),
+            new CadPoint3D(
+                Math.Max(first.X, second.X),
+                Math.Max(first.Y, second.Y),
+                z));
+    }
+
     /// <summary>
     /// Converts a screen rectangle into an inclusive world column spanning the
     /// supplied document depth. Inflation is expressed in logical screen pixels.
@@ -188,6 +209,41 @@ public readonly record struct CadPlanViewport
                 Math.Max(firstWorld.X, secondWorld.X) + inflation,
                 Math.Max(firstWorld.Y, secondWorld.Y) + inflation,
                 maximumZ));
+    }
+
+    /// <summary>
+    /// Converts a screen rectangle into a WCS-XY selection column spanning every
+    /// finite Z value, including unbounded RAY/XLINE projections.
+    /// </summary>
+    public CadBounds3D CreatePlanSelectionBounds(
+        Vector2 first,
+        Vector2 second,
+        float inflationPixels = 0.0f)
+    {
+        EnsureInitialized();
+        if (!IsFinite(first) || !IsFinite(second))
+        {
+            throw new ArgumentException("Selection screen points must be finite.");
+        }
+        if (!float.IsFinite(inflationPixels) || inflationPixels < 0.0f)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(inflationPixels),
+                "Selection inflation must be finite and non-negative.");
+        }
+
+        CadPoint3D firstWorld = ScreenToWorld(first);
+        CadPoint3D secondWorld = ScreenToWorld(second);
+        double inflation = inflationPixels / Zoom;
+        return new CadBounds3D(
+            new CadPoint3D(
+                Math.Min(firstWorld.X, secondWorld.X) - inflation,
+                Math.Min(firstWorld.Y, secondWorld.Y) - inflation,
+                -double.MaxValue),
+            new CadPoint3D(
+                Math.Max(firstWorld.X, secondWorld.X) + inflation,
+                Math.Max(firstWorld.Y, secondWorld.Y) + inflation,
+                double.MaxValue));
     }
 
     private void EnsureInitialized()

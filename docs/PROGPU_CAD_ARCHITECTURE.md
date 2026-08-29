@@ -1202,6 +1202,55 @@ same offset/count stream. The existing native point-batch C ABI and shaders did
 not change, and the C++ renderer already consumes that canonical command; no
 one-sided native implementation or generated-wire update applies.
 
+## Exact viewport-clipped RAY and XLINE construction geometry
+
+`RAY` and `XLINE` group 10/20/30 base coordinates and group 11/21/31 direction
+vectors are WCS values. Snapshot capture preserves the base point in double
+precision, applies an ancestor INSERT/MINSERT affine transform to the point and
+vector, and normalizes the transformed direction. A zero or non-finite
+direction invalidates only that entity transactionally. Rays retain the
+parameter domain `[0,+infinity)`; construction lines retain
+`(-infinity,+infinity)`. Their entity headers deliberately carry empty finite
+bounds: construction geometry neither changes Zoom Extents nor enters the
+finite median-split BVH. A construction-only document therefore has empty
+automatic extents and requires an explicit view or plot window.
+
+`CadConstructionSceneCompiler` clips each visible primitive against an explicit
+finite WCS-XY plan window using the two-axis parametric slab interval. It emits
+the resulting exact segment relative to the snapshot rebase origin; a vertical
+WCS line whose XY projection is a point emits the existing retained point-batch
+primitive. Consecutive source-order segments with the same resolved continuous
+style share one retained multi-figure `PathGeometry`, while a style transition
+flushes the batch and preserves draw order. No arbitrary far endpoint,
+viewport-dependent tessellation, new shader, upload format, or managed/native
+crossing is introduced. The desktop/browser sample rebuilds only this bounded
+overlay when pan, zoom, size, or content changes and keeps `OnRender`
+mutation-free. Print compilation uses the exact plot window and printable-area
+clip. A non-continuous construction linetype is omitted with `CADCON001` until
+its unbounded phase-origin contract is independently established; it is never
+silently replaced with a continuous stroke.
+
+Every finite selection broad phase appends the `U` unbounded construction
+records after the ordinary BVH result. Point picking computes distance to the
+infinite line or the endpoint-clamped ray. Crossing selection intersects the
+full 3D parametric domain with the finite query box; Window selection always
+misses because a finite box cannot contain an unbounded primitive. Thus a
+query is `O(log F + K + U)` typical and `O(F + K + U)` worst case for `F`
+finite records and `K` BVH hits, with zero warm-query managed allocation.
+Snapshot and viewport-overlay construction are both `O(U)` time/storage.
+The top-view shell creates an all-finite-Z selection column so projected
+construction geometry at any elevation is selectable without assigning it a
+finite document extent; the general public box API retains its exact 3D
+semantics.
+
+The native applicability audit found no native CAD document frontend to pair
+with the managed ACadSharp snapshot compiler. Both managed and native
+renderers consume the same already-supported retained analytic `DrawPath` and
+point-batch commands; the matched regression compiles the clipped overlay
+through `GpuPictureNativeSceneCompiler`. The stable C ABI, generated wire
+records, canonical shaders, path caches, device-loss behavior, and submission
+crossing count are unchanged.
+
 ## Retained TrueType TEXT lowering
 
 The snapshot compiler accepts an `ICadTextFontResolver`; hosts may use the
@@ -1889,6 +1938,23 @@ improvement or release-acceptance claim. Point-command coalescing,
 representative viewport interaction, GPU counters, managed/native images, and
 required Instruments traces remain open gates.
 
+The 2026-08-29 construction-geometry feature-cost run used one final Apple
+Silicon/.NET 10.0.5 Release process, 5,000 RAY plus 5,000 XLINE entities, one
+explicit `[-100,-100]` through `[12100,500]` plan/plot window, three warmups,
+24 construction iterations, and 10,000 caller-buffered selection queries. The
+snapshot reported exactly 10,000 source/expanded records, zero finite BVH
+nodes, and zero unsupported or invalid entities. Source-order style batching
+retained all 10,000 clipped primitives as one analytic path command. Snapshot
+p50/p95/p99 was `10.6186/17.5711/18.0285 ms` at `4,217,905 B/op`; the ordinary
+finite plan compiler was `0.0355/0.0425/0.2000 ms` at `832 B/op`; construction-
+overlay compilation was `3.1109/8.9830/9.1115 ms` at `2,026,104 B/op`; print
+planning was `3.0830/15.0855/17.0833 ms` at `2,030,620 B/op`; and the explicit
+`O(U)` unbounded broad-phase query was `31.9/90.1/167.8 us` with zero managed
+allocation. This is a reproducible feature/cost baseline, not an improvement
+or release-acceptance claim. Representative interactive traces, managed/native
+images, GPU counters, non-continuous construction-linetype phase work, and the
+required matched Instruments captures remain open acceptance gates.
+
 The 2026-08-28 simple-linetype feature-cost baseline used one final Release
 binary in two sequential processes, 1,000 mixed analytic entities, five
 warmups, and 30 measured iterations. Continuous input recorded 1,000 commands;
@@ -2217,6 +2283,47 @@ Sources consulted on 2026-08-27 through 2026-08-29:
   hit tester, picture compiler, and native scene compiler now resolve the same
   span-backed stream, with matched regressions and no C ABI, shader, generated
   binding, or per-frame crossing change.
+
+- For unbounded construction geometry, Autodesk's
+  [RAY DXF contract](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-638B9F01-5D86-408E-A2DE-FA5D6ADBD415.htm)
+  and
+  [XLINE DXF contract](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DXF/files/GUID-55080553-34B6-40AA-9EE2-3F3A3A2A5C0A.htm)
+  establish the WCS base point and unit WCS direction vector. Autodesk's
+  [XLINE query guidance](https://help.autodesk.com/cloudhelp/2018/CHT/AutoCAD-ActiveX/files/GUID-D861D37D-15F5-4926-A171-F238D7AC3681.htm)
+  confirms that the persisted object is a base point plus direction rather
+  than two finite endpoints. Adopted those exact parametric records and their
+  one-sided/two-sided domains; rejected finite surrogate bounds, arbitrary far
+  endpoints, and inclusion in drawing extents.
+  [Skia `drawLine`](https://api.skia.org/classSkCanvas.html) applies the active
+  transform and clip to a finite segment;
+  [Direct2D axis-aligned clips](https://learn.microsoft.com/en-us/windows/win32/direct2d/how-to-clip-with-axis-aligned-rects)
+  and [Win2D drawing-session layers](https://microsoft.github.io/Win2D/WinUI2/html/Methods_T_Microsoft_Graphics_Canvas_CanvasDrawingSession.htm)
+  establish explicit bounded clipping and batched drawing;
+  [WebRender's retained pipeline](https://searchfox.org/mozilla-central/source/gfx/docs/RenderingOverview.rst)
+  separates retained display data from viewport/frame work; and
+  [Vello's retained scene clip API](https://github.com/linebender/vello/blob/main/vello/src/scene.rs)
+  keeps clips and transformed path data explicit. ProGPU adapted those public
+  contracts into a viewport-specific retained overlay, source-order contiguous
+  style batching, and its existing path/point commands. It did not copy foreign
+  implementation text, organization, helpers, or control flow. The old
+  `ProGPU.Dxf` ACIS readers and ACIS shader were inspected only while selecting
+  the checkpoint and were rejected as unrelated, incomplete sources; no code
+  was ported from them.
+  [SkParagraph's shaping stages](https://docs.skia.org/docs/dev/design/text_shaper/),
+  [DirectWrite architecture](https://learn.microsoft.com/en-us/windows/win32/directwrite/introducing-directwrite),
+  [Parley's layout model](https://github.com/linebender/parley/blob/main/doc/concept.md),
+  and [HarfBuzz shape plans](https://harfbuzz.github.io/shaping-and-shape-plans.html)
+  were rechecked and are not applicable: the slice changes no shaping/layout
+  reuse, glyph/font cache key or eviction, fallback/variation state,
+  DPI/subpixel text placement, upload, or text device-loss invalidation.
+  Startup remains lazy; finite scenes remain reusable across camera changes;
+  only the `O(U)` construction overlay is rebuilt on viewport change; ordinary
+  visibility, resource ownership, worker eligibility, GPU submission, cache
+  generation, and device-loss contracts are unchanged. Managed/native parity
+  was audited explicitly: the native tree has no ACadSharp frontend, while its
+  existing picture compiler consumes the exact same retained path and point
+  streams under a matched native-compilation regression. No shader, stable C
+  ABI, generated binding, or renderer-specific semantic fork applies.
 
 - For legacy polygon/polyface meshes, Autodesk's
   [POLYLINE DXF contract](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-DXF/files/GUID-ABF6B778-BE20-4B49-9B58-A94E64CEFFF3.htm)

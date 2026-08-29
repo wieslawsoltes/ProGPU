@@ -104,6 +104,7 @@ public sealed partial class CadSnapshotCompiler
         var entities = new List<CadEntityHeader>(document.Entities.Count);
         var lines = new List<CadLinePrimitive>();
         var points = new List<CadPointPrimitive>();
+        var constructionLines = new List<CadConstructionLinePrimitive>();
         var circles = new List<CadCirclePrimitive>();
         var arcs = new List<CadArcPrimitive>();
         var ellipses = new List<CadEllipsePrimitive>();
@@ -200,6 +201,7 @@ public sealed partial class CadSnapshotCompiler
             entities.ToArray(),
             lines.ToArray(),
             points.ToArray(),
+            constructionLines.ToArray(),
             circles.ToArray(),
             arcs.ToArray(),
             ellipses.ToArray(),
@@ -385,6 +387,26 @@ public sealed partial class CadSnapshotCompiler
                         layerIndex,
                         styleIndex,
                         points),
+                    Ray ray => CompileConstructionLine(
+                        ray.StartPoint,
+                        ray.Direction,
+                        false,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        constructionLines),
+                    XLine xline => CompileConstructionLine(
+                        xline.FirstPoint,
+                        xline.Direction,
+                        true,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        constructionLines),
                     Arc arc => CompileArc(arc, rootHandle, transform, hasTransform, layerIndex, styleIndex, arcs),
                     Circle circle => CompileCircle(circle, rootHandle, transform, hasTransform, layerIndex, styleIndex, circles),
                     Ellipse ellipse => CompileEllipse(ellipse, rootHandle, transform, hasTransform, layerIndex, styleIndex, ellipses),
@@ -1430,6 +1452,45 @@ public sealed partial class CadSnapshotCompiler
             styleIndex,
             primitiveIndex,
             CadBounds3D.FromPoint(start).Include(end));
+    }
+
+    private static CadEntityHeader CompileConstructionLine(
+        XYZ basePointValue,
+        XYZ directionValue,
+        bool isXLine,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        List<CadConstructionLinePrimitive> destination)
+    {
+        CadPoint3D basePoint = TransformPoint(
+            transform,
+            hasTransform,
+            ToPoint(basePointValue));
+        CadPoint3D direction = hasTransform
+            ? transform.TransformVector(ToPoint(directionValue))
+            : ToPoint(directionValue);
+        EnsureFinite(basePoint);
+        EnsureFinite(direction);
+        double length = direction.Length;
+        if (!double.IsFinite(length) || length <= 0.0)
+        {
+            throw new ArgumentException(
+                $"{(isXLine ? "XLINE" : "RAY")} direction must be finite and nonzero.");
+        }
+
+        direction /= length;
+        int primitiveIndex = destination.Count;
+        destination.Add(new CadConstructionLinePrimitive(basePoint, direction));
+        return new CadEntityHeader(
+            handle,
+            isXLine ? CadEntityKind.XLine : CadEntityKind.Ray,
+            layerIndex,
+            styleIndex,
+            primitiveIndex,
+            CadBounds3D.Empty);
     }
 
     private static void ValidatePoint(ACadSharp.Entities.Point point)

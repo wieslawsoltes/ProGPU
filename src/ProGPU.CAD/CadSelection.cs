@@ -45,10 +45,11 @@ public static class CadSelectionQuery
 {
     /// <summary>Maps intersecting BVH entries to source primitive candidates.</summary>
     /// <remarks>
-    /// Work is O(log E + K) on typical spatial data and O(E + K) worst-case for E
-    /// snapshot primitives and K intersecting bounds. Expanded block primitives may
-    /// share one semantic root handle and remain separate candidates for exact
-    /// geometry testing. The smaller buffer capacity controls the written count.
+    /// Work is O(log F + K + U) on typical spatial data and O(F + K + U)
+    /// worst-case for F finite primitives, K intersecting bounds, and U unbounded
+    /// construction primitives. Expanded block primitives may share one semantic
+    /// root handle and remain separate candidates for exact geometry testing. The
+    /// smaller buffer capacity controls the written count.
     /// </remarks>
     public static CadSelectionQueryResult QueryBounds(
         CadDocumentSnapshot snapshot,
@@ -74,10 +75,37 @@ public static class CadSelectionQuery
                 entity.Bounds);
         }
 
+        int written = spatial.WrittenCount;
+        int total = spatial.TotalCount;
+        if (!bounds.IsEmpty)
+        {
+            for (int entityIndex = 0; entityIndex < entities.Length; entityIndex++)
+            {
+                CadEntityHeader entity = entities[entityIndex];
+                if (entity.Kind is not (CadEntityKind.Ray or CadEntityKind.XLine))
+                {
+                    continue;
+                }
+
+                if (written < capacity)
+                {
+                    entityIndexScratch[written] = entityIndex;
+                    destination[written] = new CadSelectionCandidate(
+                        snapshot.ContentGeneration,
+                        entityIndex,
+                        entity.Handle,
+                        entity.Kind,
+                        entity.Bounds);
+                    written++;
+                }
+                total++;
+            }
+        }
+
         return new CadSelectionQueryResult(
             snapshot.ContentGeneration,
-            spatial.WrittenCount,
-            spatial.TotalCount);
+            written,
+            total);
     }
 
     /// <summary>Returns the caller scratch length required to deduplicate candidates.</summary>
@@ -348,6 +376,16 @@ public static class CadSelectionHitTester
                     snapshot.Lines.Span[header.PrimitiveIndex].Start,
                     snapshot.Lines.Span[header.PrimitiveIndex].End),
                 tolerance),
+            CadEntityKind.Ray => HitConstructionLinePoint(
+                snapshot.ConstructionLines.Span[header.PrimitiveIndex],
+                point,
+                tolerance,
+                isRay: true),
+            CadEntityKind.XLine => HitConstructionLinePoint(
+                snapshot.ConstructionLines.Span[header.PrimitiveIndex],
+                point,
+                tolerance,
+                isRay: false),
             CadEntityKind.Circle => HitCircle(
                 snapshot.Circles.Span[header.PrimitiveIndex],
                 point,
@@ -439,6 +477,16 @@ public static class CadSelectionHitTester
                 snapshot.Lines.Span[header.PrimitiveIndex],
                 bounds,
                 mode),
+            CadEntityKind.Ray => HitConstructionLineBounds(
+                snapshot.ConstructionLines.Span[header.PrimitiveIndex],
+                bounds,
+                mode,
+                isRay: true),
+            CadEntityKind.XLine => HitConstructionLineBounds(
+                snapshot.ConstructionLines.Span[header.PrimitiveIndex],
+                bounds,
+                mode,
+                isRay: false),
             CadEntityKind.Circle => HitCircleBounds(
                 snapshot.Circles.Span[header.PrimitiveIndex],
                 header.Bounds,
@@ -519,6 +567,71 @@ public static class CadSelectionHitTester
             ? ContainsPoint(bounds, line.Start) && ContainsPoint(bounds, line.End)
             : SegmentIntersectsBounds(line.Start, line.End, bounds);
         return FromBoundsHit(hit);
+    }
+
+    private static CadPointHitResult HitConstructionLinePoint(
+        CadConstructionLinePrimitive line,
+        CadPoint3D point,
+        double tolerance,
+        bool isRay)
+    {
+        CadPoint3D delta = point - line.BasePoint;
+        double parameter = CadPoint3D.Dot(delta, line.Direction);
+        if (isRay && parameter < 0.0)
+        {
+            parameter = 0.0;
+        }
+
+        CadPoint3D closest = line.BasePoint + (line.Direction * parameter);
+        return FromDistance((point - closest).Length, tolerance);
+    }
+
+    private static CadBoundsHitResult HitConstructionLineBounds(
+        CadConstructionLinePrimitive line,
+        CadBounds3D bounds,
+        CadBoundsSelectionMode mode,
+        bool isRay)
+    {
+        if (bounds.IsEmpty || mode == CadBoundsSelectionMode.Window)
+        {
+            return BoundsMiss();
+        }
+
+        double minimum = isRay ? 0.0 : double.NegativeInfinity;
+        double maximum = double.PositiveInfinity;
+        if (!ClipAxis(line.BasePoint.X, line.Direction.X, bounds.Min.X, bounds.Max.X, ref minimum, ref maximum) ||
+            !ClipAxis(line.BasePoint.Y, line.Direction.Y, bounds.Min.Y, bounds.Max.Y, ref minimum, ref maximum) ||
+            !ClipAxis(line.BasePoint.Z, line.Direction.Z, bounds.Min.Z, bounds.Max.Z, ref minimum, ref maximum))
+        {
+            return BoundsMiss();
+        }
+
+        return BoundsHit();
+    }
+
+    private static bool ClipAxis(
+        double origin,
+        double direction,
+        double boundMinimum,
+        double boundMaximum,
+        ref double parameterMinimum,
+        ref double parameterMaximum)
+    {
+        if (direction == 0.0)
+        {
+            return origin >= boundMinimum && origin <= boundMaximum;
+        }
+
+        double first = (boundMinimum - origin) / direction;
+        double second = (boundMaximum - origin) / direction;
+        if (first > second)
+        {
+            (first, second) = (second, first);
+        }
+
+        parameterMinimum = Math.Max(parameterMinimum, first);
+        parameterMaximum = Math.Min(parameterMaximum, second);
+        return parameterMinimum <= parameterMaximum;
     }
 
     private static CadBoundsHitResult HitCircleBounds(
