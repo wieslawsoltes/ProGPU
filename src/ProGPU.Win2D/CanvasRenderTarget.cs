@@ -152,6 +152,19 @@ public sealed class CanvasRenderTarget :
         }
     }
 
+    protected override void ValidateCanMutate()
+    {
+        base.ValidateCanMutate();
+        lock (_sessionLock)
+        {
+            if (_hasActiveSession)
+            {
+                throw new InvalidOperationException(
+                    "Canvas render-target pixels cannot be changed while a drawing session is active.");
+            }
+        }
+    }
+
     private static CanvasDevice GetDevice(
         ICanvasResourceCreator resourceCreator)
     {

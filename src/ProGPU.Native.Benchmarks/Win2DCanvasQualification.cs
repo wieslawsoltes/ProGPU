@@ -26,11 +26,14 @@ internal static class Win2DCanvasQualification
             16,
             16,
             96f);
-        using var checker = new CanvasRenderTarget(
+        using var checker = CanvasBitmap.CreateFromBytes(
             device,
+            new byte[16],
             2,
             2,
-            96f);
+            Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized,
+            96f,
+            CanvasAlphaMode.Premultiplied);
         using (CanvasDrawingSession sourceSession =
                source.CreateDrawingSession())
         {
@@ -42,19 +45,19 @@ internal static class Win2DCanvasQualification
                 16,
                 Color.FromArgb(255, 255, 0, 255));
         }
-        using (CanvasDrawingSession checkerSession =
-               checker.CreateDrawingSession())
-        {
-            checkerSession.Clear(Color.FromArgb(0, 0, 0, 0));
-            checkerSession.FillRectangle(
-                0, 0, 1, 1, Color.FromArgb(255, 128, 128, 128));
-            checkerSession.FillRectangle(
-                1, 0, 1, 1, Color.FromArgb(255, 0, 0, 0));
-            checkerSession.FillRectangle(
-                0, 1, 1, 1, Color.FromArgb(255, 0, 0, 0));
-            checkerSession.FillRectangle(
-                1, 1, 1, 1, Color.FromArgb(255, 128, 128, 128));
-        }
+        checker.SetPixelBytes(
+        [
+            128, 128, 128, 255,
+            0, 0, 0, 255,
+            0, 0, 0, 255,
+            128, 128, 128, 255
+        ]);
+        checker.SetPixelBytes(
+            [0, 0, 0, 255],
+            left: 1,
+            top: 0,
+            width: 1,
+            height: 1);
         using var commandList = new CanvasCommandList(device);
         using (CanvasDrawingSession commandSession =
                commandList.CreateDrawingSession())
@@ -242,6 +245,8 @@ internal static class Win2DCanvasQualification
                    })
             {
                 drawingSession.FillRectangle(8, 72, 64, 64, imageBrush);
+                RequireThrows<InvalidOperationException>(() =>
+                    checker.SetPixelBytes(new byte[16]));
                 checker.Dispose();
             }
             // Win2D executes DrawImage eagerly. ProGPU records until session
@@ -433,6 +438,22 @@ internal static class Win2DCanvasQualification
             Math.Abs(actual.Width - width) <= tolerance &&
             Math.Abs(actual.Height - height) <= tolerance,
             $"Unexpected {contract}: {actual}.");
+    }
+
+    private static void RequireThrows<TException>(Action action)
+        where TException : Exception
+    {
+        try
+        {
+            action();
+        }
+        catch (TException)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Expected {typeof(TException).Name}.");
     }
 
     private static void RequirePixelInRange(

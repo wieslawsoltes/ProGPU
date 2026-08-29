@@ -78,6 +78,146 @@ public abstract class CanvasBitmap :
         return Texture.ReadPixels();
     }
 
+    public static CanvasBitmap CreateFromBytes(
+        ICanvasResourceCreator resourceCreator,
+        byte[] bytes,
+        int widthInPixels,
+        int heightInPixels,
+        DirectXPixelFormat format) =>
+        CreateFromBytes(
+            resourceCreator,
+            bytes,
+            widthInPixels,
+            heightInPixels,
+            format,
+            CanvasContract.DefaultDpi,
+            CanvasAlphaMode.Premultiplied);
+
+    public static CanvasBitmap CreateFromBytes(
+        ICanvasResourceCreator resourceCreator,
+        byte[] bytes,
+        int widthInPixels,
+        int heightInPixels,
+        DirectXPixelFormat format,
+        float dpi) =>
+        CreateFromBytes(
+            resourceCreator,
+            bytes,
+            widthInPixels,
+            heightInPixels,
+            format,
+            dpi,
+            CanvasAlphaMode.Premultiplied);
+
+    public static CanvasBitmap CreateFromBytes(
+        ICanvasResourceCreator resourceCreator,
+        byte[] bytes,
+        int widthInPixels,
+        int heightInPixels,
+        DirectXPixelFormat format,
+        float dpi,
+        CanvasAlphaMode alphaMode)
+    {
+        ArgumentNullException.ThrowIfNull(resourceCreator);
+        ArgumentNullException.ThrowIfNull(bytes);
+        CanvasDevice device = resourceCreator.Device ??
+            throw new ArgumentException(
+                "The resource creator did not provide a CanvasDevice.",
+                nameof(resourceCreator));
+        if (device.IsDisposed)
+        {
+            throw new ObjectDisposedException(nameof(resourceCreator));
+        }
+        CanvasContract.ValidateDpi(dpi);
+        CanvasContract.ValidateFormat(format);
+        CanvasContract.ValidateAlphaMode(alphaMode);
+        ValidatePixelDimensions(widthInPixels, heightInPixels);
+        int requiredByteCount = ValidatePixelByteCount(
+            bytes.Length,
+            widthInPixels,
+            heightInPixels,
+            nameof(bytes));
+
+        var texture = new GpuTexture(
+            device.Context,
+            (uint)widthInPixels,
+            (uint)heightInPixels,
+            Silk.NET.WebGPU.TextureFormat.Bgra8Unorm,
+            Silk.NET.WebGPU.TextureUsage.TextureBinding |
+            Silk.NET.WebGPU.TextureUsage.CopySrc |
+            Silk.NET.WebGPU.TextureUsage.CopyDst,
+            "ProGPU Win2D CanvasBitmap",
+            alphaMode: GpuTextureAlphaMode.Premultiplied);
+        try
+        {
+            texture.WritePixels<byte>(bytes.AsSpan(0, requiredByteCount));
+            float widthDips = widthInPixels *
+                CanvasContract.DefaultDpi / dpi;
+            float heightDips = heightInPixels *
+                CanvasContract.DefaultDpi / dpi;
+            return new UploadedCanvasBitmap(
+                device,
+                texture,
+                widthDips,
+                heightDips,
+                dpi,
+                format,
+                alphaMode);
+        }
+        catch
+        {
+            texture.Dispose();
+            throw;
+        }
+    }
+
+    public void SetPixelBytes(byte[] bytes)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        lock (_lifetimeLock)
+        {
+            ValidateCanMutate();
+            int requiredByteCount = ValidatePixelByteCount(
+                bytes.Length,
+                checked((int)Texture.Width),
+                checked((int)Texture.Height),
+                nameof(bytes));
+            Texture.WritePixels<byte>(bytes.AsSpan(0, requiredByteCount));
+        }
+    }
+
+    public void SetPixelBytes(
+        byte[] bytes,
+        int left,
+        int top,
+        int width,
+        int height)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        lock (_lifetimeLock)
+        {
+            ValidateCanMutate();
+            ValidatePixelSubrectangle(
+                left,
+                top,
+                width,
+                height,
+                Texture.Width,
+                Texture.Height);
+            int requiredByteCount = ValidatePixelByteCount(
+                bytes.Length,
+                width,
+                height,
+                nameof(bytes));
+            Texture.WritePixelsSubRect<byte>(
+                bytes.AsSpan(0, requiredByteCount),
+                (uint)left,
+                (uint)top,
+                (uint)width,
+                (uint)height);
+        }
+    }
+
     public Rect GetBounds(ICanvasResourceCreator resourceCreator) =>
         GetBounds(resourceCreator, Matrix3x2.Identity);
 
@@ -138,6 +278,16 @@ public abstract class CanvasBitmap :
 
     protected virtual void ValidateCanDispose()
     {
+    }
+
+    protected virtual void ValidateCanMutate()
+    {
+        ThrowIfDisposed();
+        if (_leaseCount != 0)
+        {
+            throw new InvalidOperationException(
+                "Canvas bitmap pixels cannot be changed while deferred drawing owns a texture lease.");
+        }
     }
 
     public void Dispose()
@@ -206,6 +356,81 @@ public abstract class CanvasBitmap :
         {
             CanvasBitmap? owner = Interlocked.Exchange(ref _owner, null);
             owner?.ReleaseTextureLease();
+        }
+    }
+
+    private sealed class UploadedCanvasBitmap : CanvasBitmap
+    {
+        public UploadedCanvasBitmap(
+            CanvasDevice device,
+            GpuTexture texture,
+            float width,
+            float height,
+            float dpi,
+            DirectXPixelFormat format,
+            CanvasAlphaMode alphaMode)
+            : base(
+                device,
+                texture,
+                width,
+                height,
+                dpi,
+                format,
+                alphaMode)
+        {
+        }
+    }
+
+    private static void ValidatePixelDimensions(
+        int widthInPixels,
+        int heightInPixels)
+    {
+        if (widthInPixels <= 0 ||
+            widthInPixels > CanvasContract.MaximumBitmapSizeInPixels)
+        {
+            throw new ArgumentOutOfRangeException(nameof(widthInPixels));
+        }
+        if (heightInPixels <= 0 ||
+            heightInPixels > CanvasContract.MaximumBitmapSizeInPixels)
+        {
+            throw new ArgumentOutOfRangeException(nameof(heightInPixels));
+        }
+    }
+
+    private static int ValidatePixelByteCount(
+        int byteCount,
+        int width,
+        int height,
+        string parameterName)
+    {
+        long required = checked((long)width * height * 4L);
+        if (byteCount < required)
+        {
+            throw new ArgumentException(
+                $"The BGRA8 pixel buffer requires at least {required} bytes.",
+                parameterName);
+        }
+
+        return checked((int)required);
+    }
+
+    private static void ValidatePixelSubrectangle(
+        int left,
+        int top,
+        int width,
+        int height,
+        uint textureWidth,
+        uint textureHeight)
+    {
+        if (left < 0 || top < 0 || width <= 0 || height <= 0 ||
+            (uint)left > textureWidth ||
+            (uint)top > textureHeight ||
+            (uint)width > textureWidth - (uint)left ||
+            (uint)height > textureHeight - (uint)top)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(width),
+                "The pixel subrectangle must fit inside the bitmap.");
         }
     }
 }

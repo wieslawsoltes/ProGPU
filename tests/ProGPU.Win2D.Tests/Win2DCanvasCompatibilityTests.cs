@@ -146,6 +146,48 @@ public sealed class Win2DCanvasCompatibilityTests
             typeof(CanvasBitmap)));
         Assert.True(typeof(IProGpuTextureLeaseSource).IsAssignableFrom(
             typeof(CanvasBitmap)));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CreateFromBytes),
+            [
+                typeof(ICanvasResourceCreator),
+                typeof(byte[]),
+                typeof(int),
+                typeof(int),
+                typeof(DirectXPixelFormat)
+            ]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CreateFromBytes),
+            [
+                typeof(ICanvasResourceCreator),
+                typeof(byte[]),
+                typeof(int),
+                typeof(int),
+                typeof(DirectXPixelFormat),
+                typeof(float)
+            ]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.CreateFromBytes),
+            [
+                typeof(ICanvasResourceCreator),
+                typeof(byte[]),
+                typeof(int),
+                typeof(int),
+                typeof(DirectXPixelFormat),
+                typeof(float),
+                typeof(CanvasAlphaMode)
+            ]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.SetPixelBytes),
+            [typeof(byte[])]));
+        Assert.NotNull(typeof(CanvasBitmap).GetMethod(
+            nameof(CanvasBitmap.SetPixelBytes),
+            [
+                typeof(byte[]),
+                typeof(int),
+                typeof(int),
+                typeof(int),
+                typeof(int)
+            ]));
         Assert.True(typeof(ICanvasImage).IsAssignableFrom(
             typeof(CanvasCommandList)));
         Assert.NotNull(typeof(ICanvasImage).GetMethod(
