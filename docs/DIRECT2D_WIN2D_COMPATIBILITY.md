@@ -121,6 +121,13 @@ Shapes, ArcOptions, and VectorArt sample bodies. It currently supports:
   scoped opacity layers with exact rectangle or path-geometry clips; layers
   must close LIFO and cannot cross a `Flush`, so malformed retained stacks fail
   before native submission;
+- mutable `CanvasStrokeStyle` state for start/end/dash caps, miter/bevel/round
+  joins, miter limit, standard or custom dash patterns, dash offset, normal,
+  fixed, and hairline transform behavior. Each style caches its last immutable
+  typed `Pen` realization and invalidates that cache on mutation, so repeated
+  ArcOptions-style drawing is allocation-free after warmup. Custom dashes take
+  precedence over the standard dash enum. `MiterOrBevel` fails closed until it
+  has a distinct retained semantic;
 - target-preserving later drawing sessions and `Flush()` without retaining or
   replaying all earlier command lists;
 - Win2D-compatible `GetPixelBytes()` for validation and explicit diagnostics
@@ -138,7 +145,7 @@ The current package is source compatible, not binary compatible with
 devices, straight/ignored alpha, non-BGRA render targets, Dawn/browser device
 factories, Direct2D COM wrapping, cross-device resources, self-referential
 texture feedback, anisotropic sampling, and high-quality cubic sampling.
-Bitmap file/pixel creation and updates, brushes/stroke styles, command-list
+Bitmap file/pixel creation and updates, brushes, `MiterOrBevel`, command-list
 bounds/scaling, geometry boolean/query operations, opacity brushes, text
 formats/layouts, effects, sprite batches, and XAML controls remain the next
 incremental compatibility groups.
@@ -173,6 +180,13 @@ The gate has a completed portable-core layer and three expanding oracle layers:
    versus D3D12 it changes 42 antialiased-edge pixels, all by exactly 1/255,
    with mean absolute channel difference `0.0003602431`. Metal changes two
    pixels, also by exactly 1/255.
+   The subsequent typed-stroke frame at exact ProGPU `db43e5eb` adds a cached
+   dashed/capped native geometry stroke and keeps the same differential counts:
+   Metal `0D9BB2695BF85767A0AFF3683392172D9A02EE1C17D5362C38EB060E848C69BB`,
+   D3D12 `CA50647DD915E8D42B4F5DD724BC96DE74383689157824186C52BF12D6B1577E`,
+   and Vulkan `AABC336A0F851925C70566E1CFFEC64BE943E29B41127CE7233386C930782FF2`.
+   The isolated typed/source contract suite passes 7/7 on macOS and Windows
+   ARM64.
    The frame includes full-opacity and half-opacity same-device bitmap draws;
    the source is publicly disposed before the destination session closes to
    prove that the typed GPU lease, rather than a CPU copy, owns deferred use.
