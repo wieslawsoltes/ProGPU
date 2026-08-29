@@ -4930,16 +4930,18 @@ nested/unmatched draw rejection, the zero-key Dawn handoff, and generic
 GUID-based COM `QueryInterface` success plus `E_NOINTERFACE` failure, and
 optional registered Win2D CanvasDevice and CanvasRenderTarget wrapping. The
 Windows build entry point now verifies all 14 exports and stages
-`progpu_native_direct2d.dll` for both Windows RIDs. The preceding ABI v4 checkpoint was independently compiled and executed in the
-Windows 11 ARM64 Parallels VM with MSVC 19.44 and Windows SDK 26100. The
-regression exits zero and the exact 13-export audit passes. SHA-256 is
-`df5c0b8540fe6f25ac6fbe7691ad300f69aa3cca0fd0ef8aa901e85c0e3a7372`
+`progpu_native_direct2d.dll` for both Windows RIDs. ABI v5 at exact
+implementation commit `f751cd0b` was independently compiled and executed in
+the Windows 11 ARM64 Parallels VM with MSVC 19.44 and Windows SDK 26100. The
+regression exits zero and the exact 14-export audit passes, including the
+CanvasDevice and CanvasRenderTarget wrapper exports. SHA-256 is
+`d9224ee806635ba3086d299912bb7bd2d9cf52a7ef56451ae54656058e7175d8`
 for the DLL and
-`a2ba7e30efbe4fa320de92afaf3a27c418f6843caed71acde5a57325dec3d683`
+`0e8fc690ba5bd4a7a40d461d1691f8efd32dbef7338ae90a1635ccc5b0f2e02d`
 for the executable. The VM has no registered Canvas/Win2D AppX package, so this
-run qualifies the explicit runtime-unavailable path; a package-deployed
-Win2D-success oracle remains a separate gate. A merely booted VM or a stalled
-Guest Tools login is not recorded as a pass.
+run qualifies the explicit runtime-unavailable path for both typed wrappers; a
+package-deployed Win2D-success oracle remains a separate gate. A merely booted
+VM or a stalled Guest Tools login is not recorded as a pass.
 
 ## Managed glyph row-reuse SIMD checkpoint
 

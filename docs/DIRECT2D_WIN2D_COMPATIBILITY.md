@@ -407,15 +407,18 @@ export drift against `eng/progpu-native-direct2d-exports.txt`.
 of reflection/dynamic native loading and CPU copies, lock-order boundary, and
 typed lease contract on every portable managed test host.
 
-The preceding ABI v4 checkpoint is qualified in the Windows 11 ARM64 Parallels VM with MSVC 19.44 and
-Windows SDK 10.0.26100.0. The isolated provider and regression compile and
-link with `/W4 /WX`; the executable exits zero, including the registered-Win2D
-optional-runtime fail-closed branch because that VM has no Canvas/Win2D AppX
-registration, and `dumpbin` reports exactly its 13 allowed exports. SHA-256 is
-`df5c0b8540fe6f25ac6fbe7691ad300f69aa3cca0fd0ef8aa901e85c0e3a7372`
+ABI v5 at exact implementation commit `f751cd0b` is qualified in the Windows
+11 ARM64 Parallels VM with MSVC 19.44 and Windows SDK 10.0.26100.0. The
+isolated provider and regression compile and link with `/W4 /WX`; the
+executable exits zero and `dumpbin` reports exactly the 14 allowed exports,
+including both typed Win2D wrappers. SHA-256 is
+`d9224ee806635ba3086d299912bb7bd2d9cf52a7ef56451ae54656058e7175d8`
 for `progpu_native_direct2d.dll` and
-`a2ba7e30efbe4fa320de92afaf3a27c418f6843caed71acde5a57325dec3d683`
-for `progpu_native_direct2d_tests.exe`. A booted desktop or an unresponsive
+`0e8fc690ba5bd4a7a40d461d1691f8efd32dbef7338ae90a1635ccc5b0f2e02d`
+for `progpu_native_direct2d_tests.exe`. The VM has no Canvas/Win2D AppX
+registration, so this run qualifies the explicit runtime-unavailable branch
+for both CanvasDevice and CanvasRenderTarget wrappers; a package-deployed real
+Win2D success oracle remains required. A booted desktop or an unresponsive
 Guest Tools login is not accepted as qualification evidence; these hashes came
 from the executed regression in the guest.
 
