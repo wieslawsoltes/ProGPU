@@ -94,7 +94,8 @@ The portable API will be a thin recording layer rather than a second renderer:
 
 The first shipping subset is in the `ProGPU.Win2D` package. It implements
 `ICanvasResourceCreator`, `ICanvasResourceCreatorWithDpi`, `CanvasDevice`,
-`CanvasBitmap`, `CanvasRenderTarget`, and `CanvasDrawingSession`, with the Win2D
+`CanvasBitmap`, `CanvasRenderTarget`, `CanvasCommandList`, and
+`CanvasDrawingSession`, with the Win2D
 namespace and overload shapes used by the pinned SimpleSample and basic shapes
 sample. It currently supports:
 
@@ -108,6 +109,10 @@ sample. It currently supports:
   rectangle, optional DIP source rectangle, opacity, and qualified nearest,
   linear, multisample-linear, or cubic sampling; typed texture leases keep a
   source alive through deferred native submission without a staging copy;
+- single-recording `CanvasCommandList` creation, multi-chunk recording across
+  `Flush()`, and origin/offset drawing as nested immutable pictures; command
+  lists are cloned into the destination ownership graph, so no intermediate
+  bitmap is allocated and public disposal before submission remains safe;
 - target-preserving later drawing sessions and `Flush()` without retaining or
   replaying all earlier command lists;
 - Win2D-compatible `GetPixelBytes()` for validation and explicit diagnostics
@@ -125,10 +130,11 @@ The current package is source compatible, not binary compatible with
 devices, straight/ignored alpha, non-BGRA render targets, Dawn/browser device
 factories, Direct2D COM wrapping, cross-device resources, self-referential
 texture feedback, anisotropic sampling, and high-quality cubic sampling.
-Bitmap file/pixel creation and updates, brushes, `CanvasCommandList`, arbitrary
-geometry, clips/layers, text formats/layouts, effects, sprite batches, and XAML
-controls remain the next incremental compatibility groups. No portable API
-surfaces raw COM pointers.
+Bitmap file/pixel creation and updates, brushes, command-list bounds/scaling,
+arbitrary geometry, clips/layers, text formats/layouts, effects, sprite
+batches, and XAML controls remain the next incremental compatibility groups.
+Command-list `Clear` currently fails closed because portable unbounded-clear
+semantics have not been qualified. No portable API surfaces raw COM pointers.
 
 ## Validation gate
 
@@ -149,10 +155,12 @@ The gate has a completed portable-core layer and three expanding oracle layers:
    GPU target without display-list growth or CPU copies. The Apple M3 Pro
    Metal result and Windows 11 ARM64 Parallels Display Adapter D3D12 result are
    byte-identical BGRA8 premultiplied frames with SHA-256
-   `06CD9FDE62D7400D7C9FC3ABF0A248023E70A9A57D15D48F197D237D7CF01767`.
+   `92D04C71F9DF04983106F3BE3CBDEC1179CB2ACDB5B28A5A38667D2BF013B001`.
    The frame includes full-opacity and half-opacity same-device bitmap draws;
    the source is publicly disposed before the destination session closes to
    prove that the typed GPU lease, rather than a CPU copy, owns deferred use.
+   It also records a command list in two chunks separated by `Flush()`, draws
+   it with an offset, and disposes the public list before target submission.
    VM timing is not treated as physical D3D12 performance evidence.
 
 1. Build and capture the pinned unmodified SimpleSample plus selected
