@@ -4,7 +4,8 @@ param(
     [string] $Rid = $(if ($env:PROGPU_NATIVE_RID) { $env:PROGPU_NATIVE_RID } else { "win-x64" }),
     [string] $NativeBinaryDirectory,
     [string] $Configuration = "Release",
-    [int] $TimeoutSeconds = 120
+    [int] $TimeoutSeconds = 120,
+    [switch] $SkipBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,16 +36,18 @@ if ($ExistingPackage) {
     $ExistingPackage | Remove-AppxPackage
 }
 
-dotnet publish $Project `
-    -c $Configuration `
-    -r $Rid `
-    -p:Platform=$Platform `
-    -p:GenerateAppxPackageOnBuild=true `
-    -p:AppxPackageSigningEnabled=false `
-    -p:WindowsAppSDKSelfContained=true `
-    -p:ProGpuDirect2DNativeBinary=$Direct2DBinary
-if ($LASTEXITCODE -ne 0) {
-    throw "The packaged genuine Win2D integration application failed to build."
+if (-not $SkipBuild) {
+    dotnet publish $Project `
+        -c $Configuration `
+        -r $Rid `
+        -p:Platform=$Platform `
+        -p:GenerateAppxPackageOnBuild=true `
+        -p:AppxPackageSigningEnabled=false `
+        -p:WindowsAppSDKSelfContained=true `
+        -p:ProGpuDirect2DNativeBinary=$Direct2DBinary
+    if ($LASTEXITCODE -ne 0) {
+        throw "The packaged genuine Win2D integration application failed to build."
+    }
 }
 
 $Package = Get-ChildItem `
@@ -80,7 +83,10 @@ $SignedPackagePath = Join-Path $TemporaryDirectory "integration.msix"
 $Password = [Guid]::NewGuid().ToString("N")
 $SecurePassword = ConvertTo-SecureString $Password -AsPlainText -Force
 try {
-    Copy-Item $Package.FullName $SignedPackagePath
+    [System.IO.File]::Copy(
+        "\\?\" + $Package.FullName,
+        $SignedPackagePath,
+        $true)
     $Certificate = New-SelfSignedCertificate `
         -Type Custom `
         -Subject "CN=ProGPU" `
