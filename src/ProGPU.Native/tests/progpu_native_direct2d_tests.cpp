@@ -666,7 +666,7 @@ int main()
     image_common_properties.opacity = 0.75F;
     image_common_properties.transform.m11 = 1.0F;
     image_common_properties.transform.m22 = 1.0F;
-    image_common_properties.transform.dx = 2.0F;
+    image_common_properties.transform.m31 = 2.0F;
     void* image_brush_value = nullptr;
     native_hresult = E_FAIL;
     require(
