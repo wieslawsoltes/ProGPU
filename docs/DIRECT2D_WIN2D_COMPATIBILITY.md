@@ -812,7 +812,10 @@ No pixel copy, readback, repack, reflection, or managed command allocation is
 introduced. The regression restores all properties and bindings before the
 existing rendering/Win2D oracles. The allowlist grows from 110 to exactly 118
 exports; managed contracts pass 5/5 and the package builds with zero warnings.
-Windows qualification is pending corrected checkpoint `058f6f1f`.
+Corrected checkpoint `058f6f1f` is qualified by Build run `33336912843`,
+dedicated MSVC job `99325361848`: warning-as-error compile/link succeeds, the
+focused Direct2D regression passes in 0.18 seconds, all 11 native suites pass
+in 1.33 seconds, and the exact 118-export allowlist is accepted.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
