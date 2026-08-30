@@ -5053,6 +5053,19 @@ unknown options fail closed. The native regression covers format metadata,
 pre-draw rejection, a real text command, and deferred EndDraw success; the
 export audit grows from 45 to exactly 47.
 
+Exact ProGPU implementation `6a87f320` was rebuilt twice with `/Brepro` in the
+Windows 11 ARM64 Parallels guest using MSVC 19.44, Windows SDK
+10.0.26100.0, and `/W4 /WX`. Both warning-clean builds produce identical
+artifacts. The focused native regression exits zero and `dumpbin` matches the
+47-export allowlist. SHA-256 is
+`6BC503DBE9BB5506B709CA6D97D8B78F82F302BF33BCE4352B104722DA05FCDC`
+for `progpu_native_direct2d.dll` and
+`8C634D6EC4963786D87D5E87BEE5FBD83F6B843A8BCE535E0E9149CB806FCDC5`
+for `progpu_native_direct2d_tests.exe`. The native run qualifies genuine
+DirectWrite factory/format creation and Direct2D text submission. Official
+Win2D `CanvasTextFormat` projection remains a distinct signed-package oracle;
+the native evidence is not used as a substitute for that gate.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

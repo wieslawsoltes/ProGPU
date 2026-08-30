@@ -791,6 +791,24 @@ SHA-256 is
 Post-run cleanup leaves zero integration processes and zero installed test
 packages.
 
+The native half of ABI v16 at exact implementation commit `6a87f320` was
+rebuilt in the same Windows 11 ARM64 Parallels guest with MSVC 19.44 and
+Windows SDK 10.0.26100.0 under `/W4 /WX`. Two consecutive `/Brepro` builds
+produce identical binaries. The focused native regression exits zero after
+querying the shared `IDWriteFactory3`, creating a genuine
+`IDWriteTextFormat1`, validating its family/locale/size/alignment/wrapping
+state, rejecting a malformed descriptor and pre-draw text call, drawing real
+UTF-16 text during an active shared-surface transaction, and rejecting unknown
+draw options. `dumpbin` matches all 47 allowed exports, including the two new
+typed text entry points. SHA-256 is
+`6BC503DBE9BB5506B709CA6D97D8B78F82F302BF33BCE4352B104722DA05FCDC`
+for `progpu_native_direct2d.dll` and
+`8C634D6EC4963786D87D5E87BEE5FBD83F6B843A8BCE535E0E9149CB806FCDC5`
+for `progpu_native_direct2d_tests.exe` in both builds. This evidence qualifies
+the native DirectWrite/Direct2D path only. Successful projection through the
+official Win2D `CanvasTextFormat` remains a separate signed-package gate and
+must not be inferred from the native COM identity test.
+
 Run this qualification with
 `eng/progpu-run-direct2d-win2d-integration.ps1`, or opt it into the complete
 Windows native lane with `PROGPU_RUN_REAL_WIN2D_INTEGRATION=1`. Package trust is
