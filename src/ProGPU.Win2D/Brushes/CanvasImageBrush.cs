@@ -185,6 +185,7 @@ public sealed class CanvasImageBrush : ICanvasBrush, ICanvasBrushInternal
             SamplingMode = MapInterpolation(_interpolation),
             AddressModeU = MapEdgeBehavior(_extendX),
             AddressModeV = MapEdgeBehavior(_extendY),
+            ExtendToFillBounds = true,
             Opacity = _state.Opacity
         };
         _cachedVersion = _state.Version;

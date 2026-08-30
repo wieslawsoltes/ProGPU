@@ -6663,7 +6663,23 @@ SceneStateUploadComplete:
                 "The retained texture brush requires a live texture, finite positive extents, and a positive axis-preserving transform.");
         }
 
-        CompileTextureCommand(textureCommand, transform);
+        if (brush.ExtendToFillBounds)
+        {
+            CompileTextureCommand(textureCommand, transform);
+            return;
+        }
+
+        PushClipRect(clipBounds, transform);
+        try
+        {
+            CompileTextureCommand(
+                textureCommand,
+                textureCommand.Transform * transform);
+        }
+        finally
+        {
+            PopClipRect();
+        }
     }
 
 
