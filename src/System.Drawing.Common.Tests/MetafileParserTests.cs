@@ -300,7 +300,7 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
-    public void WmfPlaybackDrawsTypedStateObjectsPolygonsLinesArcsRectanglesAndEllipses()
+    public void WmfPlaybackDrawsTypedStateObjectsClipAndVectorPrimitives()
     {
         using var metafile = new Metafile(new MemoryStream(CreatePlaybackWmf()));
         using var target = new Bitmap(64, 64);
@@ -315,8 +315,10 @@ public sealed class MetafileParserTests
         Color linePixel = target.GetPixel(32, 32);
         Assert.True(linePixel.A > 0);
         Assert.Equal((0, 0, 0), (linePixel.R, linePixel.G, linePixel.B));
-        Assert.Equal(Color.Green.ToArgb(), target.GetPixel(16, 46).ToArgb());
+        Assert.Equal(Color.Green.ToArgb(), target.GetPixel(8, 46).ToArgb());
+        Assert.Equal(0, target.GetPixel(16, 46).A);
         Assert.Equal(Color.Green.ToArgb(), target.GetPixel(46, 46).ToArgb());
+        Assert.Equal(0, target.GetPixel(46, 54).A);
         Assert.Equal(0, target.GetPixel(2, 2).A);
     }
 
@@ -700,6 +702,7 @@ public sealed class MetafileParserTests
             (0x0201, WmfColor(Color.White)),
             (0x020C, WmfWords(64, 64)),
             (0x020B, WmfWords(0, 0)),
+            (0x0416, WmfWords(52, 64, 0, 0)),
             (0x02FC, WmfBrush(Color.Red)),
             (0x02FA, WmfPen(Color.Black, 1)),
             (0x012D, WmfWords(0)),
@@ -716,6 +719,7 @@ public sealed class MetafileParserTests
             (0x012D, WmfWords(1)),
             (0x0325, WmfPoints(new Point(4, 32), new Point(60, 32))),
             (0x0817, WmfWords(36, 18, 46, 28, 56, 28, 36, 8)),
+            (0x0415, WmfWords(50, 20, 42, 12)),
             (0x041B, WmfWords(56, 28, 36, 4)),
             (0x0418, WmfWords(56, 56, 36, 36))
         };

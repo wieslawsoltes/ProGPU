@@ -113,7 +113,8 @@ state/object path separate from EMF. It implements background mode/color,
 state, window origin/extent, move, lowest-free object-table allocation and slot
 reuse, selection/deletion, solid/null pens and brushes, polygons, polylines,
 counterclockwise elliptical arcs, filled/stroked rectangles, and
-filled/stroked ellipses. The record
+filled/stroked ellipses. Intersect- and exclude-clip rectangles lower through
+the retained Region clip path. The record
 inventory used by the canonical LibreWinForms `telescope_01.wmf` asset remains
 fully covered; rectangle and ellipse playback are additional typed families. The
 implementation is based on the official
@@ -121,7 +122,7 @@ implementation is based on the official
 [META_POLYGON](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/0982bbfc-feb7-4f06-a8fb-ad03b465ffea),
 [META_ARC](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/742097b4-5879-4c36-b57e-77e7cc152253), and
 [state record](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/54e4a2e0-5ca9-4c69-b6a8-dc8f938c68ae)
-contracts. Paths, clipping records, text output, DIB images, richer GDI objects,
+contracts. Paths, other clipping records, text output, DIB images, richer GDI objects,
 other WMF drawing families, and nonstructural EMF+ drawing records remain
 explicit later tranches.
 
@@ -163,7 +164,8 @@ saved clip restoration, multi-polygon count/point validation,
 explicit image-attribute/projective rejection, and transactional rollback after
 a supported draw but before an unsupported record. WMF gates cover 16-bit
 parameter ordering, lowest-free slot reuse, state, pen/brush selection,
-polygon/polyline/arc/rectangle/ellipse pixels, and transactional rollback. The real
+polygon/polyline/arc/rectangle/ellipse pixels, intersect/exclude clip pixels,
+and transactional rollback. The real
 LibreWinForms `telescope_01.wmf` fixture renders end to end into a 200-by-267
 bitmap with 6,048 opaque pixels. The focused metafile suite is 30/30 and both
 complete Debug and Release drawing suites are 391/391. Windows differential and
@@ -202,6 +204,8 @@ temporary point arrays and retained-command ownership as later optimization
 work rather than claiming allocation-free playback.
 
 `Playback256WmfRectanglesToRetainedCommands` exercises the shared ordered-box decoder and selected brush/pen lowering through the simpler rectangle path. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 757.639 microsecond median (753.507 microsecond mean, 139.549 microsecond standard deviation) and 622.08 KB managed allocation for 256 filled/stroked rectangles. One launch and three measured iterations make this coarse retained-command evidence; exact selected-fill pixels and the shared malformed-bound/transactional gates remain the correctness proof.
+
+`Playback256WmfRectanglesWithClipState` adds one intersect and one exclude record around the same 256-rectangle fixture. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured an 840.428 microsecond median (847.766 microsecond mean, 125.202 microsecond standard deviation) and 626.08 KB managed allocation. The three-iteration result is a coarse clip-state checkpoint. Independent pixels prove that earlier commands remain visible, the exclude hole is transparent, intersection bounds clip later shapes, and a following unsupported record still rolls back the complete temporary stream.
 
 `Playback256WmfEllipsesToRetainedCommands` guards the WMF 16-bit bottom/right/top/left parameter order, selected brush and pen lowering, transactional append, and retained curve commands. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 millisecond median (1.109 millisecond mean, 0.115 millisecond standard deviation) and 622.14 KB managed allocation for 256 filled and stroked ellipses. One launch and three measured iterations make this a coarse first baseline. Focused gates verify selected fill/outline pixels, reject unordered bounds without publication, and prove that a following unsupported text record does not publish a partially lowered ellipse stream. The complete drawing suite passes 394/394, and ApiCompat remains at 0 missing types, 0 missing members, and 13 reviewed platform-annotation differences.
 

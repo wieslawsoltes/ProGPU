@@ -106,6 +106,14 @@ internal static class MetafilePlaybackRenderer
                 state.CurrentPoint = ReadWmfYxPoint(payload);
                 return;
 
+            case EmfPlusRecordType.WmfIntersectClipRect:
+                state.IntersectClip(record, ReadWmfRectangle(record, payload));
+                return;
+
+            case EmfPlusRecordType.WmfExcludeClipRect:
+                state.ExcludeClip(record, ReadWmfRectangle(record, payload));
+                return;
+
             case EmfPlusRecordType.WmfSelectObject:
                 RequireSize(record, payload, 2);
                 state.SelectWmfObject(ReadUInt16(payload, 0), record);
@@ -870,6 +878,12 @@ internal static class MetafilePlaybackRenderer
         {
             ApplyTransform(record);
             Graphics.IntersectClip(rectangle);
+        }
+
+        internal void ExcludeClip(in MetafileRecord record, Rectangle rectangle)
+        {
+            ApplyTransform(record);
+            Graphics.ExcludeClip(rectangle);
         }
 
         internal void ModifyWorldTransform(
