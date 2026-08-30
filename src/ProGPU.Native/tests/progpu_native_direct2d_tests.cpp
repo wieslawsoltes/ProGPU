@@ -413,6 +413,86 @@ int main()
             radial_brush->GetOpacity() == 0.75F,
         "provider radial-gradient brush properties changed");
 
+    progpu_native_direct2d_brush_properties mutable_brush_properties{};
+    mutable_brush_properties.opacity = 0.5F;
+    mutable_brush_properties.transform = {1.0F, 0.0F, 0.0F, 1.0F, 3.0F, 4.0F};
+    require(
+        progpu_native_direct2d_brush_set_properties(
+            surface, solid_brush.Get(), &mutable_brush_properties,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider common brush property update failed");
+    progpu_native_direct2d_brush_properties returned_brush_properties{};
+    require(
+        progpu_native_direct2d_brush_get_properties(
+            surface, solid_brush.Get(), &returned_brush_properties,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            returned_brush_properties.opacity == 0.5F &&
+            returned_brush_properties.transform.m31 == 3.0F &&
+            returned_brush_properties.transform.m32 == 4.0F,
+        "provider common brush property query failed");
+    const progpu_native_direct2d_color_f mutable_solid_color = {
+        0.25F, 0.5F, 0.75F, 1.0F
+    };
+    require(
+        progpu_native_direct2d_solid_color_brush_set_color(
+            surface, solid_brush.Get(), &mutable_solid_color,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider solid-brush color update failed");
+    progpu_native_direct2d_color_f returned_solid_color{};
+    require(
+        progpu_native_direct2d_solid_color_brush_get_color(
+            surface, solid_brush.Get(), &returned_solid_color,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            returned_solid_color.red == mutable_solid_color.red &&
+            returned_solid_color.green == mutable_solid_color.green &&
+            returned_solid_color.blue == mutable_solid_color.blue,
+        "provider solid-brush color query failed");
+    const progpu_native_direct2d_linear_gradient_brush_properties
+        mutable_linear_properties{{1.0F, 2.0F}, {31.0F, 42.0F}};
+    require(
+        progpu_native_direct2d_linear_gradient_brush_set_properties(
+            surface, linear_brush.Get(), &mutable_linear_properties,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider linear-gradient property update failed");
+    progpu_native_direct2d_linear_gradient_brush_properties
+        returned_linear_properties{};
+    require(
+        progpu_native_direct2d_linear_gradient_brush_get_properties(
+            surface, linear_brush.Get(), &returned_linear_properties,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            returned_linear_properties.start_point.x == 1.0F &&
+            returned_linear_properties.end_point.y == 42.0F,
+        "provider linear-gradient property query failed");
+    const progpu_native_direct2d_radial_gradient_brush_properties
+        mutable_radial_properties{{12.0F, 14.0F}, {1.0F, 2.0F}, 9.0F, 7.0F};
+    require(
+        progpu_native_direct2d_radial_gradient_brush_set_properties(
+            surface, radial_brush.Get(), &mutable_radial_properties,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider radial-gradient property update failed");
+    progpu_native_direct2d_radial_gradient_brush_properties
+        returned_radial_properties{};
+    require(
+        progpu_native_direct2d_radial_gradient_brush_get_properties(
+            surface, radial_brush.Get(), &returned_radial_properties,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            returned_radial_properties.center.x == 12.0F &&
+            returned_radial_properties.gradient_origin_offset.y == 2.0F &&
+            returned_radial_properties.radius_x == 9.0F &&
+            returned_radial_properties.radius_y == 7.0F,
+        "provider radial-gradient property query failed");
+    const progpu_native_direct2d_brush_properties restored_brush_properties = {
+        1.0F, {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F}
+    };
+    require(
+        progpu_native_direct2d_brush_set_properties(
+            surface, solid_brush.Get(), &restored_brush_properties,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+        progpu_native_direct2d_solid_color_brush_set_color(
+            surface, solid_brush.Get(), &solid_color,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider solid brush restore failed");
+
     progpu_native_direct2d_rect_f rectangle_value{
         4.0F,
         4.0F,

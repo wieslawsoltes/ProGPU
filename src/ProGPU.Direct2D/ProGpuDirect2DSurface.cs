@@ -277,6 +277,215 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    public void SetBrushProperties(
+        ProGpuDirect2DComReference brush,
+        ProGpuDirect2DBrushProperties properties)
+    {
+        ValidateBrush(brush, nameof(brush));
+        if (!float.IsFinite(properties.Opacity) || properties.Opacity is < 0.0F or > 1.0F)
+            throw new ArgumentOutOfRangeException(nameof(properties));
+        ProGpuDirect2DNative.NativeBrushProperties native = new()
+        {
+            Opacity = properties.Opacity,
+            Transform = CreateNativeMatrix(properties.Transform)
+        };
+        bool added = false;
+        try
+        {
+            brush.DangerousAddRef(ref added);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int hr = 0;
+                ProGpuDirect2DStatus status = ProGpuDirect2DNative.BrushSetProperties(
+                    _nativeSurface, brush.DangerousGetHandle(), &native, &hr);
+                ThrowIfFailed("ID2D1Brush property update", status, hr);
+            }
+        }
+        finally { if (added) brush.DangerousRelease(); }
+    }
+
+    public ProGpuDirect2DBrushProperties GetBrushProperties(
+        ProGpuDirect2DComReference brush)
+    {
+        ValidateBrush(brush, nameof(brush));
+        bool added = false;
+        try
+        {
+            brush.DangerousAddRef(ref added);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                ProGpuDirect2DNative.NativeBrushProperties native = default;
+                int hr = 0;
+                ProGpuDirect2DStatus status = ProGpuDirect2DNative.BrushGetProperties(
+                    _nativeSurface, brush.DangerousGetHandle(), &native, &hr);
+                ThrowIfFailed("ID2D1Brush property query", status, hr);
+                return new(native.Opacity, new Matrix3x2(
+                    native.Transform.M11, native.Transform.M12,
+                    native.Transform.M21, native.Transform.M22,
+                    native.Transform.M31, native.Transform.M32));
+            }
+        }
+        finally { if (added) brush.DangerousRelease(); }
+    }
+
+    public void SetSolidColorBrushColor(
+        ProGpuDirect2DComReference brush,
+        ProGpuDirect2DColor color)
+    {
+        ValidateBrushKind(brush, ProGpuDirect2DInterfaceKind.D2D1SolidColorBrush, nameof(brush));
+        ValidateColor(color);
+        ProGpuDirect2DNative.NativeColorF native = new()
+        {
+            Red = color.Red, Green = color.Green, Blue = color.Blue, Alpha = color.Alpha
+        };
+        bool added = false;
+        try
+        {
+            brush.DangerousAddRef(ref added);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int hr = 0;
+                ProGpuDirect2DStatus status = ProGpuDirect2DNative.SolidColorBrushSetColor(
+                    _nativeSurface, brush.DangerousGetHandle(), &native, &hr);
+                ThrowIfFailed("ID2D1SolidColorBrush color update", status, hr);
+            }
+        }
+        finally { if (added) brush.DangerousRelease(); }
+    }
+
+    public ProGpuDirect2DColor GetSolidColorBrushColor(ProGpuDirect2DComReference brush)
+    {
+        ValidateBrushKind(brush, ProGpuDirect2DInterfaceKind.D2D1SolidColorBrush, nameof(brush));
+        bool added = false;
+        try
+        {
+            brush.DangerousAddRef(ref added);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                ProGpuDirect2DNative.NativeColorF native = default;
+                int hr = 0;
+                ProGpuDirect2DStatus status = ProGpuDirect2DNative.SolidColorBrushGetColor(
+                    _nativeSurface, brush.DangerousGetHandle(), &native, &hr);
+                ThrowIfFailed("ID2D1SolidColorBrush color query", status, hr);
+                return new(native.Red, native.Green, native.Blue, native.Alpha);
+            }
+        }
+        finally { if (added) brush.DangerousRelease(); }
+    }
+
+    public void SetLinearGradientBrushProperties(
+        ProGpuDirect2DComReference brush,
+        ProGpuDirect2DLinearGradientProperties properties)
+    {
+        ValidateBrushKind(brush, ProGpuDirect2DInterfaceKind.D2D1LinearGradientBrush, nameof(brush));
+        ValidatePoint(properties.StartPoint, nameof(properties));
+        ValidatePoint(properties.EndPoint, nameof(properties));
+        ProGpuDirect2DNative.NativeLinearGradientBrushProperties native = new()
+        {
+            StartPoint = new() { X = properties.StartPoint.X, Y = properties.StartPoint.Y },
+            EndPoint = new() { X = properties.EndPoint.X, Y = properties.EndPoint.Y }
+        };
+        bool added = false;
+        try
+        {
+            brush.DangerousAddRef(ref added);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int hr = 0;
+                ProGpuDirect2DStatus status = ProGpuDirect2DNative.LinearGradientBrushSetProperties(
+                    _nativeSurface, brush.DangerousGetHandle(), &native, &hr);
+                ThrowIfFailed("ID2D1LinearGradientBrush property update", status, hr);
+            }
+        }
+        finally { if (added) brush.DangerousRelease(); }
+    }
+
+    public ProGpuDirect2DLinearGradientProperties GetLinearGradientBrushProperties(
+        ProGpuDirect2DComReference brush)
+    {
+        ValidateBrushKind(brush, ProGpuDirect2DInterfaceKind.D2D1LinearGradientBrush, nameof(brush));
+        bool added = false;
+        try
+        {
+            brush.DangerousAddRef(ref added);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                ProGpuDirect2DNative.NativeLinearGradientBrushProperties native = default;
+                int hr = 0;
+                ProGpuDirect2DStatus status = ProGpuDirect2DNative.LinearGradientBrushGetProperties(
+                    _nativeSurface, brush.DangerousGetHandle(), &native, &hr);
+                ThrowIfFailed("ID2D1LinearGradientBrush property query", status, hr);
+                return new(new(native.StartPoint.X, native.StartPoint.Y), new(native.EndPoint.X, native.EndPoint.Y));
+            }
+        }
+        finally { if (added) brush.DangerousRelease(); }
+    }
+
+    public void SetRadialGradientBrushProperties(
+        ProGpuDirect2DComReference brush,
+        ProGpuDirect2DRadialGradientProperties properties)
+    {
+        ValidateBrushKind(brush, ProGpuDirect2DInterfaceKind.D2D1RadialGradientBrush, nameof(brush));
+        ValidatePoint(properties.Center, nameof(properties));
+        ValidatePoint(properties.GradientOriginOffset, nameof(properties));
+        if (!float.IsFinite(properties.RadiusX) || properties.RadiusX < 0.0F ||
+            !float.IsFinite(properties.RadiusY) || properties.RadiusY < 0.0F)
+            throw new ArgumentOutOfRangeException(nameof(properties));
+        ProGpuDirect2DNative.NativeRadialGradientBrushProperties native = new()
+        {
+            Center = new() { X = properties.Center.X, Y = properties.Center.Y },
+            GradientOriginOffset = new() { X = properties.GradientOriginOffset.X, Y = properties.GradientOriginOffset.Y },
+            RadiusX = properties.RadiusX,
+            RadiusY = properties.RadiusY
+        };
+        bool added = false;
+        try
+        {
+            brush.DangerousAddRef(ref added);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int hr = 0;
+                ProGpuDirect2DStatus status = ProGpuDirect2DNative.RadialGradientBrushSetProperties(
+                    _nativeSurface, brush.DangerousGetHandle(), &native, &hr);
+                ThrowIfFailed("ID2D1RadialGradientBrush property update", status, hr);
+            }
+        }
+        finally { if (added) brush.DangerousRelease(); }
+    }
+
+    public ProGpuDirect2DRadialGradientProperties GetRadialGradientBrushProperties(
+        ProGpuDirect2DComReference brush)
+    {
+        ValidateBrushKind(brush, ProGpuDirect2DInterfaceKind.D2D1RadialGradientBrush, nameof(brush));
+        bool added = false;
+        try
+        {
+            brush.DangerousAddRef(ref added);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                ProGpuDirect2DNative.NativeRadialGradientBrushProperties native = default;
+                int hr = 0;
+                ProGpuDirect2DStatus status = ProGpuDirect2DNative.RadialGradientBrushGetProperties(
+                    _nativeSurface, brush.DangerousGetHandle(), &native, &hr);
+                ThrowIfFailed("ID2D1RadialGradientBrush property query", status, hr);
+                return new(
+                    new(native.Center.X, native.Center.Y),
+                    new(native.GradientOriginOffset.X, native.GradientOriginOffset.Y),
+                    native.RadiusX,
+                    native.RadiusY);
+            }
+        }
+        finally { if (added) brush.DangerousRelease(); }
+    }
+
     /// <summary>
     /// Polls the native removal event and persistent Direct2D device-domain
     /// state. Device loss is terminal for this surface and its resource
@@ -5930,6 +6139,21 @@ public sealed unsafe class ProGpuDirect2DSurface :
         {
             throw new ArgumentException(
                 "The COM reference must own a genuine ID2D1Brush.",
+                parameterName);
+        }
+    }
+
+    private void ValidateBrushKind(
+        ProGpuDirect2DComReference brush,
+        ProGpuDirect2DInterfaceKind kind,
+        string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(brush, parameterName);
+        ValidateResourceDomain(brush, parameterName);
+        if (brush.InterfaceKind != kind)
+        {
+            throw new ArgumentException(
+                $"The COM reference must own {kind}.",
                 parameterName);
         }
     }

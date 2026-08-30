@@ -646,7 +646,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 28U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 29U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -734,6 +734,62 @@ progpu_native_direct2d_surface_create_solid_color_brush(
     progpu_native_direct2d_surface* surface,
     const progpu_native_direct2d_color_f* color,
     void** value,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_brush_set_properties(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    const progpu_native_direct2d_brush_properties* properties,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_brush_get_properties(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    progpu_native_direct2d_brush_properties* properties,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_solid_color_brush_set_color(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    const progpu_native_direct2d_color_f* color,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_solid_color_brush_get_color(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    progpu_native_direct2d_color_f* color,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_linear_gradient_brush_set_properties(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    const progpu_native_direct2d_linear_gradient_brush_properties* properties,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_linear_gradient_brush_get_properties(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    progpu_native_direct2d_linear_gradient_brush_properties* properties,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_radial_gradient_brush_set_properties(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    const progpu_native_direct2d_radial_gradient_brush_properties* properties,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_radial_gradient_brush_get_properties(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    progpu_native_direct2d_radial_gradient_brush_properties* properties,
     int32_t* native_hresult);
 
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
