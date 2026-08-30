@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 23U;
+    internal const uint AbiVersion = 24U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -769,6 +769,110 @@ internal static unsafe partial class ProGpuDirect2DNative
         NativeMatrix3X2F* geometryBTransform,
         float flatteningTolerance,
         nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_geometry_get_bounds")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus GeometryGetBounds(
+        nint surface,
+        nint geometry,
+        NativeMatrix3X2F* transform,
+        ProGpuDirect2DRect* bounds,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_geometry_get_widened_bounds")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus GeometryGetWidenedBounds(
+        nint surface,
+        nint geometry,
+        float strokeWidth,
+        nint strokeStyle,
+        NativeMatrix3X2F* transform,
+        float flatteningTolerance,
+        ProGpuDirect2DRect* bounds,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_geometry_fill_contains_point")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus GeometryFillContainsPoint(
+        nint surface,
+        nint geometry,
+        NativePoint2F* point,
+        NativeMatrix3X2F* transform,
+        float flatteningTolerance,
+        uint* contains,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_geometry_stroke_contains_point")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus GeometryStrokeContainsPoint(
+        nint surface,
+        nint geometry,
+        NativePoint2F* point,
+        float strokeWidth,
+        nint strokeStyle,
+        NativeMatrix3X2F* transform,
+        float flatteningTolerance,
+        uint* contains,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_geometry_compare")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus GeometryCompare(
+        nint surface,
+        nint geometry,
+        nint inputGeometry,
+        NativeMatrix3X2F* inputTransform,
+        float flatteningTolerance,
+        ProGpuDirect2DGeometryRelation* relation,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_geometry_compute_area")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus GeometryComputeArea(
+        nint surface,
+        nint geometry,
+        NativeMatrix3X2F* transform,
+        float flatteningTolerance,
+        float* area,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_geometry_compute_length")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus GeometryComputeLength(
+        nint surface,
+        nint geometry,
+        NativeMatrix3X2F* transform,
+        float flatteningTolerance,
+        float* length,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_geometry_compute_point_at_length")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus GeometryComputePointAtLength(
+        nint surface,
+        nint geometry,
+        float length,
+        NativeMatrix3X2F* transform,
+        float flatteningTolerance,
+        NativePoint2F* point,
+        NativePoint2F* unitTangent,
         int* nativeHResult);
 
     [LibraryImport(

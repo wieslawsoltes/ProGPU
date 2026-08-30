@@ -3766,6 +3766,371 @@ progpu_native_direct2d_surface_combine_geometry(
     return return_interface(path, value);
 }
 
+progpu_native_direct2d_status progpu_native_direct2d_geometry_get_bounds(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    progpu_native_direct2d_rect_f* bounds,
+    int32_t* native_hresult)
+{
+    if (bounds != nullptr) {
+        *bounds = {};
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr || bounds == nullptr ||
+        native_hresult == nullptr ||
+        (transform != nullptr && !is_finite(*transform))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_MATRIX_3X2_F native_transform{};
+    const D2D1_MATRIX_3X2_F* transform_pointer = nullptr;
+    if (transform != nullptr) {
+        native_transform = to_native_matrix(*transform);
+        transform_pointer = &native_transform;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    D2D1_RECT_F native_bounds{};
+    HRESULT hr = reinterpret_cast<ID2D1Geometry*>(geometry)->GetBounds(
+        transform_pointer,
+        &native_bounds);
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    bounds->x = native_bounds.left;
+    bounds->y = native_bounds.top;
+    bounds->width = native_bounds.right - native_bounds.left;
+    bounds->height = native_bounds.bottom - native_bounds.top;
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_geometry_get_widened_bounds(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    float stroke_width,
+    void* stroke_style,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    progpu_native_direct2d_rect_f* bounds,
+    int32_t* native_hresult)
+{
+    if (bounds != nullptr) {
+        *bounds = {};
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr || bounds == nullptr ||
+        native_hresult == nullptr || !std::isfinite(stroke_width) ||
+        stroke_width < 0.0F || !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        (transform != nullptr && !is_finite(*transform))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_MATRIX_3X2_F native_transform{};
+    const D2D1_MATRIX_3X2_F* transform_pointer = nullptr;
+    if (transform != nullptr) {
+        native_transform = to_native_matrix(*transform);
+        transform_pointer = &native_transform;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    D2D1_RECT_F native_bounds{};
+    HRESULT hr = reinterpret_cast<ID2D1Geometry*>(geometry)->GetWidenedBounds(
+        stroke_width,
+        reinterpret_cast<ID2D1StrokeStyle*>(stroke_style),
+        transform_pointer,
+        flattening_tolerance,
+        &native_bounds);
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    bounds->x = native_bounds.left;
+    bounds->y = native_bounds.top;
+    bounds->width = native_bounds.right - native_bounds.left;
+    bounds->height = native_bounds.bottom - native_bounds.top;
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_geometry_fill_contains_point(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    const progpu_native_direct2d_point_2f* point,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    uint32_t* contains,
+    int32_t* native_hresult)
+{
+    if (contains != nullptr) {
+        *contains = 0U;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr || point == nullptr ||
+        contains == nullptr || native_hresult == nullptr ||
+        !is_finite(*point) || !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        (transform != nullptr && !is_finite(*transform))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_MATRIX_3X2_F native_transform{};
+    const D2D1_MATRIX_3X2_F* transform_pointer = nullptr;
+    if (transform != nullptr) {
+        native_transform = to_native_matrix(*transform);
+        transform_pointer = &native_transform;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    const D2D1_POINT_2F native_point = D2D1::Point2F(point->x, point->y);
+    BOOL native_contains = FALSE;
+    HRESULT hr = reinterpret_cast<ID2D1Geometry*>(geometry)->FillContainsPoint(
+        native_point,
+        transform_pointer,
+        flattening_tolerance,
+        &native_contains);
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    *contains = native_contains != FALSE ? 1U : 0U;
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_geometry_stroke_contains_point(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    const progpu_native_direct2d_point_2f* point,
+    float stroke_width,
+    void* stroke_style,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    uint32_t* contains,
+    int32_t* native_hresult)
+{
+    if (contains != nullptr) {
+        *contains = 0U;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr || point == nullptr ||
+        contains == nullptr || native_hresult == nullptr ||
+        !is_finite(*point) || !std::isfinite(stroke_width) ||
+        stroke_width < 0.0F || !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        (transform != nullptr && !is_finite(*transform))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_MATRIX_3X2_F native_transform{};
+    const D2D1_MATRIX_3X2_F* transform_pointer = nullptr;
+    if (transform != nullptr) {
+        native_transform = to_native_matrix(*transform);
+        transform_pointer = &native_transform;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    const D2D1_POINT_2F native_point = D2D1::Point2F(point->x, point->y);
+    BOOL native_contains = FALSE;
+    HRESULT hr =
+        reinterpret_cast<ID2D1Geometry*>(geometry)->StrokeContainsPoint(
+            native_point,
+            stroke_width,
+            reinterpret_cast<ID2D1StrokeStyle*>(stroke_style),
+            transform_pointer,
+            flattening_tolerance,
+            &native_contains);
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    *contains = native_contains != FALSE ? 1U : 0U;
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status progpu_native_direct2d_geometry_compare(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    void* input_geometry,
+    const progpu_native_direct2d_matrix_3x2_f* input_transform,
+    float flattening_tolerance,
+    progpu_native_direct2d_geometry_relation* relation,
+    int32_t* native_hresult)
+{
+    if (relation != nullptr) {
+        *relation = PROGPU_NATIVE_DIRECT2D_GEOMETRY_RELATION_UNKNOWN;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr || input_geometry == nullptr ||
+        relation == nullptr || native_hresult == nullptr ||
+        !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        (input_transform != nullptr && !is_finite(*input_transform))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_MATRIX_3X2_F native_transform{};
+    const D2D1_MATRIX_3X2_F* transform_pointer = nullptr;
+    if (input_transform != nullptr) {
+        native_transform = to_native_matrix(*input_transform);
+        transform_pointer = &native_transform;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    D2D1_GEOMETRY_RELATION native_relation = D2D1_GEOMETRY_RELATION_UNKNOWN;
+    HRESULT hr = reinterpret_cast<ID2D1Geometry*>(geometry)
+        ->CompareWithGeometry(
+            reinterpret_cast<ID2D1Geometry*>(input_geometry),
+            transform_pointer,
+            flattening_tolerance,
+            &native_relation);
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    *relation = static_cast<progpu_native_direct2d_geometry_relation>(
+        native_relation);
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status progpu_native_direct2d_geometry_compute_area(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    float* area,
+    int32_t* native_hresult)
+{
+    if (area != nullptr) {
+        *area = 0.0F;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr || area == nullptr ||
+        native_hresult == nullptr || !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        (transform != nullptr && !is_finite(*transform))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_MATRIX_3X2_F native_transform{};
+    const D2D1_MATRIX_3X2_F* transform_pointer = nullptr;
+    if (transform != nullptr) {
+        native_transform = to_native_matrix(*transform);
+        transform_pointer = &native_transform;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    HRESULT hr = reinterpret_cast<ID2D1Geometry*>(geometry)->ComputeArea(
+        transform_pointer,
+        flattening_tolerance,
+        area);
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return FAILED(hr) ? status_from_win2d_hresult(hr)
+                      : PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status progpu_native_direct2d_geometry_compute_length(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    float* length,
+    int32_t* native_hresult)
+{
+    if (length != nullptr) {
+        *length = 0.0F;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr || length == nullptr ||
+        native_hresult == nullptr || !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        (transform != nullptr && !is_finite(*transform))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_MATRIX_3X2_F native_transform{};
+    const D2D1_MATRIX_3X2_F* transform_pointer = nullptr;
+    if (transform != nullptr) {
+        native_transform = to_native_matrix(*transform);
+        transform_pointer = &native_transform;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    HRESULT hr = reinterpret_cast<ID2D1Geometry*>(geometry)->ComputeLength(
+        transform_pointer,
+        flattening_tolerance,
+        length);
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return FAILED(hr) ? status_from_win2d_hresult(hr)
+                      : PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_geometry_compute_point_at_length(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    float length,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    progpu_native_direct2d_point_2f* point,
+    progpu_native_direct2d_point_2f* unit_tangent,
+    int32_t* native_hresult)
+{
+    if (point != nullptr) {
+        *point = {};
+    }
+    if (unit_tangent != nullptr) {
+        *unit_tangent = {};
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr || point == nullptr ||
+        unit_tangent == nullptr || native_hresult == nullptr ||
+        !std::isfinite(length) || length < 0.0F ||
+        !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        (transform != nullptr && !is_finite(*transform))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_MATRIX_3X2_F native_transform{};
+    const D2D1_MATRIX_3X2_F* transform_pointer = nullptr;
+    if (transform != nullptr) {
+        native_transform = to_native_matrix(*transform);
+        transform_pointer = &native_transform;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    D2D1_POINT_2F native_point{};
+    D2D1_POINT_2F native_tangent{};
+    HRESULT hr = reinterpret_cast<ID2D1Geometry*>(geometry)
+        ->ComputePointAtLength(
+            length,
+            transform_pointer,
+            flattening_tolerance,
+            &native_point,
+            &native_tangent);
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    point->x = native_point.x;
+    point->y = native_point.y;
+    unit_tangent->x = native_tangent.x;
+    unit_tangent->y = native_tangent.y;
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
 progpu_native_direct2d_status
 progpu_native_direct2d_surface_create_stroke_style(
     progpu_native_direct2d_surface* surface,

@@ -169,6 +169,18 @@ public enum ProGpuDirect2DCombineMode
     Exclude = 3
 }
 
+/// <summary>
+/// Describes the spatial relation returned by ID2D1Geometry::CompareWithGeometry.
+/// </summary>
+public enum ProGpuDirect2DGeometryRelation
+{
+    Unknown = 0,
+    Disjoint = 1,
+    IsContained = 2,
+    Contains = 3,
+    Overlap = 4
+}
+
 public enum ProGpuDirect2DCapStyle : uint
 {
     Flat = 0,
@@ -507,6 +519,13 @@ public readonly record struct ProGpuDirect2DRect(
     float Y,
     float Width,
     float Height);
+
+/// <summary>
+/// One point and unit tangent sampled from a genuine ID2D1Geometry.
+/// </summary>
+public readonly record struct ProGpuDirect2DPointAndTangent(
+    Vector2 Point,
+    Vector2 UnitTangent);
 
 /// <summary>
 /// Pointer-free state for one ID2D1DeviceContext layer push. Optional geometry
