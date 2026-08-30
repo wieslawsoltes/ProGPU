@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 19U;
+    internal const uint AbiVersion = 20U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -142,6 +142,15 @@ internal static unsafe partial class ProGpuDirect2DNative
         internal float FontSize;
         internal uint Underline;
         internal uint Strikethrough;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeFontFaceProperties
+    {
+        internal uint StructSize;
+        internal uint FontWeight;
+        internal ProGpuDirect2DFontStyle FontStyle;
+        internal ProGpuDirect2DFontStretch FontStretch;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -558,6 +567,52 @@ internal static unsafe partial class ProGpuDirect2DNative
         nint typography,
         uint rangeStart,
         uint rangeLength,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_system_font_face_reference")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceCreateSystemFontFaceReference(
+            nint surface,
+            char* fontFamily,
+            uint fontFamilyLength,
+            NativeFontFaceProperties* properties,
+            nint* value,
+            int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_font_face_reference_create_font_face")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        FontFaceReferenceCreateFontFace(
+            nint surface,
+            nint fontFaceReference,
+            nint* value,
+            int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_draw_glyph_run")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceDrawGlyphRun(
+        nint surface,
+        float baselineOriginX,
+        float baselineOriginY,
+        float fontEmSize,
+        nint fontFace,
+        ushort* glyphIndices,
+        uint glyphCount,
+        float* glyphAdvances,
+        uint glyphAdvanceCount,
+        ProGpuDirect2DGlyphOffset* glyphOffsets,
+        uint glyphOffsetCount,
+        uint isSideways,
+        uint bidiLevel,
+        nint foregroundBrush,
+        ProGpuDirect2DMeasuringMode measuringMode,
         int* nativeHResult);
 
     [LibraryImport(

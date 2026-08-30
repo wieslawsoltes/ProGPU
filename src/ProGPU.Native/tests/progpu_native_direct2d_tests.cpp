@@ -1299,6 +1299,76 @@ int main()
             native_hresult == E_INVALIDARG,
         "invalid IDWriteTypography feature did not fail closed");
 
+    progpu_native_direct2d_font_face_properties font_face_properties{};
+    font_face_properties.struct_size = sizeof(font_face_properties);
+    font_face_properties.font_weight = DWRITE_FONT_WEIGHT_SEMI_BOLD;
+    font_face_properties.font_style =
+        PROGPU_NATIVE_DIRECT2D_FONT_STYLE_NORMAL;
+    font_face_properties.font_stretch =
+        PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_NORMAL;
+    void* font_face_reference_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_system_font_face_reference(
+            surface,
+            font_family,
+            static_cast<uint32_t>(std::size(font_family)),
+            &font_face_properties,
+            &font_face_reference_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            font_face_reference_value != nullptr && native_hresult == S_OK,
+        "provider system IDWriteFontFaceReference resolution failed");
+    ComPtr<IDWriteFontFaceReference> font_face_reference;
+    font_face_reference.Attach(
+        static_cast<IDWriteFontFaceReference*>(font_face_reference_value));
+
+    void* font_face_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_font_face_reference_create_font_face(
+            surface,
+            font_face_reference.Get(),
+            &font_face_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            font_face_value != nullptr && native_hresult == S_OK,
+        "provider IDWriteFontFace5 creation failed");
+    ComPtr<IDWriteFontFace5> font_face;
+    font_face.Attach(static_cast<IDWriteFontFace5*>(font_face_value));
+    require(font_face->GetWeight() == DWRITE_FONT_WEIGHT_SEMI_BOLD &&
+            font_face->GetStretch() == DWRITE_FONT_STRETCH_NORMAL,
+        "provider IDWriteFontFace5 matching state changed");
+
+    constexpr uint32_t glyph_code_points[] = {'A', 'B'};
+    uint16_t glyph_indices[std::size(glyph_code_points)]{};
+    require(SUCCEEDED(font_face->GetGlyphIndices(
+                glyph_code_points,
+                static_cast<uint32_t>(std::size(glyph_code_points)),
+                glyph_indices)) &&
+            glyph_indices[0] != 0U && glyph_indices[1] != 0U,
+        "provider IDWriteFontFace5 could not map validation glyphs");
+    constexpr float glyph_advances[] = {12.0F, 12.0F};
+    constexpr progpu_native_direct2d_glyph_offset glyph_offsets[] = {
+        {0.0F, 0.0F},
+        {0.5F, 0.0F}
+    };
+
+    auto invalid_font_face_properties = font_face_properties;
+    invalid_font_face_properties.font_weight = 0U;
+    void* invalid_font_face_reference_value =
+        reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_surface_create_system_font_face_reference(
+            surface,
+            font_family,
+            static_cast<uint32_t>(std::size(font_family)),
+            &invalid_font_face_properties,
+            &invalid_font_face_reference_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            invalid_font_face_reference_value == nullptr &&
+            native_hresult == E_INVALIDARG,
+        "invalid IDWriteFontFaceReference match state did not fail closed");
+
     void* invalid_text_layout_value =
         reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
     native_hresult = S_OK;
@@ -1340,6 +1410,26 @@ int main()
             PROGPU_NATIVE_DIRECT2D_DRAW_TEXT_OPTION_CLIP,
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE,
         "ID2D1RenderTarget text-layout draw outside a draw did not fail closed");
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_draw_glyph_run(
+            surface,
+            2.0F,
+            24.0F,
+            13.0F,
+            font_face.Get(),
+            glyph_indices,
+            static_cast<uint32_t>(std::size(glyph_indices)),
+            glyph_advances,
+            static_cast<uint32_t>(std::size(glyph_advances)),
+            glyph_offsets,
+            static_cast<uint32_t>(std::size(glyph_offsets)),
+            0U,
+            0U,
+            solid_brush.Get(),
+            PROGPU_NATIVE_DIRECT2D_MEASURING_MODE_NATURAL,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE,
+        "ID2D1DeviceContext glyph-run draw outside a draw did not fail closed");
 
     progpu_native_direct2d_layer_parameters layer_parameters{};
     layer_parameters.content_bounds = {0.0F, 0.0F, 24.0F, 24.0F};
@@ -1453,6 +1543,44 @@ int main()
             static_cast<ID2D1Device1*>(wrapped_device_value));
         require(has_same_com_identity(device.Get(), wrapped_device.Get()),
             "Win2D CanvasDevice did not preserve ID2D1Device1 identity");
+
+        void* canvas_font_face_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper(
+                surface,
+                font_face_reference.Get(),
+                0.0F,
+                &canvas_font_face_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                canvas_font_face_value != nullptr && native_hresult == S_OK,
+            "Win2D CanvasFontFace wrapping failed");
+        ComPtr<IInspectable> canvas_font_face;
+        canvas_font_face.Attach(
+            static_cast<IInspectable*>(canvas_font_face_value));
+        progpu_native_direct2d_guid font_face_reference_id =
+            to_portable_guid(__uuidof(IDWriteFontFaceReference));
+        void* unwrapped_font_face_reference_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_win2d_wrapper_native_resource(
+                surface,
+                canvas_font_face.Get(),
+                0.0F,
+                &font_face_reference_id,
+                &unwrapped_font_face_reference_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                unwrapped_font_face_reference_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D CanvasFontFace native-resource query failed");
+        ComPtr<IDWriteFontFaceReference> unwrapped_font_face_reference;
+        unwrapped_font_face_reference.Attach(
+            static_cast<IDWriteFontFaceReference*>(
+                unwrapped_font_face_reference_value));
+        require(has_same_com_identity(
+                font_face_reference.Get(),
+                unwrapped_font_face_reference.Get()),
+            "Win2D CanvasFontFace changed native COM identity");
 
         void* canvas_solid_brush_value = nullptr;
         native_hresult = E_FAIL;
@@ -2125,6 +2253,27 @@ int main()
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK,
         "provider typed ID2D1RenderTarget text-layout draw failed");
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_draw_glyph_run(
+            surface,
+            2.0F,
+            24.0F,
+            13.0F,
+            font_face.Get(),
+            glyph_indices,
+            static_cast<uint32_t>(std::size(glyph_indices)),
+            glyph_advances,
+            static_cast<uint32_t>(std::size(glyph_advances)),
+            glyph_offsets,
+            static_cast<uint32_t>(std::size(glyph_offsets)),
+            0U,
+            0U,
+            solid_brush.Get(),
+            PROGPU_NATIVE_DIRECT2D_MEASURING_MODE_NATURAL,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider typed ID2D1DeviceContext glyph-run draw failed");
     native_hresult = S_OK;
     require(
         progpu_native_direct2d_surface_draw_text(

@@ -108,7 +108,10 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_TEXT_LAYOUT4 = 48,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_TEXT_LAYOUT = 49,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_TYPOGRAPHY = 50,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_TYPOGRAPHY = 51
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_TYPOGRAPHY = 51,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_FONT_FACE_REFERENCE = 52,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_FONT_FACE = 53,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_FONT_FACE5 = 54
 } progpu_native_direct2d_interface_kind;
 
 typedef enum progpu_native_direct2d_fill_mode {
@@ -485,6 +488,18 @@ typedef struct progpu_native_direct2d_typography_feature {
     uint32_t parameter;
 } progpu_native_direct2d_typography_feature;
 
+typedef struct progpu_native_direct2d_font_face_properties {
+    uint32_t struct_size;
+    uint32_t font_weight;
+    uint32_t font_style;
+    uint32_t font_stretch;
+} progpu_native_direct2d_font_face_properties;
+
+typedef struct progpu_native_direct2d_glyph_offset {
+    float advance_offset;
+    float ascender_offset;
+} progpu_native_direct2d_glyph_offset;
+
 typedef struct progpu_native_direct2d_image_brush_properties {
     progpu_native_direct2d_rect_f source_rectangle;
     uint32_t extend_mode_x;
@@ -523,7 +538,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 19U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 20U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -849,6 +864,48 @@ progpu_native_direct2d_text_layout_set_typography(
     void* typography,
     uint32_t range_start,
     uint32_t range_length,
+    int32_t* native_hresult);
+
+/* Resolves one system family through the shared DirectWrite factory and
+ * returns its genuine IDWriteFontFaceReference. The UTF-16 family span is
+ * consumed synchronously and embedded NUL code units fail closed. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_system_font_face_reference(
+    progpu_native_direct2d_surface* surface,
+    const uint16_t* font_family,
+    uint32_t font_family_length,
+    const progpu_native_direct2d_font_face_properties* properties,
+    void** value,
+    int32_t* native_hresult);
+
+/* Creates a genuine IDWriteFontFace5 from one font-face reference. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_font_face_reference_create_font_face(
+    progpu_native_direct2d_surface* surface,
+    void* font_face_reference,
+    void** value,
+    int32_t* native_hresult);
+
+/* Draws one already-shaped DirectWrite glyph run during an active surface or
+ * command-list transaction. Optional advances/offsets must be either empty or
+ * exactly glyph_count. All caller spans are consumed synchronously. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_glyph_run(
+    progpu_native_direct2d_surface* surface,
+    float baseline_origin_x,
+    float baseline_origin_y,
+    float font_em_size,
+    void* font_face,
+    const uint16_t* glyph_indices,
+    uint32_t glyph_count,
+    const float* glyph_advances,
+    uint32_t glyph_advance_count,
+    const progpu_native_direct2d_glyph_offset* glyph_offsets,
+    uint32_t glyph_offset_count,
+    uint32_t is_sideways,
+    uint32_t bidi_level,
+    void* foreground_brush,
+    progpu_native_direct2d_measuring_mode measuring_mode,
     int32_t* native_hresult);
 
 /* Draws a retained text layout through ID2D1RenderTarget::DrawTextLayout

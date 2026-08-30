@@ -74,7 +74,10 @@ public enum ProGpuDirect2DInterfaceKind
     DWriteTextLayout4 = 48,
     Win2DCanvasTextLayout = 49,
     DWriteTypography = 50,
-    Win2DCanvasTypography = 51
+    Win2DCanvasTypography = 51,
+    DWriteFontFaceReference = 52,
+    Win2DCanvasFontFace = 53,
+    DWriteFontFace5 = 54
 }
 
 /// <summary>
@@ -517,6 +520,26 @@ public readonly record struct ProGpuDirect2DTypographyFeature(
         }
     }
 }
+
+/// <summary>
+/// Typed system-font matching state for a genuine
+/// IDWriteFontFaceReference. Font weight follows DirectWrite's open numeric
+/// range from 1 through 999.
+/// </summary>
+public readonly record struct ProGpuDirect2DFontFaceProperties(
+    uint FontWeight = 400U,
+    ProGpuDirect2DFontStyle FontStyle = ProGpuDirect2DFontStyle.Normal,
+    ProGpuDirect2DFontStretch FontStretch =
+        ProGpuDirect2DFontStretch.Normal);
+
+/// <summary>
+/// Blittable per-glyph DirectWrite offset. AdvanceOffset follows the baseline;
+/// AscenderOffset moves toward the font ascender.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct ProGpuDirect2DGlyphOffset(
+    float AdvanceOffset,
+    float AscenderOffset);
 
 /// <summary>
 /// Blittable source, tiling, and sampling state for a genuine
