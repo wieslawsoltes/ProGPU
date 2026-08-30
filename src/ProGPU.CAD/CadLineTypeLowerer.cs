@@ -268,6 +268,15 @@ internal static class CadLineTypeLowerer
                 maxFigures,
                 maxPatternSteps,
                 maxPlacements),
+            CadEntityKind.RasterImage => LowerRasterImageFrame(
+                snapshot,
+                snapshot.RasterImages.Span[entity.PrimitiveIndex],
+                elements,
+                pattern.PatternLength,
+                style.LineTypeScale,
+                maxFigures,
+                maxPatternSteps,
+                maxPlacements),
             _ => new CadLineTypeLoweringResult(
                 CadLineTypeLoweringStatus.UnsupportedEntity,
                 null,
@@ -298,6 +307,10 @@ internal static class CadLineTypeLowerer
             CadEntityKind.Wipeout =>
                 snapshot.Wipeouts.Span[entity.PrimitiveIndex].IsClipped
                     ? snapshot.Wipeouts.Span[entity.PrimitiveIndex].ClipPointCount
+                    : 4,
+            CadEntityKind.RasterImage =>
+                snapshot.RasterImages.Span[entity.PrimitiveIndex].IsClipped
+                    ? snapshot.RasterImages.Span[entity.PrimitiveIndex].ClipPointCount
                     : 4,
             _ => 0,
         };
@@ -939,6 +952,81 @@ internal static class CadLineTypeLowerer
                     wipeout.Origin,
                     wipeout.UVector,
                     wipeout.VVector,
+                    snapshot.RebaseOrigin));
+        }
+        finally
+        {
+            if (rented is not null)
+            {
+                ArrayPool<MeasuredSegment>.Shared.Return(rented);
+            }
+        }
+    }
+
+    /// <remarks>
+    /// Original ProGPU port of the repository-owned WIPEOUT frame splitter;
+    /// IMAGE uses the same persisted pixel-plane perimeter contract.
+    /// </remarks>
+    private static CadLineTypeLoweringResult LowerRasterImageFrame(
+        CadDocumentSnapshot snapshot,
+        in CadRasterImagePrimitive image,
+        ReadOnlySpan<CadLineTypeElement> elements,
+        double patternLength,
+        double scale,
+        int maxFigures,
+        int maxPatternSteps,
+        int maxPlacements)
+    {
+        Span<CadWipeoutClipPoint> outer = stackalloc CadWipeoutClipPoint[4]
+        {
+            new(0.0, 0.0),
+            new(image.Width, 0.0),
+            new(image.Width, image.Height),
+            new(0.0, image.Height),
+        };
+        ReadOnlySpan<CadWipeoutClipPoint> points = image.IsClipped
+            ? snapshot.RasterImageClipPoints.Span.Slice(
+                image.ClipPointOffset,
+                image.ClipPointCount)
+            : outer;
+        MeasuredSegment[]? rented = null;
+        Span<MeasuredSegment> segments = points.Length <= 256
+            ? stackalloc MeasuredSegment[points.Length]
+            : (rented = ArrayPool<MeasuredSegment>.Shared.Rent(points.Length))
+                .AsSpan(0, points.Length);
+        try
+        {
+            double pathOffset = 0.0;
+            for (int i = 0; i < points.Length; i++)
+            {
+                CadWipeoutClipPoint start = points[i];
+                CadWipeoutClipPoint end = points[(i + 1) % points.Length];
+                CadPoint3D delta =
+                    (image.UVector * (end.U - start.U)) +
+                    (image.VVector * (end.V - start.V));
+                MeasuredSegment segment = MeasuredSegment.Line(
+                    new Vector2(ToFloat(start.U), ToFloat(start.V)),
+                    new Vector2(ToFloat(end.U), ToFloat(end.V)),
+                    delta.Length);
+                segments[i] = segment with { PathOffset = pathOffset };
+                pathOffset += segment.Length;
+            }
+
+            return LowerMeasuredPath(
+                segments,
+                ReadOnlySpan<double>.Empty,
+                isClosed: true,
+                resetAtEverySegment: false,
+                elements,
+                patternLength,
+                scale,
+                maxFigures,
+                maxPatternSteps,
+                maxPlacements,
+                CreateProjectionTransform(
+                    image.Origin,
+                    image.UVector,
+                    image.VVector,
                     snapshot.RebaseOrigin));
         }
         finally

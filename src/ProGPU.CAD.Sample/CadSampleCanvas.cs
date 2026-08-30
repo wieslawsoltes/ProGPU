@@ -7,6 +7,7 @@ using ACadSharp.Tables;
 using CSMath;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
+using ProGPU.Backend;
 using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Vector;
@@ -201,14 +202,38 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public CadShxFontCatalog ShxFonts { get; }
 
+    /// <summary>
+    /// Shared desktop/browser raster registry. Hosts register bounded encoded
+    /// bytes or typed texture sources before loading documents with IMAGEDEFs.
+    /// </summary>
+    public CadRasterImageCatalog RasterImages { get; }
+
     public CadSampleCanvas()
-        : this(null)
+        : this(null, null)
     {
     }
 
     public CadSampleCanvas(CadShxFontCatalog? shxFonts)
+        : this(shxFonts, null)
+    {
+    }
+
+    public CadSampleCanvas(
+        CadShxFontCatalog? shxFonts,
+        CadRasterImageCatalog? rasterImages)
     {
         ShxFonts = shxFonts ?? new CadShxFontCatalog();
+        if (rasterImages is null)
+        {
+            RasterImages = new CadRasterImageCatalog();
+            RasterImages.RegisterEncoded(
+                "progpu-cad-sample.png",
+                RepresentativeRasterImageBytes);
+        }
+        else
+        {
+            RasterImages = rasterImages;
+        }
         _snapshotOptions = new CadSnapshotOptions
         {
             TextFontResolver = new CadFontManagerTextResolver(InterFontFamily.Regular),
@@ -295,7 +320,13 @@ public sealed class CadSampleCanvas : FrameworkElement
         CadDocumentHistory? replacementHistory = resetViewSelectionAndHistory
             ? new CadDocumentHistory(session)
             : _history;
-        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+            snapshot,
+            new CadPlanSceneOptions
+            {
+                RasterImageSourceResolver = RasterImages,
+                RasterImageContext = WgpuContext.Current,
+            });
         GpuPicture picture = scene.CreatePicture();
         GpuPicture? previous = _picture;
         _picture = picture;
@@ -2287,6 +2318,27 @@ public sealed class CadSampleCanvas : FrameworkElement
                 new XY(3.5, 11.5),
             ]);
             document.Entities.Add(wipeout);
+            var imageDefinition = new ImageDefinition
+            {
+                Name = "ProGPU sample raster",
+                FileName = "progpu-cad-sample.png",
+                Size = new XY(1, 1),
+                DefaultSize = new XY(1, 1),
+                IsLoaded = true,
+            };
+            document.Entities.Add(new RasterImage(imageDefinition)
+            {
+                InsertPoint = new XYZ(22, -48, 0),
+                UVector = new XYZ(32, 0, 0),
+                VVector = new XYZ(0, 18, 0),
+                Size = new XY(1, 1),
+                Flags = ImageDisplayFlags.ShowImage |
+                    ImageDisplayFlags.ShowNotAlignedImage |
+                    ImageDisplayFlags.TransparencyIsOn,
+                Brightness = 55,
+                Contrast = 60,
+                Fade = 12,
+            });
             document.Entities.Add(new Circle(new XYZ(-38, 8, 0), 27));
             document.Entities.Add(new Arc(new XYZ(30, 8, 0), 30, 0.2, 5.1));
             document.Entities.Add(new Ray
@@ -2389,6 +2441,19 @@ public sealed class CadSampleCanvas : FrameworkElement
         });
         return session;
     }
+
+    private static ReadOnlySpan<byte> RepresentativeRasterImageBytes =>
+    [
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+        0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+        0x08, 0x04, 0x00, 0x00, 0x00, 0xb5, 0x1c, 0x0c,
+        0x02, 0x00, 0x00, 0x00, 0x0b, 0x49, 0x44, 0x41,
+        0x54, 0x78, 0xda, 0x63, 0xfc, 0xff, 0x1f, 0x00,
+        0x02, 0xeb, 0x01, 0xf5, 0x8f, 0x59, 0x73, 0xe8,
+        0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44,
+        0xae, 0x42, 0x60, 0x82,
+    ];
 
     private static void ConfigureRepresentativePageSetup(
         PlotSettings pageSetup,

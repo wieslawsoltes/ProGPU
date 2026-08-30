@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Numerics;
+using ProGPU.Backend;
 using ProGPU.Scene;
 using ProGPU.Vector;
 
@@ -26,6 +27,8 @@ public sealed class CadPlanSceneOptions
     public int MaxLineTypePlacements { get; init; } = DefaultMaxLineTypePlacements;
     public int MaxHatchPatternAuxiliaryRecords { get; init; } =
         DefaultMaxHatchPatternAuxiliaryRecords;
+    public ICadRasterImageSourceResolver? RasterImageSourceResolver { get; init; }
+    public WgpuContext? RasterImageContext { get; init; }
 }
 
 public readonly record struct CadPlanSceneStatistics(
@@ -36,10 +39,36 @@ public readonly record struct CadPlanSceneStatistics(
     int LoweredLineTypeFigureCount,
     int LoweredLineTypePlacementCount,
     int LineTypePatternStepCount,
-    int LineTypeSourceSegmentCount);
+    int LineTypeSourceSegmentCount)
+{
+    public int UnsupportedRasterImageCount { get; init; }
+
+    public CadPlanSceneStatistics(
+        int recordedEntityCount,
+        int recordedCommandCount,
+        int unsupportedLineTypeCount,
+        int loweredLineTypeEntityCount,
+        int loweredLineTypeFigureCount,
+        int loweredLineTypePlacementCount,
+        int lineTypePatternStepCount,
+        int lineTypeSourceSegmentCount,
+        int unsupportedRasterImageCount)
+        : this(
+            recordedEntityCount,
+            recordedCommandCount,
+            unsupportedLineTypeCount,
+            loweredLineTypeEntityCount,
+            loweredLineTypeFigureCount,
+            loweredLineTypePlacementCount,
+            lineTypePatternStepCount,
+            lineTypeSourceSegmentCount)
+    {
+        UnsupportedRasterImageCount = unsupportedRasterImageCount;
+    }
+}
 
 /// <summary>A retained top/WCS-XY projection ready for ordinary ProGPU compilation.</summary>
-public sealed class CadRecordedPlanScene
+public sealed class CadRecordedPlanScene : IDisposable
 {
     private readonly CadDiagnostic[] _diagnostics;
 
@@ -49,16 +78,27 @@ public sealed class CadRecordedPlanScene
     public CadPlanSceneStatistics Statistics { get; }
     public ReadOnlyMemory<CadDiagnostic> Diagnostics => _diagnostics;
 
+    public bool IsDisposed { get; private set; }
+
     /// <summary>
     /// Freezes the recorded CAD commands and side buffers into an independently
     /// owned picture suitable for repeated camera-only replay.
     /// </summary>
     public GpuPicture CreatePicture()
     {
+        ObjectDisposedException.ThrowIf(IsDisposed, this);
         var recorder = new GpuPictureRecorder();
         DrawingContext target = recorder.BeginRecording(new Rect(0, 0, 1, 1));
-        target.Append(DrawingContext);
-        return recorder.EndRecording();
+        try
+        {
+            target.Append(DrawingContext);
+            return recorder.EndRecording();
+        }
+        catch
+        {
+            target.Clear();
+            throw;
+        }
     }
 
     internal CadRecordedPlanScene(
@@ -73,6 +113,20 @@ public sealed class CadRecordedPlanScene
         DrawingContext = drawingContext;
         Statistics = statistics;
         _diagnostics = diagnostics;
+    }
+
+    /// <summary>
+    /// Releases texture leases held by the mutable recording after callers have
+    /// created their independently leased <see cref="GpuPicture"/> snapshots.
+    /// </summary>
+    public void Dispose()
+    {
+        if (IsDisposed)
+        {
+            return;
+        }
+        IsDisposed = true;
+        DrawingContext.Clear();
     }
 }
 
@@ -97,12 +151,29 @@ public sealed class CadRecordedPlanScene
 /// Normal HATCH compilation adds O(L + S) retained boundary work for L loops
 /// and S analytic segments plus O(1) procedural brush work for a supported
 /// continuous pattern family; it never emits geometry per pattern line.
-/// A later
-/// camera or viewport change can reuse the recorded scene.
+/// Raster IMAGE compilation adds O(I + V) work for I visible instances and V
+/// retained clip vertices. Resource resolution and lease acquisition occur once
+/// while recording; camera-only picture replay performs no decode or upload.
+/// A later camera or viewport change can reuse the recorded scene.
 /// </remarks>
 public sealed class CadPlanSceneCompiler
 {
     private const double TwoPi = Math.PI * 2.0;
+
+    private sealed class RecordingLeaseGuard(DrawingContext context) : IDisposable
+    {
+        private bool _completed;
+
+        public void Complete() => _completed = true;
+
+        public void Dispose()
+        {
+            if (!_completed)
+            {
+                context.Clear();
+            }
+        }
+    }
 
     public CadRecordedPlanScene Compile(
         CadDocumentSnapshot snapshot,
@@ -117,6 +188,10 @@ public sealed class CadPlanSceneCompiler
         ReadOnlySpan<CadLayerSnapshot> layers = snapshot.Layers.Span;
         ReadOnlySpan<CadStrokeStyle> styles = snapshot.Styles.Span;
         ReadOnlySpan<CadLineTypePattern> lineTypePatterns = snapshot.LineTypePatterns.Span;
+        ICadRasterImageSourceResolver? rasterImageResolver =
+            options.RasterImageSourceResolver is CadRasterImageCatalog catalog
+                ? catalog.CreateResolverSnapshot()
+                : options.RasterImageSourceResolver;
         var context = new DrawingContext();
         context.EnsureCommandCapacity(checked(
             Math.Max(
@@ -136,6 +211,7 @@ public sealed class CadPlanSceneCompiler
         var diagnostics = new List<CadDiagnostic>();
         var warnedLineTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var warnedLineTypeSubstitutions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var warnedRasterImageResources = new HashSet<int>();
         bool warnedConstructionGeometry = false;
         bool warnedPointMarkers = false;
         int recorded = 0;
@@ -148,7 +224,9 @@ public sealed class CadPlanSceneCompiler
         int lineTypeSourceSegments = 0;
         int lineTypePlacementBudgetUsed = 0;
         int hatchPatternAuxiliaryRecords = 0;
+        int unsupportedRasterImages = 0;
 
+        using var recordingLeaseGuard = new RecordingLeaseGuard(context);
         foreach (CadEntityHeader entity in entities)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -180,11 +258,13 @@ public sealed class CadPlanSceneCompiler
             CadStrokeStyle style = styles[entity.StyleIndex];
             Pen pen = pens[entity.StyleIndex];
             bool recordedLineType = false;
-            CadLineTypeLoweringResult? deferredWipeoutFrame = null;
-            CadLineTypePattern? deferredWipeoutPattern = null;
+            CadLineTypeLoweringResult? deferredImageFrame = null;
+            CadLineTypePattern? deferredImageFramePattern = null;
             bool usesWipeoutFrame = entity.Kind == CadEntityKind.Wipeout &&
                 snapshot.Wipeouts.Span[entity.PrimitiveIndex].DrawFrame;
-            if (UsesStroke(entity.Kind) || usesWipeoutFrame)
+            bool usesRasterImageFrame = entity.Kind == CadEntityKind.RasterImage &&
+                snapshot.RasterImages.Span[entity.PrimitiveIndex].DrawFrame;
+            if (UsesStroke(entity.Kind) || usesWipeoutFrame || usesRasterImageFrame)
             {
                 CadLineTypePattern pattern = lineTypePatterns[style.LineTypePatternIndex];
                 if (pattern.Kind is CadLineTypePatternKind.Simple or CadLineTypePatternKind.Complex)
@@ -228,10 +308,10 @@ public sealed class CadPlanSceneCompiler
                                 "CADSCENE003",
                                 $"Linetype '{pattern.Name}' uses a host-resolved text or SHX substitution."));
                         }
-                        if (entity.Kind == CadEntityKind.Wipeout)
+                        if (entity.Kind is CadEntityKind.Wipeout or CadEntityKind.RasterImage)
                         {
-                            deferredWipeoutFrame = result;
-                            deferredWipeoutPattern = pattern;
+                            deferredImageFrame = result;
+                            deferredImageFramePattern = pattern;
                         }
                         else
                         {
@@ -299,7 +379,8 @@ public sealed class CadPlanSceneCompiler
                 }
             }
 
-            if (recordedLineType && entity.Kind != CadEntityKind.Wipeout)
+            if (recordedLineType && entity.Kind is not
+                (CadEntityKind.Wipeout or CadEntityKind.RasterImage))
             {
                 recorded++;
                 continue;
@@ -363,23 +444,47 @@ public sealed class CadPlanSceneCompiler
                             snapshot.Wipeouts.Span[entity.PrimitiveIndex].MaskColor.Alpha),
                         snapshot,
                         snapshot.Wipeouts.Span[entity.PrimitiveIndex],
-                        drawContinuousFrame: deferredWipeoutFrame is null);
-                    if (deferredWipeoutFrame is CadLineTypeLoweringResult frame &&
-                        deferredWipeoutPattern is CadLineTypePattern framePattern)
+                        drawContinuousFrame: deferredImageFrame is null);
+                    RecordDeferredImageFrame(
+                        context,
+                        pen,
+                        snapshot,
+                        style,
+                        deferredImageFrame,
+                        deferredImageFramePattern);
+                    break;
+                case CadEntityKind.RasterImage:
+                    CadRasterImagePrimitive rasterImage =
+                        snapshot.RasterImages.Span[entity.PrimitiveIndex];
+                    bool imageAvailable = RecordRasterImage(
+                        context,
+                        pen,
+                        style,
+                        snapshot,
+                        rasterImage,
+                        rasterImageResolver,
+                        options.RasterImageContext,
+                        drawContinuousFrame: deferredImageFrame is null);
+                    if (!imageAvailable &&
+                        warnedRasterImageResources.Add(rasterImage.ResourceIndex))
                     {
-                        if (frame.Path is not null)
-                        {
-                            context.DrawPath(null, pen, frame.Path, frame.Transform);
-                        }
-                        RecordLineTypeSplineFragments(context, pen, frame);
-                        RecordLineTypePlacements(
-                            context,
-                            pen,
-                            snapshot,
-                            style,
-                            framePattern,
-                            frame);
+                        unsupportedRasterImages++;
+                        CadRasterImageResource resource =
+                            snapshot.RasterImageResources.Span[rasterImage.ResourceIndex];
+                        diagnostics.Add(new CadDiagnostic(
+                            CadDiagnosticSeverity.Information,
+                            "CADSCENE006",
+                            !resource.IsLoaded
+                                ? $"Raster IMAGEDEF '{resource.FileName}' is marked unloaded; its frame remains retained."
+                                : $"Raster IMAGEDEF '{resource.FileName}' has no available typed texture lease; its frame remains retained."));
                     }
+                    RecordDeferredImageFrame(
+                        context,
+                        pen,
+                        snapshot,
+                        style,
+                        deferredImageFrame,
+                        deferredImageFramePattern);
                     break;
                 case CadEntityKind.Face3D:
                     RecordFace3D(context, pen, snapshot.Faces.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
@@ -440,7 +545,7 @@ public sealed class CadPlanSceneCompiler
         }
 
         context.TrimRetainedCommandCapacity();
-        return new CadRecordedPlanScene(
+        var scene = new CadRecordedPlanScene(
             snapshot.ContentGeneration,
             snapshot.RebaseOrigin,
             context,
@@ -452,8 +557,11 @@ public sealed class CadPlanSceneCompiler
                 loweredLineTypeFigures,
                 loweredLineTypePlacements,
                 lineTypePatternSteps,
-                lineTypeSourceSegments),
+                lineTypeSourceSegments,
+                unsupportedRasterImages),
             diagnostics.ToArray());
+        recordingLeaseGuard.Complete();
+        return scene;
 
         void AddUnsupportedLineTypeDiagnostic(
             string lineTypeName,
@@ -1039,6 +1147,217 @@ public sealed class CadPlanSceneCompiler
         }
     }
 
+    private static bool RecordRasterImage(
+        DrawingContext context,
+        Pen pen,
+        in CadStrokeStyle style,
+        CadDocumentSnapshot snapshot,
+        in CadRasterImagePrimitive image,
+        ICadRasterImageSourceResolver? resolver,
+        WgpuContext? requiredContext,
+        bool drawContinuousFrame)
+    {
+        CadPoint3D plane = CadPoint3D.Cross(image.UVector, image.VVector);
+        double planeLength = plane.Length;
+        bool alignedWithPlan =
+            Math.Abs(plane.X) <= planeLength * 1e-10 &&
+            Math.Abs(plane.Y) <= planeLength * 1e-10;
+        bool drawImage = image.DrawImage &&
+            (image.ShowWhenNotAligned || alignedWithPlan);
+        bool drawFrame = image.DrawFrame && drawContinuousFrame;
+        if (!drawImage && !drawFrame)
+        {
+            return true;
+        }
+
+        ReadOnlySpan<CadWipeoutClipPoint> clip = image.IsClipped
+            ? snapshot.RasterImageClipPoints.Span.Slice(
+                image.ClipPointOffset,
+                image.ClipPointCount)
+            : ReadOnlySpan<CadWipeoutClipPoint>.Empty;
+        Matrix4x4 clipTransform = CreateProjectionTransform(
+            image.Origin,
+            image.UVector,
+            image.VVector,
+            snapshot.RebaseOrigin);
+        bool imageAvailable = !drawImage;
+        if (drawImage)
+        {
+            CadRasterImageResource resource =
+                snapshot.RasterImageResources.Span[image.ResourceIndex];
+            var request = new CadRasterImageRequest(snapshot.SourceName, resource);
+            if (resource.IsLoaded && resolver is not null &&
+                resolver.TryResolve(request, out IProGpuTextureLeaseSource source))
+            {
+                GpuTexture texture;
+                bool retained = requiredContext is null
+                    ? context.TryRetainTexture(source, out texture)
+                    : context.TryRetainTexture(source, requiredContext, out texture);
+                if (retained)
+                {
+                    PathGeometry? clipPath = null;
+                    if (image.IsClipped)
+                    {
+                        clipPath = new PathGeometry { FillRule = FillRule.EvenOdd };
+                        if (image.IsInverted)
+                        {
+                            AddRasterImageRectangle(clipPath, image.Width, image.Height);
+                        }
+                        AddRasterImageClip(clipPath, clip);
+                        context.PushGeometryClip(clipPath, clipTransform);
+                    }
+                    bool pushedOpacity = style.Alpha != byte.MaxValue;
+                    if (pushedOpacity)
+                    {
+                        context.PushOpacity(style.Alpha / 255.0f);
+                    }
+
+                    Matrix4x4 imageTransform = CreateProjectionTransform(
+                        image.Origin + (image.VVector * image.Height),
+                        image.UVector,
+                        image.VVector * -1.0,
+                        snapshot.RebaseOrigin);
+                    var destination = new Rect(
+                        0.0f,
+                        0.0f,
+                        ToFloat(image.Width),
+                        ToFloat(image.Height));
+                    var sourceRect = new Rect(
+                        0.0f,
+                        0.0f,
+                        texture.Width,
+                        texture.Height);
+                    float brightness = (image.Brightness - 50) / 50.0f;
+                    float contrast = image.Contrast / 50.0f;
+                    bool needsEffect = image.Brightness != 50 ||
+                        image.Contrast != 50 || image.Fade != 0 ||
+                        !image.TransparencyIsOn;
+                    TextureSamplingMode sampling = image.IsHighQuality
+                        ? TextureSamplingMode.Linear
+                        : TextureSamplingMode.Nearest;
+                    if (needsEffect)
+                    {
+                        context.DrawImageWithEffect(
+                            texture,
+                            destination,
+                            brightness: brightness,
+                            contrast: contrast,
+                            sourceRect: sourceRect,
+                            samplingMode: sampling,
+                            colorMatrix: CreateRasterImageColorMatrix(image),
+                            transform: imageTransform);
+                    }
+                    else
+                    {
+                        context.DrawTexture(
+                            texture,
+                            destination,
+                            sourceRect,
+                            imageTransform,
+                            sampling);
+                    }
+
+                    if (pushedOpacity)
+                    {
+                        context.PopOpacity();
+                    }
+                    if (clipPath is not null)
+                    {
+                        context.PopGeometryClip();
+                    }
+                    imageAvailable = true;
+                }
+            }
+        }
+
+        if (drawFrame)
+        {
+            var framePath = new PathGeometry();
+            if (image.IsClipped)
+            {
+                AddRasterImageClip(framePath, clip);
+            }
+            else
+            {
+                AddRasterImageRectangle(framePath, image.Width, image.Height);
+            }
+            context.DrawPath(null, pen, framePath, clipTransform);
+        }
+        return imageAvailable;
+    }
+
+    private static ImageEffectColorMatrix CreateRasterImageColorMatrix(
+        in CadRasterImagePrimitive image)
+    {
+        float retained = 1.0f - (image.Fade / 100.0f);
+        Vector4 offset = new(
+            (image.FadeColor.Red / 255.0f) * (1.0f - retained),
+            (image.FadeColor.Green / 255.0f) * (1.0f - retained),
+            (image.FadeColor.Blue / 255.0f) * (1.0f - retained),
+            image.TransparencyIsOn ? 0.0f : 1.0f);
+        return new ImageEffectColorMatrix(
+            new Vector4(retained, 0.0f, 0.0f, 0.0f),
+            new Vector4(0.0f, retained, 0.0f, 0.0f),
+            new Vector4(0.0f, 0.0f, retained, 0.0f),
+            image.TransparencyIsOn ? Vector4.UnitW : Vector4.Zero,
+            offset);
+    }
+
+    private static void AddRasterImageRectangle(
+        PathGeometry path,
+        double width,
+        double height)
+    {
+        var figure = new PathFigure(Vector2.Zero, isClosed: true);
+        figure.Segments.Add(new LineSegment(new Vector2(ToFloat(width), 0.0f)));
+        figure.Segments.Add(new LineSegment(
+            new Vector2(ToFloat(width), ToFloat(height))));
+        figure.Segments.Add(new LineSegment(new Vector2(0.0f, ToFloat(height))));
+        path.Figures.Add(figure);
+    }
+
+    private static void AddRasterImageClip(
+        PathGeometry path,
+        ReadOnlySpan<CadWipeoutClipPoint> points)
+    {
+        var figure = new PathFigure(
+            new Vector2(ToFloat(points[0].U), ToFloat(points[0].V)),
+            isClosed: true);
+        for (int i = 1; i < points.Length; i++)
+        {
+            figure.Segments.Add(new LineSegment(
+                new Vector2(ToFloat(points[i].U), ToFloat(points[i].V))));
+        }
+        path.Figures.Add(figure);
+    }
+
+    private static void RecordDeferredImageFrame(
+        DrawingContext context,
+        Pen pen,
+        CadDocumentSnapshot snapshot,
+        in CadStrokeStyle style,
+        CadLineTypeLoweringResult? lowering,
+        CadLineTypePattern? pattern)
+    {
+        if (lowering is not CadLineTypeLoweringResult frame ||
+            pattern is not CadLineTypePattern framePattern)
+        {
+            return;
+        }
+        if (frame.Path is not null)
+        {
+            context.DrawPath(null, pen, frame.Path, frame.Transform);
+        }
+        RecordLineTypeSplineFragments(context, pen, frame);
+        RecordLineTypePlacements(
+            context,
+            pen,
+            snapshot,
+            style,
+            framePattern,
+            frame);
+    }
+
     private static void AddWipeoutRectangle(
         PathGeometry path,
         double width,
@@ -1151,23 +1470,23 @@ public sealed class CadPlanSceneCompiler
                 spacing,
                 thickness: 0.0f,
                 color: solid.Color)
-                {
-                    CoordinateTransform = Matrix4x4.CreateTranslation(
+            {
+                CoordinateTransform = Matrix4x4.CreateTranslation(
                         translateX,
                         translateY,
                         0.0f),
-                }
+            }
             : new HatchPatternBrush(
                 MathF.Atan2(normalY, normalX),
                 spacing,
                 thickness: 0.0f,
                 color: solid.Color)
-                {
-                    CoordinateTransform = Matrix4x4.CreateTranslation(
+            {
+                CoordinateTransform = Matrix4x4.CreateTranslation(
                         translateX,
                         translateY,
                         0.0f),
-                };
+            };
         result.Opacity = styleBrush.Opacity;
         return result;
     }
@@ -1886,7 +2205,7 @@ public sealed class CadPlanSceneCompiler
     }
 
     private static bool UsesStroke(CadEntityKind kind) =>
-        kind is not (CadEntityKind.Point or CadEntityKind.Solid or CadEntityKind.Hatch or CadEntityKind.Wipeout or CadEntityKind.Text or CadEntityKind.ShxText or CadEntityKind.MText or CadEntityKind.ShxMText or CadEntityKind.ShxShape);
+        kind is not (CadEntityKind.Point or CadEntityKind.Solid or CadEntityKind.Hatch or CadEntityKind.Wipeout or CadEntityKind.RasterImage or CadEntityKind.Text or CadEntityKind.ShxText or CadEntityKind.MText or CadEntityKind.ShxMText or CadEntityKind.ShxShape);
 
     private static void ValidateOptions(CadPlanSceneOptions options)
     {

@@ -33,6 +33,10 @@ public sealed class CadSnapshotOptions
     public const int DefaultMaxMeshSubdivisionTopologyVisits = 1_000_000;
     public const int DefaultMaxWipeoutClipVerticesPerEntity = 65_536;
     public const int DefaultMaxWipeoutClipVertices = 1_000_000;
+    public const int DefaultMaxRasterImageResources = 65_536;
+    public const int DefaultMaxRasterImagePathCodeUnits = 32_768;
+    public const int DefaultMaxRasterImageClipVerticesPerEntity = 65_536;
+    public const int DefaultMaxRasterImageClipVertices = 1_000_000;
 
     public double DefaultLineWeightMillimeters { get; init; } = 0.25;
     public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
@@ -58,6 +62,14 @@ public sealed class CadSnapshotOptions
         DefaultMaxWipeoutClipVerticesPerEntity;
     public int MaxWipeoutClipVertices { get; init; } =
         DefaultMaxWipeoutClipVertices;
+    public int MaxRasterImageResources { get; init; } =
+        DefaultMaxRasterImageResources;
+    public int MaxRasterImagePathCodeUnits { get; init; } =
+        DefaultMaxRasterImagePathCodeUnits;
+    public int MaxRasterImageClipVerticesPerEntity { get; init; } =
+        DefaultMaxRasterImageClipVerticesPerEntity;
+    public int MaxRasterImageClipVertices { get; init; } =
+        DefaultMaxRasterImageClipVertices;
 
     /// <summary>
     /// Selects whether snapshot entity order represents interactive
@@ -99,12 +111,18 @@ public sealed partial class CadSnapshotCompiler
         ValidateOptions(options);
 
         return session.Capture(
-            (document, generation) => Compile(document, generation, options, cancellationToken));
+            (document, generation) => Compile(
+                document,
+                generation,
+                session.SourceName,
+                options,
+                cancellationToken));
     }
 
     private static CadDocumentSnapshot Compile(
         CadDocument document,
         ulong generation,
+        string? sourceName,
         CadSnapshotOptions options,
         CancellationToken cancellationToken)
     {
@@ -127,6 +145,11 @@ public sealed partial class CadSnapshotCompiler
         var constructionLines = new List<CadConstructionLinePrimitive>();
         var wipeouts = new List<CadWipeoutPrimitive>();
         var wipeoutClipPoints = new List<CadWipeoutClipPoint>();
+        var rasterImages = new List<CadRasterImagePrimitive>();
+        var rasterImageResources = new List<CadRasterImageResource>();
+        var rasterImageResourceIndices = new Dictionary<ImageDefinition, int>(
+            ReferenceEqualityComparer.Instance);
+        var rasterImageClipPoints = new List<CadWipeoutClipPoint>();
         var meshes3D = new List<CadMesh3DPrimitive>();
         var mesh3DDrawRanges = new List<CadMesh3DDrawRange>();
         var mesh3DVertices = new List<CadMesh3DVertex>();
@@ -177,6 +200,7 @@ public sealed partial class CadSnapshotCompiler
         int remainingMeshSubdivisionTopologyVisits =
             options.MaxMeshSubdivisionTopologyVisits;
         WipeoutFrameType? resolvedWipeoutFrame = null;
+        CadRasterImageDisplaySettings? resolvedRasterImageSettings = null;
         var hatchTopologyBudget = new CadHatchTopologyBudget(
             options.MaxHatchTopologyVisits);
         var hatchSplineSourceBudget = new CadHatchSplineSourceBudget(
@@ -227,6 +251,7 @@ public sealed partial class CadSnapshotCompiler
 
         return new CadDocumentSnapshot(
             generation,
+            sourceName,
             options.DrawOrderPurpose,
             hasDrawOrderOverrides,
             options.DrawOrderPurpose == CadDrawOrderPurpose.Plotting ||
@@ -252,6 +277,9 @@ public sealed partial class CadSnapshotCompiler
             constructionLines.ToArray(),
             wipeouts.ToArray(),
             wipeoutClipPoints.ToArray(),
+            rasterImages.ToArray(),
+            rasterImageResources.ToArray(),
+            rasterImageClipPoints.ToArray(),
             meshes3D.ToArray(),
             mesh3DDrawRanges.ToArray(),
             mesh3DVertices.ToArray(),
@@ -473,6 +501,19 @@ public sealed partial class CadSnapshotCompiler
                         options,
                         wipeouts,
                         wipeoutClipPoints),
+                    RasterImage rasterImage => CompileRasterImage(
+                        rasterImage,
+                        GetResolvedRasterImageSettings(),
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        options,
+                        rasterImages,
+                        rasterImageResources,
+                        rasterImageResourceIndices,
+                        rasterImageClipPoints),
                     Arc arc => CompileArc(arc, rootHandle, transform, hasTransform, layerIndex, styleIndex, arcs),
                     Circle circle => CompileCircle(circle, rootHandle, transform, hasTransform, layerIndex, styleIndex, circles),
                     Ellipse ellipse => CompileEllipse(ellipse, rootHandle, transform, hasTransform, layerIndex, styleIndex, ellipses),
@@ -636,6 +677,12 @@ public sealed partial class CadSnapshotCompiler
         {
             resolvedWipeoutFrame ??= ResolveWipeoutFrame(document);
             return resolvedWipeoutFrame.Value;
+        }
+
+        CadRasterImageDisplaySettings GetResolvedRasterImageSettings()
+        {
+            resolvedRasterImageSettings ??= ResolveRasterImageDisplaySettings(document);
+            return resolvedRasterImageSettings.Value;
         }
 
         void CompileInsert(
@@ -4619,6 +4666,18 @@ public sealed partial class CadSnapshotCompiler
             4);
         ArgumentOutOfRangeException.ThrowIfLessThan(
             options.MaxWipeoutClipVertices,
+            4);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxRasterImageResources,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxRasterImagePathCodeUnits,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxRasterImageClipVerticesPerEntity,
+            4);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxRasterImageClipVertices,
             4);
     }
 

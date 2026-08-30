@@ -21,12 +21,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\external\ACadSharp\src\ACadSharp\ACadSharp.csproj"
+                      SetTargetFramework="TargetFramework=net10.0"
+                      AdditionalProperties="TargetFrameworks=net10.0" />
     <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
     <ProjectReference Include="..\ProGPU.WinRT\ProGPU.WinRT.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI.Themes.Fluent\ProGPU.WinUI.Themes.Fluent.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI.Charts\ProGPU.WinUI.Charts.csproj" />
     <ProjectReference Include="..\ProGPU.WinUI.Designer\ProGPU.WinUI.Designer.csproj" />
     <ProjectReference Include="..\ProGPU.Samples\ProGPU.Samples.csproj" />
+    <ProjectReference Include="..\ProGPU.CAD\ProGPU.CAD.csproj" />
+    <ProjectReference Include="..\ProGPU.Scene.Native\ProGPU.Scene.Native.csproj" />
     <ProjectReference Include="..\ProGPU.Samples.ActivityMonitor\ProGPU.Samples.ActivityMonitor.csproj" />
     <ProjectReference Include="..\ProGPU.Transpiler\ProGPU.Transpiler.csproj" />
     <ProjectReference Include="..\System.Drawing.Common\System.Drawing.Common.csproj" />

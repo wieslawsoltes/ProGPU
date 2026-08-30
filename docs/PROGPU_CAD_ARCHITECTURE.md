@@ -174,6 +174,18 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   in DXF and both modes round-trip in DWG. The ACadSharp submodule's original
   ProGPU-owned affine transform, clone, and exact bounding-box fixes are pinned
   on `feat/progpu-cad-entities` with matched focused tests.
+- Raster IMAGE uses the same bounded affine pixel-plane/half-pixel clip contract
+  while retaining one immutable IMAGEDEF metadata resource per shared definition.
+  A host-owned `ICadRasterImageSourceResolver` maps that identity to existing
+  ProGPU typed texture leases outside replay. Encoded sources perform bounded
+  metadata validation, one cached decode, and lazy per-device upload; retained
+  instances reuse the texture with per-draw source/destination, transform,
+  draft/high sampling, brightness/contrast/fade/transparency, even-odd normal or
+  inverted clips, and independently patterned IMAGEFRAME screen/plot policy.
+  Managed and native pictures consume the same image-effect records, canonical
+  shader, clips, and leases. See the clean-room source comparison, applicability
+  audit, tests, measurements, and deferred work in
+  [the raster IMAGE research record](PROGPU_CAD_RASTER_IMAGE_RESEARCH.md).
 - Single-line TrueType TEXT resolves through a typed host font service, shapes
   during immutable snapshot construction with the existing ProGPU Unicode/
   OpenType pipeline, and stores packed glyph indices, positions, font runs, and

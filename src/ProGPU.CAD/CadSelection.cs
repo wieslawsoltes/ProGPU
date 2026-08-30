@@ -453,6 +453,11 @@ public static class CadSelectionHitTester
                 snapshot.Wipeouts.Span[header.PrimitiveIndex],
                 point,
                 tolerance),
+            CadEntityKind.RasterImage => CadWipeoutSelection.HitTestPoint(
+                snapshot,
+                snapshot.RasterImages.Span[header.PrimitiveIndex],
+                point,
+                tolerance),
             _ => new CadPointHitResult(
                 CadPointHitStatus.UnsupportedKind,
                 double.NaN),
@@ -580,6 +585,12 @@ public static class CadSelectionHitTester
             CadEntityKind.Wipeout => CadWipeoutSelection.HitTestBounds(
                 snapshot,
                 snapshot.Wipeouts.Span[header.PrimitiveIndex],
+                header.Bounds,
+                bounds,
+                mode),
+            CadEntityKind.RasterImage => CadWipeoutSelection.HitTestBounds(
+                snapshot,
+                snapshot.RasterImages.Span[header.PrimitiveIndex],
                 header.Bounds,
                 bounds,
                 mode),

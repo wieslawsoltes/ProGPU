@@ -1,4 +1,5 @@
 using System.Numerics;
+using ProGPU.Backend;
 using ProGPU.Scene;
 using ProGPU.Vector;
 
@@ -77,6 +78,10 @@ public sealed class CadPrintPlanOptions
     public float LineWeightScale { get; init; } = 1.0f;
 
     public long MaxPagePixelCount { get; init; } = DefaultMaxPagePixelCount;
+
+    public ICadRasterImageSourceResolver? RasterImageSourceResolver { get; init; }
+
+    public WgpuContext? RasterImageContext { get; init; }
 }
 
 /// <summary>
@@ -198,6 +203,20 @@ public sealed class CadPrintPlanCompiler
 {
     private const double MillimetersPerInch = 25.4;
     private const int MaximumExactFloatPixelCoordinate = 16_777_216;
+    private readonly ICadRasterImageSourceResolver? _rasterImageSourceResolver;
+    private readonly WgpuContext? _rasterImageContext;
+
+    public CadPrintPlanCompiler()
+    {
+    }
+
+    public CadPrintPlanCompiler(
+        ICadRasterImageSourceResolver? rasterImageSourceResolver,
+        WgpuContext? rasterImageContext = null)
+    {
+        _rasterImageSourceResolver = rasterImageSourceResolver;
+        _rasterImageContext = rasterImageContext;
+    }
 
     public CadPrintPlan CompileFromPageSetup(
         CadDocumentSnapshot snapshot,
@@ -271,7 +290,7 @@ public sealed class CadPrintPlanCompiler
             contentToPage *= CreateUpsideDownTransform(pageSize);
         }
 
-        CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
             snapshot,
             new CadPlanSceneOptions
             {
@@ -280,6 +299,9 @@ public sealed class CadPrintPlanCompiler
                 IncludeNonPlottableLayers = false,
                 ReportDeferredConstructionGeometry = false,
                 ReportDeferredPointMarkers = false,
+                RasterImageSourceResolver = options.RasterImageSourceResolver ??
+                    _rasterImageSourceResolver,
+                RasterImageContext = options.RasterImageContext ?? _rasterImageContext,
             },
             cancellationToken);
         var overlayOptions = new CadPlanSceneOptions

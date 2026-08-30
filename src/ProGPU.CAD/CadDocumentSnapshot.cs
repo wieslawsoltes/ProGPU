@@ -26,6 +26,7 @@ public enum CadEntityKind : byte
     XLine = 19,
     Mesh3D = 20,
     Wipeout = 21,
+    RasterImage = 22,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -154,7 +155,9 @@ public readonly record struct CadConstructionLinePrimitive(
     CadPoint3D BasePoint,
     CadPoint3D Direction);
 
-/// <summary>One immutable image-space WIPEOUT clipping vertex.</summary>
+/// <summary>
+/// One immutable IMAGE/WIPEOUT clipping vertex in persisted pixel space.
+/// </summary>
 public readonly record struct CadWipeoutClipPoint(double U, double V);
 
 /// <summary>
@@ -175,6 +178,42 @@ public readonly record struct CadWipeoutPrimitive(
     bool ShowWhenNotAligned,
     bool DrawFrame,
     CadColor32 MaskColor);
+
+/// <summary>
+/// Immutable CPU-side identity for one IMAGEDEF shared by retained IMAGE entities.
+/// It owns no decoded pixels, GPU object, file handle, or device-domain state.
+/// </summary>
+public readonly record struct CadRasterImageResource(
+    ulong DefinitionHandle,
+    string FileName,
+    double PixelWidth,
+    double PixelHeight,
+    bool IsLoaded);
+
+/// <summary>
+/// One retained raster IMAGE instance. Origin is the visual lower-left corner;
+/// U/V are the WCS vectors of one persisted source pixel.
+/// </summary>
+public readonly record struct CadRasterImagePrimitive(
+    CadPoint3D Origin,
+    CadPoint3D UVector,
+    CadPoint3D VVector,
+    double Width,
+    double Height,
+    int ClipPointOffset,
+    int ClipPointCount,
+    int ResourceIndex,
+    bool IsClipped,
+    bool IsInverted,
+    bool DrawImage,
+    bool ShowWhenNotAligned,
+    bool DrawFrame,
+    bool TransparencyIsOn,
+    bool IsHighQuality,
+    byte Brightness,
+    byte Contrast,
+    byte Fade,
+    CadColor32 FadeColor);
 
 /// <summary>One flat-shaded triangle vertex in rebased-independent WCS.</summary>
 public readonly record struct CadMesh3DVertex(
@@ -552,6 +591,9 @@ public sealed class CadDocumentSnapshot
     private readonly CadConstructionLinePrimitive[] _constructionLines;
     private readonly CadWipeoutPrimitive[] _wipeouts;
     private readonly CadWipeoutClipPoint[] _wipeoutClipPoints;
+    private readonly CadRasterImagePrimitive[] _rasterImages;
+    private readonly CadRasterImageResource[] _rasterImageResources;
+    private readonly CadWipeoutClipPoint[] _rasterImageClipPoints;
     private readonly CadMesh3DPrimitive[] _meshes3D;
     private readonly CadMesh3DDrawRange[] _mesh3DDrawRanges;
     private readonly CadMesh3DVertex[] _mesh3DVertices;
@@ -595,6 +637,12 @@ public sealed class CadDocumentSnapshot
 
     public ulong ContentGeneration { get; }
 
+    /// <summary>
+    /// Optional source path/name captured with the mutable document. Raster
+    /// resolvers use it only as immutable context for resolving relative IMAGEDEF paths.
+    /// </summary>
+    public string? SourceName { get; }
+
     /// <summary>Gets the ordering purpose captured by this immutable snapshot.</summary>
     public CadDrawOrderPurpose DrawOrderPurpose { get; }
 
@@ -627,6 +675,9 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadConstructionLinePrimitive> ConstructionLines => _constructionLines;
     public ReadOnlyMemory<CadWipeoutPrimitive> Wipeouts => _wipeouts;
     public ReadOnlyMemory<CadWipeoutClipPoint> WipeoutClipPoints => _wipeoutClipPoints;
+    public ReadOnlyMemory<CadRasterImagePrimitive> RasterImages => _rasterImages;
+    public ReadOnlyMemory<CadRasterImageResource> RasterImageResources => _rasterImageResources;
+    public ReadOnlyMemory<CadWipeoutClipPoint> RasterImageClipPoints => _rasterImageClipPoints;
     public ReadOnlyMemory<CadMesh3DPrimitive> Meshes3D => _meshes3D;
     public ReadOnlyMemory<CadMesh3DDrawRange> Mesh3DDrawRanges => _mesh3DDrawRanges;
     public ReadOnlyMemory<CadMesh3DVertex> Mesh3DVertices => _mesh3DVertices;
@@ -673,6 +724,7 @@ public sealed class CadDocumentSnapshot
 
     internal CadDocumentSnapshot(
         ulong contentGeneration,
+        string? sourceName,
         CadDrawOrderPurpose drawOrderPurpose,
         bool hasDrawOrderOverrides,
         bool isPlotOrderCompatible,
@@ -691,6 +743,9 @@ public sealed class CadDocumentSnapshot
         CadConstructionLinePrimitive[] constructionLines,
         CadWipeoutPrimitive[] wipeouts,
         CadWipeoutClipPoint[] wipeoutClipPoints,
+        CadRasterImagePrimitive[] rasterImages,
+        CadRasterImageResource[] rasterImageResources,
+        CadWipeoutClipPoint[] rasterImageClipPoints,
         CadMesh3DPrimitive[] meshes3D,
         CadMesh3DDrawRange[] mesh3DDrawRanges,
         CadMesh3DVertex[] mesh3DVertices,
@@ -733,6 +788,7 @@ public sealed class CadDocumentSnapshot
         CadDiagnostic[] diagnostics)
     {
         ContentGeneration = contentGeneration;
+        SourceName = sourceName;
         DrawOrderPurpose = drawOrderPurpose;
         HasDrawOrderOverrides = hasDrawOrderOverrides;
         IsPlotOrderCompatible = isPlotOrderCompatible;
@@ -752,6 +808,9 @@ public sealed class CadDocumentSnapshot
         _constructionLines = constructionLines;
         _wipeouts = wipeouts;
         _wipeoutClipPoints = wipeoutClipPoints;
+        _rasterImages = rasterImages;
+        _rasterImageResources = rasterImageResources;
+        _rasterImageClipPoints = rasterImageClipPoints;
         _meshes3D = meshes3D;
         _mesh3DDrawRanges = mesh3DDrawRanges;
         _mesh3DVertices = mesh3DVertices;

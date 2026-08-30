@@ -1,17 +1,61 @@
 namespace ProGPU.CAD;
 
-/// <summary>Exact allocation-free selection for retained WIPEOUT masks and frames.</summary>
+/// <summary>
+/// Exact allocation-free selection shared by retained WIPEOUT and raster IMAGE
+/// pixel planes. The raster path is an original ProGPU port of this repository's
+/// proven WIPEOUT selection implementation.
+/// </summary>
 internal static class CadWipeoutSelection
 {
+    private readonly record struct CadPlanarImageGeometry(
+        CadPoint3D Origin,
+        CadPoint3D UVector,
+        CadPoint3D VVector,
+        double Width,
+        double Height,
+        bool IsClipped,
+        bool IsInverted,
+        bool DrawMask,
+        bool ShowWhenNotAligned);
+
     public static CadPointHitResult HitTestPoint(
         CadDocumentSnapshot snapshot,
         in CadWipeoutPrimitive wipeout,
         CadPoint3D point,
         double tolerance)
     {
+        CadPlanarImageGeometry geometry = CreateGeometry(wipeout);
+        ReadOnlySpan<CadWipeoutClipPoint> clip = wipeout.IsClipped
+            ? snapshot.WipeoutClipPoints.Span.Slice(
+                wipeout.ClipPointOffset,
+                wipeout.ClipPointCount)
+            : ReadOnlySpan<CadWipeoutClipPoint>.Empty;
+        return HitTestPoint(geometry, clip, point, tolerance);
+    }
+
+    public static CadPointHitResult HitTestPoint(
+        CadDocumentSnapshot snapshot,
+        in CadRasterImagePrimitive image,
+        CadPoint3D point,
+        double tolerance)
+    {
+        CadPlanarImageGeometry geometry = CreateGeometry(image);
+        ReadOnlySpan<CadWipeoutClipPoint> clip = image.IsClipped
+            ? snapshot.RasterImageClipPoints.Span.Slice(
+                image.ClipPointOffset,
+                image.ClipPointCount)
+            : ReadOnlySpan<CadWipeoutClipPoint>.Empty;
+        return HitTestPoint(geometry, clip, point, tolerance);
+    }
+
+    private static CadPointHitResult HitTestPoint(
+        in CadPlanarImageGeometry wipeout,
+        ReadOnlySpan<CadWipeoutClipPoint> clip,
+        CadPoint3D point,
+        double tolerance)
+    {
         Span<CadWipeoutClipPoint> outer = stackalloc CadWipeoutClipPoint[4];
         GetOuter(wipeout, outer);
-        ReadOnlySpan<CadWipeoutClipPoint> clip = GetClip(snapshot, wipeout);
         ReadOnlySpan<CadWipeoutClipPoint> frame = wipeout.IsClipped ? clip : outer;
         double distance = DistanceToLoop(wipeout, frame, point);
         bool selectMask = HasSelectablePlanMask(wipeout);
@@ -40,6 +84,38 @@ internal static class CadWipeoutSelection
         CadBounds3D selectionBounds,
         CadBoundsSelectionMode mode)
     {
+        CadPlanarImageGeometry geometry = CreateGeometry(wipeout);
+        ReadOnlySpan<CadWipeoutClipPoint> clip = wipeout.IsClipped
+            ? snapshot.WipeoutClipPoints.Span.Slice(
+                wipeout.ClipPointOffset,
+                wipeout.ClipPointCount)
+            : ReadOnlySpan<CadWipeoutClipPoint>.Empty;
+        return HitTestBounds(geometry, clip, exactBounds, selectionBounds, mode);
+    }
+
+    public static CadBoundsHitResult HitTestBounds(
+        CadDocumentSnapshot snapshot,
+        in CadRasterImagePrimitive image,
+        CadBounds3D exactBounds,
+        CadBounds3D selectionBounds,
+        CadBoundsSelectionMode mode)
+    {
+        CadPlanarImageGeometry geometry = CreateGeometry(image);
+        ReadOnlySpan<CadWipeoutClipPoint> clip = image.IsClipped
+            ? snapshot.RasterImageClipPoints.Span.Slice(
+                image.ClipPointOffset,
+                image.ClipPointCount)
+            : ReadOnlySpan<CadWipeoutClipPoint>.Empty;
+        return HitTestBounds(geometry, clip, exactBounds, selectionBounds, mode);
+    }
+
+    private static CadBoundsHitResult HitTestBounds(
+        in CadPlanarImageGeometry wipeout,
+        ReadOnlySpan<CadWipeoutClipPoint> clip,
+        CadBounds3D exactBounds,
+        CadBounds3D selectionBounds,
+        CadBoundsSelectionMode mode)
+    {
         if (selectionBounds.IsEmpty || !exactBounds.Intersects(selectionBounds))
         {
             return new CadBoundsHitResult(CadBoundsHitStatus.Miss);
@@ -55,7 +131,6 @@ internal static class CadWipeoutSelection
 
         Span<CadWipeoutClipPoint> outer = stackalloc CadWipeoutClipPoint[4];
         GetOuter(wipeout, outer);
-        ReadOnlySpan<CadWipeoutClipPoint> clip = GetClip(snapshot, wipeout);
         ReadOnlySpan<CadWipeoutClipPoint> frame = wipeout.IsClipped ? clip : outer;
         if (LoopIntersectsBounds(wipeout, frame, selectionBounds))
         {
@@ -113,16 +188,33 @@ internal static class CadWipeoutSelection
         return new CadBoundsHitResult(CadBoundsHitStatus.Miss);
     }
 
-    private static ReadOnlySpan<CadWipeoutClipPoint> GetClip(
-        CadDocumentSnapshot snapshot,
+    private static CadPlanarImageGeometry CreateGeometry(
         in CadWipeoutPrimitive wipeout) =>
-        wipeout.IsClipped
-            ? snapshot.WipeoutClipPoints.Span.Slice(
-                wipeout.ClipPointOffset,
-                wipeout.ClipPointCount)
-            : ReadOnlySpan<CadWipeoutClipPoint>.Empty;
+        new(
+            wipeout.Origin,
+            wipeout.UVector,
+            wipeout.VVector,
+            wipeout.Width,
+            wipeout.Height,
+            wipeout.IsClipped,
+            wipeout.IsInverted,
+            wipeout.DrawMask,
+            wipeout.ShowWhenNotAligned);
 
-    private static bool HasSelectablePlanMask(in CadWipeoutPrimitive wipeout)
+    private static CadPlanarImageGeometry CreateGeometry(
+        in CadRasterImagePrimitive image) =>
+        new(
+            image.Origin,
+            image.UVector,
+            image.VVector,
+            image.Width,
+            image.Height,
+            image.IsClipped,
+            image.IsInverted,
+            image.DrawImage,
+            image.ShowWhenNotAligned);
+
+    private static bool HasSelectablePlanMask(in CadPlanarImageGeometry wipeout)
     {
         if (!wipeout.DrawMask)
         {
@@ -136,7 +228,7 @@ internal static class CadWipeoutSelection
     }
 
     private static void GetOuter(
-        in CadWipeoutPrimitive wipeout,
+        in CadPlanarImageGeometry wipeout,
         Span<CadWipeoutClipPoint> points)
     {
         points[0] = new CadWipeoutClipPoint(0.0, 0.0);
@@ -146,7 +238,7 @@ internal static class CadWipeoutSelection
     }
 
     private static bool ContainsMask(
-        in CadWipeoutPrimitive wipeout,
+        in CadPlanarImageGeometry wipeout,
         ReadOnlySpan<CadWipeoutClipPoint> clip,
         double u,
         double v)
@@ -188,7 +280,7 @@ internal static class CadWipeoutSelection
     }
 
     private static bool TryToLocal(
-        in CadWipeoutPrimitive wipeout,
+        in CadPlanarImageGeometry wipeout,
         CadPoint3D point,
         out double u,
         out double v,
@@ -217,7 +309,7 @@ internal static class CadWipeoutSelection
     }
 
     private static double DistanceToLoop(
-        in CadWipeoutPrimitive wipeout,
+        in CadPlanarImageGeometry wipeout,
         ReadOnlySpan<CadWipeoutClipPoint> points,
         CadPoint3D point)
     {
@@ -235,7 +327,7 @@ internal static class CadWipeoutSelection
     }
 
     private static bool LoopIntersectsBounds(
-        in CadWipeoutPrimitive wipeout,
+        in CadPlanarImageGeometry wipeout,
         ReadOnlySpan<CadWipeoutClipPoint> points,
         CadBounds3D bounds)
     {
@@ -253,7 +345,7 @@ internal static class CadWipeoutSelection
     }
 
     private static CadPoint3D ToWorld(
-        in CadWipeoutPrimitive wipeout,
+        in CadPlanarImageGeometry wipeout,
         CadWipeoutClipPoint point) =>
         wipeout.Origin +
         (wipeout.UVector * point.U) +

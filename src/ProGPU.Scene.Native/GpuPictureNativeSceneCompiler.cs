@@ -2076,6 +2076,9 @@ public static partial class GpuPictureNativeSceneCompiler
                     materials,
                     out error);
             case RenderCommandType.DrawTexture:
+            case RenderCommandType.DrawExtension
+                when command.ExtensionId ==
+                    CompositorBuiltInExtensions.ImageEffect:
                 return TryAppendExternalImage(
                     picture,
                     command,
