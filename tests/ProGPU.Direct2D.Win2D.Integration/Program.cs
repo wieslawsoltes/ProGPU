@@ -18,6 +18,7 @@ internal static partial class Program
     private const uint Width = 64U;
     private const uint Height = 64U;
     private const string ResultFileName = "direct2d-win2d-result.json";
+    private const string ProgressFileName = "direct2d-win2d-progress.txt";
     private const string FallbackResultDirectoryName =
         "ProGPU.Direct2D.Win2D.Integration";
     private static readonly Guid IUnknownInterfaceId =
@@ -87,6 +88,7 @@ internal static partial class Program
 
     private static IntegrationEvidence Run(int initializationHResult)
     {
+        WriteProgress("run-started");
         nint module = GetModuleHandleW(null);
         if (module == 0)
         {
@@ -126,6 +128,7 @@ internal static partial class Program
                         Height,
                         Flags:
                             ProGpuDirect2DSurfaceFlags.AllowWarpFallback));
+            WriteProgress("surface-created");
 
             using ProGpuDirect2DComReference originalDevice =
                 surface.AcquireInterface(
@@ -322,6 +325,7 @@ internal static partial class Program
                         "Win2D CanvasRadialGradientBrush did not preserve ProGPU's ID2D1RadialGradientBrush identity.");
                 }
             }
+            WriteProgress("brush-roundtrips-complete");
 
             var combinedGeometry = new PortableGeometryPath
             {
@@ -337,8 +341,10 @@ internal static partial class Program
                     2.0,
                     0.0)
             };
+            WriteProgress("geometry-create-started");
             using ProGpuDirect2DComReference nativeGeometry =
                 surface.CreateGeometry(combinedGeometry);
+            WriteProgress("geometry-created");
             if (!surface.TryAcquireMicrosoftWin2DGeometry(
                     nativeGeometry,
                     out ProGpuDirect2DComReference? wrappedGeometry,
@@ -350,6 +356,7 @@ internal static partial class Program
             }
             using ProGpuDirect2DComReference canvasGeometryReference =
                 wrappedGeometry;
+            WriteProgress("geometry-wrapped");
             if (!surface.TryAcquireMicrosoftWin2DNativeGeometry(
                     canvasGeometryReference,
                     out ProGpuDirect2DComReference? unwrappedGeometry,
@@ -367,6 +374,7 @@ internal static partial class Program
                         "Win2D CanvasGeometry did not preserve ProGPU's ID2D1Geometry identity.");
                 }
             }
+            WriteProgress("geometry-roundtrip-complete");
 
             ulong contentVersionBefore = surface.ContentVersion;
             if (!surface.TryBeginMicrosoftWin2DProducerAccess(
@@ -410,6 +418,7 @@ internal static partial class Program
                 CanvasGeometry.FromAbi(
                     canvasGeometryReference.DangerousGetHandle()))
             {
+                WriteProgress("canvas-projections-created");
                 canvasDeviceType = target.Device.GetType().FullName ??
                     target.Device.GetType().Name;
                 canvasRenderTargetType = target.GetType().FullName ??
@@ -498,8 +507,10 @@ internal static partial class Program
                         canvasGeometry,
                         Color.FromArgb(255, 240, 208, 32));
                 }
+                WriteProgress("canvas-draw-complete");
 
                 Color[] pixels = target.GetPixelColors();
+                WriteProgress("pixel-readback-complete");
                 if (pixels.Length != checked((int)(Width * Height)))
                 {
                     throw new InvalidOperationException(
@@ -658,6 +669,25 @@ internal static partial class Program
         File.WriteAllText(
             Path.Combine(fallbackDirectory, ResultFileName),
             json);
+    }
+
+    private static void WriteProgress(string stage)
+    {
+        try
+        {
+            string directory = Path.Combine(
+                Environment.GetFolderPath(
+                    Environment.SpecialFolder.LocalApplicationData),
+                FallbackResultDirectoryName);
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(
+                Path.Combine(directory, ProgressFileName),
+                stage);
+        }
+        catch
+        {
+            // Progress reporting must never change the integration result.
+        }
     }
 
     [LibraryImport("combase.dll")]
