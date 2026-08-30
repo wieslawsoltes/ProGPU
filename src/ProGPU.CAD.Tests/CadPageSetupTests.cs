@@ -409,6 +409,14 @@ public sealed class CadPageSetupTests
                     DisabledLineWeightPolicy =
                         (CadDisabledLineWeightPolicy)byte.MaxValue,
                 }));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadPageSetupPrintOptionsCompiler().Compile(
+                setup,
+                new CadPageSetupPrintOptionsCompilerOptions
+                {
+                    UnavailableTransparencyPolicy =
+                        (CadUnavailablePlotTransparencyPolicy)byte.MaxValue,
+                }));
         Assert.Throws<NotSupportedException>(() =>
             new CadPrintPlanCompiler().CompileFromPageSetup(
                 new CadSnapshotCompiler().Compile(new CadDocumentSession(document)),
@@ -444,6 +452,98 @@ public sealed class CadPageSetupTests
                 transparentSnapshot,
                 transparentSetup));
         Assert.Contains("CADPAGE118", transparencyError.Message);
+    }
+
+    [Theory]
+    [InlineData(CadDocumentFormat.Dxf)]
+    [InlineData(CadDocumentFormat.Dwg)]
+    public async Task ExplicitTransparencyPolicyPreservesRetainedAlphaAfterRoundTrip(
+        CadDocumentFormat format)
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        ConfigureSupported(document.Layouts[ACadLayout.ModelLayoutName]);
+        document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 0, 0))
+        {
+            Transparency = new Transparency(25),
+        });
+        document.Entities.Add(new Line(
+            new XYZ(0, 5, 0),
+            new XYZ(10, 5, 0))
+        {
+            Transparency = new Transparency(60),
+        });
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+
+        await store.SaveAsync(
+            new CadDocumentSession(document),
+            stream,
+            format,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            format,
+            sourceName: $"transparent-print.{format.ToString().ToLowerInvariant()}");
+        loaded.Session.Edit("publish transparent-print generation", static _ => { });
+        CadPageSetupSnapshot setup = new CadPageSetupCatalogCompiler()
+            .Compile(loaded.Session)
+            .FindLayout(ACadLayout.ModelLayoutName)!;
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            loaded.Session,
+            new CadSnapshotOptions
+            {
+                DrawOrderPurpose = CadDrawOrderPurpose.Plotting,
+            });
+
+        CadPageSetupPrintOptionsResult rejected =
+            new CadPageSetupPrintOptionsCompiler().Compile(setup);
+        Assert.Equal(
+            CadPrintTransparencyMode.RejectNonOpaque,
+            rejected.PrintOptions!.TransparencyMode);
+        NotSupportedException error = Assert.Throws<NotSupportedException>(() =>
+            new CadPrintPlanCompiler().CompileFromPageSetup(snapshot, rejected));
+        Assert.Contains("CADPAGE118", error.Message);
+
+        CadPageSetupPrintOptionsResult preserved =
+            new CadPageSetupPrintOptionsCompiler().Compile(
+                setup,
+                new CadPageSetupPrintOptionsCompilerOptions
+                {
+                    OutputDpi = 254,
+                    UnavailableTransparencyPolicy =
+                        CadUnavailablePlotTransparencyPolicy.PreserveRetainedAlpha,
+                });
+        using CadPrintPlan plan = new CadPrintPlanCompiler().CompileFromPageSetup(
+            snapshot,
+            preserved);
+
+        Assert.Equal(
+            CadPrintTransparencyMode.PreserveRetainedAlpha,
+            plan.TransparencyMode);
+        using GpuPicture pagePicture = plan.CreatePagePicture();
+        GpuPicture contentPicture = pagePicture.GetCommand(1).Picture!;
+        RenderCommand[] lines = contentPicture.Commands
+            .Where(command => command.Type == RenderCommandType.DrawLine)
+            .ToArray();
+        Assert.Equal(2, lines.Length);
+        Assert.Equal(
+            snapshot.Styles.Span[0].Alpha / 255.0f,
+            Assert.IsType<SolidColorBrush>(lines[0].Pen!.Brush).Color.W,
+            6);
+        Assert.Equal(
+            snapshot.Styles.Span[1].Alpha / 255.0f,
+            Assert.IsType<SolidColorBrush>(lines[1].Pen!.Brush).Color.W,
+            6);
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            pagePicture,
+            307U,
+            plan.ContentGeneration,
+            out NativeCompiledPicture? nativePicture,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(nativePicture);
+        Assert.Equal(2, nativePicture.BrushCount);
     }
 
     [Theory]

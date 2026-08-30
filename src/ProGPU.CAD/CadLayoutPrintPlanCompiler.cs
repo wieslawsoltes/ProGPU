@@ -71,10 +71,16 @@ public sealed class CadLayoutPrintPlanCompiler
             throw new NotSupportedException(reason);
         }
 
-        EnsureOpaqueStyles(snapshot.ModelSpace, cancellationToken);
-        EnsureOpaqueStyles(snapshot.PaperSpace, cancellationToken);
         CadPrintPlanOptions printOptions = lowered.PrintOptions;
         CadPrintPlanCompiler.ValidateOptions(printOptions);
+        CadPrintPlanCompiler.ValidateTransparency(
+            snapshot.ModelSpace,
+            printOptions.TransparencyMode,
+            cancellationToken);
+        CadPrintPlanCompiler.ValidateTransparency(
+            snapshot.PaperSpace,
+            printOptions.TransparencyMode,
+            cancellationToken);
         CadPrintPixelSize pageSize = CadPrintPlanCompiler.CreatePageSize(printOptions);
         CadPrintPixelRect placementArea = CadPrintPlanCompiler.CreatePlacementArea(
             printOptions,
@@ -176,18 +182,4 @@ public sealed class CadLayoutPrintPlanCompiler
             (float)translationX, (float)translationY, 0, 1);
     }
 
-    private static void EnsureOpaqueStyles(
-        CadDocumentSnapshot snapshot,
-        CancellationToken cancellationToken)
-    {
-        foreach (CadStrokeStyle style in snapshot.Styles.Span)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (style.Alpha != byte.MaxValue)
-            {
-                throw new NotSupportedException(
-                    "CADPAGE118: The pinned page-setup contract does not expose Plot Transparency, so transparent retained styles cannot be lowered without guessing output policy.");
-            }
-        }
-    }
 }

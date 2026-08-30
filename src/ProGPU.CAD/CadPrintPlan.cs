@@ -24,6 +24,13 @@ public enum CadPrintLineWeightMode : byte
     DeviceHairline = 1,
 }
 
+/// <summary>Controls whether retained object alpha is eligible for output.</summary>
+public enum CadPrintTransparencyMode : byte
+{
+    PreserveRetainedAlpha = 0,
+    RejectNonOpaque = 1,
+}
+
 public readonly record struct CadPrintPixelSize(int Width, int Height);
 
 public readonly record struct CadPrintPixelRect(int X, int Y, int Width, int Height)
@@ -91,6 +98,14 @@ public sealed class CadPrintPlanOptions
     public CadPrintLineWeightMode LineWeightMode { get; init; } =
         CadPrintLineWeightMode.ObjectLineWeights;
 
+    /// <summary>
+    /// Preserves authored retained alpha by default for the direct programmatic
+    /// print API. Page-setup lowering may select the fail-closed mode when its
+    /// source contract cannot expose the Plot Transparency option.
+    /// </summary>
+    public CadPrintTransparencyMode TransparencyMode { get; init; } =
+        CadPrintTransparencyMode.PreserveRetainedAlpha;
+
     public long MaxPagePixelCount { get; init; } = DefaultMaxPagePixelCount;
 
     public ICadRasterImageSourceResolver? RasterImageSourceResolver { get; init; }
@@ -140,6 +155,8 @@ public sealed class CadPrintPlan : IDisposable
 
     public CadPrintLineWeightMode LineWeightMode { get; }
 
+    public CadPrintTransparencyMode TransparencyMode { get; }
+
     public Matrix4x4 ContentToPage { get; }
 
     public CadPlanSceneStatistics SceneStatistics { get; }
@@ -176,6 +193,7 @@ public sealed class CadPrintPlan : IDisposable
         PixelsPerModelUnit = pixelsPerModelUnit;
         ModelUnitsPerMillimeter = modelUnitsPerMillimeter;
         LineWeightMode = options.LineWeightMode;
+        TransparencyMode = options.TransparencyMode;
         ContentToPage = contentToPage;
         SceneStatistics = sceneStatistics;
         _diagnostics = diagnostics;
@@ -254,16 +272,6 @@ public sealed class CadPrintPlanCompiler
             throw new InvalidOperationException(
                 $"Page setup generation {pageSetup.ContentGeneration} does not match snapshot generation {snapshot.ContentGeneration}.");
         }
-        foreach (CadStrokeStyle style in snapshot.Styles.Span)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (style.Alpha != byte.MaxValue)
-            {
-                throw new NotSupportedException(
-                    "CADPAGE118: The pinned page-setup contract does not expose Plot Transparency, so transparent retained styles cannot be lowered without guessing output policy.");
-            }
-        }
-
         return Compile(snapshot, pageSetup.PrintOptions, cancellationToken);
     }
 
@@ -281,6 +289,7 @@ public sealed class CadPrintPlanCompiler
         }
         options ??= new CadPrintPlanOptions();
         ValidateOptions(options);
+        ValidateTransparency(snapshot, options.TransparencyMode, cancellationToken);
 
         CadPrintPixelSize pageSize = CreatePageSize(options);
         CadPrintPixelRect placementArea = CreatePlacementArea(options, pageSize);
@@ -647,11 +656,12 @@ public sealed class CadPrintPlanCompiler
             options.Rotation == CadPageRotation.Unknown ||
             !Enum.IsDefined(options.ScaleMode) ||
             !Enum.IsDefined(options.PlacementMode) ||
-            !Enum.IsDefined(options.LineWeightMode))
+            !Enum.IsDefined(options.LineWeightMode) ||
+            !Enum.IsDefined(options.TransparencyMode))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(options),
-                "Page rotation, print scale, placement, and lineweight modes must be defined values.");
+                "Page rotation, print scale, placement, lineweight, and transparency modes must be defined values.");
         }
         if (!IsFinitePositive(options.ModelUnitsPerMillimeter))
         {
@@ -677,6 +687,27 @@ public sealed class CadPrintPlanCompiler
             throw new ArgumentOutOfRangeException(
                 nameof(options),
                 "The page-pixel budget must be positive.");
+        }
+    }
+
+    internal static void ValidateTransparency(
+        CadDocumentSnapshot snapshot,
+        CadPrintTransparencyMode transparencyMode,
+        CancellationToken cancellationToken)
+    {
+        if (transparencyMode != CadPrintTransparencyMode.RejectNonOpaque)
+        {
+            return;
+        }
+
+        foreach (CadStrokeStyle style in snapshot.Styles.Span)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (style.Alpha != byte.MaxValue)
+            {
+                throw new NotSupportedException(
+                    "CADPAGE118: The pinned page-setup contract does not expose Plot Transparency, so transparent retained styles require an explicit preserve-alpha output policy.");
+            }
         }
     }
 

@@ -855,6 +855,8 @@ public sealed class CadSampleCanvas : FrameworkElement
             OutputDpi = outputDpi,
             DisabledLineWeightPolicy =
                 CadDisabledLineWeightPolicy.DeviceHairline,
+            UnavailableTransparencyPolicy =
+                CadUnavailablePlotTransparencyPolicy.PreserveRetainedAlpha,
         };
         if (pageSetup.TargetSpace == CadPageTargetSpace.Paper)
         {

@@ -359,6 +359,12 @@ public sealed class CadPrintPlanTests
             snapshot,
             new CadPrintPlanOptions
             {
+                TransparencyMode = (CadPrintTransparencyMode)byte.MaxValue,
+            }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => compiler.Compile(
+            snapshot,
+            new CadPrintPlanOptions
+            {
                 ScaleMode = CadPrintScaleMode.ModelUnitsPerMillimeter,
                 ModelUnitsPerMillimeter = 0,
             }));

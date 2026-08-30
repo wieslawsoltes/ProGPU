@@ -813,6 +813,81 @@ public sealed class CadViewportTests
     }
 
     [Fact]
+    public void PaperLayoutRequiresExplicitPolicyToPreserveModelAndPaperAlpha()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 0, 0))
+        {
+            Transparency = new Transparency(25),
+        });
+        ACadLayout layout = document.Layouts[ACadLayout.PaperLayoutName];
+        ConfigurePaperLayout(layout);
+        layout.AssociatedBlock.Entities.Add(new Line(
+            new XYZ(5, 5, 0),
+            new XYZ(20, 5, 0))
+        {
+            Transparency = new Transparency(50),
+        });
+        layout.AddViewport(CreateTopViewport(
+            new XYZ(50, 25, 0),
+            XY.Zero,
+            XYZ.Zero,
+            0.0));
+        var session = new CadDocumentSession(document);
+        session.Edit("publish transparent layout generation", static _ => { });
+        CadLayoutSnapshot snapshot = new CadLayoutSnapshotCompiler().Compile(
+            session,
+            ACadLayout.PaperLayoutName,
+            new CadSnapshotOptions
+            {
+                DrawOrderPurpose = CadDrawOrderPurpose.Plotting,
+            });
+        CadPageSetupSnapshot pageSetup = new CadPageSetupCatalogCompiler()
+            .Compile(session)
+            .FindLayout(ACadLayout.PaperLayoutName)!;
+
+        NotSupportedException rejected = Assert.Throws<NotSupportedException>(() =>
+            new CadLayoutPrintPlanCompiler().Compile(snapshot, pageSetup).Dispose());
+        Assert.Contains("CADPAGE118", rejected.Message);
+
+        using CadPrintPlan plan = new CadLayoutPrintPlanCompiler().Compile(
+            snapshot,
+            pageSetup,
+            new CadPageSetupPrintOptionsCompilerOptions
+            {
+                OutputDpi = 254,
+                UnavailableTransparencyPolicy =
+                    CadUnavailablePlotTransparencyPolicy.PreserveRetainedAlpha,
+            });
+
+        Assert.Equal(
+            CadPrintTransparencyMode.PreserveRetainedAlpha,
+            plan.TransparencyMode);
+        using GpuPicture pagePicture = plan.CreatePagePicture();
+        GpuPicture layoutPicture = pagePicture.GetCommand(1).Picture!;
+        RenderCommand paperLine = Assert.Single(
+            layoutPicture.Commands,
+            command => command.Type == RenderCommandType.DrawLine);
+        CadEntityHeader paperLineEntity = Assert.Single(
+            snapshot.PaperSpace.Entities.ToArray(),
+            entity => entity.Kind == CadEntityKind.Line);
+        Assert.Equal(
+            snapshot.PaperSpace.Styles.Span[paperLineEntity.StyleIndex].Alpha /
+                255.0f,
+            Assert.IsType<SolidColorBrush>(paperLine.Pen!.Brush).Color.W,
+            6);
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            pagePicture,
+            308U,
+            plan.ContentGeneration,
+            out NativeCompiledPicture? nativePicture,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(nativePicture);
+        Assert.True(nativePicture.BrushCount >= 2);
+    }
+
+    [Fact]
     public void PaperLayoutPageSetupRejectsNonLayoutButIgnoresStoredScale()
     {
         var document = new CadDocument();

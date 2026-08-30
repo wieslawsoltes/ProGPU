@@ -572,6 +572,16 @@ public sealed class CadPageSetupPrintOptionsCompilerOptions
     /// </summary>
     public CadDisabledLineWeightPolicy DisabledLineWeightPolicy { get; init; }
 
+    /// <summary>
+    /// Resolves retained object alpha when the pinned page-setup object model
+    /// cannot expose Autodesk's separate Plot Transparency option.
+    /// </summary>
+    public CadUnavailablePlotTransparencyPolicy UnavailableTransparencyPolicy
+    {
+        get;
+        init;
+    }
+
     public long MaxPagePixelCount { get; init; } =
         CadPrintPlanOptions.DefaultMaxPagePixelCount;
 }
@@ -580,6 +590,12 @@ public enum CadDisabledLineWeightPolicy : byte
 {
     Reject = 0,
     DeviceHairline = 1,
+}
+
+public enum CadUnavailablePlotTransparencyPolicy : byte
+{
+    Reject = 0,
+    PreserveRetainedAlpha = 1,
 }
 
 /// <summary>
@@ -729,6 +745,11 @@ public sealed class CadPageSetupPrintOptionsCompiler
         }
         CadPrintLineWeightMode lineWeightMode =
             CadPrintLineWeightMode.ObjectLineWeights;
+        CadPrintTransparencyMode transparencyMode =
+            options.UnavailableTransparencyPolicy ==
+                CadUnavailablePlotTransparencyPolicy.Reject
+                ? CadPrintTransparencyMode.RejectNonOpaque
+                : CadPrintTransparencyMode.PreserveRetainedAlpha;
         if (!pageSetup.PrintLineweights &&
             options.DisabledLineWeightPolicy ==
                 CadDisabledLineWeightPolicy.Reject)
@@ -873,6 +894,7 @@ public sealed class CadPageSetupPrintOptionsCompiler
             PlotOffsetYMillimeters = pageSetup.PlotOriginYMillimeters,
             LineWeightScale = options.LineWeightScale,
             LineWeightMode = lineWeightMode,
+            TransparencyMode = transparencyMode,
             MaxPagePixelCount = options.MaxPagePixelCount,
         };
         return new CadPageSetupPrintOptionsResult(
@@ -982,6 +1004,7 @@ public sealed class CadPageSetupPrintOptionsCompiler
         if (!float.IsFinite(options.OutputDpi) || options.OutputDpi <= 0.0f ||
             !float.IsFinite(options.LineWeightScale) || options.LineWeightScale <= 0.0f ||
             !Enum.IsDefined(options.DisabledLineWeightPolicy) ||
+            !Enum.IsDefined(options.UnavailableTransparencyPolicy) ||
             options.MaxPagePixelCount <= 0)
         {
             throw new ArgumentOutOfRangeException(

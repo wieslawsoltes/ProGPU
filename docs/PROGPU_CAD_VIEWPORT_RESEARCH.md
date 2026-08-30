@@ -73,6 +73,13 @@ the only implementation sources reused directly.
   as separate registry-backed default-lineweight state and describes its
   [display behavior](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-1BB43E62-DF93-494E-ACF2-55824ACD5130.htm);
   it is therefore rejected as an inferred print width.
+- Autodesk's [Plot dialog contract](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-LT/files/GUID-264D3513-0D22-4461-82D6-14F391BC5CDE.htm)
+  defines Plot Transparency as whether object transparency is plotted and says
+  that it is disabled by default for performance. The separate
+  [`PLOTTRANSPARENCYOVERRIDE`](https://help.autodesk.com/cloudhelp/2020/ENG/AutoCAD-Core/files/GUID-38F03A2C-6D36-4AD9-BBE0-9CA574BEF218.htm)
+  user setting may force transparency off, honor the page setup, or force it on.
+  Because the pinned ACadSharp page-setup surface exposes neither value, ProGPU
+  cannot infer the effective output choice from drawing state alone.
 
 ## Cross-engine architecture audit
 
@@ -112,6 +119,22 @@ adopts its existing typed `Pen.HairlineThickness` plus fixed-transform contract
 as an explicit adapter choice. It rejects silently substituting Autodesk's
 separate `LWDEFAULT`, inventing a physical millimeter width, or changing only
 the managed renderer.
+
+For retained alpha, Skia's ordered picture/
+[`kSrcOver`](https://api.skia.org/SkBlendMode_8h.html) model, Direct2D's
+[source-over primitive blend](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1commandsink-setprimitiveblend1),
+and Win2D's [straight-API/premultiplied-rendering contract](https://microsoft.github.io/Win2D/WinUI2/html/PremultipliedAlpha.htm)
+all preserve alpha as paint state and composite in semantic order. WebRender's
+[display-list and stacking-context architecture](https://github.com/servo/servo/wiki/Webrender-Overview)
+retains transparency through ordered compositing, and Vello's
+[`Scene::push_layer`](https://docs.rs/vello/latest/vello/struct.Scene.html#method.push_layer)
+accepts an explicit layer alpha and blend mode. SkParagraph/DirectWrite,
+Parley, and HarfBuzz retain shaping/layout independently of paint alpha, so
+printing must reuse the positioned glyph results rather than reshape text.
+ProGPU adopts an explicit preserve-alpha adapter policy over its existing
+ordered retained commands and shared native brush table. Rejected were opacity
+baking, flattening against an assumed paper color, command reordering, a
+managed-only path, and silently treating unavailable page/user state as enabled.
 
 Adopted: immutable display content, explicit affine and clip nodes, reusable
 shaped text, and physical fixed-width strokes. Adapted: each unique
@@ -234,6 +257,20 @@ and DWG round trips cover different authored 0.50 mm and 2.00 mm widths becoming
 the same hairline only under this policy. The sample preview opts in because it
 is explicitly an output adapter; publishing remains fail-closed unless its
 adapter makes the same deliberate device decision.
+
+When retained styles contain alpha below one, page-setup output defaults to
+`CadPrintTransparencyMode.RejectNonOpaque` and reports `CADPAGE118` because the
+effective Autodesk page/user policy is unavailable. An output adapter may
+explicitly choose
+`CadUnavailablePlotTransparencyPolicy.PreserveRetainedAlpha`. Model and layout
+print plans then retain the exact snapshot alpha and source order through nested
+viewport pictures and managed/native compilation. Matched DXF and DWG round
+trips cover two distinct authored transparency values, while a paper-layout
+regression covers transparent model and paper content in one native page scene.
+The shared preview makes this explicit choice; direct programmatic printing
+continues to preserve alpha by default. Turning transparency off by converting
+objects to opaque output remains a separate policy because correct overlap and
+background semantics cannot be inferred by changing each brush in isolation.
 
 For inch layouts, lowering records `1 / 25.4` paper-space units per physical
 millimeter and `dpi` pixels per paper unit. Media, margins, and plot origin stay

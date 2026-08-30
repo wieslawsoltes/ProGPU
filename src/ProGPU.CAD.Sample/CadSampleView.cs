@@ -2077,6 +2077,8 @@ public sealed class CadSampleView : Grid
             {
                 DisabledLineWeightPolicy =
                     CadDisabledLineWeightPolicy.DeviceHairline,
+                UnavailableTransparencyPolicy =
+                    CadUnavailablePlotTransparencyPolicy.PreserveRetainedAlpha,
             };
             foreach (CadPageSetupSnapshot pageSetup in catalog.Setups.Span)
             {

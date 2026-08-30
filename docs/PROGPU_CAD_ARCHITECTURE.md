@@ -2802,10 +2802,18 @@ are implemented by `CadPageSetupCatalogCompiler`,
   scaled/centered layout output, and device image origin fail closed with typed
   diagnostics;
 - the pinned ACadSharp page-setup surface does not expose Autodesk's separate
-  Plot Transparency option. Generation-matched lowering therefore rejects a
-  snapshot containing any non-opaque retained style (`CADPAGE118`) instead of
-  assuming that transparency should or should not print. The direct programmatic
-  print-plan API remains an explicit caller policy and preserves retained alpha;
+  Plot Transparency option. Page-setup lowering therefore selects
+  `CadPrintTransparencyMode.RejectNonOpaque` by default, and a generation-matched
+  snapshot containing any non-opaque retained style fails with `CADPAGE118`
+  instead of guessing. A printer or preview adapter may explicitly select
+  `CadUnavailablePlotTransparencyPolicy.PreserveRetainedAlpha`, which carries
+  the already-resolved style alpha through model and paper-layout pictures,
+  viewport nesting, text/vector resources, and the shared native brush table.
+  The direct programmatic print-plan API continues to preserve retained alpha by
+  default. Neither route rewrites alpha, flattens against an assumed paper color,
+  changes semantic draw order, or claims to implement the unavailable
+  transparency-disabled opaque-substitution policy. The shared sample preview
+  knowingly opts into preservation as its output-adapter contract;
 - paper size and unprintable margins are finite millimeters converted once to
   deterministic integer output pixels with round-half-away-from-zero behavior;
   page coordinates are limited to exact float integers and the default total

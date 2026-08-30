@@ -279,7 +279,10 @@ public sealed class CadSamplePrintPreviewTests
     public void CanvasCompilesGenerationMatchedPageSetupAndRejectsStaleSelection()
     {
         var document = new CadDocument();
-        document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 10, 0)));
+        document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 10, 0))
+        {
+            Transparency = new Transparency(30),
+        });
         ConfigureSupported(
             document.Layouts[ACadLayout.ModelLayoutName],
             paperWidth: 120,
@@ -296,13 +299,16 @@ public sealed class CadSamplePrintPreviewTests
             using CadPrintPlan plan = canvas.CreatePageSetupPrintPlan(setup, 254);
 
             Assert.Equal(ACadLayout.ModelLayoutName, plan.SourcePageSetupName);
+            Assert.Equal(
+                CadPrintTransparencyMode.PreserveRetainedAlpha,
+                plan.TransparencyMode);
             Assert.Equal(new CadPrintPixelSize(1200, 800), plan.PageSizePixels);
             Assert.Equal(session.ContentGeneration, plan.ContentGeneration);
             using GpuPicture page = plan.CreatePagePicture();
             GpuPicture content = page.GetCommand(1).Picture!;
             var lineBrush = Assert.IsType<SolidColorBrush>(
                 content.GetCommand(0).Pen!.Brush);
-            Assert.Equal(new Vector4(0, 0, 0, 1), lineBrush.Color);
+            Assert.Equal(new Vector4(0, 0, 0, 178.0f / 255.0f), lineBrush.Color);
             Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
                 content,
                 254U,
