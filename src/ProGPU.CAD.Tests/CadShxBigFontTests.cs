@@ -389,6 +389,40 @@ public sealed class CadShxBigFontTests
         Assert.True(scene.Statistics.LoweredLineTypePlacementCount > 0);
     }
 
+    [Fact]
+    public void VerticalBigFontMTextUsesBothAuthoredOrientationPrograms()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add vertical Big Font MTEXT", document =>
+        {
+            document.Header.CodePage = "ANSI_932";
+            TextStyle style = AddStyle(document);
+            style.Flags = StyleFlags.VerticalText;
+            document.Entities.Add(new MText
+            {
+                Style = style,
+                Value = "Aあ",
+                Height = 10,
+                DrawingDirection = DrawingDirectionType.TopToBottom,
+            });
+        });
+        var catalog = new CadShxFontCatalog();
+        catalog.Register("primary.shx", CreateVerticalPrimaryCache());
+        catalog.Register("japanese.shx", CreateVerticalBigFontCache());
+
+        CadDocumentSnapshot snapshot = Compile(session, catalog);
+        CadShxMTextPrimitive text = Assert.Single(snapshot.ShxMTexts.ToArray());
+        ReadOnlySpan<CadShxGlyphInstance> glyphs = snapshot.ShxGlyphInstances.Span;
+
+        Assert.Equal(2, text.GlyphCount);
+        Assert.Equal((ushort)'A', glyphs[text.GlyphOffset].Glyph.ShapeNumber);
+        Assert.Equal((ushort)0x82A0, glyphs[text.GlyphOffset + 1].Glyph.ShapeNumber);
+        Assert.All(
+            glyphs.Slice(text.GlyphOffset, text.GlyphCount).ToArray(),
+            glyph => Assert.Equal(CadShxOrientation.Vertical, glyph.Glyph.Orientation));
+        Assert.True(glyphs[text.GlyphOffset + 1].Y > glyphs[text.GlyphOffset].Y);
+    }
+
     [Theory]
     [InlineData(CadDocumentFormat.Dxf)]
     [InlineData(CadDocumentFormat.Dwg)]
@@ -480,6 +514,9 @@ public sealed class CadShxBigFontTests
     private static CadShxGlyphCache CreatePrimaryCache() =>
         new(CadShxFont.Parse(BuildStandardFont()));
 
+    private static CadShxGlyphCache CreateVerticalPrimaryCache() =>
+        new(CadShxFont.Parse(BuildStandardFont(vertical: true)));
+
     private static CadShxGlyphCache CreateBigFontCache() =>
         CreateBigFontCache([(0x82, 0x82)], CreateBigFontShapes());
 
@@ -487,6 +524,14 @@ public sealed class CadShxBigFontTests
         (byte Start, byte End)[] ranges,
         (ushort Number, string Name, byte[] Program)[] shapes) =>
         new(CadShxFont.Parse(BuildBigFont(ranges, shapes)));
+
+    private static CadShxGlyphCache CreateVerticalBigFontCache() =>
+        CreateBigFontCache(
+            [(0x82, 0x82)],
+            [
+                (0, "PROGPU-VERTICAL-BIGFONT", new byte[] { 10, 2, 2, 0 }),
+                (0x82A0, "HIRAGANA-A", VerticalStrokeProgram()),
+            ]);
 
     private static (ushort Number, string Name, byte[] Program)[]
         CreateBigFontShapes() =>
@@ -499,13 +544,24 @@ public sealed class CadShxBigFontTests
     private static byte[] StrokeProgram() =>
         new byte[] { 1, 8, 4, 8, 8, 4, unchecked((byte)-8), 0 };
 
-    private static byte[] BuildStandardFont()
+    private static byte[] VerticalStrokeProgram() =>
+    [
+        2, 14, 8, 0xFF, 2,
+        1, 0x14,
+        2, 8, 2, 0xFF,
+        14, 8, 0xFF, 0xFD,
+        0,
+    ];
+
+    private static byte[] BuildStandardFont(bool vertical = false)
     {
         (ushort Number, string Name, byte[] Program)[] shapes =
         [
-            (0, "PROGPU-PRIMARY", new byte[] { 10, 2, 0, 0 }),
-            (0x0020, "SPACE", new byte[] { 2, 8, 4, 0, 0 }),
-            (0x0041, "A", StrokeProgram()),
+            (0, "PROGPU-PRIMARY", new byte[] { 10, 2, vertical ? (byte)2 : (byte)0, 0 }),
+            (0x0020, "SPACE", vertical
+                ? new byte[] { 2, 8, 4, 0, 14, 8, 0xFC, 0xFC, 0 }
+                : new byte[] { 2, 8, 4, 0, 0 }),
+            (0x0041, "A", vertical ? VerticalStrokeProgram() : StrokeProgram()),
             (0x0100, "DEGREE", StrokeProgram()),
             (0x0101, "PLUS-MINUS", StrokeProgram()),
             (0x0102, "DIAMETER", StrokeProgram()),

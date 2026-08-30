@@ -85,8 +85,8 @@ public sealed partial class CadSnapshotCompiler
     }
 
     /// <summary>
-    /// Lowers standard horizontal SHX MTEXT into retained analytic path
-    /// placements. This is an original SHX specialization of ProGPU's
+    /// Lowers standard horizontal or top-to-bottom SHX MTEXT into retained
+    /// analytic path placements. This is an original SHX specialization of ProGPU's
     /// in-repository styled MTEXT layout: parsing, formatting, wrapping, column
     /// flow, and replay remain separate from immutable cached glyph geometry.
     /// Work is O(C + G + L) time and O(C + G + L) temporary storage for source
@@ -115,16 +115,26 @@ public sealed partial class CadSnapshotCompiler
         string drawingCodePage)
     {
         TextStyle cadStyle = mtext.Style;
-        if (cadStyle.Flags.HasFlag(StyleFlags.VerticalText))
+        bool styleVertical = cadStyle.Flags.HasFlag(StyleFlags.VerticalText);
+        bool isVertical = mtext.DrawingDirection switch
+        {
+            DrawingDirectionType.TopToBottom => true,
+            DrawingDirectionType.ByStyle => styleVertical,
+            DrawingDirectionType.LeftToRight => styleVertical,
+            DrawingDirectionType.RightToLeft or
+                DrawingDirectionType.BottomToTop => false,
+            _ => throw new ArgumentException(
+                $"SHX MTEXT drawing direction {(short)mtext.DrawingDirection} is not defined."),
+        };
+        if (mtext.DrawingDirection is DrawingDirectionType.RightToLeft or
+            DrawingDirectionType.BottomToTop)
         {
             throw new CadUnsupportedEntityException(
-                "Vertical SHX MTEXT requires vertical line flow, orientation, and attachment lowering.");
+                "SHX MTEXT supports left-to-right and top-to-bottom flow; right-to-left and bottom-to-top require dedicated layout contracts.");
         }
-        if (mtext.DrawingDirection != DrawingDirectionType.LeftToRight)
-        {
-            throw new CadUnsupportedEntityException(
-                "SHX MTEXT currently requires left-to-right horizontal drawing direction; vertical and right-to-left flow require dedicated layout contracts.");
-        }
+        CadShxOrientation orientation = isVertical
+            ? CadShxOrientation.Vertical
+            : CadShxOrientation.Horizontal;
 
         ICadShxFontResolver resolver = shxFontResolver ??
             throw new CadUnsupportedEntityException(
@@ -260,17 +270,12 @@ public sealed partial class CadSnapshotCompiler
         float totalHeight = usedColumnHeights.Length == 0
             ? 0.0f
             : usedColumnHeights.Max();
-        Vector2 attachment = ResolveMTextAttachment(
-            mtext.AttachmentPoint,
-            totalWidth,
-            totalHeight);
-
         for (int lineIndex = 0; lineIndex < lines.Count; lineIndex++)
         {
             ShxMTextLine line = lines[lineIndex];
             ShxMTextColumnPlacement placement = columnPlacements[lineIndex];
-            float shiftX = placement.OffsetX + attachment.X;
-            float shiftY = placement.OffsetY + attachment.Y;
+            float shiftX = placement.OffsetX;
+            float shiftY = placement.OffsetY;
             for (int index = line.GlyphOffset;
                  index < line.GlyphOffset + line.GlyphCount;
                  index++)
@@ -316,8 +321,31 @@ public sealed partial class CadSnapshotCompiler
             usedColumnCount,
             usedColumnHeights,
             placementWidth,
-            attachment,
+            Vector2.Zero,
             backgrounds);
+
+        if (isVertical)
+        {
+            TransformShxMTextVertical(glyphs, decorations, strokes, backgrounds);
+            (totalWidth, totalHeight) = (totalHeight, totalWidth);
+        }
+        Vector2 attachment = ResolveMTextAttachment(
+            mtext.AttachmentPoint,
+            totalWidth,
+            totalHeight);
+        if (isVertical)
+        {
+            // The logical map produces the physical block interval
+            // [-width, 0]. Normalize it to the attachment resolver's [0, width]
+            // content box before applying the requested anchor.
+            attachment.X += totalWidth;
+        }
+        OffsetShxMTextGeometry(
+            glyphs,
+            decorations,
+            strokes,
+            backgrounds,
+            attachment);
 
         if (glyphs.Count == 0)
         {
@@ -450,7 +478,8 @@ public sealed partial class CadSnapshotCompiler
                 entityStyle,
                 layerColor,
                 resolver,
-                drawingCodePage);
+                drawingCodePage,
+                orientation);
             if (style.IsSubstitution)
             {
                 substitutions.Add(style.ResolvedFontName);
@@ -472,7 +501,7 @@ public sealed partial class CadSnapshotCompiler
                 layout = new CadShxTextLayout(
                     text,
                     style.Cache,
-                    CadShxOrientation.Horizontal,
+                    orientation,
                     new CadShxTextLayoutOptions
                     {
                         MaxCodeUnits = options.MaxTextCodeUnitsPerEntity,
@@ -492,9 +521,20 @@ public sealed partial class CadSnapshotCompiler
             for (int index = 0; index < placements.Length; index++)
             {
                 CadShxGlyphPlacement placement = placements[index];
-                ValidateHorizontalShxAdvance(style.Cache.Font, placement.Glyph);
-                float width = checked(
-                    placement.Glyph.Advance.X * style.ScaleX * style.TrackingFactor);
+                ValidateShxMTextAdvance(
+                    style.Cache.Font,
+                    placement.Glyph,
+                    orientation);
+                float width = ResolveShxMTextInlineAdvance(
+                    placement.Glyph,
+                    style,
+                    orientation);
+                ResolveShxMTextCrossExtents(
+                    placement.Glyph,
+                    style,
+                    orientation,
+                    out float ascent,
+                    out float descent);
                 candidates.Add(new ShxMTextCandidate(
                     placement.Glyph,
                     -1,
@@ -502,9 +542,13 @@ public sealed partial class CadSnapshotCompiler
                     style.Decorations | FromShxDecoration(placement.Decorations),
                     placement.IsBreakOpportunity,
                     width,
-                    Math.Max(0.0f, style.FontSize + style.BaselineShift),
-                    Math.Max(0.0f,
-                        style.Cache.Font.Below * style.ScaleY - style.BaselineShift)));
+                    orientation == CadShxOrientation.Horizontal
+                        ? Math.Max(0.0f, style.FontSize + style.BaselineShift)
+                        : ascent,
+                    orientation == CadShxOrientation.Horizontal
+                        ? Math.Max(0.0f,
+                            style.Cache.Font.Below * style.ScaleY - style.BaselineShift)
+                        : descent));
             }
         }
 
@@ -528,14 +572,14 @@ public sealed partial class CadSnapshotCompiler
                 upper = new CadShxTextLayout(
                     inline.Text,
                     child.Cache,
-                    CadShxOrientation.Horizontal,
+                    orientation,
                     null,
                     child.BigFontCache,
                     child.DrawingCodePage);
                 lower = new CadShxTextLayout(
                     inline.SecondaryText,
                     child.Cache,
-                    CadShxOrientation.Horizontal,
+                    orientation,
                     null,
                     child.BigFontCache,
                     child.DrawingCodePage);
@@ -546,10 +590,10 @@ public sealed partial class CadSnapshotCompiler
             {
                 throw new CadUnsupportedEntityException(exception.Message);
             }
-            ValidateLayoutAdvances(upper, child.Cache.Font);
-            ValidateLayoutAdvances(lower, child.Cache.Font);
-            float upperWidth = checked(upper.Advance.X * child.ScaleX * child.TrackingFactor);
-            float lowerWidth = checked(lower.Advance.X * child.ScaleX * child.TrackingFactor);
+            ValidateLayoutAdvances(upper, child.Cache.Font, orientation);
+            ValidateLayoutAdvances(lower, child.Cache.Font, orientation);
+            float upperWidth = ResolveShxMTextLayoutAdvance(upper, child, orientation);
+            float lowerWidth = ResolveShxMTextLayoutAdvance(lower, child, orientation);
             float childAscent = child.FontSize;
             float childDescent = child.Cache.Font.Below * child.ScaleY;
             float childHeight = childAscent + childDescent;
@@ -774,7 +818,9 @@ public sealed partial class CadSnapshotCompiler
                 CadShxGlyphPlacement placement = placements[index];
                 glyphs.Add(new ShxMTextPlacedGlyph(
                     placement.Glyph,
-                    x + (placement.Origin.X * style.ScaleX * style.TrackingFactor),
+                    x + (orientation == CadShxOrientation.Horizontal
+                        ? placement.Origin.X * style.ScaleX * style.TrackingFactor
+                        : -placement.Origin.Y * style.ScaleY * style.TrackingFactor),
                     baseline,
                     childStyleIndex));
             }
@@ -831,6 +877,97 @@ public sealed partial class CadSnapshotCompiler
         }
     }
 
+    /// <summary>
+    /// Maps the formatter's logical inline/block coordinates to AutoCAD's
+    /// top-to-bottom SHX plane: inline advances become downward Y advances and
+    /// successive logical lines advance to the left. Ordinary and reversed
+    /// MTEXT columns consequently advance below and above, respectively.
+    /// </summary>
+    private static void TransformShxMTextVertical(
+        List<ShxMTextPlacedGlyph> glyphs,
+        List<CadMTextRectangle> decorations,
+        List<CadMTextStroke> strokes,
+        List<CadMTextRectangle> backgrounds)
+    {
+        for (int index = 0; index < glyphs.Count; index++)
+        {
+            ShxMTextPlacedGlyph glyph = glyphs[index];
+            glyphs[index] = glyph with { X = -glyph.Y, Y = glyph.X };
+        }
+        TransformRectangles(decorations);
+        TransformRectangles(backgrounds);
+        for (int index = 0; index < strokes.Count; index++)
+        {
+            CadMTextStroke stroke = strokes[index];
+            strokes[index] = stroke with
+            {
+                StartX = -stroke.StartY,
+                StartY = stroke.StartX,
+                EndX = -stroke.EndY,
+                EndY = stroke.EndX,
+            };
+        }
+
+        static void TransformRectangles(List<CadMTextRectangle> rectangles)
+        {
+            for (int index = 0; index < rectangles.Count; index++)
+            {
+                CadMTextRectangle rectangle = rectangles[index];
+                rectangles[index] = rectangle with
+                {
+                    X = -(rectangle.Y + rectangle.Height),
+                    Y = rectangle.X,
+                    Width = rectangle.Height,
+                    Height = rectangle.Width,
+                };
+            }
+        }
+    }
+
+    private static void OffsetShxMTextGeometry(
+        List<ShxMTextPlacedGlyph> glyphs,
+        List<CadMTextRectangle> decorations,
+        List<CadMTextStroke> strokes,
+        List<CadMTextRectangle> backgrounds,
+        Vector2 offset)
+    {
+        for (int index = 0; index < glyphs.Count; index++)
+        {
+            ShxMTextPlacedGlyph glyph = glyphs[index];
+            glyphs[index] = glyph with
+            {
+                X = glyph.X + offset.X,
+                Y = glyph.Y + offset.Y,
+            };
+        }
+        OffsetRectangles(decorations);
+        OffsetRectangles(backgrounds);
+        for (int index = 0; index < strokes.Count; index++)
+        {
+            CadMTextStroke stroke = strokes[index];
+            strokes[index] = stroke with
+            {
+                StartX = stroke.StartX + offset.X,
+                StartY = stroke.StartY + offset.Y,
+                EndX = stroke.EndX + offset.X,
+                EndY = stroke.EndY + offset.Y,
+            };
+        }
+
+        void OffsetRectangles(List<CadMTextRectangle> rectangles)
+        {
+            for (int index = 0; index < rectangles.Count; index++)
+            {
+                CadMTextRectangle rectangle = rectangles[index];
+                rectangles[index] = rectangle with
+                {
+                    X = rectangle.X + offset.X,
+                    Y = rectangle.Y + offset.Y,
+                };
+            }
+        }
+    }
+
     private readonly record struct ShxMTextColumnPlacement(
         int ColumnIndex,
         float OffsetX,
@@ -843,7 +980,8 @@ public sealed partial class CadSnapshotCompiler
         CadResolvedStyle entityStyle,
         ACadSharp.Color layerColor,
         ICadShxFontResolver resolver,
-        string drawingCodePage)
+        string drawingCodePage,
+        CadShxOrientation orientation)
     {
         if (inline.Font.IsSpecified && (inline.Font.IsBold || inline.Font.IsItalic))
         {
@@ -882,6 +1020,19 @@ public sealed partial class CadSnapshotCompiler
         {
             throw new CadUnsupportedEntityException(
                 $"SHX MTEXT font '{filename}' is not a standard text font.");
+        }
+        if (orientation == CadShxOrientation.Vertical &&
+            !cache.Font.SupportsVerticalOrientation)
+        {
+            throw new CadUnsupportedEntityException(
+                $"Vertical SHX MTEXT font '{filename}' does not declare dual-orientation text programs.");
+        }
+        if (orientation == CadShxOrientation.Vertical &&
+            resolution.BigFontGlyphCache is not null &&
+            !resolution.BigFontGlyphCache.Font.SupportsVerticalOrientation)
+        {
+            throw new CadUnsupportedEntityException(
+                $"Vertical SHX MTEXT Big Font '{bigFontFilename}' does not declare vertical text programs.");
         }
 
         double fontSize = inline.Height.IsRelative
@@ -952,26 +1103,96 @@ public sealed partial class CadSnapshotCompiler
         return result;
     }
 
-    private static void ValidateHorizontalShxAdvance(
+    private static void ValidateShxMTextAdvance(
         CadShxFont font,
-        CadShxGlyph glyph)
+        CadShxGlyph glyph,
+        CadShxOrientation orientation)
     {
-        if (Math.Abs(glyph.Advance.Y) >
-                Math.Max(1.0, Math.Abs(glyph.Advance.X)) * 1e-6 ||
-            glyph.Advance.X < 0.0f)
+        if (orientation == CadShxOrientation.Horizontal)
+        {
+            if (Math.Abs(glyph.Advance.Y) >
+                    Math.Max(1.0, Math.Abs(glyph.Advance.X)) * 1e-6 ||
+                glyph.Advance.X < 0.0f)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"Horizontal SHX MTEXT requires nonnegative X-only character advances; font '{font.Name}' shape {glyph.ShapeNumber} produced ({glyph.Advance.X:R}, {glyph.Advance.Y:R}).");
+            }
+            return;
+        }
+        if (Math.Abs(glyph.Advance.X) >
+                Math.Max(1.0, Math.Abs(glyph.Advance.Y)) * 1e-6 ||
+            glyph.Advance.Y > 0.0f)
         {
             throw new CadUnsupportedEntityException(
-                $"Horizontal SHX MTEXT requires nonnegative X-only character advances; font '{font.Name}' shape {glyph.ShapeNumber} produced ({glyph.Advance.X:R}, {glyph.Advance.Y:R}).");
+                $"Vertical SHX MTEXT requires nonpositive Y-only character advances; font '{font.Name}' shape {glyph.ShapeNumber} produced ({glyph.Advance.X:R}, {glyph.Advance.Y:R}).");
         }
     }
 
     private static void ValidateLayoutAdvances(
         CadShxTextLayout layout,
-        CadShxFont font)
+        CadShxFont font,
+        CadShxOrientation orientation)
     {
         ReadOnlySpan<CadShxGlyphPlacement> placements = layout.Glyphs.Span;
         for (int index = 0; index < placements.Length; index++)
-            ValidateHorizontalShxAdvance(font, placements[index].Glyph);
+            ValidateShxMTextAdvance(font, placements[index].Glyph, orientation);
+    }
+
+    private static float ResolveShxMTextInlineAdvance(
+        CadShxGlyph glyph,
+        in ShxMTextResolvedStyle style,
+        CadShxOrientation orientation) =>
+        orientation == CadShxOrientation.Horizontal
+            ? checked(glyph.Advance.X * style.ScaleX * style.TrackingFactor)
+            : checked(-glyph.Advance.Y * style.ScaleY * style.TrackingFactor);
+
+    private static float ResolveShxMTextLayoutAdvance(
+        CadShxTextLayout layout,
+        in ShxMTextResolvedStyle style,
+        CadShxOrientation orientation) =>
+        orientation == CadShxOrientation.Horizontal
+            ? checked(layout.Advance.X * style.ScaleX * style.TrackingFactor)
+            : checked(-layout.Advance.Y * style.ScaleY * style.TrackingFactor);
+
+    private static void ResolveShxMTextCrossExtents(
+        CadShxGlyph glyph,
+        in ShxMTextResolvedStyle style,
+        CadShxOrientation orientation,
+        out float ascent,
+        out float descent)
+    {
+        if (orientation == CadShxOrientation.Horizontal)
+        {
+            ascent = Math.Max(0.0f, style.FontSize + style.BaselineShift);
+            descent = Math.Max(
+                0.0f,
+                style.Cache.Font.Below * style.ScaleY - style.BaselineShift);
+            return;
+        }
+
+        float minimum = 0.0f;
+        float maximum = 0.0f;
+        if (glyph.HasGeometry)
+        {
+            Span<Vector2> corners = stackalloc Vector2[4]
+            {
+                new(glyph.BoundsMin.X, glyph.BoundsMin.Y),
+                new(glyph.BoundsMax.X, glyph.BoundsMin.Y),
+                new(glyph.BoundsMax.X, glyph.BoundsMax.Y),
+                new(glyph.BoundsMin.X, glyph.BoundsMax.Y),
+            };
+            for (int index = 0; index < corners.Length; index++)
+            {
+                Vector2 point = corners[index];
+                float x = checked(
+                    (point.X * style.ScaleX) +
+                    (point.Y * style.ScaleY * style.SkewX));
+                minimum = Math.Min(minimum, x);
+                maximum = Math.Max(maximum, x);
+            }
+        }
+        ascent = Math.Max(0.0f, maximum + style.BaselineShift);
+        descent = Math.Max(0.0f, -minimum - style.BaselineShift);
     }
 
     private static int FindShxMTextLineEnd(

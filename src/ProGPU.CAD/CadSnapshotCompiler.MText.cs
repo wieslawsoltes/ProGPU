@@ -94,12 +94,6 @@ public sealed partial class CadSnapshotCompiler
                 throw new ArgumentException(
                     "MTEXT height, reference rectangle, and line spacing must be finite and valid.");
             }
-            if (mtext.DrawingDirection is DrawingDirectionType.TopToBottom or DrawingDirectionType.BottomToTop)
-            {
-                throw new CadUnsupportedEntityException(
-                    "Vertical MTEXT drawing direction requires vertical shaping and glyph orientation.");
-            }
-
             TextStyle cadStyle = mtext.Style;
             bool usesShx = cadStyle.IsShapeFile ||
                 cadStyle.Filename.EndsWith(".shx", StringComparison.OrdinalIgnoreCase);
@@ -125,6 +119,11 @@ public sealed partial class CadSnapshotCompiler
                     retainedGlyphIndices.Count,
                     shxFontResolver,
                     drawingCodePage);
+            }
+            if (mtext.DrawingDirection is DrawingDirectionType.TopToBottom or DrawingDirectionType.BottomToTop)
+            {
+                throw new CadUnsupportedEntityException(
+                    "Vertical TrueType MTEXT drawing direction requires vertical shaping and glyph orientation.");
             }
             if (cadStyle.Flags.HasFlag(StyleFlags.VerticalText))
             {

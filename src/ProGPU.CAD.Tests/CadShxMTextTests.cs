@@ -125,6 +125,193 @@ public sealed class CadShxMTextTests
     }
 
     [Fact]
+    public void VerticalShxMTextUsesAuthoredGlyphsLogicalFormattingAndPhysicalAttachment()
+    {
+        CadShxGlyphCache cache = CreateCache(vertical: true);
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add vertical SHX MTEXT", document =>
+        {
+            var style = new TextStyle("VERTICALSHX")
+            {
+                Filename = "test.shx",
+                Flags = StyleFlags.VerticalText,
+            };
+            document.TextStyles.Add(style);
+            document.Entities.Add(new MText
+            {
+                Style = style,
+                Value = @"A A\P\LAA\l\S1/2;",
+                Height = 10,
+                RectangleWidth = 80,
+                AttachmentPoint = AttachmentPointType.MiddleCenter,
+                DrawingDirection = DrawingDirectionType.TopToBottom,
+                BackgroundColor = new ACadSharp.Color(12, 34, 56),
+                BackgroundFillFlags = BackgroundFillFlags.UseBackgroundFillColor |
+                    BackgroundFillFlags.TextFrame,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session, cache);
+        CadEntityHeader entity = Assert.Single(snapshot.Entities.ToArray());
+        CadShxMTextPrimitive text = Assert.Single(snapshot.ShxMTexts.ToArray());
+        CadShxGlyphInstance[] glyphs = snapshot.ShxGlyphInstances.ToArray();
+        CadMTextRectangle decoration = Assert.Single(snapshot.MTextDecorations.ToArray());
+
+        Assert.Equal(CadEntityKind.ShxMText, entity.Kind);
+        Assert.Equal(new CadPoint3D(0, 0, 0), text.Origin);
+        Assert.All(glyphs, glyph => Assert.Equal(CadShxOrientation.Vertical, glyph.Glyph.Orientation));
+        Assert.True(glyphs[1].Y > glyphs[0].Y);
+        Assert.True(glyphs[3].X < glyphs[0].X);
+        Assert.True(decoration.Height > decoration.Width);
+        Assert.Single(snapshot.MTextStrokes.ToArray());
+        Assert.Equal(5, snapshot.MTextBackgrounds.Length);
+        Assert.True(text.ContentHeight > text.ContentWidth);
+        Assert.False(entity.Bounds.IsEmpty);
+        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        using GpuPicture picture = scene.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            96U,
+            scene.ContentGeneration,
+            out NativeCompiledPicture? native,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(native);
+        using CadPrintPlan print = new CadPrintPlanCompiler().Compile(snapshot);
+        Assert.True(print.SceneStatistics.RecordedCommandCount > 0);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void VerticalByStyleColumnsAdvanceBelowOrReverseAbove(
+        bool reverseFlow,
+        bool secondColumnIsBelow)
+    {
+        CadShxGlyphCache cache = CreateCache(vertical: true);
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add vertical SHX columns", document =>
+        {
+            var style = new TextStyle("VERTICALSHX")
+            {
+                Filename = "test.shx",
+                Flags = StyleFlags.VerticalText,
+            };
+            document.TextStyles.Add(style);
+            var text = new MText
+            {
+                Style = style,
+                Value = @"AA\NAA",
+                Height = 10,
+                DrawingDirection = DrawingDirectionType.ByStyle,
+            };
+            text.ColumnData.ColumnType = ColumnType.StaticColumns;
+            text.ColumnData.ColumnCount = 2;
+            text.ColumnData.Width = 20;
+            text.ColumnData.Gutter = 5;
+            text.ColumnData.FlowReversed = reverseFlow;
+            text.ColumnData.Heights.Add(30);
+            text.ColumnData.Heights.Add(30);
+            document.Entities.Add(text);
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session, cache);
+        CadShxMTextPrimitive text = Assert.Single(snapshot.ShxMTexts.ToArray());
+        ReadOnlySpan<CadShxGlyphInstance> glyphs = snapshot.ShxGlyphInstances.Span;
+
+        Assert.Equal(2, text.ColumnCount);
+        Assert.Equal(45.0f, text.ContentHeight);
+        Assert.Equal(
+            secondColumnIsBelow,
+            glyphs[text.GlyphOffset + 2].Y > glyphs[text.GlyphOffset].Y);
+    }
+
+    [Theory]
+    [InlineData(AttachmentPointType.TopLeft, 0.0, 0.0)]
+    [InlineData(AttachmentPointType.TopCenter, -0.5, 0.0)]
+    [InlineData(AttachmentPointType.TopRight, -1.0, 0.0)]
+    [InlineData(AttachmentPointType.MiddleLeft, 0.0, -0.5)]
+    [InlineData(AttachmentPointType.MiddleCenter, -0.5, -0.5)]
+    [InlineData(AttachmentPointType.MiddleRight, -1.0, -0.5)]
+    [InlineData(AttachmentPointType.BottomLeft, 0.0, -1.0)]
+    [InlineData(AttachmentPointType.BottomCenter, -0.5, -1.0)]
+    [InlineData(AttachmentPointType.BottomRight, -1.0, -1.0)]
+    public void VerticalAttachmentsUsePhysicalContentDimensions(
+        AttachmentPointType attachment,
+        double xFactor,
+        double yFactor)
+    {
+        CadShxGlyphCache cache = CreateCache(vertical: true);
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add attached vertical SHX MTEXT", document =>
+        {
+            var style = new TextStyle("VERTICALSHX")
+            {
+                Filename = "test.shx",
+                Flags = StyleFlags.VerticalText,
+            };
+            document.TextStyles.Add(style);
+            document.Entities.Add(new MText
+            {
+                Style = style,
+                Value = "AA",
+                Height = 10,
+                RectangleWidth = 30,
+                DrawingDirection = DrawingDirectionType.TopToBottom,
+                AttachmentPoint = attachment,
+                BackgroundFillFlags = BackgroundFillFlags.UseBackgroundFillColor,
+                BackgroundScale = 1.0,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session, cache);
+        CadShxMTextPrimitive text = Assert.Single(snapshot.ShxMTexts.ToArray());
+        CadMTextRectangle background = Assert.Single(snapshot.MTextBackgrounds.ToArray());
+
+        Assert.InRange(
+            Math.Abs(background.X - (text.ContentWidth * xFactor)),
+            0.0,
+            1e-5);
+        Assert.InRange(
+            Math.Abs(background.Y - (text.ContentHeight * yFactor)),
+            0.0,
+            1e-5);
+        Assert.InRange(Math.Abs(background.Width - text.ContentWidth), 0.0, 1e-5);
+        Assert.InRange(Math.Abs(background.Height - text.ContentHeight), 0.0, 1e-5);
+    }
+
+    [Fact]
+    public void VerticalMTextRejectsHorizontalOnlyFontsTransactionally()
+    {
+        CadShxGlyphCache cache = CreateCache();
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add invalid vertical SHX MTEXT", document =>
+        {
+            var style = new TextStyle("HORIZONTALSHX")
+            {
+                Filename = "test.shx",
+                Flags = StyleFlags.VerticalText,
+            };
+            document.TextStyles.Add(style);
+            document.Entities.Add(new MText
+            {
+                Style = style,
+                Value = "AA",
+                DrawingDirection = DrawingDirectionType.TopToBottom,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session, cache);
+
+        Assert.Empty(snapshot.Entities.ToArray());
+        Assert.Empty(snapshot.ShxMTexts.ToArray());
+        Assert.Empty(snapshot.ShxMTextGlyphRuns.ToArray());
+        Assert.Empty(snapshot.ShxGlyphInstances.ToArray());
+        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
+            diagnostic.Message.Contains("dual-orientation", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void NonbreakingSpaceUsesTheSpaceGlyphWithoutCreatingAWrapOpportunity()
     {
         CadShxGlyphCache cache = CreateCache();
@@ -455,24 +642,37 @@ public sealed class CadShxMTextTests
             entity.Bounds);
     }
 
-    private static CadShxGlyphCache CreateCache(string name = "TESTSHX")
+    private static CadShxGlyphCache CreateCache(
+        string name = "TESTSHX",
+        bool vertical = false)
     {
         var shapes = new List<(ushort Number, string Name, byte[] Program)>
         {
-            (0, name, new byte[] { 10, 2, 0, 0 }),
-            (32, "SPACE", new byte[] { 2, 8, 10, 0, 0 }),
+            (0, name, new byte[] { 10, 2, vertical ? (byte)2 : (byte)0, 0 }),
+            (32, "SPACE", vertical
+                ? new byte[] { 2, 8, 10, 0, 14, 8, 0xF6, 0xF6, 0 }
+                : new byte[] { 2, 8, 10, 0, 0 }),
         };
         const string characters = "AB12shapedbforinvlgcku";
         foreach (char value in characters.Distinct())
         {
-            shapes.Add(((ushort)value, value.ToString(), new byte[]
-            {
-                0xA4,
-                0xA0,
-                2,
-                8, 0, 0xF6,
-                0,
-            }));
+            shapes.Add(((ushort)value, value.ToString(), vertical
+                ? new byte[]
+                {
+                    2, 14, 8, 0xFF, 2,
+                    1, 0x14,
+                    2, 8, 2, 0xFF,
+                    14, 8, 0xFF, 0xFD,
+                    0,
+                }
+                : new byte[]
+                {
+                    0xA4,
+                    0xA0,
+                    2,
+                    8, 0, 0xF6,
+                    0,
+                }));
         }
         shapes.Add((256, "DEGREE", new byte[] { 2, 8, 10, 0, 0 }));
         shapes.Add((257, "PLUSMINUS", new byte[] { 2, 8, 10, 0, 0 }));

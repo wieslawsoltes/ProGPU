@@ -234,13 +234,13 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   position stack. `CadShxGlyphCache` and `CadShxTextLayout` retain interpreted
   glyphs per font/shape/orientation and produce bounded standard, direct-Unicode,
   packed-multibyte, or drawing-code-page primary/Big-Font character placements. A typed host resolver
-  supplies those caches to horizontal SHX
-  TEXT, standard horizontal SHX MTEXT, and default-insertion dual-orientation
-  vertical TEXT lowering. The immutable snapshot packs placements, paint and
+  supplies those caches to horizontal SHX TEXT, standard horizontal or
+  top-to-bottom dual-orientation SHX MTEXT, and default-insertion
+  dual-orientation vertical TEXT lowering. The immutable snapshot packs placements, paint and
   transform runs, MTEXT masks/decorations/separators, coalesced single-line
   decoration strokes, and affine text bases; the plan compiler records each
-  drawable placement with its shared analytic glyph path. Vertical/RTL SHX
-  MTEXT, mixed TrueType/SHX MTEXT runs,
+  drawable placement with its shared analytic glyph path. RTL/bottom-to-top SHX
+  MTEXT, vertical TrueType MTEXT, mixed TrueType/SHX MTEXT runs,
   and non-default/decorated vertical TEXT placement remain explicit gates. Ordered,
   bounded desktop discovery is host initialization work rather than a render-
   path filesystem dependency.
@@ -2316,11 +2316,17 @@ contract; a native-picture regression covers formatted MTEXT, so no separate
 native CAD scene compiler applies to this slice. Matched pixel and Release
 latency/throughput evidence remains required before making a performance claim.
 
-Standard, direct-Unicode, packed-multibyte, and paired Big Font horizontal SHX MTEXT reuse the same typed parser and column/background
-contracts but has an original analytic-path layout specialization in
+Standard, direct-Unicode, packed-multibyte, and paired Big Font horizontal or
+top-to-bottom SHX MTEXT reuse the same typed parser and column/background
+contracts through an original analytic-path layout specialization in
 `CadSnapshotCompiler.ShxMText.cs`. Each decoded SHX character resolves
 to the immutable `CadShxGlyphCache` once, retains the font-authored horizontal
-advance, and is positioned once before snapshot publication. Ordinary spaces,
+or vertical advance, and is positioned once before snapshot publication.
+Top-to-bottom flow selects command-14 vertical programs rather than rotating
+horizontal geometry. Formatting first uses logical inline/block coordinates;
+one bounded final map sends inline advances downward, successive lines left,
+ordinary columns below, and reverse-flow columns above before resolving the
+physical attachment. Ordinary spaces,
 DXF U+0020 escapes, and decimal shape 032 are break opportunities; U+00A0 maps
 to the same space glyph while retaining its nonbreaking semantic bit. Wrapping
 breaks only at those opportunities, and a long unbroken word overflows its
@@ -2339,9 +2345,10 @@ selection are `O(G + M + D + S)` for drawable glyphs, masks/frames,
 decorations, and stack separators. Replay performs no parsing, font lookup,
 interpretation, layout, or outline cloning, and warm point/Window/Crossing
 selection allocates zero managed memory. SHX does not define OpenType shaping,
-fallback runs, variation axes, or synthetic bold/italic: vertical/RTL layout,
-inline TrueType switching, and SHX bold/
-italic therefore remain diagnosed capability gates rather than approximations.
+fallback runs, variation axes, or synthetic bold/italic. Right-to-left,
+bottom-to-top, horizontal-only-font vertical flow, inline TrueType switching,
+and SHX bold/italic remain diagnosed capability gates rather than
+approximations.
 
 The exact in-repository provenance is the existing ProGPU-owned
 `CadMTextParser`, `CadSnapshotCompiler.MText.cs`, `StyledTextLayout`,
@@ -4514,6 +4521,23 @@ Sources consulted on 2026-08-27 through 2026-08-30:
   a contract Autodesk reserves for vertical SHX/Big Fonts and supported Asian
   vertical faces, and retained non-default/decorated vertical placement as an
   explicit gate pending observable conformance evidence.
+- Autodesk's [MTEXT DXF contract](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DXF/files/GUID-5E5DB93B-F8D3-4433-ADF7-E92E250D2BAB.htm)
+  and [ObjectARX `AcDbMText` contract](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-__MEMBERTYPE_Methods_AcDbMText.html):
+  adopted explicit top-to-bottom and STYLE-inherited flow, geometric attachment,
+  and the documented rule that ordinary top-to-bottom columns are added below
+  while reversed columns are added above. Adapted the existing ProGPU formatter
+  into logical inline/block coordinates followed by the bounded placement map
+  `(inline, block) -> (-block, inline)`, while every glyph still uses its
+  font-authored vertical program. Rejected rotated horizontal outlines,
+  synthesized advances, horizontal-only fonts, and guessed RTL/bottom-to-top
+  behavior. DirectWrite's [vertical-text architecture](https://learn.microsoft.com/en-us/windows/win32/directwrite/vertical-text),
+  HarfBuzz's [direction contract](https://harfbuzz.github.io/harfbuzz-hb-common.html#hb-direction-t),
+  WebRender's [retained text runs](https://searchfox.org/mozilla-central/source/gfx/thebes/gfxTextRun.h),
+  Vello's [retained glyph runs](https://github.com/linebender/vello/blob/main/vello/src/scene.rs),
+  and Parley's [layout model](https://github.com/linebender/parley/blob/main/doc/concept.md)
+  informed the separation of logical layout, glyph orientation, and retained
+  painting without serving as an AutoCAD behavior oracle. The complete record
+  is `PROGPU_CAD_SHX_VERTICAL_MTEXT_RESEARCH.md`.
 - For standard horizontal SHX MTEXT, Autodesk's current
   [MTEXT command contract](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-E6BCE05D-B9E3-4875-BBBC-29134EA6FD51.htm),
   [multiline formatting/columns/stacking guide](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-E4DC3A14-3F0A-46AE-9503-6BBEE8DAF916.htm),
