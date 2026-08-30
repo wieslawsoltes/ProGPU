@@ -5284,7 +5284,7 @@ MSVC job `99322989531`, qualifies the checkpoint: warning-as-error compile/link
 succeeds, the focused Direct2D regression passes in 0.14 seconds, all 11 native
 suites pass in 1.02 seconds, and the exact 110-export gate is accepted.
 
-ABI v30 at checkpoint `96735d95` adds live bitmap/image-brush mutation on the
+ABI v30 at checkpoints `96735d95`/`058f6f1f` adds live bitmap/image-brush mutation on the
 same typed resource domain. Bitmap-brush sampling/tiling and nullable bitmap
 binding, plus image-brush source rectangle/sampling/tiling and nullable image
 binding, round-trip without CPU pixels or arbitrary COM calls from managed
