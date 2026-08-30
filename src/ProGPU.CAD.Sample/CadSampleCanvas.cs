@@ -949,6 +949,44 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Copies all selected semantic model-space roots into one bounded linear
+    /// array while preserving the source selection across Apply/Undo/Redo.
+    /// </summary>
+    /// <param name="displacement">
+    /// Incremental item spacing or source-to-final-item displacement according
+    /// to <paramref name="mode"/>.
+    /// </param>
+    /// <param name="itemCount">Array items including the source selection.</param>
+    /// <param name="mode">Incremental-spacing or Fit placement semantics.</param>
+    public bool DuplicateSelectionLinearArray(
+        CadPoint3D displacement,
+        int itemCount,
+        CadLinearCopyMode mode)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        int selectedCount = _selectedHandleCount;
+        history.Execute(new CadLinearCopyModelSpaceEntitiesCommand(
+            new ArraySegment<ulong>(_selectedHandles, 0, selectedCount),
+            displacement,
+            itemCount,
+            mode,
+            selectedCount == 1
+                ? "Create linear array from selected entity"
+                : $"Create linear array from {selectedCount} selected entities"));
+        RecompileAfterEdit(session);
+        return true;
+    }
+
+    /// <summary>
     /// Rotates all selected semantic model-space entities around the complete
     /// selection-bounds center and the WCS positive Z axis as one edit.
     /// </summary>

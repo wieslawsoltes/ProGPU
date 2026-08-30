@@ -1440,6 +1440,21 @@ an interactive browser picker/download smoke remains open.
   never retains handles that ACadSharp clears while detached duplicates are in
   history. This is a typed desktop/browser editing surface only; it does not
   add a second renderer, shader, native ABI, or document-object implementation.
+- Those shared Copy controls now accept an item count that includes the source
+  selection and an explicit `Step` or `Fit` mode. `Step` uses the entered WCS
+  vector between adjacent items; `Fit` places the final item at that vector and
+  distributes intermediate items uniformly. One bounded
+  `CadLinearCopyModelSpaceEntitiesCommand` resolves every source before cloning,
+  validates the complete `sourceCount × (itemCount - 1)` result before mutation,
+  publishes one placement-major ACadSharp batch, and retains the exact detached
+  graphs for Undo/Redo. The command calculates each displacement in O(1) without
+  an O(itemCount) vector array; total time and retained storage are O(S(C - 1))
+  for S semantic roots and C items. A 10,000-copy regression, source-selection
+  preservation, matched managed/native picture compilation, and DXF/DWG Fit
+  round trips gate the surface. The clean-room behavior, in-repository source
+  provenance, adopted/rejected choices, and remaining interactive/associative
+  ARRAY gaps are recorded in
+  [PROGPU_CAD_LINEAR_COPY_RESEARCH.md](PROGPU_CAD_LINEAR_COPY_RESEARCH.md).
 - The clean-room behavior source for this workflow is Autodesk's public
   [Properties palette](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DidYouKnow/files/GUID-94C065AB-FF9E-4752-B778-23D2FBB87E18.htm),
   [object-property tools](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-81585857-F1B1-44F4-B7D0-B707386CA721.htm),

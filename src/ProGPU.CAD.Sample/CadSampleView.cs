@@ -114,6 +114,8 @@ public sealed class CadSampleView : Grid
     private readonly ComboBox _layerMergeTargetSelector;
     private readonly Button _mergeLayerButton;
     private readonly TextBox _moveStepInput;
+    private readonly TextBox _copyArrayItemsInput;
+    private readonly ComboBox _copyArrayModeSelector;
     private readonly TextBox _rotationStepInput;
     private readonly TextBox _scaleFactorInput;
     private readonly List<string> _shxSupportDirectories = new();
@@ -183,6 +185,10 @@ public sealed class CadSampleView : Grid
 
     public TextBox SelectionSolidThicknessInput =>
         _selectionSolidThicknessInput;
+
+    public TextBox CopyArrayItemsInput => _copyArrayItemsInput;
+
+    public ComboBox CopyArrayModeSelector => _copyArrayModeSelector;
 
     public ComboBox SelectionAttributeSelector =>
         _selectionAttributeSelector;
@@ -520,12 +526,40 @@ public sealed class CadSampleView : Grid
         transformActions.AddChild(scaleDown);
         transformActions.AddChild(new TextBlock
         {
-            Text = "Copy by move step",
+            Text = "Copy items (including source)",
             Font = font,
             FontSize = 11,
             Foreground = new ThemeResourceBrush("TextSecondary"),
             Margin = new Thickness(12, 6, 8, 0),
         });
+        _copyArrayItemsInput = new TextBox
+        {
+            Text = "2",
+            Font = font,
+            WidthConstraint = 56,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        transformActions.AddChild(_copyArrayItemsInput);
+        _copyArrayModeSelector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = 96,
+            HeightConstraint = 30,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        _copyArrayModeSelector.Items.Add(new ComboBoxItem("Step")
+        {
+            Tag = CadLinearCopyMode.Incremental,
+        });
+        _copyArrayModeSelector.Items.Add(new ComboBoxItem("Fit")
+        {
+            Tag = CadLinearCopyMode.Fit,
+        });
+        _copyArrayModeSelector.SelectedIndex = 0;
+        transformActions.AddChild(_copyArrayModeSelector);
         Button copyNegativeX = CreateButton("Copy −X", font, 72, 30);
         Button copyPositiveX = CreateButton("Copy +X", font, 72, 30);
         Button copyNegativeY = CreateButton("Copy −Y", font, 72, 30);
@@ -3612,21 +3646,42 @@ public sealed class CadSampleView : Grid
             SetStatus("Copy failed: the WCS step must be a finite positive invariant number.");
             return;
         }
+        if (!int.TryParse(
+                _copyArrayItemsInput.Text,
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out int itemCount) ||
+            itemCount < 2)
+        {
+            SetStatus("Copy failed: array items must be an invariant integer of at least 2, including the source.");
+            return;
+        }
+        if ((_copyArrayModeSelector.SelectedItem as ComboBoxItem)?.Tag is not
+            CadLinearCopyMode mode)
+        {
+            SetStatus("Copy failed: select Step or Fit spacing.");
+            return;
+        }
 
         int selectedCount = _canvas.SelectedHandleCount;
         try
         {
-            if (!_canvas.DuplicateSelection(new CadPoint3D(
-                    xDirection * step,
-                    yDirection * step,
-                    0)))
+            var displacement = new CadPoint3D(
+                xDirection * step,
+                yDirection * step,
+                0);
+            if (!_canvas.DuplicateSelectionLinearArray(
+                    displacement,
+                    itemCount,
+                    mode))
             {
                 SetStatus("Copy requires at least one selected entity.");
                 return;
             }
             SetStatus(
-                $"Copied {selectedCount:N0} selected entity(s) by " +
-                $"({xDirection * step:G}, {yDirection * step:G}, 0) WCS.");
+                $"Created {(itemCount - 1) * selectedCount:N0} copy/copies " +
+                $"from {selectedCount:N0} selected entity(s) using {mode} " +
+                $"displacement ({displacement.X:G}, {displacement.Y:G}, 0) WCS.");
         }
         catch (Exception exception)
         {
@@ -4472,6 +4527,8 @@ public sealed class CadSampleView : Grid
                 _layerMergeSourceNames,
                 mergeTargetLayerName);
         _moveStepInput.IsEnabled = canUsePlanTools;
+        _copyArrayItemsInput.IsEnabled = canUsePlanTools;
+        _copyArrayModeSelector.IsEnabled = canUsePlanTools;
         _rotationStepInput.IsEnabled = canUsePlanTools;
         _scaleFactorInput.IsEnabled = canUsePlanTools;
         foreach (Button drawOrderButton in _drawOrderButtons)

@@ -2670,6 +2670,71 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void SharedViewCopyButtonsExposeBoundedFitArraySemantics()
+    {
+        var document = new CadDocument();
+        var line = new Line(XYZ.Zero, XYZ.AxisX);
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            Button copyPositiveX = FindButton(view, "Copy +X");
+            TextBox moveStep = DescendantsAndSelf(view)
+                .OfType<TextBox>()
+                .Single(textBox => textBox.Text == "1");
+            ComboBoxItem fit = view.CopyArrayModeSelector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Tag is CadLinearCopyMode.Fit);
+
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            Click(
+                view.Canvas,
+                view.Canvas.CurrentViewport.WorldToScreen(
+                    new CadPoint3D(0.5, 0, 0)));
+            ulong sourceHandle = line.Handle;
+
+            moveStep.Text = "8";
+            view.CopyArrayItemsInput.Text = "1";
+            view.CopyArrayModeSelector.SelectedItem = fit;
+            PressEnter(copyPositiveX);
+
+            Assert.Single(document.Entities);
+            Assert.Equal(0UL, session.ContentGeneration);
+
+            view.CopyArrayItemsInput.Text = "5";
+            PressEnter(copyPositiveX);
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal([sourceHandle], view.Canvas.SelectedHandles.ToArray());
+            Assert.Equal([
+                0.0,
+                2.0,
+                4.0,
+                6.0,
+                8.0,
+            ], document.Entities
+                .OfType<Line>()
+                .Select(static candidate => candidate.StartPoint.X)
+                .ToArray());
+            Assert.Equal(5, view.Canvas.CurrentSnapshot!.Entities.Length);
+
+            Assert.True(view.Canvas.TryUndo());
+            Assert.Single(document.Entities);
+            Assert.Equal([sourceHandle], view.Canvas.SelectedHandles.ToArray());
+
+            Assert.True(view.Canvas.TryRedo());
+            Assert.Equal(5, document.Entities.Count);
+            Assert.Equal([sourceHandle], view.Canvas.SelectedHandles.ToArray());
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewDeleteButtonAndKeyUseTheSameAtomicHistoryAction()
     {
         var document = new CadDocument();
@@ -2952,7 +3017,9 @@ public sealed class CadSampleSelectionTests
                 .Single(textBox => textBox.Text == "15");
             TextBox scaleFactor = DescendantsAndSelf(view)
                 .OfType<TextBox>()
-                .Single(textBox => textBox.Text == "2");
+                .Single(textBox =>
+                    textBox.Text == "2" &&
+                    textBox.WidthConstraint == 76);
             Assert.False(rotateCounterclockwise.IsEnabled);
             Assert.False(scaleUp.IsEnabled);
             Assert.False(scaleDown.IsEnabled);
