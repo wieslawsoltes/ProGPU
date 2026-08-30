@@ -5039,6 +5039,20 @@ the hole retains solid ARGB `(255,224,48,96)`. The transparent corner,
 solid/linear/radial samples, content version `0 -> 1`, and `Dawn D3D12` remain
 unchanged. Stable JSON plus best-effort stage evidence survives MSIX cleanup.
 
+ABI v16 extends the same Windows COM producer with a genuine shared
+`IDWriteFactory3`, caller-owned `IDWriteTextFormat1` resources, and typed
+`ID2D1RenderTarget::DrawText` submission for both shared-surface and
+command-list transactions. Font family, locale, and text enter as explicit
+UTF-16 spans; the creation path alone NUL-terminates family/locale for
+DirectWrite, while the hot draw path consumes the pinned caller span directly
+without copying, readback, repacking, reflection, or per-glyph calls. The
+device-independent Win2D factory path wraps and unwraps the exact format with
+null CanvasDevice and zero DPI so official `CanvasTextFormat` can consume the
+provider object without introducing another resource domain. Invalid state or
+unknown options fail closed. The native regression covers format metadata,
+pre-draw rejection, a real text command, and deferred EndDraw success; the
+export audit grows from 45 to exactly 47.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
