@@ -187,6 +187,53 @@ bool is_valid_interpolation_mode(uint32_t value)
         PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC;
 }
 
+bool is_valid_effect_property(
+    progpu_native_direct2d_effect_property_type type,
+    uint32_t data_size)
+{
+    switch (type) {
+        case PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_BOOL:
+        case PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_UINT32:
+        case PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_INT32:
+        case PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_FLOAT:
+        case PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_ENUM:
+            return data_size == sizeof(uint32_t);
+        case PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_VECTOR2:
+            return data_size == sizeof(float) * 2U;
+        case PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_VECTOR3:
+            return data_size == sizeof(float) * 3U;
+        case PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_VECTOR4:
+            return data_size == sizeof(float) * 4U;
+        case PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_CLSID:
+            return data_size == sizeof(progpu_native_direct2d_guid);
+        case PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_BLOB:
+            return data_size != 0U;
+        case PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_MATRIX_3X2:
+            return data_size == sizeof(float) * 6U;
+        case PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_MATRIX_4X3:
+            return data_size == sizeof(float) * 12U;
+        case PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_MATRIX_4X4:
+            return data_size == sizeof(float) * 16U;
+        case PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_MATRIX_5X4:
+            return data_size == sizeof(float) * 20U;
+        default:
+            return false;
+    }
+}
+
+bool is_empty(const progpu_native_direct2d_guid& value)
+{
+    if (value.data1 != 0U || value.data2 != 0U || value.data3 != 0U) {
+        return false;
+    }
+    for (uint32_t index = 0U; index < 8U; ++index) {
+        if (value.data4[index] != 0U) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool is_valid(progpu_native_direct2d_color_interpolation_mode value)
 {
     return value ==
@@ -1473,6 +1520,199 @@ progpu_native_direct2d_surface_create_command_list(
         return status_from_win2d_hresult(hr);
     }
     return return_interface(command_list, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_effect(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_guid* effect_id,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || effect_id == nullptr || is_empty(*effect_id) ||
+        value == nullptr || native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    GUID native_effect_id = to_native_guid(*effect_id);
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Effect> effect;
+    HRESULT hr = surface->d2d_context->CreateEffect(
+        native_effect_id,
+        effect.GetAddressOf());
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(effect, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_effect_set_input(
+    progpu_native_direct2d_surface* surface,
+    void* effect,
+    uint32_t input_index,
+    void* image,
+    uint32_t invalidate,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || effect == nullptr || invalidate > 1U ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Effect> native_effect;
+    HRESULT hr = reinterpret_cast<IUnknown*>(effect)->QueryInterface(
+        IID_PPV_ARGS(&native_effect));
+    if (SUCCEEDED(hr) && input_index >= native_effect->GetInputCount()) {
+        hr = E_INVALIDARG;
+    }
+    ComPtr<ID2D1Image> native_image;
+    if (SUCCEEDED(hr) && image != nullptr) {
+        hr = reinterpret_cast<IUnknown*>(image)->QueryInterface(
+            IID_PPV_ARGS(&native_image));
+    }
+    if (SUCCEEDED(hr)) {
+        native_effect->SetInput(
+            input_index,
+            native_image.Get(),
+            invalidate != 0U ? TRUE : FALSE);
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_effect_set_input_effect(
+    progpu_native_direct2d_surface* surface,
+    void* effect,
+    uint32_t input_index,
+    void* input_effect,
+    uint32_t invalidate,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || effect == nullptr || input_effect == nullptr ||
+        invalidate > 1U || native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Effect> native_effect;
+    HRESULT hr = reinterpret_cast<IUnknown*>(effect)->QueryInterface(
+        IID_PPV_ARGS(&native_effect));
+    if (SUCCEEDED(hr) && input_index >= native_effect->GetInputCount()) {
+        hr = E_INVALIDARG;
+    }
+    ComPtr<ID2D1Effect> native_input_effect;
+    if (SUCCEEDED(hr)) {
+        hr = reinterpret_cast<IUnknown*>(input_effect)->QueryInterface(
+            IID_PPV_ARGS(&native_input_effect));
+    }
+    if (SUCCEEDED(hr)) {
+        native_effect->SetInputEffect(
+            input_index,
+            native_input_effect.Get(),
+            invalidate != 0U ? TRUE : FALSE);
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_effect_set_value(
+    progpu_native_direct2d_surface* surface,
+    void* effect,
+    uint32_t property_index,
+    progpu_native_direct2d_effect_property_type property_type,
+    const void* data,
+    uint32_t data_size,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || effect == nullptr || data == nullptr ||
+        native_hresult == nullptr ||
+        !is_valid_effect_property(property_type, data_size)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Effect> native_effect;
+    HRESULT hr = reinterpret_cast<IUnknown*>(effect)->QueryInterface(
+        IID_PPV_ARGS(&native_effect));
+    if (SUCCEEDED(hr) && property_index >= native_effect->GetPropertyCount()) {
+        hr = E_INVALIDARG;
+    }
+    if (SUCCEEDED(hr)) {
+        hr = native_effect->SetValue(
+            property_index,
+            static_cast<D2D1_PROPERTY_TYPE>(property_type),
+            static_cast<const BYTE*>(data),
+            data_size);
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_effect_get_output(
+    progpu_native_direct2d_surface* surface,
+    void* effect,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || effect == nullptr || value == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Effect> native_effect;
+    HRESULT hr = reinterpret_cast<IUnknown*>(effect)->QueryInterface(
+        IID_PPV_ARGS(&native_effect));
+    ComPtr<ID2D1Image> output;
+    if (SUCCEEDED(hr)) {
+        native_effect->GetOutput(output.GetAddressOf());
+        if (!output) {
+            hr = E_UNEXPECTED;
+        }
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(output, value);
 }
 
 progpu_native_direct2d_status

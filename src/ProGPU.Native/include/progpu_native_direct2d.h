@@ -96,7 +96,9 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_IMAGE_BRUSH = 37,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_IMAGE_BRUSH = 38,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_COMMAND_LIST = 39,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_COMMAND_LIST = 40
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_COMMAND_LIST = 40,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_EFFECT = 41,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_IMAGE = 42
 } progpu_native_direct2d_interface_kind;
 
 typedef enum progpu_native_direct2d_fill_mode {
@@ -186,6 +188,26 @@ typedef enum progpu_native_direct2d_interpolation_mode {
     PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_ANISOTROPIC = 4,
     PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC = 5
 } progpu_native_direct2d_interpolation_mode;
+
+/* Fixed-layout ID2D1Properties values supported by the portable C ABI.
+ * Pointer-bearing STRING/IUNKNOWN/ARRAY/COLOR_CONTEXT properties remain
+ * outside this contract and fail closed. */
+typedef enum progpu_native_direct2d_effect_property_type {
+    PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_BOOL = 2,
+    PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_UINT32 = 3,
+    PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_INT32 = 4,
+    PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_FLOAT = 5,
+    PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_VECTOR2 = 6,
+    PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_VECTOR3 = 7,
+    PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_VECTOR4 = 8,
+    PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_BLOB = 9,
+    PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_ENUM = 11,
+    PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_CLSID = 13,
+    PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_MATRIX_3X2 = 14,
+    PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_MATRIX_4X3 = 15,
+    PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_MATRIX_4X4 = 16,
+    PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_MATRIX_5X4 = 17
+} progpu_native_direct2d_effect_property_type;
 
 typedef enum progpu_native_direct2d_color_interpolation_mode {
     PROGPU_NATIVE_DIRECT2D_COLOR_INTERPOLATION_MODE_STRAIGHT = 0,
@@ -345,7 +367,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 13U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 14U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -496,6 +518,58 @@ progpu_native_direct2d_surface_create_image_brush(
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_surface_create_command_list(
     progpu_native_direct2d_surface* surface,
+    void** value,
+    int32_t* native_hresult);
+
+/* Creates a genuine registered ID2D1Effect by CLSID in this surface's exact
+ * Direct2D device domain. Built-in and application-registered effects share
+ * this typed creation path. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_effect(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_guid* effect_id,
+    void** value,
+    int32_t* native_hresult);
+
+/* Sets or clears one ID2D1Image input. A null image clears the selected input.
+ * The provider validates the input index and concrete COM interface. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_effect_set_input(
+    progpu_native_direct2d_surface* surface,
+    void* effect,
+    uint32_t input_index,
+    void* image,
+    uint32_t invalidate,
+    int32_t* native_hresult);
+
+/* Connects one effect output directly to another effect input. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_effect_set_input_effect(
+    progpu_native_direct2d_surface* surface,
+    void* effect,
+    uint32_t input_index,
+    void* input_effect,
+    uint32_t invalidate,
+    int32_t* native_hresult);
+
+/* Sets one fixed-layout ID2D1Properties value without pointer-bearing
+ * property payloads. The data is copied synchronously by Direct2D. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_effect_set_value(
+    progpu_native_direct2d_surface* surface,
+    void* effect,
+    uint32_t property_index,
+    progpu_native_direct2d_effect_property_type property_type,
+    const void* data,
+    uint32_t data_size,
+    int32_t* native_hresult);
+
+/* Returns the effect's current ID2D1Image output with one caller-owned COM
+ * reference. The output can feed another effect, DrawImage, or ImageBrush. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_effect_get_output(
+    progpu_native_direct2d_surface* surface,
+    void* effect,
     void** value,
     int32_t* native_hresult);
 

@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 13U;",
+            "internal const uint AbiVersion = 14U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -102,6 +102,26 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "progpu_native_direct2d_surface_end_command_list_draw",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_create_effect",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_effect_set_input",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_effect_set_input_effect",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_effect_set_value",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_effect_get_output",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -173,6 +193,20 @@ public sealed class Direct2DInteropContractTests
                 "ProGpuDirect2DSurface.cs"),
             StringComparison.Ordinal);
         Assert.Contains(
+            "28211A43-7D89-476F-8181-2D6159B220AD",
+            ReadRepoFile(
+                "src",
+                "ProGPU.Direct2D",
+                "ProGpuDirect2DSurface.cs"),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "65019F75-8DA2-497C-B32C-DFA34E48EDE6",
+            ReadRepoFile(
+                "src",
+                "ProGPU.Direct2D",
+                "ProGpuDirect2DSurface.cs"),
+            StringComparison.Ordinal);
+        Assert.Contains(
             "progpu_native_direct2d_surface_release",
             native,
             StringComparison.Ordinal);
@@ -193,7 +227,7 @@ public sealed class Direct2DInteropContractTests
             exports,
             StringComparison.Ordinal);
         Assert.Equal(
-            34,
+            39,
             exports.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries |
@@ -241,7 +275,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 13U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 14U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -407,6 +441,42 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains(
             "surface->active_command_list->Close()",
             source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "surface->d2d_context->CreateEffect(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "native_effect->SetInput(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "native_effect->SetInputEffect(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "native_effect->SetValue(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "native_effect->GetOutput(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "to_portable_guid(CLSID_D2D1GaussianBlur)",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "to_portable_guid(CLSID_D2D1Shadow)",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "effect image brush changed output COM identity",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Win2D effect-output CanvasImageBrush changed COM identity",
+            test,
             StringComparison.Ordinal);
         Assert.Contains(
             "unwrapped_bitmap_brush.Get())",
@@ -583,6 +653,14 @@ public sealed class Direct2DInteropContractTests
         Assert.Equal(ProGpuDirect2DInterfaceKind.D2D1ImageBrush, (ProGpuDirect2DInterfaceKind)38);
         Assert.Equal(ProGpuDirect2DInterfaceKind.D2D1CommandList, (ProGpuDirect2DInterfaceKind)39);
         Assert.Equal(ProGpuDirect2DInterfaceKind.Win2DCanvasCommandList, (ProGpuDirect2DInterfaceKind)40);
+        Assert.Equal(ProGpuDirect2DInterfaceKind.D2D1Effect, (ProGpuDirect2DInterfaceKind)41);
+        Assert.Equal(ProGpuDirect2DInterfaceKind.D2D1Image, (ProGpuDirect2DInterfaceKind)42);
+        Assert.Equal(
+            new Guid("1FEB6D69-2FE6-4AC9-8C58-1D7F93E7A6A5"),
+            ProGpuDirect2DBuiltInEffects.GaussianBlur);
+        Assert.Equal(
+            new Guid("C67EA361-1863-4E69-89DB-695D3E9A5B6B"),
+            ProGpuDirect2DBuiltInEffects.Shadow);
         Assert.Equal(ProGpuDirect2DStatus.DrawFailed, (ProGpuDirect2DStatus)12);
         Assert.Equal(
             16,

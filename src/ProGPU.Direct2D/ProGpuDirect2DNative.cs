@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 13U;
+    internal const uint AbiVersion = 14U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -317,6 +317,63 @@ internal static unsafe partial class ProGpuDirect2DNative
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial ProGpuDirect2DStatus SurfaceCreateCommandList(
         nint surface,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_effect")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceCreateEffect(
+        nint surface,
+        NativeGuid* effectId,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_effect_set_input")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus EffectSetInput(
+        nint surface,
+        nint effect,
+        uint inputIndex,
+        nint image,
+        uint invalidate,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_effect_set_input_effect")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus EffectSetInputEffect(
+        nint surface,
+        nint effect,
+        uint inputIndex,
+        nint inputEffect,
+        uint invalidate,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_effect_set_value")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus EffectSetValue(
+        nint surface,
+        nint effect,
+        uint propertyIndex,
+        ProGpuDirect2DEffectPropertyType propertyType,
+        void* data,
+        uint dataSize,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_effect_get_output")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus EffectGetOutput(
+        nint surface,
+        nint effect,
         nint* value,
         int* nativeHResult);
 

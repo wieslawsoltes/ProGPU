@@ -1,6 +1,7 @@
 #include "progpu_native_direct2d.h"
 
 #include <d2d1_2.h>
+#include <d2d1effects.h>
 #include <d3d11_1.h>
 #include <dxgi1_2.h>
 #include <roapi.h>
@@ -813,6 +814,168 @@ int main()
             command_list_brush_image.Get()),
         "command-list image brush changed source COM identity");
 
+    progpu_native_direct2d_guid gaussian_blur_id =
+        to_portable_guid(CLSID_D2D1GaussianBlur);
+    void* gaussian_effect_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_effect(
+            surface,
+            &gaussian_blur_id,
+            &gaussian_effect_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            gaussian_effect_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1Effect creation failed");
+    ComPtr<ID2D1Effect> gaussian_effect;
+    gaussian_effect.Attach(
+        static_cast<ID2D1Effect*>(gaussian_effect_value));
+    require(gaussian_effect->GetInputCount() == 1U,
+        "Gaussian blur effect input count changed");
+
+    progpu_native_direct2d_guid empty_effect_id{};
+    void* invalid_effect_value =
+        reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_surface_create_effect(
+            surface,
+            &empty_effect_id,
+            &invalid_effect_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            invalid_effect_value == nullptr && native_hresult == E_INVALIDARG,
+        "empty Direct2D effect CLSID did not fail closed");
+
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_effect_set_input(
+            surface,
+            gaussian_effect.Get(),
+            0U,
+            source_bitmap.Get(),
+            1U,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider ID2D1Effect image input failed");
+    require(
+        progpu_native_direct2d_effect_set_input(
+            surface,
+            gaussian_effect.Get(),
+            1U,
+            source_bitmap.Get(),
+            1U,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_RESOURCE_CREATION_FAILED &&
+            native_hresult == E_INVALIDARG,
+        "out-of-range Direct2D effect input did not fail closed");
+
+    const float gaussian_standard_deviation = 0.0F;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_effect_set_value(
+            surface,
+            gaussian_effect.Get(),
+            D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION,
+            PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_FLOAT,
+            &gaussian_standard_deviation,
+            sizeof(gaussian_standard_deviation),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider ID2D1Effect float property update failed");
+    float observed_standard_deviation = -1.0F;
+    require(SUCCEEDED(gaussian_effect->GetValue(
+                D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION,
+                &observed_standard_deviation)) &&
+            observed_standard_deviation == gaussian_standard_deviation,
+        "Gaussian blur property changed");
+    require(
+        progpu_native_direct2d_effect_set_value(
+            surface,
+            gaussian_effect.Get(),
+            D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION,
+            PROGPU_NATIVE_DIRECT2D_EFFECT_PROPERTY_FLOAT,
+            &gaussian_standard_deviation,
+            sizeof(gaussian_standard_deviation) - 1U,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            native_hresult == E_INVALIDARG,
+        "malformed Direct2D effect property did not fail closed");
+
+    void* gaussian_output_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_effect_get_output(
+            surface,
+            gaussian_effect.Get(),
+            &gaussian_output_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            gaussian_output_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1Effect output query failed");
+    ComPtr<ID2D1Image> gaussian_output;
+    gaussian_output.Attach(static_cast<ID2D1Image*>(gaussian_output_value));
+    ComPtr<ID2D1Image> direct_gaussian_output;
+    gaussian_effect->GetOutput(direct_gaussian_output.GetAddressOf());
+    require(has_same_com_identity(
+            gaussian_output.Get(),
+            direct_gaussian_output.Get()),
+        "provider effect output changed COM identity");
+
+    progpu_native_direct2d_guid shadow_id =
+        to_portable_guid(CLSID_D2D1Shadow);
+    void* shadow_effect_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_effect(
+            surface,
+            &shadow_id,
+            &shadow_effect_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            shadow_effect_value != nullptr && native_hresult == S_OK,
+        "provider shadow ID2D1Effect creation failed");
+    ComPtr<ID2D1Effect> shadow_effect;
+    shadow_effect.Attach(static_cast<ID2D1Effect*>(shadow_effect_value));
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_effect_set_input_effect(
+            surface,
+            shadow_effect.Get(),
+            0U,
+            gaussian_effect.Get(),
+            1U,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider effect-to-effect input failed");
+
+    progpu_native_direct2d_image_brush_properties effect_brush_properties{};
+    effect_brush_properties.source_rectangle = {0.0F, 0.0F, 2.0F, 2.0F};
+    effect_brush_properties.extend_mode_x =
+        PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_WRAP;
+    effect_brush_properties.extend_mode_y =
+        PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_WRAP;
+    effect_brush_properties.interpolation_mode =
+        PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_NEAREST_NEIGHBOR;
+    progpu_native_direct2d_brush_properties effect_common_properties{};
+    effect_common_properties.opacity = 1.0F;
+    effect_common_properties.transform.m11 = 1.0F;
+    effect_common_properties.transform.m22 = 1.0F;
+    void* effect_brush_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_image_brush(
+            surface,
+            gaussian_output.Get(),
+            &effect_brush_properties,
+            &effect_common_properties,
+            &effect_brush_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            effect_brush_value != nullptr && native_hresult == S_OK,
+        "provider effect-output ID2D1ImageBrush creation failed");
+    ComPtr<ID2D1ImageBrush> effect_brush;
+    effect_brush.Attach(static_cast<ID2D1ImageBrush*>(effect_brush_value));
+    ComPtr<ID2D1Image> effect_brush_image;
+    effect_brush->GetImage(effect_brush_image.GetAddressOf());
+    require(has_same_com_identity(
+            gaussian_output.Get(),
+            effect_brush_image.Get()),
+        "effect image brush changed output COM identity");
+
     void* win2d_canvas_device_value = nullptr;
     native_hresult = E_FAIL;
     progpu_native_direct2d_status win2d_status =
@@ -1277,6 +1440,42 @@ int main()
                 unwrapped_command_list_brush.Get()),
             "Win2D command-list CanvasImageBrush changed COM identity");
 
+        void* canvas_effect_brush_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper(
+                surface,
+                effect_brush.Get(),
+                0.0F,
+                &canvas_effect_brush_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                canvas_effect_brush_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D effect-output CanvasImageBrush wrapping failed");
+        ComPtr<IInspectable> canvas_effect_brush;
+        canvas_effect_brush.Attach(
+            static_cast<IInspectable*>(canvas_effect_brush_value));
+        void* unwrapped_effect_brush_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_win2d_wrapper_native_resource(
+                surface,
+                canvas_effect_brush.Get(),
+                0.0F,
+                &image_brush_id,
+                &unwrapped_effect_brush_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                unwrapped_effect_brush_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D effect-output CanvasImageBrush native query failed");
+        ComPtr<ID2D1ImageBrush> unwrapped_effect_brush;
+        unwrapped_effect_brush.Attach(
+            static_cast<ID2D1ImageBrush*>(unwrapped_effect_brush_value));
+        require(has_same_com_identity(
+                effect_brush.Get(),
+                unwrapped_effect_brush.Get()),
+            "Win2D effect-output CanvasImageBrush changed COM identity");
+
         progpu_native_direct2d_guid no_interface_id =
             to_portable_guid(GUID_NULL);
         void* no_interface_value =
@@ -1461,6 +1660,12 @@ int main()
     context->FillRectangle(
         D2D1::RectF(32.0F, 32.0F, 48.0F, 48.0F),
         command_list_brush.Get());
+    context->DrawImage(
+        gaussian_output.Get(),
+        D2D1::Point2F(56.0F, 40.0F));
+    context->FillRectangle(
+        D2D1::RectF(56.0F, 32.0F, 64.0F, 40.0F),
+        effect_brush.Get());
     context->FillGeometry(path_geometry.Get(), solid_brush.Get());
     context->DrawGeometry(
         combined_geometry.Get(),
