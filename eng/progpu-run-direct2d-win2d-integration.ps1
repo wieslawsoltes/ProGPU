@@ -64,6 +64,16 @@ if (-not (Test-Path $Direct2DBinary)) {
     throw "The qualified Direct2D provider was not found under '$NativeBinaryDirectory'."
 }
 
+Get-Process -Name $PackageName -ErrorAction SilentlyContinue |
+    Stop-Process -Force -ErrorAction SilentlyContinue
+$StaleProcessDeadline = [DateTime]::UtcNow.AddSeconds(10)
+while (Get-Process -Name $PackageName -ErrorAction SilentlyContinue) {
+    if ([DateTime]::UtcNow -ge $StaleProcessDeadline) {
+        throw "A stale genuine Win2D integration process could not be terminated before qualification."
+    }
+    Start-Sleep -Milliseconds 100
+}
+
 $ExistingPackage = Get-AppxPackage -Name $PackageName -ErrorAction SilentlyContinue
 if ($ExistingPackage) {
     $ExistingPackage | Remove-AppxPackage

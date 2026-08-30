@@ -608,10 +608,13 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("$PackageProgressPath", gate, StringComparison.Ordinal);
         Assert.Contains("$FallbackProgressPath", gate, StringComparison.Ordinal);
         Assert.Contains("$ObservedProcess", gate, StringComparison.Ordinal);
+        Assert.Contains("$StaleProcessDeadline", gate, StringComparison.Ordinal);
         Assert.Contains(
             "exited before producing evidence; last stage:",
             gate,
             StringComparison.Ordinal);
+        Assert.Contains("return WriteEvidence(evidence) ? 0 : 2;", program, StringComparison.Ordinal);
+        Assert.Contains("WriteProgress(\"evidence-write-failed\")", program, StringComparison.Ordinal);
         Assert.Contains("artifacts/direct2d-win2d", gate, StringComparison.Ordinal);
         Assert.DoesNotContain("New-SelfSignedCertificate", gate, StringComparison.Ordinal);
         Assert.DoesNotContain("Export-PfxCertificate", gate, StringComparison.Ordinal);
