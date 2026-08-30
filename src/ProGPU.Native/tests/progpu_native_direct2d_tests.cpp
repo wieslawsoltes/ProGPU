@@ -1266,6 +1266,7 @@ int main()
         "provider IDWriteTextLayout4 typography assignment failed");
     ComPtr<IDWriteTypography> actual_typography;
     DWRITE_TEXT_RANGE actual_typography_range{};
+    DWRITE_FONT_FEATURE actual_layout_feature{};
     require(SUCCEEDED(retained_text_layout->GetTypography(
                 2U,
                 &actual_typography,
@@ -1273,10 +1274,15 @@ int main()
             actual_typography_range.startPosition == 0U &&
             actual_typography_range.length ==
                 static_cast<uint32_t>(std::size(text)) &&
-            has_same_com_identity(
-                actual_typography.Get(),
-                typography.Get()),
-        "provider IDWriteTextLayout4 typography identity changed");
+            actual_typography->GetFontFeatureCount() ==
+                static_cast<uint32_t>(std::size(typography_features)) &&
+            SUCCEEDED(actual_typography->GetFontFeature(
+                1U,
+                &actual_layout_feature)) &&
+            actual_layout_feature.nameTag ==
+                DWRITE_FONT_FEATURE_TAG_STYLISTIC_SET_1 &&
+            actual_layout_feature.parameter == 2U,
+        "provider IDWriteTextLayout4 typography state changed");
 
     auto invalid_typography_feature = typography_features[0];
     invalid_typography_feature.name_tag = 0U;
