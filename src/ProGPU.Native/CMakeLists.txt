@@ -984,6 +984,7 @@ if(WIN32)
     target_include_directories(progpu_native_direct2d
         PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
     target_link_libraries(progpu_native_direct2d PRIVATE
+        progpu_native_scene_builder
         d2d1
         d3d11
         dwrite

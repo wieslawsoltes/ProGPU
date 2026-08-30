@@ -81,6 +81,22 @@ typedef enum progpu_native_direct2d_command_stream_flags {
     PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_OPACITY_MASK = 1U << 5U
 } progpu_native_direct2d_command_stream_flags;
 
+typedef enum progpu_native_direct2d_scene_stream_flags {
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_NONE = 0,
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_LEADING_CLEAR = 1U << 0U,
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_ALIASED_PRIMITIVES = 1U << 1U
+} progpu_native_direct2d_scene_stream_flags;
+
+typedef enum progpu_native_direct2d_scene_stream_failure_reason {
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE = 0,
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_STATE = 1,
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_RESOURCE = 2,
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_OPERATION = 3,
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_INVALID_VALUE = 4,
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_DRAWING_STATE = 5,
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER = 6
+} progpu_native_direct2d_scene_stream_failure_reason;
+
 /* Every returned pointer is a genuine Windows COM interface with one caller-
  * owned reference. Release it through IUnknown::Release. These pointers are
  * process-local Windows interop state and must never enter ProGPU's portable
@@ -596,6 +612,29 @@ typedef struct progpu_native_direct2d_command_stream_summary {
     uint32_t reserved;
 } progpu_native_direct2d_command_stream_summary;
 
+/* Result of translating one closed ID2D1CommandList into ProGPU's portable,
+ * pointer-free semantic scene stream. A null destination with zero capacity
+ * performs the required-size pass. COM resources are inspected synchronously
+ * by the native command sink and are never retained in the result or stream.
+ * The leading clear is returned as frame metadata because it is not a retained
+ * scene draw. failure_callback_index is one-based and zero when no callback
+ * failed. */
+typedef struct progpu_native_direct2d_scene_stream_result {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint64_t required_bytes;
+    uint64_t written_bytes;
+    uint32_t command_count;
+    uint32_t resource_count;
+    uint32_t brush_count;
+    uint32_t translated_draw_count;
+    uint32_t failure_callback_index;
+    uint32_t failure_reason;
+    progpu_native_direct2d_color_f clear_color;
+    uint64_t scene_id;
+    uint64_t generation;
+} progpu_native_direct2d_scene_stream_result;
+
 typedef struct progpu_native_direct2d_bitmap_brush_properties {
     uint32_t extend_mode_x;
     uint32_t extend_mode_y;
@@ -721,7 +760,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 32U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 33U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -1031,6 +1070,25 @@ progpu_native_direct2d_command_list_get_stream_summary(
     void* command_list,
     uint32_t options,
     progpu_native_direct2d_command_stream_summary* summary,
+    int32_t* native_hresult);
+
+/* Translates the currently admitted command-list subset into the same native
+ * semantic scene stream consumed by ProGPU's C++ renderer on D3D12, Metal,
+ * Vulkan, and WebGPU. ABI 33 admits finite transforms, Direct2D source-over
+ * DIPs state, solid-color brushes, FillRectangle, DrawRectangle with the
+ * default stroke style, DrawLine with the default flat-cap style, and at most
+ * one leading Clear. Every other state/resource/operation fails closed with
+ * E_NOTIMPL and an explicit failure_reason. The caller owns destination; no
+ * readback, repacking buffer, or COM pointer is introduced. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_command_list_build_scene_stream(
+    progpu_native_direct2d_surface* surface,
+    void* command_list,
+    uint64_t scene_id,
+    uint64_t generation,
+    uint8_t* destination,
+    uint64_t destination_capacity,
+    progpu_native_direct2d_scene_stream_result* result,
     int32_t* native_hresult);
 
 /* Creates a genuine registered ID2D1Effect by CLSID in this surface's exact
