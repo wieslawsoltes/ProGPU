@@ -891,6 +891,13 @@ int main()
             solid_brush.Get(),
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE,
         "geometry realization draw outside a producer did not fail closed");
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_surface_clear(
+            surface,
+            nullptr,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE,
+        "Direct2D clear outside a producer did not fail closed");
 
     progpu_native_direct2d_stroke_style_properties stroke_properties{};
     stroke_properties.start_cap = PROGPU_NATIVE_DIRECT2D_CAP_STYLE_ROUND;
@@ -1114,10 +1121,130 @@ int main()
             command_list.Get()) ==
             PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_ALREADY_ACTIVE,
         "nested ID2D1CommandList recording did not fail closed");
-    context->Clear(D2D1::ColorF(0.0F, 0.0F, 0.0F, 0.0F));
-    context->FillRectangle(
-        D2D1::RectF(0.0F, 0.0F, 16.0F, 16.0F),
-        solid_brush.Get());
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_clear(
+            surface,
+            nullptr,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider typed ID2D1DeviceContext clear failed");
+    const progpu_native_direct2d_matrix_3x2_f command_transform = {
+        1.0F, 0.0F, 0.0F, 1.0F, 1.0F, 2.0F
+    };
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_set_transform(
+            surface,
+            &command_transform,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider typed ID2D1DeviceContext transform set failed");
+    progpu_native_direct2d_matrix_3x2_f returned_transform{};
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_get_transform(
+            surface,
+            &returned_transform,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK && returned_transform.m11 == 1.0F &&
+            returned_transform.m22 == 1.0F &&
+            returned_transform.m31 == 1.0F &&
+            returned_transform.m32 == 2.0F,
+        "provider typed ID2D1DeviceContext transform get failed");
+    const progpu_native_direct2d_matrix_3x2_f identity_transform = {
+        1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F
+    };
+    require(
+        progpu_native_direct2d_surface_set_transform(
+            surface,
+            &identity_transform,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider Direct2D transform restore failed");
+    const progpu_native_direct2d_rect_f vector_rectangle = {
+        0.0F, 0.0F, 16.0F, 16.0F
+    };
+    require(
+        progpu_native_direct2d_surface_fill_rectangle(
+            surface,
+            &vector_rectangle,
+            solid_brush.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider typed Direct2D rectangle fill failed");
+    require(
+        progpu_native_direct2d_surface_draw_rectangle(
+            surface,
+            &vector_rectangle,
+            solid_brush.Get(),
+            1.0F,
+            stroke_style.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider typed Direct2D rectangle draw failed");
+    const progpu_native_direct2d_rect_f rounded_rectangle = {
+        2.0F, 2.0F, 12.0F, 12.0F
+    };
+    require(
+        progpu_native_direct2d_surface_fill_rounded_rectangle(
+            surface,
+            &rounded_rectangle,
+            2.0F,
+            2.0F,
+            solid_brush.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+        progpu_native_direct2d_surface_draw_rounded_rectangle(
+            surface,
+            &rounded_rectangle,
+            2.0F,
+            2.0F,
+            solid_brush.Get(),
+            1.0F,
+            nullptr,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider typed Direct2D rounded-rectangle operations failed");
+    const progpu_native_direct2d_point_2f ellipse_center = {8.0F, 8.0F};
+    require(
+        progpu_native_direct2d_surface_fill_ellipse(
+            surface,
+            ellipse_center,
+            4.0F,
+            3.0F,
+            solid_brush.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+        progpu_native_direct2d_surface_draw_ellipse(
+            surface,
+            ellipse_center,
+            5.0F,
+            4.0F,
+            solid_brush.Get(),
+            1.0F,
+            nullptr,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider typed Direct2D ellipse operations failed");
+    require(
+        progpu_native_direct2d_surface_draw_line(
+            surface,
+            {1.0F, 1.0F},
+            {15.0F, 15.0F},
+            solid_brush.Get(),
+            1.0F,
+            nullptr,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider typed Direct2D line draw failed");
+    require(
+        progpu_native_direct2d_surface_fill_geometry(
+            surface,
+            rectangle_geometry.Get(),
+            solid_brush.Get(),
+            nullptr,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+        progpu_native_direct2d_surface_draw_geometry(
+            surface,
+            path_geometry.Get(),
+            solid_brush.Get(),
+            1.0F,
+            nullptr,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider typed Direct2D geometry operations failed");
     uint64_t command_tag1 = 1U;
     uint64_t command_tag2 = 1U;
     native_hresult = E_FAIL;
@@ -2914,6 +3041,41 @@ int main()
         "reopened DXGI texture omitted its keyed mutex");
     require(SUCCEEDED(imported_mutex->AcquireSync(0U, 1000U)),
         "DXGI consumer mutex acquisition failed");
+    D3D11_TEXTURE2D_DESC staging_descriptor{};
+    imported_texture->GetDesc(&staging_descriptor);
+    staging_descriptor.Usage = D3D11_USAGE_STAGING;
+    staging_descriptor.BindFlags = 0U;
+    staging_descriptor.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    staging_descriptor.MiscFlags = 0U;
+    ComPtr<ID3D11Texture2D> staging_texture;
+    require(SUCCEEDED(d3d_device->CreateTexture2D(
+                &staging_descriptor,
+                nullptr,
+                &staging_texture)),
+        "Direct2D vector-draw staging texture creation failed");
+    ComPtr<ID3D11DeviceContext> immediate_context;
+    d3d_device->GetImmediateContext(&immediate_context);
+    require(immediate_context != nullptr,
+        "Direct2D vector-draw readback context was unavailable");
+    immediate_context->CopyResource(
+        staging_texture.Get(),
+        imported_texture.Get());
+    D3D11_MAPPED_SUBRESOURCE mapped_texture{};
+    require(SUCCEEDED(immediate_context->Map(
+                staging_texture.Get(),
+                0U,
+                D3D11_MAP_READ,
+                0U,
+                &mapped_texture)),
+        "Direct2D vector-draw staging map failed");
+    const auto* pixel_bytes =
+        static_cast<const uint8_t*>(mapped_texture.pData);
+    const uint8_t* vector_pixel =
+        pixel_bytes + mapped_texture.RowPitch * 40U + 8U * 4U;
+    require(vector_pixel[0] == 96U && vector_pixel[1] == 48U &&
+            vector_pixel[2] == 224U && vector_pixel[3] == 255U,
+        "typed Direct2D command-list vector pixel changed");
+    immediate_context->Unmap(staging_texture.Get(), 0U);
     require(SUCCEEDED(imported_mutex->ReleaseSync(0U)),
         "DXGI consumer mutex release failed");
     require(
