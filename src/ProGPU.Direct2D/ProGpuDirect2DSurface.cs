@@ -639,17 +639,6 @@ public sealed unsafe class ProGpuDirect2DSurface :
             lock (_gate)
             {
                 ThrowIfUnavailable();
-                string operation = derivation switch
-                {
-                    GeometryDerivation.Simplify =>
-                        "ID2D1Geometry::Simplify",
-                    GeometryDerivation.Outline =>
-                        "ID2D1Geometry::Outline",
-                    GeometryDerivation.Widen =>
-                        "ID2D1Geometry::Widen",
-                    _ => throw new ArgumentOutOfRangeException(
-                        nameof(derivation))
-                };
                 nint value = 0;
                 int nativeHResult = 0;
                 ProGpuDirect2DStatus status =
@@ -4705,6 +4694,17 @@ public sealed unsafe class ProGpuDirect2DSurface :
             lock (_gate)
             {
                 ThrowIfUnavailable();
+                string operation = derivation switch
+                {
+                    GeometryDerivation.Simplify =>
+                        "ID2D1Geometry::Simplify",
+                    GeometryDerivation.Outline =>
+                        "ID2D1Geometry::Outline",
+                    GeometryDerivation.Widen =>
+                        "ID2D1Geometry::Widen",
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(derivation))
+                };
                 nint value = 0;
                 int nativeHResult = 0;
                 ProGpuDirect2DStatus status = derivation switch
