@@ -600,7 +600,7 @@ public sealed class CadSampleView : Grid
         {
             Font = font,
             FontSize = 11,
-            WidthConstraint = 116,
+            WidthConstraint = 136,
             HeightConstraint = 30,
             Margin = new Thickness(12, 0, 8, 0),
         };
@@ -624,11 +624,15 @@ public sealed class CadSampleView : Grid
         {
             Tag = CadObjectSnapModes.Node,
         });
+        _objectSnapSelector.Items.Add(new ComboBoxItem("Snap: Intersection")
+        {
+            Tag = CadObjectSnapModes.Intersection,
+        });
         _objectSnapSelector.Items.Add(new ComboBoxItem("Snap: Standard")
         {
             Tag = CadObjectSnapModes.Standard,
         });
-        _objectSnapSelector.SelectedIndex = 5;
+        _objectSnapSelector.SelectedIndex = 6;
         transformActions.AddChild(_objectSnapSelector);
         transformActions.AddChild(new TextBlock
         {

@@ -258,6 +258,352 @@ public sealed class CadObjectSnapTests
         Assert.Equal(0, allocated);
     }
 
+    [Fact]
+    public void IntersectionSnapResolvesCrossingSegmentsAndRejectsDifferentPlanes()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add crossings", document =>
+        {
+            document.Entities.Add(new Line(
+                new XYZ(-5, 0, 3),
+                new XYZ(5, 0, 3)));
+            document.Entities.Add(new Line(
+                new XYZ(1, -5, 3),
+                new XYZ(1, 5, 3)));
+            document.Entities.Add(new Line(
+                new XYZ(1, -5, 4),
+                new XYZ(1, 5, 4)));
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        CadObjectSnapResult result = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(new CadPoint3D(1, 0, 3)),
+            2,
+            CadObjectSnapModes.Standard,
+            scratch);
+
+        Assert.Equal(CadObjectSnapKind.Intersection, result.Kind);
+        AssertPoint(new CadPoint3D(1, 0, 3), result.Point, 1e-12);
+        Assert.Equal(0, result.EntityIndex);
+        Assert.Equal(1, result.SecondEntityIndex);
+        Assert.Equal(snapshot.Entities.Span[0].Handle, result.Handle);
+        Assert.Equal(snapshot.Entities.Span[1].Handle, result.SecondHandle);
+        Assert.Equal(3, result.EvaluatedEntityPairCount);
+        Assert.Equal(3, result.CandidatePairTotalCount);
+        Assert.False(result.AreIntersectionPairsTruncated);
+    }
+
+    [Fact]
+    public void CollinearSegmentsExposeOnlyTheirUniqueSharedEndpoint()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add touching and overlapping segments", document =>
+        {
+            document.Entities.Add(new Line(
+                new XYZ(-5, 0, 0),
+                XYZ.Zero));
+            document.Entities.Add(new Line(
+                XYZ.Zero,
+                new XYZ(5, 0, 0)));
+            document.Entities.Add(new Line(
+                new XYZ(-2, 0, 0),
+                new XYZ(2, 0, 0)));
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        CadObjectSnapResult result = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(CadPoint3D.Zero),
+            2,
+            CadObjectSnapModes.Standard,
+            scratch);
+
+        Assert.Equal(CadObjectSnapKind.Intersection, result.Kind);
+        AssertPoint(CadPoint3D.Zero, result.Point, 0);
+        Assert.True(result.UnsupportedGeometryCount > 0);
+    }
+
+    [Fact]
+    public void LinearCircleAndArcIntersectionsHonorFiniteCurveExtents()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add line circle and arc", document =>
+        {
+            document.Entities.Add(new Line(
+                new XYZ(-10, 0, 0),
+                new XYZ(10, 0, 0)));
+            document.Entities.Add(new Circle(XYZ.Zero, 5));
+            document.Entities.Add(new Arc
+            {
+                Center = new XYZ(20, 0, 0),
+                Radius = 5,
+                StartAngle = 0,
+                EndAngle = Math.PI,
+            });
+            document.Entities.Add(new Line(
+                new XYZ(15, -10, 0),
+                new XYZ(15, 10, 0)));
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        AssertSnap(
+            snapshot,
+            viewport,
+            new CadPoint3D(-5, 0, 0),
+            CadObjectSnapModes.Intersection,
+            CadObjectSnapKind.Intersection,
+            scratch);
+        AssertSnap(
+            snapshot,
+            viewport,
+            new CadPoint3D(15, 0, 0),
+            CadObjectSnapModes.Intersection,
+            CadObjectSnapKind.Intersection,
+            scratch);
+        CadObjectSnapResult outsideArc = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(new CadPoint3D(15, -1, 0)),
+            2,
+            CadObjectSnapModes.Intersection,
+            scratch);
+        Assert.False(outsideArc.IsSnapped);
+    }
+
+    [Fact]
+    public void CircleCircleIntersectionsChooseThePointClosestToCursor()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add circles", document =>
+        {
+            document.Entities.Add(new Circle(new XYZ(-3, 0, 0), 5));
+            document.Entities.Add(new Circle(new XYZ(3, 0, 0), 5));
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+        var upper = new CadPoint3D(0, 4, 0);
+        var lower = new CadPoint3D(0, -4, 0);
+
+        AssertSnap(
+            snapshot,
+            viewport,
+            upper,
+            CadObjectSnapModes.Intersection,
+            CadObjectSnapKind.Intersection,
+            scratch);
+        AssertSnap(
+            snapshot,
+            viewport,
+            lower,
+            CadObjectSnapModes.Intersection,
+            CadObjectSnapKind.Intersection,
+            scratch);
+    }
+
+    [Fact]
+    public void LineEllipseIntersectionUsesAnalyticQuadraticAndArcParameter()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add ellipse crossing", document =>
+        {
+            document.Entities.Add(new Ellipse
+            {
+                Center = XYZ.Zero,
+                MajorAxisEndPoint = new XYZ(8, 0, 0),
+                RadiusRatio = 0.5,
+                StartParameter = 0,
+                EndParameter = Math.PI,
+            });
+            document.Entities.Add(new Line(
+                new XYZ(0, -10, 0),
+                new XYZ(0, 10, 0)));
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        CadObjectSnapResult upper = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(new CadPoint3D(0, 4, 0)),
+            2,
+            CadObjectSnapModes.Intersection,
+            scratch);
+        CadObjectSnapResult lower = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(new CadPoint3D(0, -4, 0)),
+            2,
+            CadObjectSnapModes.Intersection,
+            scratch);
+
+        Assert.Equal(CadObjectSnapKind.Intersection, upper.Kind);
+        AssertPoint(new CadPoint3D(0, 4, 0), upper.Point, 1e-10);
+        Assert.False(lower.IsSnapped);
+    }
+
+    [Fact]
+    public void BulgedPolylineAndConstructionLinesParticipateWithoutFiniteBounds()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add polyline and construction lines", document =>
+        {
+            var polyline = new LwPolyline();
+            polyline.Vertices.Add(new LwPolyline.Vertex(0, 0) { Bulge = 1 });
+            polyline.Vertices.Add(new LwPolyline.Vertex(10, 0));
+            document.Entities.Add(polyline);
+            document.Entities.Add(new Ray
+            {
+                StartPoint = new XYZ(5, -10, 0),
+                Direction = XYZ.AxisY,
+            });
+            document.Entities.Add(new XLine
+            {
+                FirstPoint = new XYZ(0, -5, 0),
+                Direction = XYZ.AxisX,
+            });
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        CadObjectSnapResult result = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(new CadPoint3D(5, -5, 0)),
+            2,
+            CadObjectSnapModes.Intersection,
+            scratch);
+
+        Assert.Equal(CadObjectSnapKind.Intersection, result.Kind);
+        AssertPoint(new CadPoint3D(5, -5, 0), result.Point, 1e-10);
+        Assert.Equal(3, result.CandidateWrittenCount);
+        Assert.Equal(3, result.CandidateTotalCount);
+    }
+
+    [Fact]
+    public void IntersectionPairBudgetIsDeterministicAndExplicit()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add dense parallel candidates", document =>
+        {
+            for (int index = 0; index < 364; index++)
+            {
+                double y = index * 0.001;
+                document.Entities.Add(new Line(
+                    new XYZ(-1, y, 0),
+                    new XYZ(1, y, 0)));
+            }
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        CadObjectSnapResult result = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(CadPoint3D.Zero),
+            20,
+            CadObjectSnapModes.Intersection,
+            scratch);
+
+        Assert.Equal(
+            CadObjectSnapQuery.MaximumIntersectionEntityPairs,
+            result.EvaluatedEntityPairCount);
+        Assert.Equal(66_066, result.CandidatePairTotalCount);
+        Assert.True(result.AreIntersectionPairsTruncated);
+        Assert.False(result.AreCandidatesTruncated);
+    }
+
+    [Fact]
+    public void IntersectionComponentPairBudgetBoundsLargePolylinePairs()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add dense polylines", document =>
+        {
+            var first = new LwPolyline();
+            var second = new LwPolyline();
+            for (int index = 0; index < 514; index++)
+            {
+                first.Vertices.Add(new LwPolyline.Vertex(index, 0));
+                second.Vertices.Add(new LwPolyline.Vertex(index, 1));
+            }
+            document.Entities.Add(first);
+            document.Entities.Add(second);
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        CadObjectSnapResult result = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(new CadPoint3D(256, 0.5, 0)),
+            20,
+            CadObjectSnapModes.Intersection,
+            scratch);
+
+        Assert.Equal(1, result.EvaluatedEntityPairCount);
+        Assert.Equal(1, result.CandidatePairTotalCount);
+        Assert.Equal(
+            CadObjectSnapQuery.MaximumIntersectionComponentPairs,
+            result.EvaluatedIntersectionComponentPairCount);
+        Assert.True(result.AreIntersectionComponentsTruncated);
+        Assert.True(result.AreIntersectionPairsTruncated);
+        Assert.False(result.AreCandidatesTruncated);
+    }
+
+    [Fact]
+    public void WarmIntersectionQueriesAllocateNoManagedMemory()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add crossing lines", document =>
+        {
+            document.Entities.Add(new Line(
+                new XYZ(-5, 0, 0),
+                new XYZ(5, 0, 0)));
+            document.Entities.Add(new Line(
+                new XYZ(0, -5, 0),
+                new XYZ(0, 5, 0)));
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+        Vector2 point = viewport.WorldToScreen(CadPoint3D.Zero);
+        _ = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            point,
+            2,
+            CadObjectSnapModes.Intersection,
+            scratch);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 1_024; index++)
+        {
+            _ = CadObjectSnapQuery.Query(
+                snapshot,
+                viewport,
+                point,
+                2,
+                CadObjectSnapModes.Intersection,
+                scratch);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
     private static void AssertSnap(
         CadDocumentSnapshot snapshot,
         CadPlanViewport viewport,

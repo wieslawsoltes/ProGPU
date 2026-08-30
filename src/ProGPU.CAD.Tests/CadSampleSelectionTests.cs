@@ -3670,6 +3670,91 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void PointMoveCommitsTwoExactIntersectionSnapPointsAsOneEdit()
+    {
+        var document = new CadDocument();
+        var selected = new Line(
+            new XYZ(-5, 0, 0),
+            new XYZ(5, 0, 0));
+        document.Entities.Add(selected);
+        document.Entities.Add(new Line(
+            new XYZ(0, -5, 0),
+            new XYZ(0, 5, 0)));
+        document.Entities.Add(new Line(
+            new XYZ(-2, 4, 0),
+            new XYZ(8, 4, 0)));
+        document.Entities.Add(new Line(
+            new XYZ(3, -1, 0),
+            new XYZ(3, 9, 0)));
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(canvas, viewport.WorldToScreen(new CadPoint3D(-4, 0, 0)));
+            Assert.Equal([selected.Handle], canvas.SelectedHandles.ToArray());
+            canvas.ObjectSnapModes = CadObjectSnapModes.Intersection;
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+            CadDocumentSnapshot snapshot = canvas.CurrentSnapshot!;
+            int snapshotChanges = 0;
+            canvas.SnapshotChanged += (_, _) => snapshotChanges++;
+
+            Vector2 basePointer =
+                viewport.WorldToScreen(CadPoint3D.Zero) + new Vector2(4, -3);
+            for (int index = 0; index < 1_024; index++)
+            {
+                canvas.OnPointerMoved(new PointerRoutedEventArgs
+                {
+                    Position = basePointer,
+                });
+            }
+
+            CadObjectSnapResult baseSnap =
+                canvas.PendingPointTransformObjectSnap!.Value;
+            Assert.Equal(CadObjectSnapKind.Intersection, baseSnap.Kind);
+            Assert.Equal(CadPoint3D.Zero, baseSnap.Point);
+            Assert.Same(snapshot, canvas.CurrentSnapshot);
+            Assert.Equal(0, snapshotChanges);
+            Click(canvas, basePointer);
+            Assert.Equal(
+                CadPoint3D.Zero,
+                canvas.PendingPointTransformBasePoint);
+
+            Vector2 secondPointer =
+                viewport.WorldToScreen(new CadPoint3D(3, 4, 0)) +
+                new Vector2(-3, 2);
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = secondPointer,
+            });
+            CadObjectSnapResult secondSnap =
+                canvas.PendingPointTransformObjectSnap!.Value;
+            Assert.Equal(CadObjectSnapKind.Intersection, secondSnap.Kind);
+            Assert.Equal(new CadPoint3D(3, 4, 0), secondSnap.Point);
+            var drawing = new DrawingContext();
+            canvas.OnRender(drawing);
+            Assert.True(drawing.Commands.Count(command =>
+                command.Type == RenderCommandType.DrawLine) >= 3);
+
+            Click(canvas, secondPointer);
+
+            Assert.Null(canvas.PendingPointTransformOperation);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(1, snapshotChanges);
+            AssertPoint(new XYZ(-2, 4, 0), selected.StartPoint);
+            AssertPoint(new XYZ(8, 4, 0), selected.EndPoint);
+            Assert.Equal(1, canvas.UndoCount);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedObjectSnapSelectorChangesCanvasModesWithoutEditingDocument()
     {
         var view = new CadSampleView();
@@ -3680,6 +3765,16 @@ public sealed class CadSampleSelectionTests
                 CadObjectSnapModes.Standard,
                 view.Canvas.ObjectSnapModes);
             Assert.True(view.ObjectSnapSelector.IsEnabled);
+
+            view.ObjectSnapSelector.SelectedItem =
+                view.ObjectSnapSelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Tag is
+                        CadObjectSnapModes.Intersection);
+
+            Assert.Equal(
+                CadObjectSnapModes.Intersection,
+                view.Canvas.ObjectSnapModes);
 
             view.ObjectSnapSelector.SelectedItem =
                 view.ObjectSnapSelector.Items

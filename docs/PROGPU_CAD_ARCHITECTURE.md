@@ -4982,12 +4982,14 @@ approximations are recorded in
 
 ## Running object-snap boundary
 
-MOVE/COPY point acquisition now composes Endpoint, Midpoint, Center, and Node
-over the immutable snapshot. A caller-buffered spatial broad phase feeds exact
-analytic candidates, and deterministic device-space arbitration returns a
-generation-tagged double-WCS point without warm allocation. The shared shell
-shows fixed-device semantic markers and commits the exact point without a
-float-screen round trip. No scene, shader, cache, native ABI, or renderer
-algorithm changes. Public behavior research, clean-room provenance, supported
-families, complexity, parity, tests, and explicit deferred modes are recorded in
+MOVE/COPY point acquisition now composes actual Intersection, Endpoint,
+Midpoint, Center, and Node over the immutable snapshot. A caller-buffered
+spatial broad phase feeds exact analytic point and pair solvers, with explicit
+scratch, entity-pair, and component-pair truncation. Deterministic device-space
+arbitration returns a generation-tagged double-WCS point plus both source identities for an
+Intersection without warm allocation. The shared shell shows fixed-device
+semantic markers and commits the exact point without a float-screen round trip.
+No scene, shader, cache, native ABI, or renderer algorithm changes. Public
+behavior research, clean-room provenance, supported families, complexity,
+parity, tests, and explicit deferred modes are recorded in
 [`PROGPU_CAD_OBJECT_SNAP_RESEARCH.md`](PROGPU_CAD_OBJECT_SNAP_RESEARCH.md).

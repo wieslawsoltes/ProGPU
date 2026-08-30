@@ -2491,6 +2491,11 @@ public sealed class CadSampleCanvas : FrameworkElement
             PointTransformObjectSnapAperture,
             _objectSnapModes,
             _selectionEntityScratch);
+        if (_pointTransformObjectSnap.AreCandidatesTruncated ||
+            _pointTransformObjectSnap.AreIntersectionPairsTruncated)
+        {
+            _pointTransformObjectSnap = default;
+        }
         _pointTransformCurrent = _pointTransformObjectSnap.IsSnapped
             ? viewport.WorldToScreen(_pointTransformObjectSnap.Point)
             : screenPoint;
@@ -2556,6 +2561,18 @@ public sealed class CadSampleCanvas : FrameworkElement
                     center + vertical);
                 break;
             case CadObjectSnapKind.Node:
+            {
+                context.DrawLine(
+                    _drawOrderReferencePen,
+                    center - horizontal,
+                    center + horizontal);
+                context.DrawLine(
+                    _drawOrderReferencePen,
+                    center - vertical,
+                    center + vertical);
+                break;
+            }
+            case CadObjectSnapKind.Intersection:
             {
                 Vector2 diagonal = new(radius, radius);
                 Vector2 opposite = new(radius, -radius);

@@ -11,7 +11,8 @@ public enum CadObjectSnapModes : byte
     Midpoint = 1 << 1,
     Center = 1 << 2,
     Node = 1 << 3,
-    Standard = Endpoint | Midpoint | Center | Node,
+    Intersection = 1 << 4,
+    Standard = Endpoint | Midpoint | Center | Node | Intersection,
 }
 
 /// <summary>Exact semantic kind of one accepted object-snap point.</summary>
@@ -22,6 +23,7 @@ public enum CadObjectSnapKind : byte
     Midpoint = 2,
     Center = 3,
     Node = 4,
+    Intersection = 5,
 }
 
 /// <summary>
@@ -43,14 +45,54 @@ public readonly record struct CadObjectSnapResult(
 
     public bool AreCandidatesTruncated =>
         CandidateWrittenCount != CandidateTotalCount;
+
+    /// <summary>
+    /// Second retained entity participating in an Intersection result, or -1.
+    /// </summary>
+    public int SecondEntityIndex { get; init; } = -1;
+
+    /// <summary>Second source handle participating in an Intersection result.</summary>
+    public ulong SecondHandle { get; init; }
+
+    /// <summary>Number of retained entity pairs tested for intersections.</summary>
+    public int EvaluatedEntityPairCount { get; init; }
+
+    /// <summary>Total candidate pairs before the fixed intersection-work budget.</summary>
+    public long CandidatePairTotalCount { get; init; }
+
+    /// <summary>Number of analytic component pairs tested for intersections.</summary>
+    public int EvaluatedIntersectionComponentPairCount { get; init; }
+
+    /// <summary>
+    /// Whether the fixed analytic component-pair budget was exhausted.
+    /// </summary>
+    public bool AreIntersectionComponentsTruncated { get; init; }
+
+    /// <summary>
+    /// Whether caller-scratch truncation or the fixed pair-work budget prevented
+    /// testing every broad-phase entity pair.
+    /// </summary>
+    public bool AreIntersectionPairsTruncated =>
+        EvaluatedEntityPairCount < CandidatePairTotalCount ||
+        AreIntersectionComponentsTruncated;
 }
 
 /// <summary>
 /// Allocation-free plan-view snapping over exact points derived from one
 /// immutable CAD snapshot generation.
 /// </summary>
-public static class CadObjectSnapQuery
+public static partial class CadObjectSnapQuery
 {
+    /// <summary>
+    /// Maximum number of retained entity pairs evaluated by one query.
+    /// </summary>
+    public const int MaximumIntersectionEntityPairs = 65_536;
+
+    /// <summary>
+    /// Maximum number of analytic component pairs evaluated by one query.
+    /// </summary>
+    public const int MaximumIntersectionComponentPairs = 262_144;
+
     private const double TwoPi = Math.PI * 2.0;
     private const double FullSweepTolerance = 1e-12;
 
@@ -59,11 +101,14 @@ public static class CadObjectSnapQuery
     /// </summary>
     /// <remarks>
     /// The broad phase is O(log E + K) average and O(E + K) worst-case for E
-    /// finite retained entities and K intersecting entity bounds. Candidate
-    /// evaluation is O(P) for P snap points belonging to those entities and
-    /// uses O(1) internal storage plus caller-owned entity-index scratch.
-    /// Equal device distances prefer Endpoint, Midpoint, Center, then Node,
-    /// followed by retained entity order and point ordinal.
+    /// retained entities and K candidates. Intersection mode deterministically
+    /// sorts caller scratch in O(K log K), tests at most B entity pairs and C
+    /// analytic component pairs. Other candidate evaluation is O(P) for P
+    /// exact snap points. B and C are the corresponding public maximums above.
+    /// Internal storage is O(1) plus caller-owned entity-index scratch. Equal
+    /// device distances prefer
+    /// Intersection, Endpoint, Midpoint, Center, then Node, followed by retained
+    /// entity order, second entity order, and point ordinal.
     /// </remarks>
     public static CadObjectSnapResult Query(
         CadDocumentSnapshot snapshot,
@@ -112,25 +157,70 @@ public static class CadObjectSnapQuery
         CadSpatialQueryResult spatial = snapshot.SpatialIndex.Query(
             queryBounds,
             entityIndexScratch);
+        int candidateWrittenCount = spatial.WrittenCount;
+        int candidateTotalCount = spatial.TotalCount;
+        if ((modes & CadObjectSnapModes.Intersection) != 0)
+        {
+            AppendConstructionLineCandidates(
+                snapshot,
+                entityIndexScratch,
+                ref candidateWrittenCount,
+                ref candidateTotalCount);
+            entityIndexScratch[..candidateWrittenCount].Sort();
+        }
+
         var search = new SearchState(
             snapshot.ContentGeneration,
             viewport,
             screenPoint,
             aperturePixels,
             modes,
-            spatial.WrittenCount,
-            spatial.TotalCount);
+            candidateWrittenCount,
+            candidateTotalCount);
         ReadOnlySpan<CadEntityHeader> entities = snapshot.Entities.Span;
-        for (int i = 0; i < spatial.WrittenCount; i++)
+        if ((modes & ~CadObjectSnapModes.Intersection) != 0)
         {
-            int entityIndex = entityIndexScratch[i];
-            EvaluateEntity(
+            for (int i = 0; i < candidateWrittenCount; i++)
+            {
+                int entityIndex = entityIndexScratch[i];
+                EvaluateEntity(
+                    snapshot,
+                    entities[entityIndex],
+                    entityIndex,
+                    ref search);
+            }
+        }
+        if ((modes & CadObjectSnapModes.Intersection) != 0)
+        {
+            EvaluateIntersections(
                 snapshot,
-                entities[entityIndex],
-                entityIndex,
+                entityIndexScratch[..candidateWrittenCount],
                 ref search);
         }
         return search.CreateResult();
+    }
+
+    private static void AppendConstructionLineCandidates(
+        CadDocumentSnapshot snapshot,
+        Span<int> entityIndexScratch,
+        ref int writtenCount,
+        ref int totalCount)
+    {
+        ReadOnlySpan<CadEntityHeader> entities = snapshot.Entities.Span;
+        for (int entityIndex = 0; entityIndex < entities.Length; entityIndex++)
+        {
+            if (entities[entityIndex].Kind is not
+                (CadEntityKind.Ray or CadEntityKind.XLine))
+            {
+                continue;
+            }
+
+            if (writtenCount < entityIndexScratch.Length)
+            {
+                entityIndexScratch[writtenCount++] = entityIndex;
+            }
+            totalCount++;
+        }
     }
 
     private static void EvaluateEntity(
@@ -483,17 +573,26 @@ public static class CadObjectSnapQuery
         private readonly CadObjectSnapModes _modes;
         private readonly int _candidateWrittenCount;
         private readonly int _candidateTotalCount;
+        private readonly long _candidatePairTotalCount;
         private bool _hasBest;
         private CadObjectSnapKind _bestKind;
         private int _bestEntityIndex;
+        private int _bestSecondEntityIndex;
         private int _bestOrdinal;
         private ulong _bestHandle;
+        private ulong _bestSecondHandle;
         private CadPoint3D _bestPoint;
         private double _bestDistanceSquared;
 
         public int EvaluatedSnapPointCount { get; private set; }
 
         public int UnsupportedGeometryCount { get; set; }
+
+        public int EvaluatedEntityPairCount { get; set; }
+
+        public int EvaluatedIntersectionComponentPairCount { get; set; }
+
+        public bool AreIntersectionComponentsTruncated { get; set; }
 
         public SearchState(
             ulong contentGeneration,
@@ -511,15 +610,25 @@ public static class CadObjectSnapQuery
             _modes = modes;
             _candidateWrittenCount = candidateWrittenCount;
             _candidateTotalCount = candidateTotalCount;
+            _candidatePairTotalCount =
+                (modes & CadObjectSnapModes.Intersection) != 0
+                    ? ((long)candidateTotalCount *
+                       (candidateTotalCount - 1)) / 2
+                    : 0;
             _hasBest = false;
             _bestKind = CadObjectSnapKind.None;
             _bestEntityIndex = -1;
+            _bestSecondEntityIndex = -1;
             _bestOrdinal = -1;
             _bestHandle = 0;
+            _bestSecondHandle = 0;
             _bestPoint = default;
             _bestDistanceSquared = double.PositiveInfinity;
             EvaluatedSnapPointCount = 0;
             UnsupportedGeometryCount = 0;
+            EvaluatedEntityPairCount = 0;
+            EvaluatedIntersectionComponentPairCount = 0;
+            AreIntersectionComponentsTruncated = false;
         }
 
         public void Consider(
@@ -527,6 +636,23 @@ public static class CadObjectSnapQuery
             CadPoint3D point,
             int entityIndex,
             ulong handle,
+            int ordinal) =>
+            Consider(
+                kind,
+                point,
+                entityIndex,
+                handle,
+                -1,
+                0,
+                ordinal);
+
+        public void Consider(
+            CadObjectSnapKind kind,
+            CadPoint3D point,
+            int entityIndex,
+            ulong handle,
+            int secondEntityIndex,
+            ulong secondHandle,
             int ordinal)
         {
             if (!IsEnabled(kind) || !IsFinite(point))
@@ -551,7 +677,12 @@ public static class CadObjectSnapQuery
                 (deltaX * deltaX) + (deltaY * deltaY);
             if (!double.IsFinite(distanceSquared) ||
                 distanceSquared > _apertureSquared ||
-                !IsBetter(kind, entityIndex, ordinal, distanceSquared))
+                !IsBetter(
+                    kind,
+                    entityIndex,
+                    secondEntityIndex,
+                    ordinal,
+                    distanceSquared))
             {
                 return;
             }
@@ -559,14 +690,16 @@ public static class CadObjectSnapQuery
             _hasBest = true;
             _bestKind = kind;
             _bestEntityIndex = entityIndex;
+            _bestSecondEntityIndex = secondEntityIndex;
             _bestOrdinal = ordinal;
             _bestHandle = handle;
+            _bestSecondHandle = secondHandle;
             _bestPoint = point;
             _bestDistanceSquared = distanceSquared;
         }
 
         public CadObjectSnapResult CreateResult() =>
-            new(
+            new CadObjectSnapResult(
                 _contentGeneration,
                 _hasBest ? _bestKind : CadObjectSnapKind.None,
                 _hasBest ? _bestEntityIndex : -1,
@@ -578,7 +711,19 @@ public static class CadObjectSnapQuery
                 _candidateWrittenCount,
                 _candidateTotalCount,
                 EvaluatedSnapPointCount,
-                UnsupportedGeometryCount);
+                UnsupportedGeometryCount)
+            {
+                SecondEntityIndex = _hasBest
+                    ? _bestSecondEntityIndex
+                    : -1,
+                SecondHandle = _hasBest ? _bestSecondHandle : 0,
+                EvaluatedEntityPairCount = this.EvaluatedEntityPairCount,
+                CandidatePairTotalCount = _candidatePairTotalCount,
+                EvaluatedIntersectionComponentPairCount =
+                    this.EvaluatedIntersectionComponentPairCount,
+                AreIntersectionComponentsTruncated =
+                    this.AreIntersectionComponentsTruncated,
+            };
 
         private bool IsEnabled(CadObjectSnapKind kind) => kind switch
         {
@@ -590,12 +735,15 @@ public static class CadObjectSnapQuery
                 (_modes & CadObjectSnapModes.Center) != 0,
             CadObjectSnapKind.Node =>
                 (_modes & CadObjectSnapModes.Node) != 0,
+            CadObjectSnapKind.Intersection =>
+                (_modes & CadObjectSnapModes.Intersection) != 0,
             _ => false,
         };
 
         private bool IsBetter(
             CadObjectSnapKind kind,
             int entityIndex,
+            int secondEntityIndex,
             int ordinal,
             double distanceSquared)
         {
@@ -613,15 +761,19 @@ public static class CadObjectSnapQuery
             return priority < bestPriority ||
                 (priority == bestPriority &&
                  (entityIndex < _bestEntityIndex ||
-                  (entityIndex == _bestEntityIndex && ordinal < _bestOrdinal)));
+                  (entityIndex == _bestEntityIndex &&
+                   (secondEntityIndex < _bestSecondEntityIndex ||
+                    (secondEntityIndex == _bestSecondEntityIndex &&
+                     ordinal < _bestOrdinal)))));
         }
 
         private static int Priority(CadObjectSnapKind kind) => kind switch
         {
-            CadObjectSnapKind.Endpoint => 0,
-            CadObjectSnapKind.Midpoint => 1,
-            CadObjectSnapKind.Center => 2,
-            CadObjectSnapKind.Node => 3,
+            CadObjectSnapKind.Intersection => 0,
+            CadObjectSnapKind.Endpoint => 1,
+            CadObjectSnapKind.Midpoint => 2,
+            CadObjectSnapKind.Center => 3,
+            CadObjectSnapKind.Node => 4,
             _ => int.MaxValue,
         };
     }
