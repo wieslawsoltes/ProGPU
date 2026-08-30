@@ -763,8 +763,11 @@ state with no retained pointer. The export allowlist grows from 86 to exactly
 90 symbols. The deterministic command-list gate draws both a bitmap and an
 image inside a clip, verifies mixed layer/clip pop rejection, and retains the
 exact shared-texture BGRA oracle. Portable managed contracts pass 5/5 with a
-zero-warning package build; Windows qualification is pending the pushed ABI
-v27 checkpoint.
+zero-warning package build. Exact checkpoint `10ef4c1a` is qualified by GitHub Actions
+Build run `33334553038`, dedicated MSVC job `99319045125`: the warning-as-error
+provider and native regression compile/link, the focused Direct2D test passes
+in 0.16 seconds, all 11 native suites pass in 1.05 seconds, and the successful
+Windows build accepts the exact 90-symbol allowlist.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
