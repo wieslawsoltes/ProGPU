@@ -229,7 +229,7 @@ public:
 
     HRESULT STDMETHODCALLTYPE QueryInterface(
         REFIID interface_id,
-        void** value) override
+        void** value) noexcept override
     {
         if (value == nullptr) {
             return E_POINTER;
@@ -245,12 +245,12 @@ public:
         return E_NOINTERFACE;
     }
 
-    ULONG STDMETHODCALLTYPE AddRef() override
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
     {
         return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
     }
 
-    ULONG STDMETHODCALLTYPE Release() override
+    ULONG STDMETHODCALLTYPE Release() noexcept override
     {
         const ULONG remaining = reference_count_.fetch_sub(
             1U,
@@ -402,7 +402,7 @@ public:
 
     HRESULT STDMETHODCALLTYPE QueryInterface(
         REFIID interface_id,
-        void** value) override
+        void** value) noexcept override
     {
         if (value == nullptr) {
             return E_POINTER;
@@ -418,12 +418,12 @@ public:
         return E_NOINTERFACE;
     }
 
-    ULONG STDMETHODCALLTYPE AddRef() override
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
     {
         return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
     }
 
-    ULONG STDMETHODCALLTYPE Release() override
+    ULONG STDMETHODCALLTYPE Release() noexcept override
     {
         const ULONG remaining = reference_count_.fetch_sub(
             1U,
@@ -434,7 +434,7 @@ public:
         return remaining;
     }
 
-    HRESULT STDMETHODCALLTYPE BeginDraw() override
+    HRESULT STDMETHODCALLTYPE BeginDraw() noexcept override
     {
         if (begun_ || ended_) {
             return D2DERR_WRONG_STATE;
@@ -443,7 +443,7 @@ public:
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE EndDraw() override
+    HRESULT STDMETHODCALLTYPE EndDraw() noexcept override
     {
         if (!begun_ || ended_) {
             return D2DERR_WRONG_STATE;
@@ -464,24 +464,24 @@ public:
         return S_OK;
     }
 
-    HRESULT STDMETHODCALLTYPE SetAntialiasMode(D2D1_ANTIALIAS_MODE) override
+    HRESULT STDMETHODCALLTYPE SetAntialiasMode(D2D1_ANTIALIAS_MODE) noexcept override
     {
         return record_state();
     }
 
-    HRESULT STDMETHODCALLTYPE SetTags(D2D1_TAG, D2D1_TAG) override
+    HRESULT STDMETHODCALLTYPE SetTags(D2D1_TAG, D2D1_TAG) noexcept override
     {
         return record_state();
     }
 
     HRESULT STDMETHODCALLTYPE SetTextAntialiasMode(
-        D2D1_TEXT_ANTIALIAS_MODE) override
+        D2D1_TEXT_ANTIALIAS_MODE) noexcept override
     {
         return record_state();
     }
 
     HRESULT STDMETHODCALLTYPE SetTextRenderingParams(
-        IDWriteRenderingParams* text_rendering_params) override
+        IDWriteRenderingParams* text_rendering_params) noexcept override
     {
         HRESULT result = record_state();
         if (SUCCEEDED(result) && text_rendering_params != nullptr) {
@@ -492,29 +492,29 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE SetTransform(
-        const D2D1_MATRIX_3X2_F*) override
+        const D2D1_MATRIX_3X2_F*) noexcept override
     {
         return record_state();
     }
 
     HRESULT STDMETHODCALLTYPE SetPrimitiveBlend(
-        D2D1_PRIMITIVE_BLEND) override
+        D2D1_PRIMITIVE_BLEND) noexcept override
     {
         return record_state();
     }
 
     HRESULT STDMETHODCALLTYPE SetPrimitiveBlend1(
-        D2D1_PRIMITIVE_BLEND) override
+        D2D1_PRIMITIVE_BLEND) noexcept override
     {
         return record_state();
     }
 
-    HRESULT STDMETHODCALLTYPE SetUnitMode(D2D1_UNIT_MODE) override
+    HRESULT STDMETHODCALLTYPE SetUnitMode(D2D1_UNIT_MODE) noexcept override
     {
         return record_state();
     }
 
-    HRESULT STDMETHODCALLTYPE Clear(const D2D1_COLOR_F*) override
+    HRESULT STDMETHODCALLTYPE Clear(const D2D1_COLOR_F*) noexcept override
     {
         return record_command(summary_.clear_count);
     }
@@ -524,7 +524,7 @@ public:
         const DWRITE_GLYPH_RUN*,
         const DWRITE_GLYPH_RUN_DESCRIPTION*,
         ID2D1Brush*,
-        DWRITE_MEASURING_MODE) override
+        DWRITE_MEASURING_MODE) noexcept override
     {
         HRESULT result = record_draw();
         if (SUCCEEDED(result)) {
@@ -538,7 +538,7 @@ public:
         D2D1_POINT_2F,
         ID2D1Brush*,
         FLOAT,
-        ID2D1StrokeStyle*) override
+        ID2D1StrokeStyle*) noexcept override
     {
         return record_draw();
     }
@@ -547,7 +547,7 @@ public:
         ID2D1Geometry*,
         ID2D1Brush*,
         FLOAT,
-        ID2D1StrokeStyle*) override
+        ID2D1StrokeStyle*) noexcept override
     {
         return record_draw();
     }
@@ -556,7 +556,7 @@ public:
         const D2D1_RECT_F*,
         ID2D1Brush*,
         FLOAT,
-        ID2D1StrokeStyle*) override
+        ID2D1StrokeStyle*) noexcept override
     {
         return record_draw();
     }
@@ -567,7 +567,7 @@ public:
         FLOAT,
         D2D1_INTERPOLATION_MODE,
         const D2D1_RECT_F*,
-        const D2D1_MATRIX_4X4_F*) override
+        const D2D1_MATRIX_4X4_F*) noexcept override
     {
         HRESULT result = record_draw();
         if (SUCCEEDED(result)) {
@@ -581,7 +581,7 @@ public:
         const D2D1_POINT_2F*,
         const D2D1_RECT_F*,
         D2D1_INTERPOLATION_MODE,
-        D2D1_COMPOSITE_MODE) override
+        D2D1_COMPOSITE_MODE) noexcept override
     {
         HRESULT result = record_draw();
         if (SUCCEEDED(result)) {
@@ -592,7 +592,7 @@ public:
 
     HRESULT STDMETHODCALLTYPE DrawGdiMetafile(
         ID2D1GdiMetafile*,
-        const D2D1_POINT_2F*) override
+        const D2D1_POINT_2F*) noexcept override
     {
         HRESULT result = record_draw();
         if (SUCCEEDED(result)) {
@@ -605,7 +605,7 @@ public:
 
     HRESULT STDMETHODCALLTYPE FillMesh(
         ID2D1Mesh*,
-        ID2D1Brush*) override
+        ID2D1Brush*) noexcept override
     {
         HRESULT result = record_fill();
         if (SUCCEEDED(result)) {
@@ -619,7 +619,7 @@ public:
         ID2D1Bitmap*,
         ID2D1Brush*,
         const D2D1_RECT_F*,
-        const D2D1_RECT_F*) override
+        const D2D1_RECT_F*) noexcept override
     {
         HRESULT result = record_fill();
         if (SUCCEEDED(result)) {
@@ -632,21 +632,21 @@ public:
     HRESULT STDMETHODCALLTYPE FillGeometry(
         ID2D1Geometry*,
         ID2D1Brush*,
-        ID2D1Brush*) override
+        ID2D1Brush*) noexcept override
     {
         return record_fill();
     }
 
     HRESULT STDMETHODCALLTYPE FillRectangle(
         const D2D1_RECT_F*,
-        ID2D1Brush*) override
+        ID2D1Brush*) noexcept override
     {
         return record_fill();
     }
 
     HRESULT STDMETHODCALLTYPE PushAxisAlignedClip(
         const D2D1_RECT_F*,
-        D2D1_ANTIALIAS_MODE) override
+        D2D1_ANTIALIAS_MODE) noexcept override
     {
         HRESULT result = record_command(summary_.clip_push_count);
         if (FAILED(result)) {
@@ -657,7 +657,7 @@ public:
 
     HRESULT STDMETHODCALLTYPE PushLayer(
         const D2D1_LAYER_PARAMETERS1*,
-        ID2D1Layer*) override
+        ID2D1Layer*) noexcept override
     {
         HRESULT result = record_command(summary_.layer_push_count);
         if (FAILED(result)) {
@@ -666,7 +666,7 @@ public:
         return push_scope(progpu_direct2d_draw_scope_kind::layer);
     }
 
-    HRESULT STDMETHODCALLTYPE PopAxisAlignedClip() override
+    HRESULT STDMETHODCALLTYPE PopAxisAlignedClip() noexcept override
     {
         HRESULT result = pop_scope(
             progpu_direct2d_draw_scope_kind::axis_aligned_clip);
@@ -676,7 +676,7 @@ public:
         return record_command(summary_.clip_pop_count);
     }
 
-    HRESULT STDMETHODCALLTYPE PopLayer() override
+    HRESULT STDMETHODCALLTYPE PopLayer() noexcept override
     {
         HRESULT result = pop_scope(progpu_direct2d_draw_scope_kind::layer);
         if (FAILED(result)) {
