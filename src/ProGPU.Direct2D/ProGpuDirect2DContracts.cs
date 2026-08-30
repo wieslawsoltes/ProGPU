@@ -60,7 +60,8 @@ public enum ProGpuDirect2DInterfaceKind
     Win2DCanvasStrokeStyle = 34,
     D2D1BitmapBrush1 = 35,
     Win2DCanvasBitmap = 36,
-    Win2DCanvasImageBrush = 37
+    Win2DCanvasImageBrush = 37,
+    D2D1ImageBrush = 38
 }
 
 public enum ProGpuDirect2DFillMode
@@ -269,6 +270,18 @@ public readonly record struct ProGpuDirect2DRect(
     float Y,
     float Width,
     float Height);
+
+/// <summary>
+/// Blittable source, tiling, and sampling state for a genuine
+/// ID2D1ImageBrush. The source rectangle uses image-space coordinates.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct ProGpuDirect2DImageBrushProperties(
+    ProGpuDirect2DRect SourceRectangle,
+    ProGpuDirect2DExtendMode ExtendModeX = ProGpuDirect2DExtendMode.Clamp,
+    ProGpuDirect2DExtendMode ExtendModeY = ProGpuDirect2DExtendMode.Clamp,
+    ProGpuDirect2DInterpolationMode InterpolationMode =
+        ProGpuDirect2DInterpolationMode.Linear);
 
 /// <summary>
 /// Blittable metadata for a genuine ID2D1StrokeStyle1. Custom dash values are
