@@ -91,7 +91,8 @@ public enum ProGpuDirect2DInterfaceKind
     D2D1DeviceContext7 = 56,
     D2D1DeviceContext5 = 57,
     D2D1SvgDocument = 58,
-    Win2DCanvasSvgDocument = 59
+    Win2DCanvasSvgDocument = 59,
+    D2D1GeometryRealization = 60
 }
 
 public enum ProGpuDirect2DColorGlyphPath : uint
@@ -179,6 +180,12 @@ public enum ProGpuDirect2DGeometryRelation
     IsContained = 2,
     Contains = 3,
     Overlap = 4
+}
+
+public enum ProGpuDirect2DGeometrySimplificationOption
+{
+    CubicsAndLines = 0,
+    Lines = 1
 }
 
 public enum ProGpuDirect2DCapStyle : uint
@@ -400,7 +407,8 @@ public enum ProGpuDirect2DStatus
     InterfaceNotSupported = 13,
     Win2DRuntimeUnavailable = 14,
     WindowsRuntimeNotInitialized = 15,
-    DrawingStateMismatch = 16
+    DrawingStateMismatch = 16,
+    InsufficientBuffer = 17
 }
 
 public sealed record ProGpuDirect2DSurfaceOptions(
@@ -526,6 +534,15 @@ public readonly record struct ProGpuDirect2DRect(
 public readonly record struct ProGpuDirect2DPointAndTangent(
     Vector2 Point,
     Vector2 UnitTangent);
+
+/// <summary>
+/// One blittable triangle emitted by ID2D1Geometry::Tessellate.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct ProGpuDirect2DTriangle(
+    Vector2 Point1,
+    Vector2 Point2,
+    Vector2 Point3);
 
 /// <summary>
 /// Pointer-free state for one ID2D1DeviceContext layer push. Optional geometry

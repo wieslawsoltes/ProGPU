@@ -33,7 +33,7 @@ binary.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` and DirectWrite text API | Foundation plus bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis, and typed device-loss domains implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine factory, device, context, target, uploaded bitmaps, solid/gradient/bitmap/image brushes, gradient-stop collections, primitive/path/transformed/combined geometries, typed bounds/hit-test/relation/area/length/point-at-length operations, `ID2D1StrokeStyle1`, recordable `ID2D1CommandList`, typed `ID2D1Effect` graphs and `ID2D1Image` outputs, `ID2D1Layer`, `ID2D1DrawingStateBlock1`, same-device `ID2D1SvgDocument`, shared `IDWriteFactory3`, typed `IDWriteTextFormat1`/`IDWriteTextLayout4`/`IDWriteTypography`/`IDWriteFontFaceReference`/`IDWriteFontFace5`, UTF-16 `DrawText`, retained `DrawTextLayout`, shaped/color `DrawGlyphRun`, mutable range formatting/drawing effects/OpenType features, and generic later-interface queries over a keyed-mutex BGRA DXGI target. Every managed COM handle carries a monotonic resource generation; `ID3D11Device4` removal notification, `GetDeviceRemovedReason`, and `D2DERR_RECREATE_TARGET` terminate that generation and report loss into the shared Dawn domain. There is no fake `d2d1.dll` or `dwrite.dll` |
+| Direct2D `ID2D1*` and DirectWrite text API | Foundation plus bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, and typed device-loss domains implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine factory, device, context, target, uploaded bitmaps, solid/gradient/bitmap/image brushes, gradient-stop collections, primitive/path/transformed/combined geometries, typed bounds/hit-test/relation/area/length/point-at-length, simplify/outline/widen/tessellate operations and `ID2D1GeometryRealization`, `ID2D1StrokeStyle1`, recordable `ID2D1CommandList`, typed `ID2D1Effect` graphs and `ID2D1Image` outputs, `ID2D1Layer`, `ID2D1DrawingStateBlock1`, same-device `ID2D1SvgDocument`, shared `IDWriteFactory3`, typed `IDWriteTextFormat1`/`IDWriteTextLayout4`/`IDWriteTypography`/`IDWriteFontFaceReference`/`IDWriteFontFace5`, UTF-16 `DrawText`, retained `DrawTextLayout`, shaped/color `DrawGlyphRun`, mutable range formatting/drawing effects/OpenType features, and generic later-interface queries over a keyed-mutex BGRA DXGI target. Every managed COM handle carries a monotonic resource generation; `ID3D11Device4` removal notification, `GetDeviceRemovedReason`, and `D2DERR_RECREATE_TARGET` terminate that generation and report loss into the shared Dawn domain. There is no fake `d2d1.dll` or `dwrite.dll` |
 | Native Win2D binary interop | Device/target/bitmap/brush/geometry/stroke/command-list/effect-output/text-format/text-layout/typography round trips plus layer/state/text draws package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, `CanvasStrokeStyle`, `CanvasCommandList`, device-independent `CanvasTextFormat`/`CanvasTypography`, and device-associated `CanvasTextLayout` projections. The packaged Microsoft Win2D 1.4.0 oracle also wraps effect-output image brushes, executes typed ProGPU layer/state and native-text command-list scopes, observes ProGPU range formatting/OpenType features through the projected layout and typography, mutates that same native layout through Win2D, and draws it. It qualifies identities, resource metadata, boolean geometry/styled-stroke/image-brush/command-list/effect/text drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; glyph runs/color fonts, remaining typography, the full effect catalog, custom effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
@@ -689,6 +689,29 @@ cross-generation pointer reuse. The export allowlist grows from 59 to exactly
 67 symbols. Geometry sinks for simplify, outline, widen, tessellation, and
 realizations remain the next versioned slice rather than exposing arbitrary
 caller COM sink pointers.
+Exact implementation `13f6906b` is qualified by GitHub Actions Build run
+`33330942215`. Dedicated MSVC job `99309300180` compiles and links the provider
+and regression under warning-as-error, passes the focused Direct2D test in
+0.25 seconds and all 11 native suites, and enforces the 67-export allowlist.
+ClangCL x64 job `99309300268` independently compiles the DLL and passes the
+focused test in 0.14 seconds plus all 12 native suites before the already
+tracked unrelated long Dawn readback loses Microsoft Basic Render Driver.
+
+ABI v25 keeps the remaining geometry-sink COM interfaces private to the
+provider. `Simplify`, `Outline`, and `Widen` materialize into caller-owned
+`ID2D1PathGeometry1` resources created by the same factory. `Tessellate` writes
+blittable triangles directly into a caller-owned span and reports the required
+count with a typed `InsufficientBuffer` status, enabling an allocation-free
+hot path and an explicit size-query/retry path without retaining memory or
+allocating per triangle. The same version creates filled and stroked
+`ID2D1GeometryRealization` resources through `ID2D1DeviceContext1` and draws
+them in either shared-surface or command-list producer scopes. Geometry,
+optional stroke style, realization, and brush handles are kind-checked,
+generation-checked, and protected across every borrowed call. Invalid
+options, widths, transforms, tolerances, destinations, and inactive draws fail
+closed. The allowlist grows from 67 to exactly 74 exports. This is native
+Direct2D realization, not CPU tessellation fallback; the portable Metal,
+Vulkan, and browser paths continue to use ProGPU's shared vector pipeline.
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
@@ -1136,8 +1159,7 @@ Win2D execution.
 2. **Implemented:** add the minimal portable Canvas
    device/render-target/drawing-session API and pass pinned SimpleSample source
    plus live headless native pixels on Metal and D3D12.
-3. **Geometry analysis implemented; realization remains:** add geometry
-   simplify/outline/widen/tessellation sinks and realizations, image and
+3. **Geometry analysis and realization implemented:** add image and
    layer-opacity brushes,
    bitmap file/buffer APIs, text-format/layout, and existing-effect
    adapters;
