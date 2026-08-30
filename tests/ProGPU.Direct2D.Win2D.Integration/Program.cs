@@ -72,6 +72,7 @@ internal static partial class Program
                     CanvasStrokeStyleType: null,
                     CanvasTextFormatType: null,
                     CanvasTextLayoutType: null,
+                    CanvasTypographyType: null,
                     DrawingSessionType: null,
                     NativeDeviceIdentityMatches: null,
                     NativeBitmapIdentityMatches: null,
@@ -89,6 +90,8 @@ internal static partial class Program
                     NativeTextFormatIdentityMatches: null,
                     NativeTextLayoutIdentityMatches: null,
                     NativeTextLayoutRangeFormattingMatches: null,
+                    NativeTypographyIdentityMatches: null,
+                    NativeTypographyFeaturesMatch: null,
                     TypedLayerStateScopePassed: null,
                     TypedNativeTextDrawPassed: null,
                     TypedNativeTextLayoutDrawPassed: null,
@@ -880,6 +883,52 @@ internal static partial class Program
                         "Win2D CanvasTextLayout did not preserve ProGPU's IDWriteTextLayout4 identity.");
                 }
             }
+            ProGpuDirect2DTypographyFeature[] typographyFeatures =
+            [
+                new(
+                    ProGpuDirect2DTypographyFeature.CreateTag(
+                        'd', 'l', 'i', 'g'),
+                    1U),
+                new(
+                    ProGpuDirect2DTypographyFeature.CreateTag(
+                        's', 's', '0', '1'),
+                    2U)
+            ];
+            using ProGpuDirect2DComReference nativeTypography =
+                surface.CreateTypography(typographyFeatures);
+            surface.SetTextLayoutTypography(
+                nativeTextLayout,
+                0U,
+                6U,
+                nativeTypography);
+            if (!surface.TryAcquireMicrosoftWin2DTypography(
+                    nativeTypography,
+                    out ProGpuDirect2DComReference? wrappedTypography,
+                    out int wrappedTypographyHResult) ||
+                wrappedTypography is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasTypography wrapping failed (0x{wrappedTypographyHResult:X8}).");
+            }
+            using ProGpuDirect2DComReference canvasTypographyReference =
+                wrappedTypography;
+            if (!surface.TryAcquireMicrosoftWin2DNativeTypography(
+                    canvasTypographyReference,
+                    out ProGpuDirect2DComReference? unwrappedTypography,
+                    out int unwrappedTypographyHResult) ||
+                unwrappedTypography is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasTypography native-resource interop failed (0x{unwrappedTypographyHResult:X8}).");
+            }
+            using (unwrappedTypography)
+            {
+                if (!HasSameComIdentity(nativeTypography, unwrappedTypography))
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasTypography did not preserve ProGPU's IDWriteTypography identity.");
+                }
+            }
             using ProGpuDirect2DComReference nativeTextLayoutCommandList =
                 surface.CreateCommandList();
             using (ProGpuDirect2DCommandListDrawingSession textLayoutSession =
@@ -944,6 +993,7 @@ internal static partial class Program
             string canvasStrokeStyleType;
             string canvasTextFormatType;
             string canvasTextLayoutType;
+            string canvasTypographyType;
             string drawingSessionType;
             PixelEvidence solidColorBrushColor;
             PixelEvidence linearGradientBrushColor;
@@ -1017,6 +1067,9 @@ internal static partial class Program
                 using CanvasTextLayout canvasTextLayout =
                     CanvasTextLayout.FromAbi(
                         canvasTextLayoutReference.DangerousGetHandle());
+                using CanvasTypography canvasTypography =
+                    CanvasTypography.FromAbi(
+                        canvasTypographyReference.DangerousGetHandle());
                 WriteProgress("canvas-projections-created");
                 canvasDeviceType = target.Device.GetType().FullName ??
                     target.Device.GetType().Name;
@@ -1128,6 +1181,22 @@ internal static partial class Program
                 canvasTextLayoutType =
                     canvasTextLayout.GetType().FullName ??
                     canvasTextLayout.GetType().Name;
+                canvasTypographyType =
+                    canvasTypography.GetType().FullName ??
+                    canvasTypography.GetType().Name;
+                CanvasTypographyFeature[] projectedTypographyFeatures =
+                    canvasTypography.GetFeatures();
+                if (projectedTypographyFeatures.Length != 2 ||
+                    projectedTypographyFeatures[0].Name !=
+                        CanvasTypographyFeatureName.DiscretionaryLigatures ||
+                    projectedTypographyFeatures[0].Parameter != 1U ||
+                    projectedTypographyFeatures[1].Name !=
+                        CanvasTypographyFeatureName.StylisticSet1 ||
+                    projectedTypographyFeatures[1].Parameter != 2U)
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasTypography feature metadata changed.");
+                }
                 if (canvasTextLayout.GetFontSize(2) != 18.0F ||
                     !canvasTextLayout.GetUnderline(2) ||
                     !canvasTextLayout.GetStrikethrough(2))
@@ -1344,6 +1413,7 @@ internal static partial class Program
                 CanvasStrokeStyleType: canvasStrokeStyleType,
                 CanvasTextFormatType: canvasTextFormatType,
                 CanvasTextLayoutType: canvasTextLayoutType,
+                CanvasTypographyType: canvasTypographyType,
                 DrawingSessionType: drawingSessionType,
                 NativeDeviceIdentityMatches: true,
                 NativeBitmapIdentityMatches: true,
@@ -1360,6 +1430,8 @@ internal static partial class Program
                 NativeStrokeStyleIdentityMatches: true,
                 NativeTextFormatIdentityMatches: true,
                 NativeTextLayoutIdentityMatches: true,
+                NativeTypographyIdentityMatches: true,
+                NativeTypographyFeaturesMatch: true,
                 NativeTextLayoutRangeFormattingMatches: true,
                 TypedLayerStateScopePassed: true,
                 TypedNativeTextDrawPassed: true,
@@ -1579,6 +1651,7 @@ internal static partial class Program
         string? CanvasStrokeStyleType,
         string? CanvasTextFormatType,
         string? CanvasTextLayoutType,
+        string? CanvasTypographyType,
         string? DrawingSessionType,
         bool? NativeDeviceIdentityMatches,
         bool? NativeBitmapIdentityMatches,
@@ -1596,6 +1669,8 @@ internal static partial class Program
         bool? NativeTextFormatIdentityMatches,
         bool? NativeTextLayoutIdentityMatches,
         bool? NativeTextLayoutRangeFormattingMatches,
+        bool? NativeTypographyIdentityMatches,
+        bool? NativeTypographyFeaturesMatch,
         bool? TypedLayerStateScopePassed,
         bool? TypedNativeTextDrawPassed,
         bool? TypedNativeTextLayoutDrawPassed,

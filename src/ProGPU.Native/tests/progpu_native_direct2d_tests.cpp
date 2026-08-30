@@ -1229,6 +1229,71 @@ int main()
             native_hresult == E_INVALIDARG,
         "invalid IDWriteTextLayout4 range did not fail closed");
 
+    const progpu_native_direct2d_typography_feature typography_features[] = {
+        {DWRITE_FONT_FEATURE_TAG_DISCRETIONARY_LIGATURES, 1U},
+        {DWRITE_FONT_FEATURE_TAG_STYLISTIC_SET_1, 2U}
+    };
+    void* typography_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_typography(
+            surface,
+            typography_features,
+            static_cast<uint32_t>(std::size(typography_features)),
+            &typography_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            typography_value != nullptr && native_hresult == S_OK,
+        "provider IDWriteTypography creation failed");
+    ComPtr<IDWriteTypography> typography;
+    typography.Attach(static_cast<IDWriteTypography*>(typography_value));
+    DWRITE_FONT_FEATURE actual_feature{};
+    require(typography->GetFontFeatureCount() ==
+                static_cast<uint32_t>(std::size(typography_features)) &&
+            SUCCEEDED(typography->GetFontFeature(1U, &actual_feature)) &&
+            actual_feature.nameTag == DWRITE_FONT_FEATURE_TAG_STYLISTIC_SET_1 &&
+            actual_feature.parameter == 2U,
+        "provider IDWriteTypography feature state changed");
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_text_layout_set_typography(
+            surface,
+            retained_text_layout.Get(),
+            typography.Get(),
+            0U,
+            static_cast<uint32_t>(std::size(text)),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider IDWriteTextLayout4 typography assignment failed");
+    ComPtr<IDWriteTypography> actual_typography;
+    DWRITE_TEXT_RANGE actual_typography_range{};
+    require(SUCCEEDED(retained_text_layout->GetTypography(
+                2U,
+                &actual_typography,
+                &actual_typography_range)) &&
+            actual_typography_range.startPosition == 0U &&
+            actual_typography_range.length ==
+                static_cast<uint32_t>(std::size(text)) &&
+            has_same_com_identity(
+                actual_typography.Get(),
+                typography.Get()),
+        "provider IDWriteTextLayout4 typography identity changed");
+
+    auto invalid_typography_feature = typography_features[0];
+    invalid_typography_feature.name_tag = 0U;
+    void* invalid_typography_value =
+        reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_surface_create_typography(
+            surface,
+            &invalid_typography_feature,
+            1U,
+            &invalid_typography_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            invalid_typography_value == nullptr &&
+            native_hresult == E_INVALIDARG,
+        "invalid IDWriteTypography feature did not fail closed");
+
     void* invalid_text_layout_value =
         reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
     native_hresult = S_OK;

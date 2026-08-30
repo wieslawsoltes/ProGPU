@@ -106,7 +106,9 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_TEXT_FORMAT1 = 46,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_TEXT_FORMAT = 47,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_TEXT_LAYOUT4 = 48,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_TEXT_LAYOUT = 49
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_TEXT_LAYOUT = 49,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_TYPOGRAPHY = 50,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_TYPOGRAPHY = 51
 } progpu_native_direct2d_interface_kind;
 
 typedef enum progpu_native_direct2d_fill_mode {
@@ -476,6 +478,13 @@ typedef struct progpu_native_direct2d_text_range_format {
     uint32_t strikethrough;
 } progpu_native_direct2d_text_range_format;
 
+/* One DirectWrite OpenType feature. name_tag uses the four-byte
+ * DWRITE_FONT_FEATURE_TAG layout and parameter carries its selector/value. */
+typedef struct progpu_native_direct2d_typography_feature {
+    uint32_t name_tag;
+    uint32_t parameter;
+} progpu_native_direct2d_typography_feature;
+
 typedef struct progpu_native_direct2d_image_brush_properties {
     progpu_native_direct2d_rect_f source_rectangle;
     uint32_t extend_mode_x;
@@ -514,7 +523,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 18U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 19U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -820,6 +829,26 @@ progpu_native_direct2d_text_layout_set_range_format(
     void* text_layout,
     const progpu_native_direct2d_text_range_format* formatting,
     void* drawing_effect_brush,
+    int32_t* native_hresult);
+
+/* Creates one genuine IDWriteTypography from a synchronously consumed feature
+ * span. The returned interface owns one caller reference. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_typography(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_typography_feature* features,
+    uint32_t feature_count,
+    void** value,
+    int32_t* native_hresult);
+
+/* Applies one genuine IDWriteTypography to a retained-layout UTF-16 range. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_text_layout_set_typography(
+    progpu_native_direct2d_surface* surface,
+    void* text_layout,
+    void* typography,
+    uint32_t range_start,
+    uint32_t range_length,
     int32_t* native_hresult);
 
 /* Draws a retained text layout through ID2D1RenderTarget::DrawTextLayout

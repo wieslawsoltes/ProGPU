@@ -5093,6 +5093,17 @@ range through Win2D, and draws the shared object. The allowlist grows from 49
 to exactly 50 exports without adding reflection, CPU text fallback, readback,
 or per-character native calls.
 
+ABI v19 adds genuine device-independent `IDWriteTypography` resources and
+retained-layout OpenType feature assignment. A bounded pinned span of typed
+name-tag/parameter pairs crosses managed/native once, DirectWrite copies each
+feature into its owned typography object, and `SetTypography` applies that
+object to a nonempty UTF-16 range. The Win2D resource seam uses the correct
+null-device/zero-DPI rule for official `CanvasTypography`, validates the feature
+array through the projection, and reverse-unwraps the exact native identity.
+Malformed tags, feature counts, ranges, and COM kinds fail closed. The export
+allowlist grows from 50 to exactly 52 without reflection, text readback, or
+per-feature managed/native calls.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

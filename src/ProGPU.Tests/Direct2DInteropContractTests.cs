@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 18U;",
+            "internal const uint AbiVersion = 19U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -169,6 +169,14 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
+            "progpu_native_direct2d_surface_create_typography",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_text_layout_set_typography",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "progpu_native_direct2d_surface_create_rectangle_geometry",
             native,
             StringComparison.Ordinal);
@@ -285,7 +293,7 @@ public sealed class Direct2DInteropContractTests
             exports,
             StringComparison.Ordinal);
         Assert.Equal(
-            50,
+            52,
             exports.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries |
@@ -333,7 +341,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 18U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 19U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -418,6 +426,14 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "progpu_native_direct2d_text_layout_set_range_format(",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_create_typography(",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_text_layout_set_typography(",
             test,
             StringComparison.Ordinal);
         Assert.Contains(
