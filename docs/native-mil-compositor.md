@@ -5279,7 +5279,10 @@ interface kind, finite coordinates/transforms, opacity, and radii are validated
 on both boundaries, with `DangerousAddRef` protecting every borrowed handle.
 The native regression restores the solid brush before the existing exact-BGRA
 oracle. The allowlist becomes exactly 110 exports; managed contracts pass 5/5
-and the package builds with zero warnings. Windows execution is pending.
+and the package builds with zero warnings. Build run `33336026310`, dedicated
+MSVC job `99322989531`, qualifies the checkpoint: warning-as-error compile/link
+succeeds, the focused Direct2D regression passes in 0.14 seconds, all 11 native
+suites pass in 1.02 seconds, and the exact 110-export gate is accepted.
 
 ## Managed glyph row-reuse SIMD checkpoint
 
