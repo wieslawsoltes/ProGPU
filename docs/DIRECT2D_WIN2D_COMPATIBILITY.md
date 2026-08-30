@@ -860,6 +860,37 @@ supported and fail-closed stream regressions 1/1, and produces provider SHA-256
 `E2A0F827107450E5C6D0ED8C2CA3C8C20656F6A32C1A6361DB788C14117CD1D3`.
 Clean-checkout Build run `33339953074` is pending.
 
+ABI v33 at implementation `bb4818bf` crosses that boundary into actual native
+scene emission. A second internal `ID2D1CommandSink1` converts a deliberately
+closed first subset—finite transforms, source-over/DIPs state, solid-color
+brushes, `FillRectangle`, default-style `DrawRectangle`, default flat-cap
+`DrawLine`, aliased/per-primitive edges, and one optional leading `Clear`—into
+the same pointer-free semantic stream consumed by ProGPU's C++ renderer. The
+clear is explicit frame metadata rather than a fabricated retained draw.
+Gradient/image brushes, geometry, text, images, clips, layers, non-default
+stroke styles, blend modes other than source-over, pixel units, and mid-stream
+or repeated clears currently return `E_NOTIMPL` with a typed failure class and
+one-based callback index; no partial stream is returned.
+
+The ABI is a two-pass caller-buffer contract: the first call reports the exact
+stream size and the second serializes directly into the supplied span. No COM
+pointer enters the scene, and there is no managed staging array, pixel
+readback, pixel repack, or CPU raster fallback. Managed APIs preserve resource
+domain/generation validation and pin the destination only for the synchronous
+call. The Direct2D DLL now links the backend-neutral native scene builder, so
+the output is reusable by the D3D12, Metal, Vulkan, and WebGPU executors rather
+than becoming a Windows-only second renderer.
+
+The managed package builds with zero warnings, portable contracts pass 5/5,
+and the allowlist is exactly 123 exports. The incremental Windows 11 ARM64
+Parallels gate used MSVC 19.44/SDK 10.0.26100.0 under `/W4 /WX`; it compiled
+the full sink vtable and scene builder, passed the live Direct2D regression
+1/1 in 3.35 seconds, decoded the emitted three-draw scene header, and verified
+typed rejection of non-null DirectWrite rendering parameters. `dumpbin`
+reported exactly 123 provider exports. The resulting DLL SHA-256 is
+`0C552556B68BDB2F34B9B4ADA552B1DBBC2EB25A247483ED27710787CBF787D2`.
+Clean-checkout Build run `33341817572` is pending.
+
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any

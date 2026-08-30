@@ -5337,6 +5337,30 @@ supported/fail-closed command-stream regression 1/1; provider SHA-256 is
 `E2A0F827107450E5C6D0ED8C2CA3C8C20656F6A32C1A6361DB788C14117CD1D3`.
 Clean-checkout Build run `33339953074` is pending.
 
+ABI v33 at implementation `bb4818bf` performs the first end-to-end COM command
+translation. A strict `ID2D1CommandSink1` converts finite transforms,
+source-over/DIPs state, solid brushes, rectangle fills/strokes, flat-cap lines,
+edge-antialias selection, and one leading clear into ProGPU's existing native
+semantic scene builder. The clear remains typed frame metadata; it is not
+smuggled into the retained command stream. All other state, resource, and
+operation classes fail closed with `E_NOTIMPL`, a typed reason, and the exact
+one-based callback index. This is intentionally an admitted subset, not a
+claim that arbitrary `ID2D1*` streams already translate.
+
+The AOT-safe two-pass managed/native API measures the exact byte count and then
+writes directly into caller-owned storage. The scene contains no COM pointer,
+reflection shape, CPU pixel readback, repack buffer, or raster fallback. The
+Windows provider links the backend-neutral C++ scene builder, keeping the
+result usable by D3D12, Metal, Vulkan, and WebGPU and preserving the invariant
+that DirectX interop is not a second scene implementation. Managed build is
+warning-free, contracts pass 5/5, and the allowlist is exactly 123 exports.
+Incremental Windows 11 ARM64 MSVC 19.44/SDK 10.0.26100.0 qualification compiles
+under `/W4 /WX`, passes the live regression 1/1 in 3.35 seconds, decodes three
+translated draws from the scene header, verifies fail-closed DirectWrite state,
+and reports exactly 123 exports. Provider SHA-256 is
+`0C552556B68BDB2F34B9B4ADA552B1DBBC2EB25A247483ED27710787CBF787D2`;
+clean-checkout Build run `33341817572` is pending.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
