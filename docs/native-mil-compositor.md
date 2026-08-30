@@ -4938,10 +4938,22 @@ CanvasDevice and CanvasRenderTarget wrapper exports. SHA-256 is
 `d9224ee806635ba3086d299912bb7bd2d9cf52a7ef56451ae54656058e7175d8`
 for the DLL and
 `0e8fc690ba5bd4a7a40d461d1691f8efd32dbef7338ae90a1635ccc5b0f2e02d`
-for the executable. The VM has no registered Canvas/Win2D AppX package, so this
-run qualifies the explicit runtime-unavailable path for both typed wrappers; a
-package-deployed Win2D-success oracle remains a separate gate. A merely booted
-VM or a stalled Guest Tools login is not recorded as a pass.
+for the executable. That isolated run had no registered Canvas/Win2D AppX
+package and therefore also qualifies the explicit runtime-unavailable path for
+both typed wrappers.
+
+The package-deployed success gate is separately qualified from exact ProGPU
+source `d201494a` in the same Windows 11 ARM64 Parallels VM. Its full-trust MSIX
+contains official Microsoft Win2D 1.4.0, projects the returned COM pointer as a
+real `CanvasRenderTarget`, and creates a real `CanvasDrawingSession`. A clear
+plus 48x48 fill on a 64x64 target produces an exact transparent corner and
+center ARGB `(255,32,96,192)` through validation-only `GetPixelColors()`;
+content version advances `0 -> 1`, native wrapping returns `S_OK`, and the
+reported adapter is `Dawn D3D12`. The gate requires a pre-provisioned package-
+signing certificate thumbprint, verifies private-key and trust stores, and
+never mutates certificate trust. Set `PROGPU_RUN_REAL_WIN2D_INTEGRATION=1` to
+include it in the complete Windows native build lane. A merely booted VM or a
+stalled Guest Tools login is not recorded as a pass.
 
 ## Managed glyph row-reuse SIMD checkpoint
 

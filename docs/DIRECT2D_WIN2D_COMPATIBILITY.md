@@ -34,7 +34,7 @@ binary.
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
 | Direct2D `ID2D1*` API | Foundation implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine `ID2D1Factory1/2`, `ID2D1Device/1`, `ID2D1DeviceContext/1`, and `ID2D1Bitmap/1` objects over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` |
-| Native Win2D binary interop | Device/target wrapping implemented | The registered factory's official `ICanvasFactoryNative::GetOrCreate` wraps the exact provider `ID2D1Device1` as `CanvasDevice` and exact target `ID2D1Bitmap1` as `CanvasRenderTarget`; typed exclusive producer ownership and zero-copy Dawn import are implemented, while broader resource wrapping and full device-loss recreation remain gated work |
+| Native Win2D binary interop | Device/target wrapping package-qualified | The registered factory's official `ICanvasFactoryNative::GetOrCreate` wraps the exact provider `ID2D1Device1` as `CanvasDevice` and exact target `ID2D1Bitmap1` as `CanvasRenderTarget`; a packaged Microsoft Win2D 1.4.0 oracle qualifies real drawing, exact pixels, typed exclusive producer ownership, and zero-copy Dawn import, while broader resource wrapping and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
 | Arbitrary Win2D native-resource wrapping (`GetOrCreate(IUnknown*)`) off Windows | Unsupported by design | Fail closed; there is no portable COM object identity to preserve |
@@ -417,10 +417,34 @@ for `progpu_native_direct2d.dll` and
 `0e8fc690ba5bd4a7a40d461d1691f8efd32dbef7338ae90a1635ccc5b0f2e02d`
 for `progpu_native_direct2d_tests.exe`. The VM has no Canvas/Win2D AppX
 registration, so this run qualifies the explicit runtime-unavailable branch
-for both CanvasDevice and CanvasRenderTarget wrappers; a package-deployed real
-Win2D success oracle remains required. A booted desktop or an unresponsive
+for both CanvasDevice and CanvasRenderTarget wrappers but does not by itself
+qualify successful Win2D activation. A booted desktop or an unresponsive
 Guest Tools login is not accepted as qualification evidence; these hashes came
 from the executed regression in the guest.
+
+The separate packaged success oracle is qualified from exact source commit
+`d201494a` on the same Windows 11 ARM64 Parallels VM. The gate builds and
+installs a full-trust MSIX containing official `Microsoft.Graphics.Win2D`
+1.4.0 and `Microsoft.WindowsAppSDK.WinUI` 1.8.260204000, explicitly registers
+the package's `Microsoft.Graphics.Canvas.CanvasDevice` activation server, and
+projects ProGPU's returned ABI pointer through `CanvasRenderTarget.FromAbi`.
+A genuine `CanvasDrawingSession` clears the 64x64 target and fills a 48x48
+rectangle. Validation-only `GetPixelColors()` reports a transparent corner and
+exact center ARGB `(255,32,96,192)`; shared-surface content version advances
+from 0 to 1 before Dawn resumes ownership. Evidence names the real
+`Microsoft.Graphics.Canvas.CanvasDevice`, `CanvasRenderTarget`, and
+`CanvasDrawingSession` runtime types, reports adapter `Dawn D3D12`, WinRT
+initialization HRESULT `S_FALSE`, and native HRESULT `S_OK`.
+
+Run this qualification with
+`eng/progpu-run-direct2d-win2d-integration.ps1`, or opt it into the complete
+Windows native lane with `PROGPU_RUN_REAL_WIN2D_INTEGRATION=1`. Package trust is
+deployment state: provide `PROGPU_WIN2D_SIGNING_CERTIFICATE_THUMBPRINT` for a
+pre-provisioned `CN=ProGPU` certificate with its private key in
+`CurrentUser/My` and its public certificate trusted in `CurrentUser/Root` or
+`LocalMachine/Root`. The gate verifies those stores, signs by thumbprint, and
+fails closed when they are absent. It never creates, exports, trusts, or deletes
+a certificate, and no certificate value is stored in source or reports.
 
 The pinned Win2D source audit also prevents us from calling this full Win2D
 binary compatibility prematurely. Its production library contains references

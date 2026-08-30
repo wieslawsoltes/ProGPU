@@ -315,6 +315,49 @@ public sealed class Direct2DInteropContractTests
         }
     }
 
+    [Fact]
+    public void PackagedWin2DGateUsesRealProjectedObjectsAndPretrustedSigning()
+    {
+        string project = ReadRepoFile(
+            "tests",
+            "ProGPU.Direct2D.Win2D.Integration",
+            "ProGPU.Direct2D.Win2D.Integration.csproj");
+        string program = ReadRepoFile(
+            "tests",
+            "ProGPU.Direct2D.Win2D.Integration",
+            "Program.cs");
+        string manifest = ReadRepoFile(
+            "tests",
+            "ProGPU.Direct2D.Win2D.Integration",
+            "Package.appxmanifest");
+        string gate = ReadRepoFile(
+            "eng",
+            "progpu-run-direct2d-win2d-integration.ps1");
+        string windowsBuild = ReadRepoFile(
+            "eng",
+            "build-progpu-native-windows.ps1");
+
+        Assert.Contains("Microsoft.Graphics.Win2D", project, StringComparison.Ordinal);
+        Assert.Contains("CanvasRenderTarget.FromAbi(", program, StringComparison.Ordinal);
+        Assert.Contains("target.CreateDrawingSession()", program, StringComparison.Ordinal);
+        Assert.Contains("drawingSession.FillRectangle(", program, StringComparison.Ordinal);
+        Assert.Contains("target.GetPixelColors()", program, StringComparison.Ordinal);
+        Assert.Contains("contentVersionAfter <= contentVersionBefore", program, StringComparison.Ordinal);
+        Assert.Contains("Microsoft.Graphics.Canvas.CanvasDevice", manifest, StringComparison.Ordinal);
+        Assert.Contains("Microsoft.Graphics.Canvas.dll", manifest, StringComparison.Ordinal);
+        Assert.Contains("runFullTrust", manifest, StringComparison.Ordinal);
+
+        Assert.Contains("PROGPU_WIN2D_SIGNING_CERTIFICATE_THUMBPRINT", gate, StringComparison.Ordinal);
+        Assert.Contains("Cert:\\CurrentUser\\My\\", gate, StringComparison.Ordinal);
+        Assert.Contains("/sha1 $SigningCertificateThumbprint", gate, StringComparison.Ordinal);
+        Assert.Contains("Add-AppxPackage -Path $SignedPackagePath", gate, StringComparison.Ordinal);
+        Assert.Contains("direct2d-win2d-result.json", gate, StringComparison.Ordinal);
+        Assert.DoesNotContain("New-SelfSignedCertificate", gate, StringComparison.Ordinal);
+        Assert.DoesNotContain("Export-PfxCertificate", gate, StringComparison.Ordinal);
+        Assert.DoesNotContain("RootStore.Add", gate, StringComparison.Ordinal);
+        Assert.Contains("PROGPU_RUN_REAL_WIN2D_INTEGRATION", windowsBuild, StringComparison.Ordinal);
+    }
+
     private static string ReadRepoFile(params string[] pathParts)
     {
         for (DirectoryInfo? directory = new(AppContext.BaseDirectory);
