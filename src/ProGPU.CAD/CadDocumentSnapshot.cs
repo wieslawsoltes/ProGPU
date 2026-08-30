@@ -32,6 +32,7 @@ public enum CadEntityKind : byte
     Leader = 25,
     MultiLeader = 26,
     Tolerance = 27,
+    Viewport = 28,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -224,6 +225,47 @@ public readonly record struct CadTolerancePrimitive(
 public readonly record struct CadToleranceStroke(
     CadPoint3D Start,
     CadPoint3D End);
+
+/// <summary>
+/// One paper-space VIEWPORT and its persisted orthographic camera contract.
+/// FrozenLayerOffset/Count address <see cref="CadDocumentSnapshot.ViewportFrozenLayers"/>.
+/// The viewport rectangle is expressed in paper-space WCS; ViewCenter is DCS,
+/// while ViewTarget and ViewDirection are model-space WCS values.
+/// </summary>
+public readonly record struct CadViewportPrimitive(
+    CadPoint3D Center,
+    double Width,
+    double Height,
+    double ViewCenterX,
+    double ViewCenterY,
+    CadPoint3D ViewTarget,
+    CadPoint3D ViewDirection,
+    double ViewHeight,
+    double TwistAngle,
+    double LensLength,
+    double FrontClipPlane,
+    double BackClipPlane,
+    int FrozenLayerOffset,
+    int FrozenLayerCount,
+    short ActiveStatus,
+    uint StatusFlags,
+    int RenderMode,
+    int ShadePlotMode,
+    ulong BoundaryHandle,
+    bool RepresentsPaper)
+{
+    public bool IsOn => ActiveStatus != 0;
+
+    public bool IsPerspective => (StatusFlags & 1U) != 0;
+
+    public bool HasFrontClip => (StatusFlags & 2U) != 0;
+
+    public bool HasBackClip => (StatusFlags & 4U) != 0;
+
+    public bool HasNonRectangularBoundary => BoundaryHandle != 0;
+}
+
+public readonly record struct CadViewportFrozenLayer(string Name);
 
 /// <summary>
 /// One POINT location plus the drawing-wide regenerated marker contract captured
@@ -715,6 +757,8 @@ public sealed class CadDocumentSnapshot
     private readonly CadMultiLeaderPrimitive[] _multiLeaders;
     private readonly CadTolerancePrimitive[] _tolerances;
     private readonly CadToleranceStroke[] _toleranceStrokes;
+    private readonly CadViewportPrimitive[] _viewports;
+    private readonly CadViewportFrozenLayer[] _viewportFrozenLayers;
     private readonly CadPointPrimitive[] _points;
     private readonly CadConstructionLinePrimitive[] _constructionLines;
     private readonly CadWipeoutPrimitive[] _wipeouts;
@@ -811,6 +855,9 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadMultiLeaderPrimitive> MultiLeaders => _multiLeaders;
     public ReadOnlyMemory<CadTolerancePrimitive> Tolerances => _tolerances;
     public ReadOnlyMemory<CadToleranceStroke> ToleranceStrokes => _toleranceStrokes;
+    public ReadOnlyMemory<CadViewportPrimitive> Viewports => _viewports;
+    public ReadOnlyMemory<CadViewportFrozenLayer> ViewportFrozenLayers =>
+        _viewportFrozenLayers;
     public ReadOnlyMemory<CadPointPrimitive> Points => _points;
     public ReadOnlyMemory<CadConstructionLinePrimitive> ConstructionLines => _constructionLines;
     public ReadOnlyMemory<CadWipeoutPrimitive> Wipeouts => _wipeouts;
@@ -891,6 +938,8 @@ public sealed class CadDocumentSnapshot
         CadMultiLeaderPrimitive[] multiLeaders,
         CadTolerancePrimitive[] tolerances,
         CadToleranceStroke[] toleranceStrokes,
+        CadViewportPrimitive[] viewports,
+        CadViewportFrozenLayer[] viewportFrozenLayers,
         CadPointPrimitive[] points,
         CadConstructionLinePrimitive[] constructionLines,
         CadWipeoutPrimitive[] wipeouts,
@@ -968,6 +1017,8 @@ public sealed class CadDocumentSnapshot
         _multiLeaders = multiLeaders;
         _tolerances = tolerances;
         _toleranceStrokes = toleranceStrokes;
+        _viewports = viewports;
+        _viewportFrozenLayers = viewportFrozenLayers;
         _points = points;
         _constructionLines = constructionLines;
         _wipeouts = wipeouts;

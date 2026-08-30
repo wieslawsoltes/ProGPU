@@ -51,6 +51,8 @@ public sealed class CadSnapshotOptions
     public const int DefaultMaxToleranceCellsPerEntity = 1_024;
     public const int DefaultMaxToleranceCells = 1_000_000;
     public const int DefaultMaxToleranceStrokes = 4_000_000;
+    public const int DefaultMaxViewports = 16_384;
+    public const int DefaultMaxViewportFrozenLayers = 1_000_000;
 
     public double DefaultLineWeightMillimeters { get; init; } = 0.25;
     public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
@@ -107,6 +109,9 @@ public sealed class CadSnapshotOptions
         DefaultMaxToleranceCellsPerEntity;
     public int MaxToleranceCells { get; init; } = DefaultMaxToleranceCells;
     public int MaxToleranceStrokes { get; init; } = DefaultMaxToleranceStrokes;
+    public int MaxViewports { get; init; } = DefaultMaxViewports;
+    public int MaxViewportFrozenLayers { get; init; } =
+        DefaultMaxViewportFrozenLayers;
 
     /// <summary>
     /// Selects whether snapshot entity order represents interactive
@@ -150,18 +155,20 @@ public sealed partial class CadSnapshotCompiler
         ValidateOptions(options);
 
         return session.Capture(
-            (document, generation) => Compile(
+            (document, generation) => CompileSpace(
                 document,
                 generation,
                 session.SourceName,
+                document.ModelSpace,
                 options,
                 cancellationToken));
     }
 
-    private static CadDocumentSnapshot Compile(
+    internal static CadDocumentSnapshot CompileSpace(
         CadDocument document,
         ulong generation,
         string? sourceName,
+        BlockRecord sourceSpace,
         CadSnapshotOptions options,
         CancellationToken cancellationToken)
     {
@@ -178,7 +185,7 @@ public sealed partial class CadSnapshotCompiler
         var lineTypeElements = new List<CadLineTypeElement>();
         var lineTypeTextResources = new List<CadLineTypeTextResource>();
         var lineTypeShapeResources = new List<CadLineTypeShapeResource>();
-        var entities = new List<CadEntityHeader>(document.Entities.Count);
+        var entities = new List<CadEntityHeader>(sourceSpace.Entities.Count);
         var lines = new List<CadLinePrimitive>();
         var mLines = new List<CadMLinePrimitive>();
         var mLineElementPaths = new List<CadMLineElementPath>();
@@ -188,6 +195,8 @@ public sealed partial class CadSnapshotCompiler
         var multiLeaders = new List<CadMultiLeaderPrimitive>();
         var tolerances = new List<CadTolerancePrimitive>();
         var toleranceStrokes = new List<CadToleranceStroke>();
+        var viewports = new List<CadViewportPrimitive>();
+        var viewportFrozenLayers = new List<CadViewportFrozenLayer>();
         var points = new List<CadPointPrimitive>();
         var constructionLines = new List<CadConstructionLinePrimitive>();
         var wipeouts = new List<CadWipeoutPrimitive>();
@@ -282,7 +291,7 @@ public sealed partial class CadSnapshotCompiler
                 nameof(document));
         }
 
-        foreach (Entity entity in GetOrderedEntities(document.ModelSpace))
+        foreach (Entity entity in GetOrderedEntities(sourceSpace))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (entity.IsInvisible || !entity.Layer.IsOn ||
@@ -315,7 +324,7 @@ public sealed partial class CadSnapshotCompiler
             globalLineTypeScale,
             documentBounds,
             new CadSnapshotStatistics(
-                document.Entities.Count,
+                sourceSpace.Entities.Count,
                 visibleCount,
                 expandedCount,
                 unsupportedCount,
@@ -336,6 +345,8 @@ public sealed partial class CadSnapshotCompiler
             multiLeaders.ToArray(),
             tolerances.ToArray(),
             toleranceStrokes.ToArray(),
+            viewports.ToArray(),
+            viewportFrozenLayers.ToArray(),
             points.ToArray(),
             constructionLines.ToArray(),
             wipeouts.ToArray(),
@@ -497,6 +508,18 @@ public sealed partial class CadSnapshotCompiler
                         rootHandle,
                         effectiveLayer,
                         resolvedStyle);
+                    return;
+                }
+                if (entity is Viewport viewport)
+                {
+                    CompileViewportTree(
+                        viewport,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        depth);
                     return;
                 }
                 if (entity is Mesh mesh)
@@ -841,6 +864,114 @@ public sealed partial class CadSnapshotCompiler
         {
             resolvedRasterImageSettings ??= ResolveRasterImageDisplaySettings(document);
             return resolvedRasterImageSettings.Value;
+        }
+
+        void CompileViewportTree(
+            Viewport viewport,
+            CadAffineTransform3D parentTransform,
+            bool parentHasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle resolvedStyle,
+            int depth)
+        {
+            if (parentHasTransform || depth != 0 ||
+                parentTransform != CadAffineTransform3D.Identity)
+            {
+                throw new CadUnsupportedEntityException(
+                    "VIEWPORT entities nested in block references require explicit paper-space ownership lowering.");
+            }
+            if (viewports.Count >= options.MaxViewports)
+            {
+                throw new CadSnapshotExpansionLimitException(
+                    $"VIEWPORT count exceeds the configured limit of {options.MaxViewports}.");
+            }
+            if (!double.IsFinite(viewport.Width) || viewport.Width <= 0.0 ||
+                !double.IsFinite(viewport.Height) || viewport.Height <= 0.0 ||
+                !double.IsFinite(viewport.ViewHeight) ||
+                (!viewport.RepresentsPaper && viewport.ViewHeight <= 0.0) ||
+                !double.IsFinite(viewport.ViewCenter.X) ||
+                !double.IsFinite(viewport.ViewCenter.Y) ||
+                !double.IsFinite(viewport.TwistAngle) ||
+                !double.IsFinite(viewport.LensLength) ||
+                !double.IsFinite(viewport.FrontClipPlane) ||
+                !double.IsFinite(viewport.BackClipPlane))
+            {
+                throw new ArgumentException(
+                    "VIEWPORT paper dimensions, camera values, and clipping planes must be finite, with positive paper size and model view height.");
+            }
+
+            CadPoint3D center = ToPoint(viewport.Center);
+            CadPoint3D target = ToPoint(viewport.ViewTarget);
+            CadPoint3D direction = ToPoint(viewport.ViewDirection).Normalize();
+            EnsureFinite(center);
+            EnsureFinite(target);
+            int frozenLayerOffset = viewportFrozenLayers.Count;
+            if (viewport.FrozenLayers.Count >
+                options.MaxViewportFrozenLayers - frozenLayerOffset)
+            {
+                throw new CadSnapshotExpansionLimitException(
+                    $"VIEWPORT frozen-layer references exceed the configured limit of {options.MaxViewportFrozenLayers}.");
+            }
+            foreach (Layer frozenLayer in viewport.FrozenLayers)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                viewportFrozenLayers.Add(new CadViewportFrozenLayer(
+                    new string(frozenLayer.Name.AsSpan())));
+            }
+
+            int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
+            int styleIndex = InternStyle(
+                resolvedStyle,
+                styles,
+                styleIndices,
+                lineTypePatterns,
+                lineTypePatternIndices,
+                lineTypeElements,
+                lineTypeTextResources,
+                lineTypeShapeResources,
+                textGlyphRuns,
+                textGlyphIndices,
+                textGlyphPositions,
+                textFonts,
+                textFontIndices,
+                shxGlyphInstances,
+                shxFontResolver,
+                options,
+                drawingCodePage);
+            int primitiveIndex = viewports.Count;
+            viewports.Add(new CadViewportPrimitive(
+                center,
+                viewport.Width,
+                viewport.Height,
+                viewport.ViewCenter.X,
+                viewport.ViewCenter.Y,
+                target,
+                direction,
+                viewport.ViewHeight,
+                viewport.TwistAngle,
+                viewport.LensLength,
+                viewport.FrontClipPlane,
+                viewport.BackClipPlane,
+                frozenLayerOffset,
+                viewport.FrozenLayers.Count,
+                viewport.ActiveStatus,
+                unchecked((uint)viewport.Status),
+                (int)viewport.RenderMode,
+                (int)viewport.ShadePlotMode,
+                viewport.Boundary?.Handle ?? 0UL,
+                viewport.RepresentsPaper));
+            CadPoint3D half = new(viewport.Width * 0.5, viewport.Height * 0.5, 0.0);
+            var bounds = new CadBounds3D(center - half, center + half);
+            var header = new CadEntityHeader(
+                rootHandle,
+                CadEntityKind.Viewport,
+                layerIndex,
+                styleIndex,
+                primitiveIndex,
+                bounds);
+            entities.Add(header);
+            documentBounds = documentBounds.Union(bounds);
         }
 
         void CompileTable(
@@ -5494,7 +5625,7 @@ public sealed partial class CadSnapshotCompiler
         }
     }
 
-    private static void ValidateOptions(CadSnapshotOptions options)
+    internal static void ValidateOptions(CadSnapshotOptions options)
     {
         if (options.DrawOrderPurpose is not
             (CadDrawOrderPurpose.Regeneration or CadDrawOrderPurpose.Plotting))
@@ -5609,6 +5740,10 @@ public sealed partial class CadSnapshotCompiler
             options.MaxToleranceCells,
             options.MaxToleranceCellsPerEntity);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxToleranceStrokes, 4);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxViewports, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxViewportFrozenLayers,
+            1);
     }
 
     private static void AddDiagnostic(
