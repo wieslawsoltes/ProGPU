@@ -2252,23 +2252,26 @@ It scans persisted content once and emits immutable text, paragraph-break,
 column-break, and stacked-text inlines. Every inline carries its fully resolved
 group state: font metadata, relative or absolute height, width, tracking,
 oblique angle, baseline alignment, indexed/true/inherited color, decoration
-flags, and paragraph alignment. Braces save and restore the complete state;
+flags, paragraph alignment, first/hanging/left/right indents, paragraph
+space-before/space-after and line spacing, and bounded left/center/right/decimal
+tab stops. Braces save and restore the complete state;
 the Autodesk eight-level default is caller configurable but remains strictly
 bounded. Semantic breaks are not flattened into spaces and stacked fractions
 retain both operands plus horizontal, diagonal, or tolerance separator kind.
 
 Escaped delimiters, nonbreaking space, four-hex Unicode, percent symbols,
-decoration toggles, font options, numeric formatting, paragraph alignment, and
-the three stack forms have focused conformance tests. The parser keeps the raw
-paragraph payload so indentation, tabs, and reset controls cannot disappear
-while their typed layout lands. Fields and unknown controls fail explicitly;
+decoration toggles, font options, numeric formatting, typed paragraph geometry,
+caret tabs/breaks, and the three stack forms have focused conformance tests. The
+parser also keeps the raw paragraph payload for diagnostics and exact source
+preservation. Fields and unknown controls fail explicitly;
 malformed groups, numbers, Unicode, stacks, and missing semicolons report the
 source offset. Output code units, inline count, and nesting are independently
 bounded before retained snapshot streams change.
 
-Parsing is `O(C + R)` time and `O(D + R)` storage for `C` source code units,
-`D` decoded code units, and `R` semantic inlines. It performs no font lookup,
-shaping, GPU work, reflection, or ACadSharp mutation.
+Parsing is `O(C + R + P log P)` time and `O(D + R + P)` storage for `C` source
+code units, `D` decoded code units, `R` semantic inlines, and bounded paragraph
+tab stops `P`. It performs no font lookup, shaping, GPU work, reflection, or
+ACadSharp mutation.
 
 ## Retained MTEXT layout, replay, and selection
 
@@ -2277,23 +2280,27 @@ original generalization of the authoritative in-repository
 `TextLayout.GenerateShapedLayout` pipeline: paragraph-wide UAX #9 resolution,
 fallback-aware OpenType shaping with pre/post context, cluster-safe wrapping,
 visual reordering, variable metrics, width/tracking, baseline shifts,
-justification, and inline boxes. A single-style differential test matches the
+justification, paragraph indents/spacing, four aligned tab kinds, and inline
+boxes. A single-style differential test matches the
 existing layout's glyph identities, clusters, and positions. Layout is
 `O(T + G + B)` average time and storage for UTF-16 units `T`, glyphs `G`, and
 inline boxes `B`; adversarial platform fallback discovery retains the existing
 font-manager cost.
 
 The MTEXT compiler maps semantic paragraph and column breaks without stripping
-them. It applies the documented 3-on-5 line-spacing basis, distinguishes Exact
-from AtLeast spacing, keeps static/dynamic persisted column heights bounded,
+them. It scales typed paragraph values from the initial character height,
+applies first/hanging/left/right indents, aligns left/center/right/decimal tab
+fields without drawable tab glyphs, retains before/after space in line boxes,
+applies the documented 3-on-5 line-spacing basis, distinguishes Exact from
+AtLeast spacing, keeps static/dynamic persisted column heights bounded,
 honors explicit column breaks and reverse flow, excludes gutters from each
 background mask, and resolves all nine attachment points before composing the
 entity's WCS normal/direction basis with any nested block affine transform.
 Horizontal, diagonal, and tolerance stacks remain inline objects; their upper
 and lower operands are independently shaped at a bounded relative size and
-their separators are retained filled geometry. Unsupported fields, paragraph
-indentation/tab payloads, vertical flow for TrueType, invalid numeric state,
-and content exceeding persisted column
+their separators are retained filled geometry. Unsupported fields, reserved
+right-to-left/bottom-to-top flow, vertical flow for TrueType, invalid numeric
+state, and content exceeding persisted column
 capacity remain explicit typed diagnostics rather than degraded output.
 
 The immutable snapshot owns global glyph indices/positions and font identities,
@@ -2331,8 +2338,10 @@ DXF U+0020 escapes, and decimal shape 032 are break opportunities; U+00A0 maps
 to the same space glyph while retaining its nonbreaking semantic bit. Wrapping
 breaks only at those opportunities, and a long unbroken word overflows its
 column instead of being split by character. Paragraph/column breaks, all nine
-attachments, Exact/AtLeast 3-on-5 spacing, left/center/right/justify/distributed
-alignment, static or dynamic auto-height/reverse columns, height/width/tracking/
+attachments, Exact/AtLeast and paragraph exact/multiple spacing,
+first/hanging/left/right indents, paragraph before/after space,
+left/center/right/decimal tabs, left/center/right/justify/distributed alignment,
+static or dynamic auto-height/reverse columns, height/width/tracking/
 oblique/baseline/color formatting, three stack forms, masks/frames, decorations,
 and nested affine transforms lower into temporary device-independent geometry.
 
@@ -2360,6 +2369,8 @@ CAD parser or scene compiler to duplicate: both picture compilers consume the
 same existing `DrawPath`/`DrawRectangle` commands. A formatted native-picture
 regression and print-plan regression cover that shared contract; no C ABI,
 shader, upload, atlas, cache-generation, or device-loss rule changes.
+The paragraph-specific source, clean-room, tradeoff, complexity, and parity
+record is `PROGPU_CAD_MTEXT_PARAGRAPH_RESEARCH.md`.
 
 A 2026-08-28 macOS arm64 Release smoke run of the checked-in benchmark fixture
 (`100` formatted MTEXT entities, one warmup, five measured iterations, `10,000`

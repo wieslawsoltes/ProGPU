@@ -148,6 +148,39 @@ public sealed class CadMTextSnapshotTests
     }
 
     [Fact]
+    public void ParagraphIndentsTabsAndSpacingLowerToRetainedTrueTypeGeometry()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add paragraph-formatted MTEXT", document =>
+        {
+            document.Entities.Add(new MText
+            {
+                Value = @"\pxl1,i1,r1,b0.5,a0.25,se1.2,t4,c8,r12,d16;A^IB^IAA^I12^I1.2",
+                Height = 10,
+                RectangleWidth = 200,
+                AttachmentPoint = AttachmentPointType.TopLeft,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadMTextPrimitive text = Assert.Single(snapshot.MTexts.ToArray());
+        System.Numerics.Vector2[] positions = snapshot.TextGlyphPositions.Span
+            .Slice(text.GlyphOffset, text.GlyphCount)
+            .ToArray();
+
+        Assert.Equal(9, positions.Length);
+        Assert.InRange(Math.Abs(positions[0].X - 20.0f), 0.0f, 0.01f);
+        Assert.InRange(Math.Abs(positions[1].X - 40.0f), 0.0f, 0.01f);
+        Assert.InRange(Math.Abs(positions[7].X - 160.0f), 0.0f, 0.01f);
+        Assert.InRange(Math.Abs(text.ContentHeight - 19.5f), 0.0f, 0.01f);
+        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        using CadPrintPlan print = new CadPrintPlanCompiler().Compile(snapshot);
+        Assert.Contains(scene.DrawingContext.Commands.ToArray(), static command =>
+            command.Type == RenderCommandType.DrawGlyphRun);
+        Assert.True(print.SceneStatistics.RecordedCommandCount > 0);
+    }
+
+    [Fact]
     public void NestedBlockAffineTransformComposesMTextWcsBasisOnce()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
@@ -210,6 +243,28 @@ public sealed class CadMTextSnapshotTests
         Assert.Empty(snapshot.MTextGlyphRuns.ToArray());
         Assert.Equal(1, snapshot.Statistics.InvalidEntityCount);
         Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic => diagnostic.Code == "CADSNAP002");
+    }
+
+    [Theory]
+    [InlineData(DrawingDirectionType.RightToLeft)]
+    [InlineData(DrawingDirectionType.BottomToTop)]
+    public void ReservedDrawingDirectionsRemainExplicitCapabilityGates(
+        DrawingDirectionType direction)
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add reserved-direction MTEXT", document =>
+            document.Entities.Add(new MText
+            {
+                Value = "CAD",
+                DrawingDirection = direction,
+            }));
+
+        CadDocumentSnapshot snapshot = Compile(session);
+
+        Assert.Empty(snapshot.Entities.ToArray());
+        Assert.Empty(snapshot.MTexts.ToArray());
+        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
+            diagnostic.Message.Contains("reserved", StringComparison.Ordinal));
     }
 
     [Fact]

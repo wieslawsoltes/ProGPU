@@ -120,7 +120,13 @@ public sealed partial class CadSnapshotCompiler
                     shxFontResolver,
                     drawingCodePage);
             }
-            if (mtext.DrawingDirection is DrawingDirectionType.TopToBottom or DrawingDirectionType.BottomToTop)
+            if (mtext.DrawingDirection is DrawingDirectionType.RightToLeft or
+                DrawingDirectionType.BottomToTop)
+            {
+                throw new CadUnsupportedEntityException(
+                    "TrueType MTEXT right-to-left and bottom-to-top drawing-direction values are reserved by the Autodesk contract.");
+            }
+            if (mtext.DrawingDirection == DrawingDirectionType.TopToBottom)
             {
                 throw new CadUnsupportedEntityException(
                     "Vertical TrueType MTEXT drawing direction requires vertical shaping and glyph orientation.");
@@ -156,6 +162,10 @@ public sealed partial class CadSnapshotCompiler
             var boxes = new List<StyledTextInlineBox>();
             var stacks = new List<MTextStackLayout>();
             var forcedColumnStarts = new HashSet<int>();
+            var paragraphFormats = new List<(int Start, CadMTextParagraphFormat Format)>
+            {
+                (0, CadMTextParagraphFormat.Default),
+            };
             var substitutionNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             ReadOnlySpan<CadMTextInline> inlines = content.Inlines.Span;
             for (int inlineIndex = 0; inlineIndex < inlines.Length; inlineIndex++)
@@ -172,10 +182,11 @@ public sealed partial class CadSnapshotCompiler
                 {
                     substitutionNames.Add(style.Font.FamilyName);
                 }
-                if (!IsSupportedMTextParagraph(inline.Style.Paragraph.RawPayload))
+                if (inline.Style.Paragraph.RawPayload.Length > 0)
                 {
-                    throw new CadUnsupportedEntityException(
-                        $"MTEXT paragraph indentation or tab formatting at source offset {inline.SourceOffset} requires typed tab-stop lowering.");
+                    paragraphFormats[^1] = (
+                        paragraphFormats[^1].Start,
+                        inline.Style.Paragraph);
                 }
 
                 int start = source.Length;
@@ -186,10 +197,12 @@ public sealed partial class CadSnapshotCompiler
                         break;
                     case CadMTextInlineKind.ParagraphBreak:
                         source.Append('\n');
+                        paragraphFormats.Add((source.Length, inline.Style.Paragraph));
                         break;
                     case CadMTextInlineKind.ColumnBreak:
                         source.Append('\n');
                         forcedColumnStarts.Add(source.Length);
+                        paragraphFormats.Add((source.Length, inline.Style.Paragraph));
                         break;
                     case CadMTextInlineKind.Stack:
                         {
@@ -233,6 +246,9 @@ public sealed partial class CadSnapshotCompiler
                 throw new CadUnsupportedEntityException("MTEXT contains no drawable content.");
             }
             EnsureMTextRangePartition(source.Length, ranges, resolvedStyles, mtext, cadStyle, entityStyle, layerColor, resolver);
+            StyledTextParagraphStyle[] styledParagraphs = CreateMTextParagraphStyles(
+                mtext,
+                paragraphFormats);
 
             var layout = new StyledTextLayout(
                 source.ToString(),
@@ -243,9 +259,8 @@ public sealed partial class CadSnapshotCompiler
                     MaxWidth = columnWidth,
                     MinimumLineSpacing = checked((float)(mtext.Height * (5.0 / 3.0) * mtext.LineSpacing)),
                     ExactLineSpacing = mtext.LineSpacingStyle == LineSpacingStyleType.Exact,
-                    BaseDirection = mtext.DrawingDirection == DrawingDirectionType.RightToLeft
-                        ? ShapingDirection.RightToLeft
-                        : ShapingDirection.LeftToRight,
+                    BaseDirection = ShapingDirection.LeftToRight,
+                    ParagraphStyles = styledParagraphs,
                 });
 
             StyledTextLine[] layoutLines = layout.Lines.ToArray();
@@ -526,21 +541,72 @@ public sealed partial class CadSnapshotCompiler
             ? byte.MaxValue
             : (byte)Math.Round(255.0 * (100.0 - transparency) / 100.0);
 
-    private static bool IsSupportedMTextParagraph(string payload)
+    private static StyledTextParagraphStyle[] CreateMTextParagraphStyles(
+        MText mtext,
+        List<(int Start, CadMTextParagraphFormat Format)> formats)
     {
-        if (payload.Length == 0) return true;
-        for (int index = 0; index < payload.Length; index++)
+        float entityHeight = checked((float)mtext.Height);
+        float entityLineSpacing = checked((float)(
+            mtext.Height * (5.0 / 3.0) * mtext.LineSpacing));
+        var result = new StyledTextParagraphStyle[formats.Count];
+        for (int index = 0; index < formats.Count; index++)
         {
-            if (payload[index] is ',' or ' ') continue;
-            if (payload[index] == 'q' && index + 1 < payload.Length &&
-                char.ToLowerInvariant(payload[index + 1]) is 'l' or 'c' or 'r' or 'j' or 'd' or '*')
+            (int start, CadMTextParagraphFormat format) = formats[index];
+            ReadOnlySpan<CadMTextTabStop> sourceTabs = format.TabStops.Span;
+            var tabs = new StyledTextTabStop[sourceTabs.Length];
+            for (int tabIndex = 0; tabIndex < sourceTabs.Length; tabIndex++)
             {
-                index++;
-                continue;
+                CadMTextTabStop stop = sourceTabs[tabIndex];
+                tabs[tabIndex] = new StyledTextTabStop(
+                    checked((float)(stop.PositionFactor * mtext.Height)),
+                    stop.Alignment switch
+                    {
+                        CadMTextTabAlignment.Center => StyledTextTabAlignment.Center,
+                        CadMTextTabAlignment.Right => StyledTextTabAlignment.Right,
+                        CadMTextTabAlignment.Decimal => StyledTextTabAlignment.Decimal,
+                        _ => StyledTextTabAlignment.Left,
+                    });
             }
-            return false;
+            float minimumLineSpacing;
+            bool exactLineSpacing;
+            switch (format.LineSpacing.Kind)
+            {
+                case CadMTextParagraphLineSpacingKind.Exact:
+                    minimumLineSpacing = checked((float)(
+                        format.LineSpacing.Factor * mtext.Height));
+                    exactLineSpacing = true;
+                    break;
+                case CadMTextParagraphLineSpacingKind.Multiple:
+                    minimumLineSpacing = checked((float)(
+                        format.LineSpacing.Factor * entityLineSpacing));
+                    exactLineSpacing = false;
+                    break;
+                default:
+                    minimumLineSpacing = entityLineSpacing;
+                    exactLineSpacing = mtext.LineSpacingStyle == LineSpacingStyleType.Exact;
+                    break;
+            }
+            result[index] = new StyledTextParagraphStyle(
+                start,
+                checked((float)(format.FirstLineIndentFactor * mtext.Height)),
+                checked((float)(format.LeftIndentFactor * mtext.Height)),
+                checked((float)(format.RightIndentFactor * mtext.Height)),
+                format.Alignment switch
+                {
+                    CadMTextParagraphAlignment.Center => TextAlignment.Center,
+                    CadMTextParagraphAlignment.Right => TextAlignment.Right,
+                    CadMTextParagraphAlignment.Justify or
+                        CadMTextParagraphAlignment.Distributed => TextAlignment.Justify,
+                    _ => TextAlignment.Left,
+                },
+                tabs,
+                Math.Max(entityHeight * 4.0f, 0.01f),
+                checked((float)(format.SpaceBeforeFactor * mtext.Height)),
+                checked((float)(format.SpaceAfterFactor * mtext.Height)),
+                minimumLineSpacing,
+                exactLineSpacing);
         }
-        return true;
+        return result;
     }
 
     private static void EnsureMTextRangePartition(

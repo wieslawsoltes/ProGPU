@@ -200,6 +200,116 @@ public sealed class StyledTextLayoutTests
     }
 
     [Fact]
+    public void ParagraphIndentsWrapWithDistinctFirstAndContinuationStarts()
+    {
+        const string text = "A A A A";
+        var font = InterFontFamily.Regular;
+        var layout = new StyledTextLayout(
+            text,
+            [new StyledTextRange(0, text.Length, new StyledTextStyle(font, 16.0f))],
+            options: new StyledTextLayoutOptions
+            {
+                MaxWidth = 55.0f,
+                ParagraphStyles = new[]
+                {
+                    new StyledTextParagraphStyle(
+                        0,
+                        10.0f,
+                        12.0f,
+                        8.0f,
+                        TextAlignment.Left,
+                        ReadOnlyMemory<StyledTextTabStop>.Empty,
+                        40.0f),
+                },
+            });
+
+        StyledTextLine[] lines = layout.Lines.ToArray();
+        Assert.True(lines.Length >= 2);
+        StyledTextGlyph[] glyphs = layout.Glyphs.ToArray();
+        Assert.InRange(Math.Abs(glyphs[lines[0].GlyphOffset].Position.X - 22.0f), 0.0f, 0.001f);
+        Assert.InRange(Math.Abs(glyphs[lines[1].GlyphOffset].Position.X - 12.0f), 0.0f, 0.001f);
+        Assert.All(lines, line => Assert.True(line.Width <= 47.001f));
+    }
+
+    [Fact]
+    public void CustomTabsAlignLeftCenterRightAndDecimalFields()
+    {
+        var font = InterFontFamily.Regular;
+        const float fontSize = 20.0f;
+        AssertField("A\tBC", StyledTextTabAlignment.Left, 2, 80.0f);
+
+        float fieldWidth = new StyledTextLayout(
+            "BC",
+            [new StyledTextRange(0, 2, new StyledTextStyle(font, fontSize))])
+            .ContentSize.X;
+        AssertField("A\tBC", StyledTextTabAlignment.Center, 2, 80.0f - fieldWidth * 0.5f);
+        AssertField("A\tBC", StyledTextTabAlignment.Right, 2, 80.0f - fieldWidth);
+        AssertField("A\t12.5", StyledTextTabAlignment.Decimal, 4, 80.0f);
+
+        void AssertField(
+            string text,
+            StyledTextTabAlignment alignment,
+            int cluster,
+            float expectedX)
+        {
+            var layout = new StyledTextLayout(
+                text,
+                [new StyledTextRange(0, text.Length, new StyledTextStyle(font, fontSize))],
+                options: new StyledTextLayoutOptions
+                {
+                    ParagraphStyles = new[]
+                    {
+                        new StyledTextParagraphStyle(
+                            0,
+                            0.0f,
+                            0.0f,
+                            0.0f,
+                            TextAlignment.Left,
+                            new[] { new StyledTextTabStop(80.0f, alignment) },
+                            40.0f),
+                    },
+                });
+            StyledTextGlyph glyph = Assert.Single(
+                layout.Glyphs.ToArray(),
+                item => item.Cluster == cluster);
+            Assert.InRange(Math.Abs(glyph.Position.X - expectedX), 0.0f, 0.01f);
+            Assert.DoesNotContain(layout.Glyphs.ToArray(), item => item.CodePoint == '\t');
+        }
+    }
+
+    [Fact]
+    public void ParagraphSpacingIsRetainedInLineBoxesAndContentHeight()
+    {
+        const string text = "A\nB";
+        var font = InterFontFamily.Regular;
+        var layout = new StyledTextLayout(
+            text,
+            [new StyledTextRange(0, text.Length, new StyledTextStyle(font, 20.0f))],
+            options: new StyledTextLayoutOptions
+            {
+                ParagraphStyles = new[]
+                {
+                    new StyledTextParagraphStyle(
+                        0, 0, 0, 0, TextAlignment.Left,
+                        ReadOnlyMemory<StyledTextTabStop>.Empty, 40,
+                        SpaceBefore: 3, SpaceAfter: 5),
+                    new StyledTextParagraphStyle(
+                        2, 0, 0, 0, TextAlignment.Left,
+                        ReadOnlyMemory<StyledTextTabStop>.Empty, 40,
+                        SpaceBefore: 7, SpaceAfter: 11),
+                },
+            });
+
+        StyledTextLine[] lines = layout.Lines.ToArray();
+        Assert.Equal(2, lines.Length);
+        Assert.Equal(0.0f, lines[0].Top);
+        Assert.Equal(lines[0].Height, lines[1].Top);
+        Assert.True(lines[0].Baseline >= 3.0f);
+        Assert.True(lines[1].Baseline >= lines[1].Top + 7.0f);
+        Assert.Equal(lines[0].Height + lines[1].Height, layout.ContentSize.Y);
+    }
+
+    [Fact]
     public void InvalidPartitionsAndInlineBoxesFailBeforeShaping()
     {
         var font = InterFontFamily.Regular;
@@ -221,5 +331,17 @@ public sealed class StyledTextLayoutTests
                 new StyledTextRange(0, 2, style),
                 new StyledTextRange(2, 2, style),
             ]));
+        Assert.Throws<ArgumentException>(() => new StyledTextLayout(
+            "A",
+            [new StyledTextRange(0, 1, style)],
+            options: new StyledTextLayoutOptions
+            {
+                ParagraphStyles = new[]
+                {
+                    new StyledTextParagraphStyle(
+                        0, 0, 0, 0, TextAlignment.Left,
+                        new[] { new StyledTextTabStop(0) }, 40),
+                },
+            }));
     }
 }

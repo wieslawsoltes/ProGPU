@@ -29,6 +29,8 @@ public sealed partial class CadSnapshotCompiler
         int StyleIndex,
         CadMTextDecoration Decorations,
         bool IsWhitespace,
+        bool IsTab,
+        uint CodePoint,
         float Width,
         float Ascent,
         float Descent)
@@ -36,11 +38,15 @@ public sealed partial class CadSnapshotCompiler
         public bool IsStack => StackIndex >= 0;
     }
 
-    private sealed class ShxMTextParagraph(int styleIndex, bool forcedColumnStart)
+    private sealed class ShxMTextParagraph(
+        int styleIndex,
+        bool forcedColumnStart,
+        CadMTextParagraphFormat format)
     {
         public readonly List<ShxMTextCandidate> Candidates = new();
         public int StyleIndex = styleIndex;
         public bool ForcedColumnStart = forcedColumnStart;
+        public CadMTextParagraphFormat Format = format;
     }
 
     private sealed record ShxMTextStackLayout(
@@ -161,20 +167,22 @@ public sealed partial class CadSnapshotCompiler
         int defaultStyleIndex = AddStyle(CadMTextRunStyle.Default);
         var paragraphs = new List<ShxMTextParagraph>
         {
-            new(defaultStyleIndex, forcedColumnStart: false),
+            new(
+                defaultStyleIndex,
+                forcedColumnStart: false,
+                CadMTextParagraphFormat.Default),
         };
 
         ReadOnlySpan<CadMTextInline> inlines = content.Inlines.Span;
         for (int inlineIndex = 0; inlineIndex < inlines.Length; inlineIndex++)
         {
             CadMTextInline inline = inlines[inlineIndex];
-            if (!IsSupportedMTextParagraph(inline.Style.Paragraph.RawPayload))
+            ShxMTextParagraph paragraph = paragraphs[^1];
+            if (inline.Style.Paragraph.RawPayload.Length > 0)
             {
-                throw new CadUnsupportedEntityException(
-                    $"SHX MTEXT paragraph indentation or tab formatting at source offset {inline.SourceOffset} requires typed tab-stop lowering.");
+                paragraph.Format = inline.Style.Paragraph;
             }
             int resolvedStyleIndex = AddStyle(inline.Style);
-            ShxMTextParagraph paragraph = paragraphs[^1];
             if (paragraph.Candidates.Count == 0)
             {
                 paragraph.StyleIndex = resolvedStyleIndex;
@@ -183,11 +191,6 @@ public sealed partial class CadSnapshotCompiler
             switch (inline.Kind)
             {
                 case CadMTextInlineKind.Text:
-                    if (inline.Text.IndexOf('\t') >= 0)
-                    {
-                        throw new CadUnsupportedEntityException(
-                            $"SHX MTEXT tab characters at source offset {inline.SourceOffset} require typed tab-stop lowering.");
-                    }
                     AppendText(inline.Text, resolvedStyleIndex, paragraph.Candidates);
                     break;
                 case CadMTextInlineKind.Stack:
@@ -200,6 +203,8 @@ public sealed partial class CadSnapshotCompiler
                             stack.StyleIndex,
                             CadMTextDecoration.None,
                             false,
+                            false,
+                            0,
                             stack.Width,
                             stack.Ascent,
                             stack.Descent));
@@ -208,12 +213,14 @@ public sealed partial class CadSnapshotCompiler
                 case CadMTextInlineKind.ParagraphBreak:
                     paragraphs.Add(new ShxMTextParagraph(
                         resolvedStyleIndex,
-                        forcedColumnStart: false));
+                        forcedColumnStart: false,
+                        inline.Style.Paragraph));
                     break;
                 case CadMTextInlineKind.ColumnBreak:
                     paragraphs.Add(new ShxMTextParagraph(
                         resolvedStyleIndex,
-                        forcedColumnStart: true));
+                        forcedColumnStart: true,
+                        inline.Style.Paragraph));
                     break;
                 default:
                     throw new InvalidOperationException("Unknown parsed SHX MTEXT inline kind.");
@@ -231,24 +238,49 @@ public sealed partial class CadSnapshotCompiler
         for (int paragraphIndex = 0; paragraphIndex < paragraphs.Count; paragraphIndex++)
         {
             ShxMTextParagraph paragraph = paragraphs[paragraphIndex];
+            int paragraphLineStart = lines.Count;
             if (paragraph.Candidates.Count == 0)
             {
-                PlaceLine(paragraph, 0, 0, paragraphFinal: true);
-                continue;
-            }
-            int candidateStart = 0;
-            while (candidateStart < paragraph.Candidates.Count)
-            {
-                int candidateEnd = FindShxMTextLineEnd(
-                    paragraph.Candidates,
-                    candidateStart,
-                    columnWidth);
                 PlaceLine(
                     paragraph,
-                    candidateStart,
-                    candidateEnd,
-                    candidateEnd == paragraph.Candidates.Count);
-                candidateStart = candidateEnd;
+                    0,
+                    0,
+                    paragraphFinal: true,
+                    firstLine: true);
+            }
+            else
+            {
+                int candidateStart = 0;
+                bool firstLine = true;
+                while (candidateStart < paragraph.Candidates.Count)
+                {
+                    int candidateEnd = FindShxMTextLineEnd(
+                        paragraph.Candidates,
+                        candidateStart,
+                        columnWidth,
+                        paragraph.Format,
+                        checked((float)mtext.Height),
+                        firstLine);
+                    PlaceLine(
+                        paragraph,
+                        candidateStart,
+                        candidateEnd,
+                        candidateEnd == paragraph.Candidates.Count,
+                        firstLine);
+                    candidateStart = candidateEnd;
+                    firstLine = false;
+                }
+            }
+            float spaceAfter = checked((float)(
+                paragraph.Format.SpaceAfterFactor * mtext.Height));
+            if (lines.Count > paragraphLineStart && spaceAfter > 0.0f)
+            {
+                ShxMTextLine finalLine = lines[^1];
+                lines[^1] = finalLine with
+                {
+                    Height = finalLine.Height + spaceAfter,
+                };
+                cursorY += spaceAfter;
             }
         }
 
@@ -495,60 +527,88 @@ public sealed partial class CadSnapshotCompiler
         {
             if (text.Length == 0) return;
             ShxMTextResolvedStyle style = styles[resolvedStyleIndex];
-            CadShxTextLayout layout;
-            try
+            int segmentStart = 0;
+            for (int index = 0; index <= text.Length; index++)
             {
-                layout = new CadShxTextLayout(
-                    text,
-                    style.Cache,
-                    orientation,
-                    new CadShxTextLayoutOptions
-                    {
-                        MaxCodeUnits = options.MaxTextCodeUnitsPerEntity,
-                        MaxGlyphs = options.MaxTextGlyphs,
-                    },
-                    style.BigFontCache,
-                    style.DrawingCodePage);
-            }
-            catch (Exception exception) when (
-                exception is InvalidDataException or NotSupportedException or
-                    KeyNotFoundException or ArgumentOutOfRangeException)
-            {
-                throw new CadUnsupportedEntityException(exception.Message);
+                if (index < text.Length && text[index] != '\t') continue;
+                if (index > segmentStart)
+                    AppendSegment(text[segmentStart..index]);
+                if (index < text.Length)
+                {
+                    candidates.Add(new ShxMTextCandidate(
+                        null,
+                        -1,
+                        resolvedStyleIndex,
+                        CadMTextDecoration.None,
+                        true,
+                        true,
+                        '\t',
+                        0.0f,
+                        style.FontSize,
+                        style.Cache.Font.Below * style.ScaleY));
+                }
+                segmentStart = index + 1;
             }
 
-            ReadOnlySpan<CadShxGlyphPlacement> placements = layout.Glyphs.Span;
-            for (int index = 0; index < placements.Length; index++)
+            void AppendSegment(string segment)
             {
-                CadShxGlyphPlacement placement = placements[index];
-                ValidateShxMTextAdvance(
-                    style.Cache.Font,
-                    placement.Glyph,
-                    orientation);
-                float width = ResolveShxMTextInlineAdvance(
-                    placement.Glyph,
-                    style,
-                    orientation);
-                ResolveShxMTextCrossExtents(
-                    placement.Glyph,
-                    style,
-                    orientation,
-                    out float ascent,
-                    out float descent);
-                candidates.Add(new ShxMTextCandidate(
-                    placement.Glyph,
-                    -1,
-                    resolvedStyleIndex,
-                    style.Decorations | FromShxDecoration(placement.Decorations),
-                    placement.IsBreakOpportunity,
-                    width,
-                    orientation == CadShxOrientation.Horizontal
-                        ? Math.Max(0.0f, style.FontSize + style.BaselineShift)
-                        : ascent,
-                    orientation == CadShxOrientation.Horizontal
-                        ? Math.Max(0.0f,
-                            style.Cache.Font.Below * style.ScaleY - style.BaselineShift)
-                        : descent));
+                CadShxTextLayout layout;
+                try
+                {
+                    layout = new CadShxTextLayout(
+                        segment,
+                        style.Cache,
+                        orientation,
+                        new CadShxTextLayoutOptions
+                        {
+                            MaxCodeUnits = options.MaxTextCodeUnitsPerEntity,
+                            MaxGlyphs = options.MaxTextGlyphs,
+                        },
+                        style.BigFontCache,
+                        style.DrawingCodePage);
+                }
+                catch (Exception exception) when (
+                    exception is InvalidDataException or NotSupportedException or
+                        KeyNotFoundException or ArgumentOutOfRangeException)
+                {
+                    throw new CadUnsupportedEntityException(exception.Message);
+                }
+
+                ReadOnlySpan<CadShxGlyphPlacement> placements = layout.Glyphs.Span;
+                for (int index = 0; index < placements.Length; index++)
+                {
+                    CadShxGlyphPlacement placement = placements[index];
+                    ValidateShxMTextAdvance(
+                        style.Cache.Font,
+                        placement.Glyph,
+                        orientation);
+                    float width = ResolveShxMTextInlineAdvance(
+                        placement.Glyph,
+                        style,
+                        orientation);
+                    ResolveShxMTextCrossExtents(
+                        placement.Glyph,
+                        style,
+                        orientation,
+                        out float ascent,
+                        out float descent);
+                    candidates.Add(new ShxMTextCandidate(
+                        placement.Glyph,
+                        -1,
+                        resolvedStyleIndex,
+                        style.Decorations | FromShxDecoration(placement.Decorations),
+                        placement.IsBreakOpportunity,
+                        false,
+                        placement.CodePoint,
+                        width,
+                        orientation == CadShxOrientation.Horizontal
+                            ? Math.Max(0.0f, style.FontSize + style.BaselineShift)
+                            : ascent,
+                        orientation == CadShxOrientation.Horizontal
+                            ? Math.Max(0.0f,
+                                style.Cache.Font.Below * style.ScaleY - style.BaselineShift)
+                            : descent));
+                }
             }
         }
 
@@ -633,18 +693,35 @@ public sealed partial class CadSnapshotCompiler
             ShxMTextParagraph paragraph,
             int start,
             int end,
-            bool paragraphFinal)
+            bool paragraphFinal,
+            bool firstLine)
         {
-            float naturalWidth = 0.0f;
+            float lineStart = ResolveShxParagraphLineStart(
+                paragraph.Format,
+                checked((float)mtext.Height),
+                firstLine);
+            var advances = new float[end - start];
+            float naturalCursor = lineStart;
             float ascent = 0.0f;
             float descent = 0.0f;
             for (int index = start; index < end; index++)
             {
                 ShxMTextCandidate candidate = paragraph.Candidates[index];
-                naturalWidth += candidate.Width;
+                float advance = candidate.IsTab
+                    ? ResolveShxTabAdvance(
+                        paragraph.Candidates,
+                        index,
+                        naturalCursor,
+                        paragraph.Format,
+                        checked((float)mtext.Height),
+                        end)
+                    : candidate.Width;
+                advances[index - start] = advance;
+                naturalCursor += advance;
                 ascent = Math.Max(ascent, candidate.Ascent);
                 descent = Math.Max(descent, candidate.Descent);
             }
+            float naturalWidth = naturalCursor - lineStart;
             if (start == end)
             {
                 ShxMTextResolvedStyle emptyStyle = styles[paragraph.StyleIndex];
@@ -652,25 +729,32 @@ public sealed partial class CadSnapshotCompiler
                 descent = emptyStyle.Cache.Font.Below * emptyStyle.ScaleY;
             }
             float naturalHeight = ascent + descent;
-            float lineHeight = mtext.LineSpacingStyle == LineSpacingStyleType.Exact
-                ? minimumLineSpacing
-                : Math.Max(naturalHeight, minimumLineSpacing);
-            float baseline = cursorY + ascent;
-            ShxMTextResolvedStyle paragraphStyle = styles[
-                start < end
-                    ? paragraph.Candidates[start].StyleIndex
-                    : paragraph.StyleIndex];
+            float spaceBefore = firstLine
+                ? checked((float)(paragraph.Format.SpaceBeforeFactor * mtext.Height))
+                : 0.0f;
+            float lineHeight = spaceBefore + ResolveShxParagraphLineHeight(
+                naturalHeight,
+                minimumLineSpacing,
+                paragraph.Format,
+                checked((float)mtext.Height),
+                mtext.LineSpacingStyle == LineSpacingStyleType.Exact);
+            float baseline = cursorY + spaceBefore + ascent;
             float available = float.IsPositiveInfinity(columnWidth)
                 ? naturalWidth
-                : columnWidth;
+                : columnWidth -
+                    checked((float)(paragraph.Format.RightIndentFactor * mtext.Height)) -
+                    lineStart;
+            if (!(available > 0.0f) && start < end)
+                throw new ArgumentException(
+                    "SHX MTEXT paragraph indents leave no positive line width.");
             float remaining = Math.Max(0.0f, available - naturalWidth);
-            float x = paragraphStyle.Alignment switch
+            float x = lineStart + (paragraph.Format.Alignment switch
             {
                 CadMTextParagraphAlignment.Center => remaining * 0.5f,
                 CadMTextParagraphAlignment.Right => remaining,
                 _ => 0.0f,
-            };
-            int whitespaceGroups = (paragraphStyle.Alignment is
+            });
+            int whitespaceGroups = (paragraph.Format.Alignment is
                     CadMTextParagraphAlignment.Justify or CadMTextParagraphAlignment.Distributed) &&
                 !paragraphFinal
                 ? CountShxWhitespaceGroups(paragraph.Candidates, start, end)
@@ -686,10 +770,18 @@ public sealed partial class CadSnapshotCompiler
             for (int index = start; index < end; index++)
             {
                 ShxMTextCandidate candidate = paragraph.Candidates[index];
-                if (!candidate.IsWhitespace && inWhitespace)
+                if ((!candidate.IsWhitespace || candidate.IsTab) && inWhitespace)
                 {
                     x += gapExtra;
                     inWhitespace = false;
+                }
+                if (candidate.IsTab)
+                {
+                    FlushDecoration(ref overline);
+                    FlushDecoration(ref strikeThrough);
+                    FlushDecoration(ref underline);
+                    x += advances[index - start];
+                    continue;
                 }
                 float candidateStart = x;
                 if (candidate.IsStack)
@@ -705,7 +797,7 @@ public sealed partial class CadSnapshotCompiler
                         baseline - candidateStyle.BaselineShift,
                         candidate.StyleIndex));
                 }
-                x += candidate.Width;
+                x += advances[index - start];
                 ShxMTextResolvedStyle style = styles[candidate.StyleIndex];
                 UpdateDecoration(
                     ref overline,
@@ -728,7 +820,7 @@ public sealed partial class CadSnapshotCompiler
                     x,
                     baseline - style.BaselineShift + (style.FontSize * 0.08f),
                     style);
-                if (candidate.IsWhitespace) inWhitespace = true;
+                if (candidate.IsWhitespace && !candidate.IsTab) inWhitespace = true;
             }
             if (inWhitespace) x += gapExtra;
             FlushDecoration(ref overline);
@@ -737,7 +829,9 @@ public sealed partial class CadSnapshotCompiler
             float recordedWidth = whitespaceGroups > 0 &&
                                   !float.IsPositiveInfinity(columnWidth)
                 ? available
-                : Math.Max(naturalWidth, x);
+                : Math.Max(lineStart + naturalWidth, x);
+            if (whitespaceGroups > 0 && !float.IsPositiveInfinity(columnWidth))
+                recordedWidth += lineStart;
             maximumLineWidth = Math.Max(maximumLineWidth, recordedWidth);
             lines.Add(new ShxMTextLine(
                 paragraph.ForcedColumnStart,
@@ -1198,16 +1292,32 @@ public sealed partial class CadSnapshotCompiler
     private static int FindShxMTextLineEnd(
         List<ShxMTextCandidate> candidates,
         int start,
-        float maximumWidth)
+        float maximumWidth,
+        in CadMTextParagraphFormat format,
+        float entityHeight,
+        bool firstLine)
     {
         if (float.IsPositiveInfinity(maximumWidth)) return candidates.Count;
-        float width = 0.0f;
+        float cursor = ResolveShxParagraphLineStart(format, entityHeight, firstLine);
+        float limit = maximumWidth - checked((float)(format.RightIndentFactor * entityHeight));
+        if (!(limit > cursor))
+            throw new ArgumentException(
+                "SHX MTEXT paragraph indents leave no positive line width.");
         int lastWhitespaceBreak = -1;
         for (int index = start; index < candidates.Count; index++)
         {
             ShxMTextCandidate candidate = candidates[index];
             if (candidate.IsWhitespace) lastWhitespaceBreak = index + 1;
-            if (index > start && width + candidate.Width > maximumWidth)
+            float advance = candidate.IsTab
+                ? ResolveShxTabAdvance(
+                    candidates,
+                    index,
+                    cursor,
+                    format,
+                    entityHeight,
+                    candidates.Count)
+                : candidate.Width;
+            if (index > start && cursor + advance > limit)
             {
                 if (lastWhitespaceBreak > start) return lastWhitespaceBreak;
                 int wordEnd = index;
@@ -1218,9 +1328,110 @@ public sealed partial class CadSnapshotCompiler
                 }
                 return Math.Max(start + 1, wordEnd);
             }
-            width += candidate.Width;
+            cursor += advance;
         }
         return candidates.Count;
+    }
+
+    private static float ResolveShxParagraphLineStart(
+        in CadMTextParagraphFormat format,
+        float entityHeight,
+        bool firstLine) =>
+        checked((float)((format.LeftIndentFactor +
+            (firstLine ? format.FirstLineIndentFactor : 0.0)) * entityHeight));
+
+    private static float ResolveShxTabAdvance(
+        List<ShxMTextCandidate> candidates,
+        int tabIndex,
+        float cursor,
+        in CadMTextParagraphFormat format,
+        float entityHeight,
+        int endExclusive)
+    {
+        ReadOnlySpan<CadMTextTabStop> stops = format.TabStops.Span;
+        for (int index = 0; index < stops.Length; index++)
+        {
+            CadMTextTabStop stop = stops[index];
+            float position = checked((float)(stop.PositionFactor * entityHeight));
+            if (!(position > cursor)) continue;
+            float fieldOffset = ResolveShxTabFieldOffset(
+                candidates,
+                tabIndex + 1,
+                endExclusive,
+                stop.Alignment);
+            float advance = position - cursor - fieldOffset;
+            if (advance >= 0.0f) return advance;
+        }
+
+        float interval = Math.Max(entityHeight * 4.0f, 0.01f);
+        float target = (MathF.Floor(cursor / interval) + 1.0f) * interval;
+        if (stops.Length > 0)
+        {
+            float last = checked((float)(stops[^1].PositionFactor * entityHeight));
+            target = Math.Max(target, last + interval);
+        }
+        return Math.Max(0.0f, target - cursor);
+    }
+
+    private static float ResolveShxTabFieldOffset(
+        List<ShxMTextCandidate> candidates,
+        int start,
+        int end,
+        CadMTextTabAlignment alignment)
+    {
+        if (alignment == CadMTextTabAlignment.Left) return 0.0f;
+        float width = 0.0f;
+        float decimalWidth = float.NaN;
+        for (int index = start; index < end; index++)
+        {
+            ShxMTextCandidate candidate = candidates[index];
+            if (candidate.IsTab) break;
+            if (float.IsNaN(decimalWidth) &&
+                candidate.CodePoint is '.' or ',' or ' ')
+            {
+                decimalWidth = width;
+            }
+            width += candidate.Width;
+        }
+        return alignment switch
+        {
+            CadMTextTabAlignment.Center => width * 0.5f,
+            CadMTextTabAlignment.Right => width,
+            CadMTextTabAlignment.Decimal => float.IsNaN(decimalWidth)
+                ? width
+                : decimalWidth,
+            _ => 0.0f,
+        };
+    }
+
+    private static float ResolveShxParagraphLineHeight(
+        float natural,
+        float entityMinimum,
+        in CadMTextParagraphFormat format,
+        float entityHeight,
+        bool entityExact)
+    {
+        float minimum;
+        bool exact;
+        switch (format.LineSpacing.Kind)
+        {
+            case CadMTextParagraphLineSpacingKind.Exact:
+                minimum = checked((float)(format.LineSpacing.Factor * entityHeight));
+                exact = true;
+                break;
+            case CadMTextParagraphLineSpacingKind.Multiple:
+                minimum = checked((float)(format.LineSpacing.Factor * entityMinimum));
+                exact = false;
+                break;
+            case CadMTextParagraphLineSpacingKind.Entity:
+                minimum = entityMinimum;
+                exact = entityExact;
+                break;
+            default:
+                throw new ArgumentException("SHX MTEXT paragraph line-spacing kind is invalid.");
+        }
+        if (minimum <= 0.0f) return natural;
+        return exact ? minimum : Math.Max(natural, minimum);
     }
 
     private static int CountShxWhitespaceGroups(
@@ -1232,7 +1443,7 @@ public sealed partial class CadSnapshotCompiler
         bool active = false;
         for (int index = start; index < end; index++)
         {
-            if (candidates[index].IsWhitespace)
+            if (candidates[index].IsWhitespace && !candidates[index].IsTab)
             {
                 if (!active) count++;
                 active = true;

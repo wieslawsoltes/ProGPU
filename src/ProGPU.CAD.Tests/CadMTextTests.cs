@@ -101,6 +101,67 @@ public sealed class CadMTextTests
     }
 
     [Fact]
+    public void ParagraphGeometryTabsSpacingAndCaretControlsAreTyped()
+    {
+        CadMTextContent content = CadMTextParser.Parse(
+            @"\pxi-1,l2,r3,b0.5,a0.25,se1.2,qj,t4,c8,r12,d16;A^IB^JC^MD");
+
+        CadMTextInline[] inlines = content.Inlines.ToArray();
+        Assert.Collection(
+            inlines,
+            item => Assert.Equal("A\tB", item.Text),
+            item => Assert.Equal(CadMTextInlineKind.ParagraphBreak, item.Kind),
+            item => Assert.Equal("CD", item.Text));
+        CadMTextParagraphFormat paragraph = inlines[0].Style.Paragraph;
+        Assert.Equal(CadMTextParagraphAlignment.Justify, paragraph.Alignment);
+        Assert.Equal(-1.0, paragraph.FirstLineIndentFactor);
+        Assert.Equal(2.0, paragraph.LeftIndentFactor);
+        Assert.Equal(3.0, paragraph.RightIndentFactor);
+        Assert.Equal(0.5, paragraph.SpaceBeforeFactor);
+        Assert.Equal(0.25, paragraph.SpaceAfterFactor);
+        Assert.Equal(
+            new CadMTextParagraphLineSpacing(
+                CadMTextParagraphLineSpacingKind.Exact,
+                1.2),
+            paragraph.LineSpacing);
+        Assert.Equal(
+            [
+                new CadMTextTabStop(4.0, CadMTextTabAlignment.Left),
+                new CadMTextTabStop(8.0, CadMTextTabAlignment.Center),
+                new CadMTextTabStop(12.0, CadMTextTabAlignment.Right),
+                new CadMTextTabStop(16.0, CadMTextTabAlignment.Decimal),
+            ],
+            paragraph.TabStops.ToArray());
+    }
+
+    [Fact]
+    public void ParagraphResetsAndTabBudgetsFailTransactionally()
+    {
+        CadMTextInline reset = Assert.Single(CadMTextParser.Parse(
+            @"\pi4,l2,r3,b1,a1,sm1.5,t4,c8;A\pi*,l*,r*,b*,a*,s*,q*,t;B")
+            .Inlines.ToArray(),
+            static item => item.Text == "B");
+
+        CadMTextParagraphFormat paragraph = reset.Style.Paragraph;
+        Assert.Equal(CadMTextParagraphAlignment.Left, paragraph.Alignment);
+        Assert.Equal(0.0, paragraph.FirstLineIndentFactor);
+        Assert.Equal(0.0, paragraph.LeftIndentFactor);
+        Assert.Equal(0.0, paragraph.RightIndentFactor);
+        Assert.Equal(0.0, paragraph.SpaceBeforeFactor);
+        Assert.Equal(0.0, paragraph.SpaceAfterFactor);
+        Assert.Equal(CadMTextParagraphLineSpacing.Entity, paragraph.LineSpacing);
+        Assert.Empty(paragraph.TabStops.ToArray());
+        Assert.Throws<CadMTextParseException>(() => CadMTextParser.Parse(@"\pl-1;A"));
+        Assert.Throws<CadMTextParseException>(() => CadMTextParser.Parse(@"\pr-1;A"));
+        Assert.Throws<CadMTextParseException>(() => CadMTextParser.Parse(@"\pb-1;A"));
+        Assert.Throws<CadMTextParseException>(() => CadMTextParser.Parse(@"\psx1;A"));
+        Assert.Throws<CadMTextParseException>(() => CadMTextParser.Parse(@"\pt2,r2;A"));
+        Assert.Throws<CadMTextParseException>(() => CadMTextParser.Parse(
+            @"\pt2,c4;A",
+            new CadMTextParseOptions { MaxTabStopsPerParagraph = 1 }));
+    }
+
+    [Fact]
     public void AbsoluteAndRelativeHeightsRemainDistinct()
     {
         CadMTextInline[] runs = CadMTextParser.Parse(

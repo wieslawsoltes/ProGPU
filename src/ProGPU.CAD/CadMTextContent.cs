@@ -43,6 +43,33 @@ public enum CadMTextParagraphAlignment : byte
     Distributed = 4,
 }
 
+public enum CadMTextTabAlignment : byte
+{
+    Left = 0,
+    Center = 1,
+    Right = 2,
+    Decimal = 3,
+}
+
+public readonly record struct CadMTextTabStop(
+    double PositionFactor,
+    CadMTextTabAlignment Alignment);
+
+public enum CadMTextParagraphLineSpacingKind : byte
+{
+    Entity = 0,
+    Exact = 1,
+    Multiple = 2,
+}
+
+public readonly record struct CadMTextParagraphLineSpacing(
+    CadMTextParagraphLineSpacingKind Kind,
+    double Factor)
+{
+    public static CadMTextParagraphLineSpacing Entity =>
+        new(CadMTextParagraphLineSpacingKind.Entity, 1.0);
+}
+
 public enum CadMTextColorKind : byte
 {
     Inherit = 0,
@@ -73,16 +100,33 @@ public readonly record struct CadMTextFontOverride(
 }
 
 /// <summary>
-/// Immutable paragraph state retained from an MTEXT <c>\p</c> control.
-/// The raw payload is kept so no unimplemented indentation or tab contract is
-/// silently discarded while the commonly authored paragraph alignment remains typed.
+/// Immutable paragraph state retained from an MTEXT <c>\p</c> control. Linear
+/// values are factors of the entity's initial character height, matching the
+/// persisted MTEXT content contract. The raw payload remains available for
+/// diagnostics and exact source preservation by the owning ACadSharp entity.
 /// </summary>
 public readonly record struct CadMTextParagraphFormat(
     CadMTextParagraphAlignment Alignment,
+    double FirstLineIndentFactor,
+    double LeftIndentFactor,
+    double RightIndentFactor,
+    double SpaceBeforeFactor,
+    double SpaceAfterFactor,
+    CadMTextParagraphLineSpacing LineSpacing,
+    ReadOnlyMemory<CadMTextTabStop> TabStops,
     string RawPayload)
 {
     public static CadMTextParagraphFormat Default =>
-        new(CadMTextParagraphAlignment.Left, string.Empty);
+        new(
+            CadMTextParagraphAlignment.Left,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            CadMTextParagraphLineSpacing.Entity,
+            ReadOnlyMemory<CadMTextTabStop>.Empty,
+            string.Empty);
 }
 
 /// <summary>One fully resolved formatting state in an MTEXT content stream.</summary>
@@ -144,10 +188,12 @@ public sealed class CadMTextParseOptions
     public const int DefaultMaxNestingDepth = 8;
     public const int DefaultMaxInlineCount = 131_072;
     public const int DefaultMaxDecodedCodeUnits = 65_536;
+    public const int DefaultMaxTabStopsPerParagraph = 256;
 
     public int MaxNestingDepth { get; init; } = DefaultMaxNestingDepth;
     public int MaxInlineCount { get; init; } = DefaultMaxInlineCount;
     public int MaxDecodedCodeUnits { get; init; } = DefaultMaxDecodedCodeUnits;
+    public int MaxTabStopsPerParagraph { get; init; } = DefaultMaxTabStopsPerParagraph;
 }
 
 public sealed class CadMTextParseException : FormatException
@@ -165,10 +211,11 @@ public sealed class CadMTextParseException : FormatException
 /// Clean-room, bounded parser for the persisted AutoCAD MTEXT content language.
 /// </summary>
 /// <remarks>
-/// Parsing is O(C + R) time and O(D + R) storage for C source code units, D
-/// decoded code units, and R semantic inlines. Group nesting, output text, and
-/// inline counts are caller bounded. The parser performs no font lookup, shaping,
-/// rendering, or mutable ACadSharp graph access.
+/// Parsing is O(C + R + P log P) time and O(D + R + P) storage for C source
+/// code units, D decoded code units, R semantic inlines, and bounded paragraph
+/// tab stops P. Group nesting, output text, inline counts, and tab counts are
+/// caller bounded. The parser performs no font lookup, shaping, rendering, or
+/// mutable ACadSharp graph access.
 /// </remarks>
 public static class CadMTextParser
 {
@@ -235,8 +282,26 @@ public static class CadMTextParser
                 continue;
             }
 
-            if (value == '^' && index + 1 < source.Length && source[index + 1] == 'J')
+            if (value == '^' && index + 1 < source.Length)
             {
+                char caret = char.ToUpperInvariant(source[index + 1]);
+                if (caret == 'I')
+                {
+                    Append('\t', index);
+                    index += 2;
+                    continue;
+                }
+                if (caret == 'M')
+                {
+                    index += 2;
+                    continue;
+                }
+                if (caret != 'J')
+                {
+                    Append(value, index);
+                    index++;
+                    continue;
+                }
                 FlushText(index);
                 AddInline(new CadMTextInline(
                     CadMTextInlineKind.ParagraphBreak,
@@ -452,7 +517,11 @@ public static class CadMTextParser
                     ReadPayload(ref index, escapeOffset, out ReadOnlySpan<char> payload);
                     ChangeStyle(style with
                     {
-                        Paragraph = ParseParagraph(payload, style.Paragraph, escapeOffset),
+                        Paragraph = ParseParagraph(
+                            payload,
+                            style.Paragraph,
+                            escapeOffset,
+                            options.MaxTabStopsPerParagraph),
                     }, escapeOffset);
                     return;
                 }
@@ -705,26 +774,154 @@ public static class CadMTextParser
     private static CadMTextParagraphFormat ParseParagraph(
         ReadOnlySpan<char> payload,
         CadMTextParagraphFormat current,
-        int sourceOffset)
+        int sourceOffset,
+        int maxTabStops)
     {
         CadMTextParagraphAlignment alignment = current.Alignment;
-        for (int index = 0; index < payload.Length - 1; index++)
+        double firstLineIndent = current.FirstLineIndentFactor;
+        double leftIndent = current.LeftIndentFactor;
+        double rightIndent = current.RightIndentFactor;
+        double spaceBefore = current.SpaceBeforeFactor;
+        double spaceAfter = current.SpaceAfterFactor;
+        CadMTextParagraphLineSpacing lineSpacing = current.LineSpacing;
+        var tabStops = current.TabStops.ToArray().ToList();
+        bool tabListStarted = false;
+        bool tabListReplaced = false;
+        int cursor = 0;
+        while (cursor <= payload.Length)
         {
-            if (payload[index] != 'q') continue;
-            alignment = char.ToLowerInvariant(payload[index + 1]) switch
+            int comma = payload[cursor..].IndexOf(',');
+            int end = comma < 0 ? payload.Length : cursor + comma;
+            ReadOnlySpan<char> argument = payload[cursor..end].Trim();
+            while (argument.Length > 0 && char.ToLowerInvariant(argument[0]) == 'x')
+                argument = argument[1..];
+            if (argument.Length > 0)
             {
-                'l' => CadMTextParagraphAlignment.Left,
-                'c' => CadMTextParagraphAlignment.Center,
-                'r' => CadMTextParagraphAlignment.Right,
-                'j' => CadMTextParagraphAlignment.Justify,
-                'd' => CadMTextParagraphAlignment.Distributed,
-                '*' => CadMTextParagraphAlignment.Left,
-                _ => throw Error("MTEXT paragraph alignment is invalid", sourceOffset),
-            };
-            break;
+                char code = char.ToLowerInvariant(argument[0]);
+                ReadOnlySpan<char> value = argument[1..];
+                if (code == 'q')
+                {
+                    if (value.Length != 1)
+                        throw Error("MTEXT paragraph alignment is invalid", sourceOffset);
+                    alignment = char.ToLowerInvariant(value[0]) switch
+                    {
+                        'l' or '*' => CadMTextParagraphAlignment.Left,
+                        'c' => CadMTextParagraphAlignment.Center,
+                        'r' => CadMTextParagraphAlignment.Right,
+                        'j' => CadMTextParagraphAlignment.Justify,
+                        'd' => CadMTextParagraphAlignment.Distributed,
+                        _ => throw Error("MTEXT paragraph alignment is invalid", sourceOffset),
+                    };
+                }
+                else if (code is 't' or 'c' or 'd' ||
+                         (code == 'r' && tabListStarted) ||
+                         (tabListStarted && (char.IsDigit(code) || code is '+' or '-' or '.')))
+                {
+                    if (!tabListReplaced)
+                    {
+                        tabStops.Clear();
+                        tabListReplaced = true;
+                    }
+                    tabListStarted = true;
+                    CadMTextTabAlignment tabAlignment = code switch
+                    {
+                        'c' => CadMTextTabAlignment.Center,
+                        'r' => CadMTextTabAlignment.Right,
+                        'd' => CadMTextTabAlignment.Decimal,
+                        _ => CadMTextTabAlignment.Left,
+                    };
+                    ReadOnlySpan<char> position = char.IsDigit(code) || code is '+' or '-' or '.'
+                        ? argument
+                        : value;
+                    if (position.Length > 0 && !(position.Length == 1 && position[0] == '*'))
+                    {
+                        double factor = ParseDouble(position, sourceOffset, "paragraph tab stop");
+                        if (factor <= 0.0)
+                            throw Error("MTEXT paragraph tab stops must be positive", sourceOffset);
+                        tabStops.Add(new CadMTextTabStop(factor, tabAlignment));
+                        if (tabStops.Count > maxTabStops)
+                            throw Error("MTEXT paragraph tab-stop count exceeds the configured limit", sourceOffset);
+                    }
+                }
+                else
+                {
+                    switch (code)
+                    {
+                        case 'i':
+                            firstLineIndent = ParseResettable(value, allowNegative: true, "first-line indent");
+                            break;
+                        case 'l':
+                            leftIndent = ParseResettable(value, allowNegative: false, "left indent");
+                            break;
+                        case 'r':
+                            rightIndent = ParseResettable(value, allowNegative: false, "right indent");
+                            break;
+                        case 'b':
+                            spaceBefore = ParseResettable(value, allowNegative: false, "space before");
+                            break;
+                        case 'a':
+                            spaceAfter = ParseResettable(value, allowNegative: false, "space after");
+                            break;
+                        case 's':
+                            lineSpacing = ParseParagraphLineSpacing(value, sourceOffset);
+                            break;
+                        default:
+                            throw new NotSupportedException(
+                                $"MTEXT paragraph option '{argument.ToString()}' is unsupported (source offset {sourceOffset}).");
+                    }
+                }
+            }
+
+            if (comma < 0) break;
+            cursor = end + 1;
         }
 
-        return new CadMTextParagraphFormat(alignment, payload.ToString());
+        CadMTextTabStop[] orderedTabs = tabStops
+            .OrderBy(static stop => stop.PositionFactor)
+            .ToArray();
+        for (int index = 1; index < orderedTabs.Length; index++)
+        {
+            if (orderedTabs[index - 1].PositionFactor == orderedTabs[index].PositionFactor)
+                throw Error("MTEXT paragraph tab stops must have unique positions", sourceOffset);
+        }
+
+        return new CadMTextParagraphFormat(
+            alignment,
+            firstLineIndent,
+            leftIndent,
+            rightIndent,
+            spaceBefore,
+            spaceAfter,
+            lineSpacing,
+            orderedTabs,
+            payload.ToString());
+
+        double ParseResettable(ReadOnlySpan<char> value, bool allowNegative, string name)
+        {
+            if (value.Length == 1 && value[0] == '*') return 0.0;
+            double parsed = ParseDouble(value, sourceOffset, $"paragraph {name}");
+            if (!allowNegative && parsed < 0.0)
+                throw Error($"MTEXT paragraph {name} must be nonnegative", sourceOffset);
+            return parsed;
+        }
+    }
+
+    private static CadMTextParagraphLineSpacing ParseParagraphLineSpacing(
+        ReadOnlySpan<char> value,
+        int sourceOffset)
+    {
+        if (value.Length == 1 && value[0] == '*')
+            return CadMTextParagraphLineSpacing.Entity;
+        if (value.Length < 2)
+            throw Error("MTEXT paragraph line spacing is invalid", sourceOffset);
+        CadMTextParagraphLineSpacingKind kind = char.ToLowerInvariant(value[0]) switch
+        {
+            'e' => CadMTextParagraphLineSpacingKind.Exact,
+            'm' => CadMTextParagraphLineSpacingKind.Multiple,
+            _ => throw Error("MTEXT paragraph line spacing mode must be exact or multiple", sourceOffset),
+        };
+        double factor = ParsePositiveDouble(value[1..], sourceOffset, "paragraph line spacing");
+        return new CadMTextParagraphLineSpacing(kind, factor);
     }
 
     private static string DecodeStackPart(ReadOnlySpan<char> source, int sourceOffset)
@@ -870,6 +1067,7 @@ public static class CadMTextParser
         ArgumentOutOfRangeException.ThrowIfGreaterThan(options.MaxNestingDepth, 64);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxInlineCount, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxDecodedCodeUnits, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxTabStopsPerParagraph, 1);
     }
 
 }

@@ -63,6 +63,36 @@ public readonly record struct StyledTextLine(
     bool IsParagraphFinal,
     int ParagraphStart);
 
+public enum StyledTextTabAlignment : byte
+{
+    Left = 0,
+    Center = 1,
+    Right = 2,
+    Decimal = 3,
+}
+
+public readonly record struct StyledTextTabStop(
+    float Position,
+    StyledTextTabAlignment Alignment = StyledTextTabAlignment.Left);
+
+/// <summary>
+/// Paragraph geometry in layout coordinates. Indents and tab positions are
+/// measured from the layout's left edge; first-line indent is relative to the
+/// left indent. A positive default tab interval continues beyond custom stops.
+/// </summary>
+public readonly record struct StyledTextParagraphStyle(
+    int TextStart,
+    float FirstLineIndent,
+    float LeftIndent,
+    float RightIndent,
+    TextAlignment Alignment,
+    ReadOnlyMemory<StyledTextTabStop> TabStops,
+    float DefaultTabInterval,
+    float SpaceBefore = 0.0f,
+    float SpaceAfter = 0.0f,
+    float MinimumLineSpacing = 0.0f,
+    bool ExactLineSpacing = false);
+
 public sealed class StyledTextLayoutOptions
 {
     public float MaxWidth { get; init; } = float.PositiveInfinity;
@@ -70,6 +100,7 @@ public sealed class StyledTextLayoutOptions
     public bool ExactLineSpacing { get; init; }
     public ShapingDirection BaseDirection { get; init; } = ShapingDirection.Unspecified;
     public TextShapingOptions ShapingOptions { get; init; } = TextShapingOptions.Default;
+    public ReadOnlyMemory<StyledTextParagraphStyle> ParagraphStyles { get; init; }
 }
 
 /// <summary>
@@ -113,6 +144,9 @@ public sealed class StyledTextLayout
         int[] styleMap = BuildStyleMap(text, retainedRanges);
         StyledTextInlineBox[] retainedBoxes = inlineBoxes.ToArray();
         int[] boxMap = BuildBoxMap(text, retainedBoxes);
+        StyledTextParagraphStyle[] paragraphStyles = CopyParagraphStyles(
+            text,
+            options.ParagraphStyles.Span);
         var glyphs = new List<StyledTextGlyph>(Math.Max(1, text.Length));
         var boxes = new List<StyledTextPositionedBox>(retainedBoxes.Length);
         var lines = new List<StyledTextLine>(EstimateLineCount(text));
@@ -125,6 +159,15 @@ public sealed class StyledTextLayout
         {
             int newline = text.IndexOf('\n', paragraphStart);
             int paragraphEnd = newline >= 0 ? newline : text.Length;
+            int emptyStyleIndex = ResolveEmptyParagraphStyle(
+                styleMap,
+                paragraphStart,
+                text.Length);
+            StyledTextParagraphStyle paragraphStyle = ResolveParagraphStyle(
+                paragraphStyles,
+                paragraphStart,
+                retainedRanges[emptyStyleIndex].Style,
+                options);
             BidiParagraph paragraph = BidiParagraph.Resolve(
                 text.AsSpan(paragraphStart, paragraphEnd - paragraphStart),
                 options.BaseDirection);
@@ -141,13 +184,15 @@ public sealed class StyledTextLayout
 
             if (candidates.Count == 0)
             {
-                int styleIndex = ResolveEmptyParagraphStyle(styleMap, paragraphStart, text.Length);
+                int styleIndex = emptyStyleIndex;
                 StyledTextStyle style = retainedRanges[styleIndex].Style;
                 float ascent = GetAscent(style);
                 float descent = GetDescent(style);
                 float natural = ascent + descent;
-                float lineHeight = ResolveLineHeight(natural, options);
-                float baseline = cursorY + ascent;
+                float lineHeight = paragraphStyle.SpaceBefore +
+                    ResolveLineHeight(natural, paragraphStyle) +
+                    paragraphStyle.SpaceAfter;
+                float baseline = cursorY + paragraphStyle.SpaceBefore + ascent;
                 lines.Add(new StyledTextLine(
                     glyphs.Count,
                     0,
@@ -165,9 +210,15 @@ public sealed class StyledTextLayout
             else
             {
                 int candidateStart = 0;
+                bool firstLine = true;
                 while (candidateStart < candidates.Count)
                 {
-                    int candidateEnd = FindLineEnd(candidates, candidateStart, options.MaxWidth);
+                    int candidateEnd = FindLineEnd(
+                        candidates,
+                        candidateStart,
+                        options.MaxWidth,
+                        paragraphStyle,
+                        firstLine);
                     bool paragraphFinal = candidateEnd == candidates.Count;
                     PlaceLine(
                         candidates,
@@ -176,6 +227,8 @@ public sealed class StyledTextLayout
                         paragraph.ParagraphLevel,
                         paragraphFinal,
                         paragraphStart,
+                        paragraphStyle,
+                        firstLine,
                         retainedBoxes,
                         retainedRanges,
                         options,
@@ -186,7 +239,18 @@ public sealed class StyledTextLayout
                         ref maximumWidth,
                         ref maximumBottom);
                     candidateStart = candidateEnd;
+                    firstLine = false;
                 }
+            }
+
+            if (candidates.Count > 0 && paragraphStyle.SpaceAfter > 0.0f)
+            {
+                StyledTextLine finalLine = lines[^1];
+                lines[^1] = finalLine with
+                {
+                    Height = finalLine.Height + paragraphStyle.SpaceAfter,
+                };
+                cursorY += paragraphStyle.SpaceAfter;
             }
 
             if (newline < 0) break;
@@ -219,6 +283,7 @@ public sealed class StyledTextLayout
         float Descent,
         ShapingGlyphFlags Flags)
     {
+        public bool IsTab => !IsBox && CodePoint == '\t';
         public bool IsWhitespace => !IsBox && CodePoint is ' ' or '\t' or '\u00A0';
     }
 
@@ -408,10 +473,19 @@ public sealed class StyledTextLayout
         }
     }
 
-    private static int FindLineEnd(List<Candidate> candidates, int start, float maxWidth)
+    private static int FindLineEnd(
+        List<Candidate> candidates,
+        int start,
+        float maxWidth,
+        in StyledTextParagraphStyle paragraphStyle,
+        bool firstLine)
     {
         if (float.IsInfinity(maxWidth)) return candidates.Count;
-        float width = 0.0f;
+        float cursor = ResolveLineStart(paragraphStyle, firstLine);
+        float limit = maxWidth - paragraphStyle.RightIndent;
+        if (!(limit > cursor))
+            throw new ArgumentException(
+                "Styled paragraph indents leave no positive line width.");
         int lastWhitespaceBreak = -1;
         int lastSafeBreak = -1;
         for (int index = start; index < candidates.Count; index++)
@@ -422,7 +496,15 @@ public sealed class StyledTextLayout
             {
                 lastWhitespaceBreak = index + 1;
             }
-            if (index > start && width + candidate.Advance > maxWidth)
+            float advance = candidate.IsTab
+                ? ResolveTabAdvance(
+                    candidates,
+                    index,
+                    cursor,
+                    paragraphStyle,
+                    candidates.Count)
+                : candidate.Advance;
+            if (index > start && cursor + advance > limit)
             {
                 if (lastWhitespaceBreak > start) return lastWhitespaceBreak;
                 if (lastSafeBreak > start) return lastSafeBreak;
@@ -430,7 +512,7 @@ public sealed class StyledTextLayout
                 while (safe < candidates.Count && !IsSafeBreakBefore(candidates, safe)) safe++;
                 return safe;
             }
-            width += candidate.Advance;
+            cursor += advance;
         }
         return candidates.Count;
     }
@@ -449,6 +531,8 @@ public sealed class StyledTextLayout
         sbyte paragraphLevel,
         bool paragraphFinal,
         int paragraphStart,
+        in StyledTextParagraphStyle paragraphStyle,
+        bool firstLine,
         StyledTextInlineBox[] inlineBoxes,
         StyledTextRange[] ranges,
         StyledTextLayoutOptions options,
@@ -460,30 +544,47 @@ public sealed class StyledTextLayout
         ref float maximumBottom)
     {
         List<Candidate> visual = GetVisualCandidates(logical, start, end, paragraphLevel);
-        float naturalWidth = 0.0f;
+        float lineStart = ResolveLineStart(paragraphStyle, firstLine);
+        var advances = new float[visual.Count];
+        float naturalCursor = lineStart;
         float ascent = 0.0f;
         float descent = 0.0f;
         for (int index = 0; index < visual.Count; index++)
         {
             Candidate candidate = visual[index];
-            naturalWidth += candidate.Advance;
+            float advance = candidate.IsTab
+                ? ResolveTabAdvance(
+                    visual,
+                    index,
+                    naturalCursor,
+                    paragraphStyle,
+                    visual.Count)
+                : candidate.Advance;
+            advances[index] = advance;
+            naturalCursor += advance;
             ascent = Math.Max(ascent, candidate.Ascent);
             descent = Math.Max(descent, candidate.Descent);
         }
+        float naturalWidth = naturalCursor - lineStart;
 
-        float lineHeight = ResolveLineHeight(ascent + descent, options);
-        float baseline = cursorY + ascent;
-        TextAlignment alignment = ranges[visual[0].StyleIndex].Style.Alignment;
+        float spaceBefore = firstLine ? paragraphStyle.SpaceBefore : 0.0f;
+        float lineHeight = spaceBefore +
+            ResolveLineHeight(ascent + descent, paragraphStyle);
+        float baseline = cursorY + spaceBefore + ascent;
+        TextAlignment alignment = paragraphStyle.Alignment;
         float available = float.IsInfinity(options.MaxWidth)
             ? naturalWidth
-            : options.MaxWidth;
+            : options.MaxWidth - paragraphStyle.RightIndent - lineStart;
+        if (!(available > 0.0f) && visual.Count > 0)
+            throw new ArgumentException(
+                "Styled paragraph indents leave no positive line width.");
         float remaining = Math.Max(0.0f, available - naturalWidth);
-        float cursorX = alignment switch
+        float cursorX = lineStart + (alignment switch
         {
             TextAlignment.Center => remaining * 0.5f,
             TextAlignment.Right => remaining,
             _ => 0.0f,
-        };
+        });
         int expandableGapCount = alignment switch
         {
             TextAlignment.Justify when !paragraphFinal => CountWhitespaceGroups(visual),
@@ -499,10 +600,15 @@ public sealed class StyledTextLayout
         {
             Candidate candidate = visual[index];
             StyledTextStyle style = ranges[candidate.StyleIndex].Style;
-            if (!candidate.IsWhitespace && insideWhitespace)
+            if ((!candidate.IsWhitespace || candidate.IsTab) && insideWhitespace)
             {
                 cursorX += gapExtra;
                 insideWhitespace = false;
+            }
+            if (candidate.IsTab)
+            {
+                cursorX += advances[index];
+                continue;
             }
             if (candidate.IsBox)
             {
@@ -523,7 +629,7 @@ public sealed class StyledTextLayout
                     new Vector2(
                         cursorX + candidate.OffsetX,
                         baseline + candidate.OffsetY - style.BaselineShift),
-                    candidate.Advance,
+                    advances[index],
                     candidate.Font!,
                     candidate.StyleIndex,
                     candidate.Cluster,
@@ -532,8 +638,8 @@ public sealed class StyledTextLayout
                     candidate.Flags));
             }
 
-            cursorX += candidate.Advance;
-            if (candidate.IsWhitespace)
+            cursorX += advances[index];
+            if (candidate.IsWhitespace && !candidate.IsTab)
             {
                 insideWhitespace = true;
             }
@@ -544,8 +650,8 @@ public sealed class StyledTextLayout
         float recordedWidth = alignment == TextAlignment.Justify &&
                               !paragraphFinal &&
                               !float.IsInfinity(options.MaxWidth)
-            ? available
-            : Math.Max(naturalWidth, cursorX);
+            ? lineStart + available
+            : Math.Max(lineStart + naturalWidth, cursorX);
         maximumWidth = Math.Max(maximumWidth, recordedWidth);
         maximumBottom = Math.Max(maximumBottom, baseline + descent);
         lines.Add(new StyledTextLine(
@@ -610,7 +716,7 @@ public sealed class StyledTextLayout
         bool active = false;
         for (int index = 0; index < candidates.Count; index++)
         {
-            if (candidates[index].IsWhitespace)
+            if (candidates[index].IsWhitespace && !candidates[index].IsTab)
             {
                 if (!active) count++;
                 active = true;
@@ -623,12 +729,154 @@ public sealed class StyledTextLayout
         return count;
     }
 
-    private static float ResolveLineHeight(float natural, StyledTextLayoutOptions options)
+    private static float ResolveLineStart(
+        in StyledTextParagraphStyle paragraphStyle,
+        bool firstLine) =>
+        paragraphStyle.LeftIndent +
+        (firstLine ? paragraphStyle.FirstLineIndent : 0.0f);
+
+    private static float ResolveTabAdvance(
+        List<Candidate> candidates,
+        int tabIndex,
+        float cursor,
+        in StyledTextParagraphStyle paragraphStyle,
+        int endExclusive)
     {
-        if (options.MinimumLineSpacing <= 0.0f) return natural;
-        return options.ExactLineSpacing
-            ? options.MinimumLineSpacing
-            : Math.Max(natural, options.MinimumLineSpacing);
+        ReadOnlySpan<StyledTextTabStop> stops = paragraphStyle.TabStops.Span;
+        for (int index = 0; index < stops.Length; index++)
+        {
+            StyledTextTabStop stop = stops[index];
+            if (!(stop.Position > cursor)) continue;
+            float fieldOffset = ResolveTabFieldOffset(
+                candidates,
+                tabIndex + 1,
+                endExclusive,
+                stop.Alignment);
+            float advance = stop.Position - cursor - fieldOffset;
+            if (advance >= 0.0f) return advance;
+        }
+
+        float interval = paragraphStyle.DefaultTabInterval;
+        float target = (MathF.Floor(cursor / interval) + 1.0f) * interval;
+        if (stops.Length > 0)
+            target = Math.Max(target, stops[^1].Position + interval);
+        return Math.Max(0.0f, target - cursor);
+    }
+
+    private static float ResolveTabFieldOffset(
+        List<Candidate> candidates,
+        int start,
+        int end,
+        StyledTextTabAlignment alignment)
+    {
+        if (alignment == StyledTextTabAlignment.Left) return 0.0f;
+        float width = 0.0f;
+        float decimalWidth = float.NaN;
+        for (int index = start; index < end; index++)
+        {
+            Candidate candidate = candidates[index];
+            if (candidate.IsTab) break;
+            if (float.IsNaN(decimalWidth) &&
+                candidate.CodePoint is '.' or ',' or ' ')
+            {
+                decimalWidth = width;
+            }
+            width += candidate.Advance;
+        }
+        return alignment switch
+        {
+            StyledTextTabAlignment.Center => width * 0.5f,
+            StyledTextTabAlignment.Right => width,
+            StyledTextTabAlignment.Decimal => float.IsNaN(decimalWidth)
+                ? width
+                : decimalWidth,
+            _ => 0.0f,
+        };
+    }
+
+    private static StyledTextParagraphStyle[] CopyParagraphStyles(
+        string text,
+        ReadOnlySpan<StyledTextParagraphStyle> source)
+    {
+        if (source.Length == 0) return [];
+        var result = new StyledTextParagraphStyle[source.Length];
+        int previousStart = -1;
+        for (int index = 0; index < source.Length; index++)
+        {
+            StyledTextParagraphStyle style = source[index];
+            if (style.TextStart <= previousStart ||
+                style.TextStart < 0 || style.TextStart > text.Length ||
+                (style.TextStart > 0 && text[style.TextStart - 1] != '\n') ||
+                !float.IsFinite(style.FirstLineIndent) ||
+                !float.IsFinite(style.LeftIndent) || style.LeftIndent < 0.0f ||
+                !float.IsFinite(style.RightIndent) || style.RightIndent < 0.0f ||
+                !float.IsFinite(style.DefaultTabInterval) || style.DefaultTabInterval <= 0.0f ||
+                !float.IsFinite(style.SpaceBefore) || style.SpaceBefore < 0.0f ||
+                !float.IsFinite(style.SpaceAfter) || style.SpaceAfter < 0.0f ||
+                !float.IsFinite(style.MinimumLineSpacing) || style.MinimumLineSpacing < 0.0f ||
+                style.Alignment is < TextAlignment.Left or > TextAlignment.Justify)
+            {
+                throw new ArgumentException(
+                    "Styled paragraph records must be ordered paragraph starts with finite valid geometry.",
+                    nameof(source));
+            }
+            StyledTextTabStop[] tabs = style.TabStops.ToArray();
+            float previousPosition = 0.0f;
+            for (int tabIndex = 0; tabIndex < tabs.Length; tabIndex++)
+            {
+                StyledTextTabStop tab = tabs[tabIndex];
+                if (!float.IsFinite(tab.Position) ||
+                    tab.Position <= previousPosition ||
+                    tab.Alignment is < StyledTextTabAlignment.Left or > StyledTextTabAlignment.Decimal)
+                {
+                    throw new ArgumentException(
+                        "Styled tab stops must have finite, positive, strictly increasing positions.",
+                        nameof(source));
+                }
+                previousPosition = tab.Position;
+            }
+            result[index] = style with { TabStops = tabs };
+            previousStart = style.TextStart;
+        }
+        return result;
+    }
+
+    private static StyledTextParagraphStyle ResolveParagraphStyle(
+        StyledTextParagraphStyle[] styles,
+        int paragraphStart,
+        in StyledTextStyle textStyle,
+        StyledTextLayoutOptions options)
+    {
+        int low = 0;
+        int high = styles.Length - 1;
+        while (low <= high)
+        {
+            int middle = (low + high) >> 1;
+            int start = styles[middle].TextStart;
+            if (paragraphStart < start) high = middle - 1;
+            else if (paragraphStart > start) low = middle + 1;
+            else return styles[middle];
+        }
+        return new StyledTextParagraphStyle(
+            paragraphStart,
+            0.0f,
+            0.0f,
+            0.0f,
+            textStyle.Alignment,
+            ReadOnlyMemory<StyledTextTabStop>.Empty,
+            Math.Max(textStyle.FontSize * 4.0f, 0.01f),
+            MinimumLineSpacing: options.MinimumLineSpacing,
+            ExactLineSpacing: options.ExactLineSpacing);
+    }
+
+    private static float ResolveLineHeight(
+        float natural,
+        in StyledTextParagraphStyle paragraphStyle)
+    {
+        if (paragraphStyle.MinimumLineSpacing <= 0.0f) return natural;
+        return paragraphStyle.ExactLineSpacing
+            ? paragraphStyle.MinimumLineSpacing
+            : Math.Max(natural, paragraphStyle.MinimumLineSpacing);
     }
 
     private static float GetAscent(StyledTextStyle style) => GetAscent(style, style.Font);

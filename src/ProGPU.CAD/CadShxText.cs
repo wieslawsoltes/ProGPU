@@ -112,7 +112,8 @@ public readonly record struct CadShxGlyphPlacement(
     CadShxGlyph Glyph,
     Vector2 Origin,
     CadShxTextDecoration Decorations,
-    bool IsBreakOpportunity = false);
+    bool IsBreakOpportunity = false,
+    uint CodePoint = 0);
 
 /// <summary>
 /// A bounded device-independent standard, Unicode, packed-multibyte, or
@@ -333,7 +334,8 @@ public sealed class CadShxTextLayout
                     cache,
                     token.DirectShape,
                     token.Decorations,
-                    token.IsBreakOpportunity);
+                    token.IsBreakOpportunity,
+                    0);
                 continue;
             }
             if (bigFontCache is null)
@@ -346,7 +348,8 @@ public sealed class CadShxTextLayout
                         drawingEncoding,
                         encoded),
                     token.Decorations,
-                    token.IsBreakOpportunity);
+                    token.IsBreakOpportunity,
+                    checked((uint)token.Scalar));
                 continue;
             }
 
@@ -356,7 +359,8 @@ public sealed class CadShxTextLayout
                     cache,
                     MapStandardScalar(token.Scalar),
                     token.Decorations,
-                    token.IsBreakOpportunity);
+                    token.IsBreakOpportunity,
+                    checked((uint)token.Scalar));
                 continue;
             }
 
@@ -367,7 +371,8 @@ public sealed class CadShxTextLayout
                     cache,
                     encoded[0],
                     token.Decorations,
-                    token.IsBreakOpportunity);
+                    token.IsBreakOpportunity,
+                    checked((uint)token.Scalar));
                 continue;
             }
 
@@ -413,7 +418,8 @@ public sealed class CadShxTextLayout
                 bigFontCache,
                 (ushort)((lead << 8) | trail),
                 token.Decorations,
-                false);
+                false,
+                checked((uint)token.Scalar));
         }
 
         if (placements.Count == 0)
@@ -436,7 +442,8 @@ public sealed class CadShxTextLayout
             CadShxGlyphCache glyphCache,
             ushort shapeNumber,
             CadShxTextDecoration glyphDecorations,
-            bool isBreakOpportunity = false)
+            bool isBreakOpportunity,
+            uint codePoint)
         {
             if (placements.Count == options.MaxGlyphs)
             {
@@ -463,7 +470,8 @@ public sealed class CadShxTextLayout
                 glyph,
                 origin,
                 glyphDecorations,
-                isBreakOpportunity));
+                isBreakOpportunity,
+                codePoint));
             if (glyph.HasGeometry)
             {
                 double glyphMinimumX = penX + glyph.BoundsMin.X;

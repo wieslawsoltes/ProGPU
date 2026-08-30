@@ -19,6 +19,8 @@ public sealed class CadShxTextTests
         Assert.Equal(7, layout.Glyphs.Length);
         Assert.Equal(new ushort[] { 65, 32, 65, 256, 257, 258, 65 },
             layout.Glyphs.Span.ToArray().Select(item => item.Glyph.ShapeNumber));
+        Assert.Equal(new uint[] { 'A', ' ', 'A', 0x00B0, 0x00B1, 0x2205, 0 },
+            layout.Glyphs.Span.ToArray().Select(item => item.CodePoint));
         Assert.Equal(new Vector2(17.0f, 0.0f), layout.Advance);
         Assert.Equal(new Vector2(0.0f, 0.0f), layout.BoundsMin);
         Assert.Equal(new Vector2(14.0f, 1.0f), layout.BoundsMax);

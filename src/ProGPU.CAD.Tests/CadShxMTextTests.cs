@@ -125,6 +125,84 @@ public sealed class CadShxMTextTests
     }
 
     [Fact]
+    public void ParagraphIndentsTabsAndSpacingLowerToRetainedShxGeometry()
+    {
+        CadShxGlyphCache cache = CreateCache();
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add paragraph-formatted SHX MTEXT", document =>
+        {
+            TextStyle style = AddStyle(document);
+            document.Entities.Add(new MText
+            {
+                Style = style,
+                Value = @"\pxl1,i1,r1,b0.5,a0.25,se1.2,t4,c8,r12,d16;A^IB^IAA^I12^I1.2",
+                Height = 10,
+                RectangleWidth = 200,
+                AttachmentPoint = AttachmentPointType.TopLeft,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session, cache);
+        CadShxMTextPrimitive text = Assert.Single(snapshot.ShxMTexts.ToArray());
+        CadShxGlyphInstance[] glyphs = snapshot.ShxGlyphInstances.Span
+            .Slice(text.GlyphOffset, text.GlyphCount)
+            .ToArray();
+
+        Assert.Equal(9, glyphs.Length);
+        Assert.InRange(Math.Abs(glyphs[0].X - 20.0f), 0.0f, 0.01f);
+        Assert.InRange(Math.Abs(glyphs[1].X - 40.0f), 0.0f, 0.01f);
+        Assert.InRange(Math.Abs(glyphs[2].X - 70.0f), 0.0f, 0.01f);
+        Assert.InRange(Math.Abs(glyphs[4].X - 100.0f), 0.0f, 0.01f);
+        CadShxGlyphInstance decimalPoint = Assert.Single(
+            glyphs,
+            static glyph => glyph.Glyph.ShapeNumber == '.');
+        Assert.InRange(Math.Abs(decimalPoint.X - 160.0f), 0.0f, 0.01f);
+        Assert.InRange(Math.Abs(text.ContentHeight - 19.5f), 0.0f, 0.01f);
+        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        using CadPrintPlan print = new CadPrintPlanCompiler().Compile(snapshot);
+        Assert.Contains(scene.DrawingContext.Commands.ToArray(), static command =>
+            command.Type == RenderCommandType.DrawPath);
+        Assert.True(print.SceneStatistics.RecordedCommandCount > 0);
+    }
+
+    [Fact]
+    public void VerticalShxParagraphTabsRemainLogicalBeforePhysicalMapping()
+    {
+        CadShxGlyphCache cache = CreateCache(vertical: true);
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add vertical paragraph tabs", document =>
+        {
+            var style = new TextStyle("VERTICALSHX")
+            {
+                Filename = "test.shx",
+                Flags = StyleFlags.VerticalText,
+            };
+            document.TextStyles.Add(style);
+            document.Entities.Add(new MText
+            {
+                Style = style,
+                Value = @"\pxl1,i1,t4,d8;A^IB^I1.2",
+                Height = 10,
+                RectangleWidth = 120,
+                DrawingDirection = DrawingDirectionType.TopToBottom,
+                AttachmentPoint = AttachmentPointType.TopLeft,
+            });
+        });
+
+        CadDocumentSnapshot snapshot = Compile(session, cache);
+        CadShxMTextPrimitive text = Assert.Single(snapshot.ShxMTexts.ToArray());
+        CadShxGlyphInstance[] glyphs = snapshot.ShxGlyphInstances.Span
+            .Slice(text.GlyphOffset, text.GlyphCount)
+            .ToArray();
+        CadShxGlyphInstance decimalPoint = Assert.Single(
+            glyphs,
+            static glyph => glyph.Glyph.ShapeNumber == '.');
+
+        Assert.InRange(Math.Abs(glyphs[0].Y - 20.0f), 0.0f, 0.01f);
+        Assert.InRange(Math.Abs(decimalPoint.Y - 80.0f), 0.0f, 0.01f);
+    }
+
+    [Fact]
     public void VerticalShxMTextUsesAuthoredGlyphsLogicalFormattingAndPhysicalAttachment()
     {
         CadShxGlyphCache cache = CreateCache(vertical: true);
@@ -653,7 +731,7 @@ public sealed class CadShxMTextTests
                 ? new byte[] { 2, 8, 10, 0, 14, 8, 0xF6, 0xF6, 0 }
                 : new byte[] { 2, 8, 10, 0, 0 }),
         };
-        const string characters = "AB12shapedbforinvlgcku";
+        const string characters = "AB12.shapedbforinvlgcku";
         foreach (char value in characters.Distinct())
         {
             shapes.Add(((ushort)value, value.ToString(), vertical
