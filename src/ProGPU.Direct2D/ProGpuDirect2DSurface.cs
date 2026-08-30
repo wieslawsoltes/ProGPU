@@ -1568,6 +1568,141 @@ public sealed unsafe class ProGpuDirect2DSurface :
     }
 
     /// <summary>
+    /// Runs the exact caller-buffer size pass for native translation of a
+    /// closed same-domain command list into ProGPU's pointer-free semantic
+    /// scene stream. Unsupported Direct2D state, resources, and operations
+    /// fail closed rather than producing a reduced scene.
+    /// </summary>
+    public ProGpuDirect2DSceneStreamResult MeasureCommandListSceneStream(
+        ProGpuDirect2DComReference commandList,
+        ulong sceneId,
+        ulong generation) =>
+        BuildCommandListSceneStream(
+            commandList,
+            sceneId,
+            generation,
+            Span<byte>.Empty,
+            measureOnly: true);
+
+    /// <summary>
+    /// Translates a closed same-domain command list directly into the caller's
+    /// destination span. Call <see cref="MeasureCommandListSceneStream"/> to
+    /// obtain the exact required size. No managed staging array, pixel
+    /// readback, or COM reference is stored in the resulting stream.
+    /// </summary>
+    public ProGpuDirect2DSceneStreamResult WriteCommandListSceneStream(
+        ProGpuDirect2DComReference commandList,
+        ulong sceneId,
+        ulong generation,
+        Span<byte> destination)
+    {
+        if (destination.IsEmpty)
+        {
+            throw new ArgumentException(
+                "The scene-stream destination must not be empty.",
+                nameof(destination));
+        }
+        return BuildCommandListSceneStream(
+            commandList,
+            sceneId,
+            generation,
+            destination,
+            measureOnly: false);
+    }
+
+    private ProGpuDirect2DSceneStreamResult BuildCommandListSceneStream(
+        ProGpuDirect2DComReference commandList,
+        ulong sceneId,
+        ulong generation,
+        Span<byte> destination,
+        bool measureOnly)
+    {
+        ArgumentNullException.ThrowIfNull(commandList);
+        ArgumentOutOfRangeException.ThrowIfZero(sceneId);
+        ArgumentOutOfRangeException.ThrowIfZero(generation);
+        ValidateResourceDomain(commandList, nameof(commandList));
+        if (commandList.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.D2D1CommandList)
+        {
+            throw new ArgumentException(
+                "The COM reference must own ID2D1CommandList.",
+                nameof(commandList));
+        }
+
+        bool referenceAdded = false;
+        try
+        {
+            commandList.DangerousAddRef(ref referenceAdded);
+            fixed (byte* destinationPointer = destination)
+            {
+                lock (_gate)
+                {
+                    ThrowIfUnavailable();
+                    ProGpuDirect2DNative.NativeSceneStreamResult result =
+                        new()
+                        {
+                            StructSize = (uint)Unsafe.SizeOf<
+                                ProGpuDirect2DNative.NativeSceneStreamResult>()
+                        };
+                    int nativeHResult = 0;
+                    ProGpuDirect2DStatus status =
+                        ProGpuDirect2DNative.CommandListBuildSceneStream(
+                            _nativeSurface,
+                            commandList.DangerousGetHandle(),
+                            sceneId,
+                            generation,
+                            destinationPointer,
+                            (ulong)destination.Length,
+                            &result,
+                            &nativeHResult);
+                    ProGpuDirect2DSceneStreamResult managedResult =
+                        ToManagedSceneStreamResult(result);
+                    if (status == ProGpuDirect2DStatus.InsufficientBuffer)
+                    {
+                        if (measureOnly)
+                        {
+                            return managedResult;
+                        }
+                        throw new ArgumentException(
+                            $"The destination span has {destination.Length} " +
+                            $"bytes; {result.RequiredBytes} bytes are required.",
+                            nameof(destination));
+                    }
+                    ThrowIfFailed(
+                        "ID2D1CommandList semantic scene translation",
+                        status,
+                        nativeHResult);
+                    return managedResult;
+                }
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                commandList.DangerousRelease();
+            }
+        }
+    }
+
+    private static ProGpuDirect2DSceneStreamResult
+        ToManagedSceneStreamResult(
+            ProGpuDirect2DNative.NativeSceneStreamResult result) =>
+        new(
+            result.Flags,
+            result.RequiredBytes,
+            result.WrittenBytes,
+            result.CommandCount,
+            result.ResourceCount,
+            result.BrushCount,
+            result.TranslatedDrawCount,
+            result.FailureCallbackIndex,
+            result.FailureReason,
+            result.ClearColor,
+            result.SceneId,
+            result.Generation);
+
+    /// <summary>
     /// Creates a genuine same-device ID2D1SvgDocument from UTF-8 XML. The
     /// caller span stays pinned only for the synchronous Direct2D parse and is
     /// neither retained nor copied into an intermediate managed array.

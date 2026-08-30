@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 32U;
+    internal const uint AbiVersion = 33U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -260,6 +260,24 @@ internal static unsafe partial class ProGpuDirect2DNative
         internal uint UnsupportedOperationCount;
         internal uint MaxScopeDepth;
         internal uint Reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeSceneStreamResult
+    {
+        internal uint StructSize;
+        internal ProGpuDirect2DSceneStreamFlags Flags;
+        internal ulong RequiredBytes;
+        internal ulong WrittenBytes;
+        internal uint CommandCount;
+        internal uint ResourceCount;
+        internal uint BrushCount;
+        internal uint TranslatedDrawCount;
+        internal uint FailureCallbackIndex;
+        internal ProGpuDirect2DSceneStreamFailureReason FailureReason;
+        internal ProGpuDirect2DColor ClearColor;
+        internal ulong SceneId;
+        internal ulong Generation;
     }
 
     internal enum Win2DResourceKind
@@ -546,6 +564,21 @@ internal static unsafe partial class ProGpuDirect2DNative
             nint commandList,
             CommandStreamOptions options,
             NativeCommandStreamSummary* summary,
+            int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_command_list_build_scene_stream")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        CommandListBuildSceneStream(
+            nint surface,
+            nint commandList,
+            ulong sceneId,
+            ulong generation,
+            byte* destination,
+            ulong destinationCapacity,
+            NativeSceneStreamResult* result,
             int* nativeHResult);
 
     [LibraryImport(

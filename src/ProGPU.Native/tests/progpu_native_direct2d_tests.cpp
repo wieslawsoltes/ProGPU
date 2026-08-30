@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d.h"
+#include "progpu_native.h"
 
 #include <d2d1_3.h>
 #include <d2d1effects.h>
@@ -11,8 +12,10 @@
 #include <wrl/client.h>
 
 #include <cmath>
+#include <cstring>
 #include <cstdlib>
 #include <iostream>
+#include <vector>
 
 using Microsoft::WRL::ComPtr;
 using Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess;
@@ -1833,6 +1836,135 @@ int main()
             native_hresult == E_INVALIDARG,
         "unknown Direct2D command-stream option did not fail closed");
 
+    void* scene_command_list_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_command_list(
+            surface,
+            &scene_command_list_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            scene_command_list_value != nullptr && native_hresult == S_OK,
+        "semantic scene command-list creation failed");
+    ComPtr<ID2D1CommandList> scene_command_list;
+    scene_command_list.Attach(
+        static_cast<ID2D1CommandList*>(scene_command_list_value));
+    require(
+        progpu_native_direct2d_surface_begin_command_list_draw(
+            surface,
+            scene_command_list.Get()) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "semantic scene command-list recording did not begin");
+    context->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+    context->SetUnitMode(D2D1_UNIT_MODE_DIPS);
+    context->SetTextRenderingParams(nullptr);
+    context->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
+    context->SetTransform(D2D1::Matrix3x2F(
+        1.25F, 0.0F, 0.0F, 0.75F, 3.0F, 5.0F));
+    const D2D1_COLOR_F scene_clear =
+        D2D1::ColorF(0.125F, 0.25F, 0.5F, 1.0F);
+    context->Clear(&scene_clear);
+    const D2D1_RECT_F scene_fill = {2.0F, 4.0F, 18.0F, 20.0F};
+    const D2D1_RECT_F scene_stroke = {22.0F, 5.0F, 40.0F, 24.0F};
+    context->FillRectangle(&scene_fill, solid_brush.Get());
+    context->DrawRectangle(&scene_stroke, solid_brush.Get(), 2.0F);
+    context->DrawLine(
+        D2D1::Point2F(4.0F, 28.0F),
+        D2D1::Point2F(42.0F, 30.0F),
+        solid_brush.Get(),
+        3.0F);
+    command_tag1 = 0U;
+    command_tag2 = 0U;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_end_command_list_draw(
+            surface,
+            &command_tag1,
+            &command_tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "semantic scene command-list recording did not close");
+
+    progpu_native_direct2d_scene_stream_result scene_measure{};
+    scene_measure.struct_size = static_cast<uint32_t>(sizeof(scene_measure));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            scene_command_list.Get(),
+            7001U,
+            9U,
+            nullptr,
+            0U,
+            &scene_measure,
+            &native_hresult) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+            native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
+            scene_measure.required_bytes >= sizeof(progpu_native_scene_header) &&
+            scene_measure.written_bytes == 0U &&
+            scene_measure.translated_draw_count == 3U &&
+            scene_measure.failure_reason ==
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
+            (scene_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_LEADING_CLEAR) !=
+                0U &&
+            (scene_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_ALIASED_PRIMITIVES) !=
+                0U &&
+            scene_measure.clear_color.red == 0.125F &&
+            scene_measure.clear_color.green == 0.25F &&
+            scene_measure.clear_color.blue == 0.5F &&
+            scene_measure.clear_color.alpha == 1.0F,
+        "Direct2D command-list semantic scene size pass changed");
+    std::vector<uint8_t> scene_stream(
+        static_cast<size_t>(scene_measure.required_bytes));
+    progpu_native_direct2d_scene_stream_result scene_write{};
+    scene_write.struct_size = static_cast<uint32_t>(sizeof(scene_write));
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            scene_command_list.Get(),
+            7001U,
+            9U,
+            scene_stream.data(),
+            scene_stream.size(),
+            &scene_write,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK &&
+            scene_write.required_bytes == scene_stream.size() &&
+            scene_write.written_bytes == scene_stream.size() &&
+            scene_write.command_count == 3U &&
+            scene_write.resource_count >= 4U &&
+            scene_write.brush_count == 1U &&
+            scene_write.translated_draw_count == 3U,
+        "Direct2D command-list semantic scene write pass changed");
+    progpu_native_scene_header scene_header{};
+    std::memcpy(&scene_header, scene_stream.data(), sizeof(scene_header));
+    require(
+        scene_header.struct_size == sizeof(scene_header) &&
+            scene_header.total_size == scene_stream.size() &&
+            scene_header.scene_id == 7001U && scene_header.generation == 9U &&
+            scene_header.command_count == scene_write.command_count &&
+            scene_header.resource_count == scene_write.resource_count,
+        "translated Direct2D semantic scene header changed");
+    progpu_native_direct2d_scene_stream_result scene_short{};
+    scene_short.struct_size = static_cast<uint32_t>(sizeof(scene_short));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            scene_command_list.Get(),
+            7001U,
+            9U,
+            scene_stream.data(),
+            scene_stream.size() - 1U,
+            &scene_short,
+            &native_hresult) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+            scene_short.required_bytes == scene_stream.size() &&
+            scene_short.written_bytes == 0U,
+        "short Direct2D semantic scene destination did not fail closed");
+
     ComPtr<IDWriteRenderingParams> text_rendering_params;
     require(SUCCEEDED(dwrite_factory->CreateRenderingParams(
                 text_rendering_params.GetAddressOf())),
@@ -1923,6 +2055,27 @@ int main()
             native_hresult == E_NOTIMPL &&
             unsupported_summary.unsupported_operation_count == 1U,
         "unsupported Direct2D command stream did not fail strict preflight");
+    progpu_native_direct2d_scene_stream_result unsupported_scene{};
+    unsupported_scene.struct_size =
+        static_cast<uint32_t>(sizeof(unsupported_scene));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            unsupported_command_list.Get(),
+            7002U,
+            1U,
+            nullptr,
+            0U,
+            &unsupported_scene,
+            &native_hresult) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED &&
+            native_hresult == E_NOTIMPL &&
+            unsupported_scene.failure_reason ==
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_STATE &&
+            unsupported_scene.failure_callback_index != 0U &&
+            unsupported_scene.written_bytes == 0U,
+        "unsupported Direct2D state did not fail semantic translation");
 
     progpu_native_direct2d_image_brush_properties
         command_list_brush_properties{};

@@ -445,6 +445,25 @@ public enum ProGpuDirect2DCommandStreamFlags : uint
     HasOpacityMask = 1U << 5
 }
 
+[Flags]
+public enum ProGpuDirect2DSceneStreamFlags : uint
+{
+    None = 0,
+    HasLeadingClear = 1U << 0,
+    HasAliasedPrimitives = 1U << 1
+}
+
+public enum ProGpuDirect2DSceneStreamFailureReason : uint
+{
+    None = 0,
+    UnsupportedState = 1,
+    UnsupportedResource = 2,
+    UnsupportedOperation = 3,
+    InvalidValue = 4,
+    DrawingState = 5,
+    Builder = 6
+}
+
 public enum ProGpuDirect2DColorInterpolationMode
 {
     Straight = 0,
@@ -658,6 +677,29 @@ public readonly record struct ProGpuDirect2DCommandStreamSummary(
     public bool HasUnsupportedOperations =>
         (Flags &
             ProGpuDirect2DCommandStreamFlags.HasUnsupportedOperations) != 0;
+}
+
+/// <summary>
+/// Metadata from the two-pass native translation of a closed Direct2D command
+/// list into ProGPU's pointer-free semantic scene stream. A leading clear is
+/// frame metadata rather than a retained scene command.
+/// </summary>
+public readonly record struct ProGpuDirect2DSceneStreamResult(
+    ProGpuDirect2DSceneStreamFlags Flags,
+    ulong RequiredBytes,
+    ulong WrittenBytes,
+    uint CommandCount,
+    uint ResourceCount,
+    uint BrushCount,
+    uint TranslatedDrawCount,
+    uint FailureCallbackIndex,
+    ProGpuDirect2DSceneStreamFailureReason FailureReason,
+    ProGpuDirect2DColor ClearColor,
+    ulong SceneId,
+    ulong Generation)
+{
+    public bool HasLeadingClear =>
+        (Flags & ProGpuDirect2DSceneStreamFlags.HasLeadingClear) != 0;
 }
 
 /// <summary>

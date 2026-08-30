@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d.h"
+#include "progpu_native_scene_builder.hpp"
 
 #include <d2d1_3.h>
 #include <d3d11_4.h>
@@ -10,6 +11,7 @@
 #include <winstring.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <atomic>
 #include <array>
 #include <cmath>
@@ -18,6 +20,7 @@
 #include <limits>
 #include <mutex>
 #include <new>
+#include <span>
 #include <string>
 #include <utility>
 
@@ -82,6 +85,9 @@ static_assert(
 static_assert(
     sizeof(progpu_native_direct2d_command_stream_summary) == 64U,
     "Direct2D command-stream summary layout changed");
+static_assert(
+    sizeof(progpu_native_direct2d_scene_stream_result) == 80U,
+    "Direct2D scene-stream result layout changed");
 static_assert(
     sizeof(progpu_native_direct2d_glyph_offset) ==
         sizeof(DWRITE_GLYPH_OFFSET),
@@ -772,6 +778,670 @@ private:
     bool begun_ = false;
     bool ended_ = false;
     bool overflow_ = false;
+};
+
+class CommandSceneStreamSink final : public ID2D1CommandSink1 {
+public:
+    CommandSceneStreamSink(
+        uint64_t scene_id,
+        uint64_t generation,
+        const progpu_native_direct2d_command_stream_summary& summary)
+        : builder_(scene_id, generation)
+    {
+        const uint64_t draw_count =
+            static_cast<uint64_t>(summary.draw_count) + summary.fill_count;
+        const uint64_t resource_count = draw_count + 1U;
+        const uint64_t arena_bytes = draw_count * 192U;
+        if (draw_count > std::numeric_limits<uint32_t>::max() ||
+            resource_count > std::numeric_limits<uint32_t>::max() ||
+            !builder_.reserve(
+                static_cast<uint32_t>(draw_count),
+                static_cast<uint32_t>(resource_count),
+                arena_bytes)) {
+            builder_ready_ = false;
+        }
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1CommandSink)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1CommandSink1))) {
+            *value = static_cast<ID2D1CommandSink1*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    HRESULT STDMETHODCALLTYPE BeginDraw() noexcept override
+    {
+        if (begun_ || ended_) {
+            return fail(
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_DRAWING_STATE,
+                D2DERR_WRONG_STATE,
+                false);
+        }
+        begun_ = true;
+        if (!builder_ready_) {
+            return fail_builder(false);
+        }
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE EndDraw() noexcept override
+    {
+        if (!begun_ || ended_) {
+            return fail(
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_DRAWING_STATE,
+                D2DERR_WRONG_STATE,
+                false);
+        }
+        ended_ = true;
+        return failure_reason_ ==
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE
+            ? S_OK
+            : E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetAntialiasMode(
+        D2D1_ANTIALIAS_MODE mode) noexcept override
+    {
+        begin_callback();
+        if (mode != D2D1_ANTIALIAS_MODE_PER_PRIMITIVE &&
+            mode != D2D1_ANTIALIAS_MODE_ALIASED) {
+            return fail_invalid_value();
+        }
+        antialias_mode_ = mode;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetTags(D2D1_TAG, D2D1_TAG) noexcept override
+    {
+        begin_callback();
+        return can_record() ? S_OK : fail_drawing_state();
+    }
+
+    HRESULT STDMETHODCALLTYPE SetTextAntialiasMode(
+        D2D1_TEXT_ANTIALIAS_MODE mode) noexcept override
+    {
+        begin_callback();
+        if (!can_record()) {
+            return fail_drawing_state();
+        }
+        if (mode > D2D1_TEXT_ANTIALIAS_MODE_ALIASED) {
+            return fail_invalid_value();
+        }
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetTextRenderingParams(
+        IDWriteRenderingParams* parameters) noexcept override
+    {
+        begin_callback();
+        if (!can_record()) {
+            return fail_drawing_state();
+        }
+        return parameters == nullptr
+            ? S_OK
+            : fail_unsupported_state();
+    }
+
+    HRESULT STDMETHODCALLTYPE SetTransform(
+        const D2D1_MATRIX_3X2_F* transform) noexcept override
+    {
+        begin_callback();
+        if (!can_record()) {
+            return fail_drawing_state();
+        }
+        if (transform == nullptr || !finite_transform(*transform)) {
+            return fail_invalid_value();
+        }
+        transform_ = *transform;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetPrimitiveBlend(
+        D2D1_PRIMITIVE_BLEND blend) noexcept override
+    {
+        begin_callback();
+        if (!can_record()) {
+            return fail_drawing_state();
+        }
+        return blend == D2D1_PRIMITIVE_BLEND_SOURCE_OVER
+            ? S_OK
+            : fail_unsupported_state();
+    }
+
+    HRESULT STDMETHODCALLTYPE SetPrimitiveBlend1(
+        D2D1_PRIMITIVE_BLEND blend) noexcept override
+    {
+        return SetPrimitiveBlend(blend);
+    }
+
+    HRESULT STDMETHODCALLTYPE SetUnitMode(
+        D2D1_UNIT_MODE mode) noexcept override
+    {
+        begin_callback();
+        if (!can_record()) {
+            return fail_drawing_state();
+        }
+        return mode == D2D1_UNIT_MODE_DIPS
+            ? S_OK
+            : fail_unsupported_state();
+    }
+
+    HRESULT STDMETHODCALLTYPE Clear(const D2D1_COLOR_F* color) noexcept override
+    {
+        begin_callback();
+        if (!can_record()) {
+            return fail_drawing_state();
+        }
+        if (has_clear_ || translated_draw_count_ != 0U) {
+            return fail_unsupported_operation();
+        }
+        const D2D1_COLOR_F value = color == nullptr
+            ? D2D1_COLOR_F{0.0F, 0.0F, 0.0F, 0.0F}
+            : *color;
+        if (!finite_color(value)) {
+            return fail_invalid_value();
+        }
+        clear_color_ = value;
+        has_clear_ = true;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE DrawGlyphRun(
+        D2D1_POINT_2F,
+        const DWRITE_GLYPH_RUN*,
+        const DWRITE_GLYPH_RUN_DESCRIPTION*,
+        ID2D1Brush*,
+        DWRITE_MEASURING_MODE) noexcept override
+    {
+        return unsupported_resource_callback();
+    }
+
+    HRESULT STDMETHODCALLTYPE DrawLine(
+        D2D1_POINT_2F point0,
+        D2D1_POINT_2F point1,
+        ID2D1Brush* brush,
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* stroke_style) noexcept override
+    {
+        begin_callback();
+        if (!can_record()) {
+            return fail_drawing_state();
+        }
+        if (stroke_style != nullptr) {
+            return fail_unsupported_resource();
+        }
+        if (!finite_point(point0) || !finite_point(point1) ||
+            !std::isfinite(stroke_width) || stroke_width <= 0.0F) {
+            return fail_invalid_value();
+        }
+        uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        HRESULT hr = add_solid_brush(brush, brush_index);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        progpu_native_geometry_primitive primitive{};
+        primitive.kind = PROGPU_NATIVE_GEOMETRY_LINE;
+        primitive.flags = primitive_flags();
+        primitive.p0 = {point0.x, point0.y};
+        primitive.p1 = {point1.x, point1.y};
+        primitive.stroke_thickness = stroke_width;
+        primitive.color = {1.0F, 1.0F, 1.0F, 1.0F};
+        primitive.transform = native_transform();
+        const float radius = stroke_width * 0.5F;
+        const auto bounds = transformed_bounds(
+            std::min(point0.x, point1.x) - radius,
+            std::min(point0.y, point1.y) - radius,
+            std::max(point0.x, point1.x) + radius,
+            std::max(point0.y, point1.y) + radius);
+        if (!builder_.draw_geometry(
+                std::span<const progpu_native_geometry_primitive>(
+                    &primitive,
+                    1U),
+                std::span<const uint32_t>(&brush_index, 1U),
+                bounds)) {
+            return fail_builder();
+        }
+        record_draw();
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE DrawGeometry(
+        ID2D1Geometry*,
+        ID2D1Brush*,
+        FLOAT,
+        ID2D1StrokeStyle*) noexcept override
+    {
+        return unsupported_resource_callback();
+    }
+
+    HRESULT STDMETHODCALLTYPE DrawRectangle(
+        const D2D1_RECT_F* rectangle,
+        ID2D1Brush* brush,
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* stroke_style) noexcept override
+    {
+        begin_callback();
+        if (!can_record()) {
+            return fail_drawing_state();
+        }
+        if (stroke_style != nullptr) {
+            return fail_unsupported_resource();
+        }
+        if (!finite_rectangle(rectangle) || !std::isfinite(stroke_width) ||
+            stroke_width <= 0.0F) {
+            return fail_invalid_value();
+        }
+        return draw_rectangle(*rectangle, brush, stroke_width);
+    }
+
+    HRESULT STDMETHODCALLTYPE DrawBitmap(
+        ID2D1Bitmap*,
+        const D2D1_RECT_F*,
+        FLOAT,
+        D2D1_INTERPOLATION_MODE,
+        const D2D1_RECT_F*,
+        const D2D1_MATRIX_4X4_F*) noexcept override
+    {
+        return unsupported_resource_callback();
+    }
+
+    HRESULT STDMETHODCALLTYPE DrawImage(
+        ID2D1Image*,
+        const D2D1_POINT_2F*,
+        const D2D1_RECT_F*,
+        D2D1_INTERPOLATION_MODE,
+        D2D1_COMPOSITE_MODE) noexcept override
+    {
+        return unsupported_resource_callback();
+    }
+
+    HRESULT STDMETHODCALLTYPE DrawGdiMetafile(
+        ID2D1GdiMetafile*,
+        const D2D1_POINT_2F*) noexcept override
+    {
+        return unsupported_resource_callback();
+    }
+
+    HRESULT STDMETHODCALLTYPE FillMesh(
+        ID2D1Mesh*,
+        ID2D1Brush*) noexcept override
+    {
+        return unsupported_resource_callback();
+    }
+
+    HRESULT STDMETHODCALLTYPE FillOpacityMask(
+        ID2D1Bitmap*,
+        ID2D1Brush*,
+        const D2D1_RECT_F*,
+        const D2D1_RECT_F*) noexcept override
+    {
+        return unsupported_resource_callback();
+    }
+
+    HRESULT STDMETHODCALLTYPE FillGeometry(
+        ID2D1Geometry*,
+        ID2D1Brush*,
+        ID2D1Brush*) noexcept override
+    {
+        return unsupported_resource_callback();
+    }
+
+    HRESULT STDMETHODCALLTYPE FillRectangle(
+        const D2D1_RECT_F* rectangle,
+        ID2D1Brush* brush) noexcept override
+    {
+        begin_callback();
+        if (!can_record()) {
+            return fail_drawing_state();
+        }
+        if (!finite_rectangle(rectangle)) {
+            return fail_invalid_value();
+        }
+        return draw_rectangle(*rectangle, brush, 0.0F);
+    }
+
+    HRESULT STDMETHODCALLTYPE PushAxisAlignedClip(
+        const D2D1_RECT_F*,
+        D2D1_ANTIALIAS_MODE) noexcept override
+    {
+        return unsupported_operation_callback();
+    }
+
+    HRESULT STDMETHODCALLTYPE PushLayer(
+        const D2D1_LAYER_PARAMETERS1*,
+        ID2D1Layer*) noexcept override
+    {
+        return unsupported_operation_callback();
+    }
+
+    HRESULT STDMETHODCALLTYPE PopAxisAlignedClip() noexcept override
+    {
+        return unsupported_operation_callback();
+    }
+
+    HRESULT STDMETHODCALLTYPE PopLayer() noexcept override
+    {
+        return unsupported_operation_callback();
+    }
+
+    progpu::native::semantic_scene_builder& builder() noexcept
+    {
+        return builder_;
+    }
+
+    uint32_t failure_callback_index() const noexcept
+    {
+        return failure_callback_index_;
+    }
+
+    uint32_t failure_reason() const noexcept
+    {
+        return failure_reason_;
+    }
+
+    uint32_t translated_draw_count() const noexcept
+    {
+        return translated_draw_count_;
+    }
+
+    bool has_clear() const noexcept
+    {
+        return has_clear_;
+    }
+
+    bool has_aliased_primitives() const noexcept
+    {
+        return has_aliased_primitives_;
+    }
+
+    D2D1_COLOR_F clear_color() const noexcept
+    {
+        return clear_color_;
+    }
+
+private:
+    static bool finite_point(D2D1_POINT_2F point) noexcept
+    {
+        return std::isfinite(point.x) && std::isfinite(point.y);
+    }
+
+    static bool finite_color(D2D1_COLOR_F color) noexcept
+    {
+        return std::isfinite(color.r) && std::isfinite(color.g) &&
+            std::isfinite(color.b) && std::isfinite(color.a);
+    }
+
+    static bool finite_transform(const D2D1_MATRIX_3X2_F& value) noexcept
+    {
+        return std::isfinite(value._11) && std::isfinite(value._12) &&
+            std::isfinite(value._21) && std::isfinite(value._22) &&
+            std::isfinite(value._31) && std::isfinite(value._32);
+    }
+
+    static bool finite_rectangle(const D2D1_RECT_F* value) noexcept
+    {
+        return value != nullptr && std::isfinite(value->left) &&
+            std::isfinite(value->top) && std::isfinite(value->right) &&
+            std::isfinite(value->bottom) && value->right >= value->left &&
+            value->bottom >= value->top;
+    }
+
+    bool can_record() const noexcept
+    {
+        return begun_ && !ended_ && failure_reason_ ==
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE;
+    }
+
+    void begin_callback() noexcept
+    {
+        if (callback_index_ != std::numeric_limits<uint32_t>::max()) {
+            ++callback_index_;
+        }
+    }
+
+    HRESULT fail(
+        uint32_t reason,
+        HRESULT hr,
+        bool record_current = true) noexcept
+    {
+        if (failure_reason_ ==
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE) {
+            failure_reason_ = reason;
+            failure_callback_index_ = record_current ? callback_index_ : 0U;
+        }
+        return hr;
+    }
+
+    HRESULT fail_drawing_state() noexcept
+    {
+        return fail(
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_DRAWING_STATE,
+            D2DERR_WRONG_STATE);
+    }
+
+    HRESULT fail_invalid_value() noexcept
+    {
+        return fail(
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_INVALID_VALUE,
+            E_INVALIDARG);
+    }
+
+    HRESULT fail_unsupported_state() noexcept
+    {
+        return fail(
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_STATE,
+            E_NOTIMPL);
+    }
+
+    HRESULT fail_unsupported_resource() noexcept
+    {
+        return fail(
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_RESOURCE,
+            E_NOTIMPL);
+    }
+
+    HRESULT fail_unsupported_operation() noexcept
+    {
+        return fail(
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_OPERATION,
+            E_NOTIMPL);
+    }
+
+    HRESULT fail_builder(bool record_current = true) noexcept
+    {
+        const HRESULT hr = builder_.last_error() ==
+                progpu::native::scene_build_error::out_of_memory
+            ? E_OUTOFMEMORY
+            : E_FAIL;
+        return fail(
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER,
+            hr,
+            record_current);
+    }
+
+    HRESULT unsupported_resource_callback() noexcept
+    {
+        begin_callback();
+        return can_record()
+            ? fail_unsupported_resource()
+            : fail_drawing_state();
+    }
+
+    HRESULT unsupported_operation_callback() noexcept
+    {
+        begin_callback();
+        return can_record()
+            ? fail_unsupported_operation()
+            : fail_drawing_state();
+    }
+
+    uint32_t primitive_flags() noexcept
+    {
+        if (antialias_mode_ == D2D1_ANTIALIAS_MODE_ALIASED) {
+            has_aliased_primitives_ = true;
+            return PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED;
+        }
+        return 0U;
+    }
+
+    progpu_native_affine_2d native_transform() const noexcept
+    {
+        return {
+            transform_._11,
+            transform_._12,
+            transform_._21,
+            transform_._22,
+            transform_._31,
+            transform_._32};
+    }
+
+    D2D1_POINT_2F transform_point(float x, float y) const noexcept
+    {
+        return {
+            x * transform_._11 + y * transform_._21 + transform_._31,
+            x * transform_._12 + y * transform_._22 + transform_._32};
+    }
+
+    progpu_native_image_rect transformed_bounds(
+        float left,
+        float top,
+        float right,
+        float bottom) const noexcept
+    {
+        const std::array<D2D1_POINT_2F, 4U> points{
+            transform_point(left, top),
+            transform_point(right, top),
+            transform_point(right, bottom),
+            transform_point(left, bottom)};
+        float min_x = points[0].x;
+        float min_y = points[0].y;
+        float max_x = points[0].x;
+        float max_y = points[0].y;
+        for (size_t index = 1U; index < points.size(); ++index) {
+            min_x = std::min(min_x, points[index].x);
+            min_y = std::min(min_y, points[index].y);
+            max_x = std::max(max_x, points[index].x);
+            max_y = std::max(max_y, points[index].y);
+        }
+        return {min_x, min_y, max_x - min_x, max_y - min_y};
+    }
+
+    HRESULT add_solid_brush(
+        ID2D1Brush* brush,
+        uint32_t& brush_index) noexcept
+    {
+        brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (brush == nullptr) {
+            return fail_invalid_value();
+        }
+        ComPtr<ID2D1SolidColorBrush> solid;
+        const HRESULT hr = brush->QueryInterface(IID_PPV_ARGS(&solid));
+        if (FAILED(hr)) {
+            return fail_unsupported_resource();
+        }
+        const D2D1_COLOR_F color = solid->GetColor();
+        const float opacity = solid->GetOpacity();
+        if (!finite_color(color) || !std::isfinite(opacity) ||
+            opacity < 0.0F || opacity > 1.0F) {
+            return fail_invalid_value();
+        }
+        if (!builder_.add_solid_brush(
+                {color.r, color.g, color.b, color.a},
+                opacity,
+                brush_index)) {
+            return fail_builder();
+        }
+        return S_OK;
+    }
+
+    HRESULT draw_rectangle(
+        const D2D1_RECT_F& rectangle,
+        ID2D1Brush* brush,
+        float stroke_width) noexcept
+    {
+        uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        HRESULT hr = add_solid_brush(brush, brush_index);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        progpu_native_analytic_primitive primitive{};
+        primitive.kind = PROGPU_NATIVE_PRIMITIVE_RECTANGLE;
+        primitive.flags = primitive_flags();
+        primitive.x = rectangle.left;
+        primitive.y = rectangle.top;
+        primitive.width = rectangle.right - rectangle.left;
+        primitive.height = rectangle.bottom - rectangle.top;
+        primitive.stroke_thickness = stroke_width;
+        primitive.color = {1.0F, 1.0F, 1.0F, 1.0F};
+        primitive.transform = native_transform();
+        const float radius = stroke_width * 0.5F;
+        const auto bounds = transformed_bounds(
+            rectangle.left - radius,
+            rectangle.top - radius,
+            rectangle.right + radius,
+            rectangle.bottom + radius);
+        if (!builder_.draw_analytic(
+                std::span<const progpu_native_analytic_primitive>(
+                    &primitive,
+                    1U),
+                std::span<const uint32_t>(&brush_index, 1U),
+                bounds)) {
+            return fail_builder();
+        }
+        record_draw();
+        return S_OK;
+    }
+
+    void record_draw() noexcept
+    {
+        if (translated_draw_count_ != std::numeric_limits<uint32_t>::max()) {
+            ++translated_draw_count_;
+        }
+    }
+
+    std::atomic<ULONG> reference_count_{1U};
+    progpu::native::semantic_scene_builder builder_;
+    D2D1_MATRIX_3X2_F transform_ = D2D1::Matrix3x2F::Identity();
+    D2D1_COLOR_F clear_color_{};
+    D2D1_ANTIALIAS_MODE antialias_mode_ =
+        D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;
+    uint32_t callback_index_ = 0U;
+    uint32_t failure_callback_index_ = 0U;
+    uint32_t failure_reason_ =
+        PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE;
+    uint32_t translated_draw_count_ = 0U;
+    bool builder_ready_ = true;
+    bool begun_ = false;
+    bool ended_ = false;
+    bool has_clear_ = false;
+    bool has_aliased_primitives_ = false;
 };
 
 class CallerTessellationSink final : public ID2D1TessellationSink {
@@ -3538,6 +4208,147 @@ progpu_native_direct2d_command_list_get_stream_summary(
     }
     if (hr == D2DERR_WRONG_STATE) {
         return PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH;
+    }
+    return status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_command_list_build_scene_stream(
+    progpu_native_direct2d_surface* surface,
+    void* command_list,
+    uint64_t scene_id,
+    uint64_t generation,
+    uint8_t* destination,
+    uint64_t destination_capacity,
+    progpu_native_direct2d_scene_stream_result* result,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || command_list == nullptr || scene_id == 0U ||
+        generation == 0U || result == nullptr ||
+        result->struct_size != sizeof(*result) || native_hresult == nullptr ||
+        (destination == nullptr) != (destination_capacity == 0U) ||
+        destination_capacity > std::numeric_limits<size_t>::max()) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    *result = {};
+    result->struct_size = static_cast<uint32_t>(sizeof(*result));
+    result->scene_id = scene_id;
+    result->generation = generation;
+
+    std::scoped_lock lock(surface->access_mutex);
+    if (surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_ALREADY_ACTIVE;
+    }
+
+    ComPtr<ID2D1CommandList> native_command_list;
+    HRESULT hr = reinterpret_cast<IUnknown*>(command_list)->QueryInterface(
+        IID_PPV_ARGS(&native_command_list));
+    progpu_native_direct2d_command_stream_summary summary{};
+    summary.struct_size = static_cast<uint32_t>(sizeof(summary));
+    if (SUCCEEDED(hr)) {
+        CommandStreamSummarySink* summary_sink = new (std::nothrow)
+            CommandStreamSummarySink(false);
+        if (summary_sink == nullptr) {
+            hr = E_OUTOFMEMORY;
+        } else {
+            hr = native_command_list->Stream(summary_sink);
+            summary = summary_sink->summary();
+            summary_sink->Release();
+        }
+    }
+
+    CommandSceneStreamSink* scene_sink = nullptr;
+    if (SUCCEEDED(hr)) {
+        try {
+            scene_sink = new CommandSceneStreamSink(
+                scene_id,
+                generation,
+                summary);
+        } catch (const std::bad_alloc&) {
+            hr = E_OUTOFMEMORY;
+        } catch (...) {
+            hr = E_FAIL;
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        hr = native_command_list->Stream(scene_sink);
+    }
+    if (scene_sink != nullptr) {
+        result->failure_callback_index =
+            scene_sink->failure_callback_index();
+        result->failure_reason = scene_sink->failure_reason();
+        result->translated_draw_count =
+            scene_sink->translated_draw_count();
+        if (scene_sink->has_clear()) {
+            result->flags |=
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_LEADING_CLEAR;
+            const D2D1_COLOR_F color = scene_sink->clear_color();
+            result->clear_color = {color.r, color.g, color.b, color.a};
+        }
+        if (scene_sink->has_aliased_primitives()) {
+            result->flags |=
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_ALIASED_PRIMITIVES;
+        }
+    }
+
+    if (SUCCEEDED(hr) && scene_sink != nullptr) {
+        const size_t required = scene_sink->builder().required_stream_size();
+        result->required_bytes = required;
+        if (required == 0U) {
+            result->failure_reason =
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER;
+            hr = E_FAIL;
+        } else if (destination_capacity < required) {
+            hr = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+        } else {
+            size_t written = 0U;
+            progpu::native::scene_build_metrics metrics{};
+            if (!scene_sink->builder().build_into(
+                    std::span<std::byte>(
+                        reinterpret_cast<std::byte*>(destination),
+                        static_cast<size_t>(destination_capacity)),
+                    written,
+                    &metrics)) {
+                result->failure_reason =
+                    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER;
+                hr = scene_sink->builder().last_error() ==
+                        progpu::native::scene_build_error::out_of_memory
+                    ? E_OUTOFMEMORY
+                    : E_FAIL;
+            } else {
+                result->written_bytes = written;
+                result->command_count = metrics.command_count;
+                result->resource_count = metrics.resource_count;
+                result->brush_count = metrics.brush_count;
+            }
+        }
+    }
+    if (scene_sink != nullptr) {
+        scene_sink->Release();
+    }
+
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (SUCCEEDED(hr)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+    }
+    if (hr == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER;
+    }
+    if (hr == E_NOTIMPL || hr == E_NOINTERFACE) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED;
+    }
+    if (hr == D2DERR_WRONG_STATE) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH;
+    }
+    if (hr == E_INVALIDARG) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    if (hr == E_OUTOFMEMORY) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_OUT_OF_MEMORY;
     }
     return status_from_win2d_hresult(hr);
 }
