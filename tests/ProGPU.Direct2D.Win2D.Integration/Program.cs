@@ -88,6 +88,7 @@ internal static partial class Program
                     NativeStrokeStyleIdentityMatches: null,
                     NativeTextFormatIdentityMatches: null,
                     NativeTextLayoutIdentityMatches: null,
+                    NativeTextLayoutRangeFormattingMatches: null,
                     TypedLayerStateScopePassed: null,
                     TypedNativeTextDrawPassed: null,
                     TypedNativeTextLayoutDrawPassed: null,
@@ -832,10 +833,25 @@ internal static partial class Program
 
             using ProGpuDirect2DComReference nativeTextLayout =
                 surface.CreateTextLayout(
-                    "ABI 17".AsSpan(),
+                    "ABI 18".AsSpan(),
                     nativeTextFormat,
                     52.0F,
                     20.0F);
+            surface.SetTextLayoutRangeFormat(
+                nativeTextLayout,
+                1U,
+                3U,
+                new ProGpuDirect2DTextRangeFormat(
+                    ProGpuDirect2DTextRangeFormatFlags.FontSize |
+                    ProGpuDirect2DTextRangeFormatFlags.FontWeight |
+                    ProGpuDirect2DTextRangeFormatFlags.Underline |
+                    ProGpuDirect2DTextRangeFormatFlags.Strikethrough |
+                    ProGpuDirect2DTextRangeFormatFlags.DrawingEffect,
+                    FontWeight: 700U,
+                    FontSize: 18.0F,
+                    Underline: true,
+                    Strikethrough: true),
+                nativeSolidColorBrush);
             if (!surface.TryAcquireMicrosoftWin2DTextLayout(
                     nativeTextLayout,
                     out ProGpuDirect2DComReference? wrappedTextLayout,
@@ -1112,6 +1128,19 @@ internal static partial class Program
                 canvasTextLayoutType =
                     canvasTextLayout.GetType().FullName ??
                     canvasTextLayout.GetType().Name;
+                if (canvasTextLayout.GetFontSize(2) != 18.0F ||
+                    !canvasTextLayout.GetUnderline(2) ||
+                    !canvasTextLayout.GetStrikethrough(2))
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasTextLayout did not observe ProGPU's native range formatting.");
+                }
+                canvasTextLayout.SetFontSize(0, 1, 15.0F);
+                if (canvasTextLayout.GetFontSize(0) != 15.0F)
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasTextLayout range mutation did not reach the native layout.");
+                }
                 float[] projectedDashes = canvasStrokeStyle.CustomDashStyle;
                 if (projectedDashes.Length != 4 ||
                     projectedDashes[0] != 2.0F ||
@@ -1331,6 +1360,7 @@ internal static partial class Program
                 NativeStrokeStyleIdentityMatches: true,
                 NativeTextFormatIdentityMatches: true,
                 NativeTextLayoutIdentityMatches: true,
+                NativeTextLayoutRangeFormattingMatches: true,
                 TypedLayerStateScopePassed: true,
                 TypedNativeTextDrawPassed: true,
                 TypedNativeTextLayoutDrawPassed: true,
@@ -1565,6 +1595,7 @@ internal static partial class Program
         bool? NativeStrokeStyleIdentityMatches,
         bool? NativeTextFormatIdentityMatches,
         bool? NativeTextLayoutIdentityMatches,
+        bool? NativeTextLayoutRangeFormattingMatches,
         bool? TypedLayerStateScopePassed,
         bool? TypedNativeTextDrawPassed,
         bool? TypedNativeTextLayoutDrawPassed,

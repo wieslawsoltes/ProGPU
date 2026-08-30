@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 17U;
+    internal const uint AbiVersion = 18U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -127,6 +127,21 @@ internal static unsafe partial class ProGpuDirect2DNative
         internal ProGpuDirect2DReadingDirection ReadingDirection;
         internal ProGpuDirect2DFlowDirection FlowDirection;
         internal float IncrementalTabStop;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeTextRangeFormat
+    {
+        internal uint StructSize;
+        internal ProGpuDirect2DTextRangeFormatFlags Flags;
+        internal uint RangeStart;
+        internal uint RangeLength;
+        internal uint FontWeight;
+        internal ProGpuDirect2DFontStyle FontStyle;
+        internal ProGpuDirect2DFontStretch FontStretch;
+        internal float FontSize;
+        internal uint Underline;
+        internal uint Strikethrough;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -509,6 +524,17 @@ internal static unsafe partial class ProGpuDirect2DNative
         float maximumWidth,
         float maximumHeight,
         nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_text_layout_set_range_format")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus TextLayoutSetRangeFormat(
+        nint surface,
+        nint textLayout,
+        NativeTextRangeFormat* formatting,
+        nint drawingEffectBrush,
         int* nativeHResult);
 
     [LibraryImport(

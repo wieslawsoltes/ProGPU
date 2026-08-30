@@ -241,6 +241,63 @@ bool is_valid_text_format(
         properties.incremental_tab_stop >= 0.0F;
 }
 
+bool is_valid_text_range_format(
+    const progpu_native_direct2d_text_range_format& formatting,
+    const void* drawing_effect_brush)
+{
+    constexpr uint32_t allowed =
+        PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_SIZE |
+        PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_WEIGHT |
+        PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_STYLE |
+        PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_STRETCH |
+        PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_UNDERLINE |
+        PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_STRIKETHROUGH |
+        PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_DRAWING_EFFECT;
+    if (formatting.struct_size != sizeof(formatting) ||
+        formatting.flags == PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_NONE ||
+        (formatting.flags & ~allowed) != 0U ||
+        formatting.range_length == 0U ||
+        formatting.range_start > UINT32_MAX - formatting.range_length ||
+        (drawing_effect_brush != nullptr &&
+            (formatting.flags &
+                PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_DRAWING_EFFECT) ==
+                0U)) {
+        return false;
+    }
+    if ((formatting.flags &
+            PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_SIZE) != 0U &&
+        (!std::isfinite(formatting.font_size) ||
+            formatting.font_size <= 0.0F)) {
+        return false;
+    }
+    if ((formatting.flags &
+            PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_WEIGHT) != 0U &&
+        (formatting.font_weight < 1U || formatting.font_weight > 999U)) {
+        return false;
+    }
+    if ((formatting.flags &
+            PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_STYLE) != 0U &&
+        formatting.font_style > PROGPU_NATIVE_DIRECT2D_FONT_STYLE_ITALIC) {
+        return false;
+    }
+    if ((formatting.flags &
+            PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_STRETCH) != 0U &&
+        (formatting.font_stretch <
+                PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_ULTRA_CONDENSED ||
+            formatting.font_stretch >
+                PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_ULTRA_EXPANDED)) {
+        return false;
+    }
+    if ((formatting.flags &
+            PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_UNDERLINE) != 0U &&
+        formatting.underline > 1U) {
+        return false;
+    }
+    return (formatting.flags &
+            PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_STRIKETHROUGH) == 0U ||
+        formatting.strikethrough <= 1U;
+}
+
 bool contains_null(const uint16_t* text, uint32_t length)
 {
     for (uint32_t index = 0U; index < length; ++index) {
@@ -2267,6 +2324,78 @@ progpu_native_direct2d_surface_create_text_layout(
         return status_from_win2d_hresult(hr);
     }
     return return_interface(layout, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_text_layout_set_range_format(
+    progpu_native_direct2d_surface* surface,
+    void* text_layout,
+    const progpu_native_direct2d_text_range_format* formatting,
+    void* drawing_effect_brush,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || text_layout == nullptr || formatting == nullptr ||
+        native_hresult == nullptr ||
+        !is_valid_text_range_format(*formatting, drawing_effect_brush)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<IDWriteTextLayout> layout;
+    HRESULT hr = reinterpret_cast<IUnknown*>(text_layout)->QueryInterface(
+        IID_PPV_ARGS(&layout));
+    ComPtr<ID2D1Brush> brush;
+    if (SUCCEEDED(hr) && drawing_effect_brush != nullptr) {
+        hr = reinterpret_cast<IUnknown*>(drawing_effect_brush)->QueryInterface(
+            IID_PPV_ARGS(&brush));
+    }
+    const DWRITE_TEXT_RANGE range = {
+        formatting->range_start,
+        formatting->range_length};
+    if (SUCCEEDED(hr) && (formatting->flags &
+            PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_SIZE) != 0U) {
+        hr = layout->SetFontSize(formatting->font_size, range);
+    }
+    if (SUCCEEDED(hr) && (formatting->flags &
+            PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_WEIGHT) != 0U) {
+        hr = layout->SetFontWeight(
+            static_cast<DWRITE_FONT_WEIGHT>(formatting->font_weight),
+            range);
+    }
+    if (SUCCEEDED(hr) && (formatting->flags &
+            PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_STYLE) != 0U) {
+        hr = layout->SetFontStyle(
+            static_cast<DWRITE_FONT_STYLE>(formatting->font_style),
+            range);
+    }
+    if (SUCCEEDED(hr) && (formatting->flags &
+            PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_STRETCH) != 0U) {
+        hr = layout->SetFontStretch(
+            static_cast<DWRITE_FONT_STRETCH>(formatting->font_stretch),
+            range);
+    }
+    if (SUCCEEDED(hr) && (formatting->flags &
+            PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_UNDERLINE) != 0U) {
+        hr = layout->SetUnderline(formatting->underline != 0U, range);
+    }
+    if (SUCCEEDED(hr) && (formatting->flags &
+            PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_STRIKETHROUGH) != 0U) {
+        hr = layout->SetStrikethrough(
+            formatting->strikethrough != 0U,
+            range);
+    }
+    if (SUCCEEDED(hr) && (formatting->flags &
+            PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_DRAWING_EFFECT) != 0U) {
+        hr = layout->SetDrawingEffect(brush.Get(), range);
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
 }
 
 progpu_native_direct2d_status

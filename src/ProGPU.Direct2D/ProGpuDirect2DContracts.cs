@@ -260,6 +260,19 @@ public enum ProGpuDirect2DFontStretch : uint
     UltraExpanded = 9
 }
 
+[Flags]
+public enum ProGpuDirect2DTextRangeFormatFlags : uint
+{
+    None = 0,
+    FontSize = 1U << 0,
+    FontWeight = 1U << 1,
+    FontStyle = 1U << 2,
+    FontStretch = 1U << 3,
+    Underline = 1U << 4,
+    Strikethrough = 1U << 5,
+    DrawingEffect = 1U << 6
+}
+
 public enum ProGpuDirect2DTextAlignment : uint
 {
     Leading = 0,
@@ -454,6 +467,22 @@ public readonly record struct ProGpuDirect2DTextFormatProperties(
     ProGpuDirect2DFlowDirection FlowDirection =
         ProGpuDirect2DFlowDirection.TopToBottom,
     float IncrementalTabStop = 0.0F);
+
+/// <summary>
+/// Typed mutable formatting for one UTF-16 range in a genuine
+/// IDWriteTextLayout4. <see cref="Flags"/> selects the values to apply.
+/// A drawing-effect brush is supplied separately so this state stays
+/// pointer-free and AOT-safe.
+/// </summary>
+public readonly record struct ProGpuDirect2DTextRangeFormat(
+    ProGpuDirect2DTextRangeFormatFlags Flags,
+    uint FontWeight = 400U,
+    ProGpuDirect2DFontStyle FontStyle = ProGpuDirect2DFontStyle.Normal,
+    ProGpuDirect2DFontStretch FontStretch =
+        ProGpuDirect2DFontStretch.Normal,
+    float FontSize = 12.0F,
+    bool Underline = false,
+    bool Strikethrough = false);
 
 /// <summary>
 /// Blittable source, tiling, and sampling state for a genuine
