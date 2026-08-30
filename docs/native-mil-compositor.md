@@ -5118,6 +5118,12 @@ allowlist grows from 52 to exactly 55 exports. This is the native MIL text seam
 used before adding the color-glyph enumerator/paint-tree layers; it does not
 replace the portable cross-platform glyph DTO path.
 
+Windows MSVC qualification is recorded by GitHub Actions Build run
+`33326634929`, job `99297867722`. The provider and native test compile/link
+under the warning-as-error lane, `progpu_native_direct2d_tests` passes in
+0.16 seconds, the complete native CTest suite passes 11/11, and the exact
+55-export Direct2D allowlist is accepted.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
