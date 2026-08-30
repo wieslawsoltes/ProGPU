@@ -1,6 +1,7 @@
 using ProGPU.Backend;
 using ProGPU.Backend.Dawn;
 using Silk.NET.WebGPU;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 
 namespace ProGPU.Direct2D;
@@ -28,6 +29,10 @@ public sealed unsafe class ProGpuDirect2DSurface :
         new("A898A84C-3873-4588-B08B-EBBF978DF041");
     private static readonly Guid D2D1SolidColorBrushInterfaceId =
         new("2CD906A9-12E2-11DC-9FED-001143A055F9");
+    private static readonly Guid D2D1LinearGradientBrushInterfaceId =
+        new("2CD906AB-12E2-11DC-9FED-001143A055F9");
+    private static readonly Guid D2D1RadialGradientBrushInterfaceId =
+        new("2CD906AC-12E2-11DC-9FED-001143A055F9");
 
     private readonly object _gate = new();
     private readonly DawnGpuContext _dawn;
@@ -288,6 +293,122 @@ public sealed unsafe class ProGpuDirect2DSurface :
     }
 
     /// <summary>
+    /// Creates a genuine ID2D1GradientStopCollection1 without copying the
+    /// caller's blittable stop span into an intermediate managed array.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateGradientStopCollection(
+        ReadOnlySpan<ProGpuDirect2DGradientStop> stops,
+        ProGpuDirect2DColorSpace preInterpolationSpace =
+            ProGpuDirect2DColorSpace.SRgb,
+        ProGpuDirect2DColorSpace postInterpolationSpace =
+            ProGpuDirect2DColorSpace.SRgb,
+        ProGpuDirect2DBufferPrecision bufferPrecision =
+            ProGpuDirect2DBufferPrecision.Precision8UIntNormalized,
+        ProGpuDirect2DExtendMode extendMode =
+            ProGpuDirect2DExtendMode.Clamp,
+        ProGpuDirect2DColorInterpolationMode interpolationMode =
+            ProGpuDirect2DColorInterpolationMode.Premultiplied)
+    {
+        ValidateGradientStops(stops);
+        ValidateGradientOptions(
+            preInterpolationSpace,
+            postInterpolationSpace,
+            bufferPrecision,
+            extendMode,
+            interpolationMode);
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            fixed (ProGpuDirect2DGradientStop* stopPointer = stops)
+            {
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.SurfaceCreateGradientStopCollection(
+                        _nativeSurface,
+                        stopPointer,
+                        checked((uint)stops.Length),
+                        preInterpolationSpace,
+                        postInterpolationSpace,
+                        bufferPrecision,
+                        extendMode,
+                        interpolationMode,
+                        &value,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1GradientStopCollection1 creation",
+                    status,
+                    nativeHResult);
+                return CreateRequiredComReference(
+                    value,
+                    ProGpuDirect2DInterfaceKind.D2D1GradientStopCollection1,
+                    "Direct2D gradient-stop collection creation");
+            }
+        }
+    }
+
+    public ProGpuDirect2DComReference CreateLinearGradientBrush(
+        ProGpuDirect2DComReference gradientStopCollection,
+        Vector2 startPoint,
+        Vector2 endPoint,
+        float opacity = 1.0F,
+        Matrix3x2? transform = null)
+    {
+        ValidateGradientStopCollection(gradientStopCollection);
+        ValidatePoint(startPoint, nameof(startPoint));
+        ValidatePoint(endPoint, nameof(endPoint));
+        ProGpuDirect2DNative.NativeBrushProperties nativeBrushProperties =
+            CreateNativeBrushProperties(opacity, transform);
+        var nativeProperties =
+            new ProGpuDirect2DNative.NativeLinearGradientBrushProperties
+            {
+                StartPoint = CreateNativePoint(startPoint),
+                EndPoint = CreateNativePoint(endPoint)
+            };
+        return CreateGradientBrush(
+            gradientStopCollection,
+            &nativeProperties,
+            &nativeBrushProperties,
+            radial: false);
+    }
+
+    public ProGpuDirect2DComReference CreateRadialGradientBrush(
+        ProGpuDirect2DComReference gradientStopCollection,
+        Vector2 center,
+        Vector2 gradientOriginOffset,
+        float radiusX,
+        float radiusY,
+        float opacity = 1.0F,
+        Matrix3x2? transform = null)
+    {
+        ValidateGradientStopCollection(gradientStopCollection);
+        ValidatePoint(center, nameof(center));
+        ValidatePoint(gradientOriginOffset, nameof(gradientOriginOffset));
+        if (!float.IsFinite(radiusX) || !float.IsFinite(radiusY))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(radiusX),
+                "Direct2D gradient radii must be finite.");
+        }
+        ProGpuDirect2DNative.NativeBrushProperties nativeBrushProperties =
+            CreateNativeBrushProperties(opacity, transform);
+        var nativeProperties =
+            new ProGpuDirect2DNative.NativeRadialGradientBrushProperties
+            {
+                Center = CreateNativePoint(center),
+                GradientOriginOffset = CreateNativePoint(
+                    gradientOriginOffset),
+                RadiusX = radiusX,
+                RadiusY = radiusY
+            };
+        return CreateGradientBrush(
+            gradientStopCollection,
+            &nativeProperties,
+            &nativeBrushProperties,
+            radial: true);
+    }
+
+    /// <summary>
     /// Wraps a provider-created ID2D1SolidColorBrush as a genuine Microsoft
     /// Win2D CanvasSolidColorBrush through ICanvasFactoryNative. The returned
     /// safe handle owns one COM reference.
@@ -295,62 +416,14 @@ public sealed unsafe class ProGpuDirect2DSurface :
     public bool TryAcquireMicrosoftWin2DSolidColorBrush(
         ProGpuDirect2DComReference nativeBrush,
         out ProGpuDirect2DComReference? canvasBrush,
-        out int nativeHResult)
-    {
-        ArgumentNullException.ThrowIfNull(nativeBrush);
-        if (nativeBrush.InterfaceKind !=
-            ProGpuDirect2DInterfaceKind.D2D1SolidColorBrush)
-        {
-            throw new ArgumentException(
-                "The COM reference must own an ID2D1SolidColorBrush created by this provider.",
-                nameof(nativeBrush));
-        }
-
-        bool referenceAdded = false;
-        try
-        {
-            nativeBrush.DangerousAddRef(ref referenceAdded);
-            lock (_gate)
-            {
-                ThrowIfUnavailable();
-                nint value = 0;
-                int resultHResult = 0;
-                ProGpuDirect2DStatus status =
-                    ProGpuDirect2DNative.SurfaceTryGetOrCreateWin2DWrapper(
-                        _nativeSurface,
-                        nativeBrush.DangerousGetHandle(),
-                        0.0F,
-                        &value,
-                        &resultHResult);
-                nativeHResult = resultHResult;
-                if (status == ProGpuDirect2DStatus.Win2DRuntimeUnavailable)
-                {
-                    canvasBrush = null;
-                    return false;
-                }
-                ThrowIfFailed(
-                    "Microsoft Win2D CanvasSolidColorBrush wrapping",
-                    status,
-                    nativeHResult);
-                if (value == 0)
-                {
-                    throw new InvalidOperationException(
-                        "Win2D brush wrapping succeeded without returning an interface.");
-                }
-                canvasBrush = new ProGpuDirect2DComReference(
-                    value,
-                    ProGpuDirect2DInterfaceKind.Win2DCanvasSolidColorBrush);
-                return true;
-            }
-        }
-        finally
-        {
-            if (referenceAdded)
-            {
-                nativeBrush.DangerousRelease();
-            }
-        }
-    }
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapper(
+            nativeBrush,
+            ProGpuDirect2DInterfaceKind.D2D1SolidColorBrush,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasSolidColorBrush,
+            "Microsoft Win2D CanvasSolidColorBrush wrapping",
+            out canvasBrush,
+            out nativeHResult);
 
     /// <summary>
     /// Reverse-unwraps a genuine Microsoft Win2D CanvasSolidColorBrush through
@@ -360,56 +433,162 @@ public sealed unsafe class ProGpuDirect2DSurface :
     public bool TryAcquireMicrosoftWin2DNativeSolidColorBrush(
         ProGpuDirect2DComReference canvasBrush,
         out ProGpuDirect2DComReference? nativeBrush,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapperNativeResource(
+            canvasBrush,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasSolidColorBrush,
+            D2D1SolidColorBrushInterfaceId,
+            ProGpuDirect2DInterfaceKind.D2D1SolidColorBrush,
+            "Microsoft Win2D CanvasSolidColorBrush native-resource query",
+            out nativeBrush,
+            out nativeHResult);
+
+    public bool TryAcquireMicrosoftWin2DLinearGradientBrush(
+        ProGpuDirect2DComReference nativeBrush,
+        out ProGpuDirect2DComReference? canvasBrush,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapper(
+            nativeBrush,
+            ProGpuDirect2DInterfaceKind.D2D1LinearGradientBrush,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasLinearGradientBrush,
+            "Microsoft Win2D CanvasLinearGradientBrush wrapping",
+            out canvasBrush,
+            out nativeHResult);
+
+    public bool TryAcquireMicrosoftWin2DNativeLinearGradientBrush(
+        ProGpuDirect2DComReference canvasBrush,
+        out ProGpuDirect2DComReference? nativeBrush,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapperNativeResource(
+            canvasBrush,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasLinearGradientBrush,
+            D2D1LinearGradientBrushInterfaceId,
+            ProGpuDirect2DInterfaceKind.D2D1LinearGradientBrush,
+            "Microsoft Win2D CanvasLinearGradientBrush native-resource query",
+            out nativeBrush,
+            out nativeHResult);
+
+    public bool TryAcquireMicrosoftWin2DRadialGradientBrush(
+        ProGpuDirect2DComReference nativeBrush,
+        out ProGpuDirect2DComReference? canvasBrush,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapper(
+            nativeBrush,
+            ProGpuDirect2DInterfaceKind.D2D1RadialGradientBrush,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasRadialGradientBrush,
+            "Microsoft Win2D CanvasRadialGradientBrush wrapping",
+            out canvasBrush,
+            out nativeHResult);
+
+    public bool TryAcquireMicrosoftWin2DNativeRadialGradientBrush(
+        ProGpuDirect2DComReference canvasBrush,
+        out ProGpuDirect2DComReference? nativeBrush,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapperNativeResource(
+            canvasBrush,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasRadialGradientBrush,
+            D2D1RadialGradientBrushInterfaceId,
+            ProGpuDirect2DInterfaceKind.D2D1RadialGradientBrush,
+            "Microsoft Win2D CanvasRadialGradientBrush native-resource query",
+            out nativeBrush,
+            out nativeHResult);
+
+    private ProGpuDirect2DComReference CreateGradientBrush(
+        ProGpuDirect2DComReference gradientStopCollection,
+        void* properties,
+        ProGpuDirect2DNative.NativeBrushProperties* brushProperties,
+        bool radial)
+    {
+        bool referenceAdded = false;
+        try
+        {
+            gradientStopCollection.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status = radial
+                    ? ProGpuDirect2DNative.SurfaceCreateRadialGradientBrush(
+                        _nativeSurface,
+                        (ProGpuDirect2DNative
+                            .NativeRadialGradientBrushProperties*)properties,
+                        brushProperties,
+                        gradientStopCollection.DangerousGetHandle(),
+                        &value,
+                        &nativeHResult)
+                    : ProGpuDirect2DNative.SurfaceCreateLinearGradientBrush(
+                        _nativeSurface,
+                        (ProGpuDirect2DNative
+                            .NativeLinearGradientBrushProperties*)properties,
+                        brushProperties,
+                        gradientStopCollection.DangerousGetHandle(),
+                        &value,
+                        &nativeHResult);
+                string operation = radial
+                    ? "ID2D1RadialGradientBrush creation"
+                    : "ID2D1LinearGradientBrush creation";
+                ThrowIfFailed(operation, status, nativeHResult);
+                return CreateRequiredComReference(
+                    value,
+                    radial
+                        ? ProGpuDirect2DInterfaceKind.D2D1RadialGradientBrush
+                        : ProGpuDirect2DInterfaceKind.D2D1LinearGradientBrush,
+                    operation);
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                gradientStopCollection.DangerousRelease();
+            }
+        }
+    }
+
+    private bool TryAcquireMicrosoftWin2DWrapper(
+        ProGpuDirect2DComReference nativeResource,
+        ProGpuDirect2DInterfaceKind expectedNativeKind,
+        ProGpuDirect2DInterfaceKind wrapperKind,
+        string operation,
+        out ProGpuDirect2DComReference? wrapper,
         out int nativeHResult)
     {
-        ArgumentNullException.ThrowIfNull(canvasBrush);
-        if (canvasBrush.InterfaceKind !=
-            ProGpuDirect2DInterfaceKind.Win2DCanvasSolidColorBrush)
+        ArgumentNullException.ThrowIfNull(nativeResource);
+        if (nativeResource.InterfaceKind != expectedNativeKind)
         {
             throw new ArgumentException(
-                "The COM reference must own a Win2D CanvasSolidColorBrush returned by this provider.",
-                nameof(canvasBrush));
+                $"The COM reference must own {expectedNativeKind}.",
+                nameof(nativeResource));
         }
 
         bool referenceAdded = false;
         try
         {
-            canvasBrush.DangerousAddRef(ref referenceAdded);
+            nativeResource.DangerousAddRef(ref referenceAdded);
             lock (_gate)
             {
                 ThrowIfUnavailable();
-                ProGpuDirect2DNative.NativeGuid interfaceId =
-                    ProGpuDirect2DNative.NativeGuid.FromGuid(
-                        D2D1SolidColorBrushInterfaceId);
                 nint value = 0;
                 int resultHResult = 0;
                 ProGpuDirect2DStatus status =
-                    ProGpuDirect2DNative
-                        .SurfaceTryGetWin2DWrapperNativeResource(
-                            _nativeSurface,
-                            canvasBrush.DangerousGetHandle(),
-                            0.0F,
-                            &interfaceId,
-                            &value,
-                            &resultHResult);
+                    ProGpuDirect2DNative.SurfaceTryGetOrCreateWin2DWrapper(
+                        _nativeSurface,
+                        nativeResource.DangerousGetHandle(),
+                        0.0F,
+                        &value,
+                        &resultHResult);
                 nativeHResult = resultHResult;
                 if (status == ProGpuDirect2DStatus.Win2DRuntimeUnavailable)
                 {
-                    nativeBrush = null;
+                    wrapper = null;
                     return false;
                 }
-                ThrowIfFailed(
-                    "Microsoft Win2D CanvasSolidColorBrush native-resource query",
-                    status,
-                    nativeHResult);
-                if (value == 0)
-                {
-                    throw new InvalidOperationException(
-                        "Win2D brush unwrapping succeeded without returning an interface.");
-                }
-                nativeBrush = new ProGpuDirect2DComReference(
+                ThrowIfFailed(operation, status, nativeHResult);
+                wrapper = CreateRequiredComReference(
                     value,
-                    ProGpuDirect2DInterfaceKind.D2D1SolidColorBrush);
+                    wrapperKind,
+                    operation);
                 return true;
             }
         }
@@ -417,9 +596,82 @@ public sealed unsafe class ProGpuDirect2DSurface :
         {
             if (referenceAdded)
             {
-                canvasBrush.DangerousRelease();
+                nativeResource.DangerousRelease();
             }
         }
+    }
+
+    private bool TryAcquireMicrosoftWin2DWrapperNativeResource(
+        ProGpuDirect2DComReference wrapper,
+        ProGpuDirect2DInterfaceKind expectedWrapperKind,
+        Guid interfaceId,
+        ProGpuDirect2DInterfaceKind nativeKind,
+        string operation,
+        out ProGpuDirect2DComReference? nativeResource,
+        out int nativeHResult)
+    {
+        ArgumentNullException.ThrowIfNull(wrapper);
+        if (wrapper.InterfaceKind != expectedWrapperKind)
+        {
+            throw new ArgumentException(
+                $"The COM reference must own {expectedWrapperKind}.",
+                nameof(wrapper));
+        }
+
+        bool referenceAdded = false;
+        try
+        {
+            wrapper.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                ProGpuDirect2DNative.NativeGuid nativeInterfaceId =
+                    ProGpuDirect2DNative.NativeGuid.FromGuid(interfaceId);
+                nint value = 0;
+                int resultHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative
+                        .SurfaceTryGetWin2DWrapperNativeResource(
+                            _nativeSurface,
+                            wrapper.DangerousGetHandle(),
+                            0.0F,
+                            &nativeInterfaceId,
+                            &value,
+                            &resultHResult);
+                nativeHResult = resultHResult;
+                if (status == ProGpuDirect2DStatus.Win2DRuntimeUnavailable)
+                {
+                    nativeResource = null;
+                    return false;
+                }
+                ThrowIfFailed(operation, status, nativeHResult);
+                nativeResource = CreateRequiredComReference(
+                    value,
+                    nativeKind,
+                    operation);
+                return true;
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                wrapper.DangerousRelease();
+            }
+        }
+    }
+
+    private static ProGpuDirect2DComReference CreateRequiredComReference(
+        nint value,
+        ProGpuDirect2DInterfaceKind kind,
+        string operation)
+    {
+        if (value == 0)
+        {
+            throw new InvalidOperationException(
+                $"{operation} succeeded without returning a COM interface.");
+        }
+        return new ProGpuDirect2DComReference(value, kind);
     }
 
     private bool TryAcquireMicrosoftWin2DNativeResource(
@@ -868,6 +1120,113 @@ public sealed unsafe class ProGpuDirect2DSurface :
                 nameof(color),
                 "Direct2D color channels must be finite.");
         }
+    }
+
+    private static void ValidateGradientStops(
+        ReadOnlySpan<ProGpuDirect2DGradientStop> stops)
+    {
+        if (stops.IsEmpty)
+        {
+            throw new ArgumentException(
+                "A Direct2D gradient requires at least one stop.",
+                nameof(stops));
+        }
+        foreach (ref readonly ProGpuDirect2DGradientStop stop in stops)
+        {
+            if (!float.IsFinite(stop.Position))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(stops),
+                    "Direct2D gradient-stop positions must be finite.");
+            }
+            ValidateColor(stop.Color);
+        }
+    }
+
+    private static void ValidateGradientOptions(
+        ProGpuDirect2DColorSpace preInterpolationSpace,
+        ProGpuDirect2DColorSpace postInterpolationSpace,
+        ProGpuDirect2DBufferPrecision bufferPrecision,
+        ProGpuDirect2DExtendMode extendMode,
+        ProGpuDirect2DColorInterpolationMode interpolationMode)
+    {
+        if (preInterpolationSpace < ProGpuDirect2DColorSpace.Custom ||
+            preInterpolationSpace > ProGpuDirect2DColorSpace.ScRgb ||
+            postInterpolationSpace < ProGpuDirect2DColorSpace.Custom ||
+            postInterpolationSpace > ProGpuDirect2DColorSpace.ScRgb ||
+            bufferPrecision < ProGpuDirect2DBufferPrecision.Unknown ||
+            bufferPrecision > ProGpuDirect2DBufferPrecision.Precision32Float ||
+            extendMode < ProGpuDirect2DExtendMode.Clamp ||
+            extendMode > ProGpuDirect2DExtendMode.Mirror ||
+            interpolationMode <
+                ProGpuDirect2DColorInterpolationMode.Straight ||
+            interpolationMode >
+                ProGpuDirect2DColorInterpolationMode.Premultiplied)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(preInterpolationSpace),
+                "Direct2D gradient options contain an unknown enum value.");
+        }
+    }
+
+    private static void ValidateGradientStopCollection(
+        ProGpuDirect2DComReference gradientStopCollection)
+    {
+        ArgumentNullException.ThrowIfNull(gradientStopCollection);
+        if (gradientStopCollection.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.D2D1GradientStopCollection1)
+        {
+            throw new ArgumentException(
+                "The COM reference must own an ID2D1GradientStopCollection1.",
+                nameof(gradientStopCollection));
+        }
+    }
+
+    private static void ValidatePoint(Vector2 point, string parameterName)
+    {
+        if (!float.IsFinite(point.X) || !float.IsFinite(point.Y))
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "Direct2D points must be finite.");
+        }
+    }
+
+    private static ProGpuDirect2DNative.NativePoint2F CreateNativePoint(
+        Vector2 point) =>
+        new() { X = point.X, Y = point.Y };
+
+    private static ProGpuDirect2DNative.NativeBrushProperties
+        CreateNativeBrushProperties(
+            float opacity,
+            Matrix3x2? transform)
+    {
+        Matrix3x2 matrix = transform ?? Matrix3x2.Identity;
+        if (!float.IsFinite(opacity) ||
+            !float.IsFinite(matrix.M11) ||
+            !float.IsFinite(matrix.M12) ||
+            !float.IsFinite(matrix.M21) ||
+            !float.IsFinite(matrix.M22) ||
+            !float.IsFinite(matrix.M31) ||
+            !float.IsFinite(matrix.M32))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(opacity),
+                "Direct2D brush opacity and transform values must be finite.");
+        }
+        return new ProGpuDirect2DNative.NativeBrushProperties
+        {
+            Opacity = opacity,
+            Transform = new ProGpuDirect2DNative.NativeMatrix3X2F
+            {
+                M11 = matrix.M11,
+                M12 = matrix.M12,
+                M21 = matrix.M21,
+                M22 = matrix.M22,
+                M31 = matrix.M31,
+                M32 = matrix.M32
+            }
+        };
     }
 
     private static ProGpuDirect2DNative.SurfaceOptions CreateNativeOptions(

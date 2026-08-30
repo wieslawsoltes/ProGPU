@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Graphics.Canvas;
@@ -50,13 +51,21 @@ internal static partial class Program
                     CanvasDeviceType: null,
                     CanvasRenderTargetType: null,
                     CanvasSolidColorBrushType: null,
+                    CanvasLinearGradientBrushType: null,
+                    CanvasRadialGradientBrushType: null,
                     DrawingSessionType: null,
                     NativeDeviceIdentityMatches: null,
                     NativeBitmapIdentityMatches: null,
                     NativeSolidColorBrushIdentityMatches: null,
+                    NativeLinearGradientBrushIdentityMatches: null,
+                    NativeRadialGradientBrushIdentityMatches: null,
                     SolidColorBrushColor: null,
+                    LinearGradientBrushColor: null,
+                    RadialGradientBrushColor: null,
                     CornerPixel: null,
                     CenterPixel: null,
+                    SolidPixel: null,
+                    RadialPixel: null,
                     Error: exception.ToString()));
             return 1;
         }
@@ -189,6 +198,124 @@ internal static partial class Program
                 }
             }
 
+            Color linearColor = Color.FromArgb(255, 32, 160, 224);
+            Span<ProGpuDirect2DGradientStop> linearStops =
+                stackalloc ProGpuDirect2DGradientStop[2]
+                {
+                    new(
+                        0.0F,
+                        ProGpuDirect2DColor.FromArgb(
+                            linearColor.A,
+                            linearColor.R,
+                            linearColor.G,
+                            linearColor.B)),
+                    new(
+                        1.0F,
+                        ProGpuDirect2DColor.FromArgb(
+                            linearColor.A,
+                            linearColor.R,
+                            linearColor.G,
+                            linearColor.B))
+                };
+            using ProGpuDirect2DComReference linearStopCollection =
+                surface.CreateGradientStopCollection(linearStops);
+            using ProGpuDirect2DComReference nativeLinearGradientBrush =
+                surface.CreateLinearGradientBrush(
+                    linearStopCollection,
+                    new Vector2(24.0F, 0.0F),
+                    new Vector2(40.0F, 0.0F));
+            if (!surface.TryAcquireMicrosoftWin2DLinearGradientBrush(
+                    nativeLinearGradientBrush,
+                    out ProGpuDirect2DComReference? wrappedLinearGradientBrush,
+                    out int wrappedLinearGradientBrushHResult) ||
+                wrappedLinearGradientBrush is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasLinearGradientBrush wrapping failed (0x{wrappedLinearGradientBrushHResult:X8}).");
+            }
+            using ProGpuDirect2DComReference
+                canvasLinearGradientBrushReference =
+                    wrappedLinearGradientBrush;
+            if (!surface.TryAcquireMicrosoftWin2DNativeLinearGradientBrush(
+                    canvasLinearGradientBrushReference,
+                    out ProGpuDirect2DComReference? unwrappedLinearGradientBrush,
+                    out int unwrappedLinearGradientBrushHResult) ||
+                unwrappedLinearGradientBrush is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasLinearGradientBrush native-resource interop failed (0x{unwrappedLinearGradientBrushHResult:X8}).");
+            }
+            using (unwrappedLinearGradientBrush)
+            {
+                if (!HasSameComIdentity(
+                        nativeLinearGradientBrush,
+                        unwrappedLinearGradientBrush))
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasLinearGradientBrush did not preserve ProGPU's ID2D1LinearGradientBrush identity.");
+                }
+            }
+
+            Color radialColor = Color.FromArgb(255, 64, 192, 96);
+            Span<ProGpuDirect2DGradientStop> radialStops =
+                stackalloc ProGpuDirect2DGradientStop[2]
+                {
+                    new(
+                        0.0F,
+                        ProGpuDirect2DColor.FromArgb(
+                            radialColor.A,
+                            radialColor.R,
+                            radialColor.G,
+                            radialColor.B)),
+                    new(
+                        1.0F,
+                        ProGpuDirect2DColor.FromArgb(
+                            radialColor.A,
+                            radialColor.R,
+                            radialColor.G,
+                            radialColor.B))
+                };
+            using ProGpuDirect2DComReference radialStopCollection =
+                surface.CreateGradientStopCollection(radialStops);
+            using ProGpuDirect2DComReference nativeRadialGradientBrush =
+                surface.CreateRadialGradientBrush(
+                    radialStopCollection,
+                    new Vector2(52.0F, 32.0F),
+                    Vector2.Zero,
+                    8.0F,
+                    28.0F);
+            if (!surface.TryAcquireMicrosoftWin2DRadialGradientBrush(
+                    nativeRadialGradientBrush,
+                    out ProGpuDirect2DComReference? wrappedRadialGradientBrush,
+                    out int wrappedRadialGradientBrushHResult) ||
+                wrappedRadialGradientBrush is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasRadialGradientBrush wrapping failed (0x{wrappedRadialGradientBrushHResult:X8}).");
+            }
+            using ProGpuDirect2DComReference
+                canvasRadialGradientBrushReference =
+                    wrappedRadialGradientBrush;
+            if (!surface.TryAcquireMicrosoftWin2DNativeRadialGradientBrush(
+                    canvasRadialGradientBrushReference,
+                    out ProGpuDirect2DComReference? unwrappedRadialGradientBrush,
+                    out int unwrappedRadialGradientBrushHResult) ||
+                unwrappedRadialGradientBrush is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasRadialGradientBrush native-resource interop failed (0x{unwrappedRadialGradientBrushHResult:X8}).");
+            }
+            using (unwrappedRadialGradientBrush)
+            {
+                if (!HasSameComIdentity(
+                        nativeRadialGradientBrush,
+                        unwrappedRadialGradientBrush))
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasRadialGradientBrush did not preserve ProGPU's ID2D1RadialGradientBrush identity.");
+                }
+            }
+
             ulong contentVersionBefore = surface.ContentVersion;
             if (!surface.TryBeginMicrosoftWin2DProducerAccess(
                     out ProGpuMicrosoftWin2DProducerAccess? access,
@@ -202,10 +329,16 @@ internal static partial class Program
             string canvasDeviceType;
             string canvasRenderTargetType;
             string canvasSolidColorBrushType;
+            string canvasLinearGradientBrushType;
+            string canvasRadialGradientBrushType;
             string drawingSessionType;
             PixelEvidence solidColorBrushColor;
+            PixelEvidence linearGradientBrushColor;
+            PixelEvidence radialGradientBrushColor;
             PixelEvidence cornerPixel;
             PixelEvidence centerPixel;
+            PixelEvidence solidPixel;
+            PixelEvidence radialPixel;
             using (access)
             using (CanvasRenderTarget target =
                 CanvasRenderTarget.FromAbi(
@@ -213,6 +346,12 @@ internal static partial class Program
             using (CanvasSolidColorBrush canvasSolidColorBrush =
                 CanvasSolidColorBrush.FromAbi(
                     canvasSolidColorBrushReference.DangerousGetHandle()))
+            using (CanvasLinearGradientBrush canvasLinearGradientBrush =
+                CanvasLinearGradientBrush.FromAbi(
+                    canvasLinearGradientBrushReference.DangerousGetHandle()))
+            using (CanvasRadialGradientBrush canvasRadialGradientBrush =
+                CanvasRadialGradientBrush.FromAbi(
+                    canvasRadialGradientBrushReference.DangerousGetHandle()))
             {
                 canvasDeviceType = target.Device.GetType().FullName ??
                     target.Device.GetType().Name;
@@ -232,6 +371,44 @@ internal static partial class Program
                     throw new InvalidOperationException(
                         $"Win2D CanvasSolidColorBrush color changed: {solidColorBrushColor}.");
                 }
+                canvasLinearGradientBrushType =
+                    canvasLinearGradientBrush.GetType().FullName ??
+                    canvasLinearGradientBrush.GetType().Name;
+                CanvasGradientStop[] projectedLinearStops =
+                    canvasLinearGradientBrush.Stops;
+                if (projectedLinearStops.Length != 2 ||
+                    !MatchesColor(projectedLinearStops[0].Color, linearColor) ||
+                    !MatchesColor(projectedLinearStops[1].Color, linearColor) ||
+                    canvasLinearGradientBrush.StartPoint !=
+                        new Vector2(24.0F, 0.0F) ||
+                    canvasLinearGradientBrush.EndPoint !=
+                        new Vector2(40.0F, 0.0F))
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasLinearGradientBrush metadata changed.");
+                }
+                linearGradientBrushColor =
+                    PixelEvidence.FromColor(projectedLinearStops[0].Color);
+
+                canvasRadialGradientBrushType =
+                    canvasRadialGradientBrush.GetType().FullName ??
+                    canvasRadialGradientBrush.GetType().Name;
+                CanvasGradientStop[] projectedRadialStops =
+                    canvasRadialGradientBrush.Stops;
+                if (projectedRadialStops.Length != 2 ||
+                    !MatchesColor(projectedRadialStops[0].Color, radialColor) ||
+                    !MatchesColor(projectedRadialStops[1].Color, radialColor) ||
+                    canvasRadialGradientBrush.Center !=
+                        new Vector2(52.0F, 32.0F) ||
+                    canvasRadialGradientBrush.OriginOffset != Vector2.Zero ||
+                    canvasRadialGradientBrush.RadiusX != 8.0F ||
+                    canvasRadialGradientBrush.RadiusY != 28.0F)
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasRadialGradientBrush metadata changed.");
+                }
+                radialGradientBrushColor =
+                    PixelEvidence.FromColor(projectedRadialStops[0].Color);
                 using (CanvasDrawingSession drawingSession =
                     target.CreateDrawingSession())
                 {
@@ -241,11 +418,23 @@ internal static partial class Program
                     drawingSession.Clear(
                         Color.FromArgb(0, 0, 0, 0));
                     drawingSession.FillRectangle(
-                        8.0F,
-                        8.0F,
-                        48.0F,
-                        48.0F,
+                        4.0F,
+                        4.0F,
+                        16.0F,
+                        56.0F,
                         canvasSolidColorBrush);
+                    drawingSession.FillRectangle(
+                        24.0F,
+                        4.0F,
+                        16.0F,
+                        56.0F,
+                        canvasLinearGradientBrush);
+                    drawingSession.FillRectangle(
+                        44.0F,
+                        4.0F,
+                        16.0F,
+                        56.0F,
+                        canvasRadialGradientBrush);
                 }
 
                 Color[] pixels = target.GetPixelColors();
@@ -257,16 +446,19 @@ internal static partial class Program
                 Color corner = pixels[0];
                 Color center = pixels[
                     checked((int)((Height / 2U) * Width + Width / 2U))];
+                Color solid = pixels[checked((int)(32U * Width + 12U))];
+                Color radial = pixels[checked((int)(32U * Width + 52U))];
                 cornerPixel = PixelEvidence.FromColor(corner);
                 centerPixel = PixelEvidence.FromColor(center);
+                solidPixel = PixelEvidence.FromColor(solid);
+                radialPixel = PixelEvidence.FromColor(radial);
                 if (corner.A != 0 ||
-                    center.A != fill.A ||
-                    center.R != fill.R ||
-                    center.G != fill.G ||
-                    center.B != fill.B)
+                    !MatchesColor(solid, fill) ||
+                    !MatchesColor(center, linearColor) ||
+                    !MatchesColor(radial, radialColor))
                 {
                     throw new InvalidOperationException(
-                        $"Win2D pixel oracle failed: corner={cornerPixel}, center={centerPixel}.");
+                        $"Win2D pixel oracle failed: corner={cornerPixel}, solid={solidPixel}, linear={centerPixel}, radial={radialPixel}.");
                 }
             }
 
@@ -290,13 +482,21 @@ internal static partial class Program
                 CanvasDeviceType: canvasDeviceType,
                 CanvasRenderTargetType: canvasRenderTargetType,
                 CanvasSolidColorBrushType: canvasSolidColorBrushType,
+                CanvasLinearGradientBrushType: canvasLinearGradientBrushType,
+                CanvasRadialGradientBrushType: canvasRadialGradientBrushType,
                 DrawingSessionType: drawingSessionType,
                 NativeDeviceIdentityMatches: true,
                 NativeBitmapIdentityMatches: true,
                 NativeSolidColorBrushIdentityMatches: true,
+                NativeLinearGradientBrushIdentityMatches: true,
+                NativeRadialGradientBrushIdentityMatches: true,
                 SolidColorBrushColor: solidColorBrushColor,
+                LinearGradientBrushColor: linearGradientBrushColor,
+                RadialGradientBrushColor: radialGradientBrushColor,
                 CornerPixel: cornerPixel,
                 CenterPixel: centerPixel,
+                SolidPixel: solidPixel,
+                RadialPixel: radialPixel,
                 Error: null);
         }
         finally
@@ -316,6 +516,12 @@ internal static partial class Program
         return leftIdentity.DangerousGetHandle() ==
             rightIdentity.DangerousGetHandle();
     }
+
+    private static bool MatchesColor(Color actual, Color expected) =>
+        actual.A == expected.A &&
+        actual.R == expected.R &&
+        actual.G == expected.G &&
+        actual.B == expected.B;
 
     private static void WriteEvidence(IntegrationEvidence evidence)
     {
@@ -376,13 +582,21 @@ internal static partial class Program
         string? CanvasDeviceType,
         string? CanvasRenderTargetType,
         string? CanvasSolidColorBrushType,
+        string? CanvasLinearGradientBrushType,
+        string? CanvasRadialGradientBrushType,
         string? DrawingSessionType,
         bool? NativeDeviceIdentityMatches,
         bool? NativeBitmapIdentityMatches,
         bool? NativeSolidColorBrushIdentityMatches,
+        bool? NativeLinearGradientBrushIdentityMatches,
+        bool? NativeRadialGradientBrushIdentityMatches,
         PixelEvidence? SolidColorBrushColor,
+        PixelEvidence? LinearGradientBrushColor,
+        PixelEvidence? RadialGradientBrushColor,
         PixelEvidence? CornerPixel,
         PixelEvidence? CenterPixel,
+        PixelEvidence? SolidPixel,
+        PixelEvidence? RadialPixel,
         string? Error);
 
     private sealed record PixelEvidence(byte A, byte R, byte G, byte B)

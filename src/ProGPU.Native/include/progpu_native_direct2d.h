@@ -76,8 +76,39 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_DEVICE = 17,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_RENDER_TARGET = 18,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_SOLID_COLOR_BRUSH = 19,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_SOLID_COLOR_BRUSH = 20
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_SOLID_COLOR_BRUSH = 20,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_GRADIENT_STOP_COLLECTION1 = 21,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_LINEAR_GRADIENT_BRUSH = 22,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_LINEAR_GRADIENT_BRUSH = 23,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_RADIAL_GRADIENT_BRUSH = 24,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_RADIAL_GRADIENT_BRUSH = 25
 } progpu_native_direct2d_interface_kind;
+
+typedef enum progpu_native_direct2d_color_space {
+    PROGPU_NATIVE_DIRECT2D_COLOR_SPACE_CUSTOM = 0,
+    PROGPU_NATIVE_DIRECT2D_COLOR_SPACE_SRGB = 1,
+    PROGPU_NATIVE_DIRECT2D_COLOR_SPACE_SCRGB = 2
+} progpu_native_direct2d_color_space;
+
+typedef enum progpu_native_direct2d_buffer_precision {
+    PROGPU_NATIVE_DIRECT2D_BUFFER_PRECISION_UNKNOWN = 0,
+    PROGPU_NATIVE_DIRECT2D_BUFFER_PRECISION_8BPC_UNORM = 1,
+    PROGPU_NATIVE_DIRECT2D_BUFFER_PRECISION_8BPC_UNORM_SRGB = 2,
+    PROGPU_NATIVE_DIRECT2D_BUFFER_PRECISION_16BPC_UNORM = 3,
+    PROGPU_NATIVE_DIRECT2D_BUFFER_PRECISION_16BPC_FLOAT = 4,
+    PROGPU_NATIVE_DIRECT2D_BUFFER_PRECISION_32BPC_FLOAT = 5
+} progpu_native_direct2d_buffer_precision;
+
+typedef enum progpu_native_direct2d_extend_mode {
+    PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_CLAMP = 0,
+    PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_WRAP = 1,
+    PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_MIRROR = 2
+} progpu_native_direct2d_extend_mode;
+
+typedef enum progpu_native_direct2d_color_interpolation_mode {
+    PROGPU_NATIVE_DIRECT2D_COLOR_INTERPOLATION_MODE_STRAIGHT = 0,
+    PROGPU_NATIVE_DIRECT2D_COLOR_INTERPOLATION_MODE_PREMULTIPLIED = 1
+} progpu_native_direct2d_color_interpolation_mode;
 
 /* Selects a surface-owned Win2D wrapper for reverse native-resource
  * interop. The provider supplies the exact CanvasDevice and DPI required by
@@ -134,8 +165,44 @@ typedef struct progpu_native_direct2d_color_f {
     float alpha;
 } progpu_native_direct2d_color_f;
 
+typedef struct progpu_native_direct2d_gradient_stop {
+    float position;
+    progpu_native_direct2d_color_f color;
+} progpu_native_direct2d_gradient_stop;
+
+typedef struct progpu_native_direct2d_point_2f {
+    float x;
+    float y;
+} progpu_native_direct2d_point_2f;
+
+typedef struct progpu_native_direct2d_matrix_3x2_f {
+    float m11;
+    float m12;
+    float m21;
+    float m22;
+    float m31;
+    float m32;
+} progpu_native_direct2d_matrix_3x2_f;
+
+typedef struct progpu_native_direct2d_brush_properties {
+    float opacity;
+    progpu_native_direct2d_matrix_3x2_f transform;
+} progpu_native_direct2d_brush_properties;
+
+typedef struct progpu_native_direct2d_linear_gradient_brush_properties {
+    progpu_native_direct2d_point_2f start_point;
+    progpu_native_direct2d_point_2f end_point;
+} progpu_native_direct2d_linear_gradient_brush_properties;
+
+typedef struct progpu_native_direct2d_radial_gradient_brush_properties {
+    progpu_native_direct2d_point_2f center;
+    progpu_native_direct2d_point_2f gradient_origin_offset;
+    float radius_x;
+    float radius_y;
+} progpu_native_direct2d_radial_gradient_brush_properties;
+
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 7U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 8U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -214,6 +281,37 @@ PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_surface_create_solid_color_brush(
     progpu_native_direct2d_surface* surface,
     const progpu_native_direct2d_color_f* color,
+    void** value,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_gradient_stop_collection(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_gradient_stop* stops,
+    uint32_t stop_count,
+    progpu_native_direct2d_color_space pre_interpolation_space,
+    progpu_native_direct2d_color_space post_interpolation_space,
+    progpu_native_direct2d_buffer_precision buffer_precision,
+    progpu_native_direct2d_extend_mode extend_mode,
+    progpu_native_direct2d_color_interpolation_mode interpolation_mode,
+    void** value,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_linear_gradient_brush(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_linear_gradient_brush_properties* properties,
+    const progpu_native_direct2d_brush_properties* brush_properties,
+    void* gradient_stop_collection,
+    void** value,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_radial_gradient_brush(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_radial_gradient_brush_properties* properties,
+    const progpu_native_direct2d_brush_properties* brush_properties,
+    void* gradient_stop_collection,
     void** value,
     int32_t* native_hresult);
 

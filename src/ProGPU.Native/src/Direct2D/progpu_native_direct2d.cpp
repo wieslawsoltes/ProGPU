@@ -44,6 +44,13 @@ public:
 static_assert(
     sizeof(progpu_native_direct2d_guid) == sizeof(GUID),
     "Direct2D portable GUID layout changed");
+static_assert(
+    sizeof(progpu_native_direct2d_color_f) == sizeof(D2D1_COLOR_F),
+    "Direct2D portable color layout changed");
+static_assert(
+    sizeof(progpu_native_direct2d_gradient_stop) ==
+        sizeof(D2D1_GRADIENT_STOP),
+    "Direct2D portable gradient-stop layout changed");
 
 struct progpu_native_direct2d_surface {
     ComPtr<ID3D11Device> d3d_device;
@@ -102,6 +109,51 @@ bool luid_is_zero(const progpu_native_direct2d_surface_options& options)
 {
     return options.adapter_luid_low == 0U &&
         options.adapter_luid_high == 0;
+}
+
+bool is_finite(const progpu_native_direct2d_color_f& color)
+{
+    return std::isfinite(color.red) && std::isfinite(color.green) &&
+        std::isfinite(color.blue) && std::isfinite(color.alpha);
+}
+
+bool is_finite(const progpu_native_direct2d_point_2f& point)
+{
+    return std::isfinite(point.x) && std::isfinite(point.y);
+}
+
+bool is_finite(const progpu_native_direct2d_matrix_3x2_f& matrix)
+{
+    return std::isfinite(matrix.m11) && std::isfinite(matrix.m12) &&
+        std::isfinite(matrix.m21) && std::isfinite(matrix.m22) &&
+        std::isfinite(matrix.m31) && std::isfinite(matrix.m32);
+}
+
+bool is_valid(progpu_native_direct2d_color_space value)
+{
+    return value == PROGPU_NATIVE_DIRECT2D_COLOR_SPACE_CUSTOM ||
+        value == PROGPU_NATIVE_DIRECT2D_COLOR_SPACE_SRGB ||
+        value == PROGPU_NATIVE_DIRECT2D_COLOR_SPACE_SCRGB;
+}
+
+bool is_valid(progpu_native_direct2d_buffer_precision value)
+{
+    return value >= PROGPU_NATIVE_DIRECT2D_BUFFER_PRECISION_UNKNOWN &&
+        value <= PROGPU_NATIVE_DIRECT2D_BUFFER_PRECISION_32BPC_FLOAT;
+}
+
+bool is_valid(progpu_native_direct2d_extend_mode value)
+{
+    return value >= PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_CLAMP &&
+        value <= PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_MIRROR;
+}
+
+bool is_valid(progpu_native_direct2d_color_interpolation_mode value)
+{
+    return value ==
+            PROGPU_NATIVE_DIRECT2D_COLOR_INTERPOLATION_MODE_STRAIGHT ||
+        value ==
+            PROGPU_NATIVE_DIRECT2D_COLOR_INTERPOLATION_MODE_PREMULTIPLIED;
 }
 
 GUID to_native_guid(const progpu_native_direct2d_guid& value)
@@ -929,9 +981,7 @@ progpu_native_direct2d_surface_create_solid_color_brush(
         *native_hresult = E_INVALIDARG;
     }
     if (surface == nullptr || color == nullptr || value == nullptr ||
-        native_hresult == nullptr || !std::isfinite(color->red) ||
-        !std::isfinite(color->green) || !std::isfinite(color->blue) ||
-        !std::isfinite(color->alpha)) {
+        native_hresult == nullptr || !is_finite(*color)) {
         return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
     }
 
@@ -945,6 +995,178 @@ progpu_native_direct2d_surface_create_solid_color_brush(
     ComPtr<ID2D1SolidColorBrush> brush;
     HRESULT hr = surface->d2d_context->CreateSolidColorBrush(
         native_color,
+        brush.GetAddressOf());
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(brush, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_gradient_stop_collection(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_gradient_stop* stops,
+    uint32_t stop_count,
+    progpu_native_direct2d_color_space pre_interpolation_space,
+    progpu_native_direct2d_color_space post_interpolation_space,
+    progpu_native_direct2d_buffer_precision buffer_precision,
+    progpu_native_direct2d_extend_mode extend_mode,
+    progpu_native_direct2d_color_interpolation_mode interpolation_mode,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || stops == nullptr || stop_count == 0U ||
+        value == nullptr || native_hresult == nullptr ||
+        !is_valid(pre_interpolation_space) ||
+        !is_valid(post_interpolation_space) ||
+        !is_valid(buffer_precision) || !is_valid(extend_mode) ||
+        !is_valid(interpolation_mode)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    for (uint32_t index = 0U; index < stop_count; ++index) {
+        if (!std::isfinite(stops[index].position) ||
+            !is_finite(stops[index].color)) {
+            return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+        }
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1GradientStopCollection1> collection;
+    HRESULT hr = surface->d2d_context->CreateGradientStopCollection(
+        reinterpret_cast<const D2D1_GRADIENT_STOP*>(stops),
+        stop_count,
+        static_cast<D2D1_COLOR_SPACE>(pre_interpolation_space),
+        static_cast<D2D1_COLOR_SPACE>(post_interpolation_space),
+        static_cast<D2D1_BUFFER_PRECISION>(buffer_precision),
+        static_cast<D2D1_EXTEND_MODE>(extend_mode),
+        static_cast<D2D1_COLOR_INTERPOLATION_MODE>(interpolation_mode),
+        collection.GetAddressOf());
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(collection, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_linear_gradient_brush(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_linear_gradient_brush_properties* properties,
+    const progpu_native_direct2d_brush_properties* brush_properties,
+    void* gradient_stop_collection,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || properties == nullptr ||
+        brush_properties == nullptr || gradient_stop_collection == nullptr ||
+        value == nullptr || native_hresult == nullptr ||
+        !is_finite(properties->start_point) ||
+        !is_finite(properties->end_point) ||
+        !std::isfinite(brush_properties->opacity) ||
+        !is_finite(brush_properties->transform)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES native_properties = {
+        {properties->start_point.x, properties->start_point.y},
+        {properties->end_point.x, properties->end_point.y}
+    };
+    D2D1_BRUSH_PROPERTIES native_brush_properties = {
+        brush_properties->opacity,
+        {
+            brush_properties->transform.m11,
+            brush_properties->transform.m12,
+            brush_properties->transform.m21,
+            brush_properties->transform.m22,
+            brush_properties->transform.m31,
+            brush_properties->transform.m32
+        }
+    };
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1LinearGradientBrush> brush;
+    HRESULT hr = surface->d2d_context->CreateLinearGradientBrush(
+        native_properties,
+        native_brush_properties,
+        reinterpret_cast<ID2D1GradientStopCollection*>(
+            gradient_stop_collection),
+        brush.GetAddressOf());
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(brush, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_radial_gradient_brush(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_radial_gradient_brush_properties* properties,
+    const progpu_native_direct2d_brush_properties* brush_properties,
+    void* gradient_stop_collection,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || properties == nullptr ||
+        brush_properties == nullptr || gradient_stop_collection == nullptr ||
+        value == nullptr || native_hresult == nullptr ||
+        !is_finite(properties->center) ||
+        !is_finite(properties->gradient_origin_offset) ||
+        !std::isfinite(properties->radius_x) ||
+        !std::isfinite(properties->radius_y) ||
+        !std::isfinite(brush_properties->opacity) ||
+        !is_finite(brush_properties->transform)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    D2D1_RADIAL_GRADIENT_BRUSH_PROPERTIES native_properties = {
+        {properties->center.x, properties->center.y},
+        {
+            properties->gradient_origin_offset.x,
+            properties->gradient_origin_offset.y
+        },
+        properties->radius_x,
+        properties->radius_y
+    };
+    D2D1_BRUSH_PROPERTIES native_brush_properties = {
+        brush_properties->opacity,
+        {
+            brush_properties->transform.m11,
+            brush_properties->transform.m12,
+            brush_properties->transform.m21,
+            brush_properties->transform.m22,
+            brush_properties->transform.m31,
+            brush_properties->transform.m32
+        }
+    };
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1RadialGradientBrush> brush;
+    HRESULT hr = surface->d2d_context->CreateRadialGradientBrush(
+        native_properties,
+        native_brush_properties,
+        reinterpret_cast<ID2D1GradientStopCollection*>(
+            gradient_stop_collection),
         brush.GetAddressOf());
     surface->last_hresult.store(hr, std::memory_order_release);
     *native_hresult = hr;
