@@ -11,6 +11,7 @@
 #include <windows.graphics.directx.direct3d11.interop.h>
 #include <wrl/client.h>
 
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
@@ -1863,15 +1864,25 @@ int main()
     const D2D1_COLOR_F scene_clear =
         D2D1::ColorF(0.125F, 0.25F, 0.5F, 1.0F);
     context->Clear(&scene_clear);
+    const D2D1_RECT_F scene_outer_clip = {0.0F, 0.0F, 30.0F, 30.0F};
+    const D2D1_RECT_F scene_inner_clip = {10.0F, 10.0F, 50.0F, 50.0F};
     const D2D1_RECT_F scene_fill = {2.0F, 4.0F, 18.0F, 20.0F};
     const D2D1_RECT_F scene_stroke = {22.0F, 5.0F, 40.0F, 24.0F};
+    context->PushAxisAlignedClip(
+        &scene_outer_clip,
+        D2D1_ANTIALIAS_MODE_ALIASED);
     context->FillRectangle(&scene_fill, solid_brush.Get());
+    context->PushAxisAlignedClip(
+        &scene_inner_clip,
+        D2D1_ANTIALIAS_MODE_ALIASED);
     context->DrawRectangle(&scene_stroke, solid_brush.Get(), 2.0F);
+    context->PopAxisAlignedClip();
     context->DrawLine(
         D2D1::Point2F(4.0F, 28.0F),
         D2D1::Point2F(42.0F, 30.0F),
         solid_brush.Get(),
         3.0F);
+    context->PopAxisAlignedClip();
     command_tag1 = 0U;
     command_tag2 = 0U;
     native_hresult = E_FAIL;
@@ -1910,6 +1921,9 @@ int main()
             (scene_measure.flags &
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_ALIASED_PRIMITIVES) !=
                 0U &&
+            (scene_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_AXIS_ALIGNED_CLIPS) !=
+                0U &&
             scene_measure.clear_color.red == 0.125F &&
             scene_measure.clear_color.green == 0.25F &&
             scene_measure.clear_color.blue == 0.5F &&
@@ -1933,8 +1947,8 @@ int main()
             native_hresult == S_OK &&
             scene_write.required_bytes == scene_stream.size() &&
             scene_write.written_bytes == scene_stream.size() &&
-            scene_write.command_count == 3U &&
-            scene_write.resource_count >= 4U &&
+            scene_write.command_count == 7U &&
+            scene_write.resource_count == 6U &&
             scene_write.brush_count == 1U &&
             scene_write.translated_draw_count == 3U,
         "Direct2D command-list semantic scene write pass changed");
@@ -1947,6 +1961,45 @@ int main()
             scene_header.command_count == scene_write.command_count &&
             scene_header.resource_count == scene_write.resource_count,
         "translated Direct2D semantic scene header changed");
+    std::array<progpu_native_scene_state, 2U> translated_clip_states{};
+    uint32_t translated_clip_state_count = 0U;
+    for (uint32_t index = 0U; index < scene_header.resource_count; ++index) {
+        progpu_native_scene_resource resource{};
+        std::memcpy(
+            &resource,
+            scene_stream.data() + scene_header.resource_offset +
+                static_cast<size_t>(index) * scene_header.resource_stride,
+            sizeof(resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
+            continue;
+        }
+        require(
+            translated_clip_state_count < translated_clip_states.size() &&
+                resource.payload_size == sizeof(progpu_native_scene_state) &&
+                static_cast<uint64_t>(resource.payload_offset) +
+                    resource.payload_size <= scene_stream.size(),
+            "translated Direct2D clip-state resource layout changed");
+        std::memcpy(
+            &translated_clip_states[translated_clip_state_count],
+            scene_stream.data() + resource.payload_offset,
+            sizeof(progpu_native_scene_state));
+        ++translated_clip_state_count;
+    }
+    require(
+        translated_clip_state_count == translated_clip_states.size() &&
+            translated_clip_states[0].flags ==
+                PROGPU_NATIVE_SCENE_STATE_CLIP_RECT &&
+            translated_clip_states[0].clip_rect.x == 3.0F &&
+            translated_clip_states[0].clip_rect.y == 5.0F &&
+            translated_clip_states[0].clip_rect.width == 37.5F &&
+            translated_clip_states[0].clip_rect.height == 22.5F &&
+            translated_clip_states[1].flags ==
+                PROGPU_NATIVE_SCENE_STATE_CLIP_RECT &&
+            translated_clip_states[1].clip_rect.x == 15.5F &&
+            translated_clip_states[1].clip_rect.y == 12.5F &&
+            translated_clip_states[1].clip_rect.width == 25.0F &&
+            translated_clip_states[1].clip_rect.height == 15.0F,
+        "Direct2D transformed nested clip intersection changed");
     progpu_native_direct2d_scene_stream_result scene_short{};
     scene_short.struct_size = static_cast<uint32_t>(sizeof(scene_short));
     native_hresult = S_OK;
@@ -1964,6 +2017,66 @@ int main()
             scene_short.required_bytes == scene_stream.size() &&
             scene_short.written_bytes == 0U,
         "short Direct2D semantic scene destination did not fail closed");
+
+    void* antialiased_clip_list_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_command_list(
+            surface,
+            &antialiased_clip_list_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            antialiased_clip_list_value != nullptr && native_hresult == S_OK,
+        "antialiased-clip command-list creation failed");
+    ComPtr<ID2D1CommandList> antialiased_clip_list;
+    antialiased_clip_list.Attach(
+        static_cast<ID2D1CommandList*>(antialiased_clip_list_value));
+    require(
+        progpu_native_direct2d_surface_begin_command_list_draw(
+            surface,
+            antialiased_clip_list.Get()) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "antialiased-clip command-list recording did not begin");
+    context->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+    context->SetUnitMode(D2D1_UNIT_MODE_DIPS);
+    context->SetTextRenderingParams(nullptr);
+    context->SetTransform(D2D1::Matrix3x2F::Identity());
+    context->PushAxisAlignedClip(
+        &scene_outer_clip,
+        D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    context->FillRectangle(&scene_fill, solid_brush.Get());
+    context->PopAxisAlignedClip();
+    command_tag1 = 0U;
+    command_tag2 = 0U;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_end_command_list_draw(
+            surface,
+            &command_tag1,
+            &command_tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "antialiased-clip command-list recording did not close");
+    progpu_native_direct2d_scene_stream_result antialiased_clip_scene{};
+    antialiased_clip_scene.struct_size =
+        static_cast<uint32_t>(sizeof(antialiased_clip_scene));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            antialiased_clip_list.Get(),
+            7003U,
+            1U,
+            nullptr,
+            0U,
+            &antialiased_clip_scene,
+            &native_hresult) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED &&
+            native_hresult == E_NOTIMPL &&
+            antialiased_clip_scene.failure_reason ==
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_STATE &&
+            antialiased_clip_scene.failure_callback_index != 0U &&
+            antialiased_clip_scene.written_bytes == 0U,
+        "per-primitive Direct2D clip antialiasing did not fail closed");
 
     ComPtr<IDWriteRenderingParams> text_rendering_params;
     require(SUCCEEDED(dwrite_factory->CreateRenderingParams(

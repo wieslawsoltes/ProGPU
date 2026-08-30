@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 33U;",
+            "internal const uint AbiVersion = 34U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -480,7 +480,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 33U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 34U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(

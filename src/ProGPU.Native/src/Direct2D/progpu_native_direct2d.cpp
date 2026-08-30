@@ -790,12 +790,17 @@ public:
     {
         const uint64_t draw_count =
             static_cast<uint64_t>(summary.draw_count) + summary.fill_count;
-        const uint64_t resource_count = draw_count + 1U;
-        const uint64_t arena_bytes = draw_count * 192U;
-        if (draw_count > std::numeric_limits<uint32_t>::max() ||
+        const uint64_t command_count = draw_count +
+            summary.clip_push_count + summary.clip_pop_count;
+        const uint64_t resource_count = draw_count +
+            summary.clip_push_count + 1U;
+        const uint64_t arena_bytes = draw_count * 192U +
+            static_cast<uint64_t>(summary.clip_push_count) *
+                sizeof(progpu_native_scene_state);
+        if (command_count > std::numeric_limits<uint32_t>::max() ||
             resource_count > std::numeric_limits<uint32_t>::max() ||
             !builder_.reserve(
-                static_cast<uint32_t>(draw_count),
+                static_cast<uint32_t>(command_count),
                 static_cast<uint32_t>(resource_count),
                 arena_bytes)) {
             builder_ready_ = false;
@@ -860,6 +865,12 @@ public:
                 false);
         }
         ended_ = true;
+        if (clip_depth_ != 0U) {
+            return fail(
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_DRAWING_STATE,
+                D2DERR_WRONG_STATE,
+                false);
+        }
         return failure_reason_ ==
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE
             ? S_OK
@@ -959,7 +970,7 @@ public:
         if (!can_record()) {
             return fail_drawing_state();
         }
-        if (has_clear_ || translated_draw_count_ != 0U) {
+        if (has_clear_ || translated_draw_count_ != 0U || clip_depth_ != 0U) {
             return fail_unsupported_operation();
         }
         const D2D1_COLOR_F value = color == nullptr
@@ -1128,10 +1139,49 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE PushAxisAlignedClip(
-        const D2D1_RECT_F*,
-        D2D1_ANTIALIAS_MODE) noexcept override
+        const D2D1_RECT_F* rectangle,
+        D2D1_ANTIALIAS_MODE antialias_mode) noexcept override
     {
-        return unsupported_operation_callback();
+        begin_callback();
+        if (!can_record()) {
+            return fail_drawing_state();
+        }
+        if (!finite_rectangle(rectangle)) {
+            return fail_invalid_value();
+        }
+        if (antialias_mode != D2D1_ANTIALIAS_MODE_ALIASED) {
+            return fail_unsupported_state();
+        }
+        if (clip_depth_ == clip_stack_.size()) {
+            return fail_capacity_exceeded();
+        }
+        progpu_native_image_rect clip = transformed_bounds(
+            rectangle->left,
+            rectangle->top,
+            rectangle->right,
+            rectangle->bottom);
+        if (!finite_native_rectangle(clip)) {
+            return fail_invalid_value();
+        }
+        if (clip_depth_ != 0U) {
+            clip = intersect_rectangles(clip_stack_[clip_depth_ - 1U], clip);
+            if (!finite_native_rectangle(clip)) {
+                return fail_invalid_value();
+            }
+        }
+        progpu_native_scene_state state =
+            progpu::native::semantic_scene_builder::identity_state();
+        state.flags = PROGPU_NATIVE_SCENE_STATE_CLIP_RECT;
+        state.clip_rect = clip;
+        uint32_t state_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (!builder_.add_state(state, state_index) ||
+            !builder_.save(state_index)) {
+            return fail_builder();
+        }
+        clip_stack_[clip_depth_] = clip;
+        ++clip_depth_;
+        has_axis_aligned_clips_ = true;
+        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE PushLayer(
@@ -1143,7 +1193,19 @@ public:
 
     HRESULT STDMETHODCALLTYPE PopAxisAlignedClip() noexcept override
     {
-        return unsupported_operation_callback();
+        begin_callback();
+        if (!can_record()) {
+            return fail_drawing_state();
+        }
+        if (clip_depth_ == 0U) {
+            return fail_drawing_state();
+        }
+        if (!builder_.restore()) {
+            return fail_builder();
+        }
+        --clip_depth_;
+        clip_stack_[clip_depth_] = {};
+        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE PopLayer() noexcept override
@@ -1181,6 +1243,11 @@ public:
         return has_aliased_primitives_;
     }
 
+    bool has_axis_aligned_clips() const noexcept
+    {
+        return has_axis_aligned_clips_;
+    }
+
     D2D1_COLOR_F clear_color() const noexcept
     {
         return clear_color_;
@@ -1211,6 +1278,33 @@ private:
             std::isfinite(value->top) && std::isfinite(value->right) &&
             std::isfinite(value->bottom) && value->right >= value->left &&
             value->bottom >= value->top;
+    }
+
+    static bool finite_native_rectangle(
+        const progpu_native_image_rect& value) noexcept
+    {
+        return std::isfinite(value.x) && std::isfinite(value.y) &&
+            std::isfinite(value.width) && std::isfinite(value.height) &&
+            value.width >= 0.0F && value.height >= 0.0F;
+    }
+
+    static progpu_native_image_rect intersect_rectangles(
+        const progpu_native_image_rect& left,
+        const progpu_native_image_rect& right) noexcept
+    {
+        const float x = std::max(left.x, right.x);
+        const float y = std::max(left.y, right.y);
+        const float far_x = std::min(
+            left.x + left.width,
+            right.x + right.width);
+        const float far_y = std::min(
+            left.y + left.height,
+            right.y + right.height);
+        return {
+            x,
+            y,
+            std::max(0.0F, far_x - x),
+            std::max(0.0F, far_y - y)};
     }
 
     bool can_record() const noexcept
@@ -1284,6 +1378,13 @@ private:
             PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER,
             hr,
             record_current);
+    }
+
+    HRESULT fail_capacity_exceeded() noexcept
+    {
+        return fail(
+            PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_CAPACITY_EXCEEDED,
+            HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW));
     }
 
     HRESULT unsupported_resource_callback() noexcept
@@ -1430,6 +1531,9 @@ private:
     progpu::native::semantic_scene_builder builder_;
     D2D1_MATRIX_3X2_F transform_ = D2D1::Matrix3x2F::Identity();
     D2D1_COLOR_F clear_color_{};
+    std::array<
+        progpu_native_image_rect,
+        PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> clip_stack_{};
     D2D1_ANTIALIAS_MODE antialias_mode_ =
         D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;
     uint32_t callback_index_ = 0U;
@@ -1437,11 +1541,13 @@ private:
     uint32_t failure_reason_ =
         PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE;
     uint32_t translated_draw_count_ = 0U;
+    uint32_t clip_depth_ = 0U;
     bool builder_ready_ = true;
     bool begun_ = false;
     bool ended_ = false;
     bool has_clear_ = false;
     bool has_aliased_primitives_ = false;
+    bool has_axis_aligned_clips_ = false;
 };
 
 class CallerTessellationSink final : public ID2D1TessellationSink {
@@ -4291,6 +4397,10 @@ progpu_native_direct2d_command_list_build_scene_stream(
         if (scene_sink->has_aliased_primitives()) {
             result->flags |=
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_ALIASED_PRIMITIVES;
+        }
+        if (scene_sink->has_axis_aligned_clips()) {
+            result->flags |=
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_AXIS_ALIGNED_CLIPS;
         }
     }
 
