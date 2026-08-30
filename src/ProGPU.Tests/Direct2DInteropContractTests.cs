@@ -805,6 +805,13 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("surface.SetEffectFloat(", program, StringComparison.Ordinal);
         Assert.Contains("surface.GetEffectOutput(", program, StringComparison.Ordinal);
         Assert.Contains("canvasEffectImageBrush.SourceRectangle", program, StringComparison.Ordinal);
+        Assert.Contains("surface.CreateLayer(", program, StringComparison.Ordinal);
+        Assert.Contains("surface.CreateDrawingStateBlock()", program, StringComparison.Ordinal);
+        Assert.Contains("surface.BeginCommandListDrawing(", program, StringComparison.Ordinal);
+        Assert.Contains("layerSession.SaveDrawingState(", program, StringComparison.Ordinal);
+        Assert.Contains("layerSession.RestoreDrawingState(", program, StringComparison.Ordinal);
+        Assert.Contains("layerSession.PushLayer(", program, StringComparison.Ordinal);
+        Assert.Contains("TypedLayerStateScopePassed: true", program, StringComparison.Ordinal);
         Assert.Contains("CreateSolidColorBrush(", program, StringComparison.Ordinal);
         Assert.Contains("TryAcquireMicrosoftWin2DSolidColorBrush(", program, StringComparison.Ordinal);
         Assert.Contains("TryAcquireMicrosoftWin2DNativeSolidColorBrush(", program, StringComparison.Ordinal);

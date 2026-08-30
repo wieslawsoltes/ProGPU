@@ -83,6 +83,7 @@ internal static partial class Program
                     NativeEffectImageBrushIdentityMatches: null,
                     NativeGeometryIdentityMatches: null,
                     NativeStrokeStyleIdentityMatches: null,
+                    TypedLayerStateScopePassed: null,
                     SolidColorBrushColor: null,
                     LinearGradientBrushColor: null,
                     RadialGradientBrushColor: null,
@@ -762,6 +763,32 @@ internal static partial class Program
             }
             WriteProgress("stroke-style-roundtrip-complete");
 
+            using ProGpuDirect2DComReference nativeLayer =
+                surface.CreateLayer(new Vector2(Width, Height));
+            using ProGpuDirect2DComReference nativeDrawingStateBlock =
+                surface.CreateDrawingStateBlock();
+            using ProGpuDirect2DComReference nativeLayerCommandList =
+                surface.CreateCommandList();
+            using (ProGpuDirect2DCommandListDrawingSession layerSession =
+                surface.BeginCommandListDrawing(nativeLayerCommandList))
+            {
+                layerSession.SaveDrawingState(nativeDrawingStateBlock);
+                layerSession.RestoreDrawingState(nativeDrawingStateBlock);
+                using ProGpuDirect2DLayerScope layerScope =
+                    layerSession.PushLayer(
+                        nativeLayer,
+                        new ProGpuDirect2DLayerParameters(
+                            new ProGpuDirect2DRect(
+                                0.0F,
+                                0.0F,
+                                Width,
+                                Height),
+                            Opacity: 0.75F),
+                        nativeGeometry,
+                        nativeSolidColorBrush);
+            }
+            WriteProgress("layer-state-scopes-complete");
+
             ulong contentVersionBefore = surface.ContentVersion;
             WriteProgress("producer-access-started");
             if (!surface.TryBeginMicrosoftWin2DProducerAccess(
@@ -1116,6 +1143,7 @@ internal static partial class Program
                 NativeEffectImageBrushIdentityMatches: true,
                 NativeGeometryIdentityMatches: true,
                 NativeStrokeStyleIdentityMatches: true,
+                TypedLayerStateScopePassed: true,
                 SolidColorBrushColor: solidColorBrushColor,
                 LinearGradientBrushColor: linearGradientBrushColor,
                 RadialGradientBrushColor: radialGradientBrushColor,
@@ -1339,6 +1367,7 @@ internal static partial class Program
         bool? NativeEffectImageBrushIdentityMatches,
         bool? NativeGeometryIdentityMatches,
         bool? NativeStrokeStyleIdentityMatches,
+        bool? TypedLayerStateScopePassed,
         PixelEvidence? SolidColorBrushColor,
         PixelEvidence? LinearGradientBrushColor,
         PixelEvidence? RadialGradientBrushColor,
