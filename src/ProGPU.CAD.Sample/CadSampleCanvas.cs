@@ -647,6 +647,36 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Replaces selected persisted plot fields on one layout or named override
+    /// through the generation-safe reversible document history.
+    /// </summary>
+    public void EditPageSetupFields(
+        CadPageSetupSourceKind targetKind,
+        string targetName,
+        CadPageSetupFieldPatch patch)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadEditPageSetupFieldsCommand(
+            targetKind,
+            targetName,
+            patch,
+            $"Edit {DescribePageSetupTarget(targetKind)} '{targetName}'"));
+        RecompileAfterEdit(session);
+    }
+
+    private static string DescribePageSetupTarget(
+        CadPageSetupSourceKind targetKind) => targetKind switch
+    {
+        CadPageSetupSourceKind.Layout => "layout page setup",
+        CadPageSetupSourceKind.NamedOverride => "named page setup",
+        _ => throw new ArgumentOutOfRangeException(nameof(targetKind)),
+    };
+
+    /// <summary>
     /// Changes persisted ATTMODE and replaces all snapshot-derived consumers as
     /// one generation-safe edit.
     /// </summary>

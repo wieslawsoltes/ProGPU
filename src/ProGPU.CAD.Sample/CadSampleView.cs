@@ -34,6 +34,13 @@ public sealed class CadSampleView : Grid
     private readonly Button _updatePageSetupButton;
     private readonly Button _renamePageSetupButton;
     private readonly Button _deletePageSetupButton;
+    private readonly TextBox _pageSetupPaperWidthInput;
+    private readonly TextBox _pageSetupPaperHeightInput;
+    private readonly ComboBox _pageSetupRotationSelector;
+    private readonly ComboBox _pageSetupPlotAreaSelector;
+    private readonly CheckBox _pageSetupCenterCheckBox;
+    private readonly CheckBox _pageSetupLineweightsCheckBox;
+    private readonly Button _editPageSetupFieldsButton;
     private readonly TextBlock _status;
     private readonly Button _openButton;
     private readonly Button _loadLineTypesButton;
@@ -119,6 +126,7 @@ public sealed class CadSampleView : Grid
     private bool _is3DView;
     private bool _isPrintPreview;
     private bool _isRefreshingPageSetups;
+    private bool _isRefreshingPageSetupFields;
     private bool _isRefreshingAttributeDisplay;
     private bool _isRefreshingSelectionProperties;
     private bool _isSelectionEditable;
@@ -141,6 +149,19 @@ public sealed class CadSampleView : Grid
     public ComboBox AttributeDisplaySelector => _attributeDisplaySelector;
 
     public TextBox PageSetupNameInput => _pageSetupNameInput;
+
+    public TextBox PageSetupPaperWidthInput => _pageSetupPaperWidthInput;
+
+    public TextBox PageSetupPaperHeightInput => _pageSetupPaperHeightInput;
+
+    public ComboBox PageSetupRotationSelector => _pageSetupRotationSelector;
+
+    public ComboBox PageSetupPlotAreaSelector => _pageSetupPlotAreaSelector;
+
+    public CheckBox PageSetupCenterCheckBox => _pageSetupCenterCheckBox;
+
+    public CheckBox PageSetupLineweightsCheckBox =>
+        _pageSetupLineweightsCheckBox;
 
     public TextBox SelectionColorInput => _selectionColorInput;
 
@@ -240,7 +261,7 @@ public sealed class CadSampleView : Grid
             Visibility = Visibility.Collapsed,
         };
         TtfFont font = InterFontFamily.Regular;
-        RowDefinitions.Add(new GridLength(464, GridUnitType.Absolute));
+        RowDefinitions.Add(new GridLength(498, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));
         RowDefinitions.Add(new GridLength(30, GridUnitType.Absolute));
 
@@ -321,6 +342,11 @@ public sealed class CadSampleView : Grid
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Left,
         };
+        var pageSetupFieldActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
         toolbarRows.AddChild(actions);
         toolbarRows.AddChild(editActions);
         toolbarRows.AddChild(transformActions);
@@ -334,6 +360,7 @@ public sealed class CadSampleView : Grid
         toolbarRows.AddChild(layerMergeActions);
         toolbarRows.AddChild(printActions);
         toolbarRows.AddChild(pageSetupCreateActions);
+        toolbarRows.AddChild(pageSetupFieldActions);
         toolbar.Child = toolbarRows;
 
         _openButton = CreateButton("Open DXF/DWG", font, 132);
@@ -1136,6 +1163,67 @@ public sealed class CadSampleView : Grid
         pageSetupCreateActions.AddChild(_renamePageSetupButton);
         pageSetupCreateActions.AddChild(_deletePageSetupButton);
 
+        pageSetupFieldActions.AddChild(new TextBlock
+        {
+            Text = "Selected setup fields",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _pageSetupPaperWidthInput = CreatePageSetupFieldInput(
+            "Width mm",
+            font,
+            76);
+        _pageSetupPaperHeightInput = CreatePageSetupFieldInput(
+            "Height mm",
+            font,
+            76);
+        _pageSetupRotationSelector = CreatePageSetupFieldSelector(font, 116);
+        AddPageSetupFieldChoice(
+            _pageSetupRotationSelector,
+            "0°",
+            CadPageRotation.Degrees0);
+        AddPageSetupFieldChoice(
+            _pageSetupRotationSelector,
+            "90° CCW",
+            CadPageRotation.CounterClockwise90);
+        AddPageSetupFieldChoice(
+            _pageSetupRotationSelector,
+            "180°",
+            CadPageRotation.Degrees180);
+        AddPageSetupFieldChoice(
+            _pageSetupRotationSelector,
+            "270° CCW",
+            CadPageRotation.CounterClockwise270);
+        _pageSetupPlotAreaSelector = CreatePageSetupFieldSelector(font, 112);
+        foreach (CadPlotAreaKind area in Enum.GetValues<CadPlotAreaKind>())
+        {
+            if (area != CadPlotAreaKind.Unknown)
+            {
+                AddPageSetupFieldChoice(
+                    _pageSetupPlotAreaSelector,
+                    area.ToString(),
+                    area);
+            }
+        }
+        _pageSetupCenterCheckBox = CreateAttributeModeCheckBox("Center", font);
+        _pageSetupLineweightsCheckBox = CreateAttributeModeCheckBox(
+            "Lineweights",
+            font);
+        _editPageSetupFieldsButton = CreateButton(
+            "Apply fields",
+            font,
+            104,
+            30);
+        pageSetupFieldActions.AddChild(_pageSetupPaperWidthInput);
+        pageSetupFieldActions.AddChild(_pageSetupPaperHeightInput);
+        pageSetupFieldActions.AddChild(_pageSetupRotationSelector);
+        pageSetupFieldActions.AddChild(_pageSetupPlotAreaSelector);
+        pageSetupFieldActions.AddChild(_pageSetupCenterCheckBox);
+        pageSetupFieldActions.AddChild(_pageSetupLineweightsCheckBox);
+        pageSetupFieldActions.AddChild(_editPageSetupFieldsButton);
+
         _status = new TextBlock
         {
             Font = font,
@@ -1185,6 +1273,18 @@ public sealed class CadSampleView : Grid
         _applyPageSetupButton.Click += (_, _) =>
             ApplySelectedPageSetupToModel();
         _pageSetupNameInput.TextChanged += (_, _) => UpdateEditControls();
+        _pageSetupPaperWidthInput.TextChanged += (_, _) =>
+            UpdatePageSetupFieldEditControls();
+        _pageSetupPaperHeightInput.TextChanged += (_, _) =>
+            UpdatePageSetupFieldEditControls();
+        _pageSetupRotationSelector.SelectionChanged += (_, _) =>
+            UpdatePageSetupFieldEditControls();
+        _pageSetupPlotAreaSelector.SelectionChanged += (_, _) =>
+            UpdatePageSetupFieldEditControls();
+        _pageSetupCenterCheckBox.CheckedChanged += (_, _) =>
+            UpdatePageSetupFieldEditControls();
+        _pageSetupLineweightsCheckBox.CheckedChanged += (_, _) =>
+            UpdatePageSetupFieldEditControls();
         _selectionColorInput.TextChanged += (_, _) =>
         {
             if (!_isRefreshingSelectionProperties)
@@ -1407,6 +1507,8 @@ public sealed class CadSampleView : Grid
             RenameSelectedNamedPageSetup();
         _deletePageSetupButton.Click += (_, _) =>
             DeleteSelectedNamedPageSetup();
+        _editPageSetupFieldsButton.Click += (_, _) =>
+            EditSelectedPageSetupFields();
         _clearSelectionButton.Click += (_, _) => _canvas.ClearSelection();
         _undoButton.Click += (_, _) => PerformUndo();
         _redoButton.Click += (_, _) => PerformRedo();
@@ -1559,6 +1661,7 @@ public sealed class CadSampleView : Grid
         {
             return;
         }
+        RefreshPageSetupFieldControls();
         if (_isPrintPreview)
         {
             ShowSelectedPrintPreview();
@@ -1568,6 +1671,148 @@ public sealed class CadSampleView : Grid
             UpdateEditControls();
         }
     }
+
+    private void RefreshPageSetupFieldControls()
+    {
+        _isRefreshingPageSetupFields = true;
+        try
+        {
+            CadPageSetupSnapshot? setup =
+                (_pageSetupSelector.SelectedItem as ComboBoxItem)?.Tag is
+                    PageSetupChoice choice
+                    ? choice.PageSetup
+                    : null;
+            _pageSetupPaperWidthInput.Text = setup is null
+                ? string.Empty
+                : setup.PaperWidthMillimeters.ToString(
+                    "0.###",
+                    CultureInfo.InvariantCulture);
+            _pageSetupPaperHeightInput.Text = setup is null
+                ? string.Empty
+                : setup.PaperHeightMillimeters.ToString(
+                    "0.###",
+                    CultureInfo.InvariantCulture);
+            SelectPageSetupFieldChoice(
+                _pageSetupRotationSelector,
+                setup?.Rotation);
+            SelectPageSetupFieldChoice(
+                _pageSetupPlotAreaSelector,
+                setup?.PlotArea);
+            _pageSetupCenterCheckBox.IsChecked = setup?.CenterPlot == true;
+            _pageSetupLineweightsCheckBox.IsChecked =
+                setup?.PrintLineweights == true;
+        }
+        finally
+        {
+            _isRefreshingPageSetupFields = false;
+        }
+    }
+
+    private void UpdatePageSetupFieldEditControls()
+    {
+        if (!_isRefreshingPageSetupFields)
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void EditSelectedPageSetupFields()
+    {
+        if (_isBusy || !TryCreatePageSetupFieldPatch(
+                out CadPageSetupSnapshot setup,
+                out CadPageSetupFieldPatch patch))
+        {
+            return;
+        }
+
+        try
+        {
+            _canvas.EditPageSetupFields(
+                setup.SourceKind,
+                setup.Name,
+                patch);
+            SetStatus(
+                $"Edited {DescribePageSetupSource(setup.SourceKind)} " +
+                $"'{setup.Name}' fields as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Edit page setup fields failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private bool TryCreatePageSetupFieldPatch(
+        out CadPageSetupSnapshot setup,
+        out CadPageSetupFieldPatch patch)
+    {
+        CadPageSetupSnapshot? selectedSetup =
+            (_pageSetupSelector.SelectedItem as ComboBoxItem)?.Tag is
+                PageSetupChoice choice
+                ? choice.PageSetup
+                : null;
+        setup = null!;
+        patch = null!;
+        if (selectedSetup is null ||
+            !TryParsePositivePageSetupValue(
+                _pageSetupPaperWidthInput.Text,
+                out double paperWidth) ||
+            !TryParsePositivePageSetupValue(
+                _pageSetupPaperHeightInput.Text,
+                out double paperHeight) ||
+            (_pageSetupRotationSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                CadPageRotation rotation ||
+            (_pageSetupPlotAreaSelector.SelectedItem as ComboBoxItem)?.Tag is not
+                CadPlotAreaKind plotArea)
+        {
+            return false;
+        }
+
+        setup = selectedSetup;
+
+        if (paperWidth == setup.PaperWidthMillimeters &&
+            paperHeight == setup.PaperHeightMillimeters &&
+            rotation == setup.Rotation &&
+            plotArea == setup.PlotArea &&
+            _pageSetupCenterCheckBox.IsChecked == setup.CenterPlot &&
+            _pageSetupLineweightsCheckBox.IsChecked == setup.PrintLineweights)
+        {
+            return false;
+        }
+
+        patch = new CadPageSetupFieldPatch
+        {
+            PaperWidthMillimeters = paperWidth,
+            PaperHeightMillimeters = paperHeight,
+            Rotation = rotation,
+            PlotArea = plotArea,
+            CenterPlot = _pageSetupCenterCheckBox.IsChecked,
+            PrintLineweights = _pageSetupLineweightsCheckBox.IsChecked,
+        };
+        return true;
+    }
+
+    private static bool TryParsePositivePageSetupValue(
+        string text,
+        out double value) =>
+        double.TryParse(
+            text,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out value) &&
+        double.IsFinite(value) &&
+        value > 0.0;
+
+    private static string DescribePageSetupSource(
+        CadPageSetupSourceKind sourceKind) => sourceKind switch
+    {
+        CadPageSetupSourceKind.Layout => "layout",
+        CadPageSetupSourceKind.NamedOverride => "named page setup",
+        _ => throw new ArgumentOutOfRangeException(nameof(sourceKind)),
+    };
 
     private void ApplySelectedPageSetupToModel()
     {
@@ -1863,6 +2108,7 @@ public sealed class CadSampleView : Grid
         finally
         {
             _isRefreshingPageSetups = false;
+            RefreshPageSetupFieldControls();
         }
     }
 
@@ -4027,6 +4273,18 @@ public sealed class CadSampleView : Grid
             canUsePlanTools && CanDeleteSelectedNamedPageSetup();
         _renamePageSetupButton.IsEnabled =
             canUsePlanTools && CanRenameSelectedNamedPageSetup();
+        bool canEditPageSetupFields = canUsePlanTools &&
+            (_pageSetupSelector.SelectedItem as ComboBoxItem)?.Tag is
+                PageSetupChoice { PageSetup: not null };
+        _pageSetupPaperWidthInput.IsEnabled = canEditPageSetupFields;
+        _pageSetupPaperHeightInput.IsEnabled = canEditPageSetupFields;
+        _pageSetupRotationSelector.IsEnabled = canEditPageSetupFields;
+        _pageSetupPlotAreaSelector.IsEnabled = canEditPageSetupFields;
+        _pageSetupCenterCheckBox.IsEnabled = canEditPageSetupFields;
+        _pageSetupLineweightsCheckBox.IsEnabled = canEditPageSetupFields;
+        _editPageSetupFieldsButton.IsEnabled =
+            canEditPageSetupFields &&
+            TryCreatePageSetupFieldPatch(out _, out _);
         _undoButton.IsEnabled =
             canUsePlanTools && _canvas.UndoCount > 0;
         _redoButton.IsEnabled =
@@ -4791,6 +5049,57 @@ public sealed class CadSampleView : Grid
                 VerticalAlignment = VerticalAlignment.Center,
             },
         };
+
+    private static TextBox CreatePageSetupFieldInput(
+        string placeholder,
+        TtfFont font,
+        float width) =>
+        new()
+        {
+            PlaceholderText = placeholder,
+            Font = font,
+            WidthConstraint = width,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+
+    private static ComboBox CreatePageSetupFieldSelector(
+        TtfFont font,
+        float width) =>
+        new()
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = width,
+            HeightConstraint = 30,
+            MaxDropDownHeight = 256,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+
+    private static void AddPageSetupFieldChoice<T>(
+        ComboBox selector,
+        string label,
+        T value)
+        where T : struct, Enum =>
+        selector.Items.Add(new ComboBoxItem
+        {
+            Text = label,
+            Tag = value,
+        });
+
+    private static void SelectPageSetupFieldChoice<T>(
+        ComboBox selector,
+        T? value)
+        where T : struct, Enum
+    {
+        selector.SelectedItem = value.HasValue
+            ? selector.Items
+                .OfType<ComboBoxItem>()
+                .FirstOrDefault(item => item.Tag is T candidate &&
+                    EqualityComparer<T>.Default.Equals(candidate, value.Value))
+            : null;
+    }
 
     private static string SuggestedFileName(CadDocumentSession session)
     {

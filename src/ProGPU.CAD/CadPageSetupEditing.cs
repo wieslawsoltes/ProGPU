@@ -1525,8 +1525,8 @@ internal readonly record struct CadPlotSettingsState(
         target.PageName = PageName!;
         target.PaperHeight = PaperHeight;
         target.PaperImageOrigin = PaperImageOrigin;
-        target.PaperImageOriginX = PaperImageOriginX;
-        target.PaperImageOriginY = PaperImageOriginY;
+        target.PaperImageOriginX = PaperImageOrigin.X;
+        target.PaperImageOriginY = PaperImageOrigin.Y;
         target.PaperRotation = PaperRotation;
         target.PaperSize = PaperSize!;
         target.PaperUnits = PaperUnits;

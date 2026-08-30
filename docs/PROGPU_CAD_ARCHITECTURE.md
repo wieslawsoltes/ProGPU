@@ -1029,7 +1029,7 @@ CAD editor shell. They now share plan, Flat 3D, and retained print-preview modes
 with generation-safe layout/named-page-setup selection plus an explicit A4
 model-extents fallback and reversible creation/application of named page setups
 from Model; dedicated dockable property/layer panels, arbitrary-camera projected
-selection, broader editing tools, field-level page-setup editing,
+selection, broader editing tools, expanded device/media/margin/scale page-setup UI,
 printer/export adapters, and round-trip-certified output remain tracked
 application phases.
 
@@ -2736,6 +2736,13 @@ are implemented by `CadPageSetupCatalogCompiler`,
   current custom scale, standard-scale selection/factor, lineweight/style flags,
   and shade mode/resolution/DPI. Retention is not a claim that every policy is
   already renderable;
+- `CadPageSetupFieldPatch` exposes that same complete fixed `PLOTSETTINGS`
+  surface as optional typed replacements. `CadEditPageSetupFieldsCommand`
+  captures bounded strings, validates every supplied finite/enum/range value
+  before mutation, resolves either a layout or standalone named override, and
+  preserves target identity, ownership, handle, name, model/paper flag, layout
+  geometry, and viewport state. One patch is one history generation; Apply,
+  Undo, and Redo retain two fixed state records and are transactional O(1);
 - exact model lowering presently requires model space, a defined 0/90/180/270-degree
   page rotation, inch or millimeter paper units, drawing extents, explicit wireframe, enabled and
   unscaled object lineweights, and no applied nonempty CTB/STB style sheet.
@@ -2818,7 +2825,24 @@ unsupported setup. Unsupported entries remain visible with their first typed
 unsupported contract. This is preview selection only: it does not mutate which
 page setup is current in the ACadSharp document. A separate `Apply to Model`
 command is enabled only for model-compatible named setups, so preview and edit
-intent cannot be confused.
+intent cannot be confused. A second selected-setup row edits physical width and
+height, rotation, plot area, centering, and object-lineweight policy for either
+a layout or named override through the same command; invalid and no-op input is
+disabled, and generation replacement repopulates the controls from the new
+detached snapshot.
+
+`CadEditPageSetupFieldsCommand` is the field-level authoring seam rather than a
+UI-specific shortcut. Its patch covers printer/media strings, paper dimensions,
+four margins, plot and device-image origins, paper unit and rotation, plot area,
+DCS window and named view, standard/custom scale state, lineweight/style and
+viewport flags, style sheet, and shade output/resolution/DPI. Null means retain
+the existing field; empty strings remain valid persisted values. Contextual
+validation requires an ordered finite Window rectangle and a nonempty named view
+when either contract is selected. Unknown enum values, nonpositive physical or
+scale values, negative margins, out-of-range shade DPI, missing targets, and
+exact no-ops fail before the document generation advances. Matched layout and
+named-object identity, validation, Undo/Redo, shared UI, and DXF/DWG round-trip
+regressions cover the contract.
 
 `CadApplyNamedPageSetupCommand` implements that edit as an original fixed-field
 copy of the ACadSharp `PlotSettings` contract. It resolves the target layout and
@@ -2939,6 +2963,13 @@ codes from `AcDbPlotSettings` and `AcDbLayout` were always offered to the layout
 map first. The pinned ProGPU-owned ACadSharp feature commit `024ef7f5` routes
 layout parsing by the active subclass and adds ASCII/binary differential
 round-trip coverage. The dependency master branch remains untouched.
+
+Field editing also exposed that ACadSharp's DXF path populated scalar group
+148/149 paper-image-origin properties while its DWG path consumed the `XY`
+property. Feature commit `ad7e9ee1` makes all three accessors one synchronized
+object-model value and adds scalar/vector plus ASCII/binary DXF regressions.
+ProGPU therefore keeps one format-neutral field contract without guessing the
+source format; dependency `master` remains untouched.
 
 Entering preview compiles a separate generation-tagged snapshot with
 `CadDrawOrderPurpose.Plotting`, so a drawing whose SORTENTS Plotting bit differs

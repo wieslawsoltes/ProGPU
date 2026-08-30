@@ -624,6 +624,97 @@ public sealed class CadSamplePrintPreviewTests
     }
 
     [Fact]
+    public void SharedViewEditsSelectedPageSetupFieldsWithUndoRedo()
+    {
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_000, 800));
+            ComboBox selector = view.PageSetupSelector;
+            selector.SelectedItem = selector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Text.StartsWith(
+                    "Layout: Model",
+                    StringComparison.Ordinal));
+            CadPageSetupSnapshot original = view.Canvas.CreatePageSetupCatalog()
+                .FindLayout(ACadLayout.ModelLayoutName)!;
+            Button apply = FindButton(view, "Apply fields");
+            Button undo = FindButton(view, "Undo");
+            Button redo = FindButton(view, "Redo");
+            ulong originalGeneration = view.Canvas.CurrentSession!.ContentGeneration;
+
+            Assert.Equal(
+                original.PaperWidthMillimeters.ToString(
+                    "0.###",
+                    System.Globalization.CultureInfo.InvariantCulture),
+                view.PageSetupPaperWidthInput.Text);
+            Assert.False(apply.IsEnabled);
+
+            view.PageSetupPaperWidthInput.Text = "500";
+            view.PageSetupPaperHeightInput.Text = "300";
+            view.PageSetupRotationSelector.SelectedItem =
+                view.PageSetupRotationSelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Tag is
+                        CadPageRotation.CounterClockwise90);
+            view.PageSetupPlotAreaSelector.SelectedItem =
+                view.PageSetupPlotAreaSelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Tag is CadPlotAreaKind.Limits);
+            view.PageSetupCenterCheckBox.IsChecked = !original.CenterPlot;
+            view.PageSetupLineweightsCheckBox.IsChecked =
+                !original.PrintLineweights;
+
+            Assert.True(apply.IsEnabled);
+            PressEnter(apply);
+
+            Assert.Equal(
+                checked(originalGeneration + 1),
+                view.Canvas.CurrentSession.ContentGeneration);
+            CadPageSetupSnapshot edited = view.Canvas.CreatePageSetupCatalog()
+                .FindLayout(ACadLayout.ModelLayoutName)!;
+            Assert.Equal(500, edited.PaperWidthMillimeters);
+            Assert.Equal(300, edited.PaperHeightMillimeters);
+            Assert.Equal(
+                CadPageRotation.CounterClockwise90,
+                edited.Rotation);
+            Assert.Equal(CadPlotAreaKind.Limits, edited.PlotArea);
+            Assert.Equal(!original.CenterPlot, edited.CenterPlot);
+            Assert.Equal(!original.PrintLineweights, edited.PrintLineweights);
+            Assert.False(apply.IsEnabled);
+            Assert.Contains(
+                DescendantsAndSelf(view).OfType<TextBlock>(),
+                text => text.Text.Contains(
+                    "Edited layout 'Model' fields as one edit",
+                    StringComparison.Ordinal));
+
+            PressEnter(undo);
+
+            CadPageSetupSnapshot undone = view.Canvas.CreatePageSetupCatalog()
+                .FindLayout(ACadLayout.ModelLayoutName)!;
+            Assert.Equal(original.PaperWidthMillimeters, undone.PaperWidthMillimeters);
+            Assert.Equal(original.PaperHeightMillimeters, undone.PaperHeightMillimeters);
+            Assert.Equal(original.Rotation, undone.Rotation);
+            Assert.Equal(original.PlotArea, undone.PlotArea);
+            Assert.Equal(original.CenterPlot, undone.CenterPlot);
+            Assert.Equal(original.PrintLineweights, undone.PrintLineweights);
+
+            PressEnter(redo);
+
+            CadPageSetupSnapshot redone = view.Canvas.CreatePageSetupCatalog()
+                .FindLayout(ACadLayout.ModelLayoutName)!;
+            Assert.Equal(500, redone.PaperWidthMillimeters);
+            Assert.Equal(300, redone.PaperHeightMillimeters);
+            Assert.Equal(CadPlotAreaKind.Limits, redone.PlotArea);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewDeletesUnassignedNamedPageSetupWithUndoRedo()
     {
         var view = new CadSampleView();
