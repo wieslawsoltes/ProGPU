@@ -5271,6 +5271,16 @@ is qualified by GitHub Actions Build run `33335230522`, dedicated MSVC job
 regression passes in 0.17 seconds, all 11 native suites pass in 1.07 seconds,
 and the exact 102-export gate is accepted.
 
+ABI v29 at checkpoint `2086632e` adds typed mutable Direct2D brush state for
+native Win2D resource parity. Common opacity/affine transform, solid color,
+linear endpoints, and radial center/origin/radii can be set and queried without
+reflection, raw managed COM calls, or command allocation. Resource generation,
+interface kind, finite coordinates/transforms, opacity, and radii are validated
+on both boundaries, with `DangerousAddRef` protecting every borrowed handle.
+The native regression restores the solid brush before the existing exact-BGRA
+oracle. The allowlist becomes exactly 110 exports; managed contracts pass 5/5
+and the package builds with zero warnings. Windows execution is pending.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
