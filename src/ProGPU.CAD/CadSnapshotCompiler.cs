@@ -3013,14 +3013,14 @@ public sealed partial class CadSnapshotCompiler
 
         ICadShxFontResolver resolver = shxFontResolver ??
             throw new CadUnsupportedEntityException(
-                "Standard SHX TEXT requires a host SHX font resolver.");
+                "SHX TEXT requires a host SHX font resolver.");
         CadShxFontResolution fontResolution = resolver.Resolve(new CadShxFontRequest(
             cadStyle.Name,
             cadStyle.Filename,
             cadStyle.BigFontFilename));
         CadShxGlyphCache cache = fontResolution.GlyphCache ??
             throw new CadUnsupportedEntityException(
-                $"Text style '{cadStyle.Name}' could not resolve a standard SHX font.");
+                $"Text style '{cadStyle.Name}' could not resolve an SHX font.");
 
         CadShxTextLayout layout;
         try
@@ -3058,7 +3058,7 @@ public sealed partial class CadSnapshotCompiler
                     placement.Glyph.Advance.Y > 0.0f)
                 {
                     throw new CadUnsupportedEntityException(
-                        $"Vertical standard SHX TEXT requires downward Y-only character advances; " +
+                        $"Vertical SHX TEXT requires downward Y-only character advances; " +
                         $"font '{cache.Font.Name}' shape {placement.Glyph.ShapeNumber} produced " +
                         $"({placement.Glyph.Advance.X:R}, {placement.Glyph.Advance.Y:R}).");
                 }
@@ -3074,7 +3074,7 @@ public sealed partial class CadSnapshotCompiler
                     placement.Glyph.Advance.X < 0.0f)
                 {
                     throw new CadUnsupportedEntityException(
-                        $"Horizontal standard SHX TEXT requires nonnegative X-only character advances; " +
+                        $"Horizontal SHX TEXT requires nonnegative X-only character advances; " +
                         $"font '{cache.Font.Name}' shape {placement.Glyph.ShapeNumber} produced " +
                         $"({placement.Glyph.Advance.X:R}, {placement.Glyph.Advance.Y:R}).");
                 }
@@ -3105,7 +3105,7 @@ public sealed partial class CadSnapshotCompiler
             Math.Abs(crossAdvance) > Math.Max(1.0, flowLength) * 1e-6)
         {
             throw new CadUnsupportedEntityException(
-                $"{(isVertical ? "Vertical" : "Horizontal")} standard SHX TEXT requires a finite positive axis-aligned advance; " +
+                $"{(isVertical ? "Vertical" : "Horizontal")} SHX TEXT requires a finite positive axis-aligned advance; " +
                 $"font '{cache.Font.Name}' produced ({layout.Advance.X:R}, {layout.Advance.Y:R}).");
         }
 

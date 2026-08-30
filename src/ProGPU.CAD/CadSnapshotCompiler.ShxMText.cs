@@ -120,12 +120,12 @@ public sealed partial class CadSnapshotCompiler
         if (mtext.DrawingDirection != DrawingDirectionType.LeftToRight)
         {
             throw new CadUnsupportedEntityException(
-                "Standard SHX MTEXT currently requires left-to-right horizontal drawing direction; Unicode/Big Font direction requires its dedicated character contract.");
+                "SHX MTEXT currently requires left-to-right horizontal drawing direction; vertical and right-to-left flow require dedicated layout contracts.");
         }
 
         ICadShxFontResolver resolver = shxFontResolver ??
             throw new CadUnsupportedEntityException(
-                "Standard SHX MTEXT requires a host SHX font resolver.");
+                "SHX MTEXT requires a host SHX font resolver.");
         CadMTextContent content;
         try
         {
@@ -835,7 +835,7 @@ public sealed partial class CadSnapshotCompiler
             !inline.Font.FamilyName.EndsWith(".shx", StringComparison.OrdinalIgnoreCase))
         {
             throw new CadUnsupportedEntityException(
-                $"SHX MTEXT inline font '{inline.Font.FamilyName}' requires mixed TrueType/SHX run lowering; standard SHX overrides must name an .shx font.");
+                $"SHX MTEXT inline font '{inline.Font.FamilyName}' requires mixed TrueType/SHX run lowering; SHX overrides must name an .shx font.");
         }
         string styleName = inline.Font.IsSpecified
             ? inline.Font.FamilyName
@@ -849,7 +849,7 @@ public sealed partial class CadSnapshotCompiler
             inline.Font.IsSpecified ? string.Empty : cadStyle.BigFontFilename));
         CadShxGlyphCache cache = resolution.GlyphCache ??
             throw new CadUnsupportedEntityException(
-                $"SHX MTEXT font '{filename}' could not resolve a standard SHX font.");
+                $"SHX MTEXT font '{filename}' could not resolve an SHX font.");
         if (!cache.Font.IsTextFont || cache.Font.Above <= 0)
         {
             throw new CadUnsupportedEntityException(
@@ -929,7 +929,7 @@ public sealed partial class CadSnapshotCompiler
             glyph.Advance.X < 0.0f)
         {
             throw new CadUnsupportedEntityException(
-                $"Horizontal standard SHX MTEXT requires nonnegative X-only character advances; font '{font.Name}' shape {glyph.ShapeNumber} produced ({glyph.Advance.X:R}, {glyph.Advance.Y:R}).");
+                $"Horizontal SHX MTEXT requires nonnegative X-only character advances; font '{font.Name}' shape {glyph.ShapeNumber} produced ({glyph.Advance.X:R}, {glyph.Advance.Y:R}).");
         }
     }
 

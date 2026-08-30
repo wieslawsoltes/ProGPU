@@ -123,7 +123,7 @@ public static class CadShxFontDiscovery
                     new CadDiagnostic(
                         CadDiagnosticSeverity.Information,
                         "CADSHX001",
-                        $"Standard SHX font '{registeredName}' requested by '{fontName}' was not found in the ordered host search paths."));
+                        $"SHX font '{registeredName}' requested by '{fontName}' was not found in the ordered host search paths."));
                 continue;
             }
             if (!scheduledNames.Add(registeredName))
@@ -140,7 +140,7 @@ public static class CadShxFontDiscovery
                     new CadDiagnostic(
                         CadDiagnosticSeverity.Warning,
                         "CADSHX002",
-                        $"Standard SHX font '{foundPath}' has an invalid bounded length of {foundLength} bytes."));
+                        $"SHX font '{foundPath}' has an invalid bounded length of {foundLength} bytes."));
                 continue;
             }
 
@@ -187,7 +187,7 @@ public static class CadShxFontDiscovery
                     new CadDiagnostic(
                         CadDiagnosticSeverity.Warning,
                         "CADSHX003",
-                        $"Standard SHX font '{candidate.Path}' was rejected: {exception.Message}"));
+                        $"SHX font '{candidate.Path}' was rejected: {exception.Message}"));
             }
         }
 
@@ -214,7 +214,7 @@ public static class CadShxFontDiscovery
                     new CadDiagnostic(
                         CadDiagnosticSeverity.Warning,
                         "CADSHX004",
-                        $"Standard SHX font '{font.FontName}' could not be registered: {exception.Message}"));
+                        $"SHX font '{font.FontName}' could not be registered: {exception.Message}"));
             }
         }
 

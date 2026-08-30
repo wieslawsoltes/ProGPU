@@ -41,8 +41,8 @@ public sealed class CadShxGlyph
 }
 
 /// <summary>
-/// Owns device-independent interpreted glyphs for one immutable standard SHX
-/// font or shape file.
+/// Owns device-independent interpreted glyphs for one immutable standard or
+/// Unicode SHX font or shape file.
 /// </summary>
 public sealed class CadShxGlyphCache
 {
@@ -114,7 +114,7 @@ public readonly record struct CadShxGlyphPlacement(
     bool IsBreakOpportunity = false);
 
 /// <summary>
-/// A bounded device-independent standard SHX character layout.
+/// A bounded device-independent standard or Unicode SHX character layout.
 /// </summary>
 /// <remarks>
 /// Layout is O(C + G) time and O(G) placement storage for C UTF-16/control-code
@@ -142,15 +142,21 @@ public sealed class CadShxTextLayout
         if (!cache.Font.IsTextFont)
         {
             throw new ArgumentException(
-                "SHX text layout requires a standard font header shape.",
+                "SHX text layout requires a text-font header shape.",
                 nameof(cache));
+        }
+        if (cache.Font.IsUnicodeFont &&
+            cache.Font.UnicodeEncoding != CadShxUnicodeEncoding.Unicode)
+        {
+            throw new NotSupportedException(
+                $"Unicode SHX encoding {cache.Font.UnicodeEncoding} requires a distinct character decoder.");
         }
         options ??= new CadShxTextLayoutOptions();
         ValidateOptions(options);
         if (source.Length == 0 || source.IndexOfAny(['\r', '\n']) >= 0)
         {
             throw new ArgumentException(
-                "Standard SHX text layout requires one non-empty logical line.",
+                "SHX text layout requires one non-empty logical line.",
                 nameof(source));
         }
         if (source.Length > options.MaxCodeUnits)
@@ -192,7 +198,7 @@ public sealed class CadShxTextLayout
                     scalar = (scalar << 4) | hex;
                 }
                 AddShape(
-                    MapStandardScalar(scalar),
+                    MapScalar(cache.Font, scalar),
                     isBreakOpportunity: scalar == 0x20);
                 i += 6;
                 continue;
@@ -237,9 +243,9 @@ public sealed class CadShxTextLayout
 
                 AddShape(code switch
                 {
-                    'd' => 256,
-                    'p' => 257,
-                    'c' => 258,
+                    'd' => MapScalar(cache.Font, 0x00B0),
+                    'p' => MapScalar(cache.Font, 0x00B1),
+                    'c' => MapScalar(cache.Font, 0x2205),
                     '%' => (ushort)'%',
                     _ => throw new NotSupportedException(
                         $"SHX text contains unsupported AutoCAD control code '%%{source[i + 2]}'."),
@@ -251,10 +257,10 @@ public sealed class CadShxTextLayout
             if (char.IsSurrogate(value))
             {
                 throw new NotSupportedException(
-                    "Standard SHX text does not accept surrogate pairs; select a Unicode SHX contract explicitly.");
+                    "SHX shape identities are 16-bit and do not accept UTF-16 surrogate code units.");
             }
             AddShape(
-                MapStandardScalar(value),
+                MapScalar(cache.Font, value),
                 isBreakOpportunity: value == ' ');
         }
 
@@ -290,7 +296,7 @@ public sealed class CadShxTextLayout
             catch (KeyNotFoundException exception)
             {
                 throw new InvalidDataException(
-                    $"Standard SHX font '{cache.Font.Name}' has no shape {shapeNumber} required by the text.",
+                    $"SHX font '{cache.Font.Name}' has no shape {shapeNumber} required by the text.",
                     exception);
             }
 
@@ -333,6 +339,22 @@ public sealed class CadShxTextLayout
                     $"SHX text {field} exceeds the configured coordinate limit.");
             }
         }
+    }
+
+    private static ushort MapScalar(CadShxFont font, int scalar)
+    {
+        if (font.IsUnicodeFont)
+        {
+            if (scalar is < 0 or > ushort.MaxValue ||
+                scalar is >= 0xD800 and <= 0xDFFF)
+            {
+                throw new NotSupportedException(
+                    $"U+{scalar:X} is outside the 16-bit Unicode SHX shape domain.");
+            }
+            return (ushort)scalar;
+        }
+
+        return MapStandardScalar(scalar);
     }
 
     private static ushort MapStandardScalar(int scalar) => scalar switch

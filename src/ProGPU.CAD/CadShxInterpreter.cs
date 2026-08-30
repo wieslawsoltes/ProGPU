@@ -45,7 +45,8 @@ public sealed class CadShxGeometry
 }
 
 /// <summary>
-/// Interprets standard AutoCAD-86 SHX programs into retained analytic paths.
+/// Interprets standard and Unicode AutoCAD-86 SHX programs into retained
+/// analytic paths.
 /// </summary>
 /// <remarks>
 /// Interpretation is O(C + A) time and O(S + D) storage for executed command
@@ -82,7 +83,7 @@ public static class CadShxInterpreter
         {
             throw new ArgumentOutOfRangeException(
                 nameof(shapeNumber),
-                "Standard SHX shape zero is font metadata and has no drawable program.");
+                "SHX shape zero is font metadata and has no drawable program.");
         }
 
         var executor = new Executor(font, orientation, options);
@@ -265,7 +266,11 @@ public static class CadShxInterpreter
                     return;
                 case 7:
                     {
-                        byte subshapeNumber = ReadByte(shapeNumber, program, ref offset, "subshape number");
+                        ushort subshapeNumber = _font.IsUnicodeFont
+                            ? (ushort)(
+                                ReadByte(shapeNumber, program, ref offset, "subshape number low byte") |
+                                (ReadByte(shapeNumber, program, ref offset, "subshape number high byte") << 8))
+                            : ReadByte(shapeNumber, program, ref offset, "subshape number");
                         if (subshapeNumber == 0)
                         {
                             throw Invalid(shapeNumber, "references reserved subshape zero");

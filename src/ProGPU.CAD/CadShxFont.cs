@@ -15,6 +15,28 @@ public sealed class CadShxParseOptions
     public int MaxShapeBytes { get; init; } = DefaultMaxShapeBytes;
 }
 
+public enum CadShxContainerKind : byte
+{
+    Standard = 0,
+    Unicode = 1,
+    BigFont = 2,
+}
+
+public enum CadShxUnicodeEncoding : byte
+{
+    Unicode = 0,
+    PackedMultibyte1 = 1,
+    ShapeFile = 2,
+}
+
+[Flags]
+public enum CadShxEmbeddingPermissions : byte
+{
+    Embeddable = 0,
+    CannotEmbed = 1 << 0,
+    ReadOnly = 1 << 1,
+}
+
 public sealed class CadShxShape
 {
     public ushort Number { get; }
@@ -30,44 +52,57 @@ public sealed class CadShxShape
 }
 
 /// <summary>
-/// An immutable, bounded AutoCAD-86 standard SHX shape/font container.
+/// An immutable, bounded AutoCAD-86 standard or Unicode SHX shape/font
+/// container.
 /// </summary>
 /// <remarks>
 /// Parsing is O(B + S) time and O(B + S) owned storage for file bytes B and
 /// directory entries S. Programs remain packed and are not interpreted during
-/// loading. Unicode and Big Font containers use distinct contracts and are
-/// rejected until their dedicated parsers are selected explicitly.
+/// loading. Big Font containers use a distinct indexed/code-page contract and
+/// remain rejected until that parser is selected explicitly.
 /// </remarks>
 public sealed class CadShxFont
 {
     private static readonly byte[] StandardSignature =
         "AutoCAD-86 shapes 1.0\r\n\x1A"u8.ToArray();
+    private static readonly byte[] UnicodeSignature =
+        "AutoCAD-86 unifont 1.0\r\n\x1A"u8.ToArray();
     private static readonly byte[] EndMarker = "EOF"u8.ToArray();
     private readonly ReadOnlyDictionary<ushort, CadShxShape> _shapes;
     private readonly ReadOnlyDictionary<string, CadShxShape> _shapesByName;
 
     public string Name { get; }
+    public CadShxContainerKind ContainerKind { get; }
     public int Above { get; }
     public int Below { get; }
     public int Modes { get; }
     public bool IsTextFont { get; }
+    public bool IsUnicodeFont => ContainerKind == CadShxContainerKind.Unicode;
+    public CadShxUnicodeEncoding? UnicodeEncoding { get; }
+    public CadShxEmbeddingPermissions? EmbeddingPermissions { get; }
     public bool SupportsVerticalOrientation => IsTextFont && (Modes & 2) != 0;
     public int ShapeCount => _shapes.Count;
     public IReadOnlyDictionary<ushort, CadShxShape> Shapes => _shapes;
 
     private CadShxFont(
         string name,
+        CadShxContainerKind containerKind,
         int above,
         int below,
         int modes,
         bool isTextFont,
+        CadShxUnicodeEncoding? unicodeEncoding,
+        CadShxEmbeddingPermissions? embeddingPermissions,
         Dictionary<ushort, CadShxShape> shapes)
     {
         Name = name;
+        ContainerKind = containerKind;
         Above = above;
         Below = below;
         Modes = modes;
         IsTextFont = isTextFont;
+        UnicodeEncoding = unicodeEncoding;
+        EmbeddingPermissions = embeddingPermissions;
         _shapes = new ReadOnlyDictionary<ushort, CadShxShape>(shapes);
         var shapesByName = new Dictionary<string, CadShxShape>(StringComparer.OrdinalIgnoreCase);
         foreach (CadShxShape shape in shapes.Values)
@@ -104,10 +139,14 @@ public sealed class CadShxFont
             throw new InvalidDataException(
                 $"SHX input must contain between 1 and {options.MaxFileBytes} bytes.");
         }
+        if (source.StartsWith(UnicodeSignature))
+        {
+            return ParseUnicode(source, options);
+        }
         if (!source.StartsWith(StandardSignature))
         {
             throw new NotSupportedException(
-                "Only the AutoCAD-86 standard shapes 1.0 SHX container is currently supported; Unicode and Big Font containers require their dedicated format contracts.");
+                "Only AutoCAD-86 standard shapes 1.0 and Unicode unifont 1.0 SHX containers are currently supported; Big Font containers require their indexed code-page contract.");
         }
 
         int offset = StandardSignature.Length;
@@ -230,7 +269,121 @@ public sealed class CadShxFont
             name = header.Name;
         }
 
-        return new CadShxFont(name, above, below, modes, isTextFont, shapes);
+        return new CadShxFont(
+            name,
+            CadShxContainerKind.Standard,
+            above,
+            below,
+            modes,
+            isTextFont,
+            null,
+            null,
+            shapes);
+    }
+
+    private static CadShxFont ParseUnicode(
+        ReadOnlySpan<byte> source,
+        CadShxParseOptions options)
+    {
+        int offset = UnicodeSignature.Length;
+        if (source.Length - offset < 2)
+        {
+            throw new InvalidDataException("Unicode SHX shape count is truncated.");
+        }
+
+        int shapeCount = ReadUInt16(source, ref offset);
+        if (shapeCount == 0 || shapeCount > options.MaxShapeCount)
+        {
+            throw new InvalidDataException(
+                $"Unicode SHX shape count must be between 1 and {options.MaxShapeCount}.");
+        }
+
+        byte[] owned = source.ToArray();
+        var shapes = new Dictionary<ushort, CadShxShape>(shapeCount);
+        for (int i = 0; i < shapeCount; i++)
+        {
+            if (owned.Length - offset < 4)
+            {
+                throw new InvalidDataException(
+                    "Unicode SHX shape record header is truncated.");
+            }
+
+            ushort number = ReadUInt16(owned, ref offset);
+            ushort recordLengthValue = ReadUInt16(owned, ref offset);
+            int recordLength = recordLengthValue;
+            if (recordLength < 2 || recordLength > options.MaxShapeBytes + 256)
+            {
+                throw new InvalidDataException(
+                    $"Unicode SHX shape {number} has an invalid bounded record length {recordLength}.");
+            }
+            if (owned.Length - offset < recordLength)
+            {
+                throw new InvalidDataException(
+                    $"Unicode SHX shape {number} record is truncated.");
+            }
+            if (shapes.ContainsKey(number))
+            {
+                throw new InvalidDataException(
+                    $"Unicode SHX contains duplicate shape number {number}.");
+            }
+
+            ReadOnlySpan<byte> record = owned.AsSpan(offset, recordLength);
+            int nameLength = record.IndexOf((byte)0);
+            if (nameLength < 0)
+            {
+                throw new InvalidDataException(
+                    $"Unicode SHX shape {number} has no terminated name.");
+            }
+
+            int programOffset = checked(offset + nameLength + 1);
+            int programLength = checked(recordLength - nameLength - 1);
+            if (programLength == 0 || programLength > options.MaxShapeBytes ||
+                owned[programOffset + programLength - 1] != 0)
+            {
+                throw new InvalidDataException(
+                    $"Unicode SHX shape {number} has an invalid terminated program.");
+            }
+
+            string shapeName = Encoding.ASCII.GetString(record[..nameLength]);
+            shapes.Add(
+                number,
+                new CadShxShape(
+                    number,
+                    shapeName,
+                    owned.AsMemory(programOffset, programLength)));
+            offset += recordLength;
+        }
+
+        if (offset != owned.Length)
+        {
+            throw new InvalidDataException(
+                "Unicode SHX data must end exactly after its declared shape records.");
+        }
+        if (!shapes.TryGetValue(0, out CadShxShape? header))
+        {
+            throw new InvalidDataException(
+                "Unicode SHX requires shape zero font metadata.");
+        }
+
+        ReadOnlySpan<byte> headerProgram = header.Program.Span;
+        if (headerProgram.Length != 6 || headerProgram[0] == 0 ||
+            headerProgram[2] is not (0 or 2) || headerProgram[3] > 2 ||
+            (headerProgram[4] & ~3) != 0 || headerProgram[5] != 0)
+        {
+            throw new InvalidDataException(
+                "Unicode SHX font metrics, orientation, encoding, embedding, or terminator metadata is invalid.");
+        }
+
+        return new CadShxFont(
+            header.Name,
+            CadShxContainerKind.Unicode,
+            headerProgram[0],
+            headerProgram[1],
+            headerProgram[2],
+            true,
+            (CadShxUnicodeEncoding)headerProgram[3],
+            (CadShxEmbeddingPermissions)headerProgram[4],
+            shapes);
     }
 
     private static ushort ReadUInt16(ReadOnlySpan<byte> source, ref int offset)

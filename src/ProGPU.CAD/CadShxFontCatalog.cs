@@ -1,7 +1,8 @@
 namespace ProGPU.CAD;
 
 /// <summary>
-/// A thread-safe, browser-neutral catalog of immutable standard SHX fonts.
+/// A thread-safe, browser-neutral catalog of immutable standard and Unicode
+/// SHX fonts.
 /// </summary>
 /// <remarks>
 /// Registration and mapping changes are intended for host initialization.
@@ -423,7 +424,7 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver, ICadShxShapeResolve
         if (!key.EndsWith(".shx", StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException(
-                "A standard SHX catalog filename must use the .shx extension.",
+                "An SHX catalog filename must use the .shx extension.",
                 parameterName);
         }
         return key;

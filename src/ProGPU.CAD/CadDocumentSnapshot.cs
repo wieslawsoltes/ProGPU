@@ -528,7 +528,7 @@ public readonly record struct CadShxTextPrimitive(
     int DecorationCount);
 
 /// <summary>
-/// One retained standard-SHX MTEXT entity. Glyph paths address the shared SHX
+/// One retained standard or Unicode SHX MTEXT entity. Glyph paths address the shared SHX
 /// instance stream while paint/transform runs and MTEXT rectangles remain
 /// immutable generation-owned data.
 /// </summary>
@@ -551,7 +551,7 @@ public readonly record struct CadShxMTextPrimitive(
     float ContentHeight);
 
 /// <summary>
-/// A contiguous standard-SHX MTEXT glyph range sharing local scale, oblique,
+/// A contiguous standard or Unicode SHX MTEXT glyph range sharing local scale, oblique,
 /// and paint. Scale is applied to the cached font-unit path at replay time.
 /// </summary>
 public readonly record struct CadShxMTextGlyphRun(
