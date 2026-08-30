@@ -70,7 +70,9 @@ public enum ProGpuDirect2DInterfaceKind
     D2D1DrawingStateBlock1 = 44,
     DWriteFactory3 = 45,
     DWriteTextFormat1 = 46,
-    Win2DCanvasTextFormat = 47
+    Win2DCanvasTextFormat = 47,
+    DWriteTextLayout4 = 48,
+    Win2DCanvasTextLayout = 49
 }
 
 /// <summary>

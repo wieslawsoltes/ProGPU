@@ -33,7 +33,7 @@ binary.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` and DirectWrite text API | Foundation plus bitmap/brush/geometry/stroke/command-list/effect/layer/state/text resources implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine factory, device, context, target, uploaded bitmaps, solid/gradient/bitmap/image brushes, gradient-stop collections, primitive/path/transformed/combined geometries, `ID2D1StrokeStyle1`, recordable `ID2D1CommandList`, typed `ID2D1Effect` graphs and `ID2D1Image` outputs, `ID2D1Layer`, `ID2D1DrawingStateBlock1`, shared `IDWriteFactory3`, typed `IDWriteTextFormat1`, UTF-16 `DrawText`, and generic later-interface queries over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` or `dwrite.dll` |
+| Direct2D `ID2D1*` and DirectWrite text API | Foundation plus bitmap/brush/geometry/stroke/command-list/effect/layer/state/text resources implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine factory, device, context, target, uploaded bitmaps, solid/gradient/bitmap/image brushes, gradient-stop collections, primitive/path/transformed/combined geometries, `ID2D1StrokeStyle1`, recordable `ID2D1CommandList`, typed `ID2D1Effect` graphs and `ID2D1Image` outputs, `ID2D1Layer`, `ID2D1DrawingStateBlock1`, shared `IDWriteFactory3`, typed `IDWriteTextFormat1`/`IDWriteTextLayout4`, UTF-16 `DrawText`, retained `DrawTextLayout`, and generic later-interface queries over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` or `dwrite.dll` |
 | Native Win2D binary interop | Device/target/bitmap/brush/geometry/stroke/command-list/effect-output/text-format round trips plus layer/state/text draws package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, `CanvasStrokeStyle`, `CanvasCommandList`, and device-independent `CanvasTextFormat` projections. The packaged Microsoft Win2D 1.4.0 oracle also wraps effect-output image brushes, executes typed ProGPU layer/state and native-text command-list scopes, and draws through the projected text format. It qualifies identities, resource metadata, boolean geometry/styled-stroke/image-brush/command-list/effect/text drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; broader text layout, the full effect catalog, custom effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
@@ -273,11 +273,12 @@ the calling thread, and it does not search for or load
 thread that activates or uses the returned WinRT object and must make the Win2D
 package available through their normal package/dependency graph.
 
-This is not yet the complete native Win2D bridge. The next interop boundaries
-are typed effect `ID2D1Image` factories, DirectWrite-backed text, effects, and
-device-loss recreation of the entire cached resource domain. Each family must
-pass the same forward-wrap/reverse-unwrap identity and actual-draw gate before
-it is advertised.
+This is not yet the complete native Win2D bridge. Typed effect graphs,
+DirectWrite formats/layouts, and basic text drawing are now present. The next
+interop boundaries are range formatting, glyph runs/color fonts, remaining
+image/effect families, and device-loss recreation of the entire cached
+resource domain. Each family must pass the same forward-wrap/reverse-unwrap
+identity and actual-draw gate before it is advertised.
 
 This shape follows Microsoft's documented device-context construction and
 resource-domain model: Direct2D is created from the D3D11 `IDXGIDevice`, the
@@ -494,7 +495,7 @@ for `progpu_native_direct2d.dll` and
 `cab7f76311cd5115a0f8f84ee680115eb6481c6842eb45a85eea0633c08292fc`
 for `progpu_native_direct2d_tests.exe`.
 
-The current ABI v16 gate includes transactional `BeginDraw`/`EndDraw`, safe COM
+The current ABI v17 gate includes transactional `BeginDraw`/`EndDraw`, safe COM
 release, nested/unmatched draw rejection, zero-key Dawn ownership, and a
 generic GUID-based `QueryInterface` export. The latter returns a caller-owned
 reference to any later Direct2D interface supported by the installed Windows
@@ -554,6 +555,18 @@ Device-independent Win2D wrapping supplies a null CanvasDevice and zero DPI,
 as required for `CanvasTextFormat`, while reverse unwrapping requests the
 exact `IDWriteTextFormat1` IID and preserves canonical COM identity. The gate
 enforces an exact 47-export allowlist.
+ABI v17 creates retained caller-owned `IDWriteTextLayout4` resources from one
+typed UTF-16 span, an existing text format, and finite positive layout bounds.
+DirectWrite copies the text during layout creation; ProGPU retains neither the
+caller span nor a duplicate provider buffer. Shared-surface and command-list
+sessions draw the retained layout through `ID2D1RenderTarget::DrawTextLayout`.
+Win2D wrapping deliberately supplies the surface's exact CanvasDevice because
+Microsoft's `CanvasTextLayout` is device-associated even though it derives
+from the DirectWrite text-format interfaces. Reverse unwrapping requests the
+exact `IDWriteTextLayout4` IID and must preserve canonical COM identity.
+Malformed bounds, non-finite origins, wrong resource kinds, unknown options,
+and calls outside an active draw fail closed. The gate enforces an exact
+49-export allowlist.
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any

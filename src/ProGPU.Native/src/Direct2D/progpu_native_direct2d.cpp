@@ -774,8 +774,11 @@ HRESULT create_win2d_wrapper(
     float dpi,
     IInspectable** wrapper)
 {
+    ComPtr<IDWriteTextLayout> text_layout;
     ComPtr<IDWriteTextFormat> text_format;
-    bool device_independent = SUCCEEDED(
+    bool is_text_layout = SUCCEEDED(
+        native_resource->QueryInterface(IID_PPV_ARGS(&text_layout)));
+    bool device_independent = !is_text_layout && SUCCEEDED(
         native_resource->QueryInterface(IID_PPV_ARGS(&text_format)));
     HRESULT hr = device_independent
         ? get_win2d_factory(surface)
@@ -2204,6 +2207,106 @@ progpu_native_direct2d_surface_draw_text(
             brush.Get(),
             static_cast<D2D1_DRAW_TEXT_OPTIONS>(options),
             static_cast<DWRITE_MEASURING_MODE>(measuring_mode));
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_text_layout(
+    progpu_native_direct2d_surface* surface,
+    const uint16_t* text,
+    uint32_t text_length,
+    void* text_format,
+    float maximum_width,
+    float maximum_height,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || (text == nullptr && text_length != 0U) ||
+        text_format == nullptr || value == nullptr || native_hresult == nullptr ||
+        !std::isfinite(maximum_width) || maximum_width <= 0.0F ||
+        !std::isfinite(maximum_height) || maximum_height <= 0.0F) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    static constexpr wchar_t empty_text[] = L"";
+    const wchar_t* native_text = text_length == 0U
+        ? empty_text
+        : reinterpret_cast<const wchar_t*>(text);
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<IDWriteTextFormat> format;
+    HRESULT hr = reinterpret_cast<IUnknown*>(text_format)->QueryInterface(
+        IID_PPV_ARGS(&format));
+    ComPtr<IDWriteTextLayout> base_layout;
+    if (SUCCEEDED(hr)) {
+        hr = surface->dwrite_factory->CreateTextLayout(
+            native_text,
+            text_length,
+            format.Get(),
+            maximum_width,
+            maximum_height,
+            &base_layout);
+    }
+    ComPtr<IDWriteTextLayout4> layout;
+    if (SUCCEEDED(hr)) {
+        hr = base_layout.As(&layout);
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(layout, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_text_layout(
+    progpu_native_direct2d_surface* surface,
+    float origin_x,
+    float origin_y,
+    void* text_layout,
+    void* default_fill_brush,
+    uint32_t options,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || !std::isfinite(origin_x) ||
+        !std::isfinite(origin_y) || text_layout == nullptr ||
+        default_fill_brush == nullptr || native_hresult == nullptr ||
+        !is_valid_draw_text_options(options)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<IDWriteTextLayout> layout;
+    HRESULT hr = reinterpret_cast<IUnknown*>(text_layout)->QueryInterface(
+        IID_PPV_ARGS(&layout));
+    ComPtr<ID2D1Brush> brush;
+    if (SUCCEEDED(hr)) {
+        hr = reinterpret_cast<IUnknown*>(default_fill_brush)->QueryInterface(
+            IID_PPV_ARGS(&brush));
+    }
+    if (SUCCEEDED(hr)) {
+        surface->d2d_context->DrawTextLayout(
+            D2D1::Point2F(origin_x, origin_y),
+            layout.Get(),
+            brush.Get(),
+            static_cast<D2D1_DRAW_TEXT_OPTIONS>(options));
     }
     surface->last_hresult.store(hr, std::memory_order_release);
     *native_hresult = hr;

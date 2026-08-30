@@ -5066,6 +5066,20 @@ DirectWrite factory/format creation and Direct2D text submission. Official
 Win2D `CanvasTextFormat` projection remains a distinct signed-package oracle;
 the native evidence is not used as a substitute for that gate.
 
+ABI v17 adds retained genuine `IDWriteTextLayout4` creation from explicit
+UTF-16 text, an existing typed format, and positive finite layout bounds.
+DirectWrite owns the retained text copy after the synchronous creation call;
+the provider does not retain the caller span or create a parallel text buffer.
+Both shared-surface and command-list transactions submit the reusable layout
+through `ID2D1RenderTarget::DrawTextLayout`. The Win2D factory path treats a
+layout as device-associated before testing its inherited text-format
+interface, supplies the surface's exact CanvasDevice, and reverse-unwraps the
+exact `IDWriteTextLayout4`. This matches the pinned Microsoft
+`ResourceManager`/`CanvasTextLayout` implementation and avoids accidentally
+using the null-device rule that is correct only for `CanvasTextFormat`.
+Invalid dimensions, origins, options, resource kinds, and draw state fail
+closed. The native export allowlist grows from 47 to exactly 49.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

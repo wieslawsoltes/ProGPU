@@ -104,7 +104,9 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DRAWING_STATE_BLOCK1 = 44,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_FACTORY3 = 45,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_TEXT_FORMAT1 = 46,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_TEXT_FORMAT = 47
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_TEXT_FORMAT = 47,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_TEXT_LAYOUT4 = 48,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_TEXT_LAYOUT = 49
 } progpu_native_direct2d_interface_kind;
 
 typedef enum progpu_native_direct2d_fill_mode {
@@ -485,7 +487,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 16U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 17U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -767,6 +769,32 @@ progpu_native_direct2d_surface_draw_text(
     void* default_fill_brush,
     uint32_t options,
     progpu_native_direct2d_measuring_mode measuring_mode,
+    int32_t* native_hresult);
+
+/* Creates one retained IDWriteTextLayout4 from an explicit UTF-16 span and a
+ * caller-owned text format. DirectWrite copies the text into the retained
+ * layout synchronously; the provider does not retain the caller span. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_text_layout(
+    progpu_native_direct2d_surface* surface,
+    const uint16_t* text,
+    uint32_t text_length,
+    void* text_format,
+    float maximum_width,
+    float maximum_height,
+    void** value,
+    int32_t* native_hresult);
+
+/* Draws a retained text layout through ID2D1RenderTarget::DrawTextLayout
+ * during an active surface or command-list transaction. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_text_layout(
+    progpu_native_direct2d_surface* surface,
+    float origin_x,
+    float origin_y,
+    void* text_layout,
+    void* default_fill_brush,
+    uint32_t options,
     int32_t* native_hresult);
 
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status

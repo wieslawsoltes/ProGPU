@@ -71,6 +71,7 @@ internal static partial class Program
                     CanvasGeometryType: null,
                     CanvasStrokeStyleType: null,
                     CanvasTextFormatType: null,
+                    CanvasTextLayoutType: null,
                     DrawingSessionType: null,
                     NativeDeviceIdentityMatches: null,
                     NativeBitmapIdentityMatches: null,
@@ -86,8 +87,10 @@ internal static partial class Program
                     NativeGeometryIdentityMatches: null,
                     NativeStrokeStyleIdentityMatches: null,
                     NativeTextFormatIdentityMatches: null,
+                    NativeTextLayoutIdentityMatches: null,
                     TypedLayerStateScopePassed: null,
                     TypedNativeTextDrawPassed: null,
+                    TypedNativeTextLayoutDrawPassed: null,
                     SolidColorBrushColor: null,
                     LinearGradientBrushColor: null,
                     RadialGradientBrushColor: null,
@@ -102,6 +105,8 @@ internal static partial class Program
                     GeometryPixel: null,
                     TextPixel: null,
                     TextChangedPixelCount: null,
+                    TextLayoutPixel: null,
+                    TextLayoutChangedPixelCount: null,
                     Error: exception.ToString()));
             return 1;
         }
@@ -825,6 +830,53 @@ internal static partial class Program
             }
             WriteProgress("text-format-roundtrip-native-draw-complete");
 
+            using ProGpuDirect2DComReference nativeTextLayout =
+                surface.CreateTextLayout(
+                    "ABI 17".AsSpan(),
+                    nativeTextFormat,
+                    52.0F,
+                    20.0F);
+            if (!surface.TryAcquireMicrosoftWin2DTextLayout(
+                    nativeTextLayout,
+                    out ProGpuDirect2DComReference? wrappedTextLayout,
+                    out int wrappedTextLayoutHResult) ||
+                wrappedTextLayout is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasTextLayout wrapping failed (0x{wrappedTextLayoutHResult:X8}).");
+            }
+            using ProGpuDirect2DComReference canvasTextLayoutReference =
+                wrappedTextLayout;
+            if (!surface.TryAcquireMicrosoftWin2DNativeTextLayout(
+                    canvasTextLayoutReference,
+                    out ProGpuDirect2DComReference? unwrappedTextLayout,
+                    out int unwrappedTextLayoutHResult) ||
+                unwrappedTextLayout is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasTextLayout native-resource interop failed (0x{unwrappedTextLayoutHResult:X8}).");
+            }
+            using (unwrappedTextLayout)
+            {
+                if (!HasSameComIdentity(nativeTextLayout, unwrappedTextLayout))
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasTextLayout did not preserve ProGPU's IDWriteTextLayout4 identity.");
+                }
+            }
+            using ProGpuDirect2DComReference nativeTextLayoutCommandList =
+                surface.CreateCommandList();
+            using (ProGpuDirect2DCommandListDrawingSession textLayoutSession =
+                surface.BeginCommandListDrawing(nativeTextLayoutCommandList))
+            {
+                textLayoutSession.DrawTextLayout(
+                    Vector2.Zero,
+                    nativeTextLayout,
+                    nativeSolidColorBrush,
+                    ProGpuDirect2DDrawTextOptions.Clip);
+            }
+            WriteProgress("text-layout-roundtrip-native-draw-complete");
+
             using ProGpuDirect2DComReference nativeLayer =
                 surface.CreateLayer(new Vector2(Width, Height));
             using ProGpuDirect2DComReference nativeDrawingStateBlock =
@@ -875,6 +927,7 @@ internal static partial class Program
             string canvasGeometryType;
             string canvasStrokeStyleType;
             string canvasTextFormatType;
+            string canvasTextLayoutType;
             string drawingSessionType;
             PixelEvidence solidColorBrushColor;
             PixelEvidence linearGradientBrushColor;
@@ -890,6 +943,8 @@ internal static partial class Program
             PixelEvidence geometryPixel;
             PixelEvidence textPixel;
             int textChangedPixelCount;
+            PixelEvidence textLayoutPixel;
+            int textLayoutChangedPixelCount;
             using (access)
             {
                 WriteProgress("canvas-target-projection-started");
@@ -943,6 +998,9 @@ internal static partial class Program
                 using CanvasTextFormat canvasTextFormat =
                     CanvasTextFormat.FromAbi(
                         canvasTextFormatReference.DangerousGetHandle());
+                using CanvasTextLayout canvasTextLayout =
+                    CanvasTextLayout.FromAbi(
+                        canvasTextLayoutReference.DangerousGetHandle());
                 WriteProgress("canvas-projections-created");
                 canvasDeviceType = target.Device.GetType().FullName ??
                     target.Device.GetType().Name;
@@ -1051,6 +1109,9 @@ internal static partial class Program
                 canvasTextFormatType =
                     canvasTextFormat.GetType().FullName ??
                     canvasTextFormat.GetType().Name;
+                canvasTextLayoutType =
+                    canvasTextLayout.GetType().FullName ??
+                    canvasTextLayout.GetType().Name;
                 float[] projectedDashes = canvasStrokeStyle.CustomDashStyle;
                 if (projectedDashes.Length != 4 ||
                     projectedDashes[0] != 2.0F ||
@@ -1124,6 +1185,10 @@ internal static partial class Program
                         new Vector2(25.0F, 42.0F),
                         Color.FromArgb(255, 255, 248, 64),
                         canvasTextFormat);
+                    drawingSession.DrawTextLayout(
+                        canvasTextLayout,
+                        new Vector2(25.0F, 22.0F),
+                        Color.FromArgb(255, 96, 248, 255));
                 }
                 WriteProgress("canvas-draw-complete");
 
@@ -1175,6 +1240,23 @@ internal static partial class Program
                     }
                 }
                 textPixel = PixelEvidence.FromColor(observedTextColor);
+                textLayoutChangedPixelCount = 0;
+                Color observedTextLayoutColor = default;
+                for (uint y = 22U; y < 41U; ++y)
+                {
+                    for (uint x = 24U; x < 44U; ++x)
+                    {
+                        Color candidate = pixels[
+                            checked((int)(y * Width + x))];
+                        if (!MatchesColor(candidate, linearColor))
+                        {
+                            observedTextLayoutColor = candidate;
+                            ++textLayoutChangedPixelCount;
+                        }
+                    }
+                }
+                textLayoutPixel =
+                    PixelEvidence.FromColor(observedTextLayoutColor);
                 if (corner.A != 0 ||
                     !MatchesColor(solid, fill) ||
                     !MatchesColor(center, linearColor) ||
@@ -1194,6 +1276,11 @@ internal static partial class Program
                 {
                     throw new InvalidOperationException(
                         "Win2D DrawText with the provider-wrapped CanvasTextFormat produced no changed pixels.");
+                }
+                if (textLayoutChangedPixelCount == 0)
+                {
+                    throw new InvalidOperationException(
+                        "Win2D DrawTextLayout with the provider-wrapped CanvasTextLayout produced no changed pixels.");
                 }
             }
 
@@ -1227,6 +1314,7 @@ internal static partial class Program
                 CanvasGeometryType: canvasGeometryType,
                 CanvasStrokeStyleType: canvasStrokeStyleType,
                 CanvasTextFormatType: canvasTextFormatType,
+                CanvasTextLayoutType: canvasTextLayoutType,
                 DrawingSessionType: drawingSessionType,
                 NativeDeviceIdentityMatches: true,
                 NativeBitmapIdentityMatches: true,
@@ -1242,8 +1330,10 @@ internal static partial class Program
                 NativeGeometryIdentityMatches: true,
                 NativeStrokeStyleIdentityMatches: true,
                 NativeTextFormatIdentityMatches: true,
+                NativeTextLayoutIdentityMatches: true,
                 TypedLayerStateScopePassed: true,
                 TypedNativeTextDrawPassed: true,
+                TypedNativeTextLayoutDrawPassed: true,
                 SolidColorBrushColor: solidColorBrushColor,
                 LinearGradientBrushColor: linearGradientBrushColor,
                 RadialGradientBrushColor: radialGradientBrushColor,
@@ -1258,6 +1348,8 @@ internal static partial class Program
                 GeometryPixel: geometryPixel,
                 TextPixel: textPixel,
                 TextChangedPixelCount: textChangedPixelCount,
+                TextLayoutPixel: textLayoutPixel,
+                TextLayoutChangedPixelCount: textLayoutChangedPixelCount,
                 Error: null);
         }
         finally
@@ -1456,6 +1548,7 @@ internal static partial class Program
         string? CanvasGeometryType,
         string? CanvasStrokeStyleType,
         string? CanvasTextFormatType,
+        string? CanvasTextLayoutType,
         string? DrawingSessionType,
         bool? NativeDeviceIdentityMatches,
         bool? NativeBitmapIdentityMatches,
@@ -1471,8 +1564,10 @@ internal static partial class Program
         bool? NativeGeometryIdentityMatches,
         bool? NativeStrokeStyleIdentityMatches,
         bool? NativeTextFormatIdentityMatches,
+        bool? NativeTextLayoutIdentityMatches,
         bool? TypedLayerStateScopePassed,
         bool? TypedNativeTextDrawPassed,
+        bool? TypedNativeTextLayoutDrawPassed,
         PixelEvidence? SolidColorBrushColor,
         PixelEvidence? LinearGradientBrushColor,
         PixelEvidence? RadialGradientBrushColor,
@@ -1487,6 +1582,8 @@ internal static partial class Program
         PixelEvidence? GeometryPixel,
         PixelEvidence? TextPixel,
         int? TextChangedPixelCount,
+        PixelEvidence? TextLayoutPixel,
+        int? TextLayoutChangedPixelCount,
         string? Error);
 
     private sealed record PixelEvidence(byte A, byte R, byte G, byte B)
