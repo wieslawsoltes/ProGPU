@@ -138,6 +138,10 @@ internal static class MetafilePlaybackRenderer
                 DrawWmfArc(state, record, payload);
                 return;
 
+            case EmfPlusRecordType.WmfEllipse:
+                DrawEllipse(state, record, ReadWmfRectangle(record, payload));
+                return;
+
             default:
                 throw Unsupported(record);
         }
@@ -332,6 +336,23 @@ internal static class MetafilePlaybackRenderer
         {
             state.Graphics.DrawRectangle(pen, rectangle);
         }
+    }
+
+    private static Rectangle ReadWmfRectangle(
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        RequireSize(record, payload, 8);
+        int bottom = ReadInt16(payload, 0);
+        int right = ReadInt16(payload, 2);
+        int top = ReadInt16(payload, 4);
+        int left = ReadInt16(payload, 6);
+        if (right <= left || bottom <= top)
+        {
+            throw Invalid(record);
+        }
+
+        return Rectangle.FromLTRB(left, top, right, bottom);
     }
 
     private static void DrawEllipse(

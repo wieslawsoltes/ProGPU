@@ -18,6 +18,7 @@ public class MetafileBenchmarks
     private Graphics _playbackGraphics = null!;
     private Metafile _playbackMetafile = null!;
     private Metafile _wmfPlaybackMetafile = null!;
+    private Metafile _wmfEllipsePlaybackMetafile = null!;
     private readonly Graphics.EnumerateMetafileProc _enumerate = static (_, _, _, _, _) => true;
     private readonly byte[] _comment = new byte[64];
 
@@ -34,6 +35,8 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackEmf(256), writable: false));
         _wmfPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmf(256), writable: false));
+        _wmfEllipsePlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackWmfEllipses(256), writable: false));
     }
 
     [GlobalCleanup]
@@ -42,6 +45,7 @@ public class MetafileBenchmarks
         _metafile.Dispose();
         _playbackMetafile.Dispose();
         _wmfPlaybackMetafile.Dispose();
+        _wmfEllipsePlaybackMetafile.Dispose();
         _playbackGraphics.Dispose();
         _graphics.Dispose();
         _target.Dispose();
@@ -90,6 +94,16 @@ public class MetafileBenchmarks
     {
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(_wmfPlaybackMetafile, new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256WmfEllipsesToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(_wmfEllipsePlaybackMetafile, new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
         return commandCount;
@@ -224,6 +238,62 @@ public class MetafileBenchmarks
             WriteWmfPoint(bytes, cursor + 16, checked((short)(x + 32)), checked((short)(y + 22)));
             WriteWmfPoint(bytes, cursor + 20, x, checked((short)(y + 22)));
             cursor += 24;
+        }
+
+        WriteUInt32(bytes, cursor, 3);
+        return bytes;
+    }
+
+    private static byte[] CreatePlaybackWmfEllipses(int ellipseCount)
+    {
+        int declaredWords = checked(9 + 7 + 8 + 4 + 4 + ellipseCount * 7 + 3);
+        byte[] bytes = new byte[checked(22 + declaredWords * 2)];
+        WriteUInt32(bytes, 0, 0x9AC6_CDD7);
+        WriteInt16(bytes, 10, 640);
+        WriteInt16(bytes, 12, 480);
+        WriteUInt16(bytes, 14, 96);
+        ushort checksum = 0;
+        for (int offset = 0; offset < 20; offset += 2)
+        {
+            checksum ^= BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset, 2));
+        }
+        WriteUInt16(bytes, 20, checksum);
+
+        WriteUInt16(bytes, 22, 1);
+        WriteUInt16(bytes, 24, 9);
+        WriteUInt16(bytes, 26, 0x0300);
+        WriteUInt32(bytes, 28, (uint)declaredWords);
+        WriteUInt16(bytes, 32, 2);
+        WriteUInt32(bytes, 34, 8);
+
+        int cursor = 40;
+        WriteUInt32(bytes, cursor, 7);
+        WriteUInt16(bytes, cursor + 4, 0x02FC);
+        WriteUInt32(bytes, cursor + 8, 0x0044_4444);
+        cursor += 14;
+
+        WriteUInt32(bytes, cursor, 8);
+        WriteUInt16(bytes, cursor + 4, 0x02FA);
+        WriteUInt16(bytes, cursor + 6, 0);
+        WriteInt16(bytes, cursor + 8, 1);
+        cursor += 16;
+
+        WriteWmfObjectIndexRecord(bytes, cursor, 0x012D, 0);
+        cursor += 8;
+        WriteWmfObjectIndexRecord(bytes, cursor, 0x012D, 1);
+        cursor += 8;
+
+        for (int index = 0; index < ellipseCount; index++)
+        {
+            short left = checked((short)((index % 16) * 40));
+            short top = checked((short)((index / 16) * 30));
+            WriteUInt32(bytes, cursor, 7);
+            WriteUInt16(bytes, cursor + 4, 0x0418);
+            WriteInt16(bytes, cursor + 6, checked((short)(top + 22)));
+            WriteInt16(bytes, cursor + 8, checked((short)(left + 32)));
+            WriteInt16(bytes, cursor + 10, top);
+            WriteInt16(bytes, cursor + 12, left);
+            cursor += 14;
         }
 
         WriteUInt32(bytes, cursor, 3);

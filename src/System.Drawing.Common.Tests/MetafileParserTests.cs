@@ -300,7 +300,7 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
-    public void WmfPlaybackDrawsTypedStateObjectsPolygonsLinesAndArcs()
+    public void WmfPlaybackDrawsTypedStateObjectsPolygonsLinesArcsAndEllipses()
     {
         using var metafile = new Metafile(new MemoryStream(CreatePlaybackWmf()));
         using var target = new Bitmap(64, 64);
@@ -315,6 +315,7 @@ public sealed class MetafileParserTests
         Color linePixel = target.GetPixel(32, 32);
         Assert.True(linePixel.A > 0);
         Assert.Equal((0, 0, 0), (linePixel.R, linePixel.G, linePixel.B));
+        Assert.Equal(Color.Green.ToArgb(), target.GetPixel(46, 46).ToArgb());
         Assert.Equal(0, target.GetPixel(2, 2).A);
     }
 
@@ -328,8 +329,35 @@ public sealed class MetafileParserTests
             graphics.Clear(Color.Blue);
             NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
                 graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
-            Assert.Contains(nameof(EmfPlusRecordType.WmfEllipse), exception.Message, StringComparison.Ordinal);
+            Assert.Contains(nameof(EmfPlusRecordType.WmfTextOut), exception.Message, StringComparison.Ordinal);
             Assert.Contains("byte offset", exception.Message, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(16, 16).ToArgb());
+    }
+
+    [Fact]
+    public void WmfEllipseRejectsUnorderedBoundsWithoutPublishingCommands()
+    {
+        byte[] bytes = CreatePlaybackWmf();
+        int ellipseDataOffset;
+        using (var parsed = new Metafile(new MemoryStream(bytes, writable: false)))
+        {
+            ellipseDataOffset = Assert.Single(
+                parsed.Records.ToArray(),
+                record => record.Type == EmfPlusRecordType.WmfEllipse).DataOffset;
+        }
+        short left = BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(ellipseDataOffset + 6, 2));
+        WriteInt16(bytes, ellipseDataOffset + 2, left);
+
+        using var metafile = new Metafile(new MemoryStream(bytes, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Contains(nameof(EmfPlusRecordType.WmfEllipse), exception.Message, StringComparison.Ordinal);
         }
 
         Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(16, 16).ToArgb());
@@ -686,11 +714,12 @@ public sealed class MetafileParserTests
             (0x0324, WmfPoints(new Point(36, 8), new Point(56, 8), new Point(56, 28), new Point(36, 28))),
             (0x012D, WmfWords(1)),
             (0x0325, WmfPoints(new Point(4, 32), new Point(60, 32))),
-            (0x0817, WmfWords(36, 18, 46, 28, 56, 28, 36, 8))
+            (0x0817, WmfWords(36, 18, 46, 28, 56, 28, 36, 8)),
+            (0x0418, WmfWords(56, 56, 36, 36))
         };
         if (includeUnsupportedRecord)
         {
-            records.Add((0x0418, WmfWords(56, 56, 36, 36)));
+            records.Add((0x0521, WmfWords(0)));
         }
         records.Add((0, []));
 

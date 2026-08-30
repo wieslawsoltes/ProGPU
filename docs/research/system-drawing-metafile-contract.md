@@ -111,10 +111,11 @@ The initial WMF family follows the official 16-bit record layouts and keeps its
 state/object path separate from EMF. It implements background mode/color,
 `R2_COPYPEN`, `META_SETRELABS` no-op semantics, polygon fill mode, text-alignment
 state, window origin/extent, move, lowest-free object-table allocation and slot
-reuse, selection/deletion, solid/null pens and brushes, polygons, polylines, and
-counterclockwise elliptical arcs. The bounded family is the complete record
-inventory currently used by the canonical LibreWinForms `telescope_01.wmf`
-asset. The implementation is based on the official
+reuse, selection/deletion, solid/null pens and brushes, polygons, polylines,
+counterclockwise elliptical arcs, and filled/stroked ellipses. The record
+inventory used by the canonical LibreWinForms `telescope_01.wmf` asset remains
+fully covered; ellipse playback is an additional typed family. The
+implementation is based on the official
 [WMF object record rules](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/aeab62b8-03ab-48c0-8176-09c392f3c9da),
 [META_POLYGON](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/0982bbfc-feb7-4f06-a8fb-ad03b465ffea),
 [META_ARC](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/742097b4-5879-4c36-b57e-77e7cc152253), and
@@ -161,7 +162,7 @@ saved clip restoration, multi-polygon count/point validation,
 explicit image-attribute/projective rejection, and transactional rollback after
 a supported draw but before an unsupported record. WMF gates cover 16-bit
 parameter ordering, lowest-free slot reuse, state, pen/brush selection,
-polygon/polyline/arc pixels, and transactional rollback. The real
+polygon/polyline/arc/ellipse pixels, and transactional rollback. The real
 LibreWinForms `telescope_01.wmf` fixture renders end to end into a 200-by-267
 bitmap with 6,048 opaque pixels. The focused metafile suite is 30/30 and both
 complete Debug and Release drawing suites are 391/391. Windows differential and
@@ -198,6 +199,8 @@ standard deviation) and 477.6 KB managed allocation. The three-iteration result
 is a deliberately coarse first baseline; like the EMF result, it identifies
 temporary point arrays and retained-command ownership as later optimization
 work rather than claiming allocation-free playback.
+
+`Playback256WmfEllipsesToRetainedCommands` guards the WMF 16-bit bottom/right/top/left parameter order, selected brush and pen lowering, transactional append, and retained curve commands. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 millisecond median (1.109 millisecond mean, 0.115 millisecond standard deviation) and 622.14 KB managed allocation for 256 filled and stroked ellipses. One launch and three measured iterations make this a coarse first baseline. Focused gates verify selected fill/outline pixels, reject unordered bounds without publication, and prove that a following unsupported text record does not publish a partially lowered ellipse stream. The complete drawing suite passes 394/394, and ApiCompat remains at 0 missing types, 0 missing members, and 13 reviewed platform-annotation differences.
 
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication
