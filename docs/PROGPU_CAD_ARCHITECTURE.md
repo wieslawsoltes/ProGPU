@@ -2747,10 +2747,13 @@ are implemented by `CadPageSetupCatalogCompiler`,
   page rotation, inch or millimeter paper units, drawing extents or finite
   layout-owned WCS drawing limits, explicit wireframe, enabled and
   unscaled object lineweights, and no applied nonempty CTB/STB style sheet.
-  Standard scale code zero selects Fit; otherwise the source's current custom
-  numerator/denominator is authoritative and converts to drawing units per
-  millimeter. A centered flag selects centered placement; otherwise plot origin
-  becomes an offset from the printable lower-left;
+  Standard scale code zero selects Fit. Codes 1 through 32 resolve through the
+  canonical architectural/engineering scale factor and require the persisted
+  code-147 factor to match; malformed pairs fail with `CADPAGE122`. The custom
+  numerator/denominator is authoritative only when UseStandardScale is false.
+  Either exact factor converts once to drawing units per millimeter. A centered
+  flag selects centered placement; otherwise plot origin becomes an offset from
+  the printable lower-left;
 - layout-owned model DrawingLimits lower the detached LIMMIN/LIMMAX rectangle
   as explicit WCS plot bounds. Autodesk defines drawing limits as 2D WCS
   points, so no view or UCS transform is inferred. A standalone named override
@@ -4410,6 +4413,8 @@ Sources consulted on 2026-08-27 through 2026-08-30:
   [plot-window DCS contract](https://help.autodesk.com/cloudhelp/2022/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_PlotSettingsValidator_SetPlotWindowArea_PlotSettings_Extents2d.html),
   [plot-origin contract](https://help.autodesk.com/cloudhelp/2019/ENU/OARX-RefGuide/files/OREF-__OVERLOADED_getPlotOrigin_AcDbPlotSettings.html),
   [custom plot scale](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-__MEMBERTYPE_Methods_AcDbPlotSettings.html),
+  [standard plot-scale choices](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-LT-ActiveX-Reference/files/GUID-E8D9D4F5-24C1-4C89-924E-DF57C7F0CF5F.htm),
+  [standard plot-scale enum contract](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-RefGuide/files/OREF-AcDbPlotSettings__StdScaleType1.html),
   [plot scale behavior](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-LT/files/GUID-FCC2782E-7876-4EE0-86C1-AA222B4DD2E1.htm),
   [plot-transparency policy](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-AcDbPlotSettings__plotTransparency_const.html),
   and [plot styles](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-Core/files/GUID-929FE8EC-EFE3-43BB-A79F-4FF509A91D5A.htm):
@@ -4417,8 +4422,13 @@ Sources consulted on 2026-08-27 through 2026-08-30:
   paper/margins, printable-relative offset or centering, explicit plot-area
   identity, fit or paper-unit/drawing-unit scale, fixed physical lineweight,
   plot eligibility, and explicit CTB/STB override phases. Adapted model-space
-  Extents, center/offset, fit/current-custom scale, and object lineweight into
-  the first bounded lowering. Rotation is adapted as an oriented physical-page
+  Extents, center/offset, fit/custom scale, all 32 persisted standard scales,
+  and object lineweight into the bounded lowering. Codes 1 through 32 use the
+  documented canonical factor and validate DXF group 147 rather than accepting
+  a stale custom ratio; code zero remains dynamic Fit. The paired ACadSharp DXF
+  writer now persists `StandardScale` in group 147 instead of incorrectly
+  substituting `PrintScale`, with ASCII/binary DXF and ProGPU DXF/DWG round-trip
+  regressions. Rotation is adapted as an oriented physical-page
   contract: portrait/landscape exchanges the page axes and physical margin
   edges, while the upside-down states rotate placement and clip together around
   the output page. This follows the documented default rotated-origin offset

@@ -131,6 +131,109 @@ public sealed class CadPageSetupTests
     }
 
     [Theory]
+    [MemberData(nameof(StandardScaleCases))]
+    public void EveryPersistedStandardScaleLowersFromItsCanonicalFactor(
+        int standardScaleCode,
+        double standardScaleFactor)
+    {
+        var document = new CadDocument();
+        ACadLayout model = document.Layouts[ACadLayout.ModelLayoutName];
+        ConfigureSupported(model);
+        model.Flags |= PlotFlags.UseStandardScale;
+        model.ScaledFit = (ScaledType)standardScaleCode;
+        model.StandardScale = standardScaleFactor;
+        model.NumeratorScale = 37;
+        model.DenominatorScale = 11;
+        CadPageSetupSnapshot setup = new CadPageSetupCatalogCompiler()
+            .Compile(new CadDocumentSession(document))
+            .FindLayout(ACadLayout.ModelLayoutName)!;
+
+        CadPageSetupPrintOptionsResult result =
+            new CadPageSetupPrintOptionsCompiler().Compile(setup);
+
+        Assert.True(result.IsSupported);
+        Assert.Empty(result.Diagnostics.ToArray());
+        Assert.Equal(
+            1.0 / standardScaleFactor,
+            result.PrintOptions!.ModelUnitsPerMillimeter,
+            12);
+    }
+
+    [Theory]
+    [InlineData(17, 1.0, "CADPAGE122")]
+    [InlineData(17, double.NaN, "CADPAGE122")]
+    [InlineData(33, 1.0, "CADPAGE115")]
+    public void InvalidStandardScaleStateFailsClosed(
+        int standardScaleCode,
+        double standardScaleFactor,
+        string diagnosticCode)
+    {
+        var document = new CadDocument();
+        ACadLayout model = document.Layouts[ACadLayout.ModelLayoutName];
+        ConfigureSupported(model);
+        model.Flags |= PlotFlags.UseStandardScale;
+        model.ScaledFit = (ScaledType)standardScaleCode;
+        model.StandardScale = standardScaleFactor;
+        model.NumeratorScale = 1.0;
+        model.DenominatorScale = 2.0;
+        CadPageSetupSnapshot setup = new CadPageSetupCatalogCompiler()
+            .Compile(new CadDocumentSession(document))
+            .FindLayout(ACadLayout.ModelLayoutName)!;
+
+        CadPageSetupPrintOptionsResult result =
+            new CadPageSetupPrintOptionsCompiler().Compile(setup);
+
+        Assert.False(result.IsSupported);
+        Assert.Null(result.PrintOptions);
+        Assert.Contains(result.Diagnostics.ToArray(), item => item.Code == diagnosticCode);
+    }
+
+    [Theory]
+    [InlineData(CadDocumentFormat.Dxf)]
+    [InlineData(CadDocumentFormat.Dwg)]
+    public async Task StandardScaleLoweringSurvivesDxfAndDwgRoundTrip(
+        CadDocumentFormat format)
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        ACadLayout model = document.Layouts[ACadLayout.ModelLayoutName];
+        ConfigureSupported(model);
+        model.Flags |= PlotFlags.UseStandardScale;
+        model.ScaledFit = ScaledType._6;
+        model.StandardScale = 1.0 / 96.0;
+        model.NumeratorScale = 7;
+        model.DenominatorScale = 13;
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+
+        await store.SaveAsync(
+            new CadDocumentSession(document),
+            stream,
+            format,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            format,
+            sourceName: $"standard-scale.{format.ToString().ToLowerInvariant()}");
+        CadPageSetupSnapshot setup = new CadPageSetupCatalogCompiler()
+            .Compile(loaded.Session)
+            .FindLayout(ACadLayout.ModelLayoutName)!;
+
+        CadPageSetupPrintOptionsResult result =
+            new CadPageSetupPrintOptionsCompiler().Compile(setup);
+
+        Assert.True(
+            result.IsSupported,
+            string.Join(
+                "; ",
+                result.Diagnostics.ToArray().Select(item => $"{item.Code}: {item.Message}")) +
+                $" Stored code/factor: {setup.StandardScaleCode}/{setup.StandardScaleFactor:R}");
+        Assert.Equal(6, setup.StandardScaleCode);
+        Assert.Equal(1.0 / 96.0, setup.StandardScaleFactor, 15);
+        Assert.Equal(96.0, result.PrintOptions!.ModelUnitsPerMillimeter, 12);
+    }
+
+    [Theory]
     [InlineData(PlotRotation.NoRotation, CadPageRotation.Degrees0, 1000, 500)]
     [InlineData(PlotRotation.Degrees90, CadPageRotation.CounterClockwise90, 500, 1000)]
     [InlineData(PlotRotation.Degrees180, CadPageRotation.Degrees180, 1000, 500)]
@@ -348,4 +451,40 @@ public sealed class CadPageSetupTests
         setup.ShadePlotMode = ShadePlotMode.Wireframe;
         setup.StyleSheet = string.Empty;
     }
+
+    public static TheoryData<int, double> StandardScaleCases => new()
+    {
+        { 1, 1.0 / 1_536.0 },
+        { 2, 1.0 / 768.0 },
+        { 3, 1.0 / 384.0 },
+        { 4, 1.0 / 192.0 },
+        { 5, 1.0 / 128.0 },
+        { 6, 1.0 / 96.0 },
+        { 7, 1.0 / 64.0 },
+        { 8, 1.0 / 48.0 },
+        { 9, 1.0 / 32.0 },
+        { 10, 1.0 / 24.0 },
+        { 11, 1.0 / 16.0 },
+        { 12, 1.0 / 12.0 },
+        { 13, 1.0 / 4.0 },
+        { 14, 1.0 / 2.0 },
+        { 15, 1.0 },
+        { 16, 1.0 },
+        { 17, 1.0 / 2.0 },
+        { 18, 1.0 / 4.0 },
+        { 19, 1.0 / 8.0 },
+        { 20, 1.0 / 10.0 },
+        { 21, 1.0 / 16.0 },
+        { 22, 1.0 / 20.0 },
+        { 23, 1.0 / 30.0 },
+        { 24, 1.0 / 40.0 },
+        { 25, 1.0 / 50.0 },
+        { 26, 1.0 / 100.0 },
+        { 27, 2.0 },
+        { 28, 4.0 },
+        { 29, 8.0 },
+        { 30, 10.0 },
+        { 31, 100.0 },
+        { 32, 1_000.0 },
+    };
 }

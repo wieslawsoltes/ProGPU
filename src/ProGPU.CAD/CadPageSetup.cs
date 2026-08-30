@@ -738,6 +738,29 @@ public sealed class CadPageSetupPrintOptionsCompiler
 
         ValidatePaper(pageSetup, diagnostics);
 
+        double standardScaleFactor = double.NaN;
+        if (pageSetup.UseStandardScale && pageSetup.StandardScaleCode != 0)
+        {
+            if (!TryGetStandardScaleFactor(
+                    pageSetup.StandardScaleCode,
+                    out standardScaleFactor))
+            {
+                AddError(
+                    diagnostics,
+                    "CADPAGE115",
+                    "The source page setup contains an unknown standard-scale selection.");
+            }
+            else if (!MatchesStandardScaleFactor(
+                         pageSetup.StandardScaleFactor,
+                         standardScaleFactor))
+            {
+                AddError(
+                    diagnostics,
+                    "CADPAGE122",
+                    "The stored standard-scale factor does not match the selected standard-scale code.");
+            }
+        }
+
         CadPrintScaleMode scaleMode = CadPrintScaleMode.FitToPrintableArea;
         double modelUnitsPerMillimeter = 1.0;
         if (isPaperLayout)
@@ -745,7 +768,7 @@ public sealed class CadPageSetupPrintOptionsCompiler
             bool isOneToOne = pageSetup.PaperUnit == CadPageUnit.Millimeters &&
                 (pageSetup.UseStandardScale
                     ? pageSetup.StandardScaleCode == 16 &&
-                        Math.Abs(pageSetup.StandardScaleFactor - 1.0) <= 1e-12
+                        standardScaleFactor == 1.0
                     : double.IsFinite(pageSetup.PaperUnitsNumerator) &&
                         pageSetup.PaperUnitsNumerator > 0.0 &&
                         double.IsFinite(pageSetup.DrawingUnitsDenominator) &&
@@ -771,30 +794,28 @@ public sealed class CadPageSetupPrintOptionsCompiler
         }
         else if (!(pageSetup.UseStandardScale && pageSetup.StandardScaleCode == 0))
         {
-            if (pageSetup.UseStandardScale &&
-                pageSetup.StandardScaleCode is < 1 or > 32)
-            {
-                AddError(
-                    diagnostics,
-                    "CADPAGE115",
-                    "The source page setup contains an unknown standard-scale selection.");
-            }
-
             double paperUnitMillimeters = pageSetup.PaperUnit switch
             {
                 CadPageUnit.Inches => MillimetersPerInch,
                 CadPageUnit.Millimeters => 1.0,
                 _ => double.NaN,
             };
-            modelUnitsPerMillimeter = pageSetup.DrawingUnitsDenominator /
-                (pageSetup.PaperUnitsNumerator * paperUnitMillimeters);
-            if (!double.IsFinite(modelUnitsPerMillimeter) ||
-                modelUnitsPerMillimeter <= 0.0)
+            bool hasResolvedScale = !pageSetup.UseStandardScale ||
+                double.IsFinite(standardScaleFactor);
+            if (hasResolvedScale)
             {
-                AddError(
-                    diagnostics,
-                    "CADPAGE116",
-                    "The current custom print scale is not finite and positive.");
+                modelUnitsPerMillimeter = pageSetup.UseStandardScale
+                    ? 1.0 / (standardScaleFactor * paperUnitMillimeters)
+                    : pageSetup.DrawingUnitsDenominator /
+                        (pageSetup.PaperUnitsNumerator * paperUnitMillimeters);
+                if (!double.IsFinite(modelUnitsPerMillimeter) ||
+                    modelUnitsPerMillimeter <= 0.0)
+                {
+                    AddError(
+                        diagnostics,
+                        "CADPAGE116",
+                        "The resolved print scale is not finite and positive.");
+                }
             }
 
             scaleMode = CadPrintScaleMode.ModelUnitsPerMillimeter;
@@ -885,6 +906,59 @@ public sealed class CadPageSetupPrintOptionsCompiler
 
     private static bool IsFiniteNonNegative(double value) =>
         double.IsFinite(value) && value >= 0.0;
+
+    private static bool MatchesStandardScaleFactor(
+        double storedFactor,
+        double expectedFactor)
+    {
+        if (!double.IsFinite(storedFactor))
+        {
+            return false;
+        }
+
+        double tolerance = Math.Max(1e-15, Math.Abs(expectedFactor) * 1e-12);
+        return Math.Abs(storedFactor - expectedFactor) <= tolerance;
+    }
+
+    private static bool TryGetStandardScaleFactor(int code, out double factor)
+    {
+        factor = code switch
+        {
+            1 => 1.0 / 1_536.0,
+            2 => 1.0 / 768.0,
+            3 => 1.0 / 384.0,
+            4 => 1.0 / 192.0,
+            5 => 1.0 / 128.0,
+            6 => 1.0 / 96.0,
+            7 => 1.0 / 64.0,
+            8 => 1.0 / 48.0,
+            9 => 1.0 / 32.0,
+            10 => 1.0 / 24.0,
+            11 => 1.0 / 16.0,
+            12 => 1.0 / 12.0,
+            13 => 1.0 / 4.0,
+            14 => 1.0 / 2.0,
+            15 or 16 => 1.0,
+            17 => 1.0 / 2.0,
+            18 => 1.0 / 4.0,
+            19 => 1.0 / 8.0,
+            20 => 1.0 / 10.0,
+            21 => 1.0 / 16.0,
+            22 => 1.0 / 20.0,
+            23 => 1.0 / 30.0,
+            24 => 1.0 / 40.0,
+            25 => 1.0 / 50.0,
+            26 => 1.0 / 100.0,
+            27 => 2.0,
+            28 => 4.0,
+            29 => 8.0,
+            30 => 10.0,
+            31 => 100.0,
+            32 => 1_000.0,
+            _ => double.NaN,
+        };
+        return double.IsFinite(factor);
+    }
 
     private static void AddError(
         List<CadDiagnostic> diagnostics,
