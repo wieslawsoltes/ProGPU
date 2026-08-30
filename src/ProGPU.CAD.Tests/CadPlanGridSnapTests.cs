@@ -127,6 +127,7 @@ public sealed class CadPlanGridSnapTests
         CadDocumentSession session = CadDocumentSession.CreateNew();
         session.Edit("Configure active snap grid", document =>
         {
+            document.Header.OrthoMode = true;
             VPort active = document.VPorts[VPort.DefaultName];
             active.SnapOn = true;
             active.IsometricSnap = false;
@@ -142,6 +143,7 @@ public sealed class CadPlanGridSnapTests
         CadPlanGridSnapSettings settings = snapshot.PlanGridSnapSettings;
 
         Assert.True(settings.IsEnabled);
+        Assert.True(snapshot.IsOrthoModeEnabled);
         Assert.True(settings.IsSupported);
         Assert.Equal(CadPlanGridSnapStyle.Rectangular, settings.Style);
         AssertPoint(new CadPoint3D(97.0, 202.0, 3.0), settings.Origin);

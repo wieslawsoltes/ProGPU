@@ -3697,9 +3697,10 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
-    public void ObjectSnapOverridesGridAndTypedCoordinatesBypassBoth()
+    public void ObjectSnapOverridesGridAndOrthoAndTypedCoordinatesBypassAll()
     {
         var document = new CadDocument();
+        document.Header.OrthoMode = true;
         var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0));
         document.Entities.Add(line);
         VPort active = document.VPorts[VPort.DefaultName];
@@ -3751,9 +3752,73 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void OrthoConstrainsOnlySecondPointerPointAndObjectSnapOverridesIt()
+    {
+        var document = new CadDocument();
+        document.Header.OrthoMode = true;
+        var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(canvas, viewport.WorldToScreen(CadPoint3D.Zero));
+            canvas.ObjectSnapModes = CadObjectSnapModes.None;
+            Assert.True(canvas.IsPlanOrthoEnabled);
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+
+            Click(canvas, viewport.WorldToScreen(new CadPoint3D(1.0, 2.0, 0.0)));
+            Assert.Equal(
+                new CadPoint3D(1.0, 2.0, 0.0),
+                canvas.PendingPointTransformBasePoint);
+            Vector2 second = viewport.WorldToScreen(
+                new CadPoint3D(6.0, 4.0, 0.0));
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = second,
+            });
+
+            CadPlanOrthoResult ortho =
+                canvas.PendingPointTransformOrthoConstraint!.Value;
+            Assert.Equal(CadPlanOrthoAxis.X, ortho.Axis);
+            Assert.Equal(new CadPoint3D(6.0, 2.0, 0.0), ortho.Point);
+            Click(canvas, second);
+
+            AssertPoint(new XYZ(3.0, 0.0, 0.0), line.StartPoint);
+            AssertPoint(new XYZ(7.0, 0.0, 0.0), line.EndPoint);
+
+            Assert.True(canvas.TryUndo());
+            Click(canvas, viewport.WorldToScreen(CadPoint3D.Zero));
+            canvas.ObjectSnapModes = CadObjectSnapModes.Endpoint;
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+            Click(canvas, viewport.WorldToScreen(new CadPoint3D(0.0, 2.0, 0.0)));
+            Vector2 endpoint = viewport.WorldToScreen(new CadPoint3D(2.0, 0.0, 0.0));
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = endpoint,
+            });
+
+            Assert.Equal(
+                new CadPoint3D(2.0, 0.0, 0.0),
+                canvas.PendingPointTransformObjectSnap!.Value.Point);
+            Assert.Null(canvas.PendingPointTransformOrthoConstraint);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewGridToggleMirrorsActiveViewportAndControlsCanvas()
     {
         var document = new CadDocument();
+        document.Header.OrthoMode = true;
         VPort active = document.VPorts[VPort.DefaultName];
         active.SnapOn = true;
         active.SnapSpacing = new XY(2.0, 4.0);
@@ -3765,12 +3830,16 @@ public sealed class CadSampleSelectionTests
             Assert.True(view.PlanGridSnapCheckBox.IsChecked);
             Assert.True(view.PlanGridSnapCheckBox.IsEnabled);
             Assert.True(view.Canvas.IsPlanGridSnapEnabled);
+            Assert.True(view.PlanOrthoCheckBox.IsChecked);
+            Assert.True(view.Canvas.IsPlanOrthoEnabled);
             Assert.Equal(2.0, view.Canvas.PlanGridSnapSettings.SpacingX);
             Assert.Equal(4.0, view.Canvas.PlanGridSnapSettings.SpacingY);
 
             view.PlanGridSnapCheckBox.IsChecked = false;
 
             Assert.False(view.Canvas.IsPlanGridSnapEnabled);
+            view.PlanOrthoCheckBox.IsChecked = false;
+            Assert.False(view.Canvas.IsPlanOrthoEnabled);
         }
         finally
         {

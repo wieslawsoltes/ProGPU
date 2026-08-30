@@ -1004,12 +1004,20 @@ one exact overlapping copy. A third row rotates the same selection in either
 direction by an invariant degree step around WCS +Z and uniformly enlarges or
 shrinks it by an invariant factor. Both use the center of the complete retained
 bounds for every selected semantic root as their base point, including all
-expanded primitives of a selected INSERT. The current plan shell has no UCS
-state, so point acquisition remains WCS-XY and its explicit rotation-axis
-contract is WCS +Z; object/grid/intersection snaps, Ortho/polar tracking,
+expanded primitives of a selected INSERT. The shared plan shell now captures
+the active rectangular UCS/SNAPANG basis and persisted ORTHOMODE. Pointer
+acquisition uses exact object snap first. For a second point with Ortho enabled,
+it selects the nearer basis axis relative to the accepted base; when rectangular
+grid snap is also enabled, only that moving coordinate comes from the grid
+lattice, preserving an exact axis through an off-grid base. Grid then handles
+any unconstrained pointer, followed by raw input. Typed coordinates bypass all
+pointer constraints. The committed result remains double WCS, while the
+existing transient rubber band and grid marker provide O(1) feedback without
+scene mutation. Isometric and polar snap/tracking, 3D UCS Z acquisition,
 direct-distance cursor entry, UCS/global-last-point state, arbitrary-camera
-planes, reference-angle, and reference-length input remain
-later editor tools. One
+planes, reference-angle, and reference-length input remain later editor tools.
+The exact clean-room behavior and applicability record is in
+`PROGPU_CAD_ORTHO_RESEARCH.md`. One
 `CadDocumentHistory` belongs to the loaded session, so each Move, Copy, Rotate, Scale,
 Undo, or Redo publishes exactly one generation and then prepares one complete
 replacement snapshot and picture. The prior picture stays drawable until

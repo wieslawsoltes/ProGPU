@@ -345,6 +345,7 @@ public sealed partial class CadSnapshotCompiler
                 (document.Header.EntitySortingFlags & ObjectSortingFlags.Plotting) != 0,
             globalLineTypeScale,
             CapturePlanGridSnapSettings(document),
+            document.Header.OrthoMode,
             documentBounds,
             new CadSnapshotStatistics(
                 sourceSpace.Entities.Count,
