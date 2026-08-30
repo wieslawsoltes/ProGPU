@@ -1140,17 +1140,18 @@ int main()
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK,
         "provider typed ID2D1DeviceContext transform set failed");
-    progpu_native_direct2d_matrix_3x2_f returned_transform{};
+    progpu_native_direct2d_matrix_3x2_f command_returned_transform{};
     native_hresult = E_FAIL;
     require(
         progpu_native_direct2d_surface_get_transform(
             surface,
-            &returned_transform,
+            &command_returned_transform,
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
-            native_hresult == S_OK && returned_transform.m11 == 1.0F &&
-            returned_transform.m22 == 1.0F &&
-            returned_transform.m31 == 1.0F &&
-            returned_transform.m32 == 2.0F,
+            native_hresult == S_OK &&
+            command_returned_transform.m11 == 1.0F &&
+            command_returned_transform.m22 == 1.0F &&
+            command_returned_transform.m31 == 1.0F &&
+            command_returned_transform.m32 == 2.0F,
         "provider typed ID2D1DeviceContext transform get failed");
     const progpu_native_direct2d_matrix_3x2_f identity_transform = {
         1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F
@@ -1201,18 +1202,20 @@ int main()
             nullptr,
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
         "provider typed Direct2D rounded-rectangle operations failed");
-    const progpu_native_direct2d_point_2f ellipse_center = {8.0F, 8.0F};
+    const progpu_native_direct2d_point_2f vector_ellipse_center = {
+        8.0F, 8.0F
+    };
     require(
         progpu_native_direct2d_surface_fill_ellipse(
             surface,
-            ellipse_center,
+            vector_ellipse_center,
             4.0F,
             3.0F,
             solid_brush.Get(),
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
         progpu_native_direct2d_surface_draw_ellipse(
             surface,
-            ellipse_center,
+            vector_ellipse_center,
             5.0F,
             4.0F,
             solid_brush.Get(),
