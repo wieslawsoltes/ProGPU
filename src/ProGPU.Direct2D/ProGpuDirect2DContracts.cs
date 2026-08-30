@@ -61,7 +61,9 @@ public enum ProGpuDirect2DInterfaceKind
     D2D1BitmapBrush1 = 35,
     Win2DCanvasBitmap = 36,
     Win2DCanvasImageBrush = 37,
-    D2D1ImageBrush = 38
+    D2D1ImageBrush = 38,
+    D2D1CommandList = 39,
+    Win2DCanvasCommandList = 40
 }
 
 public enum ProGpuDirect2DFillMode

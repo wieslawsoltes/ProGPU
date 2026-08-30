@@ -715,6 +715,104 @@ int main()
             native_hresult == E_INVALIDARG,
         "empty Direct2D image-brush source rectangle did not fail closed");
 
+    void* command_list_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_command_list(
+            surface,
+            &command_list_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            command_list_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1CommandList creation failed");
+    ComPtr<ID2D1CommandList> command_list;
+    command_list.Attach(
+        static_cast<ID2D1CommandList*>(command_list_value));
+    require(
+        progpu_native_direct2d_surface_begin_command_list_draw(
+            surface,
+            command_list.Get()) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider ID2D1CommandList recording did not begin");
+    require(
+        progpu_native_direct2d_surface_begin_command_list_draw(
+            surface,
+            command_list.Get()) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_ALREADY_ACTIVE,
+        "nested ID2D1CommandList recording did not fail closed");
+    context->Clear(D2D1::ColorF(0.0F, 0.0F, 0.0F, 0.0F));
+    context->FillRectangle(
+        D2D1::RectF(0.0F, 0.0F, 16.0F, 16.0F),
+        solid_brush.Get());
+    uint64_t command_tag1 = 1U;
+    uint64_t command_tag2 = 1U;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_end_draw(
+            surface,
+            1U,
+            &command_tag1,
+            &command_tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE,
+        "command-list recording accepted the shared-target end operation");
+    require(
+        progpu_native_direct2d_surface_end_command_list_draw(
+            surface,
+            &command_tag1,
+            &command_tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            command_tag1 == 0U && command_tag2 == 0U &&
+            native_hresult == S_OK,
+        "provider ID2D1CommandList recording did not close");
+    ComPtr<ID2D1Image> restored_target;
+    context->GetTarget(restored_target.GetAddressOf());
+    require(has_same_com_identity(bitmap.Get(), restored_target.Get()),
+        "command-list recording did not restore the shared bitmap target");
+    progpu_native_direct2d_surface_descriptor command_descriptor{};
+    command_descriptor.struct_size = sizeof(command_descriptor);
+    require(
+        progpu_native_direct2d_surface_get_descriptor(
+            surface,
+            &command_descriptor) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            command_descriptor.content_version == descriptor.content_version,
+        "command-list recording changed shared-surface content version");
+
+    progpu_native_direct2d_image_brush_properties
+        command_list_brush_properties{};
+    command_list_brush_properties.source_rectangle =
+        {0.0F, 0.0F, 16.0F, 16.0F};
+    command_list_brush_properties.extend_mode_x =
+        PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_WRAP;
+    command_list_brush_properties.extend_mode_y =
+        PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_WRAP;
+    command_list_brush_properties.interpolation_mode =
+        PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_LINEAR;
+    progpu_native_direct2d_brush_properties
+        command_list_common_properties{};
+    command_list_common_properties.opacity = 1.0F;
+    command_list_common_properties.transform.m11 = 1.0F;
+    command_list_common_properties.transform.m22 = 1.0F;
+    void* command_list_brush_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_image_brush(
+            surface,
+            command_list.Get(),
+            &command_list_brush_properties,
+            &command_list_common_properties,
+            &command_list_brush_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            command_list_brush_value != nullptr && native_hresult == S_OK,
+        "provider command-list ID2D1ImageBrush creation failed");
+    ComPtr<ID2D1ImageBrush> command_list_brush;
+    command_list_brush.Attach(
+        static_cast<ID2D1ImageBrush*>(command_list_brush_value));
+    ComPtr<ID2D1Image> command_list_brush_image;
+    command_list_brush->GetImage(
+        command_list_brush_image.GetAddressOf());
+    require(has_same_com_identity(
+            command_list.Get(),
+            command_list_brush_image.Get()),
+        "command-list image brush changed source COM identity");
+
     void* win2d_canvas_device_value = nullptr;
     native_hresult = E_FAIL;
     progpu_native_direct2d_status win2d_status =
@@ -1104,6 +1202,81 @@ int main()
                 unwrapped_image_brush.Get()),
             "Win2D CanvasImageBrush changed ID2D1ImageBrush COM identity");
 
+        void* canvas_command_list_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper(
+                surface,
+                command_list.Get(),
+                0.0F,
+                &canvas_command_list_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                canvas_command_list_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D CanvasCommandList wrapping failed");
+        ComPtr<IInspectable> canvas_command_list;
+        canvas_command_list.Attach(
+            static_cast<IInspectable*>(canvas_command_list_value));
+        progpu_native_direct2d_guid command_list_id =
+            to_portable_guid(__uuidof(ID2D1CommandList));
+        void* unwrapped_command_list_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_win2d_wrapper_native_resource(
+                surface,
+                canvas_command_list.Get(),
+                0.0F,
+                &command_list_id,
+                &unwrapped_command_list_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                unwrapped_command_list_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D CanvasCommandList native-resource query failed");
+        ComPtr<ID2D1CommandList> unwrapped_command_list;
+        unwrapped_command_list.Attach(
+            static_cast<ID2D1CommandList*>(unwrapped_command_list_value));
+        require(has_same_com_identity(
+                command_list.Get(),
+                unwrapped_command_list.Get()),
+            "Win2D CanvasCommandList changed native COM identity");
+
+        void* canvas_command_list_brush_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper(
+                surface,
+                command_list_brush.Get(),
+                0.0F,
+                &canvas_command_list_brush_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                canvas_command_list_brush_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D command-list CanvasImageBrush wrapping failed");
+        ComPtr<IInspectable> canvas_command_list_brush;
+        canvas_command_list_brush.Attach(
+            static_cast<IInspectable*>(canvas_command_list_brush_value));
+        void* unwrapped_command_list_brush_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_win2d_wrapper_native_resource(
+                surface,
+                canvas_command_list_brush.Get(),
+                0.0F,
+                &image_brush_id,
+                &unwrapped_command_list_brush_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                unwrapped_command_list_brush_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D command-list CanvasImageBrush native query failed");
+        ComPtr<ID2D1ImageBrush> unwrapped_command_list_brush;
+        unwrapped_command_list_brush.Attach(
+            static_cast<ID2D1ImageBrush*>(
+                unwrapped_command_list_brush_value));
+        require(has_same_com_identity(
+                command_list_brush.Get(),
+                unwrapped_command_list_brush.Get()),
+            "Win2D command-list CanvasImageBrush changed COM identity");
+
         progpu_native_direct2d_guid no_interface_id =
             to_portable_guid(GUID_NULL);
         void* no_interface_value =
@@ -1282,6 +1455,12 @@ int main()
     context->FillRectangle(
         D2D1::RectF(48.0F, 48.0F, 64.0F, 64.0F),
         image_brush.Get());
+    context->DrawImage(
+        command_list.Get(),
+        D2D1::Point2F(0.0F, 32.0F));
+    context->FillRectangle(
+        D2D1::RectF(32.0F, 32.0F, 48.0F, 48.0F),
+        command_list_brush.Get());
     context->FillGeometry(path_geometry.Get(), solid_brush.Get());
     context->DrawGeometry(
         combined_geometry.Get(),

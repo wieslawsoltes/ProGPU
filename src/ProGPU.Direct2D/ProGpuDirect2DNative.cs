@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 12U;
+    internal const uint AbiVersion = 13U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -313,6 +313,15 @@ internal static unsafe partial class ProGpuDirect2DNative
 
     [LibraryImport(
         LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_command_list")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceCreateCommandList(
+        nint surface,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
         EntryPoint = "progpu_native_direct2d_surface_create_rectangle_geometry")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial ProGpuDirect2DStatus SurfaceCreateRectangleGeometry(
@@ -456,6 +465,25 @@ internal static unsafe partial class ProGpuDirect2DNative
     internal static partial ProGpuDirect2DStatus SurfaceEndDraw(
         nint surface,
         ulong releaseKey,
+        ulong* tag1,
+        ulong* tag2,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_begin_command_list_draw")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceBeginCommandListDraw(
+            nint surface,
+            nint commandList);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_end_command_list_draw")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceEndCommandListDraw(
+        nint surface,
         ulong* tag1,
         ulong* tag2,
         int* nativeHResult);

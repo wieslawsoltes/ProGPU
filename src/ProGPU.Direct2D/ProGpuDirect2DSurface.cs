@@ -21,7 +21,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
     {
         None,
         Direct2D,
-        MicrosoftWin2D
+        MicrosoftWin2D,
+        CommandList
     }
 
     private const uint DefaultMutexTimeoutMilliseconds = 5_000U;
@@ -43,6 +44,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
         new("41343A53-E41A-49A2-91CD-21793BBB62E5");
     private static readonly Guid D2D1ImageBrushInterfaceId =
         new("FE9E984D-3F95-407C-B5DB-CB94D4E8F87C");
+    private static readonly Guid D2D1CommandListInterfaceId =
+        new("B4F34A19-2383-4D76-94F6-EC343657C3DC");
 
     private readonly object _gate = new();
     private readonly DawnGpuContext _dawn;
@@ -567,7 +570,9 @@ public sealed unsafe class ProGpuDirect2DSurface :
     {
         ArgumentNullException.ThrowIfNull(image);
         if (image.InterfaceKind != ProGpuDirect2DInterfaceKind.D2D1Bitmap &&
-            image.InterfaceKind != ProGpuDirect2DInterfaceKind.D2D1Bitmap1)
+            image.InterfaceKind != ProGpuDirect2DInterfaceKind.D2D1Bitmap1 &&
+            image.InterfaceKind !=
+                ProGpuDirect2DInterfaceKind.D2D1CommandList)
         {
             throw new ArgumentException(
                 "The COM reference must own a provider-created ID2D1Image.",
@@ -609,6 +614,34 @@ public sealed unsafe class ProGpuDirect2DSurface :
             {
                 image.DangerousRelease();
             }
+        }
+    }
+
+    /// <summary>
+    /// Creates an open genuine ID2D1CommandList in this surface's exact
+    /// Direct2D device domain. Use BeginCommandListDrawing to record and close
+    /// it before drawing or using it as an image source.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateCommandList()
+    {
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            nint value = 0;
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceCreateCommandList(
+                    _nativeSurface,
+                    &value,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1CommandList creation",
+                status,
+                nativeHResult);
+            return CreateRequiredComReference(
+                value,
+                ProGpuDirect2DInterfaceKind.D2D1CommandList,
+                "ID2D1CommandList creation");
         }
     }
 
@@ -1291,6 +1324,31 @@ public sealed unsafe class ProGpuDirect2DSurface :
             out nativeHResult);
     }
 
+    public bool TryAcquireMicrosoftWin2DCommandList(
+        ProGpuDirect2DComReference nativeCommandList,
+        out ProGpuDirect2DComReference? canvasCommandList,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapper(
+            nativeCommandList,
+            ProGpuDirect2DInterfaceKind.D2D1CommandList,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasCommandList,
+            "Microsoft Win2D CanvasCommandList wrapping",
+            out canvasCommandList,
+            out nativeHResult);
+
+    public bool TryAcquireMicrosoftWin2DNativeCommandList(
+        ProGpuDirect2DComReference canvasCommandList,
+        out ProGpuDirect2DComReference? nativeCommandList,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapperNativeResource(
+            canvasCommandList,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasCommandList,
+            D2D1CommandListInterfaceId,
+            ProGpuDirect2DInterfaceKind.D2D1CommandList,
+            "Microsoft Win2D CanvasCommandList native-resource query",
+            out nativeCommandList,
+            out nativeHResult);
+
     private ProGpuDirect2DComReference CreateGradientBrush(
         ProGpuDirect2DComReference gradientStopCollection,
         void* properties,
@@ -1578,6 +1636,81 @@ public sealed unsafe class ProGpuDirect2DSurface :
     }
 
     /// <summary>
+    /// Begins recording into an open same-domain command list. This scope does
+    /// not acquire or modify the shared texture and never advances its content
+    /// version. Disposal restores the shared bitmap target and closes the
+    /// command list.
+    /// </summary>
+    public ProGpuDirect2DCommandListDrawingSession BeginCommandListDrawing(
+        ProGpuDirect2DComReference commandList)
+    {
+        ArgumentNullException.ThrowIfNull(commandList);
+        if (commandList.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.D2D1CommandList)
+        {
+            throw new ArgumentException(
+                "The COM reference must own ID2D1CommandList.",
+                nameof(commandList));
+        }
+
+        ProGpuDirect2DComReference? context = null;
+        bool commandListReferenceAdded = false;
+        bool producerClaimed = false;
+        try
+        {
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                if (_producer != ProducerKind.None)
+                {
+                    throw new InvalidOperationException(
+                        "A Direct2D, Win2D, or command-list producer session is already active.");
+                }
+                if (_leaseCount != 0)
+                {
+                    throw new InvalidOperationException(
+                        "Direct2D command-list recording cannot overlap deferred ProGPU texture leases.");
+                }
+                commandList.DangerousAddRef(ref commandListReferenceAdded);
+                context = AcquireInterface(
+                    ProGpuDirect2DInterfaceKind.D2D1DeviceContext1);
+                _producer = ProducerKind.CommandList;
+                producerClaimed = true;
+            }
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceBeginCommandListDraw(
+                    _nativeSurface,
+                    commandList.DangerousGetHandle());
+            ThrowIfFailed(
+                "ID2D1CommandList BeginDraw",
+                status,
+                ProGpuDirect2DNative.SurfaceGetLastHResult(
+                    _nativeSurface));
+            return new ProGpuDirect2DCommandListDrawingSession(
+                this,
+                context!,
+                commandList,
+                commandListReferenceAdded);
+        }
+        catch
+        {
+            if (producerClaimed)
+            {
+                lock (_gate)
+                {
+                    _producer = ProducerKind.None;
+                }
+            }
+            context?.Dispose();
+            if (commandListReferenceAdded)
+            {
+                commandList.DangerousRelease();
+            }
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Tries to acquire exclusive producer ownership and a genuine Microsoft
     /// Win2D CanvasRenderTarget wrapping this surface's exact ID2D1Bitmap1.
     /// The caller must create, use, and dispose its Win2D CanvasDrawingSession
@@ -1742,6 +1875,51 @@ public sealed unsafe class ProGpuDirect2DSurface :
 
     internal void CompleteMicrosoftWin2DProducerAccess() =>
         CompleteProducerAccess(ProducerKind.MicrosoftWin2D);
+
+    internal void CompleteCommandListDrawing()
+    {
+        DawnExplicitSharedTextureAccess? accessToDispose = null;
+        nint nativeSurface;
+        lock (_gate)
+        {
+            if (_producer != ProducerKind.CommandList || _resourcesDisposed)
+            {
+                return;
+            }
+            nativeSurface = _nativeSurface;
+        }
+
+        ulong tag1 = 0U;
+        ulong tag2 = 0U;
+        int nativeHResult = 0;
+        ProGpuDirect2DStatus status =
+            ProGpuDirect2DNative.SurfaceEndCommandListDraw(
+                nativeSurface,
+                &tag1,
+                &tag2,
+                &nativeHResult);
+        Exception? failure = status == ProGpuDirect2DStatus.Success
+            ? null
+            : new ProGpuDirect2DException(
+                $"ID2D1CommandList EndDraw (tags {tag1}/{tag2})",
+                status,
+                nativeHResult);
+
+        lock (_gate)
+        {
+            _producer = ProducerKind.None;
+            if (status == ProGpuDirect2DStatus.DeviceLost)
+            {
+                _disposeRequested = true;
+            }
+            accessToDispose = TryTakeResourcesForDisposal();
+        }
+        accessToDispose?.Dispose();
+        if (failure is not null)
+        {
+            throw failure;
+        }
+    }
 
     private void CompleteProducerAccess(ProducerKind expectedProducer)
     {
@@ -2469,6 +2647,55 @@ public sealed class ProGpuDirect2DDrawingSession : IDisposable
         finally
         {
             DeviceContext.Dispose();
+        }
+    }
+}
+
+/// <summary>
+/// Owns one exclusive ID2D1CommandList recording transaction. The caller owns
+/// the command-list reference; this scope keeps an additional reference until
+/// EndDraw restores the shared target and closes the list.
+/// </summary>
+public sealed class ProGpuDirect2DCommandListDrawingSession : IDisposable
+{
+    private ProGpuDirect2DSurface? _owner;
+    private readonly bool _commandListReferenceAdded;
+
+    internal ProGpuDirect2DCommandListDrawingSession(
+        ProGpuDirect2DSurface owner,
+        ProGpuDirect2DComReference deviceContext,
+        ProGpuDirect2DComReference commandList,
+        bool commandListReferenceAdded)
+    {
+        _owner = owner;
+        DeviceContext = deviceContext;
+        CommandList = commandList;
+        _commandListReferenceAdded = commandListReferenceAdded;
+    }
+
+    public ProGpuDirect2DComReference DeviceContext { get; }
+
+    public ProGpuDirect2DComReference CommandList { get; }
+
+    public void Dispose()
+    {
+        ProGpuDirect2DSurface? owner =
+            Interlocked.Exchange(ref _owner, null);
+        if (owner is null)
+        {
+            return;
+        }
+        try
+        {
+            owner.CompleteCommandListDrawing();
+        }
+        finally
+        {
+            DeviceContext.Dispose();
+            if (_commandListReferenceAdded)
+            {
+                CommandList.DangerousRelease();
+            }
         }
     }
 }
