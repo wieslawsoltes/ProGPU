@@ -2762,7 +2762,7 @@ are implemented by `CadPageSetupCatalogCompiler`,
   Autodesk defines the stored coordinates in display coordinate system (DCS),
   while the current print plan accepts an explicit WCS window. Display, named
   view, named-override Limits, pixel paper units,
-  hidden/shaded/as-displayed output, disabled/scaled lineweights, and applied
+  hidden/shaded/as-displayed output, disabled/model-space scaled lineweights, and applied
   plot styles likewise return specific diagnostics rather than an approximation;
 - one session capture now owns model and selected paper snapshots at the same
   generation. Rectangular active orthographic WCS-top VIEWPORTs retain DCS
@@ -2779,10 +2779,14 @@ are implemented by `CadPageSetupCatalogCompiler`,
   viewport content honor the persisted DrawViewportsFirst policy, while
   viewport frames use the existing exact closed-path linetype lowering and
   remain independently controlled for plot;
-- paper-layout lowering requires PlotType Layout and explicit millimeter 1:1
-  scale. It maps paper `(0,0)` to the printable lower-left plus plot origin,
-  preserves the existing rotated-media convention, fixed output-DPI
-  lineweights, and one clipped retained page replay. Perspective, arbitrary
+- paper-layout lowering requires PlotType Layout and millimeter paper units.
+  Autodesk defines Layout output as 1:1 regardless of the stored standard or
+  custom scale selection, so malformed or non-1:1 stored scale fields are not
+  consulted. `ScaleLineweights` is accepted only for paper layouts and is an
+  exact multiplier of one under that mandated 1:1 relationship; the resulting
+  CAD lineweight remains a fixed physical output-DPI stroke. It maps paper
+  `(0,0)` to the printable lower-left plus plot origin, preserves the existing
+  rotated-media convention, and emits one clipped retained page replay. Perspective, arbitrary
   orthographic direction, depth clipping, hidden/rendered modes,
   unsupported/missing/malformed nonrectangular boundary kinds,
   scaled/centered layout output, and device image origin fail closed with typed
@@ -2813,8 +2817,9 @@ are implemented by `CadPageSetupCatalogCompiler`,
   Offset placement maps the plot lower-left to a finite millimeter offset from
   the printable lower-left, preserving CAD's Y-up model and page Y-down output;
 - CAD lineweight millimeters convert through the output DPI and remain fixed
-  device strokes, independent of model plot scale by default. The explicit
-  lineweight multiplier is the future page-setup `ScaleLineweights` seam;
+  device strokes. Model-space `ScaleLineweights` remains fail-closed because
+  Autodesk disables that property there. Paper Layout accepts the property,
+  but its required 1:1 output makes the exact page-setup multiplier one;
 - one owned content picture is retained by the plan. `CreatePagePicture` adds
   only one printable clip and one transformed picture replay, and returns an
   independently owned page picture suitable for preview or a later platform
@@ -4416,6 +4421,9 @@ Sources consulted on 2026-08-27 through 2026-08-30:
   [standard plot-scale choices](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-LT-ActiveX-Reference/files/GUID-E8D9D4F5-24C1-4C89-924E-DF57C7F0CF5F.htm),
   [standard plot-scale enum contract](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-RefGuide/files/OREF-AcDbPlotSettings__StdScaleType1.html),
   [plot scale behavior](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-LT/files/GUID-FCC2782E-7876-4EE0-86C1-AA222B4DD2E1.htm),
+  [Layout scale behavior](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-60B37EAD-BBEA-46C0-AA76-137625B93ED5.htm),
+  [ScaleLineweights property](https://help.autodesk.com/cloudhelp/2024/PTB/AutoCAD-ActiveX-Reference/files/GUID-D0954BC9-C56C-4782-8AA6-6605AAF99418.htm),
+  [ScaleLineweights paper-layout restriction](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-AcDbPlotSettings__setScaleLineweights_Adesk__Boolean.html),
   [plot-transparency policy](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-AcDbPlotSettings__plotTransparency_const.html),
   and [plot styles](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-Core/files/GUID-929FE8EC-EFE3-43BB-A79F-4FF509A91D5A.htm):
   adopted detached layout and named-override ownership, separate physical
@@ -4428,7 +4436,13 @@ Sources consulted on 2026-08-27 through 2026-08-30:
   a stale custom ratio; code zero remains dynamic Fit. The paired ACadSharp DXF
   writer now persists `StandardScale` in group 147 instead of incorrectly
   substituting `PrintScale`, with ASCII/binary DXF and ProGPU DXF/DWG round-trip
-  regressions. Rotation is adapted as an oriented physical-page
+  regressions. For paper-space Layout output, adopted Autodesk's separate rule
+  that the page is always plotted at 1:1: persisted scale fields remain
+  round-trippable metadata but do not affect lowering. Adopted
+  `ScaleLineweights` only for paper layouts; at Layout's exact 1:1 scale it
+  preserves the fixed physical lineweight unchanged, while model-space use
+  remains a typed rejection because Autodesk disables it there. Rotation is
+  adapted as an oriented physical-page
   contract: portrait/landscape exchanges the page axes and physical margin
   edges, while the upside-down states rotate placement and clip together around
   the output page. This follows the documented default rotated-origin offset

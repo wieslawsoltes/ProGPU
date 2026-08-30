@@ -55,6 +55,11 @@ the only implementation sources reused directly.
   states that `DrawViewportsFirst=true` means floating model viewports are
   drawn first and paper-space objects last, and that viewport borders are a
   separate plot policy.
+- Autodesk's [Layout plot-scale contract](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-60B37EAD-BBEA-46C0-AA76-137625B93ED5.htm)
+  states that a layout is always plotted at 1:1 regardless of the selected
+  scale, and the [`ScaleLineweights` property](https://help.autodesk.com/cloudhelp/2024/PTB/AutoCAD-ActiveX-Reference/files/GUID-D0954BC9-C56C-4782-8AA6-6605AAF99418.htm)
+  scales lineweights in proportion to plot scale. ObjectARX further restricts
+  [setting that property to paper layouts](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-AcDbPlotSettings__setScaleLineweights_Adesk__Boolean.html).
 
 ## Cross-engine architecture audit
 
@@ -166,18 +171,27 @@ managed/native boundary call.
 ## Printing, managed/native parity, and measured evidence
 
 `CadLayoutPrintPlanCompiler` accepts only a generation- and name-matched paper
-layout setup. This slice requires millimeter 1:1 scale, `PlotType Layout`, a
-defined rotation, explicit wireframe output, enabled unscaled lineweights, no
+layout setup. This slice requires millimeter paper units, `PlotType Layout`, a
+defined rotation, explicit wireframe output, enabled lineweights, no
 nonempty CTB/STB sheet, no centered-layout policy, and opaque retained styles.
-Other page/setup policies return the existing or new `CADPAGE` diagnostics.
-The page picture remains one printable clip and one transformed layout replay.
+The stored standard/custom scale selection is deliberately ignored because
+Layout output is mandated 1:1. `ScaleLineweights` is accepted for paper output
+and therefore resolves to the exact multiplier one; the 0.50 mm regression is
+five fixed device pixels at 254 DPI. Model-space `ScaleLineweights` remains
+`CADPAGE113`. Other page/setup policies return the existing or new `CADPAGE`
+diagnostics. The page picture remains one printable clip and one transformed
+layout replay.
 
 The layout picture contains only existing ProGPU commands. Managed replay and
 `GpuPictureNativeSceneCompiler` consume the same nested pictures, clips,
-transforms, paths, glyphs, images, and fixed strokes. No C ABI, shader, GPU
-algorithm, resource wire record, or per-frame P/Invoke changed, so a separate
-native implementation is not applicable; native flattening of both the layout
-scene and the nested physical print picture is covered by focused regressions.
+transforms, paths, glyphs, images, and fixed strokes. Native picture flattening
+now folds a finite affine 2D late camera into child geometry exactly, matching
+the managed `DrawPicture` page transform; perspective/non-affine camera use on
+2D children remains fail-closed and existing 3D camera propagation is
+unchanged. No C ABI, shader, GPU algorithm, resource wire record, or per-frame
+P/Invoke changed. Focused regressions cover the affine transform product,
+perspective rejection, existing 3D behavior, and the complete physical page
+picture.
 
 The Release benchmark lane used 10,000 model lines, 1,000 active viewports,
 four frozen-layer variants, three warmups, and 24 measured iterations on macOS
@@ -231,7 +245,7 @@ This third lane is also a new-feature baseline and makes no optimization claim.
 
 ## Dependency provenance
 
-The pinned ACadSharp feature branch commit `d6494cff` adds the missing DXF code
+The pinned ACadSharp feature branch commit `c5e7b323` includes the missing DXF code
 340 read into its existing `CadViewportTemplate.BoundaryHandle` contract and an
 independent DXF identity round-trip regression. ACadSharp already wrote code
 340 and its template already resolved that handle; DWG round trips were already
@@ -258,7 +272,7 @@ and DXF/DWG persistence.
   unrepresentable-weight boundary references remain fail-closed with
   `CADVIEW004`, `CADVIEW009`, `CADVIEW010`, `CADVIEW011`, or `CADVIEW012`.
 - Viewport layer overrides beyond frozen membership, annotative scale,
-  paper-space UCS, named views, pixel media, non-1:1/centered layout plotting,
+  paper-space UCS, named views, pixel media, centered layout plotting,
   CTB/STB, transparency policy, and device `PaperImageOrigin` need typed
   contracts and differentials.
 - Construction-line and nonzero-PDMODE POINT overlays fail with `CADVIEW007`

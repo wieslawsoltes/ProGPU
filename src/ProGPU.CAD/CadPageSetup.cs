@@ -721,12 +721,12 @@ public sealed class CadPageSetupPrintOptionsCompiler
                 "CADPAGE112",
                 "Disabled object lineweights require an explicit output hairline policy.");
         }
-        if (pageSetup.ScaleLineweights)
+        if (pageSetup.ScaleLineweights && !isPaperLayout)
         {
             AddError(
                 diagnostics,
                 "CADPAGE113",
-                "Scale-lineweights requires the documented page/layout scale relationship.");
+                "Scale-lineweights applies only to paper layouts; AutoCAD disables it for model-space output.");
         }
         if (pageSetup.ApplyPlotStyles && HasAppliedStyleSheet(pageSetup.StyleSheet))
         {
@@ -739,7 +739,9 @@ public sealed class CadPageSetupPrintOptionsCompiler
         ValidatePaper(pageSetup, diagnostics);
 
         double standardScaleFactor = double.NaN;
-        if (pageSetup.UseStandardScale && pageSetup.StandardScaleCode != 0)
+        if (!isPaperLayout &&
+            pageSetup.UseStandardScale &&
+            pageSetup.StandardScaleCode != 0)
         {
             if (!TryGetStandardScaleFactor(
                     pageSetup.StandardScaleCode,
@@ -765,23 +767,12 @@ public sealed class CadPageSetupPrintOptionsCompiler
         double modelUnitsPerMillimeter = 1.0;
         if (isPaperLayout)
         {
-            bool isOneToOne = pageSetup.PaperUnit == CadPageUnit.Millimeters &&
-                (pageSetup.UseStandardScale
-                    ? pageSetup.StandardScaleCode == 16 &&
-                        standardScaleFactor == 1.0
-                    : double.IsFinite(pageSetup.PaperUnitsNumerator) &&
-                        pageSetup.PaperUnitsNumerator > 0.0 &&
-                        double.IsFinite(pageSetup.DrawingUnitsDenominator) &&
-                        pageSetup.DrawingUnitsDenominator > 0.0 &&
-                        Math.Abs(
-                            pageSetup.PaperUnitsNumerator -
-                            pageSetup.DrawingUnitsDenominator) <= 1e-12);
-            if (!isOneToOne)
+            if (pageSetup.PaperUnit != CadPageUnit.Millimeters)
             {
                 AddError(
                     diagnostics,
                     "CADPAGE120",
-                    "Paper-space layout output currently requires an explicit millimeter 1:1 plot scale.");
+                    "Paper-space Layout output currently requires millimeter paper units; Autodesk plots Layout at 1:1 regardless of the stored scale selection.");
             }
             if (pageSetup.CenterPlot)
             {

@@ -162,13 +162,31 @@ public static partial class GpuPictureNativeSceneCompiler
                             sourceType);
                         return false;
                     }
-                    Matrix4x4 cameraView = command.UseGpuTransforms &&
-                        command.CameraView != default
-                        ? command.CameraView * parentCameraView
-                        : parentCameraView;
+                    Matrix3x2 nestedTransform = transform;
+                    Matrix4x4 cameraView = parentCameraView;
+                    if (command.UseGpuTransforms)
+                    {
+                        if (command.CameraView == default ||
+                            !IsFinite(command.CameraView))
+                        {
+                            failure = new(
+                                NativePictureCompileError.UnsupportedTransform,
+                                sourceIndex,
+                                sourceType);
+                            return false;
+                        }
+
+                        // Match Compositor's late-transform contract: a GPU
+                        // picture starts child geometry from its local transform
+                        // and replaces the active camera with CameraView followed
+                        // by the enclosing ordinary transform.
+                        nestedTransform = localTransform;
+                        cameraView = command.CameraView *
+                            ToMatrix4x4(parentTransform);
+                    }
                     if (!TryFlattenPicture(
                             nestedPicture!,
-                            transform,
+                            nestedTransform,
                             cameraView,
                             dpiScaleMultiplier,
                             commands,
@@ -189,11 +207,17 @@ public static partial class GpuPictureNativeSceneCompiler
                 if (parentCameraView != Matrix4x4.Identity &&
                     !IsNative3DCommand(command))
                 {
-                    failure = new(
-                        NativePictureCompileError.UnsupportedTransform,
-                        sourceIndex,
-                        sourceType);
-                    return false;
+                    if (!TryGetAffine(
+                            parentCameraView,
+                            out Matrix3x2 cameraTransform))
+                    {
+                        failure = new(
+                            NativePictureCompileError.UnsupportedTransform,
+                            sourceIndex,
+                            sourceType);
+                        return false;
+                    }
+                    transform *= cameraTransform;
                 }
 
                 commands.Add(new(

@@ -251,6 +251,124 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerFoldsNestedAffineGpuCameraIntoNative2DTransform()
+    {
+        Matrix4x4 local = Matrix4x4.CreateTranslation(2f, 3f, 0f);
+        Matrix4x4 camera = Matrix4x4.CreateScale(2f, -2f, 1f) *
+            Matrix4x4.CreateTranslation(11f, 13f, 0f);
+        Matrix4x4 parent = Matrix4x4.CreateTranslation(101f, 103f, 0f);
+        using var leaf = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Rect = new Rect(1f, 2f, 8f, 6f),
+                    Brush = new SolidColorBrush(Vector4.One),
+                    Transform = local,
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+        using var cameraPicture = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawPicture,
+                    Picture = leaf,
+                    UseGpuTransforms = true,
+                    CameraView = camera,
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+        using var root = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawPicture,
+                    Picture = cameraPicture,
+                    Transform = parent,
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            root,
+            303U,
+            4U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.AnalyticPrimitiveCount);
+        NativeMethods.SceneHeader header =
+            MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        NativeMethods.SceneResource resource =
+            MemoryMarshal.Read<NativeMethods.SceneResource>(
+                compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        NativeAnalyticPrimitive primitive =
+            MemoryMarshal.Read<NativeAnalyticPrimitive>(
+                compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
+        Assert.Equal(
+            ToAffine(local) * ToAffine(camera) * ToAffine(parent),
+            primitive.Transform);
+    }
+
+    [Fact]
+    public void CompilerRejectsNestedPerspectiveGpuCameraForNative2D()
+    {
+        using var leaf = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawRect,
+                    Rect = new Rect(1f, 2f, 8f, 6f),
+                    Brush = new SolidColorBrush(Vector4.One),
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+        using var root = new GpuPicture(
+            [
+                new RenderCommand
+                {
+                    Type = RenderCommandType.DrawPicture,
+                    Picture = leaf,
+                    UseGpuTransforms = true,
+                    CameraView = Matrix4x4.CreatePerspectiveFieldOfView(
+                        0.75f,
+                        1.5f,
+                        0.1f,
+                        100f),
+                }
+            ],
+            Array.Empty<Vector2>(),
+            Array.Empty<double>(),
+            Array.Empty<Line3D>(),
+            Array.Empty<float>());
+
+        Assert.False(GpuPictureNativeSceneCompiler.TryCompile(
+            root,
+            304U,
+            5U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Null(compiled);
+        Assert.Equal(NativePictureCompileError.UnsupportedTransform, failure.Error);
+        Assert.Equal(0, failure.CommandIndex);
+        Assert.Equal(RenderCommandType.DrawPicture, failure.CommandType);
+    }
+
+    [Fact]
     public void CompilerLowersGpuSeriesWithDeviceFixedWidths()
     {
         Brush brush = new SolidColorBrush(new Vector4(0.8f, 0.3f, 0.2f, 1f));
@@ -4334,6 +4452,14 @@ public class NativePictureCompilerTests
     private sealed class UnknownBrush : Brush
     {
     }
+
+    private static Matrix3x2 ToAffine(Matrix4x4 value) => new(
+        value.M11,
+        value.M12,
+        value.M21,
+        value.M22,
+        value.M41,
+        value.M42);
 
     private static GpuTexture CreateUnbackedTexture(uint width, uint height)
     {

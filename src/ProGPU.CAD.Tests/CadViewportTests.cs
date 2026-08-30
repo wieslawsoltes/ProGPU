@@ -742,15 +742,20 @@ public sealed class CadViewportTests
         document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 0, 0)));
         ACadLayout layout = document.Layouts[ACadLayout.PaperLayoutName];
         ConfigurePaperLayout(layout);
+        layout.Flags |= PlotFlags.ScaleLineweights;
         layout.AssociatedBlock.Entities.Add(new Line(
             new XYZ(5, 5, 0),
-            new XYZ(20, 5, 0)));
+            new XYZ(20, 5, 0))
+        {
+            LineWeight = LineWeightType.W50,
+        });
         layout.AddViewport(CreateTopViewport(
             new XYZ(50, 25, 0),
             XY.Zero,
             XYZ.Zero,
             0.0));
         var session = new CadDocumentSession(document);
+        session.Edit("publish paper-layout generation", static _ => { });
         CadLayoutSnapshot snapshot = new CadLayoutSnapshotCompiler().Compile(
             session,
             ACadLayout.PaperLayoutName,
@@ -769,6 +774,7 @@ public sealed class CadViewportTests
             CadPrintScaleMode.ModelUnitsPerMillimeter,
             lowered.PrintOptions!.ScaleMode);
         Assert.Equal(1.0, lowered.PrintOptions.ModelUnitsPerMillimeter);
+        Assert.Equal(1.0f, lowered.PrintOptions.LineWeightScale);
         using CadPrintPlan plan = new CadLayoutPrintPlanCompiler().Compile(
             snapshot,
             pageSetup,
@@ -789,10 +795,25 @@ public sealed class CadViewportTests
         Assert.Equal(RenderCommandType.PushClip, pagePicture.GetCommand(0).Type);
         Assert.Equal(RenderCommandType.DrawPicture, pagePicture.GetCommand(1).Type);
         Assert.Equal(RenderCommandType.PopClip, pagePicture.GetCommand(2).Type);
+        GpuPicture layoutPicture = pagePicture.GetCommand(1).Picture!;
+        RenderCommand paperStroke = Assert.Single(
+            layoutPicture.Commands,
+            command => command.Type == RenderCommandType.DrawLine);
+        Assert.Equal(0.5f * 254.0f / 25.4f, paperStroke.Pen!.Thickness, 5);
+        Assert.Equal(PenStrokeTransformMode.Fixed, paperStroke.Pen.StrokeTransformMode);
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            pagePicture,
+            254U,
+            plan.ContentGeneration,
+            out NativeCompiledPicture? nativePicture,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(nativePicture);
+        Assert.True(nativePicture.GeometryPrimitiveCount > 0);
     }
 
     [Fact]
-    public void PaperLayoutPageSetupRejectsNonLayoutAndScaledOutput()
+    public void PaperLayoutPageSetupRejectsNonLayoutButIgnoresStoredScale()
     {
         var document = new CadDocument();
         ACadLayout layout = document.Layouts[ACadLayout.PaperLayoutName];
@@ -810,6 +831,7 @@ public sealed class CadViewportTests
             diagnostic => diagnostic.Code == "CADPAGE119");
 
         layout.PlotType = PlotType.LayoutInformation;
+        layout.Flags |= PlotFlags.ScaleLineweights;
         layout.ScaledFit = ScaledType._17;
         layout.StandardScale = 0.5;
         CadPageSetupSnapshot scaled = new CadPageSetupCatalogCompiler()
@@ -817,8 +839,19 @@ public sealed class CadViewportTests
             .FindLayout(ACadLayout.PaperLayoutName)!;
         CadPageSetupPrintOptionsResult scaledResult =
             new CadPageSetupPrintOptionsCompiler().Compile(scaled);
+        Assert.True(scaledResult.IsSupported);
+        Assert.Empty(scaledResult.Diagnostics.ToArray());
+        Assert.Equal(1.0, scaledResult.PrintOptions!.ModelUnitsPerMillimeter);
+        Assert.Equal(1.0f, scaledResult.PrintOptions.LineWeightScale);
+
+        layout.PaperUnits = PlotPaperUnits.Inches;
+        CadPageSetupSnapshot inchLayout = new CadPageSetupCatalogCompiler()
+            .Compile(session)
+            .FindLayout(ACadLayout.PaperLayoutName)!;
+        CadPageSetupPrintOptionsResult inchResult =
+            new CadPageSetupPrintOptionsCompiler().Compile(inchLayout);
         Assert.Contains(
-            scaledResult.Diagnostics.ToArray(),
+            inchResult.Diagnostics.ToArray(),
             diagnostic => diagnostic.Code == "CADPAGE120");
     }
 
