@@ -829,7 +829,17 @@ pixel formats fail closed. The native regression verifies separate exact BGRA
 pixels for the memory upload and GPU bitmap copy while retaining the existing
 shared-texture oracle. The allowlist grows from 118 to exactly 121 exports;
 managed contracts pass 5/5 and the package builds with zero warnings. Exact
-checkpoint `2d24157d` awaits Windows MSVC and native Direct2D qualification.
+implementation checkpoint `2d24157d` is qualified from immutable archive
+SHA-256 `CBEF4F7F71DE3B61B43CE0A1C2C14941B0589C6440C92F0CD7553FA4DBAE82E3`
+in the Windows 11 ARM64 Parallels VM. MSVC 19.44 and Windows SDK 10.0.26100.0
+compile/link the focused provider and test under `/W4 /WX`; the exact 121-
+export comparison passes and the live Direct2D regression passes 1/1. The DLL
+SHA-256 is `07751974494C643CF899F60988AED1335EC10BF493E26142099528D4041B7C1C`.
+Build run `33337753262`, x64 native job `99327677774`, independently compiles
+the provider, passes the focused regression in 0.17 seconds, and passes all 12
+native suites in 1.14 seconds. That job's later managed WebGPU sample lost the
+Microsoft Basic Render Driver device; it does not invalidate the preceding
+Direct2D compile, export, COM, and exact-pixel gates.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
