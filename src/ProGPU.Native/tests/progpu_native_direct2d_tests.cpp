@@ -1160,6 +1160,153 @@ int main()
             has_same_com_identity(source_bitmap.Get(), brush_image.Get()),
         "provider ID2D1ImageBrush metadata changed");
 
+    const progpu_native_direct2d_bitmap_brush_properties
+        updated_bitmap_brush_properties = {
+            PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_CLAMP,
+            PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_WRAP,
+            PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_LINEAR
+        };
+    require(
+        progpu_native_direct2d_bitmap_brush_set_properties(
+            surface,
+            bitmap_brush.Get(),
+            &updated_bitmap_brush_properties,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider bitmap-brush property update failed");
+    progpu_native_direct2d_bitmap_brush_properties
+        returned_bitmap_brush_properties{};
+    require(
+        progpu_native_direct2d_bitmap_brush_get_properties(
+            surface,
+            bitmap_brush.Get(),
+            &returned_bitmap_brush_properties,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            returned_bitmap_brush_properties.extend_mode_x ==
+                PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_CLAMP &&
+            returned_bitmap_brush_properties.extend_mode_y ==
+                PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_WRAP &&
+            returned_bitmap_brush_properties.interpolation_mode ==
+                PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_LINEAR,
+        "provider bitmap-brush property query failed");
+    require(
+        progpu_native_direct2d_bitmap_brush_set_bitmap(
+            surface,
+            bitmap_brush.Get(),
+            nullptr,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider bitmap-brush null bitmap update failed");
+    void* returned_bitmap_value = reinterpret_cast<void*>(
+        static_cast<uintptr_t>(1U));
+    require(
+        progpu_native_direct2d_bitmap_brush_get_bitmap(
+            surface,
+            bitmap_brush.Get(),
+            &returned_bitmap_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            returned_bitmap_value == nullptr,
+        "provider bitmap-brush null bitmap query failed");
+    require(
+        progpu_native_direct2d_bitmap_brush_set_bitmap(
+            surface,
+            bitmap_brush.Get(),
+            source_bitmap.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider bitmap-brush bitmap restore failed");
+    require(
+        progpu_native_direct2d_bitmap_brush_get_bitmap(
+            surface,
+            bitmap_brush.Get(),
+            &returned_bitmap_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            returned_bitmap_value != nullptr,
+        "provider bitmap-brush bitmap query failed");
+    ComPtr<ID2D1Bitmap1> returned_bitmap;
+    returned_bitmap.Attach(static_cast<ID2D1Bitmap1*>(returned_bitmap_value));
+    require(has_same_com_identity(source_bitmap.Get(), returned_bitmap.Get()),
+        "provider bitmap-brush bitmap query changed COM identity");
+    require(
+        progpu_native_direct2d_bitmap_brush_set_properties(
+            surface,
+            bitmap_brush.Get(),
+            &bitmap_brush_properties,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider bitmap-brush property restore failed");
+
+    const progpu_native_direct2d_image_brush_properties
+        updated_image_brush_properties = {
+            {0.0F, 0.0F, 2.0F, 2.0F},
+            PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_CLAMP,
+            PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_MIRROR,
+            PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_LINEAR
+        };
+    require(
+        progpu_native_direct2d_image_brush_set_properties(
+            surface,
+            image_brush.Get(),
+            &updated_image_brush_properties,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider image-brush property update failed");
+    progpu_native_direct2d_image_brush_properties
+        returned_image_brush_properties{};
+    require(
+        progpu_native_direct2d_image_brush_get_properties(
+            surface,
+            image_brush.Get(),
+            &returned_image_brush_properties,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            returned_image_brush_properties.source_rectangle.width == 2.0F &&
+            returned_image_brush_properties.source_rectangle.height == 2.0F &&
+            returned_image_brush_properties.extend_mode_x ==
+                PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_CLAMP &&
+            returned_image_brush_properties.extend_mode_y ==
+                PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_MIRROR &&
+            returned_image_brush_properties.interpolation_mode ==
+                PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_LINEAR,
+        "provider image-brush property query failed");
+    require(
+        progpu_native_direct2d_image_brush_set_image(
+            surface,
+            image_brush.Get(),
+            nullptr,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider image-brush null image update failed");
+    void* returned_image_value = reinterpret_cast<void*>(
+        static_cast<uintptr_t>(1U));
+    require(
+        progpu_native_direct2d_image_brush_get_image(
+            surface,
+            image_brush.Get(),
+            &returned_image_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            returned_image_value == nullptr,
+        "provider image-brush null image query failed");
+    require(
+        progpu_native_direct2d_image_brush_set_image(
+            surface,
+            image_brush.Get(),
+            source_bitmap.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider image-brush image restore failed");
+    require(
+        progpu_native_direct2d_image_brush_get_image(
+            surface,
+            image_brush.Get(),
+            &returned_image_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            returned_image_value != nullptr,
+        "provider image-brush image query failed");
+    ComPtr<ID2D1Image> returned_image;
+    returned_image.Attach(static_cast<ID2D1Image*>(returned_image_value));
+    require(has_same_com_identity(source_bitmap.Get(), returned_image.Get()),
+        "provider image-brush image query changed COM identity");
+    require(
+        progpu_native_direct2d_image_brush_set_properties(
+            surface,
+            image_brush.Get(),
+            &image_brush_properties,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider image-brush property restore failed");
+
     progpu_native_direct2d_image_brush_properties invalid_image_properties =
         image_brush_properties;
     invalid_image_properties.source_rectangle.width = 0.0F;

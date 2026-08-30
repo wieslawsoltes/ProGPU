@@ -646,7 +646,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 29U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 30U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -845,6 +845,34 @@ progpu_native_direct2d_surface_create_bitmap_brush(
     void** value,
     int32_t* native_hresult);
 
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_bitmap_brush_set_properties(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    const progpu_native_direct2d_bitmap_brush_properties* properties,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_bitmap_brush_get_properties(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    progpu_native_direct2d_bitmap_brush_properties* properties,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_bitmap_brush_set_bitmap(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    void* bitmap,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_bitmap_brush_get_bitmap(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    void** bitmap,
+    int32_t* native_hresult);
+
 /* Creates a genuine ID2D1ImageBrush over a same-domain ID2D1Image. The
  * source rectangle is expressed in image-space coordinates. */
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
@@ -854,6 +882,34 @@ progpu_native_direct2d_surface_create_image_brush(
     const progpu_native_direct2d_image_brush_properties* properties,
     const progpu_native_direct2d_brush_properties* brush_properties,
     void** value,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_image_brush_set_properties(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    const progpu_native_direct2d_image_brush_properties* properties,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_image_brush_get_properties(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    progpu_native_direct2d_image_brush_properties* properties,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_image_brush_set_image(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    void* image,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_image_brush_get_image(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    void** image,
     int32_t* native_hresult);
 
 /* Creates an open genuine ID2D1CommandList in this surface's exact Direct2D

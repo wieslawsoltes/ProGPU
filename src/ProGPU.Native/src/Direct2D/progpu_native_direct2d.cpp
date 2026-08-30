@@ -2447,17 +2447,165 @@ progpu_native_direct2d_surface_create_bitmap_brush(
     };
     std::scoped_lock lock(surface->access_mutex);
     ComPtr<ID2D1BitmapBrush1> brush;
-    HRESULT hr = surface->d2d_context->CreateBitmapBrush(
-        reinterpret_cast<ID2D1Bitmap*>(bitmap),
-        &native_properties,
-        &native_brush_properties,
-        brush.GetAddressOf());
+    ComPtr<ID2D1Bitmap> native_bitmap;
+    HRESULT hr = reinterpret_cast<IUnknown*>(bitmap)->QueryInterface(
+        IID_PPV_ARGS(&native_bitmap));
+    if (SUCCEEDED(hr)) {
+        hr = surface->d2d_context->CreateBitmapBrush(
+            native_bitmap.Get(),
+            &native_properties,
+            &native_brush_properties,
+            brush.GetAddressOf());
+    }
     surface->last_hresult.store(hr, std::memory_order_release);
     *native_hresult = hr;
     if (FAILED(hr)) {
         return status_from_win2d_hresult(hr);
     }
     return return_interface(brush, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_bitmap_brush_set_properties(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    const progpu_native_direct2d_bitmap_brush_properties* properties,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || brush == nullptr || properties == nullptr ||
+        native_hresult == nullptr ||
+        !is_valid(static_cast<progpu_native_direct2d_extend_mode>(
+            properties->extend_mode_x)) ||
+        !is_valid(static_cast<progpu_native_direct2d_extend_mode>(
+            properties->extend_mode_y)) ||
+        !is_valid_interpolation_mode(properties->interpolation_mode)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1BitmapBrush1> native_brush;
+    HRESULT hr = reinterpret_cast<IUnknown*>(brush)->QueryInterface(
+        IID_PPV_ARGS(&native_brush));
+    if (SUCCEEDED(hr)) {
+        native_brush->SetExtendModeX(
+            static_cast<D2D1_EXTEND_MODE>(properties->extend_mode_x));
+        native_brush->SetExtendModeY(
+            static_cast<D2D1_EXTEND_MODE>(properties->extend_mode_y));
+        native_brush->SetInterpolationMode1(
+            static_cast<D2D1_INTERPOLATION_MODE>(
+                properties->interpolation_mode));
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_bitmap_brush_get_properties(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    progpu_native_direct2d_bitmap_brush_properties* properties,
+    int32_t* native_hresult)
+{
+    if (properties != nullptr) {
+        *properties = {};
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || brush == nullptr || properties == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1BitmapBrush1> native_brush;
+    HRESULT hr = reinterpret_cast<IUnknown*>(brush)->QueryInterface(
+        IID_PPV_ARGS(&native_brush));
+    if (SUCCEEDED(hr)) {
+        properties->extend_mode_x = native_brush->GetExtendModeX();
+        properties->extend_mode_y = native_brush->GetExtendModeY();
+        properties->interpolation_mode = native_brush->GetInterpolationMode1();
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_bitmap_brush_set_bitmap(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    void* bitmap,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || brush == nullptr || native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1BitmapBrush1> native_brush;
+    HRESULT hr = reinterpret_cast<IUnknown*>(brush)->QueryInterface(
+        IID_PPV_ARGS(&native_brush));
+    ComPtr<ID2D1Bitmap> native_bitmap;
+    if (SUCCEEDED(hr) && bitmap != nullptr) {
+        hr = reinterpret_cast<IUnknown*>(bitmap)->QueryInterface(
+            IID_PPV_ARGS(&native_bitmap));
+    }
+    if (SUCCEEDED(hr)) {
+        native_brush->SetBitmap(native_bitmap.Get());
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_bitmap_brush_get_bitmap(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    void** bitmap,
+    int32_t* native_hresult)
+{
+    if (bitmap != nullptr) {
+        *bitmap = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || brush == nullptr || bitmap == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1BitmapBrush1> native_brush;
+    HRESULT hr = reinterpret_cast<IUnknown*>(brush)->QueryInterface(
+        IID_PPV_ARGS(&native_brush));
+    if (SUCCEEDED(hr)) {
+        ComPtr<ID2D1Bitmap> native_bitmap;
+        native_brush->GetBitmap(&native_bitmap);
+        if (native_bitmap.Get() != nullptr) {
+            ComPtr<ID2D1Bitmap1> native_bitmap1;
+            hr = native_bitmap.As(&native_bitmap1);
+            if (SUCCEEDED(hr)) {
+                *bitmap = native_bitmap1.Detach();
+            }
+        }
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
 }
 
 progpu_native_direct2d_status
@@ -2515,17 +2663,172 @@ progpu_native_direct2d_surface_create_image_brush(
     };
     std::scoped_lock lock(surface->access_mutex);
     ComPtr<ID2D1ImageBrush> brush;
-    HRESULT hr = surface->d2d_context->CreateImageBrush(
-        reinterpret_cast<ID2D1Image*>(image),
-        &native_properties,
-        &native_brush_properties,
-        brush.GetAddressOf());
+    ComPtr<ID2D1Image> native_image;
+    HRESULT hr = reinterpret_cast<IUnknown*>(image)->QueryInterface(
+        IID_PPV_ARGS(&native_image));
+    if (SUCCEEDED(hr)) {
+        hr = surface->d2d_context->CreateImageBrush(
+            native_image.Get(),
+            &native_properties,
+            &native_brush_properties,
+            brush.GetAddressOf());
+    }
     surface->last_hresult.store(hr, std::memory_order_release);
     *native_hresult = hr;
     if (FAILED(hr)) {
         return status_from_win2d_hresult(hr);
     }
     return return_interface(brush, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_image_brush_set_properties(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    const progpu_native_direct2d_image_brush_properties* properties,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || brush == nullptr || properties == nullptr ||
+        native_hresult == nullptr ||
+        !is_valid(properties->source_rectangle) ||
+        properties->source_rectangle.width <= 0.0F ||
+        properties->source_rectangle.height <= 0.0F ||
+        !is_valid(static_cast<progpu_native_direct2d_extend_mode>(
+            properties->extend_mode_x)) ||
+        !is_valid(static_cast<progpu_native_direct2d_extend_mode>(
+            properties->extend_mode_y)) ||
+        !is_valid_interpolation_mode(properties->interpolation_mode)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1ImageBrush> native_brush;
+    HRESULT hr = reinterpret_cast<IUnknown*>(brush)->QueryInterface(
+        IID_PPV_ARGS(&native_brush));
+    if (SUCCEEDED(hr)) {
+        native_brush->SetSourceRectangle(
+            to_native_rect(properties->source_rectangle));
+        native_brush->SetExtendModeX(
+            static_cast<D2D1_EXTEND_MODE>(properties->extend_mode_x));
+        native_brush->SetExtendModeY(
+            static_cast<D2D1_EXTEND_MODE>(properties->extend_mode_y));
+        native_brush->SetInterpolationMode(
+            static_cast<D2D1_INTERPOLATION_MODE>(
+                properties->interpolation_mode));
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_image_brush_get_properties(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    progpu_native_direct2d_image_brush_properties* properties,
+    int32_t* native_hresult)
+{
+    if (properties != nullptr) {
+        *properties = {};
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || brush == nullptr || properties == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1ImageBrush> native_brush;
+    HRESULT hr = reinterpret_cast<IUnknown*>(brush)->QueryInterface(
+        IID_PPV_ARGS(&native_brush));
+    if (SUCCEEDED(hr)) {
+        D2D1_RECT_F rectangle{};
+        native_brush->GetSourceRectangle(&rectangle);
+        properties->source_rectangle = {
+            rectangle.left,
+            rectangle.top,
+            rectangle.right - rectangle.left,
+            rectangle.bottom - rectangle.top
+        };
+        properties->extend_mode_x = native_brush->GetExtendModeX();
+        properties->extend_mode_y = native_brush->GetExtendModeY();
+        properties->interpolation_mode = native_brush->GetInterpolationMode();
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_image_brush_set_image(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    void* image,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || brush == nullptr || native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1ImageBrush> native_brush;
+    HRESULT hr = reinterpret_cast<IUnknown*>(brush)->QueryInterface(
+        IID_PPV_ARGS(&native_brush));
+    ComPtr<ID2D1Image> native_image;
+    if (SUCCEEDED(hr) && image != nullptr) {
+        hr = reinterpret_cast<IUnknown*>(image)->QueryInterface(
+            IID_PPV_ARGS(&native_image));
+    }
+    if (SUCCEEDED(hr)) {
+        native_brush->SetImage(native_image.Get());
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_image_brush_get_image(
+    progpu_native_direct2d_surface* surface,
+    void* brush,
+    void** image,
+    int32_t* native_hresult)
+{
+    if (image != nullptr) {
+        *image = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || brush == nullptr || image == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1ImageBrush> native_brush;
+    HRESULT hr = reinterpret_cast<IUnknown*>(brush)->QueryInterface(
+        IID_PPV_ARGS(&native_brush));
+    if (SUCCEEDED(hr)) {
+        ComPtr<ID2D1Image> native_image;
+        native_brush->GetImage(&native_image);
+        *image = native_image.Detach();
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
 }
 
 progpu_native_direct2d_status

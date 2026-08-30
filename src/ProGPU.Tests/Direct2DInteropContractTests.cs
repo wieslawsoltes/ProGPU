@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 29U;",
+            "internal const uint AbiVersion = 30U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -169,7 +169,23 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
+            "progpu_native_direct2d_bitmap_brush_set_properties",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_bitmap_brush_get_bitmap",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "progpu_native_direct2d_surface_create_image_brush",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_image_brush_set_properties",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_image_brush_get_image",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -396,7 +412,7 @@ public sealed class Direct2DInteropContractTests
             exports,
             StringComparison.Ordinal);
         Assert.Equal(
-            110,
+            118,
             exports.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries |
@@ -444,7 +460,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 29U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 30U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
