@@ -33,8 +33,8 @@ binary.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` API | Foundation plus solid/gradient/geometry/stroke-style resources implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine factory, device, context, bitmap, brushes, gradient-stop collections, primitive/path/transformed/combined geometries, `ID2D1StrokeStyle1`, and generic later-interface queries over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` |
-| Native Win2D binary interop | Device/target/solid/gradient/geometry/stroke-style round trip package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, brush, `CanvasGeometry`, and `CanvasStrokeStyle` projections. A packaged Microsoft Win2D 1.4.0 oracle qualifies identities, resource metadata, boolean geometry/styled-stroke drawing and pixels, exclusive producer ownership, and zero-copy Dawn import, while images, text, effects, and full device-loss recreation remain gated work |
+| Direct2D `ID2D1*` API | Foundation plus bitmap/solid/gradient/bitmap-brush/geometry/stroke-style resources implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine factory, device, context, target and uploaded bitmaps, solid/gradient/bitmap brushes, gradient-stop collections, primitive/path/transformed/combined geometries, `ID2D1StrokeStyle1`, and generic later-interface queries over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` |
+| Native Win2D binary interop | Device/target/solid/gradient/geometry/stroke-style package-qualified; uploaded-bitmap/image-brush gate implemented | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, and `CanvasStrokeStyle` projections. The packaged Microsoft Win2D 1.4.0 oracle covers identities, resource metadata, boolean geometry/styled-stroke/image-brush drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; general image/effect brushes, text, effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
 | Arbitrary Win2D native-resource wrapping (`GetOrCreate(IUnknown*)`) off Windows | Unsupported by design | Fail closed; there is no portable COM object identity to preserve |
@@ -98,7 +98,7 @@ is the device argument required by Win2D's
 `CanvasDevice.CreateFromDirect3D11Device`; it avoids a second adapter/resource
 domain and establishes the activation input for the next Canvas factory lane.
 
-ABI v10 includes the managed ownership half as package `ProGPU.Direct2D`.
+ABI v11 includes the managed ownership half as package `ProGPU.Direct2D`.
 `ProGpuDirect2DSurface.Create(...)` validates a live Dawn D3D12 context, exact
 adapter LUID when requested, BGRA8-unorm premultiplied format, dimensions, DPI,
 NT-handle and keyed-mutex flags before importing the allocation through
@@ -210,6 +210,18 @@ as Microsoft Win2D `CanvasStrokeStyle`, reverse-unwraps it to the same canonical
 `ID2D1StrokeStyle1`, validates custom-dash metadata, and uses it for a genuine
 styled geometry draw.
 
+ABI v11 adds one synchronous, pinned-span upload for immutable premultiplied
+BGRA8 `ID2D1Bitmap1` resources and genuine device-context-domain
+`ID2D1BitmapBrush1` creation. Width, height, stride, byte extent, DPI, extend
+modes, interpolation mode, opacity, and transform are validated in both
+managed and native layers. Direct2D copies the source bytes during creation;
+the provider neither retains the caller span nor allocates an intermediate
+managed array. The paired Win2D seams wrap the exact bitmap as `CanvasBitmap`
+and the exact bitmap brush as `CanvasImageBrush`, then reverse-unwrap both by
+canonical COM identity. This is an explicit image upload path, not a fallback
+readback or per-pixel CPU renderer; same-device target sharing remains
+zero-copy.
+
 `TryBeginMicrosoftWin2DProducerAccess(...)` ends Dawn ownership, acquires the
 keyed mutex without beginning a second native Direct2D drawing context, and
 returns the CanvasRenderTarget. The caller creates, uses, and disposes its real
@@ -229,7 +241,8 @@ thread that activates or uses the returned WinRT object and must make the Win2D
 package available through their normal package/dependency graph.
 
 This is not yet the complete native Win2D bridge. The next interop boundaries
-are image brushes, text, command lists, effects, and
+are general `ID2D1ImageBrush` sources/source rectangles, text, command lists,
+effects, and
 device-loss recreation of the entire cached resource domain. Each family must
 pass the same forward-wrap/reverse-unwrap identity and actual-draw gate before
 it is advertised.
@@ -449,7 +462,7 @@ for `progpu_native_direct2d.dll` and
 `cab7f76311cd5115a0f8f84ee680115eb6481c6842eb45a85eea0633c08292fc`
 for `progpu_native_direct2d_tests.exe`.
 
-The current ABI v10 gate includes transactional `BeginDraw`/`EndDraw`, safe COM
+The current ABI v11 gate includes transactional `BeginDraw`/`EndDraw`, safe COM
 release, nested/unmatched draw rejection, zero-key Dawn ownership, and a
 generic GUID-based `QueryInterface` export. The latter returns a caller-owned
 reference to any later Direct2D interface supported by the installed Windows
@@ -468,8 +481,12 @@ primitive/path/transformed/
 combined geometry creation, real `FillGeometry`/`DrawGeometry` execution, and
 exact `ID2D1Geometry <-> CanvasGeometry` identity. ABI v10 adds typed
 `ID2D1StrokeStyle1` creation, one-span custom dashes, styled drawing, and exact
-`ID2D1StrokeStyle1 <-> CanvasStrokeStyle` identity. The gate enforces an exact
-28-export allowlist.
+`ID2D1StrokeStyle1 <-> CanvasStrokeStyle` identity. ABI v11 adds pinned-span
+`ID2D1Bitmap1` upload, typed `ID2D1BitmapBrush1` creation, strict truncated-row
+rejection, a real bitmap-brush fill, and exact
+`ID2D1Bitmap1 <-> CanvasBitmap` plus
+`ID2D1BitmapBrush1 <-> CanvasImageBrush` identities. The gate enforces an exact
+30-export allowlist.
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
@@ -587,6 +604,24 @@ pattern, and successful styled geometry drawing. All previous device, bitmap,
 solid/linear/radial brush, and geometry identities remain true; the transparent
 corner and exact solid/linear/radial/geometry pixel probes remain unchanged,
 the adapter is `Dawn D3D12`, and content version advances from `0` to `1`.
+
+ABI v11 was rebuilt at ProGPU implementation commit `3df8bba3` in the same
+Windows 11 ARM64 Parallels guest. MSVC 19.44 compiles the provider and focused
+native regression with `/W4 /WX`; the executable exits zero after validating
+bitmap metadata, truncated-row rejection, bitmap-brush metadata and source
+identity, generic Win2D wrapper identity, and a real bitmap-brush fill.
+SHA-256 is
+`B8D1FA66E0FC311804702D1E3D097F6F7DD7A2988C110DDF83C9312523400C9B`
+for `progpu_native_direct2d.dll` and
+`1A7D600426BE75FEA6C4EED1688104374688FEF07584D54A14FA462B1E710CEF`
+for `progpu_native_direct2d_tests.exe`. The matching ARM64 Microsoft Win2D
+1.4.0 integration app also compiles, produces an MSIX, signs successfully with
+the pre-provisioned certificate, installs, and launches. That run did not emit
+its JSON evidence sentinel, however, so exact
+`ID2D1Bitmap1 <-> CanvasBitmap` and
+`ID2D1BitmapBrush1 <-> CanvasImageBrush` package qualification remains pending;
+the support matrix intentionally distinguishes this implemented gate from the
+already package-qualified ABI v10 families.
 
 Run this qualification with
 `eng/progpu-run-direct2d-win2d-integration.ps1`, or opt it into the complete
