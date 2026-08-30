@@ -83,8 +83,10 @@ Every pair has determinant magnitude `sqrt(3)/2`. With the required equal
 SNAPUNIT aspect, all three pairs span the same triangular point lattice while
 changing Ortho/crosshair directions exactly. Invalid pair values or unequal
 isometric spacing fail closed instead of producing an invented skew lattice.
-PolarSnap remains explicitly deferred. The shared checkbox starts from
-persisted SNAPMODE and remains a bounded interaction-session override.
+PolarSnap is implemented by the separate profile-state query recorded in
+`PROGPU_CAD_POLAR_SNAP_RESEARCH.md`. The shared Grid/Polar controls and F9 start
+from persisted SNAPMODE and change that active-VPORT drawing value through one
+exact reversible edit; SNAPTYPE and POLARDIST remain profile/session state.
 
 The shared shell maps F5 and Ctrl+E to one O(1), generation-safe command that
 cycles Left to Top to Right to Left by the documented persisted numeric order.

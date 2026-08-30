@@ -16,6 +16,7 @@
     <PackageReleaseNotes>$(PackageReleaseNotes) Adds exact active-VPORT Left/Top/Right isometric SNAPSTYL/SNAPISOPAIR support with equal-aspect Euclidean-nearest triangular-lattice acquisition, active-pair Ortho, affine one-quad dot display, typed generation-safe SNAPUNIT/style/plane editing through shared desktop/browser controls, and ACadSharp.ProGPU DXF/DWG VPORT persistence.</PackageReleaseNotes>
     <PackageReleaseNotes>$(PackageReleaseNotes) Adds shared desktop/browser F5 and Ctrl+E drawing-persisted SNAPISOPAIR cycling in Left/Top/Right order through one exact generation-safe reversible edit, including dormant rectangular-style retention and staged-grid-edit protection.</PackageReleaseNotes>
     <PackageReleaseNotes>$(PackageReleaseNotes) Adds shared desktop/browser F8 drawing-persisted ORTHOMODE editing and profile-scoped F10 Polar Tracking with exact mutual exclusion, one-generation ORTHOMODE Undo/Redo, active-prompt refresh, staged-grid-edit protection, and ACadSharp.ProGPU DXF/DWG persistence.</PackageReleaseNotes>
+    <PackageReleaseNotes>$(PackageReleaseNotes) Adds shared desktop/browser F9 drawing-persisted active-VPORT SNAPMODE, profile-scoped Grid/Polar SNAPTYPE and POLARDIST, allocation-free acquired-path PolarSnap with zero-distance Snap-X inheritance, exact object-snap/direct-distance precedence, staged-edit protection, Undo/Redo synchronization, and DXF/DWG persistence.</PackageReleaseNotes>
     <PackageTags>progpu;cad;dxf;dwg;acadsharp;webgpu;rendering;editing</PackageTags>
   </PropertyGroup>
 

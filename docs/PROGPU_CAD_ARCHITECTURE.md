@@ -1036,17 +1036,27 @@ axes plus drawing ANGBASE/ANGDIR, projects onto the nearest standard incremental
 path, and activates within a fixed 10-device-pixel aperture. Its application
 profile state defaults off at 90 degrees, exposes all eight standard increments,
 and is mutually exclusive with Ortho. One additional clipped full-view guide is
-transient overlay work. A bare positive invariant scalar at the second-point
-prompt applies an exact direct distance along the post-base raw cursor ray, the
+transient overlay work. Snap Mode now retains a separate profile-scoped Grid or
+Polar SNAPTYPE. F9 and both snap controls persist only active-VPORT SNAPMODE
+through one O(1), generation-safe reversible command; switching the active type
+while SNAPMODE is already on changes no document generation. POLARDIST is a
+finite non-negative profile value, with zero inheriting immutable SNAPUNIT X.
+After the existing polar path passes its fixed device aperture, PolarSnap rounds
+the along-path distance from the accepted base to the nearest increment and
+refreshes an already-positioned prompt without another pointer event. Object
+snap still returns first, Grid and Polar SNAPTYPE are mutually exclusive, and a
+staged grid panel blocks any snapshot-producing SNAPMODE transition. A bare
+positive invariant scalar at the second-point prompt applies an exact direct
+distance along the post-base raw cursor ray, the
 active Ortho axis, or an actually acquired polar path. It preserves the base Z
 plane, ignores object/grid point quantization for length and direction, uses an
 overflow-safe O(1) normalization, and leaves the explicit coordinate grammar
-unchanged. PolarSnap distance increments, additional/relative angles,
-object-snap tracking, 3D UCS Z acquisition,
+unchanged. Additional/relative angles, object-snap tracking, 3D UCS Z acquisition,
 global-last-point state, arbitrary-camera planes, reference-angle, and
 reference-length input remain later editor tools. The exact clean-room behavior
 and applicability records are in `PROGPU_CAD_ORTHO_RESEARCH.md`,
-`PROGPU_CAD_POLAR_TRACKING_RESEARCH.md`, and
+`PROGPU_CAD_POLAR_TRACKING_RESEARCH.md`,
+`PROGPU_CAD_POLAR_SNAP_RESEARCH.md`, and
 `PROGPU_CAD_DIRECT_DISTANCE_RESEARCH.md`. One
 `CadDocumentHistory` belongs to the loaded session, so each Move, Copy, Rotate, Scale,
 Undo, or Redo publishes exactly one generation and then prepares one complete
@@ -5054,7 +5064,8 @@ unequal isometric spacing fails closed. The shared
 desktop/browser shell applies object-snap-over-grid-over-raw precedence to both
 MOVE/COPY point stages, commits the double-WCS result directly, leaves typed
 coordinate entry exact, and records only a fixed-device transient marker.
-PolarSnap remains explicit rather than being approximated by the grid lattice. The
+PolarSnap remains an explicit acquired-polar-path distance query rather than a
+grid-lattice approximation; zero POLARDIST reuses only SNAPUNIT X spacing. The
 clean-room source record, equations, failure semantics, parity audit, and tests
 are in
 [`PROGPU_CAD_GRID_SNAP_RESEARCH.md`](PROGPU_CAD_GRID_SNAP_RESEARCH.md).

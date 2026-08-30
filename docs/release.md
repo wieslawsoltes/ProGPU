@@ -51,6 +51,17 @@ fork now emits `$ORTHOMODE` in default DXF header output with three versioned
 round-trip regressions. No shader, native ABI, GPU resource, or native scene
 compiler changes.
 
+Shared desktop/browser F9 and the Grid/Polar snap controls now edit drawing-
+persisted active-VPORT SNAPMODE through one exact reversible command, while
+SNAPTYPE and POLARDIST remain profile-scoped as Autodesk specifies. PolarSnap
+quantizes only an acquired polar path, uses Snap X spacing when its configured
+distance is zero, keeps object snaps authoritative, and leaves typed direct
+distance exact. Grid and Polar types are mutually exclusive, a disabled F9
+retains its type, active prompts refresh immediately, staged grid input is
+protected, and the browser reserves F9. Exact DXF/DWG SNAPMODE round trips and
+zero-allocation warm queries pass. This input/edit slice changes no shader,
+native ABI, GPU resource, or native scene compiler.
+
 The shared ProGPU.CAD plan grid now defaults to AutoCAD's lined model-space
 GRIDSTYLE and exposes a shared desktop/browser Dots toggle. Autodesk documents
 GRIDSTYLE as registry-backed host state, so the toggle intentionally changes no

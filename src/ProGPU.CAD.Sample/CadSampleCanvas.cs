@@ -180,6 +180,9 @@ public sealed class CadSampleCanvas : FrameworkElement
         CadPlanGridPresentationStyle.Lines;
     private CadPlanPolarTrackingSettings _planPolarTrackingSettings =
         CadPlanPolarTrackingSettings.Disabled;
+    private CadPlanPolarSnapSettings _planPolarSnapSettings =
+        CadPlanPolarSnapSettings.Disabled;
+    private CadPlanSnapType _planSnapType = CadPlanSnapType.Grid;
     private CadObjectSnapModes _objectSnapModes = CadObjectSnapModes.Standard;
     private float _zoom = 1;
     private int[] _selectionEntityScratch = [];
@@ -379,26 +382,51 @@ public sealed class CadSampleCanvas : FrameworkElement
     /// </summary>
     public bool IsPlanGridSnapEnabled
     {
-        get => _planGridSnapSettings.IsEnabled;
+        get => _planSnapType == CadPlanSnapType.Grid &&
+            _planGridSnapSettings.IsEnabled;
         set
         {
-            if (_planGridSnapSettings.IsEnabled == value)
+            if (!value && _planSnapType != CadPlanSnapType.Grid)
             {
                 return;
             }
-
-            _planGridSnapSettings = _planGridSnapSettings.WithEnabled(value);
-            if (PendingPointTransformOperation is not null &&
-                _hasPointTransformPointerPosition)
-            {
-                UpdatePointTransformPointer(_pointTransformPointerPosition);
-            }
-            else
-            {
-                _hasPointTransformGridSnap = false;
-            }
-            Invalidate();
+            SetPlanSnapState(CadPlanSnapType.Grid, value);
         }
+    }
+
+    /// <summary>Current interaction Snap Mode state, independent of SNAPTYPE.</summary>
+    public bool IsPlanSnapEnabled
+    {
+        get => _planGridSnapSettings.IsEnabled ||
+            _planPolarSnapSettings.IsEnabled;
+        set => SetPlanSnapState(_planSnapType, value);
+    }
+
+    /// <summary>Current profile-scoped Grid or Polar SNAPTYPE choice.</summary>
+    public CadPlanSnapType PlanSnapType
+    {
+        get => _planSnapType;
+        set => SetPlanSnapState(value, IsPlanSnapEnabled);
+    }
+
+    /// <summary>The drawing-persisted active-VPORT SNAPMODE value.</summary>
+    public bool PersistedPlanSnapMode =>
+        CurrentSession?.Read(document =>
+            document.VPorts[VPort.DefaultName].SnapOn) ?? false;
+
+    /// <summary>
+    /// Persists active-VPORT SNAPMODE as one reversible edit and synchronizes
+    /// the current Grid or Polar interaction snap from the new snapshot.
+    /// </summary>
+    public void SetPlanSnapMode(bool isEnabled)
+    {
+        ThrowIfDrawOrderReferenceSelectionPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetPlanSnapModeCommand(isEnabled));
+        RecompileAfterEdit(session, synchronizePlanSnapMode: true);
     }
 
     /// <summary>The exact grid point currently shown by the point prompt.</summary>
@@ -464,6 +492,53 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public CadPlanPolarTrackingSettings PlanPolarTrackingSettings =>
         _planPolarTrackingSettings;
+
+    /// <summary>Current profile-scoped PolarSnap settings.</summary>
+    public CadPlanPolarSnapSettings PlanPolarSnapSettings =>
+        _planPolarSnapSettings;
+
+    /// <summary>
+    /// Enables Snap Mode with Polar SNAPTYPE, or disables it when Polar is the
+    /// selected type. Grid and Polar snap are mutually exclusive.
+    /// </summary>
+    public bool IsPlanPolarSnapEnabled
+    {
+        get => _planSnapType == CadPlanSnapType.Polar &&
+            _planPolarSnapSettings.IsEnabled;
+        set
+        {
+            if (!value && _planSnapType != CadPlanSnapType.Polar)
+            {
+                return;
+            }
+            SetPlanSnapState(CadPlanSnapType.Polar, value);
+        }
+    }
+
+    /// <summary>
+    /// Profile-scoped POLARDIST equivalent. Zero inherits Snap X spacing.
+    /// </summary>
+    public double PlanPolarSnapDistance
+    {
+        get => _planPolarSnapSettings.Distance;
+        set
+        {
+            CadPlanPolarSnapSettings updated =
+                _planPolarSnapSettings.WithDistance(value);
+            if (updated == _planPolarSnapSettings)
+            {
+                return;
+            }
+
+            _planPolarSnapSettings = updated;
+            if (PendingPointTransformOperation is not null &&
+                _hasPointTransformPointerPosition)
+            {
+                UpdatePointTransformPointer(_pointTransformPointerPosition);
+            }
+            Invalidate();
+        }
+    }
 
     public bool IsPlanPolarTrackingEnabled
     {
@@ -629,7 +704,8 @@ public sealed class CadSampleCanvas : FrameworkElement
     private void CompileAndReplace(
         CadDocumentSession session,
         bool resetViewSelectionAndHistory,
-        bool synchronizePlanOrthoMode = false)
+        bool synchronizePlanOrthoMode = false,
+        bool synchronizePlanSnapMode = false)
     {
         if (!resetViewSelectionAndHistory && !ReferenceEquals(session, CurrentSession))
         {
@@ -704,10 +780,14 @@ public sealed class CadSampleCanvas : FrameworkElement
         CurrentSession = session;
         CurrentSnapshot = snapshot;
         _planGridDisplaySettings = snapshot.PlanGridDisplaySettings;
-        _planGridSnapSettings = resetViewSelectionAndHistory
-            ? snapshot.PlanGridSnapSettings
-            : snapshot.PlanGridSnapSettings.WithEnabled(
-                _planGridSnapSettings.IsEnabled);
+        bool isPlanSnapEnabled =
+            resetViewSelectionAndHistory || synchronizePlanSnapMode
+            ? snapshot.PlanGridSnapSettings.IsEnabled
+            : IsPlanSnapEnabled;
+        _planGridSnapSettings = snapshot.PlanGridSnapSettings.WithEnabled(
+            isPlanSnapEnabled && _planSnapType == CadPlanSnapType.Grid);
+        _planPolarSnapSettings = _planPolarSnapSettings.WithEnabled(
+            isPlanSnapEnabled && _planSnapType == CadPlanSnapType.Polar);
         _planPolarTrackingSettings = resetViewSelectionAndHistory
             ? snapshot.PlanPolarTrackingSettings
             : snapshot.PlanPolarTrackingSettings
@@ -2808,6 +2888,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
         bool previousOrthoMode = session.Read(
             document => document.Header.OrthoMode);
+        bool previousSnapMode = session.Read(document =>
+            document.VPorts[VPort.DefaultName].SnapOn);
         if (!history.TryUndo(out _))
         {
             EditStateChanged?.Invoke(this, EventArgs.Empty);
@@ -2816,7 +2898,12 @@ public sealed class CadSampleCanvas : FrameworkElement
 
         bool synchronizePlanOrthoMode = previousOrthoMode != session.Read(
             document => document.Header.OrthoMode);
-        RecompileAfterEdit(session, synchronizePlanOrthoMode);
+        bool synchronizePlanSnapMode = previousSnapMode != session.Read(
+            document => document.VPorts[VPort.DefaultName].SnapOn);
+        RecompileAfterEdit(
+            session,
+            synchronizePlanOrthoMode,
+            synchronizePlanSnapMode);
         return true;
     }
 
@@ -2832,6 +2919,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
         bool previousOrthoMode = session.Read(
             document => document.Header.OrthoMode);
+        bool previousSnapMode = session.Read(document =>
+            document.VPorts[VPort.DefaultName].SnapOn);
         if (!history.TryRedo(out _))
         {
             EditStateChanged?.Invoke(this, EventArgs.Empty);
@@ -2840,20 +2929,27 @@ public sealed class CadSampleCanvas : FrameworkElement
 
         bool synchronizePlanOrthoMode = previousOrthoMode != session.Read(
             document => document.Header.OrthoMode);
-        RecompileAfterEdit(session, synchronizePlanOrthoMode);
+        bool synchronizePlanSnapMode = previousSnapMode != session.Read(
+            document => document.VPorts[VPort.DefaultName].SnapOn);
+        RecompileAfterEdit(
+            session,
+            synchronizePlanOrthoMode,
+            synchronizePlanSnapMode);
         return true;
     }
 
     private void RecompileAfterEdit(
         CadDocumentSession session,
-        bool synchronizePlanOrthoMode = false)
+        bool synchronizePlanOrthoMode = false,
+        bool synchronizePlanSnapMode = false)
     {
         try
         {
             CompileAndReplace(
                 session,
                 resetViewSelectionAndHistory: false,
-                synchronizePlanOrthoMode: synchronizePlanOrthoMode);
+                synchronizePlanOrthoMode: synchronizePlanOrthoMode,
+                synchronizePlanSnapMode: synchronizePlanSnapMode);
         }
         catch
         {
@@ -2942,11 +3038,21 @@ public sealed class CadSampleCanvas : FrameworkElement
             if (Vector2.Distance(trackedScreen, screenPoint) <=
                 PointTransformPolarTrackingAperture)
             {
-                _pointTransformPolarTracking = polarTracking;
-                _hasPointTransformPolarTracking = true;
-                _pointTransformCurrent = trackedScreen;
-                NotifyPointTransformInputAvailability(notifyInputAvailability);
-                return;
+                bool hasPolarSnap = _planPolarSnapSettings.IsEnabled;
+                if (!hasPolarSnap || _planPolarSnapSettings.TrySnap(
+                        _pointTransformBasePoint,
+                        polarTracking,
+                        _planGridSnapSettings.SpacingX,
+                        out polarTracking))
+                {
+                    _pointTransformPolarTracking = polarTracking;
+                    _hasPointTransformPolarTracking = true;
+                    _pointTransformCurrent = hasPolarSnap
+                        ? viewport.WorldToScreen(polarTracking.Point)
+                        : trackedScreen;
+                    NotifyPointTransformInputAvailability(notifyInputAvailability);
+                    return;
+                }
             }
         }
 
@@ -2957,6 +3063,35 @@ public sealed class CadSampleCanvas : FrameworkElement
             ? viewport.WorldToScreen(_pointTransformGridSnap)
             : screenPoint;
         NotifyPointTransformInputAvailability(notifyInputAvailability);
+    }
+
+    private void SetPlanSnapState(CadPlanSnapType type, bool isEnabled)
+    {
+        if (!Enum.IsDefined(type))
+        {
+            throw new ArgumentOutOfRangeException(nameof(type));
+        }
+        if (_planSnapType == type && IsPlanSnapEnabled == isEnabled)
+        {
+            return;
+        }
+
+        _planSnapType = type;
+        _planGridSnapSettings = _planGridSnapSettings.WithEnabled(
+            isEnabled && type == CadPlanSnapType.Grid);
+        _planPolarSnapSettings = _planPolarSnapSettings.WithEnabled(
+            isEnabled && type == CadPlanSnapType.Polar);
+        if (PendingPointTransformOperation is not null &&
+            _hasPointTransformPointerPosition)
+        {
+            UpdatePointTransformPointer(_pointTransformPointerPosition);
+        }
+        else
+        {
+            _hasPointTransformGridSnap = false;
+            _hasPointTransformPolarTracking = false;
+        }
+        Invalidate();
     }
 
     private bool TryResolvePointTransformDirectDistance(

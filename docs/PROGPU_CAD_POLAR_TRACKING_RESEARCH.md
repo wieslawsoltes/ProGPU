@@ -3,8 +3,9 @@
 ## Scope and primary sources
 
 This slice adds exact incremental plan polar tracking to the shared
-desktop/browser MOVE and COPY second-point prompts. It does not add PolarSnap
-distance increments, additional absolute angles, relative-to-last-segment
+desktop/browser MOVE and COPY second-point prompts. The PolarSnap continuation
+adds exact profile-distance quantization and drawing-persisted F9 Snap Mode. It
+does not add additional absolute angles, relative-to-last-segment
 angles, object-snap tracking/acquired points, direct-distance input, 3D Z paths,
 or arbitrary-camera acquisition.
 
@@ -66,6 +67,8 @@ drawing generation. Enabling F8 disables Polar without inventing AUTOSNAP or
 POLARMODE drawing persistence. Snapshot-producing toggles preserve staged grid
 panel values by refusing the conflicting action, and browser F8/F10 defaults
 are reserved before shared dispatch.
+The separate PolarSnap continuation records its SNAPMODE/SNAPTYPE/POLARDIST
+state and distance algorithm in `PROGPU_CAD_POLAR_SNAP_RESEARCH.md`.
 
 For accepted base `B`, pointer `P`, ANGBASE-adjusted orthonormal axes `X,Y`,
 direction sign `s` (`+1` counterclockwise, `-1` clockwise), and increment `a`:
@@ -93,13 +96,15 @@ tolerance; this bounded zoom-independent aperture is an explicit ProGPU policy
 matching the existing object-snap acquisition scale. Outside that aperture,
 the pointer proceeds to rectangular grid snap and then raw input.
 
-Pointer precedence is exact object snap, active Ortho or polar tracking,
-rectangular grid, then raw input. Object snap returns first. Ortho and polar are
+Pointer precedence is exact object snap, active Ortho or polar tracking with
+optional acquired-path PolarSnap distance, Grid SNAPTYPE, then raw input.
+Object snap returns first. Ortho and polar are
 mutually exclusive in both shared controls and canvas state. Tracking applies
 only after a base point exists; typed absolute/relative Cartesian and polar
 coordinates bypass the pointer pipeline. The tracked point commits directly as
-double WCS. Polar tracking does not quantize distance and therefore must not be
-described as PolarSnap.
+double WCS. The core polar query does not quantize distance; the later profile-
+scoped PolarSnap query is deliberately separate and runs only after angular-
+path acquisition.
 
 ## Rendering and managed/native applicability
 
@@ -138,12 +143,15 @@ override, shared increments, and bidirectional Ortho mutual exclusion. The
 ACadSharp dependency tests cover DXF ANGBASE radians, ANGDIR, and versioned
 ORTHOMODE round trips. Shared-view tests cover F10, persisted-Ortho exclusion,
 exact generation counts, Undo/Redo synchronization, staged-panel protection,
-and browser key reservation.
-The complete macOS arm64 Release ProGPU.CAD suite passes 1,040/1,040.
+and browser key reservation. PolarSnap regressions cover explicit and Snap-X-
+inherited distance, live prompt reevaluation, object-snap precedence, direct-
+distance separation, F9/type retention, exact SNAPMODE history, staged input,
+zero-allocation warm queries, browser reservation, and DXF/DWG round trips.
+The complete macOS arm64 Release ProGPU.CAD suite passes 1,052/1,052.
 
-PolarSnap distance increments, additional absolute angles, relative-to-last-
-segment measurement, object-snap tracking and acquired points, direct-distance
-entry, 3D UCS Z paths, temporary overrides, host profile persistence,
+Additional absolute angles, relative-to-last-segment measurement, object-snap
+tracking and acquired points, 3D UCS Z paths, temporary overrides, cross-session
+host profile persistence,
 arbitrary-camera rays, interaction image goldens, dense-drawing p50/p95/p99
 evidence, and independent DXF/DWG angle fixtures remain before the broader
 tracking feature can be called complete.

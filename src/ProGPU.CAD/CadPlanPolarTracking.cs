@@ -5,7 +5,14 @@ public readonly record struct CadPlanPolarTrackingResult(
     CadPoint3D Direction,
     double AngleRadians,
     double Distance,
-    double PerpendicularDistance);
+    double PerpendicularDistance)
+{
+    /// <summary>Whether the along-path distance was quantized by PolarSnap.</summary>
+    public bool IsDistanceSnapped { get; init; }
+
+    /// <summary>The effective positive PolarSnap increment, or zero.</summary>
+    public double SnapIncrement { get; init; }
+}
 
 /// <summary>Immutable plan polar-tracking basis and increment.</summary>
 /// <remarks>

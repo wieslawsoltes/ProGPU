@@ -4215,14 +4215,16 @@ public sealed class CadSampleSelectionTests
             view.PlanGridSnapCheckBox.IsChecked = false;
 
             Assert.False(view.Canvas.IsPlanGridSnapEnabled);
+            Assert.False(active.SnapOn);
+            Assert.Equal(1UL, session.ContentGeneration);
             view.PlanOrthoCheckBox.IsChecked = false;
             Assert.False(view.Canvas.IsPlanOrthoEnabled);
             Assert.False(document.Header.OrthoMode);
-            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(2UL, session.ContentGeneration);
             view.PlanPolarTrackingCheckBox.IsChecked = true;
             Assert.True(view.Canvas.IsPlanPolarTrackingEnabled);
             Assert.False(view.PlanOrthoCheckBox.IsChecked);
-            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(2UL, session.ContentGeneration);
             view.PlanPolarTrackingIncrementSelector.SelectedIndex = 1;
             Assert.Equal(
                 45.0,
@@ -4232,7 +4234,7 @@ public sealed class CadSampleSelectionTests
             Assert.True(view.Canvas.IsPlanOrthoEnabled);
             Assert.True(document.Header.OrthoMode);
             Assert.False(view.PlanPolarTrackingCheckBox.IsChecked);
-            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal(3UL, session.ContentGeneration);
         }
         finally
         {

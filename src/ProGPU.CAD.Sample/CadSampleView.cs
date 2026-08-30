@@ -78,6 +78,8 @@ public sealed class CadSampleView : Grid
     private readonly CheckBox _planOrthoCheckBox;
     private readonly CheckBox _planPolarTrackingCheckBox;
     private readonly ComboBox _planPolarTrackingIncrementSelector;
+    private readonly CheckBox _planPolarSnapCheckBox;
+    private readonly TextBox _planPolarSnapDistanceInput;
     private readonly TextBox _pointTransformInput;
     private readonly Button _acceptPointTransformInputButton;
     private readonly Button[] _rotateButtons;
@@ -255,6 +257,10 @@ public sealed class CadSampleView : Grid
 
     public ComboBox PlanPolarTrackingIncrementSelector =>
         _planPolarTrackingIncrementSelector;
+
+    public CheckBox PlanPolarSnapCheckBox => _planPolarSnapCheckBox;
+
+    public TextBox PlanPolarSnapDistanceInput => _planPolarSnapDistanceInput;
 
     public TextBox PointTransformInput => _pointTransformInput;
 
@@ -753,6 +759,30 @@ public sealed class CadSampleView : Grid
         }
         _planPolarTrackingIncrementSelector.SelectedIndex = 0;
         transformActions.AddChild(_planPolarTrackingIncrementSelector);
+        _planPolarSnapCheckBox = CreateAttributeModeCheckBox(
+            "PolarSnap",
+            font);
+        _planPolarSnapCheckBox.IsChecked =
+            _canvas.IsPlanPolarSnapEnabled;
+        transformActions.AddChild(_planPolarSnapCheckBox);
+        transformActions.AddChild(new TextBlock
+        {
+            Text = "Polar distance (0 = Snap X)",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _planPolarSnapDistanceInput = new TextBox
+        {
+            Text = "0",
+            Font = font,
+            WidthConstraint = 72,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        transformActions.AddChild(_planPolarSnapDistanceInput);
         transformActions.AddChild(new TextBlock
         {
             Text = "Point / displacement",
@@ -1926,8 +1956,14 @@ public sealed class CadSampleView : Grid
             }
         };
         _planGridSnapCheckBox.CheckedChanged += (_, _) =>
-            _canvas.IsPlanGridSnapEnabled =
-                _planGridSnapCheckBox.IsChecked;
+        {
+            if (!_isRefreshingPlanConstraints)
+            {
+                SetPlanGridSnapFromInteraction(
+                    _planGridSnapCheckBox.IsChecked,
+                    "Grid snap control");
+            }
+        };
         _planGridDisplayCheckBox.CheckedChanged += (_, _) =>
             UpdatePlanGridDisplayEditControls();
         _planGridDotsCheckBox.CheckedChanged += (_, _) =>
@@ -1984,6 +2020,26 @@ public sealed class CadSampleView : Grid
                 _canvas.PlanPolarTrackingIncrementDegrees = increment;
             }
         };
+        _planPolarSnapCheckBox.CheckedChanged += (_, _) =>
+        {
+            if (!_isRefreshingPlanConstraints)
+            {
+                SetPlanPolarSnapFromInteraction(
+                    _planPolarSnapCheckBox.IsChecked,
+                    "PolarSnap control");
+            }
+        };
+        _planPolarSnapDistanceInput.TextChanged += (_, _) =>
+        {
+            if (!_isRefreshingPlanConstraints &&
+                TryParseNonNegativeInvariantDouble(
+                    _planPolarSnapDistanceInput.Text,
+                    out double distance))
+            {
+                _canvas.PlanPolarSnapDistance = distance;
+            }
+            UpdateEditControls();
+        };
         _pointTransformInput.TextChanged += (_, _) => UpdateEditControls();
         _pointTransformInput.KeyDown += (_, args) =>
         {
@@ -2030,8 +2086,6 @@ public sealed class CadSampleView : Grid
         _canvas.SnapshotChanged += (_, _) =>
         {
             RefreshPlanGridDisplayControls();
-            _planGridSnapCheckBox.IsChecked =
-                _canvas.IsPlanGridSnapEnabled;
             RefreshPlanConstraintControls();
             EnsureLayerMergeSourcesAreCurrent();
             RebuildMesh3DView();
@@ -2112,7 +2166,7 @@ public sealed class CadSampleView : Grid
         }
 
         if (!e.Handled &&
-            e.Key is Key.F8 or Key.F10 &&
+            e.Key is Key.F8 or Key.F9 or Key.F10 &&
             !_isBusy &&
             !_isPrintPreview &&
             !_is3DView &&
@@ -2123,6 +2177,12 @@ public sealed class CadSampleView : Grid
                 SetPlanOrthoModeFromInteraction(
                     !_canvas.IsPlanOrthoEnabled,
                     "F8");
+            }
+            else if (e.Key == Key.F9)
+            {
+                SetPlanSnapModeFromInteraction(
+                    !_canvas.IsPlanSnapEnabled,
+                    "F9");
             }
             else
             {
@@ -2222,6 +2282,114 @@ public sealed class CadSampleView : Grid
         catch (Exception exception)
         {
             SetStatus($"Set Ortho mode failed: {exception.Message}");
+        }
+        finally
+        {
+            RefreshPlanConstraintControls();
+            UpdateEditControls();
+        }
+    }
+
+    private void SetPlanGridSnapFromInteraction(
+        bool isEnabled,
+        string source)
+    {
+        SetPlanSnapStateFromInteraction(
+            CadPlanSnapType.Grid,
+            isEnabled,
+            source);
+    }
+
+    private void SetPlanPolarSnapFromInteraction(
+        bool isEnabled,
+        string source)
+    {
+        bool hasValidDistance = TryParseNonNegativeInvariantDouble(
+            _planPolarSnapDistanceInput.Text,
+            out double distance);
+        if (isEnabled && !hasValidDistance)
+        {
+            SetStatus(
+                "PolarSnap requires a finite non-negative invariant distance.");
+            RefreshPlanConstraintControls();
+            UpdateEditControls();
+            return;
+        }
+
+        SetPlanSnapStateFromInteraction(
+            CadPlanSnapType.Polar,
+            isEnabled,
+            source,
+            isEnabled ? distance : null);
+    }
+
+    private void SetPlanSnapModeFromInteraction(
+        bool isEnabled,
+        string source)
+    {
+        bool hasValidDistance = TryParseNonNegativeInvariantDouble(
+            _planPolarSnapDistanceInput.Text,
+            out double distance);
+        if (isEnabled && _canvas.PlanSnapType == CadPlanSnapType.Polar &&
+            !hasValidDistance)
+        {
+            SetStatus(
+                "F9 cannot enable PolarSnap until Polar Distance is valid.");
+            RefreshPlanConstraintControls();
+            UpdateEditControls();
+            return;
+        }
+
+        CadPlanSnapType type = _canvas.PlanSnapType;
+        SetPlanSnapStateFromInteraction(
+            type,
+            isEnabled,
+            source,
+            isEnabled && type == CadPlanSnapType.Polar
+                ? distance
+                : null);
+    }
+
+    private void SetPlanSnapStateFromInteraction(
+        CadPlanSnapType type,
+        bool isEnabled,
+        string source,
+        double? polarSnapDistance = null)
+    {
+        bool changesPersistedMode =
+            _canvas.PersistedPlanSnapMode != isEnabled;
+        if (changesPersistedMode && HasStagedPlanGridDisplayEdit())
+        {
+            SetStatus(
+                "Apply or revert the staged drafting-grid values before changing SNAPMODE.");
+            RefreshPlanConstraintControls();
+            UpdateEditControls();
+            return;
+        }
+
+        try
+        {
+            if (polarSnapDistance.HasValue)
+            {
+                _canvas.PlanPolarSnapDistance = polarSnapDistance.Value;
+            }
+            _canvas.PlanSnapType = type;
+            if (changesPersistedMode)
+            {
+                _canvas.SetPlanSnapMode(isEnabled);
+            }
+            else
+            {
+                _canvas.IsPlanSnapEnabled = isEnabled;
+            }
+            SetStatus(
+                $"{source}: SNAPMODE={(isEnabled ? 1 : 0)}; " +
+                $"SNAPTYPE={type}" +
+                (changesPersistedMode ? " as one edit." : "."));
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set Snap mode failed: {exception.Message}");
         }
         finally
         {
@@ -4524,9 +4692,13 @@ public sealed class CadSampleView : Grid
         _isRefreshingPlanConstraints = true;
         try
         {
+            _planGridSnapCheckBox.IsChecked =
+                _canvas.IsPlanGridSnapEnabled;
             _planOrthoCheckBox.IsChecked = _canvas.IsPlanOrthoEnabled;
             _planPolarTrackingCheckBox.IsChecked =
                 _canvas.IsPlanPolarTrackingEnabled;
+            _planPolarSnapCheckBox.IsChecked =
+                _canvas.IsPlanPolarSnapEnabled;
             SelectPolarTrackingIncrement();
         }
         finally
@@ -5508,10 +5680,11 @@ public sealed class CadSampleView : Grid
         _objectSnapSelector.IsEnabled =
             !_isBusy && !_isPrintPreview && !_is3DView &&
             _canvas.CurrentSnapshot is not null;
-        _planGridSnapCheckBox.IsEnabled =
+        bool canUsePlanSnap =
             !_isBusy && !_isPrintPreview && !_is3DView &&
             _canvas.CurrentSnapshot is not null &&
             _canvas.PlanGridSnapSettings.IsSupported;
+        _planGridSnapCheckBox.IsEnabled = canUsePlanSnap;
         bool canEditPlanGridDisplay =
             canUsePlanTools && !_is3DView &&
             _canvas.CurrentSnapshot is not null &&
@@ -5558,6 +5731,13 @@ public sealed class CadSampleView : Grid
             _canvas.PlanPolarTrackingSettings.IsSupported;
         _planPolarTrackingIncrementSelector.IsEnabled =
             _planPolarTrackingCheckBox.IsEnabled;
+        _planPolarSnapDistanceInput.IsEnabled = canUsePlanSnap;
+        _planPolarSnapCheckBox.IsEnabled =
+            canUsePlanSnap &&
+            (_planPolarSnapCheckBox.IsChecked ||
+             TryParseNonNegativeInvariantDouble(
+                 _planPolarSnapDistanceInput.Text,
+                 out _));
         _pointTransformInput.IsEnabled =
             !_isBusy && isPointTransformPicking;
         _acceptPointTransformInputButton.IsEnabled =

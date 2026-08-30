@@ -263,7 +263,7 @@ public sealed class SampleProjectSplitTests
                 StringComparison.Ordinal);
 
         Assert.Contains(
-            "if (event.code === 'F5' || event.code === 'F8' || event.code === 'F10' ||\n" +
+            "if (event.code === 'F5' || event.code === 'F8' || event.code === 'F9' || event.code === 'F10' ||\n" +
             "      (event.code === 'KeyE' && event.ctrlKey) ||",
             browserAsset,
             StringComparison.Ordinal);
