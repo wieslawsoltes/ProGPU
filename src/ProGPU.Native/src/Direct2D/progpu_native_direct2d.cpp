@@ -3345,17 +3345,13 @@ progpu_native_direct2d_surface_draw_svg_document(
         hr = document->SetViewportSize(
             D2D1::SizeF(viewport_width, viewport_height));
         if (SUCCEEDED(hr)) {
-            const D2D1_MATRIX_3X2_F translated = {
-                previous_transform._11,
-                previous_transform._12,
-                previous_transform._21,
-                previous_transform._22,
-                origin_x * previous_transform._11 +
-                    origin_y * previous_transform._21 +
-                    previous_transform._31,
-                origin_x * previous_transform._12 +
-                    origin_y * previous_transform._22 +
-                    previous_transform._32};
+            D2D1_MATRIX_3X2_F translated = previous_transform;
+            translated._31 = origin_x * previous_transform._11 +
+                origin_y * previous_transform._21 +
+                previous_transform._31;
+            translated._32 = origin_x * previous_transform._12 +
+                origin_y * previous_transform._22 +
+                previous_transform._32;
             context5->SetTransform(&translated);
             context5->DrawSvgDocument(document.Get());
             context5->SetTransform(&previous_transform);
