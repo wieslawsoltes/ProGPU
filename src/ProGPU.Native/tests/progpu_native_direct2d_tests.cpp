@@ -1110,6 +1110,51 @@ int main()
 
     constexpr uint16_t text[] = {'A', 'B', 'I', ' ', '1', '6'};
     progpu_native_direct2d_rect_f text_layout = {2.0F, 27.0F, 30.0F, 17.0F};
+    void* retained_text_layout_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_text_layout(
+            surface,
+            text,
+            static_cast<uint32_t>(std::size(text)),
+            text_format.Get(),
+            text_layout.width,
+            text_layout.height,
+            &retained_text_layout_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            retained_text_layout_value != nullptr && native_hresult == S_OK,
+        "provider IDWriteTextLayout4 creation failed");
+    ComPtr<IDWriteTextLayout4> retained_text_layout;
+    retained_text_layout.Attach(
+        static_cast<IDWriteTextLayout4*>(retained_text_layout_value));
+    ComPtr<IDWriteTextLayout> retained_text_layout_base;
+    DWRITE_TEXT_METRICS retained_text_metrics{};
+    require(SUCCEEDED(retained_text_layout.As(&retained_text_layout_base)) &&
+            retained_text_layout->GetMaxWidth() == text_layout.width &&
+            retained_text_layout->GetMaxHeight() == text_layout.height &&
+            SUCCEEDED(retained_text_layout_base->GetMetrics(
+                &retained_text_metrics)) &&
+            retained_text_metrics.layoutWidth == text_layout.width &&
+            retained_text_metrics.layoutHeight == text_layout.height,
+        "provider IDWriteTextLayout4 properties changed");
+
+    void* invalid_text_layout_value =
+        reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_surface_create_text_layout(
+            surface,
+            text,
+            static_cast<uint32_t>(std::size(text)),
+            text_format.Get(),
+            0.0F,
+            text_layout.height,
+            &invalid_text_layout_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            invalid_text_layout_value == nullptr &&
+            native_hresult == E_INVALIDARG,
+        "invalid IDWriteTextLayout4 dimensions did not fail closed");
+
     native_hresult = E_FAIL;
     require(
         progpu_native_direct2d_surface_draw_text(
@@ -1123,6 +1168,17 @@ int main()
             PROGPU_NATIVE_DIRECT2D_MEASURING_MODE_NATURAL,
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE,
         "ID2D1RenderTarget text draw outside a draw did not fail closed");
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_draw_text_layout(
+            surface,
+            text_layout.x,
+            text_layout.y,
+            retained_text_layout.Get(),
+            solid_brush.Get(),
+            PROGPU_NATIVE_DIRECT2D_DRAW_TEXT_OPTION_CLIP,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE,
+        "ID2D1RenderTarget text-layout draw outside a draw did not fail closed");
 
     progpu_native_direct2d_layer_parameters layer_parameters{};
     layer_parameters.content_bounds = {0.0F, 0.0F, 24.0F, 24.0F};
@@ -1896,6 +1952,18 @@ int main()
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK,
         "provider typed ID2D1RenderTarget text draw failed");
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_draw_text_layout(
+            surface,
+            34.0F,
+            text_layout.y,
+            retained_text_layout.Get(),
+            solid_brush.Get(),
+            PROGPU_NATIVE_DIRECT2D_DRAW_TEXT_OPTION_CLIP,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider typed ID2D1RenderTarget text-layout draw failed");
     native_hresult = S_OK;
     require(
         progpu_native_direct2d_surface_draw_text(

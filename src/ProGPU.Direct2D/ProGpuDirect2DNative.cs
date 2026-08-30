@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 16U;
+    internal const uint AbiVersion = 17U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -495,6 +495,33 @@ internal static unsafe partial class ProGpuDirect2DNative
         nint defaultFillBrush,
         ProGpuDirect2DDrawTextOptions options,
         ProGpuDirect2DMeasuringMode measuringMode,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_text_layout")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceCreateTextLayout(
+        nint surface,
+        char* text,
+        uint textLength,
+        nint textFormat,
+        float maximumWidth,
+        float maximumHeight,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_draw_text_layout")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceDrawTextLayout(
+        nint surface,
+        float originX,
+        float originY,
+        nint textLayout,
+        nint defaultFillBrush,
+        ProGpuDirect2DDrawTextOptions options,
         int* nativeHResult);
 
     [LibraryImport(

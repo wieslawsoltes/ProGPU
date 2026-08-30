@@ -53,6 +53,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
         new("65019F75-8DA2-497C-B32C-DFA34E48EDE6");
     private static readonly Guid DWriteTextFormat1InterfaceId =
         new("5F174B49-0D8B-4CFB-8BCA-F1CCE9D06C67");
+    private static readonly Guid DWriteTextLayout4InterfaceId =
+        new("05A9BF42-223F-4441-B5FB-8263685F55E9");
 
     private readonly object _gate = new();
     private readonly DawnGpuContext _dawn;
@@ -1060,6 +1062,79 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    /// <summary>
+    /// Creates a retained genuine IDWriteTextLayout4. DirectWrite copies the
+    /// caller text during this synchronous creation call, so the returned
+    /// layout can be reused without retaining the input span.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateTextLayout(
+        ReadOnlySpan<char> text,
+        ProGpuDirect2DComReference textFormat,
+        float maximumWidth,
+        float maximumHeight)
+    {
+        ArgumentNullException.ThrowIfNull(textFormat);
+        if (textFormat.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.DWriteTextFormat1)
+        {
+            throw new ArgumentException(
+                "The COM reference must own an IDWriteTextFormat1.",
+                nameof(textFormat));
+        }
+        if (!float.IsFinite(maximumWidth) || maximumWidth <= 0.0F)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumWidth),
+                "DirectWrite text-layout width must be positive and finite.");
+        }
+        if (!float.IsFinite(maximumHeight) || maximumHeight <= 0.0F)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumHeight),
+                "DirectWrite text-layout height must be positive and finite.");
+        }
+
+        bool formatReferenceAdded = false;
+        try
+        {
+            textFormat.DangerousAddRef(ref formatReferenceAdded);
+            fixed (char* textPointer = text)
+            {
+                lock (_gate)
+                {
+                    ThrowIfUnavailable();
+                    nint value = 0;
+                    int nativeHResult = 0;
+                    ProGpuDirect2DStatus status =
+                        ProGpuDirect2DNative.SurfaceCreateTextLayout(
+                            _nativeSurface,
+                            textPointer,
+                            checked((uint)text.Length),
+                            textFormat.DangerousGetHandle(),
+                            maximumWidth,
+                            maximumHeight,
+                            &value,
+                            &nativeHResult);
+                    ThrowIfFailed(
+                        "IDWriteTextLayout4 creation",
+                        status,
+                        nativeHResult);
+                    return CreateRequiredComReference(
+                        value,
+                        ProGpuDirect2DInterfaceKind.DWriteTextLayout4,
+                        "IDWriteTextLayout4 creation");
+                }
+            }
+        }
+        finally
+        {
+            if (formatReferenceAdded)
+            {
+                textFormat.DangerousRelease();
+            }
+        }
+    }
+
     internal void SaveDrawingState(
         ProGpuDirect2DComReference drawingStateBlock) =>
         ApplyDrawingState(drawingStateBlock, restore: false);
@@ -1144,6 +1219,83 @@ public sealed unsafe class ProGpuDirect2DSurface :
             if (formatReferenceAdded)
             {
                 textFormat.DangerousRelease();
+            }
+        }
+    }
+
+    internal void DrawTextLayout(
+        Vector2 origin,
+        ProGpuDirect2DComReference textLayout,
+        ProGpuDirect2DComReference defaultFillBrush,
+        ProGpuDirect2DDrawTextOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(textLayout);
+        ArgumentNullException.ThrowIfNull(defaultFillBrush);
+        if (textLayout.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.DWriteTextLayout4)
+        {
+            throw new ArgumentException(
+                "The COM reference must own an IDWriteTextLayout4.",
+                nameof(textLayout));
+        }
+        if (!IsBrushKind(defaultFillBrush.InterfaceKind))
+        {
+            throw new ArgumentException(
+                "The COM reference must own a Direct2D brush.",
+                nameof(defaultFillBrush));
+        }
+        const ProGpuDirect2DDrawTextOptions knownOptions =
+            ProGpuDirect2DDrawTextOptions.NoSnap |
+            ProGpuDirect2DDrawTextOptions.Clip |
+            ProGpuDirect2DDrawTextOptions.EnableColorFont |
+            ProGpuDirect2DDrawTextOptions.DisableColorBitmapSnapping;
+        if (!float.IsFinite(origin.X) || !float.IsFinite(origin.Y))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(origin),
+                "Direct2D text-layout origin must be finite.");
+        }
+        if ((options & ~knownOptions) != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "Direct2D text-layout options contain an unknown value.");
+        }
+
+        bool layoutReferenceAdded = false;
+        bool brushReferenceAdded = false;
+        try
+        {
+            textLayout.DangerousAddRef(ref layoutReferenceAdded);
+            defaultFillBrush.DangerousAddRef(ref brushReferenceAdded);
+            lock (_gate)
+            {
+                ValidateTypedDrawingProducer();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.SurfaceDrawTextLayout(
+                        _nativeSurface,
+                        origin.X,
+                        origin.Y,
+                        textLayout.DangerousGetHandle(),
+                        defaultFillBrush.DangerousGetHandle(),
+                        options,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1RenderTarget DrawTextLayout",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (brushReferenceAdded)
+            {
+                defaultFillBrush.DangerousRelease();
+            }
+            if (layoutReferenceAdded)
+            {
+                textLayout.DangerousRelease();
             }
         }
     }
@@ -1974,6 +2126,39 @@ public sealed unsafe class ProGpuDirect2DSurface :
             ProGpuDirect2DInterfaceKind.DWriteTextFormat1,
             "Microsoft Win2D CanvasTextFormat native-resource query",
             out nativeTextFormat,
+            out nativeHResult);
+
+    /// <summary>
+    /// Wraps a provider-created IDWriteTextLayout4 as a genuine Microsoft
+    /// Win2D CanvasTextLayout in this surface's exact CanvasDevice domain.
+    /// </summary>
+    public bool TryAcquireMicrosoftWin2DTextLayout(
+        ProGpuDirect2DComReference nativeTextLayout,
+        out ProGpuDirect2DComReference? canvasTextLayout,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapper(
+            nativeTextLayout,
+            ProGpuDirect2DInterfaceKind.DWriteTextLayout4,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasTextLayout,
+            "Microsoft Win2D CanvasTextLayout wrapping",
+            out canvasTextLayout,
+            out nativeHResult);
+
+    /// <summary>
+    /// Reverse-unwraps a genuine Microsoft Win2D CanvasTextLayout and returns
+    /// its exact IDWriteTextLayout4 with one caller-owned COM reference.
+    /// </summary>
+    public bool TryAcquireMicrosoftWin2DNativeTextLayout(
+        ProGpuDirect2DComReference canvasTextLayout,
+        out ProGpuDirect2DComReference? nativeTextLayout,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapperNativeResource(
+            canvasTextLayout,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasTextLayout,
+            DWriteTextLayout4InterfaceId,
+            ProGpuDirect2DInterfaceKind.DWriteTextLayout4,
+            "Microsoft Win2D CanvasTextLayout native-resource query",
+            out nativeTextLayout,
             out nativeHResult);
 
     private ProGpuDirect2DComReference CreateGradientBrush(
@@ -3520,6 +3705,20 @@ public sealed class ProGpuDirect2DDrawingSession : IDisposable
             options,
             measuringMode);
 
+    public void DrawTextLayout(
+        Vector2 origin,
+        ProGpuDirect2DComReference textLayout,
+        ProGpuDirect2DComReference defaultFillBrush,
+        ProGpuDirect2DDrawTextOptions options =
+            ProGpuDirect2DDrawTextOptions.None) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .DrawTextLayout(
+            origin,
+            textLayout,
+            defaultFillBrush,
+            options);
+
     public void Dispose()
     {
         ProGpuDirect2DSurface? owner =
@@ -3612,6 +3811,20 @@ public sealed class ProGpuDirect2DCommandListDrawingSession : IDisposable
             defaultFillBrush,
             options,
             measuringMode);
+
+    public void DrawTextLayout(
+        Vector2 origin,
+        ProGpuDirect2DComReference textLayout,
+        ProGpuDirect2DComReference defaultFillBrush,
+        ProGpuDirect2DDrawTextOptions options =
+            ProGpuDirect2DDrawTextOptions.None) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .DrawTextLayout(
+            origin,
+            textLayout,
+            defaultFillBrush,
+            options);
 
     public void Dispose()
     {
