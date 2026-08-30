@@ -45,6 +45,9 @@ public sealed class CadSnapshotOptions
     public const int DefaultMaxMLineFillTriangles = 5_000_000;
     public const int DefaultMaxLeaderVerticesPerEntity = 65_536;
     public const int DefaultMaxLeaderControlPoints = 1_000_000;
+    public const int DefaultMaxMultiLeaderPaths = 1_000_000;
+    public const int DefaultMaxMultiLeaderVerticesPerPath = 65_536;
+    public const int DefaultMaxMultiLeaderControlPoints = 4_000_000;
 
     public double DefaultLineWeightMillimeters { get; init; } = 0.25;
     public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
@@ -92,6 +95,11 @@ public sealed class CadSnapshotOptions
         DefaultMaxLeaderVerticesPerEntity;
     public int MaxLeaderControlPoints { get; init; } =
         DefaultMaxLeaderControlPoints;
+    public int MaxMultiLeaderPaths { get; init; } = DefaultMaxMultiLeaderPaths;
+    public int MaxMultiLeaderVerticesPerPath { get; init; } =
+        DefaultMaxMultiLeaderVerticesPerPath;
+    public int MaxMultiLeaderControlPoints { get; init; } =
+        DefaultMaxMultiLeaderControlPoints;
 
     /// <summary>
     /// Selects whether snapshot entity order represents interactive
@@ -168,6 +176,7 @@ public sealed partial class CadSnapshotCompiler
         var mLineStrokes = new List<CadMLineStroke>();
         var mLineFillTriangles = new List<CadMLineFillTriangle>();
         var leaders = new List<CadLeaderPrimitive>();
+        var multiLeaders = new List<CadMultiLeaderPrimitive>();
         var points = new List<CadPointPrimitive>();
         var constructionLines = new List<CadConstructionLinePrimitive>();
         var wipeouts = new List<CadWipeoutPrimitive>();
@@ -216,6 +225,7 @@ public sealed partial class CadSnapshotCompiler
         var shxGlyphInstances = new List<CadShxGlyphInstance>();
         var shxShapes = new List<CadShxShapePrimitive>();
         int retainedLeaderControlPoints = 0;
+        int retainedMultiLeaderControlPoints = 0;
         var shxDecorationSegments = new List<CadShxDecorationSegment>();
         var polylineVertices = new List<CadPolylineVertex>();
         var polyline3DPoints = new List<CadPoint3D>();
@@ -311,6 +321,7 @@ public sealed partial class CadSnapshotCompiler
             mLineStrokes.ToArray(),
             mLineFillTriangles.ToArray(),
             leaders.ToArray(),
+            multiLeaders.ToArray(),
             points.ToArray(),
             constructionLines.ToArray(),
             wipeouts.ToArray(),
@@ -431,6 +442,18 @@ public sealed partial class CadSnapshotCompiler
                 {
                     CompileLeaderTree(
                         leader,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        depth);
+                    return;
+                }
+                if (entity is MultiLeader multiLeader)
+                {
+                    CompileMultiLeaderTree(
+                        multiLeader,
                         transform,
                         hasTransform,
                         rootHandle,
@@ -1135,6 +1158,433 @@ public sealed partial class CadSnapshotCompiler
             finally
             {
                 activeBlocks.Remove(arrow.Block);
+            }
+        }
+
+        void CompileMultiLeaderTree(
+            MultiLeader multiLeader,
+            CadAffineTransform3D parentTransform,
+            bool parentHasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle entityStyle,
+            int depth)
+        {
+            MultiLeaderObjectContextData context = multiLeader.ContextData;
+            if (multiLeader.EnableAnnotationScale)
+            {
+                throw new CadUnsupportedEntityException(
+                    "Annotative MULTILEADER requires a synchronized active annotation context; ACadSharp currently exposes only the unsynchronized embedded context.");
+            }
+            if (context.LeaderRoots.Any(root => root.BreakStartEndPointsPairs.Count != 0) ||
+                context.LeaderRoots.SelectMany(root => root.Lines).Any(line => line.StartEndPoints.Count != 0))
+            {
+                throw new CadUnsupportedEntityException(
+                    "MULTILEADER authored break intervals require phase-preserving path segmentation.");
+            }
+            if (multiLeader.BlockAttributes.Count != 0)
+            {
+                throw new CadUnsupportedEntityException(
+                    "MULTILEADER block attributes require synchronized attribute-value expansion.");
+            }
+            LeaderContentType contentType = multiLeader.PropertyOverrideFlags.HasFlag(
+                MultiLeaderPropertyOverrideFlags.ContentType)
+                ? multiLeader.ContentType
+                : multiLeader.Style.ContentType;
+            if (contentType == LeaderContentType.Tolerance)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"MULTILEADER {contentType} content lowering is not yet available.");
+            }
+            BlockRecord? contentBlock = null;
+            CadAffineTransform3D? contentBlockTransform = null;
+            CadResolvedStyle? contentBlockStyle = null;
+            if (contentType == LeaderContentType.Block)
+            {
+                CadAffineTransform3D localBlockTransform =
+                    CreateMultiLeaderBlockTransform(multiLeader, out BlockRecord resolvedBlock);
+                if (depth >= options.MaxBlockNestingDepth)
+                {
+                    throw new CadUnsupportedEntityException(
+                        $"MULTILEADER block-content nesting exceeds the configured depth of {options.MaxBlockNestingDepth}.");
+                }
+                if ((resolvedBlock.Flags &
+                        (BlockTypeFlags.XRef | BlockTypeFlags.XRefOverlay | BlockTypeFlags.XRefDependent)) != 0 ||
+                    resolvedBlock.BlockEntity.IsUnloaded)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "External-reference MULTILEADER block content requires an explicit resolved XRef snapshot.");
+                }
+                if (resolvedBlock.EvaluationGraph is not null)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "Dynamic MULTILEADER block content requires evaluation-state lowering before expansion.");
+                }
+                if (resolvedBlock.Entities.Count == 0)
+                {
+                    throw new CadUnsupportedEntityException(
+                        "MULTILEADER block content has an empty definition.");
+                }
+                if (activeBlocks.Contains(resolvedBlock))
+                {
+                    throw new CadUnsupportedEntityException(
+                        $"Recursive MULTILEADER block-content cycle detected at '{resolvedBlock.Name}'.");
+                }
+                ACadSharp.Color blockColor = context.BlockContentColor.IsByBlock
+                    ? entityStyle.Color
+                    : context.BlockContentColor.IsByLayer
+                        ? effectiveLayer.Color
+                        : context.BlockContentColor;
+                contentBlockStyle = entityStyle with
+                {
+                    Color = ResolveBackgroundAdaptiveColor(
+                        blockColor,
+                        options.DrawingBackgroundColor),
+                };
+                contentBlock = resolvedBlock;
+                contentBlockTransform = parentHasTransform
+                    ? parentTransform.Compose(localBlockTransform)
+                    : localBlockTransform;
+            }
+
+            int visibleLineCount = 0;
+            int doglegCount = 0;
+            bool enableLanding = multiLeader.PropertyOverrideFlags.HasFlag(
+                MultiLeaderPropertyOverrideFlags.EnableLanding)
+                ? multiLeader.EnableLanding
+                : multiLeader.Style.EnableLanding;
+            bool enableDogleg = multiLeader.PropertyOverrideFlags.HasFlag(
+                MultiLeaderPropertyOverrideFlags.EnableDogleg)
+                ? multiLeader.EnableDogleg
+                : multiLeader.Style.EnableDogleg;
+            foreach (MultiLeaderObjectContextData.LeaderRoot root in context.LeaderRoots)
+            {
+                foreach (MultiLeaderObjectContextData.LeaderLine line in root.Lines)
+                {
+                    CadMultiLeaderLineContract contract = ResolveMultiLeaderLineContract(
+                        multiLeader,
+                        line);
+                    if (contract.PathType != MultiLeaderPathType.Invisible)
+                    {
+                        visibleLineCount++;
+                    }
+                }
+                if (enableLanding && enableDogleg && root.Lines.Count != 0 &&
+                    root.Direction.GetLength() > LeaderVertexTolerance &&
+                    root.LandingDistance > LeaderVertexTolerance)
+                {
+                    doglegCount++;
+                }
+            }
+            int pathCount = checked(visibleLineCount + doglegCount);
+            if (pathCount == 0 && contentType == LeaderContentType.None)
+            {
+                throw new CadUnsupportedEntityException(
+                    "MULTILEADER contains no visible retained path or content.");
+            }
+            if (pathCount > options.MaxMultiLeaderPaths - multiLeaders.Count)
+            {
+                throw new CadUnsupportedEntityException(
+                    $"MULTILEADER retained paths exceed the configured document limit of {options.MaxMultiLeaderPaths}.");
+            }
+
+            CadPoint3D planeNormal = CadPoint3D.Cross(
+                ToPoint(context.BaseDirection),
+                ToPoint(context.BaseVertical));
+            if (planeNormal.Length <= LeaderVertexTolerance)
+            {
+                planeNormal = ToPoint(context.TextNormal);
+            }
+            if (planeNormal.Length <= LeaderVertexTolerance)
+            {
+                planeNormal = new CadPoint3D(0.0, 0.0, 1.0);
+            }
+
+            int entityStart = entities.Count;
+            int primitiveStart = multiLeaders.Count;
+            int splineStart = splines.Count;
+            int controlStart = splineControlPoints.Count;
+            int knotStart = splineKnots.Count;
+            int chargedBefore = retainedMultiLeaderControlPoints;
+            CadBounds3D boundsBefore = documentBounds;
+            var customArrows = new List<(CadLeaderArrowExpansion Arrow, CadResolvedStyle Style)>();
+            try
+            {
+                for (int rootIndex = 0; rootIndex < context.LeaderRoots.Count; rootIndex++)
+                {
+                    MultiLeaderObjectContextData.LeaderRoot root = context.LeaderRoots[rootIndex];
+                    CadResolvedStyle? rootStyle = null;
+                    int rootStyleIndex = -1;
+                    for (int lineIndex = 0; lineIndex < root.Lines.Count; lineIndex++)
+                    {
+                        MultiLeaderObjectContextData.LeaderLine line = root.Lines[lineIndex];
+                        CadMultiLeaderLineContract contract = ResolveMultiLeaderLineContract(
+                            multiLeader,
+                            line);
+                        if (contract.PathType == MultiLeaderPathType.Invisible)
+                        {
+                            continue;
+                        }
+                        if (line.Points.Count == 0)
+                        {
+                            throw new ArgumentException(
+                                "MULTILEADER visible leader line contains no vertices.");
+                        }
+                        var points = new CadPoint3D[line.Points.Count + 1];
+                        for (int index = 0; index < line.Points.Count; index++)
+                        {
+                            points[index] = ToPoint(line.Points[index]);
+                        }
+                        points[^1] = ToPoint(root.ConnectionPoint);
+                        if (points.Length >= 3 &&
+                            (points[^1] - points[^2]).Length <= LeaderVertexTolerance)
+                        {
+                            Array.Resize(ref points, points.Length - 1);
+                        }
+
+                        CadResolvedStyle lineStyle = ResolveMultiLeaderStyle(
+                            contract,
+                            effectiveLayer,
+                            entityStyle,
+                            options);
+                        int styleIndex = InternStyle(
+                            lineStyle,
+                            styles,
+                            styleIndices,
+                            lineTypePatterns,
+                            lineTypePatternIndices,
+                            lineTypeElements,
+                            lineTypeTextResources,
+                            lineTypeShapeResources,
+                            textGlyphRuns,
+                            textGlyphIndices,
+                            textGlyphPositions,
+                            textFonts,
+                            textFontIndices,
+                            shxGlyphInstances,
+                            shxFontResolver,
+                            options,
+                            drawingCodePage);
+                        int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
+                        CadMultiLeaderPathResult result = CompileMultiLeaderPath(
+                            points,
+                            planeNormal,
+                            rootHandle,
+                            parentTransform,
+                            parentHasTransform,
+                            layerIndex,
+                            styleIndex,
+                            contract,
+                            rootIndex,
+                            lineIndex,
+                            isDogleg: false,
+                            options,
+                            multiLeaders,
+                            splines,
+                            splineControlPoints,
+                            splineKnots,
+                            ref retainedMultiLeaderControlPoints);
+                        entities.Add(result.Header);
+                        documentBounds = documentBounds.Union(result.Header.Bounds);
+                        if (result.CustomArrow is CadLeaderArrowExpansion arrow)
+                        {
+                            customArrows.Add((arrow, lineStyle));
+                        }
+                        if (rootStyle is null)
+                        {
+                            rootStyle = lineStyle;
+                            rootStyleIndex = styleIndex;
+                        }
+                    }
+
+                    if (rootStyle is CadResolvedStyle doglegStyle &&
+                        enableLanding && enableDogleg &&
+                        root.Direction.GetLength() > LeaderVertexTolerance &&
+                        root.LandingDistance > LeaderVertexTolerance)
+                    {
+                        CadPoint3D connection = ToPoint(root.ConnectionPoint);
+                        CadPoint3D direction = ToPoint(root.Direction).Normalize();
+                        CadPoint3D end = connection + (direction * root.LandingDistance);
+                        CadMultiLeaderLineContract contract = ResolveMultiLeaderLineContract(
+                            multiLeader,
+                            root.Lines[0]);
+                        CadMultiLeaderPathResult result = CompileMultiLeaderPath(
+                            new[] { connection, end },
+                            planeNormal,
+                            rootHandle,
+                            parentTransform,
+                            parentHasTransform,
+                            InternLayer(effectiveLayer, layers, layerIndices),
+                            rootStyleIndex,
+                            contract with
+                            {
+                                PathType = MultiLeaderPathType.StraightLineSegments,
+                                ArrowBlock = null,
+                                ArrowSize = 0.0,
+                            },
+                            rootIndex,
+                            -1,
+                            isDogleg: true,
+                            options,
+                            multiLeaders,
+                            splines,
+                            splineControlPoints,
+                            splineKnots,
+                            ref retainedMultiLeaderControlPoints);
+                        entities.Add(result.Header);
+                        documentBounds = documentBounds.Union(result.Header.Bounds);
+                    }
+                }
+
+                if (contentType == LeaderContentType.MText)
+                {
+                    MText content = CreateMultiLeaderMText(multiLeader, entityStyle);
+                    CadResolvedStyle contentStyle = ResolveStyle(
+                        content,
+                        effectiveLayer,
+                        entityStyle,
+                        options,
+                        globalLineTypeScale);
+                    int contentStyleIndex = InternStyle(
+                        contentStyle,
+                        styles,
+                        styleIndices,
+                        lineTypePatterns,
+                        lineTypePatternIndices,
+                        lineTypeElements,
+                        lineTypeTextResources,
+                        lineTypeShapeResources,
+                        textGlyphRuns,
+                        textGlyphIndices,
+                        textGlyphPositions,
+                        textFonts,
+                        textFontIndices,
+                        shxGlyphInstances,
+                        shxFontResolver,
+                        options,
+                        drawingCodePage);
+                    CadEntityHeader contentHeader = CompileMText(
+                        content,
+                        rootHandle,
+                        parentTransform,
+                        parentHasTransform,
+                        InternLayer(effectiveLayer, layers, layerIndices),
+                        contentStyleIndex,
+                        contentStyle,
+                        effectiveLayer.Color,
+                        options,
+                        diagnostics,
+                        mtexts,
+                        mtextGlyphRuns,
+                        mtextBackgrounds,
+                        mtextDecorations,
+                        mtextStrokes,
+                        textGlyphIndices,
+                        textGlyphPositions,
+                        textFonts,
+                        textFontIndices,
+                        shxMTexts,
+                        shxMTextGlyphRuns,
+                        shxGlyphInstances,
+                        shxFontResolver,
+                        drawingCodePage);
+                    entities.Add(contentHeader);
+                    documentBounds = documentBounds.Union(contentHeader.Bounds);
+                }
+            }
+            catch
+            {
+                if (entities.Count > entityStart)
+                {
+                    entities.RemoveRange(entityStart, entities.Count - entityStart);
+                }
+                if (multiLeaders.Count > primitiveStart)
+                {
+                    multiLeaders.RemoveRange(primitiveStart, multiLeaders.Count - primitiveStart);
+                }
+                if (splines.Count > splineStart)
+                {
+                    splines.RemoveRange(splineStart, splines.Count - splineStart);
+                }
+                if (splineControlPoints.Count > controlStart)
+                {
+                    splineControlPoints.RemoveRange(controlStart, splineControlPoints.Count - controlStart);
+                }
+                if (splineKnots.Count > knotStart)
+                {
+                    splineKnots.RemoveRange(knotStart, splineKnots.Count - knotStart);
+                }
+                retainedMultiLeaderControlPoints = chargedBefore;
+                documentBounds = boundsBefore;
+                throw;
+            }
+
+            foreach ((CadLeaderArrowExpansion arrow, CadResolvedStyle arrowStyle) in customArrows)
+            {
+                if (depth >= options.MaxBlockNestingDepth ||
+                    (arrow.Block.Flags &
+                        (BlockTypeFlags.XRef | BlockTypeFlags.XRefOverlay | BlockTypeFlags.XRefDependent)) != 0 ||
+                    arrow.Block.BlockEntity.IsUnloaded ||
+                    arrow.Block.EvaluationGraph is not null ||
+                    arrow.Block.Entities.Count == 0 ||
+                    !activeBlocks.Add(arrow.Block))
+                {
+                    AddDiagnostic(
+                        diagnostics,
+                        options.DiagnosticLimit,
+                        new CadDiagnostic(
+                            CadDiagnosticSeverity.Information,
+                            "CADSNAP014",
+                            $"MULTILEADER custom arrow block '{arrow.Block.Name}' has no bounded acyclic static definition; the leader path remains retained."));
+                    continue;
+                }
+                try
+                {
+                    foreach (Entity child in GetOrderedEntities(arrow.Block))
+                    {
+                        CompileEntityTree(
+                            child,
+                            arrow.Transform,
+                            true,
+                            rootHandle,
+                            effectiveLayer,
+                            arrowStyle,
+                            depth + 1);
+                    }
+                }
+                finally
+                {
+                    activeBlocks.Remove(arrow.Block);
+                }
+            }
+
+            if (contentBlock is BlockRecord block &&
+                contentBlockTransform is CadAffineTransform3D blockTransform &&
+                contentBlockStyle is CadResolvedStyle blockStyle)
+            {
+                if (!activeBlocks.Add(block))
+                {
+                    throw new InvalidOperationException(
+                        $"Recursive MULTILEADER block-content cycle detected at '{block.Name}'.");
+                }
+                try
+                {
+                    foreach (Entity child in GetOrderedEntities(block))
+                    {
+                        CompileEntityTree(
+                            child,
+                            blockTransform,
+                            true,
+                            rootHandle,
+                            effectiveLayer,
+                            blockStyle,
+                            depth + 1);
+                    }
+                }
+                finally
+                {
+                    activeBlocks.Remove(block);
+                }
             }
         }
 
@@ -4932,6 +5382,9 @@ public sealed partial class CadSnapshotCompiler
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxMLineFillTriangles, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxLeaderVerticesPerEntity, 2);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxLeaderControlPoints, 4);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxMultiLeaderPaths, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxMultiLeaderVerticesPerPath, 2);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxMultiLeaderControlPoints, 4);
     }
 
     private static void AddDiagnostic(

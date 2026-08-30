@@ -36,3 +36,12 @@ and cross-engine research are recorded in
 The current classic LEADER slice, dependency association persistence, and its
 remaining visual-conformance gates are recorded in
 [PROGPU_CAD_LEADER_RESEARCH.md](PROGPU_CAD_LEADER_RESEARCH.md).
+
+The 2D row additionally includes non-annotative MULTILEADER multiple
+roots/branches, straight and spline paths, doglegs, per-line overrides,
+default/static custom arrows, embedded full-stack MTEXT/static block content,
+exact selection, shared managed/native/print replay, editing transforms, and
+DXF/DWG empty-content round trips. Authored breaks, annotative contexts,
+tolerance content, and attributed block content remain explicit fidelity gates;
+the evidence and design are recorded in
+[PROGPU_CAD_MULTILEADER_RESEARCH.md](PROGPU_CAD_MULTILEADER_RESEARCH.md).

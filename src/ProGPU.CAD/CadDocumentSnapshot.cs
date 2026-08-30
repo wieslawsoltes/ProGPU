@@ -30,6 +30,7 @@ public enum CadEntityKind : byte
     ModelerGeometry = 23,
     MLine = 24,
     Leader = 25,
+    MultiLeader = 26,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -189,6 +190,24 @@ public readonly record struct CadLeaderPrimitive(
     bool HasDefaultArrow,
     bool IsSplineFit,
     bool HasAssociatedAnnotation);
+
+/// <summary>
+/// One retained MULTILEADER branch or dogleg backed by the shared immutable
+/// spline streams. A source entity can produce several primitives with the same
+/// semantic handle. Per-branch style overrides are carried by each entity
+/// header, while default arrows are explicit and custom arrow blocks expand as
+/// ordinary snapshot entities.
+/// </summary>
+public readonly record struct CadMultiLeaderPrimitive(
+    int PathSplineIndex,
+    CadPoint3D ArrowTip,
+    CadPoint3D ArrowFirstBase,
+    CadPoint3D ArrowSecondBase,
+    bool HasDefaultArrow,
+    bool IsSplineFit,
+    bool IsDogleg,
+    int LeaderRootIndex,
+    int LeaderLineIndex);
 
 /// <summary>
 /// One POINT location plus the drawing-wide regenerated marker contract captured
@@ -677,6 +696,7 @@ public sealed class CadDocumentSnapshot
     private readonly CadMLineStroke[] _mLineStrokes;
     private readonly CadMLineFillTriangle[] _mLineFillTriangles;
     private readonly CadLeaderPrimitive[] _leaders;
+    private readonly CadMultiLeaderPrimitive[] _multiLeaders;
     private readonly CadPointPrimitive[] _points;
     private readonly CadConstructionLinePrimitive[] _constructionLines;
     private readonly CadWipeoutPrimitive[] _wipeouts;
@@ -770,6 +790,7 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadMLineStroke> MLineStrokes => _mLineStrokes;
     public ReadOnlyMemory<CadMLineFillTriangle> MLineFillTriangles => _mLineFillTriangles;
     public ReadOnlyMemory<CadLeaderPrimitive> Leaders => _leaders;
+    public ReadOnlyMemory<CadMultiLeaderPrimitive> MultiLeaders => _multiLeaders;
     public ReadOnlyMemory<CadPointPrimitive> Points => _points;
     public ReadOnlyMemory<CadConstructionLinePrimitive> ConstructionLines => _constructionLines;
     public ReadOnlyMemory<CadWipeoutPrimitive> Wipeouts => _wipeouts;
@@ -847,6 +868,7 @@ public sealed class CadDocumentSnapshot
         CadMLineStroke[] mLineStrokes,
         CadMLineFillTriangle[] mLineFillTriangles,
         CadLeaderPrimitive[] leaders,
+        CadMultiLeaderPrimitive[] multiLeaders,
         CadPointPrimitive[] points,
         CadConstructionLinePrimitive[] constructionLines,
         CadWipeoutPrimitive[] wipeouts,
@@ -921,6 +943,7 @@ public sealed class CadDocumentSnapshot
         _mLineStrokes = mLineStrokes;
         _mLineFillTriangles = mLineFillTriangles;
         _leaders = leaders;
+        _multiLeaders = multiLeaders;
         _points = points;
         _constructionLines = constructionLines;
         _wipeouts = wipeouts;

@@ -396,6 +396,14 @@ public sealed class CadPlanSceneCompiler
                         snapshot,
                         snapshot.Leaders.Span[entity.PrimitiveIndex]);
                 }
+                else if (entity.Kind == CadEntityKind.MultiLeader)
+                {
+                    RecordMultiLeaderArrow(
+                        context,
+                        pen.Brush,
+                        snapshot,
+                        snapshot.MultiLeaders.Span[entity.PrimitiveIndex]);
+                }
                 recorded++;
                 continue;
             }
@@ -452,6 +460,13 @@ public sealed class CadPlanSceneCompiler
                         pen,
                         snapshot,
                         snapshot.Leaders.Span[entity.PrimitiveIndex]);
+                    break;
+                case CadEntityKind.MultiLeader:
+                    RecordMultiLeader(
+                        context,
+                        pen,
+                        snapshot,
+                        snapshot.MultiLeaders.Span[entity.PrimitiveIndex]);
                     break;
                 case CadEntityKind.Circle:
                     RecordCircle(context, pen, snapshot.Circles.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
@@ -904,6 +919,43 @@ public sealed class CadPlanSceneCompiler
         Brush brush,
         CadDocumentSnapshot snapshot,
         in CadLeaderPrimitive leader)
+    {
+        if (!leader.HasDefaultArrow)
+        {
+            return;
+        }
+
+        var path = new PathGeometry { FillRule = FillRule.Nonzero };
+        var figure = new PathFigure(
+            Project(leader.ArrowTip, snapshot.RebaseOrigin),
+            isClosed: true);
+        figure.Segments.Add(new LineSegment(
+            Project(leader.ArrowFirstBase, snapshot.RebaseOrigin)));
+        figure.Segments.Add(new LineSegment(
+            Project(leader.ArrowSecondBase, snapshot.RebaseOrigin)));
+        path.Figures.Add(figure);
+        context.DrawPath(brush, null, path);
+    }
+
+    private static void RecordMultiLeader(
+        DrawingContext context,
+        Pen pen,
+        CadDocumentSnapshot snapshot,
+        in CadMultiLeaderPrimitive leader)
+    {
+        RecordSpline(
+            context,
+            pen,
+            snapshot,
+            snapshot.Splines.Span[leader.PathSplineIndex]);
+        RecordMultiLeaderArrow(context, pen.Brush, snapshot, leader);
+    }
+
+    private static void RecordMultiLeaderArrow(
+        DrawingContext context,
+        Brush brush,
+        CadDocumentSnapshot snapshot,
+        in CadMultiLeaderPrimitive leader)
     {
         if (!leader.HasDefaultArrow)
         {

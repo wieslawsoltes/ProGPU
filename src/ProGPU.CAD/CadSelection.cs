@@ -393,6 +393,11 @@ public static class CadSelectionHitTester
                 snapshot.Leaders.Span[header.PrimitiveIndex],
                 point,
                 tolerance),
+            CadEntityKind.MultiLeader => HitMultiLeaderPoint(
+                snapshot,
+                snapshot.MultiLeaders.Span[header.PrimitiveIndex],
+                point,
+                tolerance),
             CadEntityKind.Ray => HitConstructionLinePoint(
                 snapshot.ConstructionLines.Span[header.PrimitiveIndex],
                 point,
@@ -525,6 +530,12 @@ public static class CadSelectionHitTester
             CadEntityKind.Leader => HitLeaderBounds(
                 snapshot,
                 snapshot.Leaders.Span[header.PrimitiveIndex],
+                header.Bounds,
+                bounds,
+                mode),
+            CadEntityKind.MultiLeader => HitMultiLeaderBounds(
+                snapshot,
+                snapshot.MultiLeaders.Span[header.PrimitiveIndex],
                 header.Bounds,
                 bounds,
                 mode),
@@ -801,6 +812,78 @@ public static class CadSelectionHitTester
             return path.IsSupported ? BoundsMiss() : path;
         }
 
+        if (!path.IsSupported)
+        {
+            return path;
+        }
+        return path.IsHit && arrowHit ? BoundsHit() : BoundsMiss();
+    }
+
+    private static CadPointHitResult HitMultiLeaderPoint(
+        CadDocumentSnapshot snapshot,
+        in CadMultiLeaderPrimitive leader,
+        CadPoint3D point,
+        double tolerance)
+    {
+        CadPointHitResult path = CadSplineSelection.HitTestPoint(
+            snapshot,
+            snapshot.Splines.Span[leader.PathSplineIndex],
+            point,
+            tolerance);
+        if (!leader.HasDefaultArrow)
+        {
+            return path;
+        }
+
+        double arrowDistance = DistanceToTriangle(
+            point,
+            leader.ArrowTip,
+            leader.ArrowFirstBase,
+            leader.ArrowSecondBase);
+        if (arrowDistance <= tolerance)
+        {
+            return FromDistance(arrowDistance, tolerance);
+        }
+        return path.IsSupported
+            ? FromDistance(Math.Min(path.Distance, arrowDistance), tolerance)
+            : path;
+    }
+
+    private static CadBoundsHitResult HitMultiLeaderBounds(
+        CadDocumentSnapshot snapshot,
+        in CadMultiLeaderPrimitive leader,
+        CadBounds3D controlBounds,
+        CadBounds3D selectionBounds,
+        CadBoundsSelectionMode mode)
+    {
+        CadBoundsHitResult path = CadSplineSelection.HitTestBounds(
+            snapshot,
+            snapshot.Splines.Span[leader.PathSplineIndex],
+            controlBounds,
+            selectionBounds,
+            mode);
+        if (!leader.HasDefaultArrow)
+        {
+            return path;
+        }
+
+        bool arrowHit = mode == CadBoundsSelectionMode.Window
+            ? ContainsPoint(selectionBounds, leader.ArrowTip) &&
+                ContainsPoint(selectionBounds, leader.ArrowFirstBase) &&
+                ContainsPoint(selectionBounds, leader.ArrowSecondBase)
+            : TriangleIntersectsBounds(
+                leader.ArrowTip,
+                leader.ArrowFirstBase,
+                leader.ArrowSecondBase,
+                selectionBounds);
+        if (mode == CadBoundsSelectionMode.Crossing)
+        {
+            if (path.IsHit || arrowHit)
+            {
+                return BoundsHit();
+            }
+            return path.IsSupported ? BoundsMiss() : path;
+        }
         if (!path.IsSupported)
         {
             return path;
