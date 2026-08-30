@@ -18,8 +18,10 @@ public sealed class CadPlanSceneOptions
     public float PhysicalDpi { get; init; } = 96.0f;
     public float LineWeightScale { get; init; } = 1.0f;
     public bool IncludeNonPlottableLayers { get; init; } = true;
+    public bool IncludeViewportFrames { get; init; } = true;
     public bool ReportDeferredConstructionGeometry { get; init; } = true;
     public bool ReportDeferredPointMarkers { get; init; } = true;
+    public IReadOnlyCollection<string>? ExcludedLayerNames { get; init; }
     public int MaxLineTypeFigures { get; init; } = DefaultMaxLineTypeFigures;
     public int MaxLineTypePatternSteps { get; init; } = DefaultMaxLineTypePatternSteps;
     public int MaxLineTypeSourceSegments { get; init; } = DefaultMaxLineTypeSourceSegments;
@@ -190,6 +192,11 @@ public sealed class CadPlanSceneCompiler
         ReadOnlySpan<CadLayerSnapshot> layers = snapshot.Layers.Span;
         ReadOnlySpan<CadStrokeStyle> styles = snapshot.Styles.Span;
         ReadOnlySpan<CadLineTypePattern> lineTypePatterns = snapshot.LineTypePatterns.Span;
+        HashSet<string>? excludedLayerNames = options.ExcludedLayerNames is { Count: > 0 }
+            ? new HashSet<string>(
+                options.ExcludedLayerNames,
+                StringComparer.OrdinalIgnoreCase)
+            : null;
         ICadRasterImageSourceResolver? rasterImageResolver =
             options.RasterImageSourceResolver is CadRasterImageCatalog catalog
                 ? catalog.CreateResolverSnapshot()
@@ -240,6 +247,19 @@ public sealed class CadPlanSceneCompiler
                 !layers[entity.LayerIndex].IsPlottable)
             {
                 continue;
+            }
+            if (excludedLayerNames?.Contains(layers[entity.LayerIndex].Name) == true)
+            {
+                continue;
+            }
+            if (entity.Kind == CadEntityKind.Viewport)
+            {
+                CadViewportPrimitive viewport =
+                    snapshot.Viewports.Span[entity.PrimitiveIndex];
+                if (viewport.RepresentsPaper || !options.IncludeViewportFrames)
+                {
+                    continue;
+                }
             }
             if (entity.Kind is CadEntityKind.Ray or CadEntityKind.XLine)
             {
@@ -474,6 +494,13 @@ public sealed class CadPlanSceneCompiler
                         pen,
                         snapshot,
                         snapshot.Tolerances.Span[entity.PrimitiveIndex]);
+                    break;
+                case CadEntityKind.Viewport:
+                    RecordViewportFrame(
+                        context,
+                        pen,
+                        snapshot.Viewports.Span[entity.PrimitiveIndex],
+                        snapshot.RebaseOrigin);
                     break;
                 case CadEntityKind.Circle:
                     RecordCircle(context, pen, snapshot.Circles.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
@@ -2612,6 +2639,24 @@ public sealed class CadPlanSceneCompiler
 
     private static bool UsesStroke(CadEntityKind kind) =>
         kind is not (CadEntityKind.Point or CadEntityKind.Solid or CadEntityKind.Hatch or CadEntityKind.Wipeout or CadEntityKind.RasterImage or CadEntityKind.Text or CadEntityKind.ShxText or CadEntityKind.MText or CadEntityKind.ShxMText or CadEntityKind.ShxShape);
+
+    private static void RecordViewportFrame(
+        DrawingContext context,
+        Pen pen,
+        in CadViewportPrimitive viewport,
+        CadPoint3D rebaseOrigin)
+    {
+        double x = viewport.Center.X - (viewport.Width * 0.5) - rebaseOrigin.X;
+        double y = viewport.Center.Y - (viewport.Height * 0.5) - rebaseOrigin.Y;
+        context.DrawRectangle(
+            null,
+            pen,
+            new Rect(
+                ToFloat(x),
+                ToFloat(y),
+                ToFloat(viewport.Width),
+                ToFloat(viewport.Height)));
+    }
 
     private static void ValidateOptions(CadPlanSceneOptions options)
     {

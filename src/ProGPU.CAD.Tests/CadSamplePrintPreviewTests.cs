@@ -213,14 +213,14 @@ public sealed class CadSamplePrintPreviewTests
             selector.SelectedItem = selector.Items
                 .OfType<ComboBoxItem>()
                 .Single(item => item.Text.Contains(
-                    "unsupported CADPAGE101",
+                    "unsupported CADPAGE119",
                     StringComparison.Ordinal));
 
             Assert.Equal(Visibility.Visible, view.Canvas.Visibility);
             Assert.False(view.PrintPreview.HasPage);
             Assert.Contains(
                 DescendantsAndSelf(view).OfType<TextBlock>(),
-                text => text.Text.Contains("CADPAGE101", StringComparison.Ordinal));
+                text => text.Text.Contains("CADPAGE119", StringComparison.Ordinal));
 
             selector.SelectedItem = selector.Items
                 .OfType<ComboBoxItem>()

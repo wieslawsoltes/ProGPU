@@ -299,6 +299,15 @@ internal static class CadLineTypeLowerer
                 maxFigures,
                 maxPatternSteps,
                 maxPlacements),
+            CadEntityKind.Viewport => LowerViewportFrame(
+                snapshot.Viewports.Span[entity.PrimitiveIndex],
+                snapshot.RebaseOrigin,
+                elements,
+                pattern.PatternLength,
+                style.LineTypeScale,
+                maxFigures,
+                maxPatternSteps,
+                maxPlacements),
             _ => new CadLineTypeLoweringResult(
                 CadLineTypeLoweringStatus.UnsupportedEntity,
                 null,
@@ -578,6 +587,7 @@ internal static class CadLineTypeLowerer
                 snapshot.RasterImages.Span[entity.PrimitiveIndex].IsClipped
                     ? snapshot.RasterImages.Span[entity.PrimitiveIndex].ClipPointCount
                     : 4,
+            CadEntityKind.Viewport => 4,
             _ => 0,
         };
 
@@ -1227,6 +1237,71 @@ internal static class CadLineTypeLowerer
                 ArrayPool<MeasuredSegment>.Shared.Return(rented);
             }
         }
+    }
+
+    private static CadLineTypeLoweringResult LowerViewportFrame(
+        in CadViewportPrimitive viewport,
+        CadPoint3D rebaseOrigin,
+        ReadOnlySpan<CadLineTypeElement> elements,
+        double patternLength,
+        double scale,
+        int maxFigures,
+        int maxPatternSteps,
+        int maxPlacements)
+    {
+        double halfWidth = viewport.Width * 0.5;
+        double halfHeight = viewport.Height * 0.5;
+        Span<Vector2> points = stackalloc Vector2[4]
+        {
+            Project(
+                new CadPoint3D(
+                    viewport.Center.X - halfWidth,
+                    viewport.Center.Y - halfHeight,
+                    viewport.Center.Z),
+                rebaseOrigin),
+            Project(
+                new CadPoint3D(
+                    viewport.Center.X + halfWidth,
+                    viewport.Center.Y - halfHeight,
+                    viewport.Center.Z),
+                rebaseOrigin),
+            Project(
+                new CadPoint3D(
+                    viewport.Center.X + halfWidth,
+                    viewport.Center.Y + halfHeight,
+                    viewport.Center.Z),
+                rebaseOrigin),
+            Project(
+                new CadPoint3D(
+                    viewport.Center.X - halfWidth,
+                    viewport.Center.Y + halfHeight,
+                    viewport.Center.Z),
+                rebaseOrigin),
+        };
+        Span<MeasuredSegment> segments = stackalloc MeasuredSegment[4];
+        double pathOffset = 0.0;
+        for (int i = 0; i < segments.Length; i++)
+        {
+            Vector2 start = points[i];
+            Vector2 end = points[(i + 1) % points.Length];
+            double length = (i & 1) == 0 ? viewport.Width : viewport.Height;
+            var segment = MeasuredSegment.Line(start, end, length);
+            segments[i] = segment with { PathOffset = pathOffset };
+            pathOffset += segment.Length;
+        }
+
+        return LowerMeasuredPath(
+            segments,
+            ReadOnlySpan<double>.Empty,
+            isClosed: true,
+            resetAtEverySegment: false,
+            elements,
+            patternLength,
+            scale,
+            maxFigures,
+            maxPatternSteps,
+            maxPlacements,
+            Matrix4x4.Identity);
     }
 
     /// <remarks>

@@ -254,7 +254,7 @@ public readonly record struct CadViewportPrimitive(
     ulong BoundaryHandle,
     bool RepresentsPaper)
 {
-    public bool IsOn => ActiveStatus != 0;
+    public bool IsOn => ActiveStatus > 0 && (StatusFlags & 131_072U) == 0;
 
     public bool IsPerspective => (StatusFlags & 1U) != 0;
 
@@ -262,7 +262,8 @@ public readonly record struct CadViewportPrimitive(
 
     public bool HasBackClip => (StatusFlags & 4U) != 0;
 
-    public bool HasNonRectangularBoundary => BoundaryHandle != 0;
+    public bool HasNonRectangularBoundary =>
+        BoundaryHandle != 0 || (StatusFlags & 65_536U) != 0;
 }
 
 public readonly record struct CadViewportFrozenLayer(string Name);

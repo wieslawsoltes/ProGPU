@@ -2719,9 +2719,11 @@ transparency, raster quality, font substitution, and paper-space ordering. It
 must reuse analytic vector and shaped-text resources and produce deterministic
 preview/output from the same compiled print plan.
 
-The first model-space print-plan foundation is implemented by
-`CadPageSetupCatalogCompiler`, `CadPageSetupPrintOptionsCompiler`, and
-`CadPrintPlanCompiler`:
+The model-space print-plan foundation and first rectangular paper-layout slice
+are implemented by `CadPageSetupCatalogCompiler`,
+`CadPageSetupPrintOptionsCompiler`, `CadPrintPlanCompiler`,
+`CadLayoutSnapshotCompiler`, `CadLayoutSceneCompiler`, and
+`CadLayoutPrintPlanCompiler`:
 
 - every layout and standalone named page setup is copied synchronously with its
   matching document generation. Setup count, individual/total UTF-16 ownership,
@@ -2734,7 +2736,7 @@ The first model-space print-plan foundation is implemented by
   current custom scale, standard-scale selection/factor, lineweight/style flags,
   and shade mode/resolution/DPI. Retention is not a claim that every policy is
   already renderable;
-- exact lowering presently requires model space, a defined 0/90/180/270-degree
+- exact model lowering presently requires model space, a defined 0/90/180/270-degree
   page rotation, inch or millimeter paper units, drawing extents, explicit wireframe, enabled and
   unscaled object lineweights, and no applied nonempty CTB/STB style sheet.
   Standard scale code zero selects Fit; otherwise the source's current custom
@@ -2744,9 +2746,24 @@ The first model-space print-plan foundation is implemented by
 - Window is deliberately rejected even though its raw rectangle is retained:
   Autodesk defines the stored coordinates in display coordinate system (DCS),
   while the current print plan accepts an explicit WCS window. Display, named
-  view, Limits, paper-space/Layout viewports, pixel paper units,
+  view, Limits, pixel paper units,
   hidden/shaded/as-displayed output, disabled/scaled lineweights, and applied
   plot styles likewise return specific diagnostics rather than an approximation;
+- one session capture now owns model and selected paper snapshots at the same
+  generation. Rectangular active orthographic WCS-top VIEWPORTs retain DCS
+  center, WCS target/direction, twist, scale, status, render policy, boundary,
+  and case-insensitive frozen-layer names. Each unique frozen-layer set compiles
+  one shared model picture; occurrences record only a paper rectangle clip and
+  affine picture replay. Paper objects and viewport content honor the persisted
+  DrawViewportsFirst policy, while viewport frames use the existing exact
+  closed-path linetype lowering and remain independently controlled for plot;
+- paper-layout lowering requires PlotType Layout and explicit millimeter 1:1
+  scale. It maps paper `(0,0)` to the printable lower-left plus plot origin,
+  preserves the existing rotated-media convention, fixed output-DPI
+  lineweights, and one clipped retained page replay. Perspective, arbitrary
+  orthographic direction, depth clipping, hidden/rendered modes,
+  non-rectangular boundaries, scaled/centered layout output, and device image
+  origin fail closed with typed diagnostics;
 - the pinned ACadSharp page-setup surface does not expose Autodesk's separate
   Plot Transparency option. Generation-matched lowering therefore rejects a
   snapshot containing any non-opaque retained style (`CADPAGE118`) instead of
@@ -2942,10 +2959,11 @@ commands with no semantic-document access or retained upload after the compiled
 scene cache is warm. A content-generation replacement exits and releases a stale
 preview instead of presenting the old page.
 
-Catalog extraction, model-space page rotation, and applying a compatible named
-setup to a layout are now implemented, but this foundation does not claim
-layout/paper-space viewport lowering, DCS camera/view lowering, page-setup
-creation/editing/import, CTB/STB overrides, shaded-viewport policies,
+Catalog extraction, model-space page rotation, rectangular WCS-top paper-space
+viewport lowering, and applying a compatible named setup to a layout are now
+implemented, but this foundation does not claim arbitrary-camera DCS lowering,
+non-rectangular/depth-aware viewports, page-setup creation/editing/import,
+CTB/STB overrides, shaded-viewport policies,
 transparency flattening, PDF/SVG, raster encoding, printer
 enumeration/spooling, or multi-page collation. Those remain explicit typed
 compilers/adapters and conformance gates; unsupported features are not silently

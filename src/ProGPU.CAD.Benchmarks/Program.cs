@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.Header;
 using ACadSharp.Objects;
@@ -9,6 +10,19 @@ using CSMath;
 using ProGPU.CAD;
 using ProGPU.Fonts.Inter;
 using ProGPU.Text;
+
+int viewportCount = ReadNonNegativeInt("--viewports", 0);
+if (viewportCount != 0)
+{
+    RunViewportBenchmark(
+        viewportCount,
+        ReadPositiveInt("--viewport-layer-variants", 4),
+        ReadPositiveInt("--entities", 10_000),
+        ReadNonNegativeInt("--warmup", 3),
+        ReadPositiveInt("--iterations", 24),
+        ReadString("--output-json"));
+    return;
+}
 
 int entityCount = ReadNonNegativeInt("--entities", 10_000);
 bool freezeAlternatingEntityLayers = HasFlag("--alternating-frozen-layers");
@@ -499,6 +513,160 @@ Console.WriteLine(json);
 if (outputPath is not null)
 {
     File.WriteAllText(outputPath, json);
+}
+
+void RunViewportBenchmark(
+    int measuredViewportCount,
+    int layerVariantCount,
+    int modelEntityCount,
+    int warmups,
+    int iterations,
+    string? reportPath)
+{
+    CadDocumentSession viewportSession = CadDocumentSession.CreateNew();
+    viewportSession.Edit("Build VIEWPORT benchmark document", document =>
+    {
+        var layers = new Layer[layerVariantCount];
+        for (int i = 0; i < layers.Length; i++)
+        {
+            layers[i] = new Layer($"VIEWPORT_VARIANT_{i}");
+            document.Layers.Add(layers[i]);
+        }
+        for (int i = 0; i < modelEntityCount; i++)
+        {
+            double x = (i % 1_000) * 12.0;
+            double y = (i / 1_000) * 12.0;
+            document.Entities.Add(new Line(
+                new XYZ(x, y, 0.0),
+                new XYZ(x + 10.0, y + 5.0, 0.0))
+            {
+                Layer = layers[i % layers.Length],
+            });
+        }
+
+        Layout layout = document.Layouts[Layout.PaperLayoutName];
+        layout.Flags = PlotFlags.DrawViewportsFirst |
+            PlotFlags.PrintLineweights |
+            PlotFlags.UseStandardScale;
+        layout.PaperWidth = 1_000;
+        layout.PaperHeight = Math.Max(1_000, measuredViewportCount / 4.0);
+        layout.UnprintableMargin = new PaperMargin(5, 5, 5, 5);
+        layout.PaperUnits = PlotPaperUnits.Millimeters;
+        layout.PlotType = PlotType.LayoutInformation;
+        layout.ScaledFit = ScaledType._16;
+        layout.StandardScale = 1.0;
+        layout.ShadePlotMode = ShadePlotMode.Wireframe;
+        layout.StyleSheet = string.Empty;
+        layout.UpdatePaperViewport();
+        for (int i = 0; i < measuredViewportCount; i++)
+        {
+            var viewport = new Viewport
+            {
+                Center = new XYZ(
+                    25.0 + ((i % 20) * 48.0),
+                    20.0 + ((i / 20) * 36.0),
+                    0.0),
+                Width = 44.0,
+                Height = 32.0,
+                ViewCenter = new XY((i % 100) * 12.0, (i / 100) * 12.0),
+                ViewDirection = XYZ.AxisZ,
+                ViewHeight = 100.0,
+                ActiveStatus = 1,
+                RenderMode = RenderMode.Optimized2D,
+                ShadePlotMode = ShadePlotMode.Wireframe,
+            };
+            viewport.FrozenLayers.Add(layers[i % layers.Length]);
+            layout.AddViewport(viewport);
+        }
+    });
+
+    var viewportSnapshotCompiler = new CadLayoutSnapshotCompiler();
+    var viewportSceneCompiler = new CadLayoutSceneCompiler();
+    var viewportPrintCompiler = new CadLayoutPrintPlanCompiler();
+    var viewportPageCatalogCompiler = new CadPageSetupCatalogCompiler();
+    var viewportSnapshotOptions = new CadSnapshotOptions
+    {
+        DrawOrderPurpose = CadDrawOrderPurpose.Plotting,
+    };
+    var viewportPrintOptions = new CadPageSetupPrintOptionsCompilerOptions
+    {
+        OutputDpi = 96.0f,
+        MaxPagePixelCount = 1_000_000_000,
+    };
+    CadPageSetupSnapshot viewportPageSetup = viewportPageCatalogCompiler
+        .Compile(viewportSession)
+        .FindLayout(Layout.PaperLayoutName)!;
+
+    for (int i = 0; i < warmups; i++)
+    {
+        CadLayoutSnapshot warmSnapshot = viewportSnapshotCompiler.Compile(
+            viewportSession,
+            Layout.PaperLayoutName,
+            viewportSnapshotOptions);
+        using CadRecordedLayoutScene warmScene =
+            viewportSceneCompiler.Compile(warmSnapshot);
+        using CadPrintPlan warmPlan = viewportPrintCompiler.Compile(
+            warmSnapshot,
+            viewportPageSetup,
+            viewportPrintOptions);
+    }
+
+    Measurement layoutSnapshotMeasurement = Measure(
+        "layout-snapshot",
+        iterations,
+        () => viewportSnapshotCompiler.Compile(
+            viewportSession,
+            Layout.PaperLayoutName,
+            viewportSnapshotOptions));
+    CadLayoutSnapshot retainedSnapshot = viewportSnapshotCompiler.Compile(
+        viewportSession,
+        Layout.PaperLayoutName,
+        viewportSnapshotOptions);
+    Measurement layoutSceneMeasurement = Measure(
+        "layout-scene",
+        iterations,
+        () => viewportSceneCompiler.Compile(retainedSnapshot));
+    using CadRecordedLayoutScene retainedLayoutScene =
+        viewportSceneCompiler.Compile(retainedSnapshot);
+    Measurement layoutPrintMeasurement = Measure(
+        "layout-print-plan",
+        iterations,
+        () => viewportPrintCompiler.Compile(
+            retainedSnapshot,
+            viewportPageSetup,
+            viewportPrintOptions));
+    Measurement layoutPictureCloneMeasurement = Measure(
+        "layout-picture-clone",
+        iterations,
+        () => retainedLayoutScene.CreatePicture());
+
+    var viewportReport = new
+    {
+        CapturedAt = DateTimeOffset.UtcNow,
+        OperatingSystem = Environment.OSVersion.ToString(),
+        Runtime = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
+        ViewportCount = measuredViewportCount,
+        LayerVariantCount = layerVariantCount,
+        ModelEntityCount = modelEntityCount,
+        WarmupCount = warmups,
+        IterationCount = iterations,
+        ModelSnapshotStatistics = retainedSnapshot.ModelSpace.Statistics,
+        PaperSnapshotStatistics = retainedSnapshot.PaperSpace.Statistics,
+        LayoutSceneStatistics = retainedLayoutScene.Statistics,
+        LayoutSnapshotMilliseconds = layoutSnapshotMeasurement,
+        LayoutSceneMilliseconds = layoutSceneMeasurement,
+        LayoutPrintPlanMilliseconds = layoutPrintMeasurement,
+        LayoutPictureCloneMilliseconds = layoutPictureCloneMeasurement,
+        WorkingSetBytes = Process.GetCurrentProcess().WorkingSet64,
+    };
+    string viewportJson = JsonSerializer.Serialize(
+        viewportReport,
+        new JsonSerializerOptions { WriteIndented = true });
+    Console.WriteLine(viewportJson);
+    if (reportPath is not null)
+    {
+        File.WriteAllText(reportPath, viewportJson);
+    }
 }
 
 void ValidateRequestedEntities(CadDocumentSnapshot source)

@@ -820,13 +820,26 @@ public sealed class CadSampleCanvas : FrameworkElement
                 "Print-preview DPI must be finite and positive.");
         }
 
-        CadPageSetupPrintOptionsResult lowering =
-            new CadPageSetupPrintOptionsCompiler().Compile(
+        var compilerOptions = new CadPageSetupPrintOptionsCompilerOptions
+        {
+            OutputDpi = outputDpi,
+        };
+        if (pageSetup.TargetSpace == CadPageTargetSpace.Paper)
+        {
+            CadDocumentSession session = CurrentSession ??
+                throw new InvalidOperationException("No CAD document is loaded.");
+            CadLayoutSnapshot layoutSnapshot = new CadLayoutSnapshotCompiler().Compile(
+                session,
+                pageSetup.Name,
+                CreatePlottingSnapshotOptions());
+            return new CadLayoutPrintPlanCompiler().Compile(
+                layoutSnapshot,
                 pageSetup,
-                new CadPageSetupPrintOptionsCompilerOptions
-                {
-                    OutputDpi = outputDpi,
-                });
+                compilerOptions);
+        }
+
+        CadPageSetupPrintOptionsResult lowering =
+            new CadPageSetupPrintOptionsCompiler().Compile(pageSetup, compilerOptions);
         return new CadPrintPlanCompiler().CompileFromPageSetup(
             CreatePlottingSnapshot(),
             lowering);
@@ -836,20 +849,21 @@ public sealed class CadSampleCanvas : FrameworkElement
     {
         CadDocumentSession session = CurrentSession ??
             throw new InvalidOperationException("No CAD document is loaded.");
-        return new CadSnapshotCompiler().Compile(
-            session,
-            new CadSnapshotOptions
-            {
-                TextFontResolver = new CadFontManagerTextResolver(
-                    InterFontFamily.Regular),
-                ShxFontResolver = ShxFonts,
-                DrawOrderPurpose = CadDrawOrderPurpose.Plotting,
-                DrawingBackgroundColor = new CadColor32(
-                    byte.MaxValue,
-                    byte.MaxValue,
-                    byte.MaxValue),
-            });
+        return new CadSnapshotCompiler().Compile(session, CreatePlottingSnapshotOptions());
     }
+
+    private CadSnapshotOptions CreatePlottingSnapshotOptions() =>
+        new()
+        {
+            TextFontResolver = new CadFontManagerTextResolver(
+                InterFontFamily.Regular),
+            ShxFontResolver = ShxFonts,
+            DrawOrderPurpose = CadDrawOrderPurpose.Plotting,
+            DrawingBackgroundColor = new CadColor32(
+                byte.MaxValue,
+                byte.MaxValue,
+                byte.MaxValue),
+        };
 
     /// <summary>Moves all selected semantic model-space entities as one edit.</summary>
     public bool TranslateSelection(CadPoint3D translation)

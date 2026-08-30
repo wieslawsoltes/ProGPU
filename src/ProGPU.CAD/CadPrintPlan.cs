@@ -382,7 +382,7 @@ public sealed class CadPrintPlanCompiler
             diagnostics);
     }
 
-    private static CadPrintPixelSize CreatePageSize(CadPrintPlanOptions options)
+    internal static CadPrintPixelSize CreatePageSize(CadPrintPlanOptions options)
     {
         int width = MillimetersToPixels(options.PaperWidthMillimeters, options.OutputDpi);
         int height = MillimetersToPixels(options.PaperHeightMillimeters, options.OutputDpi);
@@ -403,7 +403,7 @@ public sealed class CadPrintPlanCompiler
             : new CadPrintPixelSize(width, height);
     }
 
-    private static CadPrintPixelRect CreatePlacementArea(
+    internal static CadPrintPixelRect CreatePlacementArea(
         CadPrintPlanOptions options,
         CadPrintPixelSize pageSize)
     {
@@ -429,7 +429,7 @@ public sealed class CadPrintPlanCompiler
         return new CadPrintPixelRect(left, top, width, height);
     }
 
-    private static CadPrintPixelRect CreatePrintableArea(
+    internal static CadPrintPixelRect CreatePrintableArea(
         CadPrintPixelRect placementArea,
         CadPrintPixelSize pageSize,
         bool upsideDown)
@@ -572,7 +572,7 @@ public sealed class CadPrintPlanCompiler
             (float)translationX, (float)translationY, 0, 1);
     }
 
-    private static Matrix4x4 CreateUpsideDownTransform(CadPrintPixelSize pageSize) =>
+    internal static Matrix4x4 CreateUpsideDownTransform(CadPrintPixelSize pageSize) =>
         new(
             -1, 0, 0, 0,
             0, -1, 0, 0,
@@ -583,7 +583,7 @@ public sealed class CadPrintPlanCompiler
         rotation is CadPageRotation.CounterClockwise90 or
             CadPageRotation.CounterClockwise270;
 
-    private static bool IsUpsideDown(CadPageRotation rotation) =>
+    internal static bool IsUpsideDown(CadPageRotation rotation) =>
         rotation is CadPageRotation.Degrees180 or
             CadPageRotation.CounterClockwise270;
 
@@ -600,7 +600,7 @@ public sealed class CadPrintPlanCompiler
         return checked((int)Math.Round(pixels, MidpointRounding.AwayFromZero));
     }
 
-    private static void ValidateOptions(CadPrintPlanOptions options)
+    internal static void ValidateOptions(CadPrintPlanOptions options)
     {
         if (!IsFinitePositive(options.PaperWidthMillimeters) ||
             !IsFinitePositive(options.PaperHeightMillimeters))

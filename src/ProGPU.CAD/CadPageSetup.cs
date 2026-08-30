@@ -601,7 +601,8 @@ public sealed class CadPageSetupPrintOptionsResult
 }
 
 /// <summary>
-/// Lowers a fidelity-complete model-space page setup into retained print options.
+/// Lowers a fidelity-complete model-space setup or the supported millimeter
+/// 1:1 paper-layout setup into retained print options.
 /// </summary>
 public sealed class CadPageSetupPrintOptionsCompiler
 {
@@ -618,12 +619,13 @@ public sealed class CadPageSetupPrintOptionsCompiler
         ValidateOptions(options);
 
         var diagnostics = new List<CadDiagnostic>(8);
-        if (pageSetup.TargetSpace != CadPageTargetSpace.Model)
+        bool isPaperLayout = pageSetup.TargetSpace == CadPageTargetSpace.Paper;
+        if (pageSetup.TargetSpace is not (CadPageTargetSpace.Model or CadPageTargetSpace.Paper))
         {
             AddError(
                 diagnostics,
                 "CADPAGE101",
-                "Paper-space layouts require paper geometry and viewport compilation before they can be plotted.");
+                "The page setup contains an unknown target-space value.");
         }
 
         if (pageSetup.Rotation == CadPageRotation.Unknown)
@@ -642,7 +644,14 @@ public sealed class CadPageSetupPrintOptionsCompiler
                 "Pixel or unknown paper units require a raster-device scale contract.");
         }
 
-        switch (pageSetup.PlotArea)
+        if (isPaperLayout && pageSetup.PlotArea != CadPlotAreaKind.Layout)
+        {
+            AddError(
+                diagnostics,
+                "CADPAGE119",
+                "The retained paper-space print contract currently requires PlotType Layout.");
+        }
+        else switch (pageSetup.PlotArea)
         {
             case CadPlotAreaKind.Extents:
                 break;
@@ -671,10 +680,13 @@ public sealed class CadPageSetupPrintOptionsCompiler
                     "Named-view plotting requires typed view-table and DCS camera lowering.");
                 break;
             case CadPlotAreaKind.Layout:
-                AddError(
-                    diagnostics,
-                    "CADPAGE108",
-                    "Layout plotting requires paper-space entity and viewport compilation.");
+                if (!isPaperLayout)
+                {
+                    AddError(
+                        diagnostics,
+                        "CADPAGE108",
+                        "Model-space output cannot use the paper-layout plot area.");
+                }
                 break;
             default:
                 AddError(
@@ -724,7 +736,36 @@ public sealed class CadPageSetupPrintOptionsCompiler
 
         CadPrintScaleMode scaleMode = CadPrintScaleMode.FitToPrintableArea;
         double modelUnitsPerMillimeter = 1.0;
-        if (!(pageSetup.UseStandardScale && pageSetup.StandardScaleCode == 0))
+        if (isPaperLayout)
+        {
+            bool isOneToOne = pageSetup.PaperUnit == CadPageUnit.Millimeters &&
+                (pageSetup.UseStandardScale
+                    ? pageSetup.StandardScaleCode == 16 &&
+                        Math.Abs(pageSetup.StandardScaleFactor - 1.0) <= 1e-12
+                    : double.IsFinite(pageSetup.PaperUnitsNumerator) &&
+                        pageSetup.PaperUnitsNumerator > 0.0 &&
+                        double.IsFinite(pageSetup.DrawingUnitsDenominator) &&
+                        pageSetup.DrawingUnitsDenominator > 0.0 &&
+                        Math.Abs(
+                            pageSetup.PaperUnitsNumerator -
+                            pageSetup.DrawingUnitsDenominator) <= 1e-12);
+            if (!isOneToOne)
+            {
+                AddError(
+                    diagnostics,
+                    "CADPAGE120",
+                    "Paper-space layout output currently requires an explicit millimeter 1:1 plot scale.");
+            }
+            if (pageSetup.CenterPlot)
+            {
+                AddError(
+                    diagnostics,
+                    "CADPAGE121",
+                    "Centered paper-layout plotting requires a separate device-origin contract.");
+            }
+            scaleMode = CadPrintScaleMode.ModelUnitsPerMillimeter;
+        }
+        else if (!(pageSetup.UseStandardScale && pageSetup.StandardScaleCode == 0))
         {
             if (pageSetup.UseStandardScale &&
                 pageSetup.StandardScaleCode is < 1 or > 32)

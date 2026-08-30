@@ -1,0 +1,175 @@
+# ProGPU.CAD paper-space VIEWPORT research
+
+Date: 2026-08-30
+
+## Scope and clean-room boundary
+
+This checkpoint implements a bounded first paper-space output slice: one atomic
+model/paper snapshot generation, rectangular active floating `VIEWPORT`
+entities, orthographic WCS top views, DCS panning, view twist, viewport scale,
+per-viewport frozen layers, viewport-border linetypes, paper/model draw order,
+managed/native retained replay, and millimeter 1:1 `PlotType Layout` printing.
+
+The implementation is clean-room. No third-party renderer source was copied,
+ported, translated, or used as an implementation template. Autodesk's public
+DXF/ObjectARX contracts define the observable coordinate, clipping, ordering,
+and page behavior. ProGPU's existing original snapshot, analytic linetype,
+picture, clip, affine replay, native-picture, and print-plan implementations are
+the only implementation sources reused directly.
+
+## Primary CAD contracts consulted
+
+- Autodesk's [`VIEWPORT` DXF contract](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-DXF/files/GUID-2602B0FB-02E4-4B9A-B03C-B1D904753D34.htm)
+  defines paper center/width/height, active status, DCS view center, WCS view
+  direction/target, model view height, twist, frozen layers, clipping flags,
+  render mode, and the non-rectangular boundary reference. It also defines the
+  paper/model scale as viewport paper height divided by model view height.
+- Autodesk's [coordinate-system contract](https://help.autodesk.com/cloudhelp/2022/ENU/OARX-DevGuide/files/GUID-01A45BA0-CC4F-4DCA-840E-DCA8802A060A.htm)
+  defines the DCS origin as the WCS target and its Z axis as the view direction;
+  a viewport is a plan view of that DCS.
+- Autodesk's [.NET current-view example](https://help.autodesk.com/cloudhelp/2027/DEU/OARX-DevGuide-Managed/files/GUID-FAC1A5EB-2D9E-497B-8FD9-E11D2FF87B93.htm)
+  constructs the DCS plane at the target, applies negative view twist on the
+  DCS-to-WCS path, and inverts it for WCS-to-DCS. This establishes positive
+  twist in ProGPU's WCS-to-DCS row-vector transform.
+- Autodesk's [`PLOTSETTINGS` DXF contract](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-DXF/files/GUID-1113675E-AB07-4567-801A-310CDE0D56E9.htm)
+  defines physical media and margins in millimeters, plot origin, paper units,
+  rotation, standard/custom scale, viewport-border and draw-order flags, and
+  `Layout` as plot type 5.
+- ObjectARX's [`plotType` contract](https://help.autodesk.com/cloudhelp/2019/ENU/OARX-RefGuide/files/OREF-AcDbPlotSettings__plotType.html)
+  specifies that `kLayout` prints paper from paper-space `(0,0)` to the
+  configured printable upper-right corner when no origin offset is applied.
+- ObjectARX's [plot-settings method contract](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-__MEMBERTYPE_Methods_AcDbPlotSettings.html)
+  states that `DrawViewportsFirst=true` means floating model viewports are
+  drawn first and paper-space objects last, and that viewport borders are a
+  separate plot policy.
+
+## Cross-engine architecture audit
+
+The required rendering and text stacks were checked before design:
+
+- Skia's [`SkCanvas` contract](https://api.skia.org/classSkCanvas.html) exposes
+  retained picture replay under matrices plus rectangular/path clips. ProGPU
+  adopts the retained-picture/transform/clip composition, not Skia source.
+- Direct2D's [axis-aligned clip contract](https://learn.microsoft.com/en-us/windows/win32/direct2d/how-to-clip-with-axis-aligned-rects)
+  uses push, draw, pop for efficient rectangular clipping. Direct2D and
+  DirectWrite's [interoperation model](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite)
+  keeps vector resources and shaped text reusable.
+- Win2D's [command-list guidance](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/quick-start)
+  records reusable drawing work once and replays it later.
+- WebRender's [display-list design](https://github.com/servo/servo/wiki/Design/a88683ec289b53b9f50242d4c27fcc22ddb76039)
+  separates reusable display items from spatial transform and clip nodes so a
+  view change does not require document layout.
+- Vello's [`Scene` contract](https://docs.rs/vello/latest/vello/struct.Scene.html)
+  applies explicit transforms to clips and retains clipped scene work until a
+  matching pop.
+- [Parley](https://github.com/linebender/parley) retains CPU text layout, while
+  HarfBuzz's [shaping concepts](https://harfbuzz.github.io/shaping-concepts.html)
+  keep Unicode/OpenType shaping independent of drawing replay. No viewport
+  operation reshapes paper or model text.
+
+Adopted: immutable display content, explicit affine and clip nodes, reusable
+shaped text, and physical fixed-width strokes. Adapted: each unique
+case-insensitive frozen-layer set owns one retained model picture shared by all
+matching viewports. Rejected: per-viewport model snapshot duplication,
+per-frame document traversal, raster flattening, native-only camera lowering,
+unclipped replay, and approximating unsupported 3D or non-rectangular modes.
+
+## Atomic snapshot and transform contract
+
+`CadLayoutSnapshotCompiler` holds one `CadDocumentSession.Capture` lock while
+compiling model space and the selected paper block. Both child snapshots,
+layout name, and all viewport/frozen-layer state therefore own one generation.
+Capture is `O(M + P)` time and storage for expanded model and paper primitives.
+Viewport and frozen-layer counts are bounded before proportional storage.
+
+For a model-local retained point `l`, model and paper rebase origins `Rm` and
+`Rp`, WCS target `T`, DCS center `C`, twist `a`, paper center `V`, paper height
+`Hp`, and model view height `Hm`, the implemented row-vector mapping is:
+
+```text
+d = rotateZ(+a) * ((l + Rm) - T) - C
+p = (Hp / Hm) * d + V - Rp
+```
+
+The viewport rectangle is clipped in paper-local coordinates. Its aspect ratio
+defines visible model width implicitly, exactly as `Hp/Hm` plus the paper
+width/height ratio. Final paper output adds the paper rebase, maps one paper
+unit to one millimeter, flips Y into page coordinates, applies plot origin and
+the existing rotated-media convention, and clips to the printable area.
+
+## Retention, frozen layers, ordering, and linetypes
+
+`CadLayoutSceneCompiler` compiles one paper scene and one model scene per unique
+frozen-layer set. Viewports with the same set share the same `GpuPicture` by
+identity; every occurrence records only push-clip, transformed-picture, and
+pop-clip commands. Paper commands are appended after viewport content when
+`DrawViewportsFirst` is set and before it otherwise. Paper viewport ID 1 never
+draws model content or a user viewport frame. Inactive/off viewports keep their
+paper frame but emit no model replay. `PlotViewportBorders` independently
+controls whether frames enter the print picture.
+
+Viewport frames participate in the existing exact A-aligned linetype lowering
+as a closed four-segment path. Pattern distance uses double paper width/height,
+while retained endpoints remain rebased floats. Per-viewport frozen layers are
+matched case-insensitively against effective immutable layer names before scene
+recording; no entity or cache is mutated.
+
+For `V` active viewports, `E` model entities, `P` paper entities, and `U` unique
+frozen-layer sets, compilation is `O(U*E + P + V)` time and retained storage.
+Camera-only replay is `O(Pc + V)` retained commands, where `Pc` is the paper
+command count, with no ACadSharp traversal, reshape, raster upload, or
+managed/native boundary call.
+
+## Printing, managed/native parity, and measured evidence
+
+`CadLayoutPrintPlanCompiler` accepts only a generation- and name-matched paper
+layout setup. This slice requires millimeter 1:1 scale, `PlotType Layout`, a
+defined rotation, explicit wireframe output, enabled unscaled lineweights, no
+nonempty CTB/STB sheet, no centered-layout policy, and opaque retained styles.
+Other page/setup policies return the existing or new `CADPAGE` diagnostics.
+The page picture remains one printable clip and one transformed layout replay.
+
+The layout picture contains only existing ProGPU commands. Managed replay and
+`GpuPictureNativeSceneCompiler` consume the same nested pictures, clips,
+transforms, paths, glyphs, images, and fixed strokes. No C ABI, shader, GPU
+algorithm, resource wire record, or per-frame P/Invoke changed, so a separate
+native implementation is not applicable; native flattening is covered by a
+focused regression.
+
+The Release benchmark lane used 10,000 model lines, 1,000 active viewports,
+four frozen-layer variants, three warmups, and 24 measured iterations on macOS
+26.6 arm64 with .NET 10.0.5. Millisecond `p50/p95/p99` was
+`13.455/34.041/37.984` for atomic layout snapshot capture,
+`83.435/148.571/156.207` for retained layout-scene compilation, and
+`123.183/211.972/220.303` for the physical print plan. An independently owned
+layout-picture clone measured `0.000/0.007/0.999` ms and 112 managed bytes per
+clone. The retained scene contained 4,000 top-level commands and four shared
+model variants; stable compositor replay does not clone and retains its
+existing zero-allocation contract. The exact command was:
+
+```text
+dotnet run --project src/ProGPU.CAD.Benchmarks/ProGPU.CAD.Benchmarks.csproj -c Release --no-build -- --viewports 1000 --viewport-layer-variants 4 --entities 10000 --warmup 3 --iterations 24 --output-json artifacts/progpu-cad-viewport-benchmark.json
+```
+
+This is a baseline, not an improvement claim. No macOS Instruments optimization
+claim is made because this checkpoint establishes new behavior rather than
+claiming a memory/CPU/GPU speedup.
+
+## Explicit remaining fidelity gates
+
+- Arbitrary orthographic directions, bottom views, perspective, front/back
+  depth clipping, hidden-line removal, rendered/shaded output, and visual-style
+  overrides require the depth-aware 3D scene and matched image tests.
+- Non-rectangular viewport boundaries require exact referenced-boundary
+  resolution and path clipping. Unresolved/malformed boundary references must
+  remain fail-closed.
+- Viewport layer overrides beyond frozen membership, annotative scale,
+  paper-space UCS, named views, pixel media, non-1:1/centered layout plotting,
+  CTB/STB, transparency policy, and device `PaperImageOrigin` need typed
+  contracts and differentials.
+- Construction-line and nonzero-PDMODE POINT overlays fail with `CADVIEW007`
+  and `CADVIEW008`; they need per-viewport camera regeneration before support.
+- Licensed AutoCAD pixel differentials across twist/target/view-center,
+  overlapping viewport order, asymmetric margins/rotations, DXF/DWG versions,
+  malformed/fuzz inputs, browser AOT, and device-loss/residency remain before
+  declaring paper-space rendering verified.
