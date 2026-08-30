@@ -63,6 +63,7 @@ public sealed class CadSampleView : Grid
     private readonly ComboBox _objectSnapSelector;
     private readonly CheckBox _planGridSnapCheckBox;
     private readonly CheckBox _planGridDisplayCheckBox;
+    private readonly CheckBox _planGridDotsCheckBox;
     private readonly TextBox _planGridUnitXInput;
     private readonly TextBox _planGridUnitYInput;
     private readonly CheckBox _planGridAdaptiveCheckBox;
@@ -215,6 +216,8 @@ public sealed class CadSampleView : Grid
     public CheckBox PlanGridSnapCheckBox => _planGridSnapCheckBox;
 
     public CheckBox PlanGridDisplayCheckBox => _planGridDisplayCheckBox;
+
+    public CheckBox PlanGridDotsCheckBox => _planGridDotsCheckBox;
 
     public TextBox PlanGridUnitXInput => _planGridUnitXInput;
 
@@ -772,6 +775,10 @@ public sealed class CadSampleView : Grid
         });
         _planGridDisplayCheckBox = CreateAttributeModeCheckBox("Visible", font);
         draftingGridActions.AddChild(_planGridDisplayCheckBox);
+        _planGridDotsCheckBox = CreateAttributeModeCheckBox(
+            "Dots (GRIDSTYLE)",
+            font);
+        draftingGridActions.AddChild(_planGridDotsCheckBox);
         draftingGridActions.AddChild(new TextBlock
         {
             Text = "GRIDUNIT X",
@@ -1850,6 +1857,11 @@ public sealed class CadSampleView : Grid
                 _planGridSnapCheckBox.IsChecked;
         _planGridDisplayCheckBox.CheckedChanged += (_, _) =>
             UpdatePlanGridDisplayEditControls();
+        _planGridDotsCheckBox.CheckedChanged += (_, _) =>
+            _canvas.PlanGridPresentationStyle =
+                _planGridDotsCheckBox.IsChecked
+                    ? CadPlanGridPresentationStyle.Dots
+                    : CadPlanGridPresentationStyle.Lines;
         _planGridAdaptiveCheckBox.CheckedChanged += (_, _) =>
             UpdatePlanGridDisplayEditControls();
         _planGridSubdivisionCheckBox.CheckedChanged += (_, _) =>
@@ -5201,6 +5213,7 @@ public sealed class CadSampleView : Grid
             _canvas.CurrentSnapshot is not null &&
             _canvas.PlanGridDisplaySettings.IsSupported;
         _planGridDisplayCheckBox.IsEnabled = canEditPlanGridDisplay;
+        _planGridDotsCheckBox.IsEnabled = canEditPlanGridDisplay;
         _planGridUnitXInput.IsEnabled = canEditPlanGridDisplay;
         _planGridUnitYInput.IsEnabled = canEditPlanGridDisplay;
         _planGridAdaptiveCheckBox.IsEnabled = canEditPlanGridDisplay;

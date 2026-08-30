@@ -4414,6 +4414,48 @@ public class DrawingContext :
         });
     }
 
+    /// <summary>
+    /// Records an affine rectangular line grid as one analytic quad. Minor and
+    /// emphasized major lines retain fixed physical-framebuffer widths under
+    /// rotation, anisotropic scale, and shear.
+    /// </summary>
+    public void DrawDeviceLineGrid(
+        Brush brush,
+        Rect bounds,
+        Vector2 spacing,
+        float minorLineWidth,
+        int minorLinesPerMajorLine,
+        Matrix4x4 transform = default)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        if (!float.IsFinite(spacing.X) || spacing.X <= 0f ||
+            !float.IsFinite(spacing.Y) || spacing.Y <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(spacing));
+        }
+        if (!float.IsFinite(minorLineWidth) || minorLineWidth <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(minorLineWidth));
+        }
+        if (minorLinesPerMajorLine is < 1 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(minorLinesPerMajorLine));
+        }
+
+        Commands.Add(new RenderCommand
+        {
+            // Keep one stable semantic/native primitive. RadiusY == 0 denotes
+            // dots; a positive integral RadiusY carries the major-line cadence.
+            Type = RenderCommandType.DrawDeviceDotGrid,
+            Brush = brush,
+            Rect = bounds,
+            Position2 = spacing,
+            RadiusX = minorLineWidth,
+            RadiusY = minorLinesPerMajorLine,
+            Transform = transform
+        });
+    }
+
     public void DrawRoundedRectangle(Brush? brush, Pen? pen, Rect rect, float radius)
     {
         DrawRoundedRectangle(brush, pen, rect, radius, radius);

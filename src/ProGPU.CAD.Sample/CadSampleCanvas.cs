@@ -176,6 +176,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         CadPlanGridSnapSettings.Disabled;
     private CadPlanGridDisplaySettings _planGridDisplaySettings =
         CadPlanGridDisplaySettings.Hidden;
+    private CadPlanGridPresentationStyle _planGridPresentationStyle =
+        CadPlanGridPresentationStyle.Lines;
     private CadPlanPolarTrackingSettings _planPolarTrackingSettings =
         CadPlanPolarTrackingSettings.Disabled;
     private CadObjectSnapModes _objectSnapModes = CadObjectSnapModes.Standard;
@@ -304,6 +306,28 @@ public sealed class CadSampleCanvas : FrameworkElement
     /// <summary>The active viewport's immutable drafting-grid display.</summary>
     public CadPlanGridDisplaySettings PlanGridDisplaySettings =>
         _planGridDisplaySettings;
+
+    /// <summary>
+    /// Gets or sets the host-level model-space grid style. AutoCAD stores the
+    /// equivalent GRIDSTYLE bit in its profile registry rather than DXF/DWG.
+    /// </summary>
+    public CadPlanGridPresentationStyle PlanGridPresentationStyle
+    {
+        get => _planGridPresentationStyle;
+        set
+        {
+            if (!Enum.IsDefined(value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            if (_planGridPresentationStyle == value)
+            {
+                return;
+            }
+            _planGridPresentationStyle = value;
+            Invalidate();
+        }
+    }
 
     /// <summary>
     /// Returns the active VPORT's exact persisted GRIDMODE, GRIDUNIT,
@@ -788,12 +812,25 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             context.PushClip(plan.ScreenClip);
         }
-        context.DrawDeviceDotGrid(
-            _gridBrush,
-            plan.LocalBounds,
-            plan.Spacing,
-            0.75f,
-            plan.Transform);
+        if (_planGridPresentationStyle == CadPlanGridPresentationStyle.Dots)
+        {
+            context.DrawDeviceDotGrid(
+                _gridBrush,
+                plan.LocalBounds,
+                plan.Spacing,
+                0.75f,
+                plan.Transform);
+        }
+        else
+        {
+            context.DrawDeviceLineGrid(
+                _gridBrush,
+                plan.LocalBounds,
+                plan.Spacing,
+                1.0f,
+                plan.MinorLinesPerMajorLine,
+                plan.Transform);
+        }
         if (hasNarrowClip)
         {
             context.PopClip();

@@ -77,6 +77,7 @@ public sealed class CadPlanGridDisplayTests
         Assert.True(CadPlanGridDisplayPlan.TryCreate(settings, viewport, out var plan));
 
         Assert.Equal(new Vector2(25.0f, 50.0f), plan.Spacing);
+        Assert.Equal(5, plan.MinorLinesPerMajorLine);
         Vector2 transformedOrigin = Vector2.Transform(Vector2.Zero, plan.Transform);
         Vector2 expectedOrigin = viewport.WorldToScreen(settings.Origin);
         AssertVector(expectedOrigin, transformedOrigin, 0.0001f);
@@ -189,7 +190,18 @@ public sealed class CadPlanGridDisplayTests
                 .ToArray();
             Assert.Equal(2, draws.Length);
             Assert.Equal(RenderCommandType.DrawDeviceDotGrid, draws[0].Type);
+            Assert.Equal(1.0f, draws[0].RadiusX);
+            Assert.Equal(5.0f, draws[0].RadiusY);
             Assert.Equal(RenderCommandType.DrawPicture, draws[1].Type);
+
+            canvas.PlanGridPresentationStyle = CadPlanGridPresentationStyle.Dots;
+            var dottedContext = new DrawingContext();
+            canvas.OnRender(dottedContext);
+            RenderCommand dotted = Assert.Single(
+                dottedContext.Commands,
+                command => command.Type == RenderCommandType.DrawDeviceDotGrid);
+            Assert.Equal(0.75f, dotted.RadiusX);
+            Assert.Equal(0.0f, dotted.RadiusY);
         }
         finally
         {
@@ -348,6 +360,22 @@ public sealed class CadPlanGridDisplayTests
             Assert.False(view.PlanGridSubdivisionCheckBox.IsChecked);
             Assert.True(view.PlanGridBeyondLimitsCheckBox.IsChecked);
             Assert.Equal("5", view.PlanGridMajorInput.Text);
+            Assert.False(view.PlanGridDotsCheckBox.IsChecked);
+            Assert.Equal(
+                CadPlanGridPresentationStyle.Lines,
+                view.Canvas.PlanGridPresentationStyle);
+
+            ulong generationBeforeStyleChange = session.ContentGeneration;
+            view.PlanGridDotsCheckBox.IsChecked = true;
+            Assert.Equal(
+                CadPlanGridPresentationStyle.Dots,
+                view.Canvas.PlanGridPresentationStyle);
+            Assert.Equal(generationBeforeStyleChange, session.ContentGeneration);
+            view.PlanGridDotsCheckBox.IsChecked = false;
+            Assert.Equal(
+                CadPlanGridPresentationStyle.Lines,
+                view.Canvas.PlanGridPresentationStyle);
+            Assert.Equal(generationBeforeStyleChange, session.ContentGeneration);
 
             view.PlanGridDisplayCheckBox.IsChecked = false;
             view.PlanGridUnitXInput.Text = "0";

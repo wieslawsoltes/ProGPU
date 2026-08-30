@@ -21,6 +21,14 @@ path. This is a SkiaSharp front-end storage change: the managed and native scene
 compilers receive the same expanded commands, so no one-sided renderer change
 is required.
 
+The shared ProGPU.CAD plan grid now defaults to AutoCAD's lined model-space
+GRIDSTYLE and exposes a shared desktop/browser Dots toggle. Autodesk documents
+GRIDSTYLE as registry-backed host state, so the toggle intentionally changes no
+DXF/DWG value or document generation. Minor lines remain one physical pixel and
+every persisted GRIDMAJOR line is two physical pixels under affine rotation,
+anisotropic scale, and shear. Dots and lines use the same one-quad canonical
+managed/native shader path with no new ABI record or per-lattice upload.
+
 The ProGPU.CAD continuation also adds atomic multi-source populated-layer merge.
 The shared desktop/browser shell queues generation-stamped source layers and
 commits them to one explicit target as one history generation; Undo restores

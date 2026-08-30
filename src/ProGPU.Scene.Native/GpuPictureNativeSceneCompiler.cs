@@ -3080,11 +3080,15 @@ public static partial class GpuPictureNativeSceneCompiler
         out NativePictureCompileError error)
     {
         error = NativePictureCompileError.None;
+        bool isLineGrid = command.RadiusY > 0f;
         if (command.Brush is null ||
             !IsFiniteRect(command.Rect) || command.Rect.IsEmpty ||
             !float.IsFinite(command.Position2.X) || command.Position2.X <= 0f ||
             !float.IsFinite(command.Position2.Y) || command.Position2.Y <= 0f ||
-            !float.IsFinite(command.RadiusX) || command.RadiusX <= 0f)
+            !float.IsFinite(command.RadiusX) || command.RadiusX <= 0f ||
+            !float.IsFinite(command.RadiusY) || command.RadiusY < 0f ||
+            (isLineGrid && (command.RadiusY > 100f ||
+                command.RadiusY != MathF.Round(command.RadiusY))))
         {
             error = NativePictureCompileError.InvalidGeometry;
             return false;
@@ -3101,7 +3105,9 @@ public static partial class GpuPictureNativeSceneCompiler
             new Vector2(command.Rect.Width, command.Rect.Height),
             Vector4.One,
             transform,
-            p2: Vector2.Zero,
+            p2: isLineGrid
+                ? new Vector2(1f, command.RadiusY)
+                : Vector2.Zero,
             p3: command.Position2,
             strokeThickness: command.RadiusX,
             flags: command.IsEdgeAliased

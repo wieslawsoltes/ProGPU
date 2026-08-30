@@ -1535,6 +1535,31 @@ void geometry_batch_encodes_periodic_dot_grid_as_one_quad() {
     PROGPU_REQUIRE(nearly_equal(vertices[0].corner_radius, 0.875F));
     PROGPU_REQUIRE(nearly_equal(vertices[0].stroke_thickness, 0.0F));
     PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 25.0F));
+
+    auto line_grid = device_grid;
+    line_grid.p2 = {1.0F, 7.0F};
+    line_grid.stroke_thickness = 1.25F;
+    vertices.clear();
+    indices.clear();
+    PROGPU_REQUIRE(progpu::native::append_geometry_primitive(
+        line_grid,
+        4.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.size() == 4U && indices.size() == 6U);
+    PROGPU_REQUIRE(nearly_equal(vertices[0].corner_radius, -1.25F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].stroke_thickness, 7.0F));
+    PROGPU_REQUIRE(nearly_equal(vertices[0].shape_type, 25.0F));
+
+    line_grid.p2.y = 101.0F;
+    vertices.clear();
+    indices.clear();
+    PROGPU_REQUIRE(!progpu::native::append_geometry_primitive(
+        line_grid,
+        4.0F,
+        vertices,
+        indices));
+    PROGPU_REQUIRE(vertices.empty() && indices.empty());
 }
 
 void semantic_point_batch_compiles_compact_retained_points() {

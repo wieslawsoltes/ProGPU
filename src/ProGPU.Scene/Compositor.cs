@@ -11859,10 +11859,14 @@ SceneStateUploadComplete:
 
     private void CompileDeviceDotGridCommand(RenderCommand cmd, Matrix4x4 transform)
     {
+        bool isLineGrid = cmd.RadiusY > 0f;
         if (cmd.Brush == null || !IsFiniteRect(cmd.Rect) || cmd.Rect.IsEmpty ||
             !float.IsFinite(cmd.Position2.X) || cmd.Position2.X <= 0f ||
             !float.IsFinite(cmd.Position2.Y) || cmd.Position2.Y <= 0f ||
             !float.IsFinite(cmd.RadiusX) || cmd.RadiusX <= 0f ||
+            !float.IsFinite(cmd.RadiusY) || cmd.RadiusY < 0f ||
+            (isLineGrid && (cmd.RadiusY > 100f ||
+                cmd.RadiusY != MathF.Round(cmd.RadiusY))) ||
             !IsFiniteInvertibleAffine2D(transform))
         {
             return;
@@ -11884,18 +11888,23 @@ SceneStateUploadComplete:
         CollectionsMarshal.SetCount(_vectorVerticesList, vertexStart + 4);
         Span<VectorVertex> vertices = CollectionsMarshal.AsSpan(
             _vectorVerticesList).Slice(vertexStart, 4);
+        float encodedRadiusOrWidth = isLineGrid ? -cmd.RadiusX : cmd.RadiusX;
         vertices[0] = new VectorVertex(
             Vector2.Transform(local0, transform), brushColor, local0,
-            brushIndex, cmd.Position2, cmd.RadiusX, 0f, shapeType);
+            brushIndex, cmd.Position2, encodedRadiusOrWidth, cmd.RadiusY,
+            shapeType);
         vertices[1] = new VectorVertex(
             Vector2.Transform(local1, transform), brushColor, local1,
-            brushIndex, cmd.Position2, cmd.RadiusX, 0f, shapeType);
+            brushIndex, cmd.Position2, encodedRadiusOrWidth, cmd.RadiusY,
+            shapeType);
         vertices[2] = new VectorVertex(
             Vector2.Transform(local2, transform), brushColor, local2,
-            brushIndex, cmd.Position2, cmd.RadiusX, 0f, shapeType);
+            brushIndex, cmd.Position2, encodedRadiusOrWidth, cmd.RadiusY,
+            shapeType);
         vertices[3] = new VectorVertex(
             Vector2.Transform(local3, transform), brushColor, local3,
-            brushIndex, cmd.Position2, cmd.RadiusX, 0f, shapeType);
+            brushIndex, cmd.Position2, encodedRadiusOrWidth, cmd.RadiusY,
+            shapeType);
 
         int indexStart = _vectorIndicesList.Count;
         CollectionsMarshal.SetCount(_vectorIndicesList, indexStart + 6);

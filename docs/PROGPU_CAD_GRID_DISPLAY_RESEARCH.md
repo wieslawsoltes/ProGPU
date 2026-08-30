@@ -10,9 +10,11 @@ snap, adapts density during zoom, honors drawing-limit clipping, and renders all
 visible dots through one retained affine GPU primitive. The follow-up slice adds
 generation-safe persisted editing for rectangular GRIDMODE, GRIDUNIT,
 GRIDDISPLAY bits 1/2/4, and GRIDMAJOR through the shared shell. It does not
-approximate isometric mode, infer an unavailable GRIDSTYLE value, render
-line-style major lines, edit dynamic-UCS following, or add arbitrary-camera
-grid-plane projection.
+approximate isometric mode, edit dynamic-UCS following, or add arbitrary-camera
+grid-plane projection. The next rendering slice adds the registry-backed
+model-space GRIDSTYLE choice as typed host presentation state, defaults to the
+documented lined grid, and emphasizes every persisted GRIDMAJOR line without
+pretending that the host preference is a DXF/DWG field.
 
 The implementation was designed clean-room from public behavior and format
 contracts:
@@ -29,6 +31,9 @@ contracts:
   as below-base subdivision when adaptive display is active.
 - Autodesk's [GRIDMAJOR reference](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-94C8162E-B852-469D-B434-5BB822B0215C.htm)
   defines a valid major cadence of 1 through 100 and an initial value of 5.
+- Autodesk's [GRIDSTYLE reference](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Core/files/GUID-30FC52C7-A734-43EE-A08D-96717A4B4959.htm)
+  defines model-space bit 1 as dots, zero as lines, and—critically—stores the
+  setting in the application registry rather than the drawing.
 - Autodesk's [GRIDUNIT reference](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-6E37252F-77E5-4266-8759-AAD5E5577F1C.htm)
   defines rectangular X/Y viewport spacing and the exact `0,0` inheritance from
   the current snap spacing.
@@ -89,6 +94,23 @@ fixed O(9) per covered fragment, private storage is O(1), texture samples are
 unchanged, and grid density creates no CPU vertices, uploads, cache entries, or
 draw calls.
 
+`DrawingContext.DrawDeviceLineGrid` reuses that same stable semantic command and
+native primitive. A positive integral cadence distinguishes line mode from the
+legacy zero-cadence dot mode. The managed compiler encodes negative
+`cornerRadius` as the minor physical width; the native primitive carries
+`p2={1,cadence}`, rectangular spacing in `p3`, and width in
+`stroke_thickness`. No record size, enum value, generated wire declaration, or
+managed/native crossing changes.
+
+Canonical `Vector.wgsl` evaluates the nearest member of each of the two line
+families. For local residual `r` and device gradient length `|g|`, the signed
+device distance is `|r|/|g| - w/2`. A line whose integral index is divisible by
+GRIDMAJOR uses width `2w`; the union is the minimum of the two family distances.
+This is fixed O(1) work and O(1) private storage per covered fragment, retains
+one quad and one draw regardless of grid density, and preserves one-physical-
+pixel minor/two-physical-pixel major widths through rotation, anisotropic scale,
+and ordinary shear. Singular Jacobians remain transparent.
+
 ## Rendering/text architecture gate and applicability
 
 The required architecture comparison was rechecked against primary sources:
@@ -109,7 +131,8 @@ fonts, variable-font state, and device-loss invalidation do not change.
 This is a shared rendering primitive, so managed/native parity is applicable and
 implemented. Both consume the same canonical shader and emit the same four
 vertices, six indices, shape type 25, rectangular spacing, physical radius,
-affine transform, brush, alias flag, clip, and failure semantics. The stable C
+line width/cadence when applicable, affine transform, brush, alias flag, clip,
+and failure semantics. The stable C
 ABI record layout and generated C# wire declarations are unchanged. The shared
 desktop/browser canvas records the same command with a dynamic theme brush.
 
@@ -122,6 +145,15 @@ unknown bits. Apply, Undo, and Redo are O(1), use one document generation each,
 and reject identity replacement, unexpected mutation, invalid finite ranges,
 or a no-op edit. The command mutates no SNAPMODE, SNAPUNIT, SNAPBASE, SNAPANG,
 UCS, limits, GRIDSTYLE, or transient host state.
+
+`CadPlanGridPresentationStyle` owns the separate host-only Lines/Dots choice.
+The shared desktop/browser view exposes one `Dots (GRIDSTYLE)` control and the
+canvas defaults to Lines, matching Autodesk's initial registry value. Toggling
+it invalidates only the canvas: it allocates no document command, advances no
+content generation, changes no Undo/Redo entry, and cannot affect DXF/DWG save.
+Persistence across application sessions remains a future host settings-store
+adapter because desktop registry/preferences and browser local storage are
+platform boundaries, not CAD document state.
 
 Persisted GRIDUNIT components accept finite values greater than or equal to
 zero. Snapshot capture resolves each zero component from the corresponding
@@ -138,10 +170,12 @@ the controls after Apply, Undo, Redo, or document load; a refresh guard prevents
 control assignment from creating edits. Invalid and unchanged values disable
 Apply. Desktop and browser hosts continue consuming the same shared view source.
 
-This follow-up does not change a shader, renderer, native ABI, draw command, GPU
-resource, cache, or native scene compiler. Managed/native rendering parity is
-therefore not separately applicable to the host-side document mutation; both
-render paths still consume the already-paired immutable grid display command.
+The persisted-edit follow-up does not itself change a shader, renderer, native
+ABI, draw command, GPU resource, cache, or native scene compiler. Managed/native
+rendering parity is therefore not separately applicable to the host-side
+document mutation. The later line-presentation follow-up does change shared
+coverage semantics and is paired in the managed compiler, native semantic
+compiler/validator, canonical shader, C contract documentation, and regressions.
 The ACadSharp save boundary is applicable and covered by matched DXF/DWG
 round-trip tests. Normal retained replay remains unchanged and allocation-free;
 editing intentionally pays one bounded command allocation and one snapshot
@@ -156,13 +190,18 @@ limits clipping, isometric/edge-on rejection, 1,024 zero-allocation plans, share
 canvas draw ordering, exact persisted edits, raw flag preservation, zero GRIDUNIT
 inheritance, one-generation Apply/Undo/Redo, shared-shell synchronization,
 snap-state independence, DXF/DWG persistence, and native semantic wire lowering.
-The Clang C++ regression
-covers fixed-device decoding, vertex parameters, capacity, and the preserved
-legacy variant. Existing headless shader coverage verifies that the modified
-canonical module compiles and retains periodic-dot transparency.
+The Clang C++ regression covers fixed-device dot/line decoding, cadence
+validation, vertex parameters, capacity, and the preserved legacy variant.
+Headless coverage verifies command validation, both one-quad compilation modes,
+dot transparency, affine dot circularity, and one-pixel minor versus two-pixel
+major line output. Shader-resource coverage verifies the canonical module and
+its required algorithm/complexity contract.
 
 Final macOS arm64 Release validation passed 1,017/1,017 ProGPU.CAD tests. The
 focused grid-display class passed 11/11, including the two ProGPU format cases;
+the focused grid primitive class passed 23/23, shader-resource audit passed
+20/20, managed-to-native dot/line lowering passed 2/2, and the Clang C++ native
+suite passed its focused executable;
 the ACadSharp R2007/R2018 DXF dependency regression passed 2/2 on its net9.0
 target with major-runtime roll-forward. The shared desktop host's net10.0
 warning-as-error build completed with zero warnings and zero errors. Release
@@ -173,8 +212,9 @@ exact `ACadSharp.ProGPU 0.1.0-preview.62` dependency with no upstream
 `ACadSharp` dependency. The source/submodule and package graphs therefore use
 the same reviewed feature source; external publication remains a release action.
 
-GRIDSTYLE line grids, emphasized major lines, exact isometric lattices, transient
-dynamic-UCS following/editing, screenshot goldens at multiple DPI scales,
+Host-profile persistence beyond the current shared view, exact isometric
+lattices, transient dynamic-UCS following/editing, broader screenshot goldens
+at multiple DPI scales,
 extreme-shear visual differentials, and representative large-drawing GPU
 p50/p95/p99 measurements remain before the broader drafting-grid area is
 complete. This functional slice makes no unmeasured FPS or latency claim.

@@ -922,10 +922,12 @@ typedef enum progpu_native_geometry_primitive_kind {
      * One periodic dot-grid quad. p0 is the local bounds origin and p1 is the
      * bounds extent. A zero stroke_thickness selects the legacy local-radius
      * form where p2 is phase and p3 is {scalar spacing, local radius}. A
-     * positive stroke_thickness selects the affine fixed-device form where p2
-     * must be zero, p3 is rectangular local spacing, and stroke_thickness is
-     * the physical-pixel radius. The shared vector shader performs constant
-     * bounded work per covered fragment.
+     * positive stroke_thickness selects the affine fixed-device form. For a
+     * dot grid p2 is zero and stroke_thickness is the physical-pixel radius.
+     * For a line grid p2 is {1, major cadence in [1,100]} and
+     * stroke_thickness is the minor physical-pixel width; major lines use
+     * twice that width. p3 is rectangular local spacing in both forms. The
+     * shared vector shader performs constant bounded work per covered fragment.
      */
     PROGPU_NATIVE_GEOMETRY_DOT_GRID = 5,
     /*

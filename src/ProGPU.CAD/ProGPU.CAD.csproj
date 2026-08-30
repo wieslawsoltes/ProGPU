@@ -12,6 +12,7 @@
     <PackageReleaseNotes>$(PackageReleaseNotes) Adds bounded invariant positive direct-distance entry for shared MOVE/COPY second-point prompts, with allocation-free overflow-safe resolution along raw, exact Ortho, or acquired polar cursor directions, base-plane preservation, constraint-aware action enablement, and one exact double-WCS commit.</PackageReleaseNotes>
     <PackageReleaseNotes>$(PackageReleaseNotes) Adds active-VPORT rectangular drafting-grid display with independent GRIDUNIT spacing, GRIDDISPLAY adaptive/subdivision/limits behavior, rotated UCS/SNAPBASE/SNAPANG alignment, fixed-device quarter-pixel dots, and one affine managed/native GPU quad independent of visible lattice count.</PackageReleaseNotes>
     <PackageReleaseNotes>$(PackageReleaseNotes) Adds typed reversible active-VPORT GRIDMODE, rectangular GRIDUNIT, GRIDDISPLAY adaptive/subdivision/limits, and GRIDMAJOR editing through shared desktop/browser controls, including exact SNAP-state isolation, zero-spacing inheritance, raw-flag preservation, and DXF/DWG round trips.</PackageReleaseNotes>
+    <PackageReleaseNotes>$(PackageReleaseNotes) Adds the host-level model-space GRIDSTYLE Lines/Dots choice with AutoCAD-compatible lined default plus fixed-device one-pixel minor and two-pixel GRIDMAJOR lines through the same one-quad canonical managed/native shader path, without writing registry state into DXF/DWG.</PackageReleaseNotes>
     <PackageTags>progpu;cad;dxf;dwg;acadsharp;webgpu;rendering;editing</PackageTags>
   </PropertyGroup>
 

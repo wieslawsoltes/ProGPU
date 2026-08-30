@@ -703,8 +703,15 @@ inline bool is_valid_geometry_primitive(
         if (!shared_valid) {
             return false;
         }
-        return primitive.stroke_thickness == 0.0F ||
-            (primitive.p2.x == 0.0F && primitive.p2.y == 0.0F);
+        if (primitive.stroke_thickness == 0.0F) {
+            return true;
+        }
+        const bool dot_grid =
+            primitive.p2.x == 0.0F && primitive.p2.y == 0.0F;
+        const bool line_grid = primitive.p2.x == 1.0F &&
+            primitive.p2.y >= 1.0F && primitive.p2.y <= 100.0F &&
+            primitive.p2.y == std::round(primitive.p2.y);
+        return dot_grid || line_grid;
     }
     if (primitive.kind == PROGPU_NATIVE_GEOMETRY_TRIANGLE ||
         primitive.kind == PROGPU_NATIVE_GEOMETRY_QUADRILATERAL) {
@@ -950,8 +957,13 @@ inline bool append_geometry_primitive(
             vertex.shape_size[0] = primitive.p3.x;
             vertex.shape_size[1] = primitive.p3.y;
             if (primitive.stroke_thickness > 0.0F) {
-                vertex.corner_radius = primitive.stroke_thickness;
-                vertex.stroke_thickness = 0.0F;
+                const bool line_grid = primitive.p2.x == 1.0F;
+                vertex.corner_radius = line_grid
+                    ? -primitive.stroke_thickness
+                    : primitive.stroke_thickness;
+                vertex.stroke_thickness = line_grid
+                    ? primitive.p2.y
+                    : 0.0F;
                 vertex.shape_type = 25.0F + alias_offset;
             } else {
                 vertex.corner_radius = primitive.p2.x;

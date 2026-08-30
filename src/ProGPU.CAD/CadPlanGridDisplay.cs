@@ -11,6 +11,16 @@ public enum CadPlanGridDisplayStyle : byte
 }
 
 /// <summary>
+/// Host presentation preference corresponding to AutoCAD's registry-backed
+/// model-space GRIDSTYLE bit. This value is not part of DXF/DWG document state.
+/// </summary>
+public enum CadPlanGridPresentationStyle : byte
+{
+    Lines = 0,
+    Dots = 1,
+}
+
+/// <summary>
 /// Immutable active-viewport drafting-grid display state captured separately
 /// from the point-snap lattice.
 /// </summary>
@@ -136,17 +146,20 @@ public readonly record struct CadPlanGridDisplayPlan
     public Vector2 Spacing { get; }
     public Matrix4x4 Transform { get; }
     public Rect ScreenClip { get; }
+    public int MinorLinesPerMajorLine { get; }
 
     private CadPlanGridDisplayPlan(
         Rect localBounds,
         Vector2 spacing,
         Matrix4x4 transform,
-        Rect screenClip)
+        Rect screenClip,
+        int minorLinesPerMajorLine)
     {
         LocalBounds = localBounds;
         Spacing = spacing;
         Transform = transform;
         ScreenClip = screenClip;
+        MinorLinesPerMajorLine = minorLinesPerMajorLine;
     }
 
     public static bool TryCreate(
@@ -291,7 +304,8 @@ public readonly record struct CadPlanGridDisplayPlan
             new Rect(localX, localY, localWidth, localHeight),
             new Vector2((float)spacingX, (float)spacingY),
             transform,
-            screenClip);
+            screenClip,
+            settings.MinorLinesPerMajorLine);
         return true;
 
         bool Accumulate(Vector2 screen)

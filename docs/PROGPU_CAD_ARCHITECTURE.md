@@ -5057,16 +5057,19 @@ chooses one major-cadence adaptive level, inverse-projects only the four visible
 clip corners, and emits one local rectangle, rectangular spacing, affine matrix,
 and optional limits clip. No lattice points are enumerated or uploaded.
 
-The shared canvas records one dynamically themed `DrawDeviceDotGrid` command
-before the retained CAD picture. Managed and native compilers each lower it to
-one four-vertex/six-index geometry primitive and consume canonical `Vector.wgsl`.
-Its derivative Jacobian maps a fixed nine-neighbor local lattice to framebuffer
-space, quarter-physical-pixel snaps each candidate center, and applies a fixed
-physical radius under rotation and anisotropic scale. Grid density therefore
-changes fragment coverage but never CPU geometry, native crossings, retained
-resources, or draw count. Singular projections and unsupported isometric mode
-fail closed. Full behavior research, wire provenance, complexity, parity, tests,
-and deferred GRIDSTYLE/major-line/dynamic-UCS work are recorded in
+The shared canvas records one dynamically themed affine grid command before the
+retained CAD picture. Its typed host-only GRIDSTYLE presentation defaults to
+Lines and may switch to Dots without mutating the document. Managed and native
+compilers each lower either style to one four-vertex/six-index geometry primitive
+and consume canonical `Vector.wgsl`. Dot mode maps a fixed nine-neighbor local
+lattice to framebuffer space and quarter-physical-pixel snaps each center. Line
+mode maps the nearest two local line families through the derivative Jacobian,
+keeps minor lines one physical pixel wide, and doubles every persisted
+GRIDMAJOR line. Grid density therefore changes fragment coverage but never CPU
+geometry, native crossings, retained resources, or draw count. Singular
+projections and unsupported isometric mode fail closed. Full behavior research,
+wire provenance, complexity, parity, tests, and deferred host-profile persistence,
+isometric, and dynamic-UCS work are recorded in
 [`PROGPU_CAD_GRID_DISPLAY_RESEARCH.md`](PROGPU_CAD_GRID_DISPLAY_RESEARCH.md).
 
 ## Persisted drafting-grid edit boundary
