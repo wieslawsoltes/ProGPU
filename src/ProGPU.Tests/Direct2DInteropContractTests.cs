@@ -732,6 +732,11 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("canvasCommandList.CreateDrawingSession()", program, StringComparison.Ordinal);
         Assert.Contains("TryAcquireMicrosoftWin2DNativeCommandList(", program, StringComparison.Ordinal);
         Assert.Contains("canvasCommandListImageBrush.SourceRectangle", program, StringComparison.Ordinal);
+        Assert.Contains("surface.CreateEffect(", program, StringComparison.Ordinal);
+        Assert.Contains("surface.SetEffectInput(", program, StringComparison.Ordinal);
+        Assert.Contains("surface.SetEffectFloat(", program, StringComparison.Ordinal);
+        Assert.Contains("surface.GetEffectOutput(", program, StringComparison.Ordinal);
+        Assert.Contains("canvasEffectImageBrush.SourceRectangle", program, StringComparison.Ordinal);
         Assert.Contains("CreateSolidColorBrush(", program, StringComparison.Ordinal);
         Assert.Contains("TryAcquireMicrosoftWin2DSolidColorBrush(", program, StringComparison.Ordinal);
         Assert.Contains("TryAcquireMicrosoftWin2DNativeSolidColorBrush(", program, StringComparison.Ordinal);
@@ -753,6 +758,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("NativeGeneralImageBrushIdentityMatches: true", program, StringComparison.Ordinal);
         Assert.Contains("NativeCommandListIdentityMatches: true", program, StringComparison.Ordinal);
         Assert.Contains("NativeCommandListImageBrushIdentityMatches: true", program, StringComparison.Ordinal);
+        Assert.Contains("NativeEffectImageBrushIdentityMatches: true", program, StringComparison.Ordinal);
         Assert.Contains("NativeGeometryIdentityMatches: true", program, StringComparison.Ordinal);
         Assert.Contains("Microsoft.Graphics.Canvas.CanvasDevice", manifest, StringComparison.Ordinal);
         Assert.Contains("Microsoft.Graphics.Canvas.dll", manifest, StringComparison.Ordinal);
