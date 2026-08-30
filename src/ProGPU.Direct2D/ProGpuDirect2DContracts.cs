@@ -63,7 +63,55 @@ public enum ProGpuDirect2DInterfaceKind
     Win2DCanvasImageBrush = 37,
     D2D1ImageBrush = 38,
     D2D1CommandList = 39,
-    Win2DCanvasCommandList = 40
+    Win2DCanvasCommandList = 40,
+    D2D1Effect = 41,
+    D2D1Image = 42
+}
+
+/// <summary>
+/// Fixed-layout ID2D1Properties value kinds accepted by the native effect ABI.
+/// Pointer-bearing string, IUnknown, array, and color-context values are
+/// intentionally excluded.
+/// </summary>
+public enum ProGpuDirect2DEffectPropertyType : uint
+{
+    Bool = 2,
+    UInt32 = 3,
+    Int32 = 4,
+    Float = 5,
+    Vector2 = 6,
+    Vector3 = 7,
+    Vector4 = 8,
+    Blob = 9,
+    Enum = 11,
+    Clsid = 13,
+    Matrix3X2 = 14,
+    Matrix4X3 = 15,
+    Matrix4X4 = 16,
+    Matrix5X4 = 17
+}
+
+public enum ProGpuDirect2DGaussianBlurProperty : uint
+{
+    StandardDeviation = 0,
+    Optimization = 1,
+    BorderMode = 2
+}
+
+public enum ProGpuDirect2DShadowProperty : uint
+{
+    BlurStandardDeviation = 0,
+    Color = 1,
+    Optimization = 2
+}
+
+public static class ProGpuDirect2DBuiltInEffects
+{
+    public static readonly Guid GaussianBlur =
+        new("1FEB6D69-2FE6-4AC9-8C58-1D7F93E7A6A5");
+
+    public static readonly Guid Shadow =
+        new("C67EA361-1863-4E69-89DB-695D3E9A5B6B");
 }
 
 public enum ProGpuDirect2DFillMode

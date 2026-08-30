@@ -47,6 +47,10 @@ public sealed unsafe class ProGpuDirect2DSurface :
         new("FE9E984D-3F95-407C-B5DB-CB94D4E8F87C");
     private static readonly Guid D2D1CommandListInterfaceId =
         new("B4F34A19-2383-4D76-94F6-EC343657C3DC");
+    private static readonly Guid D2D1EffectInterfaceId =
+        new("28211A43-7D89-476F-8181-2D6159B220AD");
+    private static readonly Guid D2D1ImageInterfaceId =
+        new("65019F75-8DA2-497C-B32C-DFA34E48EDE6");
 
     private readonly object _gate = new();
     private readonly DawnGpuContext _dawn;
@@ -559,9 +563,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
 
     /// <summary>
     /// Creates a genuine ID2D1ImageBrush with an explicit image-space source
-    /// rectangle. Provider-created bitmap images are supported by the current
-    /// typed surface contract; effects and command lists can use this same
-    /// native ABI when their typed resource factories are added.
+    /// rectangle over a provider-created bitmap, command list, or effect
+    /// output image.
     /// </summary>
     public ProGpuDirect2DComReference CreateImageBrush(
         ProGpuDirect2DComReference image,
@@ -570,10 +573,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
         Matrix3x2? transform = null)
     {
         ArgumentNullException.ThrowIfNull(image);
-        if (image.InterfaceKind != ProGpuDirect2DInterfaceKind.D2D1Bitmap &&
-            image.InterfaceKind != ProGpuDirect2DInterfaceKind.D2D1Bitmap1 &&
-            image.InterfaceKind !=
-                ProGpuDirect2DInterfaceKind.D2D1CommandList)
+        if (!IsImageKind(image.InterfaceKind))
         {
             throw new ArgumentException(
                 "The COM reference must own a provider-created ID2D1Image.",
@@ -643,6 +643,282 @@ public sealed unsafe class ProGpuDirect2DSurface :
                 value,
                 ProGpuDirect2DInterfaceKind.D2D1CommandList,
                 "ID2D1CommandList creation");
+        }
+    }
+
+    /// <summary>
+    /// Creates a genuine registered ID2D1Effect by CLSID in this surface's
+    /// exact Direct2D device domain. The CLSID may identify a system built-in
+    /// effect or an application effect registered on the owned factory.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateEffect(Guid effectId)
+    {
+        if (effectId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "A Direct2D effect CLSID cannot be empty.",
+                nameof(effectId));
+        }
+        ProGpuDirect2DNative.NativeGuid nativeEffectId =
+            ProGpuDirect2DNative.NativeGuid.FromGuid(effectId);
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            nint value = 0;
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceCreateEffect(
+                    _nativeSurface,
+                    &nativeEffectId,
+                    &value,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1Effect creation",
+                status,
+                nativeHResult);
+            return CreateRequiredComReference(
+                value,
+                ProGpuDirect2DInterfaceKind.D2D1Effect,
+                "ID2D1Effect creation");
+        }
+    }
+
+    /// <summary>
+    /// Sets or clears one image input. Direct2D retains the selected image;
+    /// caller ownership is borrowed only for the duration of this call.
+    /// </summary>
+    public void SetEffectInput(
+        ProGpuDirect2DComReference effect,
+        uint inputIndex,
+        ProGpuDirect2DComReference? image,
+        bool invalidate = true)
+    {
+        ValidateEffect(effect, nameof(effect));
+        if (image is not null && !IsImageKind(image.InterfaceKind))
+        {
+            throw new ArgumentException(
+                "The COM reference must own a provider-created ID2D1Image.",
+                nameof(image));
+        }
+
+        bool effectReferenceAdded = false;
+        bool imageReferenceAdded = false;
+        try
+        {
+            effect.DangerousAddRef(ref effectReferenceAdded);
+            image?.DangerousAddRef(ref imageReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.EffectSetInput(
+                        _nativeSurface,
+                        effect.DangerousGetHandle(),
+                        inputIndex,
+                        image?.DangerousGetHandle() ?? 0,
+                        invalidate ? 1U : 0U,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1Effect image-input binding",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (imageReferenceAdded)
+            {
+                image!.DangerousRelease();
+            }
+            if (effectReferenceAdded)
+            {
+                effect.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Connects one effect output directly to another effect input without an
+    /// intermediate managed image or pixel copy.
+    /// </summary>
+    public void SetEffectInputEffect(
+        ProGpuDirect2DComReference effect,
+        uint inputIndex,
+        ProGpuDirect2DComReference inputEffect,
+        bool invalidate = true)
+    {
+        ValidateEffect(effect, nameof(effect));
+        ValidateEffect(inputEffect, nameof(inputEffect));
+        bool effectReferenceAdded = false;
+        bool inputReferenceAdded = false;
+        try
+        {
+            effect.DangerousAddRef(ref effectReferenceAdded);
+            inputEffect.DangerousAddRef(ref inputReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.EffectSetInputEffect(
+                        _nativeSurface,
+                        effect.DangerousGetHandle(),
+                        inputIndex,
+                        inputEffect.DangerousGetHandle(),
+                        invalidate ? 1U : 0U,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1Effect effect-input binding",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (inputReferenceAdded)
+            {
+                inputEffect.DangerousRelease();
+            }
+            if (effectReferenceAdded)
+            {
+                effect.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Sets one fixed-layout ID2D1Properties value. The span is pinned and
+    /// consumed synchronously; Direct2D does not retain its address.
+    /// </summary>
+    public void SetEffectValue(
+        ProGpuDirect2DComReference effect,
+        uint propertyIndex,
+        ProGpuDirect2DEffectPropertyType propertyType,
+        ReadOnlySpan<byte> data)
+    {
+        ValidateEffect(effect, nameof(effect));
+        ValidateEffectProperty(propertyType, data.Length);
+        bool effectReferenceAdded = false;
+        try
+        {
+            effect.DangerousAddRef(ref effectReferenceAdded);
+            fixed (byte* dataPointer = data)
+            {
+                lock (_gate)
+                {
+                    ThrowIfUnavailable();
+                    int nativeHResult = 0;
+                    ProGpuDirect2DStatus status =
+                        ProGpuDirect2DNative.EffectSetValue(
+                            _nativeSurface,
+                            effect.DangerousGetHandle(),
+                            propertyIndex,
+                            propertyType,
+                            dataPointer,
+                            checked((uint)data.Length),
+                            &nativeHResult);
+                    ThrowIfFailed(
+                        "ID2D1Effect property update",
+                        status,
+                        nativeHResult);
+                }
+            }
+        }
+        finally
+        {
+            if (effectReferenceAdded)
+            {
+                effect.DangerousRelease();
+            }
+        }
+    }
+
+    public void SetEffectFloat(
+        ProGpuDirect2DComReference effect,
+        uint propertyIndex,
+        float value)
+    {
+        if (!float.IsFinite(value))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                "A Direct2D effect float must be finite.");
+        }
+        SetEffectUnmanagedValue(
+            effect,
+            propertyIndex,
+            ProGpuDirect2DEffectPropertyType.Float,
+            value);
+    }
+
+    public void SetEffectVector4(
+        ProGpuDirect2DComReference effect,
+        uint propertyIndex,
+        Vector4 value)
+    {
+        if (!float.IsFinite(value.X) || !float.IsFinite(value.Y) ||
+            !float.IsFinite(value.Z) || !float.IsFinite(value.W))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                "A Direct2D effect vector must be finite.");
+        }
+        SetEffectUnmanagedValue(
+            effect,
+            propertyIndex,
+            ProGpuDirect2DEffectPropertyType.Vector4,
+            value);
+    }
+
+    public void SetEffectEnum(
+        ProGpuDirect2DComReference effect,
+        uint propertyIndex,
+        uint value) => SetEffectUnmanagedValue(
+            effect,
+            propertyIndex,
+            ProGpuDirect2DEffectPropertyType.Enum,
+            value);
+
+    /// <summary>
+    /// Returns the effect's current output as a caller-owned ID2D1Image. The
+    /// output may feed another effect, DrawImage, or CreateImageBrush.
+    /// </summary>
+    public ProGpuDirect2DComReference GetEffectOutput(
+        ProGpuDirect2DComReference effect)
+    {
+        ValidateEffect(effect, nameof(effect));
+        bool referenceAdded = false;
+        try
+        {
+            effect.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.EffectGetOutput(
+                        _nativeSurface,
+                        effect.DangerousGetHandle(),
+                        &value,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1Effect output query",
+                    status,
+                    nativeHResult);
+                return CreateRequiredComReference(
+                    value,
+                    ProGpuDirect2DInterfaceKind.D2D1Image,
+                    "ID2D1Effect output query");
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                effect.DangerousRelease();
+            }
         }
     }
 
@@ -2061,6 +2337,20 @@ public sealed unsafe class ProGpuDirect2DSurface :
             this);
     }
 
+    private void SetEffectUnmanagedValue<T>(
+        ProGpuDirect2DComReference effect,
+        uint propertyIndex,
+        ProGpuDirect2DEffectPropertyType propertyType,
+        T value)
+        where T : unmanaged
+    {
+        SetEffectValue(
+            effect,
+            propertyIndex,
+            propertyType,
+            new ReadOnlySpan<byte>(&value, sizeof(T)));
+    }
+
     private static void ValidateOptions(
         ProGpuDirect2DSurfaceOptions options)
     {
@@ -2295,6 +2585,56 @@ public sealed unsafe class ProGpuDirect2DSurface :
                 "Direct2D image-brush source, tiling, or interpolation metadata is invalid.");
         }
     }
+
+    private static void ValidateEffect(
+        ProGpuDirect2DComReference effect,
+        string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(effect, parameterName);
+        if (effect.InterfaceKind != ProGpuDirect2DInterfaceKind.D2D1Effect)
+        {
+            throw new ArgumentException(
+                "The COM reference must own an ID2D1Effect.",
+                parameterName);
+        }
+    }
+
+    private static void ValidateEffectProperty(
+        ProGpuDirect2DEffectPropertyType propertyType,
+        int dataSize)
+    {
+        int expectedSize = propertyType switch
+        {
+            ProGpuDirect2DEffectPropertyType.Bool or
+            ProGpuDirect2DEffectPropertyType.UInt32 or
+            ProGpuDirect2DEffectPropertyType.Int32 or
+            ProGpuDirect2DEffectPropertyType.Float or
+            ProGpuDirect2DEffectPropertyType.Enum => sizeof(uint),
+            ProGpuDirect2DEffectPropertyType.Vector2 => sizeof(float) * 2,
+            ProGpuDirect2DEffectPropertyType.Vector3 => sizeof(float) * 3,
+            ProGpuDirect2DEffectPropertyType.Vector4 or
+            ProGpuDirect2DEffectPropertyType.Clsid => sizeof(float) * 4,
+            ProGpuDirect2DEffectPropertyType.Matrix3X2 => sizeof(float) * 6,
+            ProGpuDirect2DEffectPropertyType.Matrix4X3 => sizeof(float) * 12,
+            ProGpuDirect2DEffectPropertyType.Matrix4X4 => sizeof(float) * 16,
+            ProGpuDirect2DEffectPropertyType.Matrix5X4 => sizeof(float) * 20,
+            ProGpuDirect2DEffectPropertyType.Blob when dataSize > 0 =>
+                dataSize,
+            _ => 0
+        };
+        if (expectedSize == 0 || expectedSize != dataSize)
+        {
+            throw new ArgumentException(
+                "The Direct2D effect property payload size does not match its fixed-layout type.",
+                nameof(dataSize));
+        }
+    }
+
+    private static bool IsImageKind(ProGpuDirect2DInterfaceKind kind) =>
+        kind is ProGpuDirect2DInterfaceKind.D2D1Bitmap or
+            ProGpuDirect2DInterfaceKind.D2D1Bitmap1 or
+            ProGpuDirect2DInterfaceKind.D2D1CommandList or
+            ProGpuDirect2DInterfaceKind.D2D1Image;
 
     private static bool IsGeometryKind(ProGpuDirect2DInterfaceKind kind) =>
         kind >= ProGpuDirect2DInterfaceKind.D2D1Geometry &&
