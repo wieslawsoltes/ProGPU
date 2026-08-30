@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 15U;
+    internal const uint AbiVersion = 16U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -111,6 +111,22 @@ internal static unsafe partial class ProGpuDirect2DNative
         internal NativeMatrix3X2F MaskTransform;
         internal float Opacity;
         internal ProGpuDirect2DLayerOptions Options;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeTextFormatProperties
+    {
+        internal uint StructSize;
+        internal uint FontWeight;
+        internal ProGpuDirect2DFontStyle FontStyle;
+        internal ProGpuDirect2DFontStretch FontStretch;
+        internal float FontSize;
+        internal ProGpuDirect2DTextAlignment TextAlignment;
+        internal ProGpuDirect2DParagraphAlignment ParagraphAlignment;
+        internal ProGpuDirect2DWordWrapping WordWrapping;
+        internal ProGpuDirect2DReadingDirection ReadingDirection;
+        internal ProGpuDirect2DFlowDirection FlowDirection;
+        internal float IncrementalTabStop;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -450,6 +466,35 @@ internal static unsafe partial class ProGpuDirect2DNative
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial ProGpuDirect2DStatus SurfacePopLayer(
         nint surface,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_text_format")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceCreateTextFormat(
+        nint surface,
+        char* fontFamily,
+        uint fontFamilyLength,
+        char* localeName,
+        uint localeNameLength,
+        NativeTextFormatProperties* properties,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_draw_text")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceDrawText(
+        nint surface,
+        char* text,
+        uint textLength,
+        nint textFormat,
+        ProGpuDirect2DRect* layoutRectangle,
+        nint defaultFillBrush,
+        ProGpuDirect2DDrawTextOptions options,
+        ProGpuDirect2DMeasuringMode measuringMode,
         int* nativeHResult);
 
     [LibraryImport(

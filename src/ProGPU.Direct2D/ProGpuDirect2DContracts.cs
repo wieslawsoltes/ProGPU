@@ -67,7 +67,10 @@ public enum ProGpuDirect2DInterfaceKind
     D2D1Effect = 41,
     D2D1Image = 42,
     D2D1Layer = 43,
-    D2D1DrawingStateBlock1 = 44
+    D2D1DrawingStateBlock1 = 44,
+    DWriteFactory3 = 45,
+    DWriteTextFormat1 = 46,
+    Win2DCanvasTextFormat = 47
 }
 
 /// <summary>
@@ -235,6 +238,83 @@ public enum ProGpuDirect2DAntialiasMode : uint
     Aliased = 1
 }
 
+public enum ProGpuDirect2DFontStyle : uint
+{
+    Normal = 0,
+    Oblique = 1,
+    Italic = 2
+}
+
+public enum ProGpuDirect2DFontStretch : uint
+{
+    UltraCondensed = 1,
+    ExtraCondensed = 2,
+    Condensed = 3,
+    SemiCondensed = 4,
+    Normal = 5,
+    SemiExpanded = 6,
+    Expanded = 7,
+    ExtraExpanded = 8,
+    UltraExpanded = 9
+}
+
+public enum ProGpuDirect2DTextAlignment : uint
+{
+    Leading = 0,
+    Trailing = 1,
+    Center = 2,
+    Justified = 3
+}
+
+public enum ProGpuDirect2DParagraphAlignment : uint
+{
+    Near = 0,
+    Far = 1,
+    Center = 2
+}
+
+public enum ProGpuDirect2DWordWrapping : uint
+{
+    Wrap = 0,
+    NoWrap = 1,
+    EmergencyBreak = 2,
+    WholeWord = 3,
+    Character = 4
+}
+
+public enum ProGpuDirect2DReadingDirection : uint
+{
+    LeftToRight = 0,
+    RightToLeft = 1,
+    TopToBottom = 2,
+    BottomToTop = 3
+}
+
+public enum ProGpuDirect2DFlowDirection : uint
+{
+    TopToBottom = 0,
+    BottomToTop = 1,
+    LeftToRight = 2,
+    RightToLeft = 3
+}
+
+public enum ProGpuDirect2DMeasuringMode : uint
+{
+    Natural = 0,
+    GdiClassic = 1,
+    GdiNatural = 2
+}
+
+[Flags]
+public enum ProGpuDirect2DDrawTextOptions : uint
+{
+    None = 0,
+    NoSnap = 1U << 0,
+    Clip = 1U << 1,
+    EnableColorFont = 1U << 2,
+    DisableColorBitmapSnapping = 1U << 3
+}
+
 [Flags]
 public enum ProGpuDirect2DLayerOptions : uint
 {
@@ -350,6 +430,28 @@ public readonly record struct ProGpuDirect2DLayerParameters(
         ProGpuDirect2DAntialiasMode.PerPrimitive,
     Matrix3x2? MaskTransform = null,
     ProGpuDirect2DLayerOptions Options = ProGpuDirect2DLayerOptions.None);
+
+/// <summary>
+/// Typed, pointer-free state used to create one genuine IDWriteTextFormat1.
+/// Font weight follows DirectWrite's open numeric range from 1 through 999.
+/// </summary>
+public readonly record struct ProGpuDirect2DTextFormatProperties(
+    float FontSize,
+    uint FontWeight = 400U,
+    ProGpuDirect2DFontStyle FontStyle = ProGpuDirect2DFontStyle.Normal,
+    ProGpuDirect2DFontStretch FontStretch =
+        ProGpuDirect2DFontStretch.Normal,
+    ProGpuDirect2DTextAlignment TextAlignment =
+        ProGpuDirect2DTextAlignment.Leading,
+    ProGpuDirect2DParagraphAlignment ParagraphAlignment =
+        ProGpuDirect2DParagraphAlignment.Near,
+    ProGpuDirect2DWordWrapping WordWrapping =
+        ProGpuDirect2DWordWrapping.Wrap,
+    ProGpuDirect2DReadingDirection ReadingDirection =
+        ProGpuDirect2DReadingDirection.LeftToRight,
+    ProGpuDirect2DFlowDirection FlowDirection =
+        ProGpuDirect2DFlowDirection.TopToBottom,
+    float IncrementalTabStop = 0.0F);
 
 /// <summary>
 /// Blittable source, tiling, and sampling state for a genuine

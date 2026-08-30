@@ -101,7 +101,10 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_EFFECT = 41,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_IMAGE = 42,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_LAYER = 43,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DRAWING_STATE_BLOCK1 = 44
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DRAWING_STATE_BLOCK1 = 44,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_FACTORY3 = 45,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_TEXT_FORMAT1 = 46,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_TEXT_FORMAT = 47
 } progpu_native_direct2d_interface_kind;
 
 typedef enum progpu_native_direct2d_fill_mode {
@@ -202,6 +205,74 @@ typedef enum progpu_native_direct2d_layer_options {
     PROGPU_NATIVE_DIRECT2D_LAYER_OPTION_INITIALIZE_FROM_BACKGROUND = 1U << 0U,
     PROGPU_NATIVE_DIRECT2D_LAYER_OPTION_IGNORE_ALPHA = 1U << 1U
 } progpu_native_direct2d_layer_options;
+
+typedef enum progpu_native_direct2d_font_style {
+    PROGPU_NATIVE_DIRECT2D_FONT_STYLE_NORMAL = 0,
+    PROGPU_NATIVE_DIRECT2D_FONT_STYLE_OBLIQUE = 1,
+    PROGPU_NATIVE_DIRECT2D_FONT_STYLE_ITALIC = 2
+} progpu_native_direct2d_font_style;
+
+typedef enum progpu_native_direct2d_font_stretch {
+    PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_ULTRA_CONDENSED = 1,
+    PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_EXTRA_CONDENSED = 2,
+    PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_CONDENSED = 3,
+    PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_SEMI_CONDENSED = 4,
+    PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_NORMAL = 5,
+    PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_SEMI_EXPANDED = 6,
+    PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_EXPANDED = 7,
+    PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_EXTRA_EXPANDED = 8,
+    PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_ULTRA_EXPANDED = 9
+} progpu_native_direct2d_font_stretch;
+
+typedef enum progpu_native_direct2d_text_alignment {
+    PROGPU_NATIVE_DIRECT2D_TEXT_ALIGNMENT_LEADING = 0,
+    PROGPU_NATIVE_DIRECT2D_TEXT_ALIGNMENT_TRAILING = 1,
+    PROGPU_NATIVE_DIRECT2D_TEXT_ALIGNMENT_CENTER = 2,
+    PROGPU_NATIVE_DIRECT2D_TEXT_ALIGNMENT_JUSTIFIED = 3
+} progpu_native_direct2d_text_alignment;
+
+typedef enum progpu_native_direct2d_paragraph_alignment {
+    PROGPU_NATIVE_DIRECT2D_PARAGRAPH_ALIGNMENT_NEAR = 0,
+    PROGPU_NATIVE_DIRECT2D_PARAGRAPH_ALIGNMENT_FAR = 1,
+    PROGPU_NATIVE_DIRECT2D_PARAGRAPH_ALIGNMENT_CENTER = 2
+} progpu_native_direct2d_paragraph_alignment;
+
+typedef enum progpu_native_direct2d_word_wrapping {
+    PROGPU_NATIVE_DIRECT2D_WORD_WRAPPING_WRAP = 0,
+    PROGPU_NATIVE_DIRECT2D_WORD_WRAPPING_NO_WRAP = 1,
+    PROGPU_NATIVE_DIRECT2D_WORD_WRAPPING_EMERGENCY_BREAK = 2,
+    PROGPU_NATIVE_DIRECT2D_WORD_WRAPPING_WHOLE_WORD = 3,
+    PROGPU_NATIVE_DIRECT2D_WORD_WRAPPING_CHARACTER = 4
+} progpu_native_direct2d_word_wrapping;
+
+typedef enum progpu_native_direct2d_reading_direction {
+    PROGPU_NATIVE_DIRECT2D_READING_DIRECTION_LEFT_TO_RIGHT = 0,
+    PROGPU_NATIVE_DIRECT2D_READING_DIRECTION_RIGHT_TO_LEFT = 1,
+    PROGPU_NATIVE_DIRECT2D_READING_DIRECTION_TOP_TO_BOTTOM = 2,
+    PROGPU_NATIVE_DIRECT2D_READING_DIRECTION_BOTTOM_TO_TOP = 3
+} progpu_native_direct2d_reading_direction;
+
+typedef enum progpu_native_direct2d_flow_direction {
+    PROGPU_NATIVE_DIRECT2D_FLOW_DIRECTION_TOP_TO_BOTTOM = 0,
+    PROGPU_NATIVE_DIRECT2D_FLOW_DIRECTION_BOTTOM_TO_TOP = 1,
+    PROGPU_NATIVE_DIRECT2D_FLOW_DIRECTION_LEFT_TO_RIGHT = 2,
+    PROGPU_NATIVE_DIRECT2D_FLOW_DIRECTION_RIGHT_TO_LEFT = 3
+} progpu_native_direct2d_flow_direction;
+
+typedef enum progpu_native_direct2d_measuring_mode {
+    PROGPU_NATIVE_DIRECT2D_MEASURING_MODE_NATURAL = 0,
+    PROGPU_NATIVE_DIRECT2D_MEASURING_MODE_GDI_CLASSIC = 1,
+    PROGPU_NATIVE_DIRECT2D_MEASURING_MODE_GDI_NATURAL = 2
+} progpu_native_direct2d_measuring_mode;
+
+typedef enum progpu_native_direct2d_draw_text_options {
+    PROGPU_NATIVE_DIRECT2D_DRAW_TEXT_OPTION_NONE = 0,
+    PROGPU_NATIVE_DIRECT2D_DRAW_TEXT_OPTION_NO_SNAP = 1U << 0U,
+    PROGPU_NATIVE_DIRECT2D_DRAW_TEXT_OPTION_CLIP = 1U << 1U,
+    PROGPU_NATIVE_DIRECT2D_DRAW_TEXT_OPTION_ENABLE_COLOR_FONT = 1U << 2U,
+    PROGPU_NATIVE_DIRECT2D_DRAW_TEXT_OPTION_DISABLE_COLOR_BITMAP_SNAPPING =
+        1U << 3U
+} progpu_native_direct2d_draw_text_options;
 
 /* Fixed-layout ID2D1Properties values supported by the portable C ABI.
  * Pointer-bearing STRING/IUNKNOWN/ARRAY/COLOR_CONTEXT properties remain
@@ -359,6 +430,23 @@ typedef struct progpu_native_direct2d_layer_parameters {
     uint32_t options;
 } progpu_native_direct2d_layer_parameters;
 
+/* Pointer-free mutable IDWriteTextFormat state. Font weight accepts the
+ * DirectWrite open range [1, 999]. A zero incremental tab stop preserves the
+ * DirectWrite-created default; a nonzero value must be positive and finite. */
+typedef struct progpu_native_direct2d_text_format_properties {
+    uint32_t struct_size;
+    uint32_t font_weight;
+    uint32_t font_style;
+    uint32_t font_stretch;
+    float font_size;
+    uint32_t text_alignment;
+    uint32_t paragraph_alignment;
+    uint32_t word_wrapping;
+    uint32_t reading_direction;
+    uint32_t flow_direction;
+    float incremental_tab_stop;
+} progpu_native_direct2d_text_format_properties;
+
 typedef struct progpu_native_direct2d_image_brush_properties {
     progpu_native_direct2d_rect_f source_rectangle;
     uint32_t extend_mode_x;
@@ -397,7 +485,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 15U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 16U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -650,6 +738,35 @@ progpu_native_direct2d_surface_push_layer(
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_surface_pop_layer(
     progpu_native_direct2d_surface* surface,
+    int32_t* native_hresult);
+
+/* Creates a genuine shared-factory IDWriteTextFormat1. Family and locale are
+ * explicit UTF-16 spans consumed synchronously; embedded NUL code units fail
+ * closed. The returned interface owns one caller reference. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_text_format(
+    progpu_native_direct2d_surface* surface,
+    const uint16_t* font_family,
+    uint32_t font_family_length,
+    const uint16_t* locale_name,
+    uint32_t locale_name_length,
+    const progpu_native_direct2d_text_format_properties* properties,
+    void** value,
+    int32_t* native_hresult);
+
+/* Draws one UTF-16 span through ID2D1RenderTarget::DrawText during an active
+ * surface or command-list transaction. Direct2D consumes the caller span
+ * synchronously; this path performs no provider-side text copy. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_text(
+    progpu_native_direct2d_surface* surface,
+    const uint16_t* text,
+    uint32_t text_length,
+    void* text_format,
+    const progpu_native_direct2d_rect_f* layout_rectangle,
+    void* default_fill_brush,
+    uint32_t options,
+    progpu_native_direct2d_measuring_mode measuring_mode,
     int32_t* native_hresult);
 
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status

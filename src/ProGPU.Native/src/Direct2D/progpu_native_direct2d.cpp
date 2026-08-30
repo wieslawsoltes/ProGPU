@@ -2,6 +2,7 @@
 
 #include <d2d1_2.h>
 #include <d3d11.h>
+#include <dwrite_3.h>
 #include <dxgi1_2.h>
 #include <roapi.h>
 #include <windows.h>
@@ -11,8 +12,10 @@
 
 #include <atomic>
 #include <cmath>
+#include <iterator>
 #include <mutex>
 #include <new>
+#include <string>
 #include <utility>
 
 using Microsoft::WRL::ComPtr;
@@ -66,6 +69,9 @@ static_assert(
 static_assert(
     sizeof(progpu_native_direct2d_size_f) == sizeof(D2D1_SIZE_F),
     "Direct2D portable size layout changed");
+static_assert(
+    sizeof(uint16_t) == sizeof(wchar_t),
+    "The Windows DirectWrite ABI requires 16-bit wchar_t");
 
 struct progpu_native_direct2d_surface {
     ComPtr<ID3D11Device> d3d_device;
@@ -83,6 +89,7 @@ struct progpu_native_direct2d_surface {
     ComPtr<ID2D1Device1> d2d_device;
     ComPtr<ID2D1DeviceContext1> d2d_context;
     ComPtr<ID2D1Bitmap1> d2d_bitmap;
+    ComPtr<IDWriteFactory3> dwrite_factory;
     HANDLE shared_handle = nullptr;
     DXGI_ADAPTER_DESC1 adapter_descriptor{};
     uint32_t width = 0U;
@@ -207,6 +214,57 @@ bool is_valid_layer_options(uint32_t value)
         PROGPU_NATIVE_DIRECT2D_LAYER_OPTION_INITIALIZE_FROM_BACKGROUND |
         PROGPU_NATIVE_DIRECT2D_LAYER_OPTION_IGNORE_ALPHA;
     return (value & ~allowed) == 0U;
+}
+
+bool is_valid_text_format(
+    const progpu_native_direct2d_text_format_properties& properties)
+{
+    return properties.struct_size == sizeof(properties) &&
+        properties.font_weight >= 1U && properties.font_weight <= 999U &&
+        properties.font_style <= PROGPU_NATIVE_DIRECT2D_FONT_STYLE_ITALIC &&
+        properties.font_stretch >=
+            PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_ULTRA_CONDENSED &&
+        properties.font_stretch <=
+            PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_ULTRA_EXPANDED &&
+        std::isfinite(properties.font_size) && properties.font_size > 0.0F &&
+        properties.text_alignment <=
+            PROGPU_NATIVE_DIRECT2D_TEXT_ALIGNMENT_JUSTIFIED &&
+        properties.paragraph_alignment <=
+            PROGPU_NATIVE_DIRECT2D_PARAGRAPH_ALIGNMENT_CENTER &&
+        properties.word_wrapping <=
+            PROGPU_NATIVE_DIRECT2D_WORD_WRAPPING_CHARACTER &&
+        properties.reading_direction <=
+            PROGPU_NATIVE_DIRECT2D_READING_DIRECTION_BOTTOM_TO_TOP &&
+        properties.flow_direction <=
+            PROGPU_NATIVE_DIRECT2D_FLOW_DIRECTION_RIGHT_TO_LEFT &&
+        std::isfinite(properties.incremental_tab_stop) &&
+        properties.incremental_tab_stop >= 0.0F;
+}
+
+bool contains_null(const uint16_t* text, uint32_t length)
+{
+    for (uint32_t index = 0U; index < length; ++index) {
+        if (text[index] == 0U) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool is_valid_draw_text_options(uint32_t value)
+{
+    constexpr uint32_t allowed =
+        PROGPU_NATIVE_DIRECT2D_DRAW_TEXT_OPTION_NO_SNAP |
+        PROGPU_NATIVE_DIRECT2D_DRAW_TEXT_OPTION_CLIP |
+        PROGPU_NATIVE_DIRECT2D_DRAW_TEXT_OPTION_ENABLE_COLOR_FONT |
+        PROGPU_NATIVE_DIRECT2D_DRAW_TEXT_OPTION_DISABLE_COLOR_BITMAP_SNAPPING;
+    return (value & ~allowed) == 0U;
+}
+
+bool is_valid(progpu_native_direct2d_measuring_mode value)
+{
+    return value >= PROGPU_NATIVE_DIRECT2D_MEASURING_MODE_NATURAL &&
+        value <= PROGPU_NATIVE_DIRECT2D_MEASURING_MODE_GDI_NATURAL;
 }
 
 bool is_valid(const progpu_native_direct2d_rect_f& rectangle)
@@ -552,6 +610,14 @@ HRESULT create_direct2d_resources(
     if (FAILED(hr)) {
         return hr;
     }
+    hr = DWriteCreateFactory(
+        DWRITE_FACTORY_TYPE_SHARED,
+        __uuidof(IDWriteFactory3),
+        reinterpret_cast<IUnknown**>(
+            surface.dwrite_factory.GetAddressOf()));
+    if (FAILED(hr)) {
+        return hr;
+    }
     hr = surface.d2d_factory->CreateDevice(
         surface.dxgi_device.Get(),
         &surface.d2d_device);
@@ -708,19 +774,26 @@ HRESULT create_win2d_wrapper(
     float dpi,
     IInspectable** wrapper)
 {
-    HRESULT hr = create_win2d_canvas_device(surface);
+    ComPtr<IDWriteTextFormat> text_format;
+    bool device_independent = SUCCEEDED(
+        native_resource->QueryInterface(IID_PPV_ARGS(&text_format)));
+    HRESULT hr = device_independent
+        ? get_win2d_factory(surface)
+        : create_win2d_canvas_device(surface);
     if (FAILED(hr)) {
         return hr;
     }
     ComPtr<IProGpuWin2DCanvasDevice> canvas_device;
-    hr = surface.win2d_canvas_device.As(&canvas_device);
-    if (FAILED(hr)) {
-        return hr;
+    if (!device_independent) {
+        hr = surface.win2d_canvas_device.As(&canvas_device);
+        if (FAILED(hr)) {
+            return hr;
+        }
     }
     return surface.win2d_factory->GetOrCreate(
-        canvas_device.Get(),
+        device_independent ? nullptr : canvas_device.Get(),
         native_resource,
-        dpi,
+        device_independent ? 0.0F : dpi,
         wrapper);
 }
 
@@ -731,14 +804,21 @@ HRESULT get_win2d_wrapper_native_resource(
     REFIID interface_id,
     void** native_resource)
 {
-    HRESULT hr = create_win2d_canvas_device(surface);
+    bool device_independent =
+        IsEqualIID(interface_id, __uuidof(IDWriteTextFormat)) ||
+        IsEqualIID(interface_id, __uuidof(IDWriteTextFormat1));
+    HRESULT hr = device_independent
+        ? get_win2d_factory(surface)
+        : create_win2d_canvas_device(surface);
     if (FAILED(hr)) {
         return hr;
     }
     ComPtr<IProGpuWin2DCanvasDevice> canvas_device;
-    hr = surface.win2d_canvas_device.As(&canvas_device);
-    if (FAILED(hr)) {
-        return hr;
+    if (!device_independent) {
+        hr = surface.win2d_canvas_device.As(&canvas_device);
+        if (FAILED(hr)) {
+            return hr;
+        }
     }
     ComPtr<IProGpuWin2DCanvasResourceWrapperNative> resource_wrapper;
     hr = wrapper->QueryInterface(IID_PPV_ARGS(&resource_wrapper));
@@ -746,8 +826,8 @@ HRESULT get_win2d_wrapper_native_resource(
         return hr;
     }
     hr = resource_wrapper->GetNativeResource(
-        canvas_device.Get(),
-        dpi,
+        device_independent ? nullptr : canvas_device.Get(),
+        device_independent ? 0.0F : dpi,
         interface_id,
         native_resource);
     if (SUCCEEDED(hr) && *native_resource == nullptr) {
@@ -974,6 +1054,8 @@ progpu_native_direct2d_status progpu_native_direct2d_surface_get_interface(
             return return_interface(surface->d2d_bitmap, value);
         case PROGPU_NATIVE_DIRECT2D_INTERFACE_WINRT_DIRECT3D11_DEVICE:
             return return_interface(surface->winrt_d3d_device, value);
+        case PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_FACTORY3:
+            return return_interface(surface->dwrite_factory, value);
         default:
             return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
     }
@@ -1979,6 +2061,155 @@ progpu_native_direct2d_surface_pop_layer(
     surface->last_hresult.store(S_OK, std::memory_order_release);
     *native_hresult = S_OK;
     return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_text_format(
+    progpu_native_direct2d_surface* surface,
+    const uint16_t* font_family,
+    uint32_t font_family_length,
+    const uint16_t* locale_name,
+    uint32_t locale_name_length,
+    const progpu_native_direct2d_text_format_properties* properties,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || font_family == nullptr ||
+        font_family_length == 0U || locale_name == nullptr ||
+        locale_name_length == 0U || properties == nullptr ||
+        value == nullptr || native_hresult == nullptr ||
+        !is_valid_text_format(*properties) ||
+        contains_null(font_family, font_family_length) ||
+        contains_null(locale_name, locale_name_length)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    try {
+        std::wstring family(
+            reinterpret_cast<const wchar_t*>(font_family),
+            font_family_length);
+        std::wstring locale(
+            reinterpret_cast<const wchar_t*>(locale_name),
+            locale_name_length);
+        std::scoped_lock lock(surface->access_mutex);
+        ComPtr<IDWriteTextFormat> base_format;
+        HRESULT hr = surface->dwrite_factory->CreateTextFormat(
+            family.c_str(),
+            nullptr,
+            static_cast<DWRITE_FONT_WEIGHT>(properties->font_weight),
+            static_cast<DWRITE_FONT_STYLE>(properties->font_style),
+            static_cast<DWRITE_FONT_STRETCH>(properties->font_stretch),
+            properties->font_size,
+            locale.c_str(),
+            &base_format);
+        if (SUCCEEDED(hr)) {
+            hr = base_format->SetTextAlignment(
+                static_cast<DWRITE_TEXT_ALIGNMENT>(
+                    properties->text_alignment));
+        }
+        if (SUCCEEDED(hr)) {
+            hr = base_format->SetParagraphAlignment(
+                static_cast<DWRITE_PARAGRAPH_ALIGNMENT>(
+                    properties->paragraph_alignment));
+        }
+        if (SUCCEEDED(hr)) {
+            hr = base_format->SetWordWrapping(
+                static_cast<DWRITE_WORD_WRAPPING>(
+                    properties->word_wrapping));
+        }
+        if (SUCCEEDED(hr)) {
+            hr = base_format->SetReadingDirection(
+                static_cast<DWRITE_READING_DIRECTION>(
+                    properties->reading_direction));
+        }
+        if (SUCCEEDED(hr)) {
+            hr = base_format->SetFlowDirection(
+                static_cast<DWRITE_FLOW_DIRECTION>(
+                    properties->flow_direction));
+        }
+        if (SUCCEEDED(hr) && properties->incremental_tab_stop > 0.0F) {
+            hr = base_format->SetIncrementalTabStop(
+                properties->incremental_tab_stop);
+        }
+        ComPtr<IDWriteTextFormat1> format;
+        if (SUCCEEDED(hr)) {
+            hr = base_format.As(&format);
+        }
+        surface->last_hresult.store(hr, std::memory_order_release);
+        *native_hresult = hr;
+        if (FAILED(hr)) {
+            return status_from_win2d_hresult(hr);
+        }
+        return return_interface(format, value);
+    } catch (const std::bad_alloc&) {
+        std::scoped_lock lock(surface->access_mutex);
+        surface->last_hresult.store(E_OUTOFMEMORY, std::memory_order_release);
+        *native_hresult = E_OUTOFMEMORY;
+        return PROGPU_NATIVE_DIRECT2D_STATUS_OUT_OF_MEMORY;
+    }
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_text(
+    progpu_native_direct2d_surface* surface,
+    const uint16_t* text,
+    uint32_t text_length,
+    void* text_format,
+    const progpu_native_direct2d_rect_f* layout_rectangle,
+    void* default_fill_brush,
+    uint32_t options,
+    progpu_native_direct2d_measuring_mode measuring_mode,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || (text == nullptr && text_length != 0U) ||
+        text_format == nullptr || layout_rectangle == nullptr ||
+        default_fill_brush == nullptr || native_hresult == nullptr ||
+        !is_valid(*layout_rectangle) ||
+        !is_valid_draw_text_options(options) || !is_valid(measuring_mode)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<IDWriteTextFormat> format;
+    HRESULT hr = reinterpret_cast<IUnknown*>(text_format)->QueryInterface(
+        IID_PPV_ARGS(&format));
+    ComPtr<ID2D1Brush> brush;
+    if (SUCCEEDED(hr)) {
+        hr = reinterpret_cast<IUnknown*>(default_fill_brush)->QueryInterface(
+            IID_PPV_ARGS(&brush));
+    }
+    if (SUCCEEDED(hr) && text_length != 0U) {
+        D2D1_RECT_F native_rectangle = D2D1::RectF(
+            layout_rectangle->x,
+            layout_rectangle->y,
+            layout_rectangle->x + layout_rectangle->width,
+            layout_rectangle->y + layout_rectangle->height);
+        surface->d2d_context->DrawText(
+            reinterpret_cast<const wchar_t*>(text),
+            text_length,
+            format.Get(),
+            native_rectangle,
+            brush.Get(),
+            static_cast<D2D1_DRAW_TEXT_OPTIONS>(options),
+            static_cast<DWRITE_MEASURING_MODE>(measuring_mode));
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
 }
 
 progpu_native_direct2d_status
