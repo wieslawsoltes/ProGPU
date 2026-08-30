@@ -2779,12 +2779,17 @@ are implemented by `CadPageSetupCatalogCompiler`,
   viewport content honor the persisted DrawViewportsFirst policy, while
   viewport frames use the existing exact closed-path linetype lowering and
   remain independently controlled for plot;
-- paper-layout lowering requires PlotType Layout and millimeter paper units.
+- paper-layout lowering requires PlotType Layout and physical inch or millimeter
+  paper units.
   Autodesk defines Layout output as 1:1 regardless of the stored standard or
   custom scale selection, so malformed or non-1:1 stored scale fields are not
-  consulted. `ScaleLineweights` is accepted only for paper layouts and is an
-  exact multiplier of one under that mandated 1:1 relationship; the resulting
-  CAD lineweight remains a fixed physical output-DPI stroke. It maps paper
+  consulted. Persisted paper width, height, margins, and plot origin remain
+  physical millimeters; paper-space coordinates use the selected unit
+  convention, so one inch coordinate unit maps to 25.4 millimeters without
+  changing the retained scene. `ScaleLineweights` is accepted only for paper
+  layouts and is an exact multiplier of one under that mandated 1:1
+  relationship; the resulting CAD lineweight remains a fixed physical
+  output-DPI stroke. It maps paper
   `(0,0)` to the printable lower-left plus plot origin, preserves the existing
   rotated-media convention, and emits one clipped retained page replay. Perspective, arbitrary
   orthographic direction, depth clipping, hidden/rendered modes,
@@ -4422,6 +4427,8 @@ Sources consulted on 2026-08-27 through 2026-08-30:
   [standard plot-scale enum contract](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-RefGuide/files/OREF-AcDbPlotSettings__StdScaleType1.html),
   [plot scale behavior](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-LT/files/GUID-FCC2782E-7876-4EE0-86C1-AA222B4DD2E1.htm),
   [Layout scale behavior](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-60B37EAD-BBEA-46C0-AA76-137625B93ED5.htm),
+  [paper-unit property](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-ActiveX-Reference/files/GUID-E4325F20-6258-4F62-93D2-2E1C37C820C9.htm),
+  [paper-size and unit contract](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-NET/files/GUID-946669A9-E813-4D12-828A-44986E388AA2.htm),
   [ScaleLineweights property](https://help.autodesk.com/cloudhelp/2024/PTB/AutoCAD-ActiveX-Reference/files/GUID-D0954BC9-C56C-4782-8AA6-6605AAF99418.htm),
   [ScaleLineweights paper-layout restriction](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-AcDbPlotSettings__setScaleLineweights_Adesk__Boolean.html),
   [plot-transparency policy](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-AcDbPlotSettings__plotTransparency_const.html),
@@ -4439,7 +4446,12 @@ Sources consulted on 2026-08-27 through 2026-08-30:
   regressions. For paper-space Layout output, adopted Autodesk's separate rule
   that the page is always plotted at 1:1: persisted scale fields remain
   round-trippable metadata but do not affect lowering. Adopted
-  `ScaleLineweights` only for paper layouts; at Layout's exact 1:1 scale it
+  the selected inch/millimeter paper convention only for paper-space
+  coordinates; the persisted physical media, margin, and origin values remain
+  millimeters. A single retained layout picture therefore replays at
+  `dpi/25.4` pixels per millimeter unit or `dpi` pixels per inch unit without
+  rebuilding paths or text. `ScaleLineweights` is adopted only for paper
+  layouts; at Layout's exact 1:1 scale it
   preserves the fixed physical lineweight unchanged, while model-space use
   remains a typed rejection because Autodesk disables it there. Rotation is
   adapted as an oriented physical-page

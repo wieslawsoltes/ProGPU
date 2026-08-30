@@ -9,8 +9,8 @@ model/paper snapshot generation, rectangular and exact closed-polyline/circle/
 ellipse/degree-1-through-3 SPLINE active floating `VIEWPORT` boundaries,
 orthographic WCS top views, DCS panning, view twist, viewport scale,
 per-viewport frozen layers, independently visible viewport borders, paper/model
-draw order, managed/native retained replay, and millimeter 1:1 `PlotType Layout`
-printing.
+draw order, managed/native retained replay, and physical inch/millimeter 1:1
+`PlotType Layout` printing.
 
 The implementation is clean-room. No third-party renderer source was copied,
 ported, translated, or used as an implementation template. Autodesk's public
@@ -60,6 +60,12 @@ the only implementation sources reused directly.
   scale, and the [`ScaleLineweights` property](https://help.autodesk.com/cloudhelp/2024/PTB/AutoCAD-ActiveX-Reference/files/GUID-D0954BC9-C56C-4782-8AA6-6605AAF99418.htm)
   scales lineweights in proportion to plot scale. ObjectARX further restricts
   [setting that property to paper layouts](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-AcDbPlotSettings__setScaleLineweights_Adesk__Boolean.html).
+- Autodesk's [`PaperUnits` contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-ActiveX-Reference/files/GUID-E4325F20-6258-4F62-93D2-2E1C37C820C9.htm)
+  identifies inches, millimeters, or pixels as the layout/plot unit convention
+  while clarifying that its Automation media properties remain millimeters.
+  The [Page Setup contract](https://help.autodesk.com/cloudhelp/2025/ENU/DWGTrueView/files/GUID-0D72CF75-DA37-4937-9D9A-D93AA9BDF8D3.htm)
+  likewise defines plotted units as inches or millimeters on paper and Layout
+  output as actual size independent of the stored Scale selection.
 
 ## Cross-engine architecture audit
 
@@ -94,6 +100,17 @@ matching viewports. Rejected: per-viewport model snapshot duplication,
 per-frame document traversal, raster flattening, native-only camera lowering,
 unclipped replay, turning the boundary into a tessellated rectangle, and
 silently accepting unsupported 3D or boundary forms.
+
+For the inch-unit extension, the current Skia canvas/picture and coordinate-
+space contracts, Direct2D transform contract, Win2D command-list/DPI contract,
+WebRender picture/spatial/device-transform separation, Vello retained Scene,
+Parley retained positioned glyph runs, and HarfBuzz shaping contract were
+rechecked. They all preserve vector/text content independently of the final
+device mapping. ProGPU therefore adopts one late paper-unit-to-pixel affine and
+keeps paths, clips, glyph runs, physical strokes, caches, and native scene
+records unchanged. Rejected were document-geometry rescaling, reshaping text,
+duplicating inch pictures, changing fixed lineweights with the geometry scale,
+or introducing a backend-specific unit path.
 
 ## Atomic snapshot and transform contract
 
@@ -132,9 +149,11 @@ normalized to the shared unit-endpoint path representation before checked float
 retention. Anchor-relative coordinates and the paper rebase preserve float
 precision. Degree four through ten remains fail-closed because the shared
 filled-path grammar has no above-cubic segment; flattening is not substituted.
-Final paper output adds the paper rebase, maps one paper unit to one millimeter,
-flips Y into page coordinates, applies plot origin and the existing
-rotated-media convention, and clips to the printable area.
+Final paper output adds the paper rebase and maps the selected paper convention
+to physical output: one millimeter unit maps to `dpi / 25.4` pixels and one inch
+unit maps to `dpi` pixels. Persisted paper size, margins, and plot origin remain
+millimeters, so offsets are converted independently before the Y flip,
+existing rotated-media convention, and printable-area clip.
 
 ## Retention, frozen layers, ordering, and linetypes
 
@@ -171,8 +190,9 @@ managed/native boundary call.
 ## Printing, managed/native parity, and measured evidence
 
 `CadLayoutPrintPlanCompiler` accepts only a generation- and name-matched paper
-layout setup. This slice requires millimeter paper units, `PlotType Layout`, a
-defined rotation, explicit wireframe output, enabled lineweights, no
+layout setup. This slice requires physical inch or millimeter paper units,
+`PlotType Layout`, a defined rotation, explicit wireframe output, enabled
+lineweights, no
 nonempty CTB/STB sheet, no centered-layout policy, and opaque retained styles.
 The stored standard/custom scale selection is deliberately ignored because
 Layout output is mandated 1:1. `ScaleLineweights` is accepted for paper output
@@ -181,6 +201,14 @@ five fixed device pixels at 254 DPI. Model-space `ScaleLineweights` remains
 `CADPAGE113`. Other page/setup policies return the existing or new `CADPAGE`
 diagnostics. The page picture remains one printable clip and one transformed
 layout replay.
+
+For inch layouts, lowering records `1 / 25.4` paper-space units per physical
+millimeter and `dpi` pixels per paper unit. Media, margins, and plot origin stay
+in their persisted millimeter contract. Matched DXF and DWG round trips verify a
+10-by-5-inch paper coordinate space over 254-by-127-millimeter media, one-inch
+coordinate deltas at 254 pixels for 254 DPI, a 12.7-millimeter origin at 127
+pixels, a 0.50-millimeter fixed stroke at five pixels, and native compilation
+of the complete page picture.
 
 The layout picture contains only existing ProGPU commands. Managed replay and
 `GpuPictureNativeSceneCompiler` consume the same nested pictures, clips,

@@ -843,16 +843,115 @@ public sealed class CadViewportTests
         Assert.Empty(scaledResult.Diagnostics.ToArray());
         Assert.Equal(1.0, scaledResult.PrintOptions!.ModelUnitsPerMillimeter);
         Assert.Equal(1.0f, scaledResult.PrintOptions.LineWeightScale);
+    }
 
+    [Theory]
+    [InlineData(CadDocumentFormat.Dxf)]
+    [InlineData(CadDocumentFormat.Dwg)]
+    public async Task InchPaperLayoutRoundTripsAndCompilesPhysicalPrintPlan(
+        CadDocumentFormat format)
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 0, 0)));
+        ACadLayout layout = document.Layouts[ACadLayout.PaperLayoutName];
+        ConfigurePaperLayout(layout);
+        layout.PaperWidth = 254.0;
+        layout.PaperHeight = 127.0;
+        layout.UnprintableMargin = new PaperMargin(25.4, 25.4, 25.4, 25.4);
+        layout.PlotOriginX = 12.7;
+        layout.PlotOriginY = 12.7;
         layout.PaperUnits = PlotPaperUnits.Inches;
-        CadPageSetupSnapshot inchLayout = new CadPageSetupCatalogCompiler()
-            .Compile(session)
+        layout.UpdatePaperViewport();
+        layout.AssociatedBlock.Entities.Add(new Line(
+            new XYZ(1, 1, 0),
+            new XYZ(2, 1, 0))
+        {
+            LineWeight = LineWeightType.W50,
+        });
+        layout.AddViewport(CreateTopViewport(
+            new XYZ(5, 2.5, 0),
+            XY.Zero,
+            XYZ.Zero,
+            0.0));
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+
+        await store.SaveAsync(
+            new CadDocumentSession(document),
+            stream,
+            format,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            format,
+            sourceName: $"inch-layout.{format.ToString().ToLowerInvariant()}");
+        loaded.Session.Edit("publish inch-layout generation", static _ => { });
+        CadLayoutSnapshot snapshot = new CadLayoutSnapshotCompiler().Compile(
+            loaded.Session,
+            ACadLayout.PaperLayoutName,
+            new CadSnapshotOptions { DrawOrderPurpose = CadDrawOrderPurpose.Plotting });
+        CadPageSetupSnapshot pageSetup = new CadPageSetupCatalogCompiler()
+            .Compile(loaded.Session)
             .FindLayout(ACadLayout.PaperLayoutName)!;
-        CadPageSetupPrintOptionsResult inchResult =
-            new CadPageSetupPrintOptionsCompiler().Compile(inchLayout);
-        Assert.Contains(
-            inchResult.Diagnostics.ToArray(),
-            diagnostic => diagnostic.Code == "CADPAGE120");
+
+        Assert.Equal(CadPageUnit.Inches, pageSetup.PaperUnit);
+        Assert.Equal(254.0, pageSetup.PaperWidthMillimeters);
+        Assert.Equal(127.0, pageSetup.PaperHeightMillimeters);
+        CadPageSetupPrintOptionsResult lowered =
+            new CadPageSetupPrintOptionsCompiler().Compile(
+                pageSetup,
+                new CadPageSetupPrintOptionsCompilerOptions { OutputDpi = 254 });
+        Assert.True(lowered.IsSupported);
+        Assert.Equal(1.0 / 25.4, lowered.PrintOptions!.ModelUnitsPerMillimeter, 12);
+
+        using CadPrintPlan plan = new CadLayoutPrintPlanCompiler().Compile(
+            snapshot,
+            pageSetup,
+            new CadPageSetupPrintOptionsCompilerOptions { OutputDpi = 254 });
+        Assert.Equal(new CadPrintPixelSize(2540, 1270), plan.PageSizePixels);
+        Assert.Equal(
+            new CadPrintPixelRect(254, 254, 2032, 762),
+            plan.PrintableAreaPixels);
+        Assert.Equal(254.0f, plan.PixelsPerModelUnit);
+        Assert.Equal(1.0 / 25.4, plan.ModelUnitsPerMillimeter, 12);
+        Assert.Equal(
+            new CadBounds3D(
+                new CadPoint3D(0, 0, 0),
+                new CadPoint3D(10, 5, 0)),
+            plan.PlotBounds);
+        Vector3 paperOrigin = Vector3.Transform(
+            new Vector3(
+                (float)-snapshot.PaperSpace.RebaseOrigin.X,
+                (float)-snapshot.PaperSpace.RebaseOrigin.Y,
+                0.0f),
+            plan.ContentToPage);
+        Assert.Equal(381.0f, paperOrigin.X, 4);
+        Assert.Equal(889.0f, paperOrigin.Y, 4);
+        Vector3 onePaperInch = Vector3.Transform(
+            new Vector3(
+                (float)(1.0 - snapshot.PaperSpace.RebaseOrigin.X),
+                (float)(1.0 - snapshot.PaperSpace.RebaseOrigin.Y),
+                0.0f),
+            plan.ContentToPage);
+        Assert.Equal(paperOrigin.X + 254.0f, onePaperInch.X, 4);
+        Assert.Equal(paperOrigin.Y - 254.0f, onePaperInch.Y, 4);
+        using GpuPicture pagePicture = plan.CreatePagePicture();
+        GpuPicture layoutPicture = pagePicture.GetCommand(1).Picture!;
+        RenderCommand paperStroke = Assert.Single(
+            layoutPicture.Commands,
+            command => command.Type == RenderCommandType.DrawLine);
+        Assert.Equal(5.0f, paperStroke.Pen!.Thickness, 5);
+        Assert.Equal(PenStrokeTransformMode.Fixed, paperStroke.Pen.StrokeTransformMode);
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            pagePicture,
+            305U,
+            plan.ContentGeneration,
+            out NativeCompiledPicture? nativePicture,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(nativePicture);
+        Assert.True(nativePicture.GeometryPrimitiveCount > 0);
     }
 
     private static Viewport CreateTopViewport(

@@ -601,7 +601,7 @@ public sealed class CadPageSetupPrintOptionsResult
 }
 
 /// <summary>
-/// Lowers a fidelity-complete model-space setup or the supported millimeter
+/// Lowers a fidelity-complete model-space setup or a physical inch/millimeter
 /// 1:1 paper-layout setup into retained print options.
 /// </summary>
 public sealed class CadPageSetupPrintOptionsCompiler
@@ -767,13 +767,11 @@ public sealed class CadPageSetupPrintOptionsCompiler
         double modelUnitsPerMillimeter = 1.0;
         if (isPaperLayout)
         {
-            if (pageSetup.PaperUnit != CadPageUnit.Millimeters)
+            modelUnitsPerMillimeter = pageSetup.PaperUnit switch
             {
-                AddError(
-                    diagnostics,
-                    "CADPAGE120",
-                    "Paper-space Layout output currently requires millimeter paper units; Autodesk plots Layout at 1:1 regardless of the stored scale selection.");
-            }
+                CadPageUnit.Inches => 1.0 / MillimetersPerInch,
+                _ => 1.0,
+            };
             if (pageSetup.CenterPlot)
             {
                 AddError(

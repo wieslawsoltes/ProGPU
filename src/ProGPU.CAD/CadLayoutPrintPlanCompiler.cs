@@ -85,10 +85,13 @@ public sealed class CadLayoutPrintPlanCompiler
             CadPrintPlanCompiler.IsUpsideDown(printOptions.Rotation));
         float pixelsPerPaperMillimeter = checked(
             (float)(printOptions.OutputDpi / MillimetersPerInch));
+        float pixelsPerPaperUnit = checked((float)(
+            pixelsPerPaperMillimeter /
+            printOptions.ModelUnitsPerMillimeter));
         Matrix4x4 contentToPage = CreateLayoutContentToPage(
             snapshot.PaperSpace.RebaseOrigin,
             printableArea,
-            pixelsPerPaperMillimeter,
+            pixelsPerPaperUnit,
             printOptions);
         if (CadPrintPlanCompiler.IsUpsideDown(printOptions.Rotation))
         {
@@ -121,8 +124,10 @@ public sealed class CadLayoutPrintPlanCompiler
         var plotBounds = new CadBounds3D(
             new CadPoint3D(0.0, 0.0, 0.0),
             new CadPoint3D(
-                printOptions.PaperWidthMillimeters,
-                printOptions.PaperHeightMillimeters,
+                printOptions.PaperWidthMillimeters *
+                    printOptions.ModelUnitsPerMillimeter,
+                printOptions.PaperHeightMillimeters *
+                    printOptions.ModelUnitsPerMillimeter,
                 0.0));
         return new CadPrintPlan(
             contentPicture,
@@ -131,8 +136,8 @@ public sealed class CadLayoutPrintPlanCompiler
             pageSize,
             printableArea,
             plotBounds,
-            pixelsPerPaperMillimeter,
-            modelUnitsPerMillimeter: 1.0,
+            pixelsPerPaperUnit,
+            printOptions.ModelUnitsPerMillimeter,
             contentToPage,
             sceneStatistics,
             scene.Diagnostics.ToArray());
@@ -141,13 +146,19 @@ public sealed class CadLayoutPrintPlanCompiler
     private static Matrix4x4 CreateLayoutContentToPage(
         CadPoint3D rebaseOrigin,
         CadPrintPixelRect printableArea,
-        float scale,
+        float pixelsPerPaperUnit,
         CadPrintPlanOptions options)
     {
-        double offsetX = options.PlotOffsetXMillimeters * scale;
-        double offsetY = options.PlotOffsetYMillimeters * scale;
-        double translationX = printableArea.X + offsetX + (rebaseOrigin.X * scale);
-        double translationY = printableArea.Bottom - offsetY - (rebaseOrigin.Y * scale);
+        double offsetX = options.PlotOffsetXMillimeters *
+            options.ModelUnitsPerMillimeter *
+            pixelsPerPaperUnit;
+        double offsetY = options.PlotOffsetYMillimeters *
+            options.ModelUnitsPerMillimeter *
+            pixelsPerPaperUnit;
+        double translationX = printableArea.X + offsetX +
+            (rebaseOrigin.X * pixelsPerPaperUnit);
+        double translationY = printableArea.Bottom - offsetY -
+            (rebaseOrigin.Y * pixelsPerPaperUnit);
         if (!double.IsFinite(translationX) || !double.IsFinite(translationY) ||
             translationX < float.MinValue || translationX > float.MaxValue ||
             translationY < float.MinValue || translationY > float.MaxValue)
@@ -158,8 +169,8 @@ public sealed class CadLayoutPrintPlanCompiler
         }
 
         return new Matrix4x4(
-            scale, 0, 0, 0,
-            0, -scale, 0, 0,
+            pixelsPerPaperUnit, 0, 0, 0,
+            0, -pixelsPerPaperUnit, 0, 0,
             0, 0, 1, 0,
             (float)translationX, (float)translationY, 0, 1);
     }
