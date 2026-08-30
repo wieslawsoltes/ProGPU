@@ -662,10 +662,14 @@ public sealed class CadPageSetupPrintOptionsCompiler
                     "Stored plot-window coordinates are DCS values and require the matching saved view transform before WCS lowering.");
                 break;
             case CadPlotAreaKind.Limits:
-                AddError(
-                    diagnostics,
-                    "CADPAGE105",
-                    "Drawing limits require the layout UCS contract before WCS lowering.");
+                if (!pageSetup.HasLayoutGeometry ||
+                    !pageSetup.LayoutLimits.IsFiniteAndOrdered)
+                {
+                    AddError(
+                        diagnostics,
+                        "CADPAGE105",
+                        "Drawing limits require finite WCS limits from a layout-owned page setup.");
+                }
                 break;
             case CadPlotAreaKind.Display:
                 AddError(
@@ -806,6 +810,17 @@ public sealed class CadPageSetupPrintOptionsCompiler
         }
 
         CadPageMargins margins = pageSetup.UnprintableMargins;
+        CadBounds3D? plotBounds = pageSetup.PlotArea == CadPlotAreaKind.Limits
+            ? new CadBounds3D(
+                new CadPoint3D(
+                    pageSetup.LayoutLimits.MinimumX,
+                    pageSetup.LayoutLimits.MinimumY,
+                    0.0),
+                new CadPoint3D(
+                    pageSetup.LayoutLimits.MaximumX,
+                    pageSetup.LayoutLimits.MaximumY,
+                    0.0))
+            : null;
         var printOptions = new CadPrintPlanOptions
         {
             SourcePageSetupName = pageSetup.Name,
@@ -817,6 +832,7 @@ public sealed class CadPageSetupPrintOptionsCompiler
             MarginBottomMillimeters = margins.BottomMillimeters,
             Rotation = pageSetup.Rotation,
             OutputDpi = options.OutputDpi,
+            PlotBounds = plotBounds,
             ScaleMode = scaleMode,
             ModelUnitsPerMillimeter = modelUnitsPerMillimeter,
             PlacementMode = pageSetup.CenterPlot

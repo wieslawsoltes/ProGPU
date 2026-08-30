@@ -184,7 +184,6 @@ public sealed class CadPageSetupTests
 
     [Theory]
     [InlineData(PlotType.Window, "CADPAGE104")]
-    [InlineData(PlotType.DrawingLimits, "CADPAGE105")]
     [InlineData(PlotType.LastScreenDisplay, "CADPAGE106")]
     [InlineData(PlotType.View, "CADPAGE107")]
     [InlineData(PlotType.LayoutInformation, "CADPAGE108")]
@@ -214,6 +213,63 @@ public sealed class CadPageSetupTests
             Assert.Equal(new CadPlotRectangle(10, 20, 30, 40), setup.PlotWindow);
             Assert.Contains("DCS", result.Diagnostics.Span[0].Message);
         }
+    }
+
+    [Fact]
+    public void ModelLayoutDrawingLimitsLowerAsExplicitWorldBounds()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Line(new XYZ(-100, -100, 0), new XYZ(500, 500, 0)));
+        ACadLayout model = document.Layouts[ACadLayout.ModelLayoutName];
+        ConfigureSupported(model);
+        model.PlotType = PlotType.DrawingLimits;
+        model.MinLimits = new XY(10, 20);
+        model.MaxLimits = new XY(110, 70);
+        var session = new CadDocumentSession(document);
+        CadPageSetupSnapshot setup = new CadPageSetupCatalogCompiler()
+            .Compile(session)
+            .FindLayout(ACadLayout.ModelLayoutName)!;
+
+        CadPageSetupPrintOptionsResult result =
+            new CadPageSetupPrintOptionsCompiler().Compile(setup);
+
+        Assert.True(result.IsSupported);
+        Assert.Equal(new CadPlotRectangle(10, 20, 110, 70), setup.LayoutLimits);
+        Assert.Equal(
+            new CadBounds3D(
+                new CadPoint3D(10, 20, 0),
+                new CadPoint3D(110, 70, 0)),
+            result.PrintOptions!.PlotBounds);
+        using CadPrintPlan plan = new CadPrintPlanCompiler().CompileFromPageSetup(
+            new CadSnapshotCompiler().Compile(session),
+            result);
+        Assert.Equal(result.PrintOptions.PlotBounds, plan.PlotBounds);
+    }
+
+    [Fact]
+    public void NamedPageSetupDrawingLimitsFailsWithoutLayoutGeometry()
+    {
+        var document = new CadDocument();
+        var named = new PlotSettings("Model limits")
+        {
+            PlotType = PlotType.DrawingLimits,
+        };
+        ConfigureSupported(named);
+        named.PlotType = PlotType.DrawingLimits;
+        named.Flags |= PlotFlags.ModelType;
+        document.RootDictionary
+            .GetEntry<CadDictionary>(CadDictionary.AcadPlotSettings)
+            .Add(named);
+        CadPageSetupSnapshot setup = new CadPageSetupCatalogCompiler()
+            .Compile(new CadDocumentSession(document))
+            .FindNamedOverride(named.Name)!;
+
+        CadPageSetupPrintOptionsResult result =
+            new CadPageSetupPrintOptionsCompiler().Compile(setup);
+
+        Assert.False(result.IsSupported);
+        Assert.Contains(result.Diagnostics.ToArray(), item => item.Code == "CADPAGE105");
+        Assert.Null(result.PrintOptions);
     }
 
     [Fact]

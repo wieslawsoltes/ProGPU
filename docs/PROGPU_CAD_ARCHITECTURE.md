@@ -2744,16 +2744,21 @@ are implemented by `CadPageSetupCatalogCompiler`,
   geometry, and viewport state. One patch is one history generation; Apply,
   Undo, and Redo retain two fixed state records and are transactional O(1);
 - exact model lowering presently requires model space, a defined 0/90/180/270-degree
-  page rotation, inch or millimeter paper units, drawing extents, explicit wireframe, enabled and
+  page rotation, inch or millimeter paper units, drawing extents or finite
+  layout-owned WCS drawing limits, explicit wireframe, enabled and
   unscaled object lineweights, and no applied nonempty CTB/STB style sheet.
   Standard scale code zero selects Fit; otherwise the source's current custom
   numerator/denominator is authoritative and converts to drawing units per
   millimeter. A centered flag selects centered placement; otherwise plot origin
   becomes an offset from the printable lower-left;
+- layout-owned model DrawingLimits lower the detached LIMMIN/LIMMAX rectangle
+  as explicit WCS plot bounds. Autodesk defines drawing limits as 2D WCS
+  points, so no view or UCS transform is inferred. A standalone named override
+  has no layout limits and remains fail-closed with `CADPAGE105`;
 - Window is deliberately rejected even though its raw rectangle is retained:
   Autodesk defines the stored coordinates in display coordinate system (DCS),
   while the current print plan accepts an explicit WCS window. Display, named
-  view, Limits, pixel paper units,
+  view, named-override Limits, pixel paper units,
   hidden/shaded/as-displayed output, disabled/scaled lineweights, and applied
   plot styles likewise return specific diagnostics rather than an approximation;
 - one session capture now owns model and selected paper snapshots at the same
@@ -4400,6 +4405,7 @@ Sources consulted on 2026-08-27 through 2026-08-30:
   [physical paper margins](https://help.autodesk.com/cloudhelp/2027/ENU/OARX-RefGuide/files/OARX-RefGuide-AcDbPlotSettings__getPlotPaperMargins_double__double__double__double__const.html),
   [PLOTSETTINGS DXF fields](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-DXF/files/GUID-1113675E-AB07-4567-801A-310CDE0D56E9.htm),
   [LAYOUT DXF fields](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DXF/files/GUID-433D25BF-655D-4697-834E-C666EDFD956D.htm),
+  [drawing-limits WCS contract](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-LT-ActiveX-Reference/files/GUID-30E059A2-A0C0-4F1A-B021-0478AF950D6E.htm),
   [plot-settings/page-setup ownership](https://help.autodesk.com/cloudhelp/2017/ENU/AutoCAD-NET/files/GUID-56BD3247-471C-4471-A238-FFDFDC3BD2E4.htm),
   [plot-window DCS contract](https://help.autodesk.com/cloudhelp/2022/ENU/OARX-ManagedRefGuide/files/OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_PlotSettingsValidator_SetPlotWindowArea_PlotSettings_Extents2d.html),
   [plot-origin contract](https://help.autodesk.com/cloudhelp/2019/ENU/OARX-RefGuide/files/OREF-__OVERLOADED_getPlotOrigin_AcDbPlotSettings.html),
@@ -4417,8 +4423,12 @@ Sources consulted on 2026-08-27 through 2026-08-30:
   edges, while the upside-down states rotate placement and clip together around
   the output page. This follows the documented default rotated-origin offset
   behavior and keeps asymmetric margins observable. Retained Window as raw DCS data and rejected
-  treating it as WCS without the saved view transform; also rejected guessing
-  layout viewports/UCS limits, device pixel scale, style-table,
+  treating it as WCS without the saved view transform. Adopted layout-owned
+  model DrawingLimits as an explicit WCS bounds selection because Autodesk's
+  public limits contract identifies LIMMIN/LIMMAX as 2D WCS points and the
+  detached layout already retains them; rejected applying that policy to named
+  overrides, which carry no layout geometry. Also rejected guessing layout
+  viewports, device pixel scale, style-table,
   disabled/scaled lineweight, shaded-output, or transparency policy. Paper image
   origin remains retained device metadata; the documented plot origin inside
   the paper margins is the current geometric offset authority. The shared host
