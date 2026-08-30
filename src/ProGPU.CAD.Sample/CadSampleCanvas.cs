@@ -248,6 +248,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         set
         {
             if ((value & ~(CadObjectSnapModes.Standard |
+                           CadObjectSnapModes.Perpendicular |
                            CadObjectSnapModes.Nearest)) != 0)
             {
                 throw new ArgumentOutOfRangeException(nameof(value));
@@ -2491,7 +2492,10 @@ public sealed class CadSampleCanvas : FrameworkElement
             screenPoint,
             PointTransformObjectSnapAperture,
             _objectSnapModes,
-            _selectionEntityScratch);
+            _selectionEntityScratch,
+            _hasPointTransformBasePoint
+                ? _pointTransformBasePoint
+                : null);
         if (_pointTransformObjectSnap.AreCandidatesTruncated ||
             _pointTransformObjectSnap.AreIntersectionPairsTruncated)
         {
@@ -2611,6 +2615,21 @@ public sealed class CadSampleCanvas : FrameworkElement
                 context.DrawLine(_drawOrderReferencePen, center, bottomRight);
                 context.DrawLine(_drawOrderReferencePen, topLeft, bottomLeft);
                 context.DrawLine(_drawOrderReferencePen, topRight, bottomRight);
+                break;
+            }
+            case CadObjectSnapKind.Perpendicular:
+            {
+                Vector2 corner = center - horizontal + vertical;
+                Vector2 top = center - horizontal - vertical;
+                Vector2 right = center + horizontal + vertical;
+                Vector2 innerCorner = center - (horizontal * 0.35f) +
+                    (vertical * 0.35f);
+                context.DrawLine(_drawOrderReferencePen, top, corner);
+                context.DrawLine(_drawOrderReferencePen, corner, right);
+                context.DrawLine(
+                    _drawOrderReferencePen,
+                    innerCorner - (vertical * 0.7f),
+                    innerCorner + (horizontal * 0.7f));
                 break;
             }
         }

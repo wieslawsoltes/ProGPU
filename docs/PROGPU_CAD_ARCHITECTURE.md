@@ -4983,13 +4983,16 @@ approximations are recorded in
 ## Running object-snap boundary
 
 MOVE/COPY point acquisition now composes actual Intersection, Endpoint,
-Midpoint, Center, Quadrant, Node, and Nearest over the immutable snapshot. A caller-buffered
+Midpoint, Center, Quadrant, Node, Nearest, and reference-aware Perpendicular
+over the immutable snapshot. A caller-buffered
 spatial broad phase feeds exact analytic point and pair solvers, with explicit
 scratch, entity-pair, and component-pair truncation. Deterministic device-space
 arbitration returns a generation-tagged double-WCS point plus both source identities for an
 Intersection without warm allocation. Nearest uses exact linear, rational-conic,
 polyline, and canonical rational-Bezier closest-point evaluation in plan while
-retaining source WCS Z. The shared shell shows fixed-device
+retaining source WCS Z. Perpendicular preserves every exact plan stationary
+root relative to an accepted base point, including far-side conic/spline
+normals, without extending bounded geometry. The shared shell shows fixed-device
 semantic markers and commits the exact point without a float-screen round trip.
 No scene, shader, cache, native ABI, or renderer algorithm changes. Public
 behavior research, clean-room provenance, supported families, complexity,

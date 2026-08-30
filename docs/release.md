@@ -49,7 +49,8 @@ scene rebuild; the second click commits through the existing one-generation
 transactional MOVE/COPY commands. Escape and document/selection teardown cancel
 without edits, source handles remain selected, and coincident MOVE/COPY behavior
 is explicit. The same prompts now accept bounded typed coordinates and exact
-running Intersection/Endpoint/Midpoint/Center/Quadrant/Node/Nearest points;
+running Intersection/Endpoint/Midpoint/Center/Quadrant/Node/Nearest points and
+base-referenced Perpendicular second points;
 Nearest covers documented linear, conic, polyline, POINT, and rational-spline
 families without flattening. Grid, remaining object snaps, UCS/arbitrary-camera
 planes, COPY Multiple, and full geometry ghosting remain. This workflow changes no renderer,

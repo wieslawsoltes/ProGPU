@@ -3910,6 +3910,91 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void PointMoveUsesBaseReferencedPerpendicularAndRightAngleMarker()
+    {
+        var document = new CadDocument();
+        var selected = new Line(
+            new XYZ(-10, -10, 0),
+            new XYZ(-8, -10, 0));
+        document.Entities.Add(selected);
+        document.Entities.Add(new Line(
+            new XYZ(0, 0, 2),
+            new XYZ(10, 0, 4)));
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(canvas, viewport.WorldToScreen(new CadPoint3D(-9, -10, 0)));
+            Assert.Equal([selected.Handle], canvas.SelectedHandles.ToArray());
+            canvas.ObjectSnapModes = CadObjectSnapModes.Perpendicular;
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+            CadDocumentSnapshot snapshot = canvas.CurrentSnapshot!;
+            int snapshotChanges = 0;
+            canvas.SnapshotChanged += (_, _) => snapshotChanges++;
+
+            Vector2 targetPointer =
+                viewport.WorldToScreen(new CadPoint3D(3, 0, 0));
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = targetPointer,
+            });
+            Assert.Null(canvas.PendingPointTransformObjectSnap);
+
+            Vector2 basePointer =
+                viewport.WorldToScreen(new CadPoint3D(3, 5, 0));
+            Click(canvas, basePointer);
+            CadPoint3D basePoint =
+                canvas.PendingPointTransformBasePoint!.Value;
+            CadPoint3D expected = new(
+                basePoint.X,
+                0,
+                2 + (basePoint.X * 0.2));
+            Vector2 perpendicularPointer =
+                viewport.WorldToScreen(expected) + new Vector2(0, -4);
+            for (int index = 0; index < 1_024; index++)
+            {
+                canvas.OnPointerMoved(new PointerRoutedEventArgs
+                {
+                    Position = perpendicularPointer,
+                });
+            }
+
+            CadObjectSnapResult snap =
+                canvas.PendingPointTransformObjectSnap!.Value;
+            Assert.Equal(CadObjectSnapKind.Perpendicular, snap.Kind);
+            Assert.Equal(expected, snap.Point);
+            Assert.Same(snapshot, canvas.CurrentSnapshot);
+            Assert.Equal(0, snapshotChanges);
+            var drawing = new DrawingContext();
+            canvas.OnRender(drawing);
+            Assert.True(drawing.Commands.Count(command =>
+                command.Type == RenderCommandType.DrawLine) >= 3);
+
+            Click(canvas, perpendicularPointer);
+
+            Assert.Null(canvas.PendingPointTransformOperation);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(1, snapshotChanges);
+            CadPoint3D displacement = expected - basePoint;
+            AssertPoint(
+                new XYZ(-10 + displacement.X, -10 + displacement.Y, displacement.Z),
+                selected.StartPoint);
+            AssertPoint(
+                new XYZ(-8 + displacement.X, -10 + displacement.Y, displacement.Z),
+                selected.EndPoint);
+            Assert.Equal(1, canvas.UndoCount);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedObjectSnapSelectorChangesCanvasModesWithoutEditingDocument()
     {
         var view = new CadSampleView();
@@ -3929,6 +4014,16 @@ public sealed class CadSampleSelectionTests
 
             Assert.Equal(
                 CadObjectSnapModes.Quadrant,
+                view.Canvas.ObjectSnapModes);
+
+            view.ObjectSnapSelector.SelectedItem =
+                view.ObjectSnapSelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Tag is
+                        CadObjectSnapModes.Perpendicular);
+
+            Assert.Equal(
+                CadObjectSnapModes.Perpendicular,
                 view.Canvas.ObjectSnapModes);
 
             view.ObjectSnapSelector.SelectedItem =

@@ -360,26 +360,16 @@ public static partial class CadObjectSnapQuery
         Span<CadHomogeneousPoint> span = stackalloc CadHomogeneousPoint[3];
         for (int spanIndex = 0; spanIndex < spanCount; spanIndex++)
         {
-            double start = startParameter + (spanIndex * spanSweep);
-            double end = start + spanSweep;
-            double middle = (start * 0.5) + (end * 0.5);
-            double weight = Math.Cos(spanSweep * 0.5);
-            if (!(weight > 0.0) || !double.IsFinite(weight))
+            if (!TryCreateEllipticalArcBezierSpan(
+                    center,
+                    axisX,
+                    axisY,
+                    startParameter + (spanIndex * spanSweep),
+                    spanSweep,
+                    span))
             {
                 return false;
             }
-            CadPoint3D first = EllipsePoint(center, axisX, axisY, start);
-            CadPoint3D last = EllipsePoint(center, axisX, axisY, end);
-            CadPoint3D middleDirection =
-                (axisX * Math.Cos(middle)) +
-                (axisY * Math.Sin(middle));
-            span[0] = CadHomogeneousPoint.FromCartesian(first, 1.0);
-            span[1] = new CadHomogeneousPoint(
-                (center.X * weight) + middleDirection.X,
-                (center.Y * weight) + middleDirection.Y,
-                (center.Z * weight) + middleDirection.Z,
-                weight);
-            span[2] = CadHomogeneousPoint.FromCartesian(last, 1.0);
             if (!CadSplineSelection.TryClosestPlanPointToBezier(
                     span,
                     queryPoint,
@@ -395,6 +385,43 @@ public static partial class CadObjectSnapQuery
             }
         }
         return IsFinite(closest);
+    }
+
+    private static bool TryCreateEllipticalArcBezierSpan(
+        CadPoint3D center,
+        CadPoint3D axisX,
+        CadPoint3D axisY,
+        double startParameter,
+        double sweepParameter,
+        Span<CadHomogeneousPoint> destination)
+    {
+        if (destination.Length < 3)
+        {
+            return false;
+        }
+        double endParameter = startParameter + sweepParameter;
+        double middleParameter =
+            (startParameter * 0.5) + (endParameter * 0.5);
+        double weight = Math.Cos(sweepParameter * 0.5);
+        if (!(weight > 0.0) || !double.IsFinite(weight))
+        {
+            return false;
+        }
+        CadPoint3D middleDirection =
+            (axisX * Math.Cos(middleParameter)) +
+            (axisY * Math.Sin(middleParameter));
+        destination[0] = CadHomogeneousPoint.FromCartesian(
+            EllipsePoint(center, axisX, axisY, startParameter),
+            1.0);
+        destination[1] = new CadHomogeneousPoint(
+            (center.X * weight) + middleDirection.X,
+            (center.Y * weight) + middleDirection.Y,
+            (center.Z * weight) + middleDirection.Z,
+            weight);
+        destination[2] = CadHomogeneousPoint.FromCartesian(
+            EllipsePoint(center, axisX, axisY, endParameter),
+            1.0);
+        return true;
     }
 
     private static CadPoint3D EllipsePoint(

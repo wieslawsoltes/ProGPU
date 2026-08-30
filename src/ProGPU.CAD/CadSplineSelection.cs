@@ -342,6 +342,81 @@ internal static class CadSplineSelection
             out closest,
             out distance);
 
+    /// <summary>
+    /// Collects every exact WCS-XY normal-foot candidate on one rational
+    /// Bezier span. When every point is normal to the reference, the unique
+    /// candidate closest to the cursor is returned.
+    /// </summary>
+    internal static bool TryCollectPlanPerpendicularPoints(
+        ReadOnlySpan<CadHomogeneousPoint> points,
+        CadPoint3D referencePoint,
+        CadPoint3D queryPoint,
+        Span<CadPoint3D> destination,
+        out int pointCount)
+    {
+        pointCount = 0;
+        Span<CadHomogeneousPoint> normalizedPoints =
+            stackalloc CadHomogeneousPoint[MaximumSplineDegree + 1];
+        Span<double> stationary =
+            stackalloc double[MaximumStationaryDegree + 1];
+        if (!TryBuildStationaryPolynomial(
+                points,
+                referencePoint,
+                usePlanDistance: true,
+                normalizedPoints,
+                stationary,
+                out int degree,
+                out _,
+                out bool isIdenticallyZero))
+        {
+            return false;
+        }
+
+        if (isIdenticallyZero)
+        {
+            if (destination.IsEmpty ||
+                !TryClosestPlanPointToBezier(
+                    points,
+                    queryPoint,
+                    out destination[0],
+                    out _))
+            {
+                return false;
+            }
+            pointCount = 1;
+            return true;
+        }
+
+        int stationaryDegree = (3 * degree) - 1;
+        Span<double> roots = stackalloc double[MaximumStationaryDegree];
+        if (!CadBernsteinPolynomial.TryCollectRoots(
+                stationary[..(stationaryDegree + 1)],
+                roots,
+                out int rootCount) ||
+            rootCount > destination.Length)
+        {
+            return false;
+        }
+        for (int index = 0; index < rootCount; index++)
+        {
+            CadHomogeneousPoint value =
+                CadRationalBezier.EvaluateHomogeneous(points, roots[index]);
+            if (!double.IsFinite(value.W) || !(value.W > 0.0))
+            {
+                pointCount = 0;
+                return false;
+            }
+            CadPoint3D candidate = value.Cartesian;
+            if (!AreFinite(candidate))
+            {
+                pointCount = 0;
+                return false;
+            }
+            destination[pointCount++] = candidate;
+        }
+        return true;
+    }
+
     private static bool TryClosestPointToBezier(
         ReadOnlySpan<CadHomogeneousPoint> points,
         CadPoint3D point,
@@ -351,111 +426,24 @@ internal static class CadSplineSelection
     {
         closest = default;
         distance = double.PositiveInfinity;
-        int degree = points.Length - 1;
-        double coordinateScale = 1.0;
-        double weightScale = 0.0;
-        Span<CadPoint3D> translated = stackalloc CadPoint3D[MaximumSplineDegree + 1];
-        for (int i = 0; i < points.Length; i++)
-        {
-            CadPoint3D cartesian = points[i].Cartesian;
-            if (!AreFinite(cartesian) || !double.IsFinite(points[i].W) || points[i].W <= 0.0)
-            {
-                return false;
-            }
-            CadPoint3D delta = cartesian - point;
-            translated[i] = usePlanDistance
-                ? new CadPoint3D(delta.X, delta.Y, 0.0)
-                : delta;
-            coordinateScale = Math.Max(
-                coordinateScale,
-                Math.Max(
-                    Math.Abs(translated[i].X),
-                    Math.Max(Math.Abs(translated[i].Y), Math.Abs(translated[i].Z))));
-            weightScale = Math.Max(weightScale, points[i].W);
-        }
-        if (!double.IsFinite(coordinateScale) || !(weightScale > 0.0))
+        Span<CadHomogeneousPoint> normalizedPoints =
+            stackalloc CadHomogeneousPoint[MaximumSplineDegree + 1];
+        Span<double> stationary =
+            stackalloc double[MaximumStationaryDegree + 1];
+        if (!TryBuildStationaryPolynomial(
+                points,
+                point,
+                usePlanDistance,
+                normalizedPoints,
+                stationary,
+                out int degree,
+                out double coordinateScale,
+                out _))
         {
             return false;
         }
 
-        Span<double> x = stackalloc double[MaximumSplineDegree + 1];
-        Span<double> y = stackalloc double[MaximumSplineDegree + 1];
-        Span<double> z = stackalloc double[MaximumSplineDegree + 1];
-        Span<double> w = stackalloc double[MaximumSplineDegree + 1];
-        Span<CadHomogeneousPoint> normalizedPoints =
-            stackalloc CadHomogeneousPoint[MaximumSplineDegree + 1];
-        for (int i = 0; i <= degree; i++)
-        {
-            w[i] = points[i].W / weightScale;
-            x[i] = (translated[i].X / coordinateScale) * w[i];
-            y[i] = (translated[i].Y / coordinateScale) * w[i];
-            z[i] = (translated[i].Z / coordinateScale) * w[i];
-            normalizedPoints[i] = new CadHomogeneousPoint(
-                x[i],
-                y[i],
-                z[i],
-                w[i]);
-        }
-
-        Span<double> stationary = stackalloc double[MaximumStationaryDegree + 1];
         int stationaryDegree = (3 * degree) - 1;
-        stationary[..(stationaryDegree + 1)].Clear();
-        Span<double> axis = stackalloc double[MaximumSplineDegree + 1];
-        Span<double> derivativeAxis = stackalloc double[MaximumSplineDegree];
-        Span<double> derivativeWeight = stackalloc double[MaximumSplineDegree];
-        Span<double> firstProduct = stackalloc double[(2 * MaximumSplineDegree)];
-        Span<double> secondProduct = stackalloc double[(2 * MaximumSplineDegree)];
-        Span<double> derivativeNumerator = stackalloc double[(2 * MaximumSplineDegree)];
-        Span<double> axisStationary =
-            stackalloc double[MaximumStationaryDegree + 1];
-        for (int i = 0; i < degree; i++)
-        {
-            derivativeWeight[i] = degree * (w[i + 1] - w[i]);
-        }
-
-        int componentCount = usePlanDistance ? 2 : 3;
-        for (int component = 0; component < componentCount; component++)
-        {
-            ReadOnlySpan<double> source = component switch
-            {
-                0 => x[..(degree + 1)],
-                1 => y[..(degree + 1)],
-                _ => z[..(degree + 1)],
-            };
-            source.CopyTo(axis);
-            for (int i = 0; i < degree; i++)
-            {
-                derivativeAxis[i] = degree * (axis[i + 1] - axis[i]);
-            }
-
-            if (!TryMultiplyBernstein(
-                    derivativeAxis[..degree],
-                    w[..(degree + 1)],
-                    firstProduct[..(2 * degree)]) ||
-                !TryMultiplyBernstein(
-                    axis[..(degree + 1)],
-                    derivativeWeight[..degree],
-                    secondProduct[..(2 * degree)]))
-            {
-                return false;
-            }
-            for (int i = 0; i < 2 * degree; i++)
-            {
-                derivativeNumerator[i] = firstProduct[i] - secondProduct[i];
-            }
-            if (!TryMultiplyBernstein(
-                    axis[..(degree + 1)],
-                    derivativeNumerator[..(2 * degree)],
-                    axisStationary[..(stationaryDegree + 1)]))
-            {
-                return false;
-            }
-            for (int i = 0; i <= stationaryDegree; i++)
-            {
-                stationary[i] += axisStationary[i];
-            }
-        }
-
         Span<double> roots = stackalloc double[MaximumStationaryDegree];
         if (!CadBernsteinPolynomial.TryCollectRoots(
                 stationary[..(stationaryDegree + 1)],
@@ -501,6 +489,154 @@ internal static class CadSplineSelection
         closest = closestValue.Cartesian;
         distance = minimumNormalized * coordinateScale;
         return AreFinite(closest) && !double.IsNaN(distance);
+    }
+
+    private static bool TryBuildStationaryPolynomial(
+        ReadOnlySpan<CadHomogeneousPoint> points,
+        CadPoint3D point,
+        bool usePlanDistance,
+        Span<CadHomogeneousPoint> normalizedPoints,
+        Span<double> stationary,
+        out int degree,
+        out double coordinateScale,
+        out bool isIdenticallyZero)
+    {
+        degree = points.Length - 1;
+        coordinateScale = 1.0;
+        isIdenticallyZero = false;
+        if (degree < 1 || degree > MaximumSplineDegree ||
+            normalizedPoints.Length < points.Length)
+        {
+            return false;
+        }
+
+        double weightScale = 0.0;
+        Span<CadPoint3D> translated =
+            stackalloc CadPoint3D[MaximumSplineDegree + 1];
+        for (int index = 0; index < points.Length; index++)
+        {
+            CadPoint3D cartesian = points[index].Cartesian;
+            if (!AreFinite(cartesian) || !double.IsFinite(points[index].W) ||
+                points[index].W <= 0.0)
+            {
+                return false;
+            }
+            CadPoint3D delta = cartesian - point;
+            translated[index] = usePlanDistance
+                ? new CadPoint3D(delta.X, delta.Y, 0.0)
+                : delta;
+            coordinateScale = Math.Max(
+                coordinateScale,
+                Math.Max(
+                    Math.Abs(translated[index].X),
+                    Math.Max(
+                        Math.Abs(translated[index].Y),
+                        Math.Abs(translated[index].Z))));
+            weightScale = Math.Max(weightScale, points[index].W);
+        }
+        if (!double.IsFinite(coordinateScale) || !(weightScale > 0.0))
+        {
+            return false;
+        }
+
+        Span<double> x = stackalloc double[MaximumSplineDegree + 1];
+        Span<double> y = stackalloc double[MaximumSplineDegree + 1];
+        Span<double> z = stackalloc double[MaximumSplineDegree + 1];
+        Span<double> w = stackalloc double[MaximumSplineDegree + 1];
+        for (int index = 0; index <= degree; index++)
+        {
+            w[index] = points[index].W / weightScale;
+            x[index] = (translated[index].X / coordinateScale) * w[index];
+            y[index] = (translated[index].Y / coordinateScale) * w[index];
+            z[index] = (translated[index].Z / coordinateScale) * w[index];
+            normalizedPoints[index] = new CadHomogeneousPoint(
+                x[index],
+                y[index],
+                z[index],
+                w[index]);
+        }
+
+        int stationaryDegree = (3 * degree) - 1;
+        if (stationary.Length < stationaryDegree + 1)
+        {
+            return false;
+        }
+        stationary[..(stationaryDegree + 1)].Clear();
+        Span<double> axis = stackalloc double[MaximumSplineDegree + 1];
+        Span<double> derivativeAxis = stackalloc double[MaximumSplineDegree];
+        Span<double> derivativeWeight = stackalloc double[MaximumSplineDegree];
+        Span<double> firstProduct = stackalloc double[2 * MaximumSplineDegree];
+        Span<double> secondProduct = stackalloc double[2 * MaximumSplineDegree];
+        Span<double> derivativeNumerator =
+            stackalloc double[2 * MaximumSplineDegree];
+        Span<double> axisStationary =
+            stackalloc double[MaximumStationaryDegree + 1];
+        double stationaryReferenceScale = 0.0;
+        for (int index = 0; index < degree; index++)
+        {
+            derivativeWeight[index] = degree * (w[index + 1] - w[index]);
+        }
+
+        int componentCount = usePlanDistance ? 2 : 3;
+        for (int component = 0; component < componentCount; component++)
+        {
+            ReadOnlySpan<double> source = component switch
+            {
+                0 => x[..(degree + 1)],
+                1 => y[..(degree + 1)],
+                _ => z[..(degree + 1)],
+            };
+            source.CopyTo(axis);
+            for (int index = 0; index < degree; index++)
+            {
+                derivativeAxis[index] =
+                    degree * (axis[index + 1] - axis[index]);
+            }
+
+            if (!TryMultiplyBernstein(
+                    derivativeAxis[..degree],
+                    w[..(degree + 1)],
+                    firstProduct[..(2 * degree)]) ||
+                !TryMultiplyBernstein(
+                    axis[..(degree + 1)],
+                    derivativeWeight[..degree],
+                    secondProduct[..(2 * degree)]))
+            {
+                return false;
+            }
+            for (int index = 0; index < 2 * degree; index++)
+            {
+                derivativeNumerator[index] =
+                    firstProduct[index] - secondProduct[index];
+            }
+            if (!TryMultiplyBernstein(
+                    axis[..(degree + 1)],
+                    derivativeNumerator[..(2 * degree)],
+                    axisStationary[..(stationaryDegree + 1)]))
+            {
+                return false;
+            }
+            for (int index = 0; index <= stationaryDegree; index++)
+            {
+                stationaryReferenceScale = Math.Max(
+                    stationaryReferenceScale,
+                    Math.Abs(axisStationary[index]));
+                stationary[index] += axisStationary[index];
+            }
+        }
+
+        double stationaryScale = 0.0;
+        for (int index = 0; index <= stationaryDegree; index++)
+        {
+            stationaryScale = Math.Max(
+                stationaryScale,
+                Math.Abs(stationary[index]));
+        }
+        double stationaryTolerance =
+            stationaryReferenceScale * CoordinateToleranceFactor *
+            (degree + 1);
+        isIdenticallyZero = stationaryScale <= stationaryTolerance;
+        return true;
     }
 
     private static bool TryIncludeDistance(

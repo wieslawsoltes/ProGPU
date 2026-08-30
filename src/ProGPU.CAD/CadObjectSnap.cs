@@ -13,6 +13,7 @@ public enum CadObjectSnapModes : ushort
     Node = 1 << 3,
     Quadrant = 1 << 4,
     Intersection = 1 << 5,
+    Perpendicular = 1 << 7,
     Nearest = 1 << 9,
     Standard = Endpoint | Midpoint | Center | Node | Intersection | Quadrant,
 }
@@ -28,6 +29,7 @@ public enum CadObjectSnapKind : byte
     Quadrant = 5,
     Intersection = 6,
     Nearest = 7,
+    Perpendicular = 8,
 }
 
 /// <summary>
@@ -110,11 +112,12 @@ public static partial class CadObjectSnapQuery
     /// sorts caller scratch in O(K log K), tests at most B entity pairs and C
     /// analytic component pairs. Other candidate evaluation is O(P) for P
     /// exact snap points. B and C are the corresponding public maximums above.
-    /// Nearest mode performs exact segment/span closest-point work S. Internal
-    /// storage is O(1) plus caller-owned entity-index scratch. Equal device
-    /// distances prefer Intersection, Endpoint, Midpoint, Center, Quadrant,
-    /// Node, then Nearest, followed by retained entity order, second entity
-    /// order, and point ordinal.
+    /// Nearest and reference-aware Perpendicular modes perform exact
+    /// segment/span stationary-point work S. Internal storage is O(1) plus
+    /// caller-owned entity-index scratch. Equal device distances prefer
+    /// Intersection, Endpoint, Midpoint, Center, Quadrant, Node,
+    /// Perpendicular, then Nearest, followed by retained entity order, second
+    /// entity order, and point ordinal.
     /// </remarks>
     public static CadObjectSnapResult Query(
         CadDocumentSnapshot snapshot,
@@ -122,7 +125,8 @@ public static partial class CadObjectSnapQuery
         Vector2 screenPoint,
         float aperturePixels,
         CadObjectSnapModes modes,
-        Span<int> entityIndexScratch)
+        Span<int> entityIndexScratch,
+        CadPoint3D? referencePoint = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         if (!float.IsFinite(screenPoint.X) || !float.IsFinite(screenPoint.Y))
@@ -138,9 +142,16 @@ public static partial class CadObjectSnapQuery
                 "The object-snap aperture must be finite and non-negative.");
         }
         if ((modes & ~(CadObjectSnapModes.Standard |
+                       CadObjectSnapModes.Perpendicular |
                        CadObjectSnapModes.Nearest)) != 0)
         {
             throw new ArgumentOutOfRangeException(nameof(modes));
+        }
+        if (referencePoint is CadPoint3D reference && !IsFinite(reference))
+        {
+            throw new ArgumentException(
+                "The object-snap reference point must be finite.",
+                nameof(referencePoint));
         }
         if (modes == CadObjectSnapModes.None)
         {
@@ -166,8 +177,12 @@ public static partial class CadObjectSnapQuery
             entityIndexScratch);
         int candidateWrittenCount = spatial.WrittenCount;
         int candidateTotalCount = spatial.TotalCount;
+        bool evaluatePerpendicular =
+            (modes & CadObjectSnapModes.Perpendicular) != 0 &&
+            referencePoint.HasValue;
         if ((modes & (CadObjectSnapModes.Intersection |
-                      CadObjectSnapModes.Nearest)) != 0)
+                      CadObjectSnapModes.Nearest)) != 0 ||
+            evaluatePerpendicular)
         {
             AppendConstructionLineCandidates(
                 snapshot,
@@ -190,6 +205,7 @@ public static partial class CadObjectSnapQuery
             candidateTotalCount);
         ReadOnlySpan<CadEntityHeader> entities = snapshot.Entities.Span;
         if ((modes & ~(CadObjectSnapModes.Intersection |
+                       CadObjectSnapModes.Perpendicular |
                        CadObjectSnapModes.Nearest)) != 0)
         {
             for (int i = 0; i < candidateWrittenCount; i++)
@@ -202,9 +218,12 @@ public static partial class CadObjectSnapQuery
                     ref search);
             }
         }
-        if ((modes & CadObjectSnapModes.Nearest) != 0)
+        bool evaluateNearest = (modes & CadObjectSnapModes.Nearest) != 0;
+        CadPoint3D queryPoint = evaluateNearest || evaluatePerpendicular
+            ? viewport.ScreenToWorld(screenPoint)
+            : default;
+        if (evaluateNearest)
         {
-            CadPoint3D queryPoint = viewport.ScreenToWorld(screenPoint);
             for (int i = 0; i < candidateWrittenCount; i++)
             {
                 int entityIndex = entityIndexScratch[i];
@@ -212,6 +231,21 @@ public static partial class CadObjectSnapQuery
                     snapshot,
                     entities[entityIndex],
                     entityIndex,
+                    queryPoint,
+                    ref search);
+            }
+        }
+        if (evaluatePerpendicular &&
+            referencePoint is CadPoint3D perpendicularReference)
+        {
+            for (int i = 0; i < candidateWrittenCount; i++)
+            {
+                int entityIndex = entityIndexScratch[i];
+                EvaluatePerpendicular(
+                    snapshot,
+                    entities[entityIndex],
+                    entityIndex,
+                    perpendicularReference,
                     queryPoint,
                     ref search);
             }
@@ -834,6 +868,8 @@ public static partial class CadObjectSnapQuery
                 (_modes & CadObjectSnapModes.Intersection) != 0,
             CadObjectSnapKind.Quadrant =>
                 (_modes & CadObjectSnapModes.Quadrant) != 0,
+            CadObjectSnapKind.Perpendicular =>
+                (_modes & CadObjectSnapModes.Perpendicular) != 0,
             CadObjectSnapKind.Nearest =>
                 (_modes & CadObjectSnapModes.Nearest) != 0,
             _ => false,
@@ -874,7 +910,8 @@ public static partial class CadObjectSnapQuery
             CadObjectSnapKind.Center => 3,
             CadObjectSnapKind.Quadrant => 4,
             CadObjectSnapKind.Node => 5,
-            CadObjectSnapKind.Nearest => 6,
+            CadObjectSnapKind.Perpendicular => 6,
+            CadObjectSnapKind.Nearest => 7,
             _ => int.MaxValue,
         };
     }

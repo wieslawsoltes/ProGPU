@@ -17,8 +17,11 @@ public sealed class CadObjectSnapTests
         Assert.Equal(8, (int)CadObjectSnapModes.Node);
         Assert.Equal(16, (int)CadObjectSnapModes.Quadrant);
         Assert.Equal(32, (int)CadObjectSnapModes.Intersection);
+        Assert.Equal(128, (int)CadObjectSnapModes.Perpendicular);
         Assert.Equal(512, (int)CadObjectSnapModes.Nearest);
         Assert.Equal(63, (int)CadObjectSnapModes.Standard);
+        Assert.Equal(7, (int)CadObjectSnapKind.Nearest);
+        Assert.Equal(8, (int)CadObjectSnapKind.Perpendicular);
     }
 
     [Fact]
@@ -410,6 +413,246 @@ public sealed class CadObjectSnapTests
     }
 
     [Fact]
+    public void PerpendicularSnapRequiresReferenceAndHonorsLinearExtents()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add perpendicular linear geometry", document =>
+        {
+            document.Entities.Add(new Line(
+                new XYZ(0, 0, 2),
+                new XYZ(10, 0, 4)));
+            document.Entities.Add(new Ray
+            {
+                StartPoint = new XYZ(20, 0, 5),
+                Direction = XYZ.AxisX,
+            });
+            document.Entities.Add(new XLine
+            {
+                FirstPoint = new XYZ(40, 0, 7),
+                Direction = new XYZ(1, 1, 0),
+            });
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        AssertPerpendicular(
+            snapshot,
+            viewport,
+            new CadPoint3D(3, 5, 100),
+            new CadPoint3D(3, 0, 2.6),
+            scratch);
+        AssertPerpendicular(
+            snapshot,
+            viewport,
+            new CadPoint3D(24, 5, -100),
+            new CadPoint3D(24, 0, 5),
+            scratch);
+        AssertPerpendicular(
+            snapshot,
+            viewport,
+            new CadPoint3D(43, 1, 0),
+            new CadPoint3D(42, 2, 7),
+            scratch);
+
+        CadObjectSnapResult outsideLine = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(CadPoint3D.Zero),
+            2,
+            CadObjectSnapModes.Perpendicular,
+            scratch,
+            new CadPoint3D(-2, 5, 0));
+        CadObjectSnapResult outsideRay = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(new CadPoint3D(20, 0, 5)),
+            2,
+            CadObjectSnapModes.Perpendicular,
+            scratch,
+            new CadPoint3D(17, 5, 0));
+        CadObjectSnapResult missingReference = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(new CadPoint3D(3, 0, 0)),
+            2,
+            CadObjectSnapModes.Perpendicular,
+            scratch);
+
+        Assert.False(outsideLine.IsSnapped);
+        Assert.False(outsideRay.IsSnapped);
+        Assert.False(missingReference.IsSnapped);
+        Assert.Throws<ArgumentException>(() => CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            Vector2.Zero,
+            2,
+            CadObjectSnapModes.Perpendicular,
+            scratch,
+            new CadPoint3D(double.NaN, 0, 0)));
+    }
+
+    [Fact]
+    public void PerpendicularSnapKeepsEveryExactConicNormalFoot()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add perpendicular conics", document =>
+        {
+            document.Entities.Add(new Circle(XYZ.Zero, 5));
+            document.Entities.Add(new Arc
+            {
+                Center = new XYZ(20, 0, 2),
+                Radius = 5,
+                StartAngle = 0,
+                EndAngle = Math.PI / 2,
+            });
+            document.Entities.Add(new Ellipse
+            {
+                Center = new XYZ(40, 0, 3),
+                MajorAxisEndPoint = new XYZ(8, 0, 0),
+                RadiusRatio = 0.5,
+            });
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        AssertPerpendicular(
+            snapshot,
+            viewport,
+            new CadPoint3D(8, 0, 0),
+            new CadPoint3D(-5, 0, 0),
+            scratch);
+        AssertPerpendicular(
+            snapshot,
+            viewport,
+            CadPoint3D.Zero,
+            new CadPoint3D(0, 5, 0),
+            scratch);
+        AssertPerpendicular(
+            snapshot,
+            viewport,
+            new CadPoint3D(28, 0, 0),
+            new CadPoint3D(25, 0, 2),
+            scratch);
+        AssertPerpendicular(
+            snapshot,
+            viewport,
+            new CadPoint3D(50, 0, 0),
+            new CadPoint3D(32, 0, 3),
+            scratch);
+    }
+
+    [Fact]
+    public void PerpendicularSnapUsesExactPolylineAndRationalSplineNormals()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add perpendicular composite curves", document =>
+        {
+            var polyline = new LwPolyline();
+            polyline.Vertices.Add(
+                new LwPolyline.Vertex(0, 0) { Bulge = 1 });
+            polyline.Vertices.Add(new LwPolyline.Vertex(10, 0));
+            polyline.Vertices.Add(new LwPolyline.Vertex(20, 0));
+            document.Entities.Add(polyline);
+            document.Entities.Add(new Polyline3D(
+                [new XYZ(30, 0, 2), new XYZ(40, 0, 4)],
+                isClosed: false));
+
+            var spline = new Spline { Degree = 2 };
+            spline.ControlPoints.AddRange([
+                new XYZ(61, 0, 6),
+                new XYZ(61, 1, 6),
+                new XYZ(60, 1, 6),
+            ]);
+            spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+            spline.Weights.AddRange([1, Math.Sqrt(0.5), 1]);
+            document.Entities.Add(spline);
+
+            var parabola = new Spline { Degree = 2 };
+            parabola.ControlPoints.AddRange([
+                new XYZ(80, 0, 8),
+                new XYZ(85, 10, 8),
+                new XYZ(90, 0, 8),
+            ]);
+            parabola.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+            document.Entities.Add(parabola);
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        AssertPerpendicular(
+            snapshot,
+            viewport,
+            new CadPoint3D(5, 0, 0),
+            new CadPoint3D(5, -5, 0),
+            scratch,
+            tolerance: 1e-9);
+        AssertPerpendicular(
+            snapshot,
+            viewport,
+            new CadPoint3D(35, 5, 0),
+            new CadPoint3D(35, 0, 3),
+            scratch);
+        double diagonal = Math.Sqrt(0.5);
+        AssertPerpendicular(
+            snapshot,
+            viewport,
+            new CadPoint3D(60, 0, 0),
+            new CadPoint3D(60 + diagonal, diagonal, 6),
+            scratch,
+            tolerance: 3e-6);
+        AssertPerpendicular(
+            snapshot,
+            viewport,
+            new CadPoint3D(85, 0, 0),
+            new CadPoint3D(85, 5, 8),
+            scratch,
+            tolerance: 1e-8);
+    }
+
+    [Fact]
+    public void PerpendicularSnapDoesNotCollapseTinyCurvesToEveryPoint()
+    {
+        const double scale = 1e-8;
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add tiny perpendicular spline", document =>
+        {
+            var spline = new Spline { Degree = 2 };
+            spline.ControlPoints.AddRange([
+                new XYZ(0, 0, 3),
+                new XYZ(scale * 0.5, scale, 3),
+                new XYZ(scale, 0, 3),
+            ]);
+            spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+            document.Entities.Add(spline);
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        var viewport = new CadPlanViewport(
+            snapshot.RebaseOrigin,
+            new Vector2(1_000, 800),
+            Vector2.Zero,
+            1e10f);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        CadPoint3D expected = new(scale * 0.5, scale * 0.5, 3);
+        CadObjectSnapResult result = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(
+                new CadPoint3D(scale * 0.55, scale * 0.5, 0)),
+            10,
+            CadObjectSnapModes.Perpendicular,
+            scratch,
+            new CadPoint3D(scale * 0.5, 0, 0));
+
+        Assert.True(result.IsSnapped);
+        Assert.Equal(CadObjectSnapKind.Perpendicular, result.Kind);
+        AssertPoint(expected, result.Point, 1e-15);
+    }
+
+    [Fact]
     public void PolylineMidpointUsesExactBulgeArcInsteadOfChordFlattening()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
@@ -497,8 +740,10 @@ public sealed class CadObjectSnapTests
             1,
             CadObjectSnapModes.Endpoint |
                 CadObjectSnapModes.Midpoint |
+                CadObjectSnapModes.Perpendicular |
                 CadObjectSnapModes.Nearest,
-            scratch);
+            scratch,
+            new CadPoint3D(1, 0, 0));
 
         Assert.Equal(CadObjectSnapKind.Endpoint, result.Kind);
         Assert.Equal(1, result.EntityIndex);
@@ -614,6 +859,43 @@ public sealed class CadObjectSnapTests
                 20,
                 CadObjectSnapModes.Nearest,
                 scratch);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void WarmPerpendicularConicQueriesAllocateNoManagedMemory()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add circle", document =>
+            document.Entities.Add(new Circle(XYZ.Zero, 5)));
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+        Vector2 point = viewport.WorldToScreen(new CadPoint3D(-5, 0, 0));
+        CadPoint3D reference = new(8, 0, 0);
+        _ = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            point,
+            2,
+            CadObjectSnapModes.Perpendicular,
+            scratch,
+            reference);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 256; index++)
+        {
+            _ = CadObjectSnapQuery.Query(
+                snapshot,
+                viewport,
+                point,
+                2,
+                CadObjectSnapModes.Perpendicular,
+                scratch,
+                reference);
         }
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
@@ -1009,6 +1291,30 @@ public sealed class CadObjectSnapTests
         Assert.Equal(CadObjectSnapKind.Nearest, result.Kind);
         AssertPoint(expected, result.Point, tolerance);
         Assert.Equal(snapshot.ContentGeneration, result.ContentGeneration);
+    }
+
+    private static void AssertPerpendicular(
+        CadDocumentSnapshot snapshot,
+        CadPlanViewport viewport,
+        CadPoint3D reference,
+        CadPoint3D expected,
+        int[] scratch,
+        double tolerance = 1e-10)
+    {
+        CadObjectSnapResult result = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(expected),
+            2,
+            CadObjectSnapModes.Perpendicular,
+            scratch,
+            reference);
+
+        Assert.True(result.IsSnapped);
+        Assert.Equal(CadObjectSnapKind.Perpendicular, result.Kind);
+        AssertPoint(expected, result.Point, tolerance);
+        Assert.Equal(snapshot.ContentGeneration, result.ContentGeneration);
+        Assert.Equal(0, result.DistancePixels, 5);
     }
 
     private static CadDocumentSnapshot Compile(CadDocumentSession session) =>

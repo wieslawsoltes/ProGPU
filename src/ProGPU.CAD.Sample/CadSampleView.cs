@@ -632,6 +632,10 @@ public sealed class CadSampleView : Grid
         {
             Tag = CadObjectSnapModes.Quadrant,
         });
+        _objectSnapSelector.Items.Add(new ComboBoxItem("Snap: Perpendicular")
+        {
+            Tag = CadObjectSnapModes.Perpendicular,
+        });
         _objectSnapSelector.Items.Add(new ComboBoxItem("Snap: Nearest")
         {
             Tag = CadObjectSnapModes.Nearest,
@@ -640,7 +644,7 @@ public sealed class CadSampleView : Grid
         {
             Tag = CadObjectSnapModes.Standard,
         });
-        _objectSnapSelector.SelectedIndex = 8;
+        _objectSnapSelector.SelectedIndex = 9;
         transformActions.AddChild(_objectSnapSelector);
         transformActions.AddChild(new TextBlock
         {
