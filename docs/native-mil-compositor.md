@@ -5207,6 +5207,12 @@ stroked `ID2D1GeometryRealization` resources are created and drawn through
 geometry, stroke style, realization, and brush remains generation- and
 kind-checked, while invalid options, transforms, tolerances, widths, buffers,
 and producer state fail closed. The exact allowlist becomes 74 exports.
+Final checkpoint `9dc74d09` passes the managed aggregate lane in Build run
+`33332388195`, job `99313260684`. Dedicated MSVC job `99313260762` compiles and
+links the provider under warning-as-error, passes the Direct2D test in 0.14
+seconds, and passes all 11 native suites. Corrected native-identical commit
+`84ece34c` passes ClangCL x64 job `99312705172` in 0.15 seconds and all 12
+native suites; the final commit changes only managed operation-label scope.
 
 ## Managed glyph row-reuse SIMD checkpoint
 
