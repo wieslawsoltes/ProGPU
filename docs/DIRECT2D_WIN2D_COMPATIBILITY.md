@@ -889,8 +889,34 @@ the full sink vtable and scene builder, passed the live Direct2D regression
 typed rejection of non-null DirectWrite rendering parameters. `dumpbin`
 reported exactly 123 provider exports. The resulting DLL SHA-256 is
 `0C552556B68BDB2F34B9B4ADA552B1DBBC2EB25A247483ED27710787CBF787D2`.
-Clean-checkout CI qualification for documentation checkpoint `28b4610b` is
-pending.
+Clean-checkout MSVC compatibility job `99339089791` on checkpoint `b91df2da`
+passes; the longer Windows renderer jobs were superseded by the ABI v34 push.
+
+ABI v34 at implementation `c4dca894` adds exact nested aliased
+`PushAxisAlignedClip`/`PopAxisAlignedClip` translation. Each finite clip is
+transformed by the Direct2D transform active at push time, then intersected
+with the prior target-space clip. The translator records that intersection as
+a native scene-state resource and emits balanced save/restore commands, so
+later transform changes cannot move an already-pushed clip. The admitted depth
+is the native scene maximum of 64; overflow has an explicit capacity failure.
+Clear inside a clip and unbalanced pops fail closed.
+
+Direct2D per-primitive clip antialiasing remains rejected with a typed
+unsupported-state result because ProGPU rectangle clips currently resolve to
+an exact scissor. Treating that as an antialiased coverage edge would be a
+silent fidelity loss; it will be admitted only with the native path/mask
+coverage implementation. The Windows test decodes both state resources from a
+seven-command scene and verifies the non-identity transformed outer clip
+`[3,5,37.5,22.5]` plus nested intersection `[15.5,12.5,25,15]` exactly. It also
+proves that per-primitive antialiased clips return `E_NOTIMPL` without a partial
+stream. The managed build remains warning-free, contracts pass 5/5, and the
+allowlist remains exactly 123 exports.
+
+Incremental Windows 11 ARM64 Parallels MSVC 19.44/SDK 10.0.26100.0
+qualification passes compile/link under `/W4 /WX` and the live Direct2D
+regression 1/1. The provider SHA-256 is
+`9C38D9BFFC95D7453EDCA5F3D63B53C973C1E24F9DDA2EB3214477BF497464AE`.
+Clean-checkout ABI v34 CI qualification is pending.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
