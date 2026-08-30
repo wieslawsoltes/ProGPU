@@ -1046,6 +1046,15 @@ the along-path distance from the accepted base to the nearest increment and
 refreshes an already-positioned prompt without another pointer event. Object
 snap still returns first, Grid and Polar SNAPTYPE are mutually exclusive, and a
 staged grid panel blocks any snapshot-producing SNAPMODE transition. A bare
+profile-scoped POLARADDANG list now contributes up to ten absolute, non-
+incremental paths through one bounded `O(A)` scan after the incremental
+candidate, with ten inline values and no warm-query allocation. The shared
+semicolon-degree controls update pending prompts immediately and never mutate
+the drawing; invalid input disables the list rather than retaining hidden stale
+angles. Exact angular ties preserve the incremental path, ANGBASE/ANGDIR remain
+authoritative, object snap still returns first, and an additional path composes
+with PolarSnap or exact direct distance. Last-segment-relative POLARMODE remains
+deferred until LINE/POLYLINE authoring owns a genuine preceding segment. A bare
 positive invariant scalar at the second-point prompt applies an exact direct
 distance along the post-base raw cursor ray, the
 active Ortho axis, or an actually acquired polar path. It preserves the base Z
@@ -1056,6 +1065,7 @@ global-last-point state, arbitrary-camera planes, reference-angle, and
 reference-length input remain later editor tools. The exact clean-room behavior
 and applicability records are in `PROGPU_CAD_ORTHO_RESEARCH.md`,
 `PROGPU_CAD_POLAR_TRACKING_RESEARCH.md`,
+`PROGPU_CAD_ADDITIONAL_POLAR_ANGLES_RESEARCH.md`,
 `PROGPU_CAD_POLAR_SNAP_RESEARCH.md`, and
 `PROGPU_CAD_DIRECT_DISTANCE_RESEARCH.md`. One
 `CadDocumentHistory` belongs to the loaded session, so each Move, Copy, Rotate, Scale,

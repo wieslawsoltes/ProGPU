@@ -592,6 +592,30 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
     }
 
+    /// <summary>Whether the bounded POLARADDANG profile list participates.</summary>
+    public bool UsePlanPolarAdditionalAngles
+    {
+        get => _planPolarTrackingSettings.UseAdditionalAngles;
+        set
+        {
+            CadPlanPolarTrackingSettings updated =
+                _planPolarTrackingSettings.WithAdditionalAnglesEnabled(value);
+            SetPlanPolarTrackingProfile(updated);
+        }
+    }
+
+    /// <summary>Current absolute, non-incremental POLARADDANG profile list.</summary>
+    public CadPlanPolarAdditionalAngles PlanPolarAdditionalAngles =>
+        _planPolarTrackingSettings.AdditionalAngles;
+
+    public void SetPlanPolarAdditionalAngles(
+        CadPlanPolarAdditionalAngles angles)
+    {
+        CadPlanPolarTrackingSettings updated =
+            _planPolarTrackingSettings.WithAdditionalAngles(angles);
+        SetPlanPolarTrackingProfile(updated);
+    }
+
     public CadPlanPolarTrackingResult? PendingPointTransformPolarTracking =>
         _hasPointTransformPolarTracking
             ? _pointTransformPolarTracking
@@ -793,6 +817,10 @@ public sealed class CadSampleCanvas : FrameworkElement
             : snapshot.PlanPolarTrackingSettings
                 .WithIncrementRadians(
                     _planPolarTrackingSettings.IncrementRadians)
+                .WithAdditionalAngles(
+                    _planPolarTrackingSettings.AdditionalAngles)
+                .WithAdditionalAnglesEnabled(
+                    _planPolarTrackingSettings.UseAdditionalAngles)
                 .WithEnabled(_planPolarTrackingSettings.IsEnabled);
         _isPlanOrthoEnabled =
             resetViewSelectionAndHistory || synchronizePlanOrthoMode
@@ -3089,6 +3117,27 @@ public sealed class CadSampleCanvas : FrameworkElement
         else
         {
             _hasPointTransformGridSnap = false;
+            _hasPointTransformPolarTracking = false;
+        }
+        Invalidate();
+    }
+
+    private void SetPlanPolarTrackingProfile(
+        CadPlanPolarTrackingSettings updated)
+    {
+        if (updated == _planPolarTrackingSettings)
+        {
+            return;
+        }
+
+        _planPolarTrackingSettings = updated;
+        if (PendingPointTransformOperation is not null &&
+            _hasPointTransformPointerPosition)
+        {
+            UpdatePointTransformPointer(_pointTransformPointerPosition);
+        }
+        else
+        {
             _hasPointTransformPolarTracking = false;
         }
         Invalidate();

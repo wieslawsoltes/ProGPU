@@ -78,6 +78,8 @@ public sealed class CadSampleView : Grid
     private readonly CheckBox _planOrthoCheckBox;
     private readonly CheckBox _planPolarTrackingCheckBox;
     private readonly ComboBox _planPolarTrackingIncrementSelector;
+    private readonly CheckBox _planPolarAdditionalAnglesCheckBox;
+    private readonly TextBox _planPolarAdditionalAnglesInput;
     private readonly CheckBox _planPolarSnapCheckBox;
     private readonly TextBox _planPolarSnapDistanceInput;
     private readonly TextBox _pointTransformInput;
@@ -257,6 +259,12 @@ public sealed class CadSampleView : Grid
 
     public ComboBox PlanPolarTrackingIncrementSelector =>
         _planPolarTrackingIncrementSelector;
+
+    public CheckBox PlanPolarAdditionalAnglesCheckBox =>
+        _planPolarAdditionalAnglesCheckBox;
+
+    public TextBox PlanPolarAdditionalAnglesInput =>
+        _planPolarAdditionalAnglesInput;
 
     public CheckBox PlanPolarSnapCheckBox => _planPolarSnapCheckBox;
 
@@ -759,6 +767,30 @@ public sealed class CadSampleView : Grid
         }
         _planPolarTrackingIncrementSelector.SelectedIndex = 0;
         transformActions.AddChild(_planPolarTrackingIncrementSelector);
+        _planPolarAdditionalAnglesCheckBox = CreateAttributeModeCheckBox(
+            "Additional angles",
+            font);
+        _planPolarAdditionalAnglesCheckBox.IsChecked =
+            _canvas.UsePlanPolarAdditionalAngles;
+        transformActions.AddChild(_planPolarAdditionalAnglesCheckBox);
+        transformActions.AddChild(new TextBlock
+        {
+            Text = "Angles ° (; max 10)",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _planPolarAdditionalAnglesInput = new TextBox
+        {
+            Text = string.Empty,
+            Font = font,
+            WidthConstraint = 132,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        transformActions.AddChild(_planPolarAdditionalAnglesInput);
         _planPolarSnapCheckBox = CreateAttributeModeCheckBox(
             "PolarSnap",
             font);
@@ -2020,6 +2052,34 @@ public sealed class CadSampleView : Grid
                 _canvas.PlanPolarTrackingIncrementDegrees = increment;
             }
         };
+        _planPolarAdditionalAnglesCheckBox.CheckedChanged += (_, _) =>
+        {
+            if (!_isRefreshingPlanConstraints)
+            {
+                SetPlanPolarAdditionalAnglesFromInteraction(
+                    _planPolarAdditionalAnglesCheckBox.IsChecked);
+            }
+        };
+        _planPolarAdditionalAnglesInput.TextChanged += (_, _) =>
+        {
+            if (!_isRefreshingPlanConstraints)
+            {
+                if (CadPlanPolarAdditionalAngles.TryParseInvariantDegrees(
+                    _planPolarAdditionalAnglesInput.Text,
+                    out CadPlanPolarAdditionalAngles angles))
+                {
+                    _canvas.SetPlanPolarAdditionalAngles(angles);
+                }
+                else if (_canvas.UsePlanPolarAdditionalAngles)
+                {
+                    _canvas.UsePlanPolarAdditionalAngles = false;
+                    SetStatus(
+                        "Additional polar angles require at most 10 finite invariant values separated by semicolons.");
+                    RefreshPlanConstraintControls();
+                }
+            }
+            UpdateEditControls();
+        };
         _planPolarSnapCheckBox.CheckedChanged += (_, _) =>
         {
             if (!_isRefreshingPlanConstraints)
@@ -2434,6 +2494,34 @@ public sealed class CadSampleView : Grid
             RefreshPlanConstraintControls();
             UpdateEditControls();
         }
+    }
+
+    private void SetPlanPolarAdditionalAnglesFromInteraction(bool isEnabled)
+    {
+        CadPlanPolarAdditionalAngles angles = default;
+        if (isEnabled &&
+            !CadPlanPolarAdditionalAngles.TryParseInvariantDegrees(
+                _planPolarAdditionalAnglesInput.Text,
+                out angles))
+        {
+            SetStatus(
+                "Additional polar angles require at most 10 finite invariant values separated by semicolons.");
+            RefreshPlanConstraintControls();
+            UpdateEditControls();
+            return;
+        }
+
+        if (isEnabled)
+        {
+            _canvas.SetPlanPolarAdditionalAngles(angles);
+        }
+        _canvas.UsePlanPolarAdditionalAngles = isEnabled;
+        SetStatus(
+            isEnabled
+                ? $"Additional polar angles enabled ({angles.Count}/10)."
+                : "Additional polar angles disabled.");
+        RefreshPlanConstraintControls();
+        UpdateEditControls();
     }
 
     private void ToggleViewMode()
@@ -4697,6 +4785,8 @@ public sealed class CadSampleView : Grid
             _planOrthoCheckBox.IsChecked = _canvas.IsPlanOrthoEnabled;
             _planPolarTrackingCheckBox.IsChecked =
                 _canvas.IsPlanPolarTrackingEnabled;
+            _planPolarAdditionalAnglesCheckBox.IsChecked =
+                _canvas.UsePlanPolarAdditionalAngles;
             _planPolarSnapCheckBox.IsChecked =
                 _canvas.IsPlanPolarSnapEnabled;
             SelectPolarTrackingIncrement();
@@ -5731,6 +5821,14 @@ public sealed class CadSampleView : Grid
             _canvas.PlanPolarTrackingSettings.IsSupported;
         _planPolarTrackingIncrementSelector.IsEnabled =
             _planPolarTrackingCheckBox.IsEnabled;
+        _planPolarAdditionalAnglesInput.IsEnabled =
+            _planPolarTrackingCheckBox.IsEnabled;
+        _planPolarAdditionalAnglesCheckBox.IsEnabled =
+            _planPolarTrackingCheckBox.IsEnabled &&
+            (_planPolarAdditionalAnglesCheckBox.IsChecked ||
+             CadPlanPolarAdditionalAngles.TryParseInvariantDegrees(
+                 _planPolarAdditionalAnglesInput.Text,
+                 out _));
         _planPolarSnapDistanceInput.IsEnabled = canUsePlanSnap;
         _planPolarSnapCheckBox.IsEnabled =
             canUsePlanSnap &&

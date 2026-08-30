@@ -131,7 +131,7 @@ command, no-op and intervening-mutation rejection, one-generation Apply/Undo/
 Redo, shared-control and F8/F10 mutual exclusion, selector synchronization,
 staged-panel protection, browser key reservation, and DXF/DWG persistence. The
 ACadSharp dependency passes three DXF version round trips.
-The complete macOS arm64 Release ProGPU.CAD suite passes 1,052/1,052.
+The complete macOS arm64 Release ProGPU.CAD suite passes 1,060/1,060.
 
 3D UCS Z acquisition, temporary overrides, arbitrary-camera rays, interaction
 image goldens, large-drawing p50/p95/p99 evidence, and broader independent

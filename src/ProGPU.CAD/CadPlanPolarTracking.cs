@@ -7,6 +7,9 @@ public readonly record struct CadPlanPolarTrackingResult(
     double Distance,
     double PerpendicularDistance)
 {
+    /// <summary>Whether a non-incremental POLARADDANG path won arbitration.</summary>
+    public bool IsAdditionalAngle { get; init; }
+
     /// <summary>Whether the along-path distance was quantized by PolarSnap.</summary>
     public bool IsDistanceSnapped { get; init; }
 
@@ -40,13 +43,21 @@ public readonly record struct CadPlanPolarTrackingSettings
 
     public double IncrementDegrees => IncrementRadians * (180.0 / Math.PI);
 
+    /// <summary>Whether the bounded POLARADDANG list participates.</summary>
+    public bool UseAdditionalAngles { get; }
+
+    /// <summary>Absolute, non-incremental profile angles.</summary>
+    public CadPlanPolarAdditionalAngles AdditionalAngles { get; }
+
     public static CadPlanPolarTrackingSettings Disabled { get; } = new(
         false,
         true,
         new CadPoint3D(1.0, 0.0, 0.0),
         new CadPoint3D(0.0, 1.0, 0.0),
         false,
-        Math.PI / 2.0);
+        Math.PI / 2.0,
+        false,
+        CadPlanPolarAdditionalAngles.Empty);
 
     internal static CadPlanPolarTrackingSettings Unsupported { get; } = new(
         false,
@@ -54,7 +65,9 @@ public readonly record struct CadPlanPolarTrackingSettings
         new CadPoint3D(1.0, 0.0, 0.0),
         new CadPoint3D(0.0, 1.0, 0.0),
         false,
-        Math.PI / 2.0);
+        Math.PI / 2.0,
+        false,
+        CadPlanPolarAdditionalAngles.Empty);
 
     public CadPlanPolarTrackingSettings(
         bool isEnabled,
@@ -68,7 +81,29 @@ public readonly record struct CadPlanPolarTrackingSettings
             xAxis,
             yAxis,
             isClockwise,
-            incrementRadians)
+            incrementRadians,
+            false,
+            CadPlanPolarAdditionalAngles.Empty)
+    {
+    }
+
+    public CadPlanPolarTrackingSettings(
+        bool isEnabled,
+        CadPoint3D xAxis,
+        CadPoint3D yAxis,
+        bool isClockwise,
+        double incrementRadians,
+        bool useAdditionalAngles,
+        CadPlanPolarAdditionalAngles additionalAngles)
+        : this(
+            isEnabled,
+            true,
+            xAxis,
+            yAxis,
+            isClockwise,
+            incrementRadians,
+            useAdditionalAngles,
+            additionalAngles)
     {
     }
 
@@ -78,7 +113,9 @@ public readonly record struct CadPlanPolarTrackingSettings
         CadPoint3D xAxis,
         CadPoint3D yAxis,
         bool isClockwise,
-        double incrementRadians)
+        double incrementRadians,
+        bool useAdditionalAngles,
+        CadPlanPolarAdditionalAngles additionalAngles)
     {
         if (!IsFinite(xAxis) || !IsFinite(yAxis))
         {
@@ -117,6 +154,8 @@ public readonly record struct CadPlanPolarTrackingSettings
         YAxis = yAxis;
         IsClockwise = isClockwise;
         IncrementRadians = incrementRadians;
+        UseAdditionalAngles = useAdditionalAngles;
+        AdditionalAngles = additionalAngles;
     }
 
     public CadPlanPolarTrackingSettings WithEnabled(bool isEnabled) => new(
@@ -125,7 +164,9 @@ public readonly record struct CadPlanPolarTrackingSettings
         XAxis,
         YAxis,
         IsClockwise,
-        IncrementRadians);
+        IncrementRadians,
+        UseAdditionalAngles,
+        AdditionalAngles);
 
     public CadPlanPolarTrackingSettings WithIncrementRadians(
         double incrementRadians) => new(
@@ -134,7 +175,31 @@ public readonly record struct CadPlanPolarTrackingSettings
             XAxis,
             YAxis,
             IsClockwise,
-            incrementRadians);
+            incrementRadians,
+            UseAdditionalAngles,
+            AdditionalAngles);
+
+    public CadPlanPolarTrackingSettings WithAdditionalAnglesEnabled(
+        bool isEnabled) => new(
+            IsEnabled,
+            IsSupported,
+            XAxis,
+            YAxis,
+            IsClockwise,
+            IncrementRadians,
+            isEnabled,
+            AdditionalAngles);
+
+    public CadPlanPolarTrackingSettings WithAdditionalAngles(
+        CadPlanPolarAdditionalAngles additionalAngles) => new(
+            IsEnabled,
+            IsSupported,
+            XAxis,
+            YAxis,
+            IsClockwise,
+            IncrementRadians,
+            UseAdditionalAngles,
+            additionalAngles);
 
     public bool TryTrack(
         CadPoint3D basePoint,
@@ -164,6 +229,24 @@ public readonly record struct CadPlanPolarTrackingSettings
             pointerAngle / IncrementRadians,
             MidpointRounding.AwayFromZero);
         double angle = multiple * IncrementRadians;
+        double angularError = AngularDistance(pointerAngle, angle);
+        bool isAdditionalAngle = false;
+        if (UseAdditionalAngles)
+        {
+            for (int i = 0; i < AdditionalAngles.Count; i++)
+            {
+                double candidate = AdditionalAngles[i];
+                double candidateError = AngularDistance(
+                    pointerAngle,
+                    candidate);
+                if (candidateError < angularError)
+                {
+                    angle = candidate;
+                    angularError = candidateError;
+                    isAdditionalAngle = true;
+                }
+            }
+        }
         double sine = Math.Sin(angle);
         if (IsClockwise)
         {
@@ -193,8 +276,25 @@ public readonly record struct CadPlanPolarTrackingSettings
             direction,
             NormalizeAngle(angle),
             distance,
-            Math.Sqrt(perpendicularDistanceSquared));
+            Math.Sqrt(perpendicularDistanceSquared))
+        {
+            IsAdditionalAngle = isAdditionalAngle,
+        };
         return true;
+    }
+
+    private static double AngularDistance(double first, double second)
+    {
+        double difference = (first - second) % Math.Tau;
+        if (difference <= -Math.PI)
+        {
+            difference += Math.Tau;
+        }
+        else if (difference > Math.PI)
+        {
+            difference -= Math.Tau;
+        }
+        return Math.Abs(difference);
     }
 
     private static double NormalizeAngle(double angle)

@@ -4,9 +4,10 @@
 
 This slice adds exact plan-view PolarSnap distance acquisition, the shared
 Grid/Polar snap-type choice, and F9 Snap Mode behavior to desktop and browser
-MOVE/COPY point prompts. It intentionally does not add object-snap tracking,
-additional polar angles, last-segment-relative measurement, 3D tracking, or an
-application settings-store adapter.
+MOVE/COPY point prompts. The later POLARADDANG continuation supplies bounded
+absolute additional paths before this distance query. Object-snap tracking,
+last-segment-relative measurement, 3D tracking, and an application settings-
+store adapter remain outside this slice.
 
 The implementation was designed clean-room from public behavior contracts:
 
@@ -102,9 +103,9 @@ profile type retention across F9, invalid-distance rejection, staged-panel
 protection, exact generation counts, and Undo/Redo synchronization. Command
 tests cover exact active-VPORT identity/value validation plus DXF and DWG
 SNAPMODE round trips. The browser reservation regression includes F9.
-The complete macOS arm64 Release ProGPU.CAD suite passes 1,052/1,052.
+The complete macOS arm64 Release ProGPU.CAD suite passes 1,060/1,060.
 
 Cross-session profile persistence, object-snap tracking and acquired points,
-additional/relative polar angles, 3D UCS Z paths, arbitrary-camera rays,
+last-segment-relative polar angles, 3D UCS Z paths, arbitrary-camera rays,
 temporary overrides, interaction image goldens, and dense-drawing p50/p95/p99
 evidence remain.

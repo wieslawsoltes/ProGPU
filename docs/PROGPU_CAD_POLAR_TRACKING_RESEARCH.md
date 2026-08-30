@@ -3,11 +3,11 @@
 ## Scope and primary sources
 
 This slice adds exact incremental plan polar tracking to the shared
-desktop/browser MOVE and COPY second-point prompts. The PolarSnap continuation
-adds exact profile-distance quantization and drawing-persisted F9 Snap Mode. It
-does not add additional absolute angles, relative-to-last-segment
-angles, object-snap tracking/acquired points, direct-distance input, 3D Z paths,
-or arbitrary-camera acquisition.
+desktop/browser MOVE and COPY second-point prompts. The continuations add exact
+profile-distance PolarSnap, drawing-persisted F9 Snap Mode, and up to ten
+profile-scoped absolute non-incremental additional angles. They do not add
+relative-to-last-segment angles, object-snap tracking/acquired points, 3D Z
+paths, or arbitrary-camera acquisition.
 
 The implementation was designed clean-room from public behavior contracts:
 
@@ -69,6 +69,9 @@ panel values by refusing the conflicting action, and browser F8/F10 defaults
 are reserved before shared dispatch.
 The separate PolarSnap continuation records its SNAPMODE/SNAPTYPE/POLARDIST
 state and distance algorithm in `PROGPU_CAD_POLAR_SNAP_RESEARCH.md`.
+The additional-angle continuation records its bounded POLARADDANG profile,
+arbitration, and last-segment fidelity boundary in
+`PROGPU_CAD_ADDITIONAL_POLAR_ANGLES_RESEARCH.md`.
 
 For accepted base `B`, pointer `P`, ANGBASE-adjusted orthonormal axes `X,Y`,
 direction sign `s` (`+1` counterclockwise, `-1` clockwise), and increment `a`:
@@ -96,8 +99,9 @@ tolerance; this bounded zoom-independent aperture is an explicit ProGPU policy
 matching the existing object-snap acquisition scale. Outside that aperture,
 the pointer proceeds to rectangular grid snap and then raw input.
 
-Pointer precedence is exact object snap, active Ortho or polar tracking with
-optional acquired-path PolarSnap distance, Grid SNAPTYPE, then raw input.
+Pointer precedence is exact object snap, active Ortho or incremental/additional
+polar tracking with optional acquired-path PolarSnap distance, Grid SNAPTYPE,
+then raw input.
 Object snap returns first. Ortho and polar are
 mutually exclusive in both shared controls and canvas state. Tracking applies
 only after a base point exists; typed absolute/relative Cartesian and polar
@@ -147,11 +151,10 @@ and browser key reservation. PolarSnap regressions cover explicit and Snap-X-
 inherited distance, live prompt reevaluation, object-snap precedence, direct-
 distance separation, F9/type retention, exact SNAPMODE history, staged input,
 zero-allocation warm queries, browser reservation, and DXF/DWG round trips.
-The complete macOS arm64 Release ProGPU.CAD suite passes 1,052/1,052.
+The complete macOS arm64 Release ProGPU.CAD suite passes 1,060/1,060.
 
-Additional absolute angles, relative-to-last-segment measurement, object-snap
-tracking and acquired points, 3D UCS Z paths, temporary overrides, cross-session
-host profile persistence,
+Relative-to-last-segment measurement, object-snap tracking and acquired points,
+3D UCS Z paths, temporary overrides, cross-session host profile persistence,
 arbitrary-camera rays, interaction image goldens, dense-drawing p50/p95/p99
 evidence, and independent DXF/DWG angle fixtures remain before the broader
 tracking feature can be called complete.

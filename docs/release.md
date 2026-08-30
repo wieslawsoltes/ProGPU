@@ -62,6 +62,18 @@ protected, and the browser reserves F9. Exact DXF/DWG SNAPMODE round trips and
 zero-allocation warm queries pass. This input/edit slice changes no shader,
 native ABI, GPU resource, or native scene compiler.
 
+Shared desktop/browser polar tracking now supports the profile-scoped
+POLARADDANG contract: up to ten semicolon-separated invariant-degree angles,
+explicit enablement, absolute non-incremental path arbitration, periodic
+normalization, and immediate pending-prompt reevaluation. The ten values live
+inline and every warm pointer query remains allocation-free bounded `O(A)` for
+`A <= 10`. Object snap still wins, additional paths compose with PolarSnap, and
+typed direct distance preserves its exact length. Invalid lists fail closed and
+produce no drawing generation. Last-segment-relative POLARMODE remains tied to
+a future real LINE/POLYLINE authored-segment context instead of being guessed
+from MOVE/COPY state. No shader, native ABI, GPU resource, or native scene
+compiler changes.
+
 The shared ProGPU.CAD plan grid now defaults to AutoCAD's lined model-space
 GRIDSTYLE and exposes a shared desktop/browser Dots toggle. Autodesk documents
 GRIDSTYLE as registry-backed host state, so the toggle intentionally changes no
