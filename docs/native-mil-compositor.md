@@ -4878,7 +4878,7 @@ boundary, not a fake `d2d1.dll` or a partial COM vtable implementation. COM
 pointers remain confined to the Windows header and process. The portable MIL
 packet retains zero pointers and zero event handles.
 
-ABI v5 and package `ProGPU.Direct2D` bind that producer lifecycle to Dawn's
+ABI v6 and package `ProGPU.Direct2D` bind that producer lifecycle to Dawn's
 same-adapter shared-texture import. `ProGpuDirect2DSurface` owns the native
 surface through Dawn, implements `IProGpuContextTextureLeaseSource`, and
 publishes `TextureChanged` only after one transactional native
@@ -4908,6 +4908,14 @@ the caller's apartment initialization and never searches for or loads the
 Win2D DLL; missing package registration and missing WinRT initialization are
 separate typed failures.
 
+ABI v6 completes the device/target reverse round trip through the official
+`ICanvasResourceWrapperNative::GetNativeResource` contract. Typed managed
+methods return caller-owned exact `ID2D1Device1` and `ID2D1Bitmap1` references;
+the provider supplies the cached CanvasDevice and target DPI rather than asking
+managed callers to compose raw COM arguments. Canonical `IUnknown` comparison
+proves both returned resources are the original provider objects, so wrapping
+does not introduce a second Direct2D domain or copy.
+
 Dawn ownership transitions run outside the Direct2D provider state lock. This
 preserves one lock order when a render submission already owns the WebGPU
 render lock and requests a texture lease, and prevents the producer thread from
@@ -4929,7 +4937,7 @@ for `progpu_native_direct2d_tests.exe`. ABI v5 extends the native test with
 nested/unmatched draw rejection, the zero-key Dawn handoff, and generic
 GUID-based COM `QueryInterface` success plus `E_NOINTERFACE` failure, and
 optional registered Win2D CanvasDevice and CanvasRenderTarget wrapping. The
-Windows build entry point now verifies all 14 exports and stages
+ABI v5 Windows qualification verified all 14 exports and staged
 `progpu_native_direct2d.dll` for both Windows RIDs. ABI v5 at exact
 implementation commit `f751cd0b` was independently compiled and executed in
 the Windows 11 ARM64 Parallels VM with MSVC 19.44 and Windows SDK 26100. The
@@ -4954,6 +4962,18 @@ signing certificate thumbprint, verifies private-key and trust stores, and
 never mutates certificate trust. Set `PROGPU_RUN_REAL_WIN2D_INTEGRATION=1` to
 include it in the complete Windows native build lane. A merely booted VM or a
 stalled Guest Tools login is not recorded as a pass.
+
+ABI v6 at exact ProGPU `1be881ca` was independently rebuilt in that guest with
+the same MSVC/SDK toolchain and `/W4 /WX`. The native regression exits zero,
+and the current exact 15-export audit passes. SHA-256 is
+`160037e11339ec6ad38a3cc2bc121ca6da5ba73ad3fd25c29d9eb8d030a132d9`
+for the DLL and
+`46884523bd6ba4700c8113ac9df2f09689b134d429327a07d9fcd083511159ec`
+for its test executable. The signed official-Win2D 1.4.0 package gate reports
+both native device and bitmap identity matches as true, while preserving the
+transparent corner, center ARGB `(255,32,96,192)`, content version `0 -> 1`,
+and `Dawn D3D12` evidence. Broader Win2D resource families must pass this same
+forward-wrap/reverse-unwrap identity gate.
 
 ## Managed glyph row-reuse SIMD checkpoint
 
