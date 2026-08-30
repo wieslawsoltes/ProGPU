@@ -794,8 +794,11 @@ opacity range, radius range, and concrete COM interface kind; borrowed safe
 handles remain protected for each call. The native regression round-trips every
 property and restores the solid brush before the exact pixel oracle. The exact
 allowlist grows from 102 to 110 exports. Managed contracts pass 5/5 and the
-package builds with zero warnings; Windows qualification is pending checkpoint
-`2086632e`.
+package builds with zero warnings. Exact checkpoint `2086632e` is qualified by
+Build run `33336026310`, dedicated MSVC job `99322989531`: warning-as-error
+compile/link succeeds, the focused Direct2D regression passes in 0.14 seconds,
+all 11 native suites pass in 1.02 seconds, and the successful Windows build
+accepts the exact 110-export allowlist.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
