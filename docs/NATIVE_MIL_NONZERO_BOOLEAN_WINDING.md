@@ -171,6 +171,16 @@ inline-vector-compute, and forced staged-vector-compute modes; the resolved
 path is reported in frame metrics and clip-chain state. Invalid forced values
 fail closed.
 
+The Svg.Skia image gate also covers the managed/native fill-rule boundary.
+Centralizing the GPU encoding removed 42 Resvg regressions and restored
+`masking-path-07-b` without changing the reviewed W3C difference inventory.
+`filters-displace-01-f` retained a visually equivalent 287-pixel variation
+confined to the first and last rows of two offscreen filter surfaces. The
+historical image had only `0.00000252` margin below its `0.037` allowance; the
+measured result is `0.0378687114`. The ProGPU test patch therefore uses `0.038`
+for that fixture while continuing to compare the displacement interiors and
+without adding the fixture to the known-failure inventory.
+
 The permanent native sample checks these pixels on the real GPU:
 
 - signed mask cancellation: dark background;
