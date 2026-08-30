@@ -2,9 +2,11 @@
 
 Date: 2026-08-30
 
-Status: implemented for `AutoCAD-86 unifont 1.0` encoding 0. Big Font is now
-covered by the separate [compiled Big Font research record](PROGPU_CAD_SHX_BIGFONT_RESEARCH.md);
-non-Unicode `*UNIFONT` encodings remain explicit capability gates.
+Status: implemented for `AutoCAD-86 unifont 1.0` encoding 0. Encoding 1 and 2
+are covered by the separate
+[packed-multibyte and shape-file research record](PROGPU_CAD_SHX_PACKED_UNIFONT_RESEARCH.md),
+and Big Font by the
+[compiled Big Font research record](PROGPU_CAD_SHX_BIGFONT_RESEARCH.md).
 
 ## Scope and clean-room method
 
@@ -54,9 +56,9 @@ and separate:
 For Unicode fonts, header shape zero contains exactly six program bytes:
 above, below, mode, encoding, type, and terminator. ProGPU accepts documented
 modes 0 and 2, encoding values 0 through 2, and the two embedding/type bits.
-Only encoding 0 is currently eligible for text layout. Encodings 1 and 2 remain
-parsed metadata but fail before character decoding because their byte mapping is
-a different contract.
+Encoding 0 is direct Unicode text. Encoding 1 is now a separately documented,
+strict drawing-code-page packed identity contract; encoding 2 is a non-text
+shape-file role and cannot enter text resolution.
 
 ## Independently observed compiled envelope
 
@@ -192,7 +194,9 @@ remain required before any latency, throughput, or quality claim.
 
 ## Remaining work
 
-- Decide whether `*UNIFONT` encodings 1 and 2 need separate source-byte APIs.
+- Obtain independent encoding-1 and encoding-2 AutoCAD conformance artifacts;
+  the typed implementation and current synthetic coverage are recorded in the
+  companion research record.
 - Expand the independently licensed compiled Unicode conformance corpus without
   vendoring third-party fonts into ordinary implementation files.
 - Add property/fuzz campaigns around all record boundaries and recursive

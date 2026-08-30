@@ -115,8 +115,8 @@ public readonly record struct CadShxGlyphPlacement(
     bool IsBreakOpportunity = false);
 
 /// <summary>
-/// A bounded device-independent standard, Unicode, or primary-plus-Big-Font
-/// SHX character layout.
+/// A bounded device-independent standard, Unicode, packed-multibyte, or
+/// primary-plus-Big-Font SHX character layout.
 /// </summary>
 /// <remarks>
 /// Layout is O(C + G) time and O(G) placement storage for C UTF-16/control-code
@@ -177,12 +177,6 @@ public sealed class CadShxTextLayout
                 "SHX text layout requires a primary font before an optional Big Font.",
                 nameof(cache));
         }
-        if (cache.Font.IsUnicodeFont &&
-            cache.Font.UnicodeEncoding != CadShxUnicodeEncoding.Unicode)
-        {
-            throw new NotSupportedException(
-                $"Unicode SHX encoding {cache.Font.UnicodeEncoding} requires a distinct character decoder.");
-        }
         if (bigFontCache is not null)
         {
             if (!bigFontCache.Font.IsBigFont)
@@ -212,9 +206,11 @@ public sealed class CadShxTextLayout
         }
 
         Orientation = orientation;
-        Encoding? bigFontEncoding = bigFontCache is null
-            ? null
-            : CadDrawingCodePage.Resolve(drawingCodePage ?? string.Empty);
+        bool requiresDrawingEncoding = bigFontCache is not null ||
+            cache.Font.UsesPackedMultibyteCharacterEncoding;
+        Encoding? drawingEncoding = requiresDrawingEncoding
+            ? CadDrawingCodePage.Resolve(drawingCodePage ?? string.Empty)
+            : null;
         var tokens = new List<Token>(Math.Min(source.Length, options.MaxGlyphs));
         CadShxTextDecoration decorations = CadShxTextDecoration.None;
         for (int i = 0; i < source.Length; i++)
@@ -344,7 +340,11 @@ public sealed class CadShxTextLayout
             {
                 AddShape(
                     cache,
-                    MapScalar(cache.Font, token.Scalar),
+                    MapScalar(
+                        cache.Font,
+                        token.Scalar,
+                        drawingEncoding,
+                        encoded),
                     token.Decorations,
                     token.IsBreakOpportunity);
                 continue;
@@ -360,7 +360,7 @@ public sealed class CadShxTextLayout
                 continue;
             }
 
-            int byteCount = EncodeScalar(bigFontEncoding!, token.Scalar, encoded);
+            int byteCount = EncodeScalar(drawingEncoding!, token.Scalar, encoded);
             if (byteCount == 1 && !bigFontCache.Font.IsBigFontLeadByte(encoded[0]))
             {
                 AddShape(
@@ -387,7 +387,7 @@ public sealed class CadShxTextLayout
                         $"Big Font lead byte 0x{encoded[0]:X2} requires one equally decorated trailing character.");
                 }
                 int trailingCount = EncodeScalar(
-                    bigFontEncoding!,
+                    drawingEncoding!,
                     tokens[i].Scalar,
                     trailing);
                 if (trailingCount != 1)
@@ -536,7 +536,11 @@ public sealed class CadShxTextLayout
         return written;
     }
 
-    private static ushort MapScalar(CadShxFont font, int scalar)
+    private static ushort MapScalar(
+        CadShxFont font,
+        int scalar,
+        Encoding? drawingEncoding,
+        Span<byte> encoded)
     {
         if (font.IsUnicodeFont)
         {
@@ -546,7 +550,28 @@ public sealed class CadShxTextLayout
                 throw new NotSupportedException(
                     $"U+{scalar:X} is outside the 16-bit Unicode SHX shape domain.");
             }
-            return (ushort)scalar;
+            if (font.UsesUnicodeCharacterEncoding)
+            {
+                return (ushort)scalar;
+            }
+            if (!font.UsesPackedMultibyteCharacterEncoding)
+            {
+                throw new NotSupportedException(
+                    "A UNIFONT shape-file container cannot be used for text layout.");
+            }
+            if (scalar == 0x00A0)
+            {
+                return 32;
+            }
+
+            int byteCount = EncodeScalar(drawingEncoding!, scalar, encoded);
+            return byteCount switch
+            {
+                1 => encoded[0],
+                2 => (ushort)((encoded[0] << 8) | encoded[1]),
+                _ => throw new NotSupportedException(
+                    $"U+{scalar:X4} encodes to {byteCount} bytes; packed-multibyte SHX identities require one or two bytes."),
+            };
         }
 
         return MapStandardScalar(scalar);

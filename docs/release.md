@@ -80,6 +80,19 @@ adds no shader, texture, upload, or native ABI and makes no performance claim;
 format provenance and the cross-engine audit are recorded in
 `PROGPU_CAD_SHX_BIGFONT_RESEARCH.md`.
 
+ProGPU.CAD now also honors the remaining compiled UNIFONT metadata roles.
+Encoding 1 performs strict one- or two-byte character-identity mapping through
+the drawing's persisted code page for TEXT, horizontal MTEXT, complex
+linetypes, selection, printing, and managed/native retained replay. Encoding 2
+is a typed non-text shape-file role: it is excluded from text and alternate-font
+resolution while its named and numbered definitions reuse the standalone SHAPE
+pipeline. Original synthetic fixtures cover DXF/DWG persistence and bounded
+failure behavior; independent AutoCAD conformance with licensed encoding-1 and
+encoding-2 artifacts remains an explicit gate. No shader, native ABI, or replay
+resource contract changed, and no performance or image-quality improvement is
+claimed. The evidence boundary and cross-engine audit are recorded in
+`PROGPU_CAD_SHX_PACKED_UNIFONT_RESEARCH.md`.
+
 Definition entries in that catalog now also expose their persisted ATTDEF
 prompt. The shared shell can edit either constant or variable definition
 prompts through the selected INSERT with explicit tag/occurrence addressing,

@@ -232,15 +232,15 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   0 through 14 into caller-owned retained analytic line/arc paths with bounded
   recursion, commands, output, scale, coordinates, and the specified four-entry
   position stack. `CadShxGlyphCache` and `CadShxTextLayout` retain interpreted
-  glyphs per font/shape/orientation and produce bounded standard/Unicode or
-  drawing-code-page primary/Big-Font character placements. A typed host resolver
+  glyphs per font/shape/orientation and produce bounded standard, direct-Unicode,
+  packed-multibyte, or drawing-code-page primary/Big-Font character placements. A typed host resolver
   supplies those caches to horizontal SHX
   TEXT, standard horizontal SHX MTEXT, and default-insertion dual-orientation
   vertical TEXT lowering. The immutable snapshot packs placements, paint and
   transform runs, MTEXT masks/decorations/separators, coalesced single-line
   decoration strokes, and affine text bases; the plan compiler records each
-  drawable placement with its shared analytic glyph path. Non-Unicode
-  `*UNIFONT` encodings, vertical/RTL SHX MTEXT, mixed TrueType/SHX MTEXT runs,
+  drawable placement with its shared analytic glyph path. Vertical/RTL SHX
+  MTEXT, mixed TrueType/SHX MTEXT runs,
   and non-default/decorated vertical TEXT placement remain explicit gates. Ordered,
   bounded desktop discovery is host initialization work rather than a render-
   path filesystem dependency.
@@ -558,7 +558,7 @@ Complex A-aligned descriptors extend the same scalar endpoint planner instead
 of creating a second path walker. The snapshot retains DXF codes 74/46/50/44/45
 as typed element kind, relative-or-absolute rotation, scale, and linetype-axis
 offsets. Referenced TrueType strings are shaped once into the existing packed
-glyph/run/font streams; standard, Unicode, or paired Big Font SHX text is laid out once into the existing
+glyph/run/font streams; standard, direct-Unicode, packed-multibyte, or paired Big Font SHX text is laid out once into the existing
 glyph-instance stream; SHX shape numbers resolve once to cached analytic paths.
 Every occurrence retains only an element index, rebased path point, and tangent.
 The scene recorder applies X/Y offsets in effective linetype-scaled axes, then
@@ -586,7 +586,7 @@ has no distinct state in the documented DXF bitfield or the pinned dependency's
 public model, so ProGPU does not guess it after serialization. Nonzero complex
 descriptor advances and decorated complex text also remain named conformance
 gates pending an authoritative persisted-format contract. Missing fonts/shapes,
-non-Unicode `*UNIFONT` encodings, invalid shape numbers, and unsupported style
+invalid shape numbers, and unsupported style
 contracts remain unresolved resources. A host resolver may explicitly substitute
 a font or shape file; the retained resource records that decision and scene
 diagnostics report it once per referenced linetype.
@@ -1647,7 +1647,8 @@ other expanded text descendants.
 
 Single-line values lower through `CompileText`. Multiline and constant-
 multiline values require the typed embedded `MText` payload and lower through
-the complete TrueType or standard/Unicode/Big-Font-SHX `CompileMText` path, retaining columns,
+the complete TrueType or standard/direct-Unicode/packed-multibyte/Big-Font-SHX
+`CompileMText` path, retaining columns,
 stacks, masks, decorations, glyph runs, paths, bounds, and exact selection.
 `CadSetAttributeValueCommand` resolves one model-space INSERT plus a
 case-insensitive tag and explicit duplicate-tag occurrence, updates the
@@ -2291,8 +2292,8 @@ entity's WCS normal/direction basis with any nested block affine transform.
 Horizontal, diagonal, and tolerance stacks remain inline objects; their upper
 and lower operands are independently shaped at a bounded relative size and
 their separators are retained filled geometry. Unsupported fields, paragraph
-indentation/tab payloads, vertical flow for TrueType, and non-Unicode
-`*UNIFONT` SHX content, invalid numeric state, and content exceeding persisted column
+indentation/tab payloads, vertical flow for TrueType, invalid numeric state,
+and content exceeding persisted column
 capacity remain explicit typed diagnostics rather than degraded output.
 
 The immutable snapshot owns global glyph indices/positions and font identities,
@@ -2315,7 +2316,7 @@ contract; a native-picture regression covers formatted MTEXT, so no separate
 native CAD scene compiler applies to this slice. Matched pixel and Release
 latency/throughput evidence remains required before making a performance claim.
 
-Standard, Unicode, and paired Big Font horizontal SHX MTEXT reuse the same typed parser and column/background
+Standard, direct-Unicode, packed-multibyte, and paired Big Font horizontal SHX MTEXT reuse the same typed parser and column/background
 contracts but has an original analytic-path layout specialization in
 `CadSnapshotCompiler.ShxMText.cs`. Each decoded SHX character resolves
 to the immutable `CadShxGlyphCache` once, retains the font-authored horizontal
@@ -2338,8 +2339,8 @@ selection are `O(G + M + D + S)` for drawable glyphs, masks/frames,
 decorations, and stack separators. Replay performs no parsing, font lookup,
 interpretation, layout, or outline cloning, and warm point/Window/Crossing
 selection allocates zero managed memory. SHX does not define OpenType shaping,
-fallback runs, variation axes, or synthetic bold/italic: non-Unicode
-`*UNIFONT` encodings, vertical/RTL layout, inline TrueType switching, and SHX bold/
+fallback runs, variation axes, or synthetic bold/italic: vertical/RTL layout,
+inline TrueType switching, and SHX bold/
 italic therefore remain diagnosed capability gates rather than approximations.
 
 The exact in-repository provenance is the existing ProGPU-owned
@@ -2379,9 +2380,9 @@ lanes allocated zero. The JSON output is reproducible with the checked-in
 `--shx-mtext-entities` lane and the command below. This is feature smoke
 evidence from one final binary, not a before/after performance or quality claim.
 
-## Bounded standard, Unicode, and Big Font SHX source
+## Bounded standard, UNIFONT, and Big Font SHX source
 
-`CadShxFont.Parse` is the clean-room standard/Unicode/Big Font SHX ingestion boundary. The input
+`CadShxFont.Parse` is the clean-room standard/UNIFONT/Big Font SHX ingestion boundary. The input
 is caller-owned only for the synchronous parse. A successful parse copies it
 once into immutable owned storage and retains every program as a
 `ReadOnlyMemory<byte>` slice, so no per-shape program copy or runtime text
@@ -2440,7 +2441,7 @@ existing shared path pipeline with no new shader, upload, texture, or managed/
 native ABI. The native renderer needs no CAD parser fork and consumes the same
 retained command as the managed renderer.
 
-`CadShxInterpreter` implements the standard/Unicode/Big Font command stream directly from the
+`CadShxInterpreter` implements the standard/UNIFONT/Big Font command stream directly from the
 Autodesk contract: 16 encoded vector directions; draw/move modes; cumulative
 divide/multiply scale; balanced push/pop with the specified four-location
 stack; one-byte standard, two-byte little-endian Unicode, or two-byte big-endian
@@ -2474,8 +2475,8 @@ snapshot workers; lookup is expected `O(1)` after the first bounded execution.
 Command-7 decoding selects the immutable container contract once per font;
 Big Font programs are never guessed as standard or Unicode records.
 
-`CadShxTextLayout` scans one standard, encoding-zero Unicode-font, or paired
-standard/Big-Font TEXT value in `O(C + G)` time and
+`CadShxTextLayout` scans one standard, encoding-zero Unicode, encoding-one
+packed-multibyte, or paired standard/Big-Font TEXT value in `O(C + G)` time and
 retains `O(G)` placements for `C` UTF-16/control-code units and `G` characters.
 It accumulates each font-authored pen-up endpoint as the next origin rather than
 estimating character widths. Autodesk decimal controls address their exact
@@ -2483,7 +2484,11 @@ three-digit shape number; degree, plus/minus, and diameter controls and literal
 Unicode equivalents map to the standard format's reserved shapes 256, 257, and
 258, or to U+00B0, U+00B1, and U+2205 in a Unicode font. Unicode BMP scalars and
 DXF four-hex-digit escapes address their exact 16-bit shape number in Unicode
-fonts. With a Big Font pair, each scalar and escape is strictly encoded and
+fonts. An encoding-one UNIFONT strictly re-encodes and round-trips every scalar
+through the persisted drawing code page, then maps one byte to `0x00xx` or two
+stream-order bytes to the authored 16-bit shape identity. Encoding two is a
+typed non-text shape-file role and cannot enter text or alternate-font
+resolution. With a Big Font pair, each scalar and escape is strictly encoded and
 round-tripped through the persisted drawing code page. A single non-lead byte
 selects the primary font; an exact two-byte sequence whose first byte is in the
 Big Font's declared ranges selects its big-endian 16-bit shape identity. A
@@ -2494,7 +2499,7 @@ without changing glyph identity. Each placement also preserves whether its
 space is a line-break opportunity so U+00A0 can share shape 32 without becoming
 breakable. Missing shapes, malformed controls, surrogate
 pairs, unsupported standard-font Unicode, unavailable or non-round-tripping
-drawing encodings, invalid Big Font lead sequences, non-Unicode `*UNIFONT` encodings,
+drawing encodings, invalid Big Font lead sequences,
 empty control-only strings, coordinate
 growth, and code-unit/glyph limits fail explicitly. Decoration flags are
 retained per placement so snapshot lowering can coalesce exact authored spans
@@ -2504,13 +2509,13 @@ without rescanning or rewriting the source string.
 `CadDocument.Header.CodePage`, including normalized `ANSI_nnn`, `dosnnn`, and
 documented Asian aliases. Provider setup, encoding, and round-trip validation
 occur during immutable snapshot preparation only. Unknown encodings and lossy
-fallbacks reject the affected Big Font content; stable replay performs no
+fallbacks reject the affected packed-multibyte or Big Font content; stable replay performs no
 code-page work. TEXT, horizontal MTEXT, and complex-linetype text consume the
 same captured code-page value and immutable primary/Big Font resolver pair.
 
 `CadSnapshotCompiler` accepts an `ICadShxFontResolver`, keeping desktop font
 search, browser-bundled assets, and application substitution policy outside the
-document and render hot paths. Standard, Unicode, and paired Big Font horizontal
+document and render hot paths. Standard, direct-Unicode, packed-multibyte, and paired Big Font horizontal
 SHX TEXT scale the primary font's
 above metric to entity height, preserves its below-baseline metric and actual
 path bounds, and composes effective width, oblique shear, generation mirrors,
@@ -2536,7 +2541,7 @@ orientation-inconsistent per-character advances and unsupported
 vertical placement reject the affected entity rather than guessing layout.
 
 `CadShxFontCatalog` is the default reusable resolver for hosts and benchmark
-fixtures. Initialization parses or registers immutable standard/Unicode/Big Font caches under a
+fixtures. Initialization parses or registers immutable standard/UNIFONT/Big Font caches under a
 portable filename plus explicit aliases; lookup strips either Windows or Unix
 directory separators and compares names case-insensitively without touching the
 filesystem. Hosts may install explicit SHX-to-SHX filename mappings and one
@@ -2590,7 +2595,8 @@ per line. Parsing is `O(B)` time and `O(M + T)` retained storage for source byte
 `B`, mappings `M`, and filename characters `T`. Applying an SHX-to-SHX table to
 `CadShxFontCatalog` validates the complete table before changing one resolver
 generation; cross-kind mappings remain retained configuration data for the later
-unified TrueType/SHX resolver and cannot silently enter the standard/Unicode SHX path.
+unified TrueType/SHX resolver and cannot silently enter the standard,
+direct-Unicode, or packed-multibyte SHX path.
 
 The snapshot owns packed `CadShxGlyphInstance` placements and
 `CadShxDecorationSegment` values but references the resolver-owned immutable
@@ -2608,6 +2614,10 @@ The standard binary container layout was independently observed from the compile
 The Unicode sequential-record layout was independently observed from two public
 compiled font artifacts with different record counts and sizes; their bytes are
 not vendored and synthetic ProGPU-owned fixtures exercise the resulting parser.
+An additional byte-only audit of eighteen public SHX artifacts found thirteen
+UNIFONT containers, all with encoding zero. Encoding-one packed mapping and the
+encoding-two shape-file role therefore retain an explicit external AutoCAD
+conformance gate while original synthetic fixtures cover their typed behavior.
 The Big Font indexed layout, sparse slots, lead ranges, offsets, and optional
 CR/LF trailer were independently observed from three public compiled artifacts
 with different sizes and live populations; their bytes are likewise not
@@ -2616,8 +2626,10 @@ No ACadSharp or other third-party parser implementation was consulted or copied.
 Program semantics and the 2,000-byte definition limit come only from the official
 Autodesk shape/font documentation linked below. Autodesk specifies the source
 `*UNIFONT` header, 16-bit shape numbers, two-byte command-7 references, encoding,
-and embedding flags. Big Font remains a separate indexed/code-page contract and
-is never inferred from a Unicode scalar or a foreign implementation. The pinned standard fixture
+and embedding flags. The packed and shape-file design record documents the
+encoding-one inference and evidence boundary. Big Font remains a separate
+indexed/code-page contract and is never inferred from a Unicode scalar or a
+foreign implementation. The pinned standard fixture
 also executes through the new interpreter, while independent synthetic tests
 cover every command family, direction geometry, analytic endpoints/radii,
 horizontal/vertical behavior, default top-center vertical snapshot placement,
@@ -4439,11 +4451,13 @@ Sources consulted on 2026-08-27 through 2026-08-30:
   adapted the independently observed standard, Unicode, and indexed Big Font
   compiled containers into one immutable source layer with container-selected
   command-7 decoding and strict persisted-code-page character selection;
-  rejected signature guessing, eager opcode expansion, non-Unicode `*UNIFONT`
-  decoding, and treating Big Font records as standard or Unicode shapes. The
-  full evidence, adopted/rejected decisions, and performance/parity audits are in
-  [the Unicode SHX research record](PROGPU_CAD_SHX_UNICODE_RESEARCH.md) and
-  [the Big Font SHX research record](PROGPU_CAD_SHX_BIGFONT_RESEARCH.md).
+  rejected signature guessing, eager opcode expansion, platform-default or
+  lossy packed-multibyte decoding, treating shape-file UNIFONT records as text,
+  and treating Big Font records as standard or direct-Unicode shapes. The full
+  evidence, adopted/rejected decisions, and performance/parity audits are in
+  [the Unicode SHX research record](PROGPU_CAD_SHX_UNICODE_RESEARCH.md),
+  [the packed-multibyte and shape-file UNIFONT research record](PROGPU_CAD_SHX_PACKED_UNIFONT_RESEARCH.md),
+  and [the Big Font SHX research record](PROGPU_CAD_SHX_BIGFONT_RESEARCH.md).
 - For standalone SHAPE entities, Autodesk's
   [DXF group-code contract](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-DXF/files/GUID-0988D755-9AAB-4D6C-8E26-EC636F507F2C.htm),
   [AcDbShape API contract](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-RefGuide/files/OREF-__MEMBERTYPE_Methods_AcDbShape.html),
@@ -4509,8 +4523,8 @@ Sources consulted on 2026-08-27 through 2026-08-30:
   were treated as the observable CAD contract. Adopted word-boundary wrapping,
   long-word overflow, explicit columns/stacks, SHX file overrides, and the
   documented absence of SHX bold/italic; rejected character-splitting overflow,
-  synthetic emphasis, scalar-to-Big-Font guessing, and inference of non-Unicode
-  `*UNIFONT` layouts.
+  synthetic emphasis, scalar-to-Big-Font guessing, and unbounded or lossy
+  packed-multibyte `*UNIFONT` layout.
   [Skia's text overview](https://docs.skia.org/docs/dev/design/text_overview/)
   and [shaper stages](https://docs.skia.org/docs/dev/design/text_shaper/),
   [DirectWrite rendering](https://learn.microsoft.com/en-us/windows/win32/directwrite/rendering-directwrite)
@@ -4526,7 +4540,8 @@ Sources consulted on 2026-08-27 through 2026-08-30:
   rechecked as the rendering/text architecture gate. Adopted their separation
   of reusable CPU font/layout results, immutable positioned content, retained
   display data, and renderer-owned device resources. Adapted that separation to
-  lazy standard/Unicode/Big-Font-SHX interpretation/cache lookup during snapshot preparation,
+  lazy standard/direct-Unicode/packed-multibyte/Big-Font-SHX interpretation
+  and cache lookup during snapshot preparation,
   one immutable analytic path per font/shape, one positioned generation reused
   by spatial culling, plan replay, printing, and exact selection, and no texture
   upload. Host discovery/substitution stays initialization work; ordinary

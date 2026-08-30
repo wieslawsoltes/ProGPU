@@ -174,8 +174,8 @@ claimed; matched final-binary measurements remain required before such a claim.
 
 ## Remaining work
 
-- Decide whether non-Unicode `*UNIFONT` encodings 1 and 2 need separate
-  persisted-byte APIs.
+- Complete the independent real-artifact conformance gates recorded in the
+  [packed-multibyte and shape-file UNIFONT record](PROGPU_CAD_SHX_PACKED_UNIFONT_RESEARCH.md).
 - Independently verify vertical Big Font placement beyond the existing
   default-insertion dual-orientation TEXT contract.
 - Expand the licensed compiled-font conformance corpus without vendoring

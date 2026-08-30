@@ -241,10 +241,10 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver, ICadShxShapeResolve
                 throw new KeyNotFoundException(
                     $"SHX alternate font '{registeredName}' is not registered.");
             }
-            if (entry.Cache.Font.IsBigFont)
+            if (!entry.Cache.Font.IsTextFont || entry.Cache.Font.IsBigFont)
             {
                 throw new ArgumentException(
-                    "The general SHX alternate must be a primary standard or Unicode font, not a Big Font.",
+                    "The general SHX alternate must be a primary standard or Unicode text font.",
                     nameof(registeredName));
             }
             _alternate = entry;
@@ -349,24 +349,32 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver, ICadShxShapeResolve
         if (mappingSource.Length != 0 &&
             mappings.TryGetValue(mappingSource, out string? mappedName) &&
             fonts.TryGetValue(mappedName, out Entry? mapped) &&
-            mapped.Cache.Font.IsBigFont == expectedBigFont)
+            MatchesTextRole(mapped.Cache.Font, expectedBigFont))
         {
             return Resolution(mapped, isSubstitution: true);
         }
         if (primary.Length != 0 && fonts.TryGetValue(primary, out Entry? exact) &&
-            exact.Cache.Font.IsBigFont == expectedBigFont)
+            MatchesTextRole(exact.Cache.Font, expectedBigFont))
         {
             return Resolution(exact, isSubstitution: false);
         }
         if (style.Length != 0 && fonts.TryGetValue(style, out Entry? styleMatch) &&
-            styleMatch.Cache.Font.IsBigFont == expectedBigFont)
+            MatchesTextRole(styleMatch.Cache.Font, expectedBigFont))
         {
             return Resolution(styleMatch, isSubstitution: primary.Length != 0);
         }
-        return alternate is null || alternate.Cache.Font.IsBigFont != expectedBigFont
+        return alternate is null ||
+            !MatchesTextRole(alternate.Cache.Font, expectedBigFont)
             ? default
             : Resolution(alternate, isSubstitution: true);
     }
+
+    private static bool MatchesTextRole(
+        CadShxFont font,
+        bool expectedBigFont) =>
+        expectedBigFont
+            ? font.IsTextFont && font.IsBigFont
+            : font.IsTextFont && !font.IsBigFont;
 
     private static CadShxFontResolution Resolution(Entry entry, bool isSubstitution) =>
         new(entry.Cache, entry.RegisteredName, isSubstitution);

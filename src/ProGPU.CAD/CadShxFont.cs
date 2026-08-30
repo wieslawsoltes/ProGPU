@@ -87,6 +87,12 @@ public sealed class CadShxFont
     public int Modes { get; }
     public bool IsTextFont { get; }
     public bool IsUnicodeFont => ContainerKind == CadShxContainerKind.Unicode;
+    public bool UsesUnicodeCharacterEncoding =>
+        IsUnicodeFont && UnicodeEncoding == CadShxUnicodeEncoding.Unicode;
+    public bool UsesPackedMultibyteCharacterEncoding =>
+        IsUnicodeFont && UnicodeEncoding == CadShxUnicodeEncoding.PackedMultibyte1;
+    public bool IsUnicodeShapeFile =>
+        IsUnicodeFont && UnicodeEncoding == CadShxUnicodeEncoding.ShapeFile;
     public bool IsBigFont => ContainerKind == CadShxContainerKind.BigFont;
     public CadShxUnicodeEncoding? UnicodeEncoding { get; }
     public CadShxEmbeddingPermissions? EmbeddingPermissions { get; }
@@ -418,7 +424,7 @@ public sealed class CadShxFont
             headerProgram[0],
             headerProgram[1],
             headerProgram[2],
-            true,
+            headerProgram[3] != (byte)CadShxUnicodeEncoding.ShapeFile,
             (CadShxUnicodeEncoding)headerProgram[3],
             (CadShxEmbeddingPermissions)headerProgram[4],
             false,

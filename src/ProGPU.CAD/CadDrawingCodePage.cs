@@ -21,7 +21,7 @@ internal static class CadDrawingCodePage
         if (string.IsNullOrWhiteSpace(name))
         {
             throw new NotSupportedException(
-                "Big Font text requires a persisted DWGCODEPAGE value.");
+                "Drawing-code-page SHX text requires a persisted DWGCODEPAGE value.");
         }
 
         string key = name.Trim();
@@ -53,7 +53,7 @@ internal static class CadDrawingCodePage
             if (codePage <= 0)
             {
                 throw new NotSupportedException(
-                    $"Drawing code page '{name}' is not available for strict Big Font character mapping.");
+                    $"Drawing code page '{name}' is not available for strict SHX character mapping.");
             }
             try
             {
@@ -65,7 +65,7 @@ internal static class CadDrawingCodePage
             catch (ArgumentException exception)
             {
                 throw new NotSupportedException(
-                    $"Drawing code page '{name}' ({codePage}) is not available for strict Big Font character mapping.",
+                    $"Drawing code page '{name}' ({codePage}) is not available for strict SHX character mapping.",
                     exception);
             }
         }
