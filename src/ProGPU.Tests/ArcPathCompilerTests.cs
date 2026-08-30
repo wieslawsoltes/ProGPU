@@ -306,7 +306,7 @@ public class ArcPathCompilerTests
     }
 
     [Fact]
-    public void PathAtlasCompilerCarriesFillRuleIntoGpuRecord()
+    public void PathAtlasCompilerUsesNativeShaderFillRuleEncoding()
     {
         var (records, _) = PathAtlas.CompilePath(
             CreateFillRulePath(FillRule.EvenOdd),
@@ -316,7 +316,7 @@ public class ArcPathCompilerTests
             out _);
 
         var record = Assert.Single(records);
-        Assert.Equal((uint)FillRule.EvenOdd, record.FillRule);
+        Assert.Equal(1u, record.FillRule);
     }
 
     [Fact]
@@ -349,18 +349,34 @@ public class ArcPathCompilerTests
         AssertClose(maxY, record.MaxY);
     }
 
-    [Fact]
-    public void PathOperationCompilerCarriesFillRuleIntoGpuRecord()
+    [Theory]
+    [InlineData(FillRule.Nonzero, 0u)]
+    [InlineData(FillRule.EvenOdd, 1u)]
+    public void PathOperationCompilerEncodesNativeShaderFillRuleAbi(
+        FillRule fillRule,
+        uint expected)
     {
         var (records, _) = PathOpGeometrySolver.CompilePath(
-            CreateFillRulePath(FillRule.Nonzero),
+            CreateFillRulePath(fillRule),
             out _,
             out _,
             out _,
             out _);
 
         var record = Assert.Single(records);
-        Assert.Equal((uint)FillRule.Nonzero, record.FillRule);
+        Assert.Equal(expected, record.FillRule);
+    }
+
+    [Fact]
+    public void PathOperationCompilerRejectsInvalidFillRule()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            PathOpGeometrySolver.CompilePath(
+                CreateFillRulePath((FillRule)int.MaxValue),
+                out _,
+                out _,
+                out _,
+                out _));
     }
 
     [Fact]
