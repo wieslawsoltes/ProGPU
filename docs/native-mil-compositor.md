@@ -5359,8 +5359,27 @@ under `/W4 /WX`, passes the live regression 1/1 in 3.35 seconds, decodes three
 translated draws from the scene header, verifies fail-closed DirectWrite state,
 and reports exactly 123 exports. Provider SHA-256 is
 `0C552556B68BDB2F34B9B4ADA552B1DBBC2EB25A247483ED27710787CBF787D2`;
-clean-checkout CI qualification for documentation checkpoint `28b4610b` is
-pending.
+clean-checkout MSVC compatibility job `99339089791` on checkpoint `b91df2da`
+passes; its longer Windows renderer jobs were superseded by ABI v34.
+
+ABI v34 at implementation `c4dca894` translates nested aliased Direct2D
+axis-aligned clips. The sink captures the active transform at each push,
+computes the target-space rectangle, intersects it with the live parent clip,
+and emits native scene state plus balanced save/restore commands. This keeps
+the already-pushed clip fixed when later commands change transform and makes
+scroll/viewport clipping reusable by every ProGPU backend. The supported depth
+is the native scene maximum of 64 with an explicit capacity failure.
+
+Per-primitive antialiased rectangle clips remain typed `E_NOTIMPL`: the current
+native rectangle clip is a scissor and must not impersonate a coverage mask.
+The Windows oracle decodes the seven-command stream and verifies the transformed
+outer `[3,5,37.5,22.5]` and nested `[15.5,12.5,25,15]` state payloads exactly,
+then proves that the antialiased mode returns no partial stream. Managed build
+is warning-free, contracts pass 5/5, the export allowlist remains 123, and the
+incremental Windows 11 ARM64 MSVC 19.44/SDK 10.0.26100.0 `/W4 /WX` build plus
+live regression pass. Provider SHA-256 is
+`9C38D9BFFC95D7453EDCA5F3D63B53C973C1E24F9DDA2EB3214477BF497464AE`;
+clean-checkout ABI v34 CI qualification is pending.
 
 ## Managed glyph row-reuse SIMD checkpoint
 
