@@ -738,9 +738,14 @@ later ABI: clips and layers require one unified LIFO state model so their
 cross-ordering cannot be represented incorrectly by independent depth counts.
 The native regression also copies the shared command-list result to a D3D11
 staging texture under keyed-mutex consumer ownership and requires the exact
-BGRA pixel produced by the typed vector path. Windows MSVC and ClangCL
-execution of that gate is pending the pushed ABI v26 commit; portable managed
-contract coverage currently passes 5/5 with zero build warnings.
+BGRA pixel produced by the typed vector path. Corrected checkpoint `f1b1ca18`
+is qualified by GitHub Actions Build run `33333671491`, dedicated MSVC job
+`99316705077`: the warning-as-error provider and regression compile/link, the
+focused Direct2D test passes in 0.16 seconds, all 11 native suites pass, and
+the Windows build script accepts the exact 86-symbol allowlist. Portable
+managed contract coverage passes 5/5 with zero build warnings. The broader
+ClangCL/x64 lane remains useful independent coverage when its job completes;
+it is not needed to infer the already observed MSVC result.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
