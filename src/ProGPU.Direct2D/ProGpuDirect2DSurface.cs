@@ -5,6 +5,7 @@ using Silk.NET.WebGPU;
 using System.Buffers;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 
 namespace ProGPU.Direct2D;
 
@@ -1583,7 +1584,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
             if (_producer != ProducerKind.None)
             {
                 throw new InvalidOperationException(
-                    "A Direct2D or Win2D producer session is already active.");
+                    "A Direct2D, Win2D, or command-list producer session is already active.");
             }
             if (_leaseCount != 0)
             {
@@ -1728,7 +1729,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
             if (_producer != ProducerKind.None)
             {
                 throw new InvalidOperationException(
-                    "A Direct2D or Win2D producer session is already active.");
+                    "A Direct2D, Win2D, or command-list producer session is already active.");
             }
             if (_leaseCount != 0)
             {
@@ -1892,33 +1893,42 @@ public sealed unsafe class ProGpuDirect2DSurface :
         ulong tag1 = 0U;
         ulong tag2 = 0U;
         int nativeHResult = 0;
-        ProGpuDirect2DStatus status =
-            ProGpuDirect2DNative.SurfaceEndCommandListDraw(
+        ProGpuDirect2DStatus? status = null;
+        ExceptionDispatchInfo? failure = null;
+        try
+        {
+            status = ProGpuDirect2DNative.SurfaceEndCommandListDraw(
                 nativeSurface,
                 &tag1,
                 &tag2,
                 &nativeHResult);
-        Exception? failure = status == ProGpuDirect2DStatus.Success
-            ? null
-            : new ProGpuDirect2DException(
-                $"ID2D1CommandList EndDraw (tags {tag1}/{tag2})",
-                status,
-                nativeHResult);
-
-        lock (_gate)
-        {
-            _producer = ProducerKind.None;
-            if (status == ProGpuDirect2DStatus.DeviceLost)
+            if (status != ProGpuDirect2DStatus.Success)
             {
-                _disposeRequested = true;
+                failure = ExceptionDispatchInfo.Capture(
+                    new ProGpuDirect2DException(
+                        $"ID2D1CommandList EndDraw (tags {tag1}/{tag2})",
+                        status.Value,
+                        nativeHResult));
             }
-            accessToDispose = TryTakeResourcesForDisposal();
         }
-        accessToDispose?.Dispose();
-        if (failure is not null)
+        catch (Exception exception)
         {
-            throw failure;
+            failure = ExceptionDispatchInfo.Capture(exception);
         }
+        finally
+        {
+            lock (_gate)
+            {
+                _producer = ProducerKind.None;
+                if (status == ProGpuDirect2DStatus.DeviceLost)
+                {
+                    _disposeRequested = true;
+                }
+                accessToDispose = TryTakeResourcesForDisposal();
+            }
+            accessToDispose?.Dispose();
+        }
+        failure?.Throw();
     }
 
     private void CompleteProducerAccess(ProducerKind expectedProducer)

@@ -511,33 +511,35 @@ internal static partial class Program
                 canvasCommandListType =
                     canvasCommandList.GetType().FullName ??
                     canvasCommandList.GetType().Name;
-                using CanvasDrawingSession commandListDrawingSession =
-                    canvasCommandList.CreateDrawingSession();
-                commandListDrawingSession.FillRectangle(
-                    0.0F,
-                    0.0F,
-                    4.0F,
-                    56.0F,
-                    commandListColor);
-            }
-            WriteProgress("command-list-recorded");
-            if (!surface.TryAcquireMicrosoftWin2DNativeCommandList(
-                    canvasCommandListReference,
-                    out ProGpuDirect2DComReference? unwrappedCommandList,
-                    out int unwrappedCommandListHResult) ||
-                unwrappedCommandList is null)
-            {
-                throw new InvalidOperationException(
-                    $"Win2D CanvasCommandList native-resource interop failed (0x{unwrappedCommandListHResult:X8}).");
-            }
-            using (unwrappedCommandList)
-            {
-                if (!HasSameComIdentity(
-                        nativeCommandList,
-                        unwrappedCommandList))
+                using (CanvasDrawingSession commandListDrawingSession =
+                    canvasCommandList.CreateDrawingSession())
+                {
+                    commandListDrawingSession.FillRectangle(
+                        0.0F,
+                        0.0F,
+                        4.0F,
+                        56.0F,
+                        commandListColor);
+                }
+                WriteProgress("command-list-recorded");
+                if (!surface.TryAcquireMicrosoftWin2DNativeCommandList(
+                        canvasCommandListReference,
+                        out ProGpuDirect2DComReference? unwrappedCommandList,
+                        out int unwrappedCommandListHResult) ||
+                    unwrappedCommandList is null)
                 {
                     throw new InvalidOperationException(
-                        "Win2D CanvasCommandList did not preserve ProGPU's ID2D1CommandList identity.");
+                        $"Win2D CanvasCommandList native-resource interop failed (0x{unwrappedCommandListHResult:X8}).");
+                }
+                using (unwrappedCommandList)
+                {
+                    if (!HasSameComIdentity(
+                            nativeCommandList,
+                            unwrappedCommandList))
+                    {
+                        throw new InvalidOperationException(
+                            "Win2D CanvasCommandList did not preserve ProGPU's ID2D1CommandList identity.");
+                    }
                 }
             }
             using ProGpuDirect2DComReference nativeCommandListImageBrush =
