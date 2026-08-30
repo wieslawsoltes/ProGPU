@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <cmath>
+#include <cstring>
 #include <iterator>
 #include <mutex>
 #include <new>
@@ -144,10 +145,194 @@ namespace {
 constexpr uint32_t dxgi_format_b8g8r8a8_unorm = 87U;
 constexpr uint32_t d2d_alpha_mode_premultiplied = 1U;
 
+class BorrowedMemoryStream final : public IStream {
+public:
+    BorrowedMemoryStream(const uint8_t* data, uint32_t size) noexcept
+        : data_(data), size_(size)
+    {
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(interface_id, IID_ISequentialStream) ||
+            IsEqualIID(interface_id, IID_IStream)) {
+            *value = static_cast<IStream*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    HRESULT STDMETHODCALLTYPE Read(
+        void* value,
+        ULONG byte_count,
+        ULONG* bytes_read) override
+    {
+        if (bytes_read != nullptr) {
+            *bytes_read = 0U;
+        }
+        if (value == nullptr && byte_count != 0U) {
+            return STG_E_INVALIDPOINTER;
+        }
+        const uint64_t available = size_ - position_;
+        const ULONG count = static_cast<ULONG>(
+            available < byte_count ? available : byte_count);
+        if (count != 0U) {
+            std::memcpy(value, data_ + position_, count);
+            position_ += count;
+        }
+        if (bytes_read != nullptr) {
+            *bytes_read = count;
+        }
+        return count == byte_count ? S_OK : S_FALSE;
+    }
+
+    HRESULT STDMETHODCALLTYPE Write(
+        const void*,
+        ULONG,
+        ULONG*) override
+    {
+        return STG_E_ACCESSDENIED;
+    }
+
+    HRESULT STDMETHODCALLTYPE Seek(
+        LARGE_INTEGER move,
+        DWORD origin,
+        ULARGE_INTEGER* new_position) override
+    {
+        int64_t basis = 0;
+        if (origin == STREAM_SEEK_CUR) {
+            basis = static_cast<int64_t>(position_);
+        } else if (origin == STREAM_SEEK_END) {
+            basis = static_cast<int64_t>(size_);
+        } else if (origin != STREAM_SEEK_SET) {
+            return STG_E_INVALIDFUNCTION;
+        }
+        if ((move.QuadPart > 0 &&
+             basis > INT64_MAX - move.QuadPart) ||
+            (move.QuadPart < 0 &&
+             basis < INT64_MIN - move.QuadPart)) {
+            return STG_E_INVALIDFUNCTION;
+        }
+        const int64_t result = basis + move.QuadPart;
+        if (result < 0 || static_cast<uint64_t>(result) > size_) {
+            return STG_E_INVALIDFUNCTION;
+        }
+        position_ = static_cast<uint64_t>(result);
+        if (new_position != nullptr) {
+            new_position->QuadPart = position_;
+        }
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetSize(ULARGE_INTEGER) override
+    {
+        return STG_E_ACCESSDENIED;
+    }
+
+    HRESULT STDMETHODCALLTYPE CopyTo(
+        IStream*,
+        ULARGE_INTEGER,
+        ULARGE_INTEGER*,
+        ULARGE_INTEGER*) override
+    {
+        return E_NOTIMPL;
+    }
+
+    HRESULT STDMETHODCALLTYPE Commit(DWORD) override
+    {
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE Revert() override
+    {
+        return STG_E_REVERTED;
+    }
+
+    HRESULT STDMETHODCALLTYPE LockRegion(
+        ULARGE_INTEGER,
+        ULARGE_INTEGER,
+        DWORD) override
+    {
+        return STG_E_INVALIDFUNCTION;
+    }
+
+    HRESULT STDMETHODCALLTYPE UnlockRegion(
+        ULARGE_INTEGER,
+        ULARGE_INTEGER,
+        DWORD) override
+    {
+        return STG_E_INVALIDFUNCTION;
+    }
+
+    HRESULT STDMETHODCALLTYPE Stat(
+        STATSTG* status,
+        DWORD flags) override
+    {
+        if (status == nullptr) {
+            return STG_E_INVALIDPOINTER;
+        }
+        if ((flags & ~STATFLAG_NONAME) != 0U) {
+            return STG_E_INVALIDFLAG;
+        }
+        *status = {};
+        status->type = STGTY_STREAM;
+        status->cbSize.QuadPart = size_;
+        status->grfMode = STGM_READ;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE Clone(IStream**) override
+    {
+        return E_NOTIMPL;
+    }
+
+private:
+    std::atomic<ULONG> reference_count_{1U};
+    const uint8_t* data_ = nullptr;
+    uint64_t size_ = 0U;
+    uint64_t position_ = 0U;
+};
+
 bool luid_is_zero(const progpu_native_direct2d_surface_options& options)
 {
     return options.adapter_luid_low == 0U &&
         options.adapter_luid_high == 0;
+}
+
+bool has_same_com_identity(IUnknown* left, IUnknown* right)
+{
+    if (left == nullptr || right == nullptr) {
+        return false;
+    }
+    ComPtr<IUnknown> left_identity;
+    ComPtr<IUnknown> right_identity;
+    return SUCCEEDED(left->QueryInterface(IID_PPV_ARGS(&left_identity))) &&
+        SUCCEEDED(right->QueryInterface(IID_PPV_ARGS(&right_identity))) &&
+        left_identity.Get() == right_identity.Get();
 }
 
 bool is_finite(const progpu_native_direct2d_color_f& color)
@@ -1128,6 +1313,13 @@ progpu_native_direct2d_status progpu_native_direct2d_surface_get_interface(
             return return_interface(surface->d2d_context, value);
         case PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT4: {
             ComPtr<ID2D1DeviceContext4> result;
+            if (FAILED(surface->d2d_context.As(&result))) {
+                return PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED;
+            }
+            return return_interface(result, value);
+        }
+        case PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT5: {
+            ComPtr<ID2D1DeviceContext5> result;
             if (FAILED(surface->d2d_context.As(&result))) {
                 return PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED;
             }
@@ -2922,6 +3114,136 @@ progpu_native_direct2d_surface_draw_color_glyph_run(
             if (SUCCEEDED(hr)) {
                 *selected_path = PROGPU_NATIVE_DIRECT2D_COLOR_GLYPH_PATH_TRANSLATED_DEVICE_CONTEXT4;
             }
+        }
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_svg_document(
+    progpu_native_direct2d_surface* surface,
+    const uint8_t* utf8_xml,
+    uint32_t utf8_xml_byte_count,
+    float viewport_width,
+    float viewport_height,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    constexpr uint32_t maximum_svg_byte_count = 64U * 1024U * 1024U;
+    if (surface == nullptr || value == nullptr || native_hresult == nullptr ||
+        (utf8_xml_byte_count != 0U && utf8_xml == nullptr) ||
+        utf8_xml_byte_count > maximum_svg_byte_count ||
+        !std::isfinite(viewport_width) || viewport_width <= 0.0F ||
+        !std::isfinite(viewport_height) || viewport_height <= 0.0F) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1DeviceContext5> context5;
+    HRESULT hr = surface->d2d_context.As(&context5);
+    ComPtr<IStream> input;
+    if (SUCCEEDED(hr) && utf8_xml_byte_count != 0U) {
+        auto stream = new (std::nothrow) BorrowedMemoryStream(
+            utf8_xml,
+            utf8_xml_byte_count);
+        if (stream == nullptr) {
+            hr = E_OUTOFMEMORY;
+        } else {
+            input.Attach(stream);
+        }
+    }
+    ComPtr<ID2D1SvgDocument> document;
+    if (SUCCEEDED(hr)) {
+        hr = context5->CreateSvgDocument(
+            input.Get(),
+            D2D1::SizeF(viewport_width, viewport_height),
+            &document);
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return hr == E_OUTOFMEMORY
+            ? PROGPU_NATIVE_DIRECT2D_STATUS_OUT_OF_MEMORY
+            : status_from_win2d_hresult(hr);
+    }
+    document->AddRef();
+    *value = document.Get();
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_svg_document(
+    progpu_native_direct2d_surface* surface,
+    void* svg_document,
+    float viewport_width,
+    float viewport_height,
+    float origin_x,
+    float origin_y,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || svg_document == nullptr ||
+        native_hresult == nullptr ||
+        !std::isfinite(viewport_width) || viewport_width <= 0.0F ||
+        !std::isfinite(viewport_height) || viewport_height <= 0.0F ||
+        !std::isfinite(origin_x) || !std::isfinite(origin_y)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<ID2D1SvgDocument> document;
+    HRESULT hr = reinterpret_cast<IUnknown*>(svg_document)->QueryInterface(
+        IID_PPV_ARGS(&document));
+    ComPtr<ID2D1Factory> document_factory;
+    if (SUCCEEDED(hr)) {
+        document->GetFactory(&document_factory);
+        if (!has_same_com_identity(
+                document_factory.Get(),
+                surface->d2d_factory.Get())) {
+            hr = D2DERR_WRONG_RESOURCE_DOMAIN;
+        }
+    }
+    ComPtr<ID2D1DeviceContext5> context5;
+    if (SUCCEEDED(hr)) {
+        hr = surface->d2d_context.As(&context5);
+    }
+    if (SUCCEEDED(hr)) {
+        const D2D1_SIZE_F previous_viewport = document->GetViewportSize();
+        D2D1_MATRIX_3X2_F previous_transform{};
+        context5->GetTransform(&previous_transform);
+        hr = document->SetViewportSize(
+            D2D1::SizeF(viewport_width, viewport_height));
+        if (SUCCEEDED(hr)) {
+            const D2D1_MATRIX_3X2_F translated = {
+                previous_transform._11,
+                previous_transform._12,
+                previous_transform._21,
+                previous_transform._22,
+                origin_x * previous_transform._11 +
+                    origin_y * previous_transform._21 +
+                    previous_transform._31,
+                origin_x * previous_transform._12 +
+                    origin_y * previous_transform._22 +
+                    previous_transform._32};
+            context5->SetTransform(&translated);
+            context5->DrawSvgDocument(document.Get());
+            context5->SetTransform(&previous_transform);
+            hr = document->SetViewportSize(previous_viewport);
         }
     }
     surface->last_hresult.store(hr, std::memory_order_release);

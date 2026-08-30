@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 21U;
+    internal const uint AbiVersion = 22U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -637,6 +637,32 @@ internal static unsafe partial class ProGpuDirect2DNative
         uint colorPaletteIndex,
         ProGpuDirect2DMeasuringMode measuringMode,
         ProGpuDirect2DColorGlyphPath* selectedPath,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_svg_document")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceCreateSvgDocument(
+        nint surface,
+        byte* utf8Xml,
+        uint utf8XmlByteCount,
+        float viewportWidth,
+        float viewportHeight,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_draw_svg_document")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceDrawSvgDocument(
+        nint surface,
+        nint svgDocument,
+        float viewportWidth,
+        float viewportHeight,
+        float originX,
+        float originY,
         int* nativeHResult);
 
     [LibraryImport(

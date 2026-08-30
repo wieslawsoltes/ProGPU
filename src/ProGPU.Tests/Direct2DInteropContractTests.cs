@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 21U;",
+            "internal const uint AbiVersion = 22U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -316,7 +316,7 @@ public sealed class Direct2DInteropContractTests
             exports,
             StringComparison.Ordinal);
         Assert.Equal(
-            56,
+            58,
             exports.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries |
@@ -364,7 +364,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 21U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 22U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -486,6 +486,30 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains(
             "TranslateColorGlyphRun(",
             source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_create_svg_document(",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_draw_svg_document(",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "context5->CreateSvgDocument(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "context5->DrawSvgDocument(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "BorrowedMemoryStream",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_SVG_DOCUMENT",
+            header,
             StringComparison.Ordinal);
         Assert.Contains(
             "resource_wrapper->GetNativeResource(",

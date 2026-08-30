@@ -33,7 +33,7 @@ binary.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` and DirectWrite text API | Foundation plus bitmap/brush/geometry/stroke/command-list/effect/layer/state/text resources implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine factory, device, context, target, uploaded bitmaps, solid/gradient/bitmap/image brushes, gradient-stop collections, primitive/path/transformed/combined geometries, `ID2D1StrokeStyle1`, recordable `ID2D1CommandList`, typed `ID2D1Effect` graphs and `ID2D1Image` outputs, `ID2D1Layer`, `ID2D1DrawingStateBlock1`, shared `IDWriteFactory3`, typed `IDWriteTextFormat1`/`IDWriteTextLayout4`/`IDWriteTypography`/`IDWriteFontFaceReference`/`IDWriteFontFace5`, UTF-16 `DrawText`, retained `DrawTextLayout`, shaped `DrawGlyphRun`, mutable range formatting/drawing effects/OpenType features, and generic later-interface queries over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` or `dwrite.dll` |
+| Direct2D `ID2D1*` and DirectWrite text API | Foundation plus bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine factory, device, context, target, uploaded bitmaps, solid/gradient/bitmap/image brushes, gradient-stop collections, primitive/path/transformed/combined geometries, `ID2D1StrokeStyle1`, recordable `ID2D1CommandList`, typed `ID2D1Effect` graphs and `ID2D1Image` outputs, `ID2D1Layer`, `ID2D1DrawingStateBlock1`, same-device `ID2D1SvgDocument`, shared `IDWriteFactory3`, typed `IDWriteTextFormat1`/`IDWriteTextLayout4`/`IDWriteTypography`/`IDWriteFontFaceReference`/`IDWriteFontFace5`, UTF-16 `DrawText`, retained `DrawTextLayout`, shaped/color `DrawGlyphRun`, mutable range formatting/drawing effects/OpenType features, and generic later-interface queries over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` or `dwrite.dll` |
 | Native Win2D binary interop | Device/target/bitmap/brush/geometry/stroke/command-list/effect-output/text-format/text-layout/typography round trips plus layer/state/text draws package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, `CanvasStrokeStyle`, `CanvasCommandList`, device-independent `CanvasTextFormat`/`CanvasTypography`, and device-associated `CanvasTextLayout` projections. The packaged Microsoft Win2D 1.4.0 oracle also wraps effect-output image brushes, executes typed ProGPU layer/state and native-text command-list scopes, observes ProGPU range formatting/OpenType features through the projected layout and typography, mutates that same native layout through Win2D, and draws it. It qualifies identities, resource metadata, boolean geometry/styled-stroke/image-brush/command-list/effect/text drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; glyph runs/color fonts, remaining typography, the full effect catalog, custom effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
@@ -626,6 +626,19 @@ v21 on Windows. The warning-as-error provider and regression both compile and
 link, the focused `progpu_native_direct2d_tests` passes in 0.14 seconds, all 11
 native suites pass, and the same successful job enforces the exact 56-symbol
 Direct2D export allowlist.
+ABI v22 adds genuine same-device `ID2D1SvgDocument` resources. A bounded
+borrowed `IStream` exposes caller-owned UTF-8 bytes directly to
+`ID2D1DeviceContext5::CreateSvgDocument`; Direct2D consumes it synchronously,
+and the provider neither retains the span nor creates an intermediate XML
+copy. Surface and command-list transactions draw the document through
+`ID2D1DeviceContext5::DrawSvgDocument` with temporary Win2D-compatible
+viewport and origin state that is restored before return. Factory identity,
+finite positive viewports, the 64 MiB input bound, concrete COM kind, and
+active-draw ownership fail closed. The generic Win2D seam wraps the exact
+resource as `CanvasSvgDocument` and reverse-unwraps the canonical
+`ID2D1SvgDocument` identity. Direct2D's supported SVG subset remains the
+semantic boundary; this is not a browser SVG implementation. The allowlist
+grows from 56 to exactly 58 exports.
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any

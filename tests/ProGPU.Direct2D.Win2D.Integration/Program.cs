@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Brushes;
 using Microsoft.Graphics.Canvas.Geometry;
+using Microsoft.Graphics.Canvas.Svg;
 using Microsoft.Graphics.Canvas.Text;
 using ProGPU.Backend.Dawn;
 using ProGPU.Direct2D;
@@ -1023,6 +1024,61 @@ internal static partial class Program
                     "Direct2D color-glyph drawing returned an invalid path diagnostic.");
             }
             WriteProgress("font-face-roundtrip-native-glyph-draw-complete");
+
+            ReadOnlySpan<byte> svgXml =
+                "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><rect width='16' height='16' fill='#20a0e0'/></svg>"u8;
+            using ProGpuDirect2DComReference nativeSvgDocument =
+                surface.CreateSvgDocument(svgXml, new Vector2(16.0F, 16.0F));
+            if (!surface.TryAcquireMicrosoftWin2DSvgDocument(
+                    nativeSvgDocument,
+                    out ProGpuDirect2DComReference? wrappedSvgDocument,
+                    out int wrappedSvgHResult) ||
+                wrappedSvgDocument is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasSvgDocument wrapping failed (0x{wrappedSvgHResult:X8}).");
+            }
+            using ProGpuDirect2DComReference canvasSvgDocumentReference =
+                wrappedSvgDocument;
+            if (!surface.TryAcquireMicrosoftWin2DNativeSvgDocument(
+                    canvasSvgDocumentReference,
+                    out ProGpuDirect2DComReference? unwrappedSvgDocument,
+                    out int unwrappedSvgHResult) ||
+                unwrappedSvgDocument is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasSvgDocument native-resource interop failed (0x{unwrappedSvgHResult:X8}).");
+            }
+            using (unwrappedSvgDocument)
+            {
+                if (!HasSameComIdentity(
+                        nativeSvgDocument,
+                        unwrappedSvgDocument))
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasSvgDocument did not preserve ProGPU's ID2D1SvgDocument identity.");
+                }
+            }
+            using CanvasSvgDocument canvasSvgDocument =
+                CanvasSvgDocument.FromAbi(
+                    canvasSvgDocumentReference.DangerousGetHandle());
+            if (!canvasSvgDocument.GetXml().Contains("#20a0e0"))
+            {
+                throw new InvalidOperationException(
+                    "Win2D CanvasSvgDocument did not expose the provider SVG XML.");
+            }
+            using ProGpuDirect2DComReference nativeSvgCommandList =
+                surface.CreateCommandList();
+            using (ProGpuDirect2DCommandListDrawingSession svgSession =
+                surface.BeginCommandListDrawing(nativeSvgCommandList))
+            {
+                svgSession.DrawSvgDocument(
+                    nativeSvgDocument,
+                    new Vector2(16.0F, 16.0F),
+                    new Vector2(48.0F, 0.0F));
+            }
+            WriteProgress("svg-roundtrip-native-draw-complete");
+
             using ProGpuDirect2DComReference nativeTextLayoutCommandList =
                 surface.CreateCommandList();
             using (ProGpuDirect2DCommandListDrawingSession textLayoutSession =

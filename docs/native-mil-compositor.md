@@ -5140,6 +5140,16 @@ under the warning-as-error lane, `progpu_native_direct2d_tests` passes in
 0.14 seconds, all 11 native suites pass, and the exact 56-export allowlist is
 accepted.
 
+ABI v22 adds genuine `ID2D1SvgDocument` creation/drawing through
+`ID2D1DeviceContext5`. The UTF-8 source is exposed by a bounded borrowed
+`IStream` for the synchronous parse, so there is no retained caller pointer or
+intermediate XML buffer. Surface and command-list draws temporarily apply the
+requested viewport and origin, restore both states, and reject foreign-factory
+resources or inactive draws. Official Win2D `CanvasSvgDocument` wrapping and
+reverse unwrapping preserve canonical COM identity. This Windows-native SVG
+resource lane complements rather than replaces ProGPU's portable retained SVG
+path lowering, and the exact allowlist grows from 56 to 58 exports.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
