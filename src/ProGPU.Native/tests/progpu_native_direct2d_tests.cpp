@@ -356,7 +356,8 @@ int main()
     ComPtr<ID2D1RectangleGeometry> rectangle_geometry;
     rectangle_geometry.Attach(
         static_cast<ID2D1RectangleGeometry*>(rectangle_geometry_value));
-    D2D1_RECT_F returned_rectangle = rectangle_geometry->GetRect();
+    D2D1_RECT_F returned_rectangle{};
+    rectangle_geometry->GetRect(&returned_rectangle);
     require(returned_rectangle.left == 4.0F &&
             returned_rectangle.top == 4.0F &&
             returned_rectangle.right == 20.0F &&
@@ -378,7 +379,8 @@ int main()
     ComPtr<ID2D1RoundedRectangleGeometry> rounded_geometry;
     rounded_geometry.Attach(
         static_cast<ID2D1RoundedRectangleGeometry*>(rounded_geometry_value));
-    D2D1_ROUNDED_RECT returned_rounded = rounded_geometry->GetRoundedRect();
+    D2D1_ROUNDED_RECT returned_rounded{};
+    rounded_geometry->GetRoundedRect(&returned_rounded);
     require(returned_rounded.radiusX == 3.0F &&
             returned_rounded.radiusY == 2.0F,
         "provider rounded-rectangle geometry changed its radii");
@@ -399,7 +401,8 @@ int main()
     ComPtr<ID2D1EllipseGeometry> ellipse_geometry;
     ellipse_geometry.Attach(
         static_cast<ID2D1EllipseGeometry*>(ellipse_geometry_value));
-    D2D1_ELLIPSE returned_ellipse = ellipse_geometry->GetEllipse();
+    D2D1_ELLIPSE returned_ellipse{};
+    ellipse_geometry->GetEllipse(&returned_ellipse);
     require(returned_ellipse.point.x == 32.0F &&
             returned_ellipse.point.y == 24.0F &&
             returned_ellipse.radiusX == 8.0F &&
@@ -447,8 +450,13 @@ int main()
     ComPtr<ID2D1PathGeometry1> path_geometry;
     path_geometry.Attach(
         static_cast<ID2D1PathGeometry1*>(path_geometry_value));
-    require(path_geometry->GetFigureCount() == 1U &&
-            path_geometry->GetSegmentCount() == 4U,
+    uint32_t returned_figure_count = 0U;
+    uint32_t returned_segment_count = 0U;
+    require(SUCCEEDED(path_geometry->GetFigureCount(
+                &returned_figure_count)) &&
+            SUCCEEDED(path_geometry->GetSegmentCount(
+                &returned_segment_count)) &&
+            returned_figure_count == 1U && returned_segment_count == 4U,
         "provider path geometry changed its topology");
 
     progpu_native_direct2d_matrix_3x2_f geometry_transform{
@@ -496,7 +504,9 @@ int main()
     ComPtr<ID2D1PathGeometry1> combined_geometry;
     combined_geometry.Attach(
         static_cast<ID2D1PathGeometry1*>(combined_geometry_value));
-    require(combined_geometry->GetFigureCount() != 0U,
+    uint32_t combined_figure_count = 0U;
+    require(SUCCEEDED(combined_geometry->GetFigureCount(
+                &combined_figure_count)) && combined_figure_count != 0U,
         "provider combined geometry was unexpectedly empty");
 
     void* win2d_canvas_device_value = nullptr;
