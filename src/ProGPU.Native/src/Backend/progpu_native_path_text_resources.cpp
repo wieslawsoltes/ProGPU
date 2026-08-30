@@ -100,6 +100,7 @@ WGPUBindGroup create_text_atlas_bind_group(
 
 bool create_path_resources(progpu_native_engine& engine) {
     if (engine.path_raster_pipeline != nullptr &&
+        engine.path_raster_ordinary_pipeline != nullptr &&
         engine.path_split_leaf_pipeline != nullptr &&
         engine.path_split_signed_leaf_pipeline != nullptr &&
         engine.path_split_signed_rows_pipeline != nullptr &&
@@ -116,6 +117,7 @@ bool create_path_resources(progpu_native_engine& engine) {
         engine.path_signed_winding_evaluate_shader != nullptr ||
         engine.path_signed_winding_coverage_shader != nullptr ||
         engine.path_raster_pipeline != nullptr ||
+        engine.path_raster_ordinary_pipeline != nullptr ||
         engine.path_split_leaf_pipeline != nullptr ||
         engine.path_split_signed_leaf_pipeline != nullptr ||
         engine.path_split_signed_rows_pipeline != nullptr ||
@@ -237,6 +239,17 @@ bool create_path_resources(progpu_native_engine& engine) {
         engine.device,
         &pipeline_descriptor);
     if (engine.path_raster_pipeline == nullptr) {
+        return false;
+    }
+    pipeline_descriptor.label = progpu::native::webgpu::string_view(
+        "ProGPU native ordinary path raster pipeline");
+    pipeline_descriptor.compute.entryPoint =
+        progpu::native::webgpu::string_view("cs_main_ordinary");
+    engine.path_raster_ordinary_pipeline =
+        wgpuDeviceCreateComputePipeline(
+            engine.device,
+            &pipeline_descriptor);
+    if (engine.path_raster_ordinary_pipeline == nullptr) {
         return false;
     }
     pipeline_descriptor.label = progpu::native::webgpu::string_view(

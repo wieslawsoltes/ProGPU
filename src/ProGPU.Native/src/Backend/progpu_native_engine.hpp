@@ -81,6 +81,7 @@ struct progpu_native_engine {
     WGPUShaderModule path_signed_winding_evaluate_shader = nullptr;
     WGPUShaderModule path_signed_winding_coverage_shader = nullptr;
     WGPUComputePipeline path_raster_pipeline = nullptr;
+    WGPUComputePipeline path_raster_ordinary_pipeline = nullptr;
     WGPUComputePipeline path_split_leaf_pipeline = nullptr;
     WGPUComputePipeline path_split_signed_leaf_pipeline = nullptr;
     WGPUComputePipeline path_split_signed_rows_pipeline = nullptr;
@@ -1701,6 +1702,9 @@ struct progpu_native_engine {
         }
         if (path_raster_pipeline != nullptr) {
             wgpuComputePipelineRelease(path_raster_pipeline);
+        }
+        if (path_raster_ordinary_pipeline != nullptr) {
+            wgpuComputePipelineRelease(path_raster_ordinary_pipeline);
         }
         if (path_split_leaf_pipeline != nullptr) {
             wgpuComputePipelineRelease(path_split_leaf_pipeline);

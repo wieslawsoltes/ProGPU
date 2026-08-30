@@ -106,6 +106,7 @@ bool rebuild_vector_clip_chain(
             coverage_combine_uniforms;
         std::vector<gpu_path_coverage_combine_uniforms>
             signed_coverage_combine_uniforms;
+        bool has_inline_signed_winding = false;
         std::vector<native_path_raster> rasters;
         std::vector<gpu_clip_vertex> vertices;
         std::vector<std::uint32_t> indices;
@@ -386,6 +387,9 @@ bool rebuild_vector_clip_chain(
                     output_offset =
                         static_cast<std::uint32_t>(split_next_output);
                 } else {
+                    has_inline_signed_winding =
+                        has_inline_signed_winding ||
+                        signed_winding_program;
                     path_uniforms.push_back({
                         raster_min_x - subpixel_x,
                         raster_min_y - subpixel_y,
@@ -942,7 +946,9 @@ bool rebuild_vector_clip_chain(
                 "ProGPU native retained clip coverage pass",
                 temporary.bind_group,
                 path_uniforms.size(),
-                engine.path_raster_pipeline,
+                has_inline_signed_winding
+                    ? engine.path_raster_pipeline
+                    : engine.path_raster_ordinary_pipeline,
                 workgroups_x,
                 workgroups_y)) {
             if (encoder != nullptr) {

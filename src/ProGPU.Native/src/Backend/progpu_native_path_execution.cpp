@@ -128,6 +128,7 @@ progpu_native_status render_paths(
     std::uint64_t path_upload_bytes = 0U;
     std::uint32_t rasterized_path_count = 0U;
     std::uint32_t required_atlas_size = engine->path_atlas_size;
+    bool has_inline_signed_winding = false;
 
     std::vector<gpu_path_uniforms> path_uniforms;
     std::vector<std::vector<gpu_path_uniforms>> split_leaf_uniforms;
@@ -458,6 +459,9 @@ progpu_native_status render_paths(
                         output_offset =
                             static_cast<std::uint32_t>(split_next_output);
                     } else {
+                        has_inline_signed_winding =
+                            has_inline_signed_winding ||
+                            signed_winding_program;
                         path_uniforms.push_back({
                             raster_min_x - subpixel_x,
                             raster_min_y - subpixel_y,
@@ -1103,7 +1107,9 @@ progpu_native_status render_paths(
                 "ProGPU native path coverage pass",
                 raster_bind_group,
                 path_uniforms.size(),
-                engine->path_raster_pipeline,
+                has_inline_signed_winding
+                    ? engine->path_raster_pipeline
+                    : engine->path_raster_ordinary_pipeline,
                 workgroups_x,
                 workgroups_y)) {
             if (owns_encoder && encoder != nullptr) {
