@@ -129,6 +129,19 @@ bool is_finite(const progpu_native_direct2d_matrix_3x2_f& matrix)
         std::isfinite(matrix.m31) && std::isfinite(matrix.m32);
 }
 
+D2D1_MATRIX_3X2_F to_native_matrix(
+    const progpu_native_direct2d_matrix_3x2_f& matrix)
+{
+    D2D1_MATRIX_3X2_F result{};
+    result._11 = matrix.m11;
+    result._12 = matrix.m12;
+    result._21 = matrix.m21;
+    result._22 = matrix.m22;
+    result._31 = matrix.m31;
+    result._32 = matrix.m32;
+    return result;
+}
+
 bool is_valid(progpu_native_direct2d_color_space value)
 {
     return value == PROGPU_NATIVE_DIRECT2D_COLOR_SPACE_CUSTOM ||
@@ -1132,14 +1145,7 @@ progpu_native_direct2d_surface_create_linear_gradient_brush(
     };
     D2D1_BRUSH_PROPERTIES native_brush_properties = {
         brush_properties->opacity,
-        {
-            brush_properties->transform.m11,
-            brush_properties->transform.m12,
-            brush_properties->transform.m21,
-            brush_properties->transform.m22,
-            brush_properties->transform.m31,
-            brush_properties->transform.m32
-        }
+        to_native_matrix(brush_properties->transform)
     };
     std::scoped_lock lock(surface->access_mutex);
     ComPtr<ID2D1LinearGradientBrush> brush;
@@ -1195,14 +1201,7 @@ progpu_native_direct2d_surface_create_radial_gradient_brush(
     };
     D2D1_BRUSH_PROPERTIES native_brush_properties = {
         brush_properties->opacity,
-        {
-            brush_properties->transform.m11,
-            brush_properties->transform.m12,
-            brush_properties->transform.m21,
-            brush_properties->transform.m22,
-            brush_properties->transform.m31,
-            brush_properties->transform.m32
-        }
+        to_native_matrix(brush_properties->transform)
     };
     std::scoped_lock lock(surface->access_mutex);
     ComPtr<ID2D1RadialGradientBrush> brush;
@@ -1501,14 +1500,7 @@ progpu_native_direct2d_surface_create_transformed_geometry(
         !is_finite(*transform)) {
         return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
     }
-    D2D1_MATRIX_3X2_F native_transform = {
-        transform->m11,
-        transform->m12,
-        transform->m21,
-        transform->m22,
-        transform->m31,
-        transform->m32
-    };
+    D2D1_MATRIX_3X2_F native_transform = to_native_matrix(*transform);
     std::scoped_lock lock(surface->access_mutex);
     ComPtr<ID2D1TransformedGeometry> result;
     HRESULT hr = surface->d2d_factory->CreateTransformedGeometry(
@@ -1552,14 +1544,7 @@ progpu_native_direct2d_surface_combine_geometry(
     D2D1_MATRIX_3X2_F native_transform{};
     const D2D1_MATRIX_3X2_F* native_transform_pointer = nullptr;
     if (geometry_b_transform != nullptr) {
-        native_transform = {
-            geometry_b_transform->m11,
-            geometry_b_transform->m12,
-            geometry_b_transform->m21,
-            geometry_b_transform->m22,
-            geometry_b_transform->m31,
-            geometry_b_transform->m32
-        };
+        native_transform = to_native_matrix(*geometry_b_transform);
         native_transform_pointer = &native_transform;
     }
 
