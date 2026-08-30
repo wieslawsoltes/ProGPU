@@ -276,6 +276,35 @@ public sealed class CadSamplePrintPreviewTests
     }
 
     [Fact]
+    public void SharedViewExposesPdfAndPngOutputForTheSelectedPageSetup()
+    {
+        var view = new CadSampleView();
+        try
+        {
+            view.Arrange(new Rect(0, 0, 1_000, 800));
+            Button pdf = FindButton(view, "Export PDF");
+            Button png = FindButton(view, "Export PNG");
+
+            Assert.True(pdf.IsEnabled);
+            Assert.True(png.IsEnabled);
+
+            view.PageSetupSelector.SelectedItem = view.PageSetupSelector.Items
+                .OfType<ComboBoxItem>()
+                .Single(item => item.Text.Contains(
+                    "unsupported CADPAGE119",
+                    StringComparison.Ordinal));
+
+            Assert.False(pdf.IsEnabled);
+            Assert.False(png.IsEnabled);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void CanvasCompilesGenerationMatchedPageSetupAndRejectsStaleSelection()
     {
         var document = new CadDocument();

@@ -69,6 +69,8 @@ bool measureSplineSelection = HasFlag("--spline-selection");
 bool measureTextSelection = HasFlag("--text-selection");
 bool measureHatchSelection = HasFlag("--hatch-selection");
 bool useWipeouts = HasFlag("--wipeouts");
+bool measureRasterOutput = HasFlag("--raster-output");
+int rasterOutputDpi = ReadPositiveInt("--raster-output-dpi", 96);
 int shxInterpretationCount = ReadNonNegativeInt("--shx-interpretations", 0);
 int shxLayoutCount = ReadNonNegativeInt("--shx-layouts", 0);
 int warmupCount = ReadNonNegativeInt("--warmup", 3);
@@ -389,6 +391,58 @@ Measurement rotatedPrintPlanMeasurement = Measure(
     "rotated-print-plan",
     iterationCount,
     () => printPlanCompiler.Compile(snapshot, rotatedPrintOptions));
+Measurement? pdfOutputMeasurement = null;
+Measurement? pngOutputMeasurement = null;
+if (measureRasterOutput)
+{
+    CadDocumentSnapshot plottingSnapshot = snapshotCompiler.Compile(
+        session,
+        new CadSnapshotOptions
+        {
+            TextFontResolver = snapshotOptions.TextFontResolver,
+            ShxFontResolver = snapshotOptions.ShxFontResolver,
+            DrawOrderPurpose = CadDrawOrderPurpose.Plotting,
+            DrawingBackgroundColor = new CadColor32(255, 255, 255),
+        });
+    using CadPrintPlan outputPlan = printPlanCompiler.Compile(
+        plottingSnapshot,
+        new CadPrintPlanOptions { OutputDpi = rasterOutputDpi });
+    using CadPrintJob outputJob = new CadPrintJobCompiler().Compile(
+    [
+        new CadPrintJobPageSource("Benchmark", outputPlan),
+    ]);
+    var outputWriter = new CadPrintOutputWriter();
+    for (int index = 0; index < warmupCount; index++)
+    {
+        using var pdf = new MemoryStream();
+        using var png = new MemoryStream();
+        _ = outputWriter.WritePdf(outputJob, pdf);
+        _ = outputWriter.WritePng(outputJob, 0, png);
+    }
+    pdfOutputMeasurement = Measure(
+        "raster-pdf-output",
+        iterationCount,
+        () =>
+        {
+            using var destination = new MemoryStream();
+            CadPrintOutputResult result = outputWriter.WritePdf(
+                outputJob,
+                destination);
+            return result.EncodedByteCount;
+        });
+    pngOutputMeasurement = Measure(
+        "png-output",
+        iterationCount,
+        () =>
+        {
+            using var destination = new MemoryStream();
+            CadPrintOutputResult result = outputWriter.WritePng(
+                outputJob,
+                0,
+                destination);
+            return result.EncodedByteCount;
+        });
+}
 Measurement queryMeasurement = MeasureQueries(snapshot, queryCount);
 Measurement constructionQueryMeasurement = MeasureConstructionQueries(
     snapshot,
@@ -477,6 +531,8 @@ var report = new CadBenchmarkReport(
     measureTextSelection,
     measureHatchSelection,
     useWipeouts,
+    measureRasterOutput,
+    rasterOutputDpi,
     shxInterpretationCount,
     shxLayoutCount,
     warmupCount,
@@ -497,6 +553,8 @@ var report = new CadBenchmarkReport(
     constructionSceneMeasurement,
     printPlanMeasurement,
     rotatedPrintPlanMeasurement,
+    pdfOutputMeasurement,
+    pngOutputMeasurement,
     queryMeasurement,
     constructionQueryMeasurement,
     splinePointSelectionMeasurement,
@@ -2107,6 +2165,8 @@ internal sealed record CadBenchmarkReport(
     bool MeasuredTextSelection,
     bool MeasuredHatchSelection,
     bool Wipeouts,
+    bool MeasuredRasterOutput,
+    int RasterOutputDpi,
     int ShxInterpretationCount,
     int ShxLayoutCount,
     int WarmupCount,
@@ -2127,6 +2187,8 @@ internal sealed record CadBenchmarkReport(
     Measurement ConstructionSceneMilliseconds,
     Measurement PrintPlanMilliseconds,
     Measurement RotatedPrintPlanMilliseconds,
+    Measurement? RasterPdfOutputMilliseconds,
+    Measurement? PngOutputMilliseconds,
     Measurement SpatialQueryNanoseconds,
     Measurement ConstructionQueryNanoseconds,
     Measurement? SplinePointSelectionNanoseconds,

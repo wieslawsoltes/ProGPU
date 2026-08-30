@@ -2882,6 +2882,32 @@ are implemented by `CadPageSetupCatalogCompiler`,
   units; output lookup is O(1), and page creation is O(R) for R retained
   resource leases.
 
+`CadPrintOutputWriter` is the first concrete publishing adapter over that job.
+It preflights every resolved output occurrence before consuming a page, retains
+each source plan's explicit output DPI, and maps that integer pixel extent to
+the exact physical media in 72-point PDF space. PNG writes one selected
+occurrence at the same compiled DPI. Mixed-DPI PDF pages therefore preserve
+their independently baked fixed physical lineweights instead of rescaling a
+device-space stroke after compilation.
+Both formats replay the same retained page picture into ProGPU's existing
+Skia-compatible CPU raster canvas on opaque white paper; the plotting snapshot
+has already resolved adaptive ACI 7 against white, so output does not recolor or
+recompile commands. Mixed source media, rotations, collated/uncollated copies,
+and reverse order come directly from `CadPrintJob`.
+
+Output is bounded independently by pixel dimension, per-page pixels, total
+pixels, and encoded bytes. Rendering and encoding complete in a bounded staging
+stream, so validation, replay, encoding, and cancellation before commit leave
+the caller-owned destination untouched. A destination write failure can still
+partially modify that external stream; atomic path replacement belongs to the
+platform storage adapter. Preflight is O(P) time/storage for P output pages;
+replay/encoding are O(C + X) for retained commands C and raster pixels X.
+There is no WebGPU initialization, readback, new native ABI, or native renderer
+algorithm. Returned job pages remain managed/native-compilable after output.
+The clean-room provenance, required engine comparison, decisions, and remaining
+vector/GPU/printer gates are recorded in
+[`PROGPU_CAD_RASTER_OUTPUT_RESEARCH.md`](PROGPU_CAD_RASTER_OUTPUT_RESEARCH.md).
+
 The shared desktop/browser shell now consumes that contract through a retained
 page-setup-driven preview. Its selector is rebuilt from the detached catalog on
 each content generation and lists layout-owned settings, named overrides, and
@@ -2898,6 +2924,13 @@ height, rotation, plot area, centering, and object-lineweight policy for either
 a layout or named override through the same command; invalid and no-op input is
 disabled, and generation replacement repopulates the controls from the new
 detached snapshot.
+
+The same shared shell exposes `Export PDF` and `Export PNG` for a supported
+selected setup. It compiles one 300-DPI physical plan through the same plotting
+snapshot and page-setup lowering used by preview, then publishes through the
+platform-neutral `StorageFile` picker/write seam. The controls therefore serve
+desktop and browser hosts without filesystem or JavaScript branches in CAD;
+unsupported setups remain visible but disable output.
 
 `CadEditPageSetupFieldsCommand` is the field-level authoring seam rather than a
 UI-specific shortcut. Its patch covers printer/media strings, paper dimensions,
@@ -3118,6 +3151,7 @@ recording, retained physical print-plan construction in both zero- and
 
 ```bash
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --warmup 3 --iterations 24 --queries 10000
+dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 1000 --raster-output --raster-output-dpi 96 --warmup 5 --iterations 24 --queries 100
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 20000 --draw-order --warmup 3 --iterations 12 --queries 100
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 20000 --draw-order-edit-entities 100 --warmup 3 --iterations 12 --queries 100
 dotnet run --project src/ProGPU.CAD.Benchmarks -c Release -- --entities 10000 --linetypes --warmup 3 --iterations 24 --queries 10000

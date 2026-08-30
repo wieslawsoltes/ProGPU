@@ -30,6 +30,17 @@ preflighted range removal with one immutable typed notification, while its maste
 branch remains synchronized with upstream. This is a document/UI transaction
 change, not a renderer optimization, and makes no performance-improvement claim.
 
+The ProGPU.CAD publishing path now writes bounded white-paper raster PDF and
+single-page PNG output directly from retained physical print-job pages. It
+preserves mixed media, quarter-turn orientation, collated/uncollated copy order,
+explicit DPI, physical lineweights, plotted ACI 7, and shaped retained content;
+PDF embeds the exact same RGB raster verified against PNG. Per-page, total-pixel,
+dimension, and encoded-byte budgets plus staging make validation, replay,
+encoding, and pre-commit cancellation destination-safe. The shared
+desktop/browser shell exposes supported-selected-page PDF/PNG picker output.
+This is a portable CPU publishing adapter; vector PDF/SVG, printer submission,
+GPU readback, color management, and GPU/native pixel certification remain.
+
 The same continuation adds bounded external `.lin` library loading and reload to
 the shared desktop/browser shell. A clean-room ASCII parser retains simple,
 text, and SHX-shape descriptors; one reversible command rejects collisions or

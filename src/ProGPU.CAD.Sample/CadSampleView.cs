@@ -27,6 +27,8 @@ public sealed class CadSampleView : Grid
     private readonly ComboBox _attributeDisplaySelector;
     private readonly Button _printPreviewButton;
     private readonly TextBlock _printPreviewText;
+    private readonly Button _exportPdfButton;
+    private readonly Button _exportPngButton;
     private readonly ComboBox _pageSetupSelector;
     private readonly Button _applyPageSetupButton;
     private readonly TextBox _pageSetupNameInput;
@@ -397,6 +399,8 @@ public sealed class CadSampleView : Grid
             AttributeVisibilityMode.None);
         _printPreviewButton = CreateButton("Print preview", font, 112);
         _printPreviewText = (TextBlock)_printPreviewButton.Content!;
+        _exportPdfButton = CreateButton("Export PDF", font, 96, 30);
+        _exportPngButton = CreateButton("Export PNG", font, 96, 30);
         _clearSelectionButton = CreateButton("Clear selection", font, 112);
         _openButton.Margin = new Thickness(0, 0, 8, 0);
         _loadLineTypesButton.Margin = new Thickness(0, 0, 8, 0);
@@ -1163,9 +1167,13 @@ public sealed class CadSampleView : Grid
         _applyPageSetupButton = CreateButton("Apply to Model", font, 120, 30);
         _applyPageSetupButton.Margin = new Thickness(0, 0, 8, 0);
         _printPreviewButton.Margin = new Thickness(0, 0, 8, 0);
+        _exportPdfButton.Margin = new Thickness(0, 0, 8, 0);
+        _exportPngButton.Margin = new Thickness(0, 0, 8, 0);
         printActions.AddChild(_pageSetupSelector);
         printActions.AddChild(_applyPageSetupButton);
         printActions.AddChild(_printPreviewButton);
+        printActions.AddChild(_exportPdfButton);
+        printActions.AddChild(_exportPngButton);
 
         pageSetupCreateActions.AddChild(new TextBlock
         {
@@ -1302,6 +1310,10 @@ public sealed class CadSampleView : Grid
         _attributeDisplaySelector.SelectionChanged += (_, _) =>
             OnAttributeDisplaySelectionChanged();
         _printPreviewButton.Click += (_, _) => TogglePrintPreview();
+        _exportPdfButton.Click += async (_, _) =>
+            await ExportSelectedPageAsync(CadPrintOutputFormat.Pdf);
+        _exportPngButton.Click += async (_, _) =>
+            await ExportSelectedPageAsync(CadPrintOutputFormat.Png);
         _pageSetupSelector.SelectionChanged += (_, _) =>
             OnPageSetupSelectionChanged();
         _applyPageSetupButton.Click += (_, _) =>
@@ -2082,6 +2094,88 @@ public sealed class CadSampleView : Grid
         {
             UpdateEditControls();
         }
+    }
+
+    private async Task ExportSelectedPageAsync(CadPrintOutputFormat format)
+    {
+        CadDocumentSession? session = _canvas.CurrentSession;
+        string label = format == CadPrintOutputFormat.Pdf ? "PDF" : "PNG";
+        if (session is null ||
+            !TryBeginOperation($"Choose a {label} output destination..."))
+        {
+            return;
+        }
+
+        try
+        {
+            string extension = format == CadPrintOutputFormat.Pdf
+                ? ".pdf"
+                : ".png";
+            var picker = new FileSavePicker
+            {
+                SuggestedFileName = SuggestedOutputFileName(session, extension),
+            };
+            picker.FileTypeChoices.Add(label, new List<string> { extension });
+            StorageFile? file = await picker.PickSaveFileAsync();
+            if (file is null)
+            {
+                SetStatus($"{label} export cancelled.");
+                return;
+            }
+
+            const float outputDpi = 300f;
+            using CadPrintPlan plan = CreateSelectedOutputPlan(outputDpi);
+            using CadPrintJob job = new CadPrintJobCompiler().Compile(
+            [
+                new CadPrintJobPageSource(
+                    plan.SourcePageSetupName ?? "Model",
+                    plan),
+            ]);
+            using var destination = new MemoryStream();
+            var writer = new CadPrintOutputWriter();
+            CadPrintOutputResult result = format == CadPrintOutputFormat.Pdf
+                ? writer.WritePdf(job, destination)
+                : writer.WritePng(job, 0, destination);
+            await file.WriteBytesAsync(destination.ToArray());
+            string dpi = result.HasUniformRasterDpi
+                ? $"{result.MinimumRasterDpi:N0} DPI"
+                : $"{result.MinimumRasterDpi:N0}–{result.MaximumRasterDpi:N0} DPI";
+            SetStatus(
+                $"Exported {file.Name} | {dpi} | " +
+                $"{result.RasterPixelCount:N0} px | " +
+                $"{result.EncodedByteCount:N0} bytes");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"{label} export failed: {exception.Message}");
+        }
+        finally
+        {
+            EndOperation();
+        }
+    }
+
+    private CadPrintPlan CreateSelectedOutputPlan(float outputDpi)
+    {
+        var item = _pageSetupSelector.SelectedItem as ComboBoxItem;
+        var choice = item?.Tag as PageSetupChoice;
+        if (choice is null)
+        {
+            throw new InvalidOperationException("No page setup is selected.");
+        }
+        if (choice.IsFallback)
+        {
+            return _canvas.CreateA4PrintPlan(outputDpi);
+        }
+
+        CadPageSetupPrintOptionsResult lowering = choice.Lowering!;
+        if (!lowering.IsSupported || lowering.PrintOptions is null)
+        {
+            CadDiagnostic diagnostic = lowering.Diagnostics.Span[0];
+            throw new NotSupportedException(
+                $"{diagnostic.Code}: {diagnostic.Message}");
+        }
+        return _canvas.CreatePageSetupPrintPlan(choice.PageSetup!, outputDpi);
     }
 
     private void RefreshPageSetups(bool preserveSelection)
@@ -4290,6 +4384,8 @@ public sealed class CadSampleView : Grid
         _importPageSetupsButton.IsEnabled = true;
         _importReplacePageSetupsButton.IsEnabled = true;
         _saveButton.IsEnabled = true;
+        _exportPdfButton.IsEnabled = true;
+        _exportPngButton.IsEnabled = true;
         UpdateEditControls();
     }
 
@@ -4317,6 +4413,13 @@ public sealed class CadSampleView : Grid
         _printPreviewButton.IsEnabled =
             !_isBusy && !isReferencePicking &&
             (_isPrintPreview || _canvas.CurrentSnapshot is not null);
+        bool canExport = !_isBusy && !isReferencePicking &&
+            _canvas.CurrentSnapshot is not null &&
+            (_pageSetupSelector.SelectedItem as ComboBoxItem)?.Tag is
+                PageSetupChoice exportChoice &&
+            (exportChoice.IsFallback || exportChoice.Lowering?.IsSupported == true);
+        _exportPdfButton.IsEnabled = canExport;
+        _exportPngButton.IsEnabled = canExport;
         _pageSetupSelector.IsEnabled =
             !_isBusy && !isReferencePicking &&
             _canvas.CurrentSession is not null;
@@ -5171,6 +5274,16 @@ public sealed class CadSampleView : Grid
             ? "drawing"
             : Path.GetFileNameWithoutExtension(session.SourceName);
         string extension = session.SourceFormat == CadDocumentFormat.Dwg ? ".dwg" : ".dxf";
+        return stem + extension;
+    }
+
+    private static string SuggestedOutputFileName(
+        CadDocumentSession session,
+        string extension)
+    {
+        string stem = string.IsNullOrWhiteSpace(session.SourceName)
+            ? "drawing"
+            : Path.GetFileNameWithoutExtension(session.SourceName);
         return stem + extension;
     }
 }
