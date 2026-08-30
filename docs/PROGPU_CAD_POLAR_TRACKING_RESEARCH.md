@@ -33,6 +33,9 @@ The implementation was designed clean-room from public behavior contracts:
 - Autodesk's [precision workflow](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-GettingStarted/files/GUID-061A5ED6-E7F7-437E-978B-58146316EF40.htm)
   confirms nearest-preset-angle behavior and the separate coordinate-entry,
   object-snap, and direct-distance mechanisms.
+- Autodesk's [Function Key Reference](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-Core/files/GUID-ACAA0279-047D-458E-889F-60BBFDD40489.htm)
+  defines F10 as Polar Tracking and states that F8 Ortho and F10 Polar are
+  mutually exclusive.
 
 No third-party implementation source was used. Exact approved source
 provenance is the ProGPU-owned plan viewport, point prompt, object/grid/Ortho
@@ -54,6 +57,15 @@ not DXF/DWG document state. ProGPU therefore initializes a new view with polar
 tracking off and the documented 90-degree default, then exposes a shared
 session-only toggle and the eight standard increments. It does not invent
 drawing persistence for application preferences.
+
+F10 toggles that session/profile state in both shared hosts and the existing
+control uses the same path. Because Autodesk also defines mutual exclusion,
+enabling Polar while drawing-persisted ORTHOMODE is on executes one exact
+reversible ORTHOMODE=0 edit before enabling Polar; otherwise F10 advances no
+drawing generation. Enabling F8 disables Polar without inventing AUTOSNAP or
+POLARMODE drawing persistence. Snapshot-producing toggles preserve staged grid
+panel values by refusing the conflicting action, and browser F8/F10 defaults
+are reserved before shared dispatch.
 
 For accepted base `B`, pointer `P`, ANGBASE-adjusted orthonormal axes `X,Y`,
 direction sign `s` (`+1` counterclockwise, `-1` clockwise), and increment `a`:
@@ -123,11 +135,15 @@ bases, invalid/non-finite/disabled rejection, 1,024 zero-allocation warm
 queries, immutable snapshot capture, device-aperture activation and release,
 exact MOVE commit, full-view guide recording, object-snap and typed-coordinate
 override, shared increments, and bidirectional Ortho mutual exclusion. The
-ACadSharp dependency test covers DXF ANGBASE radians and ANGDIR round trip.
+ACadSharp dependency tests cover DXF ANGBASE radians, ANGDIR, and versioned
+ORTHOMODE round trips. Shared-view tests cover F10, persisted-Ortho exclusion,
+exact generation counts, Undo/Redo synchronization, staged-panel protection,
+and browser key reservation.
+The complete macOS arm64 Release ProGPU.CAD suite passes 1,040/1,040.
 
 PolarSnap distance increments, additional absolute angles, relative-to-last-
 segment measurement, object-snap tracking and acquired points, direct-distance
-entry, 3D UCS Z paths, F10 and temporary overrides, host profile persistence,
+entry, 3D UCS Z paths, temporary overrides, host profile persistence,
 arbitrary-camera rays, interaction image goldens, dense-drawing p50/p95/p99
 evidence, and independent DXF/DWG angle fixtures remain before the broader
 tracking feature can be called complete.

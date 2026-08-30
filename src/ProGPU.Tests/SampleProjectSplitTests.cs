@@ -251,7 +251,7 @@ public sealed class SampleProjectSplitTests
     }
 
     [Fact]
-    public void BrowserHostReservesCadIsoplaneCycleShortcuts()
+    public void BrowserHostReservesCadDraftingFunctionKeys()
     {
         string browserAsset = Read(
             "src",
@@ -263,7 +263,7 @@ public sealed class SampleProjectSplitTests
                 StringComparison.Ordinal);
 
         Assert.Contains(
-            "if (event.code === 'F5' ||\n" +
+            "if (event.code === 'F5' || event.code === 'F8' || event.code === 'F10' ||\n" +
             "      (event.code === 'KeyE' && event.ctrlKey) ||",
             browserAsset,
             StringComparison.Ordinal);

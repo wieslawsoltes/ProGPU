@@ -41,6 +41,16 @@ reserves both shortcuts from its reload/navigation defaults. This input/edit
 follow-up reuses the existing paired renderer and changes no shader or native
 ABI.
 
+Shared desktop/browser F8 now edits drawing-persisted ORTHOMODE through one
+exact reversible command, while F10 retains profile-scoped Polar Tracking and
+changes the drawing only when mutual exclusion must commit ORTHOMODE=0. The
+controls use the same paths, active point prompts are reevaluated immediately,
+Undo/Redo refreshes both constraint state and controls, staged grid-panel input
+is preserved, and browser defaults are reserved. The pinned ACadSharp.ProGPU
+fork now emits `$ORTHOMODE` in default DXF header output with three versioned
+round-trip regressions. No shader, native ABI, GPU resource, or native scene
+compiler changes.
+
 The shared ProGPU.CAD plan grid now defaults to AutoCAD's lined model-space
 GRIDSTYLE and exposes a shared desktop/browser Dots toggle. Autodesk documents
 GRIDSTYLE as registry-backed host state, so the toggle intentionally changes no

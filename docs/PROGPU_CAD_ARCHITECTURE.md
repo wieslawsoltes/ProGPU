@@ -1017,8 +1017,14 @@ shrinks it by an invariant factor. Both use the center of the complete retained
 bounds for every selected semantic root as their base point, including all
 expanded primitives of a selected INSERT. The shared plan shell now captures
 the active rectangular or isometric UCS/SNAPANG basis and persisted ORTHOMODE.
-Pointer
-acquisition uses exact object snap first. For a second point with Ortho enabled,
+F8 and the shared Ortho control edit that drawing value through one O(1),
+generation-safe command whose exact header identity and pre/post state are
+validated through Undo/Redo. F10 and the shared Polar control retain profile-
+scoped enablement, but enabling Polar while persisted Ortho is active first
+commits ORTHOMODE=0 as one reversible edit. Both paths refresh the active
+pointer constraint immediately, enforce mutual exclusion, preserve staged grid
+panel edits, and are reserved by the browser host. Pointer acquisition uses
+exact object snap first. For a second point with Ortho enabled,
 it selects the active basis axis with the least perpendicular distance relative
 to the accepted base; when grid snap is also enabled, the nearest constrained
 lattice point preserves an exact axis through an off-grid base. Grid then handles

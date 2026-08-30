@@ -155,6 +155,7 @@ public sealed class CadSampleView : Grid
     private bool _isRefreshingPageSetupFields;
     private bool _isRefreshingAttributeDisplay;
     private bool _isRefreshingPlanGridDisplay;
+    private bool _isRefreshingPlanConstraints;
     private bool _isRefreshingSelectionProperties;
     private bool _isSelectionEditable;
     private bool _isSolidThicknessSelection;
@@ -1958,19 +1959,26 @@ public sealed class CadSampleView : Grid
             ApplyPlanGridDisplaySettings();
         _planOrthoCheckBox.CheckedChanged += (_, _) =>
         {
-            _canvas.IsPlanOrthoEnabled = _planOrthoCheckBox.IsChecked;
-            _planPolarTrackingCheckBox.IsChecked =
-                _canvas.IsPlanPolarTrackingEnabled;
+            if (!_isRefreshingPlanConstraints)
+            {
+                SetPlanOrthoModeFromInteraction(
+                    _planOrthoCheckBox.IsChecked,
+                    "Ortho control");
+            }
         };
         _planPolarTrackingCheckBox.CheckedChanged += (_, _) =>
         {
-            _canvas.IsPlanPolarTrackingEnabled =
-                _planPolarTrackingCheckBox.IsChecked;
-            _planOrthoCheckBox.IsChecked = _canvas.IsPlanOrthoEnabled;
+            if (!_isRefreshingPlanConstraints)
+            {
+                SetPlanPolarTrackingFromInteraction(
+                    _planPolarTrackingCheckBox.IsChecked,
+                    "Polar control");
+            }
         };
         _planPolarTrackingIncrementSelector.SelectionChanged += (_, _) =>
         {
-            if (_planPolarTrackingIncrementSelector.SelectedItem is
+            if (!_isRefreshingPlanConstraints &&
+                _planPolarTrackingIncrementSelector.SelectedItem is
                 ComboBoxItem { Tag: double increment })
             {
                 _canvas.PlanPolarTrackingIncrementDegrees = increment;
@@ -2024,10 +2032,7 @@ public sealed class CadSampleView : Grid
             RefreshPlanGridDisplayControls();
             _planGridSnapCheckBox.IsChecked =
                 _canvas.IsPlanGridSnapEnabled;
-            _planOrthoCheckBox.IsChecked = _canvas.IsPlanOrthoEnabled;
-            _planPolarTrackingCheckBox.IsChecked =
-                _canvas.IsPlanPolarTrackingEnabled;
-            SelectPolarTrackingIncrement();
+            RefreshPlanConstraintControls();
             EnsureLayerMergeSourcesAreCurrent();
             RebuildMesh3DView();
             if (_isPrintPreview)
@@ -2107,6 +2112,29 @@ public sealed class CadSampleView : Grid
         }
 
         if (!e.Handled &&
+            e.Key is Key.F8 or Key.F10 &&
+            !_isBusy &&
+            !_isPrintPreview &&
+            !_is3DView &&
+            _canvas.CurrentSession is not null)
+        {
+            if (e.Key == Key.F8)
+            {
+                SetPlanOrthoModeFromInteraction(
+                    !_canvas.IsPlanOrthoEnabled,
+                    "F8");
+            }
+            else
+            {
+                SetPlanPolarTrackingFromInteraction(
+                    !_canvas.IsPlanPolarTrackingEnabled,
+                    "F10");
+            }
+            e.Handled = true;
+            return;
+        }
+
+        if (!e.Handled &&
             !_isPrintPreview &&
             e.Key == Key.Delete &&
             FocusManager.GetFocusedElement() is not TextBox)
@@ -2160,6 +2188,83 @@ public sealed class CadSampleView : Grid
             exception is InvalidOperationException or ArgumentException)
         {
             return true;
+        }
+    }
+
+    private void SetPlanOrthoModeFromInteraction(
+        bool isEnabled,
+        string source)
+    {
+        bool changesPersistedMode =
+            _canvas.PersistedPlanOrthoMode != isEnabled;
+        if (changesPersistedMode && HasStagedPlanGridDisplayEdit())
+        {
+            SetStatus(
+                "Apply or revert the staged drafting-grid values before changing ORTHOMODE.");
+            RefreshPlanConstraintControls();
+            return;
+        }
+
+        try
+        {
+            if (changesPersistedMode)
+            {
+                _canvas.SetPlanOrthoMode(isEnabled);
+            }
+            else
+            {
+                _canvas.IsPlanOrthoEnabled = isEnabled;
+            }
+            SetStatus(
+                $"{source}: ORTHOMODE={(isEnabled ? 1 : 0)}" +
+                (changesPersistedMode ? " as one edit." : "."));
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set Ortho mode failed: {exception.Message}");
+        }
+        finally
+        {
+            RefreshPlanConstraintControls();
+            UpdateEditControls();
+        }
+    }
+
+    private void SetPlanPolarTrackingFromInteraction(
+        bool isEnabled,
+        string source)
+    {
+        bool disablesPersistedOrtho =
+            isEnabled && _canvas.PersistedPlanOrthoMode;
+        if (disablesPersistedOrtho && HasStagedPlanGridDisplayEdit())
+        {
+            SetStatus(
+                "Apply or revert the staged drafting-grid values before Polar Tracking disables ORTHOMODE.");
+            RefreshPlanConstraintControls();
+            return;
+        }
+
+        try
+        {
+            if (disablesPersistedOrtho)
+            {
+                _canvas.SetPlanOrthoMode(false);
+            }
+            _canvas.IsPlanPolarTrackingEnabled = isEnabled;
+            SetStatus(
+                $"{source}: Polar Tracking {(isEnabled ? "on" : "off")}" +
+                (disablesPersistedOrtho
+                    ? "; ORTHOMODE=0 as one edit."
+                    : "."));
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Set Polar Tracking failed: {exception.Message}");
+        }
+        finally
+        {
+            RefreshPlanConstraintControls();
+            UpdateEditControls();
         }
     }
 
@@ -4411,6 +4516,22 @@ public sealed class CadSampleView : Grid
                 _planPolarTrackingIncrementSelector.SelectedIndex = i;
                 return;
             }
+        }
+    }
+
+    private void RefreshPlanConstraintControls()
+    {
+        _isRefreshingPlanConstraints = true;
+        try
+        {
+            _planOrthoCheckBox.IsChecked = _canvas.IsPlanOrthoEnabled;
+            _planPolarTrackingCheckBox.IsChecked =
+                _canvas.IsPlanPolarTrackingEnabled;
+            SelectPolarTrackingIncrement();
+        }
+        finally
+        {
+            _isRefreshingPlanConstraints = false;
         }
     }
 

@@ -748,6 +748,47 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void PersistedOrthoEditReevaluatesPendingPointerWithoutMotion()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(canvas, viewport.WorldToScreen(CadPoint3D.Zero));
+            canvas.ObjectSnapModes = CadObjectSnapModes.None;
+            canvas.IsPlanGridSnapEnabled = false;
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "0,0",
+                out _));
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = viewport.WorldToScreen(new CadPoint3D(3, 4, 0)),
+            });
+            Assert.Null(canvas.PendingPointTransformOrthoConstraint);
+
+            canvas.SetPlanOrthoMode(true);
+
+            Assert.True(document.Header.OrthoMode);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(
+                CadPlanOrthoAxis.Y,
+                canvas.PendingPointTransformOrthoConstraint!.Value.Axis);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void DirectDistanceUsesRawCursorRayWhenObjectSnapIsAcquired()
     {
         var document = new CadDocument();
@@ -4158,7 +4199,8 @@ public sealed class CadSampleSelectionTests
         var view = new CadSampleView();
         try
         {
-            view.Canvas.Load(new CadDocumentSession(document));
+            var session = new CadDocumentSession(document);
+            view.Canvas.Load(session);
 
             Assert.True(view.PlanGridSnapCheckBox.IsChecked);
             Assert.True(view.PlanGridSnapCheckBox.IsEnabled);
@@ -4175,9 +4217,12 @@ public sealed class CadSampleSelectionTests
             Assert.False(view.Canvas.IsPlanGridSnapEnabled);
             view.PlanOrthoCheckBox.IsChecked = false;
             Assert.False(view.Canvas.IsPlanOrthoEnabled);
+            Assert.False(document.Header.OrthoMode);
+            Assert.Equal(1UL, session.ContentGeneration);
             view.PlanPolarTrackingCheckBox.IsChecked = true;
             Assert.True(view.Canvas.IsPlanPolarTrackingEnabled);
             Assert.False(view.PlanOrthoCheckBox.IsChecked);
+            Assert.Equal(1UL, session.ContentGeneration);
             view.PlanPolarTrackingIncrementSelector.SelectedIndex = 1;
             Assert.Equal(
                 45.0,
@@ -4185,7 +4230,114 @@ public sealed class CadSampleSelectionTests
                 10);
             view.PlanOrthoCheckBox.IsChecked = true;
             Assert.True(view.Canvas.IsPlanOrthoEnabled);
+            Assert.True(document.Header.OrthoMode);
             Assert.False(view.PlanPolarTrackingCheckBox.IsChecked);
+            Assert.Equal(2UL, session.ContentGeneration);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewF8AndF10TogglePersistedOrthoAndProfilePolarModes()
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Canvas.Load(session);
+
+            var f8On = new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.F8,
+            };
+            view.OnKeyDown(f8On);
+
+            Assert.True(f8On.Handled);
+            Assert.True(document.Header.OrthoMode);
+            Assert.True(view.Canvas.PersistedPlanOrthoMode);
+            Assert.True(view.Canvas.IsPlanOrthoEnabled);
+            Assert.True(view.PlanOrthoCheckBox.IsChecked);
+            Assert.False(view.Canvas.IsPlanPolarTrackingEnabled);
+            Assert.Equal(1UL, session.ContentGeneration);
+
+            view.PlanGridMajorInput.Text = "19";
+            var blockedF10 = new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.F10,
+            };
+            view.OnKeyDown(blockedF10);
+
+            Assert.True(blockedF10.Handled);
+            Assert.True(document.Header.OrthoMode);
+            Assert.True(view.Canvas.IsPlanOrthoEnabled);
+            Assert.False(view.Canvas.IsPlanPolarTrackingEnabled);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal("19", view.PlanGridMajorInput.Text);
+            view.PlanGridMajorInput.Text = "5";
+
+            var f10On = new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.F10,
+            };
+            view.OnKeyDown(f10On);
+
+            Assert.True(f10On.Handled);
+            Assert.False(document.Header.OrthoMode);
+            Assert.False(view.Canvas.IsPlanOrthoEnabled);
+            Assert.False(view.PlanOrthoCheckBox.IsChecked);
+            Assert.True(view.Canvas.IsPlanPolarTrackingEnabled);
+            Assert.True(view.PlanPolarTrackingCheckBox.IsChecked);
+            Assert.Equal(2UL, session.ContentGeneration);
+
+            var f10Off = new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.F10,
+            };
+            view.OnKeyDown(f10Off);
+
+            Assert.True(f10Off.Handled);
+            Assert.False(view.Canvas.IsPlanPolarTrackingEnabled);
+            Assert.False(view.PlanPolarTrackingCheckBox.IsChecked);
+            Assert.Equal(2UL, session.ContentGeneration);
+
+            view.PlanGridMajorInput.Text = "19";
+            var blockedF8 = new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.F8,
+            };
+            view.OnKeyDown(blockedF8);
+
+            Assert.True(blockedF8.Handled);
+            Assert.False(document.Header.OrthoMode);
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal("19", view.PlanGridMajorInput.Text);
+            Assert.True(view.ApplyPlanGridDisplayButton.IsEnabled);
+
+            view.PlanGridMajorInput.Text = "5";
+            var f8OnAgain = new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.F8,
+            };
+            view.OnKeyDown(f8OnAgain);
+
+            Assert.True(document.Header.OrthoMode);
+            Assert.True(view.Canvas.IsPlanOrthoEnabled);
+            Assert.Equal(3UL, session.ContentGeneration);
+            Assert.True(view.Canvas.TryUndo());
+            Assert.False(document.Header.OrthoMode);
+            Assert.False(view.Canvas.IsPlanOrthoEnabled);
+            Assert.False(view.PlanOrthoCheckBox.IsChecked);
+            Assert.Equal(4UL, session.ContentGeneration);
+            Assert.True(view.Canvas.TryRedo());
+            Assert.True(document.Header.OrthoMode);
+            Assert.True(view.Canvas.IsPlanOrthoEnabled);
+            Assert.True(view.PlanOrthoCheckBox.IsChecked);
+            Assert.Equal(5UL, session.ContentGeneration);
         }
         finally
         {

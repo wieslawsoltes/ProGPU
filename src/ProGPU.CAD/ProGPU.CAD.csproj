@@ -15,6 +15,7 @@
     <PackageReleaseNotes>$(PackageReleaseNotes) Adds the host-level model-space GRIDSTYLE Lines/Dots choice with AutoCAD-compatible lined default plus fixed-device one-pixel minor and two-pixel GRIDMAJOR lines through the same one-quad canonical managed/native shader path, without writing registry state into DXF/DWG.</PackageReleaseNotes>
     <PackageReleaseNotes>$(PackageReleaseNotes) Adds exact active-VPORT Left/Top/Right isometric SNAPSTYL/SNAPISOPAIR support with equal-aspect Euclidean-nearest triangular-lattice acquisition, active-pair Ortho, affine one-quad dot display, typed generation-safe SNAPUNIT/style/plane editing through shared desktop/browser controls, and ACadSharp.ProGPU DXF/DWG VPORT persistence.</PackageReleaseNotes>
     <PackageReleaseNotes>$(PackageReleaseNotes) Adds shared desktop/browser F5 and Ctrl+E drawing-persisted SNAPISOPAIR cycling in Left/Top/Right order through one exact generation-safe reversible edit, including dormant rectangular-style retention and staged-grid-edit protection.</PackageReleaseNotes>
+    <PackageReleaseNotes>$(PackageReleaseNotes) Adds shared desktop/browser F8 drawing-persisted ORTHOMODE editing and profile-scoped F10 Polar Tracking with exact mutual exclusion, one-generation ORTHOMODE Undo/Redo, active-prompt refresh, staged-grid-edit protection, and ACadSharp.ProGPU DXF/DWG persistence.</PackageReleaseNotes>
     <PackageTags>progpu;cad;dxf;dwg;acadsharp;webgpu;rendering;editing</PackageTags>
   </PropertyGroup>
 

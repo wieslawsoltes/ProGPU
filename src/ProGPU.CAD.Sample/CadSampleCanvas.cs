@@ -407,6 +407,10 @@ public sealed class CadSampleCanvas : FrameworkElement
             ? _pointTransformGridSnap
             : null;
 
+    /// <summary>
+    /// Gets or sets the current interaction Ortho state. Direct assignment is
+    /// a session override; <see cref="SetPlanOrthoMode"/> persists ORTHOMODE.
+    /// </summary>
     public bool IsPlanOrthoEnabled
     {
         get => _isPlanOrthoEnabled;
@@ -434,6 +438,25 @@ public sealed class CadSampleCanvas : FrameworkElement
             }
             Invalidate();
         }
+    }
+
+    /// <summary>The drawing-persisted ORTHOMODE value.</summary>
+    public bool PersistedPlanOrthoMode =>
+        CurrentSession?.Read(document => document.Header.OrthoMode) ?? false;
+
+    /// <summary>
+    /// Persists ORTHOMODE as one reversible edit and synchronizes the current
+    /// interaction constraint from the replacement immutable snapshot.
+    /// </summary>
+    public void SetPlanOrthoMode(bool isEnabled)
+    {
+        ThrowIfDrawOrderReferenceSelectionPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetOrthoModeCommand(isEnabled));
+        RecompileAfterEdit(session, synchronizePlanOrthoMode: true);
     }
 
     public CadPlanOrthoResult? PendingPointTransformOrthoConstraint =>
@@ -605,7 +628,8 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     private void CompileAndReplace(
         CadDocumentSession session,
-        bool resetViewSelectionAndHistory)
+        bool resetViewSelectionAndHistory,
+        bool synchronizePlanOrthoMode = false)
     {
         if (!resetViewSelectionAndHistory && !ReferenceEquals(session, CurrentSession))
         {
@@ -690,7 +714,8 @@ public sealed class CadSampleCanvas : FrameworkElement
                 .WithIncrementRadians(
                     _planPolarTrackingSettings.IncrementRadians)
                 .WithEnabled(_planPolarTrackingSettings.IsEnabled);
-        _isPlanOrthoEnabled = resetViewSelectionAndHistory
+        _isPlanOrthoEnabled =
+            resetViewSelectionAndHistory || synchronizePlanOrthoMode
             ? snapshot.IsOrthoModeEnabled
             : _isPlanOrthoEnabled;
         if (_isPlanOrthoEnabled)
@@ -719,6 +744,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             _selectedHandleCount = preservedHandleCount;
             RefreshSelectionBounds(snapshot);
+            if (_hasPointTransformPointerPosition)
+            {
+                UpdatePointTransformPointer(_pointTransformPointerPosition);
+            }
         }
         RefreshConstructionPicture();
         previous?.Dispose();
@@ -2772,13 +2801,22 @@ public sealed class CadSampleCanvas : FrameworkElement
         ThrowIfDrawOrderReferencePickPending();
         CadDocumentHistory? history = _history;
         CadDocumentSession? session = CurrentSession;
-        if (history is null || session is null || !history.TryUndo(out _))
+        if (history is null || session is null)
+        {
+            EditStateChanged?.Invoke(this, EventArgs.Empty);
+            return false;
+        }
+        bool previousOrthoMode = session.Read(
+            document => document.Header.OrthoMode);
+        if (!history.TryUndo(out _))
         {
             EditStateChanged?.Invoke(this, EventArgs.Empty);
             return false;
         }
 
-        RecompileAfterEdit(session);
+        bool synchronizePlanOrthoMode = previousOrthoMode != session.Read(
+            document => document.Header.OrthoMode);
+        RecompileAfterEdit(session, synchronizePlanOrthoMode);
         return true;
     }
 
@@ -2787,21 +2825,35 @@ public sealed class CadSampleCanvas : FrameworkElement
         ThrowIfDrawOrderReferencePickPending();
         CadDocumentHistory? history = _history;
         CadDocumentSession? session = CurrentSession;
-        if (history is null || session is null || !history.TryRedo(out _))
+        if (history is null || session is null)
+        {
+            EditStateChanged?.Invoke(this, EventArgs.Empty);
+            return false;
+        }
+        bool previousOrthoMode = session.Read(
+            document => document.Header.OrthoMode);
+        if (!history.TryRedo(out _))
         {
             EditStateChanged?.Invoke(this, EventArgs.Empty);
             return false;
         }
 
-        RecompileAfterEdit(session);
+        bool synchronizePlanOrthoMode = previousOrthoMode != session.Read(
+            document => document.Header.OrthoMode);
+        RecompileAfterEdit(session, synchronizePlanOrthoMode);
         return true;
     }
 
-    private void RecompileAfterEdit(CadDocumentSession session)
+    private void RecompileAfterEdit(
+        CadDocumentSession session,
+        bool synchronizePlanOrthoMode = false)
     {
         try
         {
-            CompileAndReplace(session, resetViewSelectionAndHistory: false);
+            CompileAndReplace(
+                session,
+                resetViewSelectionAndHistory: false,
+                synchronizePlanOrthoMode: synchronizePlanOrthoMode);
         }
         catch
         {
@@ -3463,12 +3515,17 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     private void ThrowIfDrawOrderReferencePickPending()
     {
+        ThrowIfDrawOrderReferenceSelectionPending();
+        ThrowIfPointTransformPending();
+    }
+
+    private void ThrowIfDrawOrderReferenceSelectionPending()
+    {
         if (PendingDrawOrderPlacement is not null)
         {
             throw new InvalidOperationException(
                 "Commit or cancel the pending draw-order reference selection first.");
         }
-        ThrowIfPointTransformPending();
     }
 
     private void ThrowIfPointTransformPending()
