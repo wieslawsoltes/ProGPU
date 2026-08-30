@@ -5150,6 +5150,12 @@ reverse unwrapping preserve canonical COM identity. This Windows-native SVG
 resource lane complements rather than replaces ProGPU's portable retained SVG
 path lowering, and the exact allowlist grows from 56 to 58 exports.
 
+Windows MSVC qualification is recorded by GitHub Actions Build run
+`33328289063`, job `99302278126`. The provider and native regression
+compile/link under the warning-as-error lane, the focused Direct2D test passes
+in 0.49 seconds, all 11 native suites pass, and the exact 58-export allowlist
+is accepted.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

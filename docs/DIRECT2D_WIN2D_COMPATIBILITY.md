@@ -639,6 +639,11 @@ resource as `CanvasSvgDocument` and reverse-unwraps the canonical
 `ID2D1SvgDocument` identity. Direct2D's supported SVG subset remains the
 semantic boundary; this is not a browser SVG implementation. The allowlist
 grows from 56 to exactly 58 exports.
+GitHub Actions Build run `33328289063`, MSVC job `99302278126`, qualifies ABI
+v22 on Windows after compiling and linking the warning-as-error provider and
+native regression. The focused `progpu_native_direct2d_tests` passes in 0.49
+seconds, all 11 native suites pass, and the job accepts the exact 58-symbol
+Direct2D export allowlist.
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
