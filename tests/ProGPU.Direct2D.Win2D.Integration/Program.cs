@@ -142,12 +142,17 @@ internal static partial class Program
             throw new InvalidOperationException(
                 $"Could not create the hidden Dawn compatibility window ({Marshal.GetLastWin32Error()}).");
         }
+        WriteProgress("window-created");
 
         try
         {
             using var windowSource = DawnNativeWindowSource.CreateWin32(hwnd);
+            WriteProgress("window-source-created");
+            WriteProgress("dawn-context-create-started");
             using DawnGpuContext dawn =
                 DawnGpuContext.CreateNativePresentation(windowSource);
+            WriteProgress("dawn-context-created");
+            WriteProgress("direct2d-surface-create-started");
             using ProGpuDirect2DSurface surface =
                 ProGpuDirect2DSurface.Create(
                     dawn,
