@@ -4878,7 +4878,7 @@ boundary, not a fake `d2d1.dll` or a partial COM vtable implementation. COM
 pointers remain confined to the Windows header and process. The portable MIL
 packet retains zero pointers and zero event handles.
 
-ABI v7 and package `ProGPU.Direct2D` bind that producer lifecycle to Dawn's
+ABI v8 and package `ProGPU.Direct2D` bind that producer lifecycle to Dawn's
 same-adapter shared-texture import. `ProGpuDirect2DSurface` owns the native
 surface through Dawn, implements `IProGpuContextTextureLeaseSource`, and
 publishes `TextureChanged` only after one transactional native
@@ -4924,6 +4924,15 @@ projection returns a real `CanvasSolidColorBrush`; reverse unwrapping preserves
 the original brush's canonical `IUnknown` identity, and the packaged oracle
 uses the projected brush in an actual `CanvasDrawingSession.FillRectangle`
 call rather than validating metadata alone.
+
+ABI v8 adds zero-copy pinned managed stop spans, genuine
+`ID2D1GradientStopCollection1` creation with explicit color-space/precision/
+extend/interpolation state, and genuine linear/radial brush creation with typed
+geometry, opacity, and affine transforms. The collection safe handle is
+kind-checked and protected with `DangerousAddRef` across creation. Both brushes
+reuse the v7 generic native Win2D seam while public managed methods remain
+kind-specific. The package oracle reads projected stops and geometry, proves
+exact reverse identity, and draws both resources.
 
 Dawn ownership transitions run outside the Direct2D provider state lock. This
 preserves one lock order when a render submission already owns the WebGPU
@@ -4995,6 +5004,18 @@ the real `Microsoft.Graphics.Canvas.Brushes.CanvasSolidColorBrush` type,
 exact native solid-brush identity, exact brush and center ARGB
 `(255,224,48,96)`, a transparent corner, content version `0 -> 1`, and
 `Dawn D3D12`. Device and bitmap identity remain exact in the same run.
+
+ABI v8 at exact ProGPU `8e62b5e5` was independently rebuilt in that guest with
+MSVC 19.44, Windows SDK 26100, and `/W4 /WX`. The native regression exits zero
+and the exact 21-export audit passes. SHA-256 is
+`c291eac6efc959acd39ba1bdea03d80e8e9025b001c145c13b4c174f003ffc96`
+for the DLL and
+`712ba33d7cd121bb8a7d3c68585c3895c00ad5575e4cdc64971783857d2020a3`
+for its test executable. The signed Win2D 1.4.0 oracle reports real linear and
+radial gradient brush types, exact native identities, projected two-stop and
+geometry metadata, exact solid/linear/radial sample ARGB values
+`(255,224,48,96)`, `(255,32,160,224)`, and `(255,64,192,96)`, a transparent
+corner, content version `0 -> 1`, and `Dawn D3D12`.
 
 ## Managed glyph row-reuse SIMD checkpoint
 
