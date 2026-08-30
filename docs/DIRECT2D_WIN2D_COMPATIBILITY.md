@@ -769,6 +769,20 @@ provider and native regression compile/link, the focused Direct2D test passes
 in 0.16 seconds, all 11 native suites pass in 1.05 seconds, and the successful
 Windows build accepts the exact 90-symbol allowlist.
 
+ABI v28 adds typed drawing-session state over the same genuine
+`ID2D1DeviceContext1`. Shared-target and command-list sessions can round-trip
+geometry antialiasing, text antialiasing, primitive blend, DIP/pixel unit mode,
+two 64-bit diagnostic tags, and render-target DPI. Managed and native layers
+validate every enum and require either two positive finite DPI values or the
+Direct2D `(0, 0)` reset-to-96-DPI form; unknown or half-zero state fails closed
+before touching the context. All state operations require the active typed
+producer and allocate no command object or callback. The native regression
+round-trips every property, rejects an unknown antialias value, then restores
+defaults before the existing clipped bitmap/image and exact-BGRA oracle. The
+allowlist grows from 90 to exactly 102 exports. Portable managed contracts pass
+5/5 and the package builds with zero warnings. Windows MSVC qualification is
+pending checkpoint `ac10d4af`.
+
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
