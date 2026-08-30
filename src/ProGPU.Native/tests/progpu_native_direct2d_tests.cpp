@@ -1773,6 +1773,157 @@ int main()
             command_descriptor.content_version == descriptor.content_version,
         "command-list recording changed shared-surface content version");
 
+    progpu_native_direct2d_command_stream_summary command_summary{};
+    command_summary.struct_size = static_cast<uint32_t>(sizeof(command_summary));
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_command_list_get_stream_summary(
+            surface,
+            command_list.Get(),
+            PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_NONE,
+            &command_summary,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK &&
+            (command_summary.flags &
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_BALANCED_SCOPES) !=
+                0U &&
+            (command_summary.flags &
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_UNSUPPORTED_OPERATIONS) ==
+                0U &&
+            command_summary.state_change_count != 0U &&
+            command_summary.clear_count == 1U &&
+            command_summary.draw_count >= 7U &&
+            command_summary.fill_count >= 4U &&
+            command_summary.text_draw_count == 0U &&
+            command_summary.image_draw_count == 2U &&
+            command_summary.clip_push_count == 1U &&
+            command_summary.clip_pop_count == 1U &&
+            command_summary.layer_push_count == 0U &&
+            command_summary.layer_pop_count == 0U &&
+            command_summary.unsupported_operation_count == 0U &&
+            command_summary.max_scope_depth == 1U &&
+            command_summary.total_command_count ==
+                command_summary.state_change_count +
+                command_summary.clear_count +
+                command_summary.draw_count +
+                command_summary.fill_count +
+                command_summary.clip_push_count +
+                command_summary.clip_pop_count +
+                command_summary.layer_push_count +
+                command_summary.layer_pop_count,
+        "provider ID2D1CommandSink1 supported-stream summary changed");
+    command_summary.struct_size = static_cast<uint32_t>(sizeof(command_summary));
+    require(
+        progpu_native_direct2d_command_list_get_stream_summary(
+            surface,
+            command_list.Get(),
+            PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_REQUIRE_SUPPORTED_OPERATIONS,
+            &command_summary,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "supported Direct2D command stream did not pass strict preflight");
+    command_summary.struct_size = static_cast<uint32_t>(sizeof(command_summary));
+    require(
+        progpu_native_direct2d_command_list_get_stream_summary(
+            surface,
+            command_list.Get(),
+            2U,
+            &command_summary,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            native_hresult == E_INVALIDARG,
+        "unknown Direct2D command-stream option did not fail closed");
+
+    ComPtr<IDWriteRenderingParams> text_rendering_params;
+    require(SUCCEEDED(dwrite_factory->CreateRenderingParams(
+                text_rendering_params.GetAddressOf())),
+        "DirectWrite rendering-parameter creation failed");
+    ComPtr<IDWriteTextFormat> preflight_text_format;
+    require(SUCCEEDED(dwrite_factory->CreateTextFormat(
+                L"Segoe UI",
+                nullptr,
+                DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL,
+                12.0F,
+                L"en-us",
+                preflight_text_format.GetAddressOf())),
+        "DirectWrite preflight text-format creation failed");
+    void* unsupported_command_list_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_command_list(
+            surface,
+            &unsupported_command_list_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            unsupported_command_list_value != nullptr && native_hresult == S_OK,
+        "unsupported-operation command-list creation failed");
+    ComPtr<ID2D1CommandList> unsupported_command_list;
+    unsupported_command_list.Attach(
+        static_cast<ID2D1CommandList*>(unsupported_command_list_value));
+    require(
+        progpu_native_direct2d_surface_begin_command_list_draw(
+            surface,
+            unsupported_command_list.Get()) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "unsupported-operation command-list recording did not begin");
+    context->SetTextRenderingParams(text_rendering_params.Get());
+    const D2D1_RECT_F preflight_text_bounds = {0.0F, 0.0F, 16.0F, 16.0F};
+    context->DrawTextW(
+        L"x",
+        1U,
+        preflight_text_format.Get(),
+        &preflight_text_bounds,
+        solid_brush.Get());
+    command_tag1 = 0U;
+    command_tag2 = 0U;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_end_command_list_draw(
+            surface,
+            &command_tag1,
+            &command_tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "unsupported-operation command-list recording did not close");
+    context->SetTextRenderingParams(nullptr);
+    progpu_native_direct2d_command_stream_summary unsupported_summary{};
+    unsupported_summary.struct_size =
+        static_cast<uint32_t>(sizeof(unsupported_summary));
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_command_list_get_stream_summary(
+            surface,
+            unsupported_command_list.Get(),
+            PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_NONE,
+            &unsupported_summary,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK &&
+            (unsupported_summary.flags &
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_BALANCED_SCOPES) !=
+                0U &&
+            (unsupported_summary.flags &
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_UNSUPPORTED_OPERATIONS) !=
+                0U &&
+            (unsupported_summary.flags &
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_TEXT_RENDERING_PARAMETERS) !=
+                0U &&
+            unsupported_summary.unsupported_operation_count == 1U,
+        "provider ID2D1CommandSink1 unsupported-stream audit changed");
+    unsupported_summary.struct_size =
+        static_cast<uint32_t>(sizeof(unsupported_summary));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_command_list_get_stream_summary(
+            surface,
+            unsupported_command_list.Get(),
+            PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_REQUIRE_SUPPORTED_OPERATIONS,
+            &unsupported_summary,
+            &native_hresult) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED &&
+            native_hresult == E_NOTIMPL &&
+            unsupported_summary.unsupported_operation_count == 1U,
+        "unsupported Direct2D command stream did not fail strict preflight");
+
     progpu_native_direct2d_image_brush_properties
         command_list_brush_properties{};
     command_list_brush_properties.source_rectangle =

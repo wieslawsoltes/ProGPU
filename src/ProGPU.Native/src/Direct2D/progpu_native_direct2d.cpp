@@ -80,6 +80,9 @@ static_assert(
         sizeof(D2D1_MATRIX_4X4_F),
     "Direct2D portable 4x4 matrix layout changed");
 static_assert(
+    sizeof(progpu_native_direct2d_command_stream_summary) == 64U,
+    "Direct2D command-stream summary layout changed");
+static_assert(
     sizeof(progpu_native_direct2d_glyph_offset) ==
         sizeof(DWRITE_GLYPH_OFFSET),
     "DirectWrite portable glyph-offset layout changed");
@@ -387,6 +390,388 @@ private:
     const uint8_t* data_ = nullptr;
     uint64_t size_ = 0U;
     uint64_t position_ = 0U;
+};
+
+class CommandStreamSummarySink final : public ID2D1CommandSink1 {
+public:
+    explicit CommandStreamSummarySink(bool require_supported_operations) noexcept
+        : require_supported_operations_(require_supported_operations)
+    {
+        summary_.struct_size = static_cast<uint32_t>(sizeof(summary_));
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1CommandSink)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1CommandSink1))) {
+            *value = static_cast<ID2D1CommandSink1*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    HRESULT STDMETHODCALLTYPE BeginDraw() override
+    {
+        if (begun_ || ended_) {
+            return D2DERR_WRONG_STATE;
+        }
+        begun_ = true;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE EndDraw() override
+    {
+        if (!begun_ || ended_) {
+            return D2DERR_WRONG_STATE;
+        }
+        ended_ = true;
+        if (scope_depth_ != 0U) {
+            return D2DERR_WRONG_STATE;
+        }
+        summary_.flags |=
+            PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_BALANCED_SCOPES;
+        if (overflow_) {
+            return HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW);
+        }
+        if (require_supported_operations_ &&
+            summary_.unsupported_operation_count != 0U) {
+            return E_NOTIMPL;
+        }
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetAntialiasMode(D2D1_ANTIALIAS_MODE) override
+    {
+        return record_state();
+    }
+
+    HRESULT STDMETHODCALLTYPE SetTags(D2D1_TAG, D2D1_TAG) override
+    {
+        return record_state();
+    }
+
+    HRESULT STDMETHODCALLTYPE SetTextAntialiasMode(
+        D2D1_TEXT_ANTIALIAS_MODE) override
+    {
+        return record_state();
+    }
+
+    HRESULT STDMETHODCALLTYPE SetTextRenderingParams(
+        IDWriteRenderingParams* text_rendering_params) override
+    {
+        HRESULT result = record_state();
+        if (SUCCEEDED(result) && text_rendering_params != nullptr) {
+            mark_unsupported(
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_TEXT_RENDERING_PARAMETERS);
+        }
+        return result;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetTransform(
+        const D2D1_MATRIX_3X2_F*) override
+    {
+        return record_state();
+    }
+
+    HRESULT STDMETHODCALLTYPE SetPrimitiveBlend(
+        D2D1_PRIMITIVE_BLEND) override
+    {
+        return record_state();
+    }
+
+    HRESULT STDMETHODCALLTYPE SetPrimitiveBlend1(
+        D2D1_PRIMITIVE_BLEND) override
+    {
+        return record_state();
+    }
+
+    HRESULT STDMETHODCALLTYPE SetUnitMode(D2D1_UNIT_MODE) override
+    {
+        return record_state();
+    }
+
+    HRESULT STDMETHODCALLTYPE Clear(const D2D1_COLOR_F*) override
+    {
+        return record_command(summary_.clear_count);
+    }
+
+    HRESULT STDMETHODCALLTYPE DrawGlyphRun(
+        D2D1_POINT_2F,
+        const DWRITE_GLYPH_RUN*,
+        const DWRITE_GLYPH_RUN_DESCRIPTION*,
+        ID2D1Brush*,
+        DWRITE_MEASURING_MODE) override
+    {
+        HRESULT result = record_draw();
+        if (SUCCEEDED(result)) {
+            increment(summary_.text_draw_count);
+        }
+        return result;
+    }
+
+    HRESULT STDMETHODCALLTYPE DrawLine(
+        D2D1_POINT_2F,
+        D2D1_POINT_2F,
+        ID2D1Brush*,
+        FLOAT,
+        ID2D1StrokeStyle*) override
+    {
+        return record_draw();
+    }
+
+    HRESULT STDMETHODCALLTYPE DrawGeometry(
+        ID2D1Geometry*,
+        ID2D1Brush*,
+        FLOAT,
+        ID2D1StrokeStyle*) override
+    {
+        return record_draw();
+    }
+
+    HRESULT STDMETHODCALLTYPE DrawRectangle(
+        const D2D1_RECT_F*,
+        ID2D1Brush*,
+        FLOAT,
+        ID2D1StrokeStyle*) override
+    {
+        return record_draw();
+    }
+
+    HRESULT STDMETHODCALLTYPE DrawBitmap(
+        ID2D1Bitmap*,
+        const D2D1_RECT_F*,
+        FLOAT,
+        D2D1_INTERPOLATION_MODE,
+        const D2D1_RECT_F*,
+        const D2D1_MATRIX_4X4_F*) override
+    {
+        HRESULT result = record_draw();
+        if (SUCCEEDED(result)) {
+            increment(summary_.image_draw_count);
+        }
+        return result;
+    }
+
+    HRESULT STDMETHODCALLTYPE DrawImage(
+        ID2D1Image*,
+        const D2D1_POINT_2F*,
+        const D2D1_RECT_F*,
+        D2D1_INTERPOLATION_MODE,
+        D2D1_COMPOSITE_MODE) override
+    {
+        HRESULT result = record_draw();
+        if (SUCCEEDED(result)) {
+            increment(summary_.image_draw_count);
+        }
+        return result;
+    }
+
+    HRESULT STDMETHODCALLTYPE DrawGdiMetafile(
+        ID2D1GdiMetafile*,
+        const D2D1_POINT_2F*) override
+    {
+        HRESULT result = record_draw();
+        if (SUCCEEDED(result)) {
+            increment(summary_.image_draw_count);
+            mark_unsupported(
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_GDI_METAFILE);
+        }
+        return result;
+    }
+
+    HRESULT STDMETHODCALLTYPE FillMesh(
+        ID2D1Mesh*,
+        ID2D1Brush*) override
+    {
+        HRESULT result = record_fill();
+        if (SUCCEEDED(result)) {
+            mark_unsupported(
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_MESH);
+        }
+        return result;
+    }
+
+    HRESULT STDMETHODCALLTYPE FillOpacityMask(
+        ID2D1Bitmap*,
+        ID2D1Brush*,
+        const D2D1_RECT_F*,
+        const D2D1_RECT_F*) override
+    {
+        HRESULT result = record_fill();
+        if (SUCCEEDED(result)) {
+            mark_unsupported(
+                PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_OPACITY_MASK);
+        }
+        return result;
+    }
+
+    HRESULT STDMETHODCALLTYPE FillGeometry(
+        ID2D1Geometry*,
+        ID2D1Brush*,
+        ID2D1Brush*) override
+    {
+        return record_fill();
+    }
+
+    HRESULT STDMETHODCALLTYPE FillRectangle(
+        const D2D1_RECT_F*,
+        ID2D1Brush*) override
+    {
+        return record_fill();
+    }
+
+    HRESULT STDMETHODCALLTYPE PushAxisAlignedClip(
+        const D2D1_RECT_F*,
+        D2D1_ANTIALIAS_MODE) override
+    {
+        HRESULT result = record_command(summary_.clip_push_count);
+        if (FAILED(result)) {
+            return result;
+        }
+        return push_scope(progpu_direct2d_draw_scope_kind::axis_aligned_clip);
+    }
+
+    HRESULT STDMETHODCALLTYPE PushLayer(
+        const D2D1_LAYER_PARAMETERS1*,
+        ID2D1Layer*) override
+    {
+        HRESULT result = record_command(summary_.layer_push_count);
+        if (FAILED(result)) {
+            return result;
+        }
+        return push_scope(progpu_direct2d_draw_scope_kind::layer);
+    }
+
+    HRESULT STDMETHODCALLTYPE PopAxisAlignedClip() override
+    {
+        HRESULT result = pop_scope(
+            progpu_direct2d_draw_scope_kind::axis_aligned_clip);
+        if (FAILED(result)) {
+            return result;
+        }
+        return record_command(summary_.clip_pop_count);
+    }
+
+    HRESULT STDMETHODCALLTYPE PopLayer() override
+    {
+        HRESULT result = pop_scope(progpu_direct2d_draw_scope_kind::layer);
+        if (FAILED(result)) {
+            return result;
+        }
+        return record_command(summary_.layer_pop_count);
+    }
+
+    const progpu_native_direct2d_command_stream_summary& summary() const noexcept
+    {
+        return summary_;
+    }
+
+private:
+    bool can_record() const noexcept
+    {
+        return begun_ && !ended_;
+    }
+
+    void increment(uint32_t& value) noexcept
+    {
+        if (value == std::numeric_limits<uint32_t>::max()) {
+            overflow_ = true;
+            return;
+        }
+        ++value;
+    }
+
+    HRESULT record_command(uint32_t& category) noexcept
+    {
+        if (!can_record()) {
+            return D2DERR_WRONG_STATE;
+        }
+        increment(summary_.total_command_count);
+        increment(category);
+        return overflow_
+            ? HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW)
+            : S_OK;
+    }
+
+    HRESULT record_state() noexcept
+    {
+        return record_command(summary_.state_change_count);
+    }
+
+    HRESULT record_draw() noexcept
+    {
+        return record_command(summary_.draw_count);
+    }
+
+    HRESULT record_fill() noexcept
+    {
+        return record_command(summary_.fill_count);
+    }
+
+    void mark_unsupported(uint32_t flag) noexcept
+    {
+        summary_.flags |=
+            PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_UNSUPPORTED_OPERATIONS |
+            flag;
+        increment(summary_.unsupported_operation_count);
+    }
+
+    HRESULT push_scope(progpu_direct2d_draw_scope_kind kind) noexcept
+    {
+        if (scope_depth_ == scopes_.size()) {
+            return E_BOUNDS;
+        }
+        scopes_[scope_depth_] = kind;
+        ++scope_depth_;
+        if (scope_depth_ > summary_.max_scope_depth) {
+            summary_.max_scope_depth = scope_depth_;
+        }
+        return S_OK;
+    }
+
+    HRESULT pop_scope(progpu_direct2d_draw_scope_kind kind) noexcept
+    {
+        if (scope_depth_ == 0U || scopes_[scope_depth_ - 1U] != kind) {
+            return D2DERR_WRONG_STATE;
+        }
+        --scope_depth_;
+        return S_OK;
+    }
+
+    std::atomic<ULONG> reference_count_{1U};
+    progpu_native_direct2d_command_stream_summary summary_{};
+    std::array<
+        progpu_direct2d_draw_scope_kind,
+        progpu_direct2d_max_draw_scope_depth> scopes_{};
+    uint32_t scope_depth_ = 0U;
+    bool require_supported_operations_ = false;
+    bool begun_ = false;
+    bool ended_ = false;
+    bool overflow_ = false;
 };
 
 class CallerTessellationSink final : public ID2D1TessellationSink {
@@ -3098,6 +3483,63 @@ progpu_native_direct2d_surface_create_command_list(
         return status_from_win2d_hresult(hr);
     }
     return return_interface(command_list, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_command_list_get_stream_summary(
+    progpu_native_direct2d_surface* surface,
+    void* command_list,
+    uint32_t options,
+    progpu_native_direct2d_command_stream_summary* summary,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || command_list == nullptr || summary == nullptr ||
+        summary->struct_size != sizeof(*summary) || native_hresult == nullptr ||
+        (options &
+            ~PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_REQUIRE_SUPPORTED_OPERATIONS) !=
+            0U) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    *summary = {};
+    summary->struct_size = static_cast<uint32_t>(sizeof(*summary));
+
+    std::scoped_lock lock(surface->access_mutex);
+    if (surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_ALREADY_ACTIVE;
+    }
+
+    ComPtr<ID2D1CommandList> native_command_list;
+    HRESULT hr = reinterpret_cast<IUnknown*>(command_list)->QueryInterface(
+        IID_PPV_ARGS(&native_command_list));
+    if (SUCCEEDED(hr)) {
+        CommandStreamSummarySink* sink = new (std::nothrow)
+            CommandStreamSummarySink(
+                (options &
+                    PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_REQUIRE_SUPPORTED_OPERATIONS) !=
+                    0U);
+        if (sink == nullptr) {
+            hr = E_OUTOFMEMORY;
+        } else {
+            hr = native_command_list->Stream(sink);
+            *summary = sink->summary();
+            sink->Release();
+        }
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (SUCCEEDED(hr)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+    }
+    if (hr == E_NOTIMPL || hr == E_NOINTERFACE) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED;
+    }
+    if (hr == D2DERR_WRONG_STATE) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH;
+    }
+    return status_from_win2d_hresult(hr);
 }
 
 progpu_native_direct2d_status

@@ -1477,6 +1477,97 @@ public sealed unsafe class ProGpuDirect2DSurface :
     }
 
     /// <summary>
+    /// Streams a closed same-domain command list through the native
+    /// ID2D1CommandSink1 preflight and returns pointer-free structural counts.
+    /// Unsupported operation classes are reported in the summary rather than
+    /// silently accepted.
+    /// </summary>
+    public ProGpuDirect2DCommandStreamSummary GetCommandListStreamSummary(
+        ProGpuDirect2DComReference commandList) =>
+        ReadCommandListStreamSummary(
+            commandList,
+            ProGpuDirect2DNative.CommandStreamOptions.None);
+
+    /// <summary>
+    /// Requires the command list to use only operation classes admitted by
+    /// the current ProGPU translation preflight. Resource conversion remains a
+    /// separate typed stage. Unsupported operations fail closed with the
+    /// native E_NOTIMPL HRESULT.
+    /// </summary>
+    public ProGpuDirect2DCommandStreamSummary
+        ValidateCommandListOperationSet(
+            ProGpuDirect2DComReference commandList) =>
+        ReadCommandListStreamSummary(
+            commandList,
+            ProGpuDirect2DNative.CommandStreamOptions
+                .RequireSupportedOperations);
+
+    private ProGpuDirect2DCommandStreamSummary ReadCommandListStreamSummary(
+        ProGpuDirect2DComReference commandList,
+        ProGpuDirect2DNative.CommandStreamOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(commandList);
+        ValidateResourceDomain(commandList, nameof(commandList));
+        if (commandList.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.D2D1CommandList)
+        {
+            throw new ArgumentException(
+                "The COM reference must own ID2D1CommandList.",
+                nameof(commandList));
+        }
+
+        bool referenceAdded = false;
+        try
+        {
+            commandList.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                ProGpuDirect2DNative.NativeCommandStreamSummary summary =
+                    new()
+                    {
+                        StructSize = (uint)Unsafe.SizeOf<
+                            ProGpuDirect2DNative.NativeCommandStreamSummary>()
+                    };
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.CommandListGetStreamSummary(
+                        _nativeSurface,
+                        commandList.DangerousGetHandle(),
+                        options,
+                        &summary,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1CommandList::Stream preflight",
+                    status,
+                    nativeHResult);
+                return new ProGpuDirect2DCommandStreamSummary(
+                    summary.Flags,
+                    summary.TotalCommandCount,
+                    summary.StateChangeCount,
+                    summary.ClearCount,
+                    summary.DrawCount,
+                    summary.FillCount,
+                    summary.TextDrawCount,
+                    summary.ImageDrawCount,
+                    summary.ClipPushCount,
+                    summary.ClipPopCount,
+                    summary.LayerPushCount,
+                    summary.LayerPopCount,
+                    summary.UnsupportedOperationCount,
+                    summary.MaxScopeDepth);
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                commandList.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
     /// Creates a genuine same-device ID2D1SvgDocument from UTF-8 XML. The
     /// caller span stays pinned only for the synchronous Direct2D parse and is
     /// neither retained nor copied into an intermediate managed array.

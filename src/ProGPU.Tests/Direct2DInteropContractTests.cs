@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 31U;",
+            "internal const uint AbiVersion = 32U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -202,6 +202,10 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "progpu_native_direct2d_surface_create_command_list",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_command_list_get_stream_summary",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -424,7 +428,7 @@ public sealed class Direct2DInteropContractTests
             exports,
             StringComparison.Ordinal);
         Assert.Equal(
-            121,
+            122,
             exports.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries |
@@ -472,7 +476,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 31U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 32U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -729,6 +733,18 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "surface->d2d_context->CreateCommandList(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "class CommandStreamSummarySink final : public ID2D1CommandSink1",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "native_command_list->Stream(sink)",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_UNSUPPORTED_OPERATIONS",
             source,
             StringComparison.Ordinal);
         Assert.Contains(

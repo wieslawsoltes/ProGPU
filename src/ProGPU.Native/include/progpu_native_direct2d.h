@@ -63,6 +63,24 @@ typedef enum progpu_native_direct2d_device_loss_flags {
     PROGPU_NATIVE_DIRECT2D_DEVICE_LOSS_FLAG_DEVICE_LOST = 1U << 2U
 } progpu_native_direct2d_device_loss_flags;
 
+typedef enum progpu_native_direct2d_command_stream_options {
+    PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_NONE = 0,
+    PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_OPTION_REQUIRE_SUPPORTED_OPERATIONS =
+        1U << 0U
+} progpu_native_direct2d_command_stream_options;
+
+typedef enum progpu_native_direct2d_command_stream_flags {
+    PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_NONE = 0,
+    PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_BALANCED_SCOPES = 1U << 0U,
+    PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_UNSUPPORTED_OPERATIONS =
+        1U << 1U,
+    PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_TEXT_RENDERING_PARAMETERS =
+        1U << 2U,
+    PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_GDI_METAFILE = 1U << 3U,
+    PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_MESH = 1U << 4U,
+    PROGPU_NATIVE_DIRECT2D_COMMAND_STREAM_FLAG_HAS_OPACITY_MASK = 1U << 5U
+} progpu_native_direct2d_command_stream_flags;
+
 /* Every returned pointer is a genuine Windows COM interface with one caller-
  * owned reference. Release it through IUnknown::Release. These pointers are
  * process-local Windows interop state and must never enter ProGPU's portable
@@ -555,6 +573,29 @@ typedef struct progpu_native_direct2d_bitmap_descriptor {
     uint32_t reserved;
 } progpu_native_direct2d_bitmap_descriptor;
 
+/* Allocation-free structural preflight for one closed ID2D1CommandList.
+ * Counts describe streamed callbacks and never retain the COM resources passed
+ * to the internal ID2D1CommandSink1. Unsupported operation classes are
+ * reported explicitly so a later ProGPU scene translator can fail closed. */
+typedef struct progpu_native_direct2d_command_stream_summary {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t total_command_count;
+    uint32_t state_change_count;
+    uint32_t clear_count;
+    uint32_t draw_count;
+    uint32_t fill_count;
+    uint32_t text_draw_count;
+    uint32_t image_draw_count;
+    uint32_t clip_push_count;
+    uint32_t clip_pop_count;
+    uint32_t layer_push_count;
+    uint32_t layer_pop_count;
+    uint32_t unsupported_operation_count;
+    uint32_t max_scope_depth;
+    uint32_t reserved;
+} progpu_native_direct2d_command_stream_summary;
+
 typedef struct progpu_native_direct2d_bitmap_brush_properties {
     uint32_t extend_mode_x;
     uint32_t extend_mode_y;
@@ -680,7 +721,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 31U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 32U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -978,6 +1019,18 @@ PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_surface_create_command_list(
     progpu_native_direct2d_surface* surface,
     void** value,
+    int32_t* native_hresult);
+
+/* Streams one closed command list through an internal ID2D1CommandSink1 and
+ * returns pointer-free structural metadata. REQUIRE_SUPPORTED_OPERATIONS makes
+ * EndDraw return E_NOTIMPL when the stream contains GDI metafile, mesh,
+ * opacity-mask, or non-null text-rendering-parameter callbacks. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_command_list_get_stream_summary(
+    progpu_native_direct2d_surface* surface,
+    void* command_list,
+    uint32_t options,
+    progpu_native_direct2d_command_stream_summary* summary,
     int32_t* native_hresult);
 
 /* Creates a genuine registered ID2D1Effect by CLSID in this surface's exact
