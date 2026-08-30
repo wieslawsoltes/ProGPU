@@ -248,6 +248,7 @@ progpu_package_purposes=("${progpu_portable_package_purposes[@]}" "${progpu_mobi
 # non-shipping. The verifier fails when a newly added project is omitted.
 progpu_nonshipping_projects=(
   src/PresentationCore/PresentationCore.csproj
+  src/ProGPU.Backend.Tests/ProGPU.Backend.Tests.csproj
   src/ProGPU.Avalonia.SkiaSourceCompatibility/ProGPU.Avalonia.SkiaSourceCompatibility.csproj
   src/ProGPU.Avalonia.Skia.BinaryCompatibility/ProGPU.Avalonia.Skia.BinaryCompatibility.csproj
   src/ProGPU.Avalonia.Skia.BinaryCompatibility.V11/ProGPU.Avalonia.Skia.BinaryCompatibility.V11.csproj
@@ -272,6 +273,7 @@ progpu_nonshipping_projects=(
 
 progpu_nonshipping_reasons=(
   "Framework implementation shim; shipped through consuming compatibility packages."
+  "Backend ownership-registry and native-window state test project."
   "Non-shipping source dependency used to validate the ProGPU SkiaSharp contract against Avalonia's ordinary Skia backend."
   "Non-shipping Avalonia.Skia facade shipped inside ProGPU.BinaryCompatibility."
   "Non-shipping Avalonia 11 validation facade for the universal compatibility identity."
