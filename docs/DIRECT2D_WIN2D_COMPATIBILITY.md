@@ -841,6 +841,25 @@ native suites in 1.14 seconds. That job's later managed WebGPU sample lost the
 Microsoft Basic Render Driver device; it does not invalidate the preceding
 Direct2D compile, export, COM, and exact-pixel gates.
 
+ABI v32 establishes the first Direct2D-command-to-ProGPU translation boundary
+through the API designed for that purpose: `ID2D1CommandList::Stream`. An
+internal allocation-free `ID2D1CommandSink1` receives genuine Direct2D/Win2D
+callbacks and returns one 64-byte pointer-free structural summary. It counts
+state, clear, draw, fill, text, image, clip, and layer operations, validates the
+mixed clip/layer LIFO stack to depth 4,096, and never retains callback resource
+pointers. Audit mode reports unsupported classes; strict mode returns
+`E_NOTIMPL` from `EndDraw`, and therefore from `Stream`, for non-null text
+rendering parameters, GDI metafiles, meshes, or opacity masks. This is an
+operation-set preflight, not yet resource translation or scene execution.
+Managed callers use generation-checked AOT APIs to inspect or strictly validate
+a closed command list. Exact implementation `3f5078af` plus MSVC oracle fix
+`8e812820` builds with zero managed warnings, passes contracts 5/5, and exposes
+exactly 122 exports. The incremental Windows 11 ARM64 MSVC 19.44/SDK
+10.0.26100.0 gate compiles the complete vtable under `/W4 /WX`, passes the
+supported and fail-closed stream regressions 1/1, and produces provider SHA-256
+`E2A0F827107450E5C6D0ED8C2CA3C8C20656F6A32C1A6361DB788C14117CD1D3`.
+Clean-checkout Build run `33339953074` is pending.
+
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any

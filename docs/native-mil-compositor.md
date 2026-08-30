@@ -5320,6 +5320,23 @@ Direct2D regression in 0.17 seconds and all 12 native suites in 1.14 seconds;
 its later managed WebGPU sample failure is a Microsoft Basic Render Driver
 device-loss event after the Direct2D qualification completed.
 
+ABI v32 at implementation `3f5078af` plus MSVC oracle fix `8e812820` adds the
+first real Direct2D command-list ingestion seam for the ProGPU C++ backend.
+`ID2D1CommandList::Stream` targets an internal allocation-free
+`ID2D1CommandSink1`; the sink validates a mixed clip/layer LIFO stack and emits
+only a 64-byte pointer-free summary of state, clear, draw, fill, text, image,
+clip, layer, and unsupported callback counts. It does not retain Direct2D
+resources or put COM identity in MIL/WebGPU. Audit mode reports unsupported
+operation classes, while strict mode fails `EndDraw`/`Stream` with `E_NOTIMPL`
+for non-null text rendering parameters, GDI metafiles, meshes, and opacity
+masks. Resource conversion and native scene emission deliberately remain the
+next stages. The managed package builds with zero warnings, contracts pass 5/5,
+and the allowlist is exactly 122 exports. Incremental Windows 11 ARM64 MSVC
+19.44/SDK 10.0.26100.0 compiles the vtable under `/W4 /WX` and passes the live
+supported/fail-closed command-stream regression 1/1; provider SHA-256 is
+`E2A0F827107450E5C6D0ED8C2CA3C8C20656F6A32C1A6361DB788C14117CD1D3`.
+Clean-checkout Build run `33339953074` is pending.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
