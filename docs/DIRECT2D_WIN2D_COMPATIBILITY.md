@@ -712,6 +712,14 @@ options, widths, transforms, tolerances, destinations, and inactive draws fail
 closed. The allowlist grows from 67 to exactly 74 exports. This is native
 Direct2D realization, not CPU tessellation fallback; the portable Metal,
 Vulkan, and browser paths continue to use ProGPU's shared vector pipeline.
+Final implementation `9dc74d09` is qualified by GitHub Actions Build run
+`33332388195`: Ubuntu aggregate job `99313260684` builds and passes the managed
+suite, while dedicated MSVC job `99313260762` compiles/links the 74-export DLL
+and regression under warning-as-error, passes the focused Direct2D test in
+0.14 seconds, and passes all 11 native suites. The immediately preceding
+native-identical corrected sink commit `84ece34c` also passes ClangCL x64 job
+`99312705172` in 0.15 seconds and all 12 native suites; `9dc74d09` changes only
+the managed operation-label scope subsequently covered by the aggregate job.
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
