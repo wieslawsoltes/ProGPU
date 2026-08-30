@@ -27,14 +27,18 @@ internal static partial class Program
     [STAThread]
     private static int Main()
     {
+        WriteProgress("main-entered");
         int initializationHResult = RoInitialize(RoInitSingleThreaded);
         bool uninitialize = initializationHResult >= 0;
         try
         {
             if (initializationHResult < 0)
             {
+                WriteProgress(
+                    $"ro-initialize-failed-0x{initializationHResult:X8}");
                 Marshal.ThrowExceptionForHR(initializationHResult);
             }
+            WriteProgress("ro-initialized");
 
             IntegrationEvidence evidence = Run(initializationHResult);
             WriteEvidence(evidence);
@@ -345,6 +349,7 @@ internal static partial class Program
             }
             using ProGpuDirect2DComReference nativeSourceBitmap =
                 surface.CreateBitmap(sourcePixels, 2U, 2U, 8U);
+            WriteProgress("source-bitmap-created");
             using ProGpuDirect2DComReference nativeImageBrush =
                 surface.CreateBitmapBrush(
                     nativeSourceBitmap,
@@ -352,6 +357,8 @@ internal static partial class Program
                         ProGpuDirect2DExtendMode.Wrap,
                         ProGpuDirect2DExtendMode.Mirror,
                         ProGpuDirect2DInterpolationMode.NearestNeighbor));
+            WriteProgress("bitmap-brush-created");
+            WriteProgress("canvas-bitmap-wrap-started");
             if (!surface.TryAcquireMicrosoftWin2DBitmap(
                     nativeSourceBitmap,
                     out ProGpuDirect2DComReference? wrappedSourceBitmap,
@@ -361,6 +368,7 @@ internal static partial class Program
                 throw new InvalidOperationException(
                     $"Win2D CanvasBitmap wrapping failed (0x{wrappedSourceBitmapHResult:X8}).");
             }
+            WriteProgress("canvas-bitmap-wrapped");
             using ProGpuDirect2DComReference canvasBitmapReference =
                 wrappedSourceBitmap;
             if (!surface.TryAcquireMicrosoftWin2DNativeBitmap(
@@ -382,6 +390,8 @@ internal static partial class Program
                         "Win2D CanvasBitmap did not preserve ProGPU's uploaded ID2D1Bitmap1 identity.");
                 }
             }
+            WriteProgress("canvas-bitmap-roundtrip-complete");
+            WriteProgress("canvas-image-brush-wrap-started");
             if (!surface.TryAcquireMicrosoftWin2DImageBrush(
                     nativeImageBrush,
                     out ProGpuDirect2DComReference? wrappedImageBrush,
@@ -391,6 +401,7 @@ internal static partial class Program
                 throw new InvalidOperationException(
                     $"Win2D CanvasImageBrush wrapping failed (0x{wrappedImageBrushHResult:X8}).");
             }
+            WriteProgress("canvas-image-brush-wrapped");
             using ProGpuDirect2DComReference canvasImageBrushReference =
                 wrappedImageBrush;
             if (!surface.TryAcquireMicrosoftWin2DNativeImageBrush(
@@ -514,6 +525,7 @@ internal static partial class Program
             WriteProgress("stroke-style-roundtrip-complete");
 
             ulong contentVersionBefore = surface.ContentVersion;
+            WriteProgress("producer-access-started");
             if (!surface.TryBeginMicrosoftWin2DProducerAccess(
                     out ProGpuMicrosoftWin2DProducerAccess? access,
                     out int nativeHResult) ||
@@ -522,6 +534,7 @@ internal static partial class Program
                 throw new InvalidOperationException(
                     $"The genuine Win2D producer could not be acquired (0x{nativeHResult:X8}).");
             }
+            WriteProgress("producer-access-acquired");
 
             string canvasDeviceType;
             string canvasRenderTargetType;
@@ -543,31 +556,41 @@ internal static partial class Program
             PixelEvidence imageBrushPixel;
             PixelEvidence geometryPixel;
             using (access)
-            using (CanvasRenderTarget target =
-                CanvasRenderTarget.FromAbi(
-                    access.CanvasRenderTarget.DangerousGetHandle()))
-            using (CanvasSolidColorBrush canvasSolidColorBrush =
-                CanvasSolidColorBrush.FromAbi(
-                    canvasSolidColorBrushReference.DangerousGetHandle()))
-            using (CanvasLinearGradientBrush canvasLinearGradientBrush =
-                CanvasLinearGradientBrush.FromAbi(
-                    canvasLinearGradientBrushReference.DangerousGetHandle()))
-            using (CanvasRadialGradientBrush canvasRadialGradientBrush =
-                CanvasRadialGradientBrush.FromAbi(
-                    canvasRadialGradientBrushReference.DangerousGetHandle()))
-            using (CanvasBitmap canvasBitmap =
-                CanvasBitmap.FromAbi(
-                    canvasBitmapReference.DangerousGetHandle()))
-            using (CanvasImageBrush canvasImageBrush =
-                CanvasImageBrush.FromAbi(
-                    canvasImageBrushReference.DangerousGetHandle()))
-            using (CanvasGeometry canvasGeometry =
-                CanvasGeometry.FromAbi(
-                    canvasGeometryReference.DangerousGetHandle()))
-            using (CanvasStrokeStyle canvasStrokeStyle =
-                CanvasStrokeStyle.FromAbi(
-                    canvasStrokeStyleReference.DangerousGetHandle()))
             {
+                WriteProgress("canvas-target-projection-started");
+                using CanvasRenderTarget target =
+                    CanvasRenderTarget.FromAbi(
+                        access.CanvasRenderTarget.DangerousGetHandle());
+                WriteProgress("canvas-target-projected");
+                using CanvasSolidColorBrush canvasSolidColorBrush =
+                    CanvasSolidColorBrush.FromAbi(
+                        canvasSolidColorBrushReference.DangerousGetHandle());
+                WriteProgress("canvas-solid-brush-projected");
+                using CanvasLinearGradientBrush canvasLinearGradientBrush =
+                    CanvasLinearGradientBrush.FromAbi(
+                        canvasLinearGradientBrushReference.DangerousGetHandle());
+                WriteProgress("canvas-linear-brush-projected");
+                using CanvasRadialGradientBrush canvasRadialGradientBrush =
+                    CanvasRadialGradientBrush.FromAbi(
+                        canvasRadialGradientBrushReference.DangerousGetHandle());
+                WriteProgress("canvas-radial-brush-projected");
+                WriteProgress("canvas-bitmap-projection-started");
+                using CanvasBitmap canvasBitmap =
+                    CanvasBitmap.FromAbi(
+                        canvasBitmapReference.DangerousGetHandle());
+                WriteProgress("canvas-bitmap-projected");
+                WriteProgress("canvas-image-brush-projection-started");
+                using CanvasImageBrush canvasImageBrush =
+                    CanvasImageBrush.FromAbi(
+                        canvasImageBrushReference.DangerousGetHandle());
+                WriteProgress("canvas-image-brush-projected");
+                using CanvasGeometry canvasGeometry =
+                    CanvasGeometry.FromAbi(
+                        canvasGeometryReference.DangerousGetHandle());
+                WriteProgress("canvas-geometry-projected");
+                using CanvasStrokeStyle canvasStrokeStyle =
+                    CanvasStrokeStyle.FromAbi(
+                        canvasStrokeStyleReference.DangerousGetHandle());
                 WriteProgress("canvas-projections-created");
                 canvasDeviceType = target.Device.GetType().FullName ??
                     target.Device.GetType().Name;
@@ -865,18 +888,31 @@ internal static partial class Program
     {
         try
         {
-            string directory = Path.Combine(
-                Environment.GetFolderPath(
-                    Environment.SpecialFolder.LocalApplicationData),
-                FallbackResultDirectoryName);
-            Directory.CreateDirectory(directory);
+            string packageDirectory = ApplicationData.Current.LocalFolder.Path;
+            Directory.CreateDirectory(packageDirectory);
             File.WriteAllText(
-                Path.Combine(directory, ProgressFileName),
+                Path.Combine(packageDirectory, ProgressFileName),
                 stage);
         }
         catch
         {
             // Progress reporting must never change the integration result.
+        }
+
+        try
+        {
+            string fallbackDirectory = Path.Combine(
+                Environment.GetFolderPath(
+                    Environment.SpecialFolder.LocalApplicationData),
+                FallbackResultDirectoryName);
+            Directory.CreateDirectory(fallbackDirectory);
+            File.WriteAllText(
+                Path.Combine(fallbackDirectory, ProgressFileName),
+                stage);
+        }
+        catch
+        {
+            // Package redirection can make the fallback path unavailable.
         }
     }
 
