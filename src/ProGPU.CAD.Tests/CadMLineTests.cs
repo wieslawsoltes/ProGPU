@@ -4,6 +4,7 @@ using ACadSharp.Objects;
 using ACadSharp.Tables;
 using CSMath;
 using ProGPU.Scene;
+using ProGPU.Scene.Native;
 using Xunit;
 
 namespace ProGPU.CAD.Tests;
@@ -161,6 +162,61 @@ public sealed class CadMLineTests
         Assert.Equal(2, snapshot.MLineFillTriangles.Length);
         Assert.Equal(new CadPoint3D(0, -1, 0), snapshot.Bounds.Min);
         Assert.Equal(new CadPoint3D(10, 1, 0), snapshot.Bounds.Max);
+    }
+
+    [Fact]
+    public void RetainedMLineReusesNativePictureAndPrintPipelines()
+    {
+        CadDocumentSnapshot snapshot = Compile(CreateMLine(fill: true));
+        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        using GpuPicture picture = scene.CreatePicture();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            811U,
+            1U,
+            out NativeCompiledPicture? native,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(native);
+        Assert.Equal(scene.Statistics.RecordedCommandCount, native.SourceCommandCount);
+
+        using CadPrintPlan print = new CadPrintPlanCompiler().Compile(snapshot);
+        using GpuPicture page = print.CreatePagePicture();
+        Assert.Equal(scene.Statistics.RecordedCommandCount, print.SceneStatistics.RecordedCommandCount);
+        Assert.Equal(scene.Statistics.RecordedEntityCount, print.SceneStatistics.RecordedEntityCount);
+        Assert.Equal(RenderCommandType.DrawPicture, page.GetCommand(1).Type);
+    }
+
+    [Fact]
+    public void WarmMLineSelectionAllocatesNoManagedMemory()
+    {
+        CadDocumentSnapshot snapshot = Compile(CreateMLine(fill: true));
+        CadEntityHeader header = snapshot.Entities.Span[0];
+        var candidate = new CadSelectionCandidate(
+            snapshot.ContentGeneration,
+            0,
+            header.Handle,
+            header.Kind,
+            header.Bounds);
+        _ = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(5, 0, 0),
+            0.0);
+        _ = GC.GetAllocatedBytesForCurrentThread();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        for (int index = 0; index < 100; index++)
+        {
+            _ = CadSelectionHitTester.HitTestPoint(
+                snapshot,
+                candidate,
+                new CadPoint3D(5, 0, 0),
+                0.0);
+        }
+
+        Assert.Equal(0, GC.GetAllocatedBytesForCurrentThread() - before);
     }
 
     private static CadDocumentSnapshot Compile(
