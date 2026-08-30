@@ -604,6 +604,12 @@ uses the official device-independent `CanvasFontFace` mapping, reverse-unwraps
 the exact `IDWriteFontFaceReference`, and checks canonical COM identity before
 using Win2D-projected glyph indices for a native draw. The gate enforces an
 exact 55-export allowlist.
+GitHub Actions Build run `33326634929`, MSVC job `99297867722`, qualifies the
+ABI v20 implementation on Windows after compiling and linking both the
+provider and its native regression with the repository's warning-as-error
+policy. The focused `progpu_native_direct2d_tests` executable passes in
+0.16 seconds, all 11 native tests pass, and the successful build script also
+accepts the exact 55-symbol Direct2D export allowlist.
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
