@@ -59,6 +59,7 @@ internal static partial class Program
                     CanvasLinearGradientBrushType: null,
                     CanvasRadialGradientBrushType: null,
                     CanvasGeometryType: null,
+                    CanvasStrokeStyleType: null,
                     DrawingSessionType: null,
                     NativeDeviceIdentityMatches: null,
                     NativeBitmapIdentityMatches: null,
@@ -66,6 +67,7 @@ internal static partial class Program
                     NativeLinearGradientBrushIdentityMatches: null,
                     NativeRadialGradientBrushIdentityMatches: null,
                     NativeGeometryIdentityMatches: null,
+                    NativeStrokeStyleIdentityMatches: null,
                     SolidColorBrushColor: null,
                     LinearGradientBrushColor: null,
                     RadialGradientBrushColor: null,
@@ -376,6 +378,58 @@ internal static partial class Program
             }
             WriteProgress("geometry-roundtrip-complete");
 
+            Span<float> customDashes = stackalloc float[4]
+            {
+                2.0F,
+                1.0F,
+                0.5F,
+                1.0F
+            };
+            using ProGpuDirect2DComReference nativeStrokeStyle =
+                surface.CreateStrokeStyle(
+                    new ProGpuDirect2DStrokeStyleProperties(
+                        StartCap: ProGpuDirect2DCapStyle.Round,
+                        EndCap: ProGpuDirect2DCapStyle.Triangle,
+                        DashCap: ProGpuDirect2DCapStyle.Square,
+                        LineJoin: ProGpuDirect2DLineJoin.Bevel,
+                        MiterLimit: 6.0F,
+                        DashStyle: ProGpuDirect2DDashStyle.Custom,
+                        DashOffset: 0.5F,
+                        TransformType:
+                            ProGpuDirect2DStrokeTransformType.Fixed),
+                    customDashes);
+            if (!surface.TryAcquireMicrosoftWin2DStrokeStyle(
+                    nativeStrokeStyle,
+                    out ProGpuDirect2DComReference? wrappedStrokeStyle,
+                    out int wrappedStrokeStyleHResult) ||
+                wrappedStrokeStyle is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasStrokeStyle wrapping failed (0x{wrappedStrokeStyleHResult:X8}).");
+            }
+            using ProGpuDirect2DComReference canvasStrokeStyleReference =
+                wrappedStrokeStyle;
+            if (!surface.TryAcquireMicrosoftWin2DNativeStrokeStyle(
+                    canvasStrokeStyleReference,
+                    out ProGpuDirect2DComReference? unwrappedStrokeStyle,
+                    out int unwrappedStrokeStyleHResult) ||
+                unwrappedStrokeStyle is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasStrokeStyle native-resource interop failed (0x{unwrappedStrokeStyleHResult:X8}).");
+            }
+            using (unwrappedStrokeStyle)
+            {
+                if (!HasSameComIdentity(
+                        nativeStrokeStyle,
+                        unwrappedStrokeStyle))
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasStrokeStyle did not preserve ProGPU's ID2D1StrokeStyle1 identity.");
+                }
+            }
+            WriteProgress("stroke-style-roundtrip-complete");
+
             ulong contentVersionBefore = surface.ContentVersion;
             if (!surface.TryBeginMicrosoftWin2DProducerAccess(
                     out ProGpuMicrosoftWin2DProducerAccess? access,
@@ -392,6 +446,7 @@ internal static partial class Program
             string canvasLinearGradientBrushType;
             string canvasRadialGradientBrushType;
             string canvasGeometryType;
+            string canvasStrokeStyleType;
             string drawingSessionType;
             PixelEvidence solidColorBrushColor;
             PixelEvidence linearGradientBrushColor;
@@ -417,6 +472,9 @@ internal static partial class Program
             using (CanvasGeometry canvasGeometry =
                 CanvasGeometry.FromAbi(
                     canvasGeometryReference.DangerousGetHandle()))
+            using (CanvasStrokeStyle canvasStrokeStyle =
+                CanvasStrokeStyle.FromAbi(
+                    canvasStrokeStyleReference.DangerousGetHandle()))
             {
                 WriteProgress("canvas-projections-created");
                 canvasDeviceType = target.Device.GetType().FullName ??
@@ -477,6 +535,19 @@ internal static partial class Program
                     PixelEvidence.FromColor(projectedRadialStops[0].Color);
                 canvasGeometryType = canvasGeometry.GetType().FullName ??
                     canvasGeometry.GetType().Name;
+                canvasStrokeStyleType =
+                    canvasStrokeStyle.GetType().FullName ??
+                    canvasStrokeStyle.GetType().Name;
+                float[] projectedDashes = canvasStrokeStyle.CustomDashStyle;
+                if (projectedDashes.Length != 4 ||
+                    projectedDashes[0] != 2.0F ||
+                    projectedDashes[1] != 1.0F ||
+                    projectedDashes[2] != 0.5F ||
+                    projectedDashes[3] != 1.0F)
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasStrokeStyle custom dash metadata changed.");
+                }
                 using (CanvasDrawingSession drawingSession =
                     target.CreateDrawingSession())
                 {
@@ -506,6 +577,11 @@ internal static partial class Program
                     drawingSession.FillGeometry(
                         canvasGeometry,
                         Color.FromArgb(255, 240, 208, 32));
+                    drawingSession.DrawGeometry(
+                        canvasGeometry,
+                        Color.FromArgb(255, 32, 208, 240),
+                        2.0F,
+                        canvasStrokeStyle);
                 }
                 WriteProgress("canvas-draw-complete");
 
@@ -564,6 +640,7 @@ internal static partial class Program
                 CanvasLinearGradientBrushType: canvasLinearGradientBrushType,
                 CanvasRadialGradientBrushType: canvasRadialGradientBrushType,
                 CanvasGeometryType: canvasGeometryType,
+                CanvasStrokeStyleType: canvasStrokeStyleType,
                 DrawingSessionType: drawingSessionType,
                 NativeDeviceIdentityMatches: true,
                 NativeBitmapIdentityMatches: true,
@@ -571,6 +648,7 @@ internal static partial class Program
                 NativeLinearGradientBrushIdentityMatches: true,
                 NativeRadialGradientBrushIdentityMatches: true,
                 NativeGeometryIdentityMatches: true,
+                NativeStrokeStyleIdentityMatches: true,
                 SolidColorBrushColor: solidColorBrushColor,
                 LinearGradientBrushColor: linearGradientBrushColor,
                 RadialGradientBrushColor: radialGradientBrushColor,
@@ -741,6 +819,7 @@ internal static partial class Program
         string? CanvasLinearGradientBrushType,
         string? CanvasRadialGradientBrushType,
         string? CanvasGeometryType,
+        string? CanvasStrokeStyleType,
         string? DrawingSessionType,
         bool? NativeDeviceIdentityMatches,
         bool? NativeBitmapIdentityMatches,
@@ -748,6 +827,7 @@ internal static partial class Program
         bool? NativeLinearGradientBrushIdentityMatches,
         bool? NativeRadialGradientBrushIdentityMatches,
         bool? NativeGeometryIdentityMatches,
+        bool? NativeStrokeStyleIdentityMatches,
         PixelEvidence? SolidColorBrushColor,
         PixelEvidence? LinearGradientBrushColor,
         PixelEvidence? RadialGradientBrushColor,

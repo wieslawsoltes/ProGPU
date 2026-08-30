@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 9U;
+    internal const uint AbiVersion = 10U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -336,6 +336,18 @@ internal static unsafe partial class ProGpuDirect2DNative
         ProGpuDirect2DCombineMode combineMode,
         NativeMatrix3X2F* geometryBTransform,
         float flatteningTolerance,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_stroke_style")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceCreateStrokeStyle(
+        nint surface,
+        ProGpuDirect2DStrokeStyleProperties* properties,
+        float* dashes,
+        uint dashCount,
         nint* value,
         int* nativeHResult);
 

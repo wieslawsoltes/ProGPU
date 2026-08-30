@@ -55,7 +55,9 @@ public enum ProGpuDirect2DInterfaceKind
     D2D1EllipseGeometry = 29,
     D2D1PathGeometry1 = 30,
     D2D1TransformedGeometry = 31,
-    Win2DCanvasGeometry = 32
+    Win2DCanvasGeometry = 32,
+    D2D1StrokeStyle1 = 33,
+    Win2DCanvasStrokeStyle = 34
 }
 
 public enum ProGpuDirect2DFillMode
@@ -78,6 +80,39 @@ public enum ProGpuDirect2DCombineMode
     Intersect = 1,
     Xor = 2,
     Exclude = 3
+}
+
+public enum ProGpuDirect2DCapStyle : uint
+{
+    Flat = 0,
+    Square = 1,
+    Round = 2,
+    Triangle = 3
+}
+
+public enum ProGpuDirect2DLineJoin : uint
+{
+    Miter = 0,
+    Bevel = 1,
+    Round = 2,
+    MiterOrBevel = 3
+}
+
+public enum ProGpuDirect2DDashStyle : uint
+{
+    Solid = 0,
+    Dash = 1,
+    Dot = 2,
+    DashDot = 3,
+    DashDotDot = 4,
+    Custom = 5
+}
+
+public enum ProGpuDirect2DStrokeTransformType : uint
+{
+    Normal = 0,
+    Fixed = 1,
+    Hairline = 2
 }
 
 [Flags]
@@ -211,6 +246,22 @@ public readonly record struct ProGpuDirect2DRect(
     float Y,
     float Width,
     float Height);
+
+/// <summary>
+/// Blittable metadata for a genuine ID2D1StrokeStyle1. Custom dash values are
+/// expressed separately as a caller-owned span in CreateStrokeStyle.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct ProGpuDirect2DStrokeStyleProperties(
+    ProGpuDirect2DCapStyle StartCap = ProGpuDirect2DCapStyle.Flat,
+    ProGpuDirect2DCapStyle EndCap = ProGpuDirect2DCapStyle.Flat,
+    ProGpuDirect2DCapStyle DashCap = ProGpuDirect2DCapStyle.Flat,
+    ProGpuDirect2DLineJoin LineJoin = ProGpuDirect2DLineJoin.Miter,
+    float MiterLimit = 10.0F,
+    ProGpuDirect2DDashStyle DashStyle = ProGpuDirect2DDashStyle.Solid,
+    float DashOffset = 0.0F,
+    ProGpuDirect2DStrokeTransformType TransformType =
+        ProGpuDirect2DStrokeTransformType.Normal);
 
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct ProGpuDirect2DPathFigure(

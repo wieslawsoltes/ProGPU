@@ -516,6 +516,62 @@ int main()
                 &combined_figure_count)) && combined_figure_count != 0U,
         "provider combined geometry was unexpectedly empty");
 
+    progpu_native_direct2d_stroke_style_properties stroke_properties{};
+    stroke_properties.start_cap = PROGPU_NATIVE_DIRECT2D_CAP_STYLE_ROUND;
+    stroke_properties.end_cap = PROGPU_NATIVE_DIRECT2D_CAP_STYLE_TRIANGLE;
+    stroke_properties.dash_cap = PROGPU_NATIVE_DIRECT2D_CAP_STYLE_SQUARE;
+    stroke_properties.line_join = PROGPU_NATIVE_DIRECT2D_LINE_JOIN_BEVEL;
+    stroke_properties.miter_limit = 6.0F;
+    stroke_properties.dash_style = PROGPU_NATIVE_DIRECT2D_DASH_STYLE_CUSTOM;
+    stroke_properties.dash_offset = 0.5F;
+    stroke_properties.transform_type =
+        PROGPU_NATIVE_DIRECT2D_STROKE_TRANSFORM_FIXED;
+    float custom_dashes[] = {2.0F, 1.0F, 0.5F, 1.0F};
+    void* stroke_style_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_stroke_style(
+            surface,
+            &stroke_properties,
+            custom_dashes,
+            4U,
+            &stroke_style_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            stroke_style_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1StrokeStyle1 creation failed");
+    ComPtr<ID2D1StrokeStyle1> stroke_style;
+    stroke_style.Attach(
+        static_cast<ID2D1StrokeStyle1*>(stroke_style_value));
+    float returned_dashes[4]{};
+    stroke_style->GetDashes(returned_dashes, 4U);
+    require(stroke_style->GetStartCap() == D2D1_CAP_STYLE_ROUND &&
+            stroke_style->GetEndCap() == D2D1_CAP_STYLE_TRIANGLE &&
+            stroke_style->GetDashCap() == D2D1_CAP_STYLE_SQUARE &&
+            stroke_style->GetLineJoin() == D2D1_LINE_JOIN_BEVEL &&
+            stroke_style->GetMiterLimit() == 6.0F &&
+            stroke_style->GetDashStyle() == D2D1_DASH_STYLE_CUSTOM &&
+            stroke_style->GetDashOffset() == 0.5F &&
+            stroke_style->GetStrokeTransformType() ==
+                D2D1_STROKE_TRANSFORM_TYPE_FIXED &&
+            stroke_style->GetDashesCount() == 4U &&
+            returned_dashes[0] == 2.0F && returned_dashes[3] == 1.0F,
+        "provider ID2D1StrokeStyle1 metadata changed");
+
+    void* invalid_stroke_style_value =
+        reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_surface_create_stroke_style(
+            surface,
+            &stroke_properties,
+            nullptr,
+            0U,
+            &invalid_stroke_style_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            invalid_stroke_style_value == nullptr &&
+            native_hresult == E_INVALIDARG,
+        "custom stroke style without dashes did not fail closed");
+
     void* win2d_canvas_device_value = nullptr;
     native_hresult = E_FAIL;
     progpu_native_direct2d_status win2d_status =
@@ -756,6 +812,44 @@ int main()
                 unwrapped_geometry.Get()),
             "Win2D CanvasGeometry changed native COM identity");
 
+        void* canvas_stroke_style_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper(
+                surface,
+                stroke_style.Get(),
+                0.0F,
+                &canvas_stroke_style_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                canvas_stroke_style_value != nullptr && native_hresult == S_OK,
+            "Win2D CanvasStrokeStyle wrapping failed");
+        ComPtr<IInspectable> canvas_stroke_style;
+        canvas_stroke_style.Attach(
+            static_cast<IInspectable*>(canvas_stroke_style_value));
+        progpu_native_direct2d_guid stroke_style_id =
+            to_portable_guid(__uuidof(ID2D1StrokeStyle1));
+        void* unwrapped_stroke_style_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_win2d_wrapper_native_resource(
+                surface,
+                canvas_stroke_style.Get(),
+                0.0F,
+                &stroke_style_id,
+                &unwrapped_stroke_style_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                unwrapped_stroke_style_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D CanvasStrokeStyle native-resource query failed");
+        ComPtr<ID2D1StrokeStyle1> unwrapped_stroke_style;
+        unwrapped_stroke_style.Attach(
+            static_cast<ID2D1StrokeStyle1*>(
+                unwrapped_stroke_style_value));
+        require(has_same_com_identity(
+                stroke_style.Get(),
+                unwrapped_stroke_style.Get()),
+            "Win2D CanvasStrokeStyle changed native COM identity");
+
         progpu_native_direct2d_guid no_interface_id =
             to_portable_guid(GUID_NULL);
         void* no_interface_value =
@@ -932,7 +1026,8 @@ int main()
     context->DrawGeometry(
         combined_geometry.Get(),
         solid_brush.Get(),
-        1.0F);
+        2.0F,
+        stroke_style.Get());
     D2D1_TAG tag1 = 0U;
     D2D1_TAG tag2 = 0U;
     native_hresult = E_FAIL;
