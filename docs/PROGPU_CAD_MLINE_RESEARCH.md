@@ -7,10 +7,10 @@ Date: 2026-08-30
 This checkpoint covers immutable capture of classic `MLINE` vertices, authored
 group-41 element cuts, independent MLINESTYLE element colors, group-42 outer
 fill cuts, affine block placement, retained plan/print recording, and exact
-point/Window/Crossing selection. It deliberately rejects a whole MLINE when an
-element uses a non-continuous linetype; compound A-aligned linetype lowering,
-style joint lines, and square/round/inner-arc caps remain follow-up work. This
-gate prevents a plausible-looking but semantically reduced fallback.
+point/Window/Crossing selection, and compound A-aligned simple/complex element
+linetypes. Style joint lines and square/round/inner-arc caps remain follow-up
+work. Unsupported alignment or exhausted lowering budgets use the existing
+explicit diagnostic fallback rather than silently changing the pattern.
 
 No third-party renderer implementation was copied, ported, translated, or used
 as a source template. ACadSharp is used only through its in-repository public
@@ -63,7 +63,9 @@ Adopted:
 Adapted:
 
 - group-41 and group-42 cut distances become fixed-width double-precision WCS
-  endpoints. Recording batches strokes by style and fills by color;
+  endpoints. Each element also retains its full logical path length and visible
+  interval offsets, so dash phase continues across authored cuts. Recording
+  batches strokes by element style and fills by color;
 - affine INSERT composition transforms endpoints at capture, preserving the
   existing large-WCS rebase and one-picture replay path;
 - malformed topology is rejected transactionally, while configurable document
@@ -74,7 +76,7 @@ Rejected:
 - drawing a center polyline, assuming two symmetric elements, or ignoring
   group-41 breaks;
 - resolving all element colors/linetypes from the owning entity style;
-- drawing a patterned element continuously, synthesizing caps/joints without
+- restarting a pattern at each visible cut, synthesizing caps/joints without
   their exact contract, or regenerating paths during replay/selection/print;
 - a new shader or native ABI. Existing ProGPU `DrawPath` commands already feed
   both managed and native replay from the same retained picture, so a separate
@@ -88,10 +90,13 @@ bounded by `MaxMLineStrokes` and `MaxMLineFillTriangles`. Plan recording is
 `O(S + T)` for `S` retained strokes, produces one fill path plus at most one
 stroke path per referenced element style, and camera-only picture replay does
 not revisit ACadSharp or allocate MLINE geometry. Exact point and box selection
-are `O(S + T)` with no warm-query allocation.
+are `O(S + T)` with no warm-query allocation. Patterned elements add
+`O(Q + S + F)` work and `O(F + P)` output for `Q` pattern descriptors, `F`
+visible figures, and `P` complex placements; counting completes before output
+allocation and group-41 gaps do not reset phase.
 
 The focused suite covers cut coordinates, independent colors, fills, retained
-command batching, exact selection, nested affine blocks, explicit patterned
-element rejection, and budget failure. DXF/DWG licensed visual differentials,
-compound linetypes, joints, and all cap forms remain required before declaring
+command batching, exact selection, nested affine blocks, dash-phase continuity,
+native/print replay, DXF/DWG round trips, and budget failure. Licensed visual
+differentials, joints, and all cap forms remain required before declaring
 classic MLINE verified.

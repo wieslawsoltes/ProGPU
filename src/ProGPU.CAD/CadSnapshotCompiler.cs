@@ -158,6 +158,7 @@ public sealed partial class CadSnapshotCompiler
         var entities = new List<CadEntityHeader>(document.Entities.Count);
         var lines = new List<CadLinePrimitive>();
         var mLines = new List<CadMLinePrimitive>();
+        var mLineElementPaths = new List<CadMLineElementPath>();
         var mLineStrokes = new List<CadMLineStroke>();
         var mLineFillTriangles = new List<CadMLineFillTriangle>();
         var points = new List<CadPointPrimitive>();
@@ -298,6 +299,7 @@ public sealed partial class CadSnapshotCompiler
             entities.ToArray(),
             lines.ToArray(),
             mLines.ToArray(),
+            mLineElementPaths.ToArray(),
             mLineStrokes.ToArray(),
             mLineFillTriangles.ToArray(),
             points.ToArray(),
@@ -503,6 +505,7 @@ public sealed partial class CadSnapshotCompiler
                         effectiveLayer,
                         options,
                         mLines,
+                        mLineElementPaths,
                         mLineStrokes,
                         mLineFillTriangles,
                         styles,

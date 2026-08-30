@@ -142,6 +142,8 @@ public readonly record struct CadLinePrimitive(CadPoint3D Start, CadPoint3D End)
 /// stroke stream. Element styles remain independent, as required by MLINESTYLE.
 /// </summary>
 public readonly record struct CadMLinePrimitive(
+    int ElementPathOffset,
+    int ElementPathCount,
     int StrokeOffset,
     int StrokeCount,
     int FillTriangleOffset,
@@ -151,7 +153,19 @@ public readonly record struct CadMLinePrimitive(
 public readonly record struct CadMLineStroke(
     CadPoint3D Start,
     CadPoint3D End,
-    int StyleIndex);
+    double PathStart,
+    double PathEnd);
+
+/// <summary>
+/// One complete MLINESTYLE element path. Visible stroke intervals are ordered
+/// by PathStart; authored cuts remain gaps in the full PathLength domain.
+/// </summary>
+public readonly record struct CadMLineElementPath(
+    int StrokeOffset,
+    int StrokeCount,
+    int StyleIndex,
+    double PathLength,
+    bool IsClosed);
 
 /// <summary>One triangle from a persisted MLINE area-fill interval.</summary>
 public readonly record struct CadMLineFillTriangle(
@@ -643,6 +657,7 @@ public sealed class CadDocumentSnapshot
     private readonly CadEntityHeader[] _entities;
     private readonly CadLinePrimitive[] _lines;
     private readonly CadMLinePrimitive[] _mLines;
+    private readonly CadMLineElementPath[] _mLineElementPaths;
     private readonly CadMLineStroke[] _mLineStrokes;
     private readonly CadMLineFillTriangle[] _mLineFillTriangles;
     private readonly CadPointPrimitive[] _points;
@@ -734,6 +749,7 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadEntityHeader> Entities => _entities;
     public ReadOnlyMemory<CadLinePrimitive> Lines => _lines;
     public ReadOnlyMemory<CadMLinePrimitive> MLines => _mLines;
+    public ReadOnlyMemory<CadMLineElementPath> MLineElementPaths => _mLineElementPaths;
     public ReadOnlyMemory<CadMLineStroke> MLineStrokes => _mLineStrokes;
     public ReadOnlyMemory<CadMLineFillTriangle> MLineFillTriangles => _mLineFillTriangles;
     public ReadOnlyMemory<CadPointPrimitive> Points => _points;
@@ -809,6 +825,7 @@ public sealed class CadDocumentSnapshot
         CadEntityHeader[] entities,
         CadLinePrimitive[] lines,
         CadMLinePrimitive[] mLines,
+        CadMLineElementPath[] mLineElementPaths,
         CadMLineStroke[] mLineStrokes,
         CadMLineFillTriangle[] mLineFillTriangles,
         CadPointPrimitive[] points,
@@ -881,6 +898,7 @@ public sealed class CadDocumentSnapshot
         _entities = entities;
         _lines = lines;
         _mLines = mLines;
+        _mLineElementPaths = mLineElementPaths;
         _mLineStrokes = mLineStrokes;
         _mLineFillTriangles = mLineFillTriangles;
         _points = points;

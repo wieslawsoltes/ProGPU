@@ -423,7 +423,20 @@ public sealed class CadPlanSceneCompiler
                         pens,
                         snapshot,
                         snapshot.MLines.Span[entity.PrimitiveIndex],
-                        mtextBrushes);
+                        mtextBrushes,
+                        lineTypePatterns,
+                        options,
+                        diagnostics,
+                        warnedLineTypes,
+                        warnedLineTypeSubstitutions,
+                        ref unsupportedLineTypes,
+                        ref loweredLineTypeEntities,
+                        ref loweredLineTypeFigures,
+                        ref loweredLineTypePlacements,
+                        ref lineTypeFigureBudgetUsed,
+                        ref lineTypePatternSteps,
+                        ref lineTypeSourceSegments,
+                        ref lineTypePlacementBudgetUsed);
                     break;
                 case CadEntityKind.Circle:
                     RecordCircle(context, pen, snapshot.Circles.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
@@ -862,7 +875,20 @@ public sealed class CadPlanSceneCompiler
         Pen[] pens,
         CadDocumentSnapshot snapshot,
         CadMLinePrimitive mline,
-        Dictionary<uint, Brush> brushes)
+        Dictionary<uint, Brush> brushes,
+        ReadOnlySpan<CadLineTypePattern> lineTypePatterns,
+        CadPlanSceneOptions options,
+        List<CadDiagnostic> diagnostics,
+        HashSet<string> warnedLineTypes,
+        HashSet<string> warnedLineTypeSubstitutions,
+        ref int unsupportedLineTypes,
+        ref int loweredLineTypeEntities,
+        ref int loweredLineTypeFigures,
+        ref int loweredLineTypePlacements,
+        ref int lineTypeFigureBudgetUsed,
+        ref int lineTypePatternSteps,
+        ref int lineTypeSourceSegments,
+        ref int lineTypePlacementBudgetUsed)
     {
         ReadOnlySpan<CadMLineFillTriangle> triangles =
             snapshot.MLineFillTriangles.Span.Slice(
@@ -890,31 +916,127 @@ public sealed class CadPlanSceneCompiler
                 path);
         }
 
-        ReadOnlySpan<CadMLineStroke> strokes = snapshot.MLineStrokes.Span.Slice(
-            mline.StrokeOffset,
-            mline.StrokeCount);
-        var paths = new Dictionary<int, PathGeometry>();
-        for (int index = 0; index < strokes.Length; index++)
+        ReadOnlySpan<CadMLineElementPath> elementPaths =
+            snapshot.MLineElementPaths.Span.Slice(
+                mline.ElementPathOffset,
+                mline.ElementPathCount);
+        bool loweredAnyElement = false;
+        for (int elementIndex = 0; elementIndex < elementPaths.Length; elementIndex++)
         {
-            CadMLineStroke stroke = strokes[index];
-            if (!paths.TryGetValue(stroke.StyleIndex, out PathGeometry? path))
+            CadMLineElementPath element = elementPaths[elementIndex];
+            CadStrokeStyle style = snapshot.Styles.Span[element.StyleIndex];
+            CadLineTypePattern pattern = lineTypePatterns[style.LineTypePatternIndex];
+            if (pattern.Kind is CadLineTypePatternKind.Simple or CadLineTypePatternKind.Complex)
             {
-                path = new PathGeometry();
-                paths.Add(stroke.StyleIndex, path);
+                int remainingFigures = options.MaxLineTypeFigures - lineTypeFigureBudgetUsed;
+                int remainingSteps = options.MaxLineTypePatternSteps - lineTypePatternSteps;
+                int remainingSources = options.MaxLineTypeSourceSegments - lineTypeSourceSegments;
+                int remainingPlacements = options.MaxLineTypePlacements - lineTypePlacementBudgetUsed;
+                CadLineTypeLoweringResult result = CadLineTypeLowerer.LowerMLineElement(
+                    snapshot,
+                    element,
+                    style,
+                    pattern,
+                    Math.Max(0, remainingFigures),
+                    Math.Max(0, remainingSteps),
+                    Math.Max(0, remainingSources),
+                    Math.Max(0, remainingPlacements));
+                lineTypeFigureBudgetUsed = checked(lineTypeFigureBudgetUsed +
+                    Math.Min(Math.Max(0, remainingFigures), result.FigureCount));
+                lineTypePatternSteps = checked(lineTypePatternSteps +
+                    Math.Min(Math.Max(0, remainingSteps), result.PatternStepCount));
+                lineTypeSourceSegments = checked(lineTypeSourceSegments +
+                    Math.Min(Math.Max(0, remainingSources), result.SourceSegmentCount));
+                lineTypePlacementBudgetUsed = checked(lineTypePlacementBudgetUsed +
+                    Math.Min(Math.Max(0, remainingPlacements), result.PlacementCount));
+                if (result.Status == CadLineTypeLoweringStatus.Lowered)
+                {
+                    if (result.Path is not null)
+                    {
+                        context.DrawPath(null, pens[element.StyleIndex], result.Path);
+                    }
+                    RecordLineTypePlacements(
+                        context,
+                        pens[element.StyleIndex],
+                        snapshot,
+                        style,
+                        pattern,
+                        result);
+                    if (HasLineTypeSubstitution(snapshot, pattern) &&
+                        warnedLineTypeSubstitutions.Add(pattern.Name))
+                    {
+                        diagnostics.Add(new CadDiagnostic(
+                            CadDiagnosticSeverity.Warning,
+                            "CADSCENE003",
+                            $"Linetype '{pattern.Name}' uses a host-resolved text or SHX substitution."));
+                    }
+                    loweredAnyElement = true;
+                    loweredLineTypeFigures = checked(loweredLineTypeFigures + result.FigureCount);
+                    loweredLineTypePlacements = checked(loweredLineTypePlacements + result.PlacementCount);
+                    continue;
+                }
+                if (result.Status != CadLineTypeLoweringStatus.Continuous)
+                {
+                    string reason = result.Status switch
+                    {
+                        CadLineTypeLoweringStatus.FigureLimitExceeded =>
+                            $"the configured {options.MaxLineTypeFigures}-figure document limit was reached",
+                        CadLineTypeLoweringStatus.PatternStepLimitExceeded =>
+                            $"the configured {options.MaxLineTypePatternSteps}-step pattern traversal limit was reached",
+                        CadLineTypeLoweringStatus.SourceSegmentLimitExceeded =>
+                            $"the configured {options.MaxLineTypeSourceSegments}-segment document traversal limit was reached",
+                        CadLineTypeLoweringStatus.PlacementLimitExceeded =>
+                            $"the configured {options.MaxLineTypePlacements}-placement document limit was reached",
+                        _ => "an embedded text/shape resource is unresolved",
+                    };
+                    string key = $"{pattern.Name}\0{reason}";
+                    if (warnedLineTypes.Add(key))
+                    {
+                        unsupportedLineTypes++;
+                        diagnostics.Add(new CadDiagnostic(
+                            CadDiagnosticSeverity.Warning,
+                            "CADSCENE002",
+                            $"Linetype '{pattern.Name}' is recorded as a continuous stroke because {reason}."));
+                    }
+                }
             }
-            var figure = new PathFigure(
-                Project(stroke.Start, snapshot.RebaseOrigin),
-                isClosed: false)
+            else if (pattern.Kind != CadLineTypePatternKind.Continuous)
             {
-                IsFilled = false,
-            };
-            figure.Segments.Add(new LineSegment(
-                Project(stroke.End, snapshot.RebaseOrigin)));
-            path.Figures.Add(figure);
+                string reason = pattern.Kind == CadLineTypePatternKind.Complex
+                    ? "embedded text/shape elements require complex-linetype lowering"
+                    : $"alignment '{pattern.Alignment}' is not the documented AutoCAD A alignment";
+                string key = $"{pattern.Name}\0{reason}";
+                if (warnedLineTypes.Add(key))
+                {
+                    unsupportedLineTypes++;
+                    diagnostics.Add(new CadDiagnostic(
+                        CadDiagnosticSeverity.Warning,
+                        "CADSCENE001",
+                        $"Linetype '{pattern.Name}' is recorded as a continuous stroke because {reason}."));
+                }
+            }
+            ReadOnlySpan<CadMLineStroke> strokes = snapshot.MLineStrokes.Span.Slice(
+                element.StrokeOffset,
+                element.StrokeCount);
+            var path = new PathGeometry();
+            for (int index = 0; index < strokes.Length; index++)
+            {
+                CadMLineStroke stroke = strokes[index];
+                var figure = new PathFigure(
+                    Project(stroke.Start, snapshot.RebaseOrigin),
+                    isClosed: false)
+                {
+                    IsFilled = false,
+                };
+                figure.Segments.Add(new LineSegment(
+                    Project(stroke.End, snapshot.RebaseOrigin)));
+                path.Figures.Add(figure);
+            }
+            context.DrawPath(null, pens[element.StyleIndex], path);
         }
-        foreach ((int styleIndex, PathGeometry path) in paths)
+        if (loweredAnyElement)
         {
-            context.DrawPath(null, pens[styleIndex], path);
+            loweredLineTypeEntities++;
         }
     }
 

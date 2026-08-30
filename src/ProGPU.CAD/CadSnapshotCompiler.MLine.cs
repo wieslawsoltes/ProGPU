@@ -24,6 +24,7 @@ public sealed partial class CadSnapshotCompiler
         Layer effectiveLayer,
         CadSnapshotOptions options,
         List<CadMLinePrimitive> primitives,
+        List<CadMLineElementPath> elementPaths,
         List<CadMLineStroke> strokes,
         List<CadMLineFillTriangle> fillTriangles,
         List<CadStrokeStyle> styles,
@@ -52,6 +53,7 @@ public sealed partial class CadSnapshotCompiler
         bool closed = (source.Flags & MLineFlags.Closed) != 0;
         int sourceSegmentCount = closed ? source.Vertices.Count : source.Vertices.Count - 1;
         int strokeStart = strokes.Count;
+        int elementPathStart = elementPaths.Count;
         int fillStart = fillTriangles.Count;
         int primitiveIndex = primitives.Count;
         CadBounds3D bounds = CadBounds3D.Empty;
@@ -75,11 +77,6 @@ public sealed partial class CadSnapshotCompiler
                     StringComparison.OrdinalIgnoreCase)
                     ? entityStyle.LineType
                     : element.LineType;
-            if (!IsContinuousLineTypeName(lineType.Name))
-            {
-                throw new CadUnsupportedEntityException(
-                    $"MLINE element {elementIndex} uses linetype '{lineType.Name}'; compound A-aligned linetype lowering is not yet available.");
-            }
             elementStyleIndices[elementIndex] = InternStyle(
                 entityStyle with { Color = color, LineType = lineType },
                 styles,
@@ -114,29 +111,32 @@ public sealed partial class CadSnapshotCompiler
 
         try
         {
-            for (int vertexIndex = 0; vertexIndex < sourceSegmentCount; vertexIndex++)
+            for (int vertexIndex = 0; vertexIndex < source.Vertices.Count; vertexIndex++)
             {
-                MLine.Vertex startVertex = source.Vertices[vertexIndex];
-                MLine.Vertex endVertex = source.Vertices[(vertexIndex + 1) % source.Vertices.Count];
-                if (startVertex.Segments.Count != elements.Length ||
-                    endVertex.Segments.Count != elements.Length)
+                if (source.Vertices[vertexIndex].Segments.Count != elements.Length)
                 {
                     throw new ArgumentException(
                         "Every MLINE vertex must contain one parameter set per style element.");
                 }
+            }
 
-                CadPoint3D direction = ToPoint(startVertex.Direction).Normalize();
-                CadPoint3D startPosition = ToPoint(startVertex.Position);
-                CadPoint3D endPosition = ToPoint(endVertex.Position);
-                CadPoint3D startMiter = ToPoint(startVertex.Miter);
-                CadPoint3D endMiter = ToPoint(endVertex.Miter);
-                EnsureFinite(startPosition);
-                EnsureFinite(endPosition);
-                EnsureFinite(startMiter);
-                EnsureFinite(endMiter);
-
-                for (int elementIndex = 0; elementIndex < elements.Length; elementIndex++)
+            for (int elementIndex = 0; elementIndex < elements.Length; elementIndex++)
+            {
+                int elementStrokeStart = strokes.Count;
+                double pathLength = 0.0;
+                for (int vertexIndex = 0; vertexIndex < sourceSegmentCount; vertexIndex++)
                 {
+                    MLine.Vertex startVertex = source.Vertices[vertexIndex];
+                    MLine.Vertex endVertex = source.Vertices[(vertexIndex + 1) % source.Vertices.Count];
+                    CadPoint3D direction = ToPoint(startVertex.Direction).Normalize();
+                    CadPoint3D startPosition = ToPoint(startVertex.Position);
+                    CadPoint3D endPosition = ToPoint(endVertex.Position);
+                    CadPoint3D startMiter = ToPoint(startVertex.Miter);
+                    CadPoint3D endMiter = ToPoint(endVertex.Miter);
+                    EnsureFinite(startPosition);
+                    EnsureFinite(endPosition);
+                    EnsureFinite(startMiter);
+                    EnsureFinite(endMiter);
                     MLine.Vertex.Segment startParameters = startVertex.Segments[elementIndex];
                     MLine.Vertex.Segment endParameters = endVertex.Segments[elementIndex];
                     ValidateMLineParameters(startParameters.Parameters, requireStart: true);
@@ -157,21 +157,45 @@ public sealed partial class CadSnapshotCompiler
                         direction,
                         terminal,
                         startParameters.Parameters,
-                        elementStyleIndices[elementIndex],
+                        pathLength,
                         transform,
                         hasTransform,
                         options.MaxMLineStrokes,
                         strokes,
                         ref bounds);
+                    CadPoint3D worldStartAnchor = hasTransform
+                        ? transform.TransformPoint(startAnchor)
+                        : startAnchor;
+                    CadPoint3D worldEndAnchor = hasTransform
+                        ? transform.TransformPoint(endAnchor)
+                        : endAnchor;
+                    double worldLength = (worldEndAnchor - worldStartAnchor).Length;
+                    if (!double.IsFinite(worldLength))
+                    {
+                        throw new ArithmeticException("MLINE path length exceeds the supported numeric range.");
+                    }
+                    pathLength += worldLength;
                 }
 
+                elementPaths.Add(new CadMLineElementPath(
+                    elementStrokeStart,
+                    strokes.Count - elementStrokeStart,
+                    elementStyleIndices[elementIndex],
+                    pathLength,
+                    closed));
+            }
+
+            for (int vertexIndex = 0; vertexIndex < sourceSegmentCount; vertexIndex++)
+            {
                 if ((style.Flags & MLineStyleFlags.FillOn) != 0)
                 {
+                    MLine.Vertex startVertex = source.Vertices[vertexIndex];
+                    MLine.Vertex endVertex = source.Vertices[(vertexIndex + 1) % source.Vertices.Count];
                     AppendMLineFill(
                         startVertex,
                         endVertex,
                         elements,
-                        direction,
+                        ToPoint(startVertex.Direction).Normalize(),
                         transform,
                         hasTransform,
                         retainedFillColor,
@@ -187,6 +211,8 @@ public sealed partial class CadSnapshotCompiler
             }
 
             primitives.Add(new CadMLinePrimitive(
+                elementPathStart,
+                elementPaths.Count - elementPathStart,
                 strokeStart,
                 strokes.Count - strokeStart,
                 fillStart,
@@ -201,6 +227,10 @@ public sealed partial class CadSnapshotCompiler
         }
         catch
         {
+            if (elementPaths.Count > elementPathStart)
+            {
+                elementPaths.RemoveRange(elementPathStart, elementPaths.Count - elementPathStart);
+            }
             if (strokes.Count > strokeStart)
             {
                 strokes.RemoveRange(strokeStart, strokes.Count - strokeStart);
@@ -218,7 +248,7 @@ public sealed partial class CadSnapshotCompiler
         CadPoint3D direction,
         double terminal,
         IReadOnlyList<double> parameters,
-        int styleIndex,
+        double pathBase,
         CadAffineTransform3D transform,
         bool hasTransform,
         int limit,
@@ -237,7 +267,7 @@ public sealed partial class CadSnapshotCompiler
             }
             if (draws && endpoint > intervalStart)
             {
-                AppendMLineStroke(anchor, direction, intervalStart, endpoint, styleIndex,
+                AppendMLineStroke(anchor, direction, intervalStart, endpoint, pathBase,
                     transform, hasTransform, limit, destination, ref bounds);
             }
             intervalStart = endpoint;
@@ -245,7 +275,7 @@ public sealed partial class CadSnapshotCompiler
         }
         if (draws && terminal > intervalStart)
         {
-            AppendMLineStroke(anchor, direction, intervalStart, terminal, styleIndex,
+            AppendMLineStroke(anchor, direction, intervalStart, terminal, pathBase,
                 transform, hasTransform, limit, destination, ref bounds);
         }
     }
@@ -255,7 +285,7 @@ public sealed partial class CadSnapshotCompiler
         CadPoint3D direction,
         double startDistance,
         double endDistance,
-        int styleIndex,
+        double pathBase,
         CadAffineTransform3D transform,
         bool hasTransform,
         int limit,
@@ -269,14 +299,20 @@ public sealed partial class CadSnapshotCompiler
         }
         CadPoint3D start = anchor + (direction * startDistance);
         CadPoint3D end = anchor + (direction * endDistance);
+        CadPoint3D pathAnchor = anchor;
         if (hasTransform)
         {
             start = transform.TransformPoint(start);
             end = transform.TransformPoint(end);
+            pathAnchor = transform.TransformPoint(pathAnchor);
         }
         EnsureFinite(start);
         EnsureFinite(end);
-        destination.Add(new CadMLineStroke(start, end, styleIndex));
+        destination.Add(new CadMLineStroke(
+            start,
+            end,
+            pathBase + (start - pathAnchor).Length,
+            pathBase + (end - pathAnchor).Length));
         bounds = bounds.Include(start).Include(end);
     }
 

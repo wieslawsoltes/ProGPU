@@ -288,6 +288,242 @@ internal static class CadLineTypeLowerer
         return result with { SourceSegmentCount = sourceSegmentCount };
     }
 
+    /// <summary>
+    /// Lowers one logical MLINESTYLE element while intersecting pattern spans
+    /// with its persisted visible cut intervals. Dash phase is evaluated over
+    /// the complete element path and therefore does not restart at group-41 cuts.
+    /// </summary>
+    /// <remarks>
+    /// For Q pattern descriptors and S retained visible intervals, work is
+    /// O(Q + S + F) and output is O(F + P) for F figures and P complex
+    /// placements. The two linear passes are bounded before allocation.
+    /// </remarks>
+    internal static CadLineTypeLoweringResult LowerMLineElement(
+        CadDocumentSnapshot snapshot,
+        in CadMLineElementPath elementPath,
+        in CadStrokeStyle style,
+        in CadLineTypePattern pattern,
+        int maxFigures,
+        int maxPatternSteps,
+        int maxSourceSegments,
+        int maxPlacements)
+    {
+        ReadOnlySpan<CadLineTypeElement> elements = snapshot.LineTypeElements.Span.Slice(
+            pattern.ElementOffset,
+            pattern.ElementCount);
+        if (HasUnresolvedComplexElement(elements))
+        {
+            return new CadLineTypeLoweringResult(
+                CadLineTypeLoweringStatus.UnresolvedComplexElement,
+                null,
+                Matrix4x4.Identity,
+                0,
+                0,
+                elementPath.StrokeCount);
+        }
+        if (!NeedsLowering(elements))
+        {
+            return new CadLineTypeLoweringResult(
+                CadLineTypeLoweringStatus.Continuous,
+                null,
+                Matrix4x4.Identity,
+                0,
+                0,
+                elementPath.StrokeCount);
+        }
+        if (elementPath.StrokeCount > maxSourceSegments)
+        {
+            return new CadLineTypeLoweringResult(
+                CadLineTypeLoweringStatus.SourceSegmentLimitExceeded,
+                null,
+                Matrix4x4.Identity,
+                0,
+                0,
+                elementPath.StrokeCount);
+        }
+
+        ReadOnlySpan<CadMLineStroke> strokes = snapshot.MLineStrokes.Span.Slice(
+            elementPath.StrokeOffset,
+            elementPath.StrokeCount);
+        CadLineTypeLoweringStatus countStatus = CountMLinePatternIntersections(
+            strokes,
+            elementPath.PathLength,
+            elementPath.IsClosed,
+            elements,
+            pattern.PatternLength,
+            style.LineTypeScale,
+            maxFigures,
+            maxPatternSteps,
+            maxPlacements,
+            out int figureCount,
+            out int placementCount,
+            out int patternStepCount);
+        if (countStatus != CadLineTypeLoweringStatus.Lowered)
+        {
+            return new CadLineTypeLoweringResult(
+                countStatus,
+                null,
+                Matrix4x4.Identity,
+                figureCount,
+                patternStepCount,
+                elementPath.StrokeCount,
+                null,
+                placementCount);
+        }
+
+        var path = new PathGeometry();
+        CadLineTypePlacement[] placements = placementCount == 0
+            ? []
+            : new CadLineTypePlacement[placementCount];
+        int placementIndex = 0;
+        int strokeIndex = 0;
+        var spans = new PatternSpanEnumerator(
+            elementPath.PathLength,
+            elementPath.IsClosed,
+            elements,
+            pattern.PatternLength,
+            style.LineTypeScale,
+            int.MaxValue);
+        while (spans.MoveNext())
+        {
+            PatternSpan span = spans.Current;
+            while (strokeIndex < strokes.Length &&
+                strokes[strokeIndex].PathEnd < span.Start)
+            {
+                strokeIndex++;
+            }
+            for (int scan = strokeIndex; scan < strokes.Length; scan++)
+            {
+                CadMLineStroke stroke = strokes[scan];
+                if (stroke.PathStart > span.End)
+                {
+                    break;
+                }
+                double start = Math.Max(span.Start, stroke.PathStart);
+                double end = Math.Min(span.End, stroke.PathEnd);
+                if (span.IsContent)
+                {
+                    if (span.Start >= stroke.PathStart && span.Start <= stroke.PathEnd)
+                    {
+                        Vector2 origin = EvaluateMLineStroke(snapshot, stroke, span.Start);
+                        Vector2 tangent = Project(stroke.End, snapshot.RebaseOrigin) -
+                            Project(stroke.Start, snapshot.RebaseOrigin);
+                        placements[placementIndex++] = new CadLineTypePlacement(
+                            span.ElementIndex,
+                            origin,
+                            Vector2.Normalize(tangent));
+                        break;
+                    }
+                }
+                else if (end > start || (span.IsPoint && end >= start))
+                {
+                    Vector2 first = EvaluateMLineStroke(snapshot, stroke, start);
+                    Vector2 last = span.IsPoint
+                        ? first
+                        : EvaluateMLineStroke(snapshot, stroke, end);
+                    var figure = new PathFigure(first)
+                    {
+                        IsFilled = false,
+                        IsClosed = false,
+                    };
+                    figure.Segments.Add(new LineSegment(last));
+                    path.Figures.Add(figure);
+                }
+            }
+        }
+
+        return new CadLineTypeLoweringResult(
+            CadLineTypeLoweringStatus.Lowered,
+            path,
+            Matrix4x4.Identity,
+            figureCount,
+            patternStepCount,
+            elementPath.StrokeCount,
+            placements,
+            placementCount);
+    }
+
+    private static CadLineTypeLoweringStatus CountMLinePatternIntersections(
+        ReadOnlySpan<CadMLineStroke> strokes,
+        double pathLength,
+        bool isClosed,
+        ReadOnlySpan<CadLineTypeElement> elements,
+        double patternLength,
+        double scale,
+        int maxFigures,
+        int maxPatternSteps,
+        int maxPlacements,
+        out int figureCount,
+        out int placementCount,
+        out int patternStepCount)
+    {
+        figureCount = 0;
+        placementCount = 0;
+        int strokeIndex = 0;
+        var spans = new PatternSpanEnumerator(
+            pathLength,
+            isClosed,
+            elements,
+            patternLength,
+            scale,
+            maxPatternSteps);
+        while (spans.MoveNext())
+        {
+            PatternSpan span = spans.Current;
+            while (strokeIndex < strokes.Length && strokes[strokeIndex].PathEnd < span.Start)
+            {
+                strokeIndex++;
+            }
+            for (int scan = strokeIndex; scan < strokes.Length; scan++)
+            {
+                CadMLineStroke stroke = strokes[scan];
+                if (stroke.PathStart > span.End)
+                {
+                    break;
+                }
+                double start = Math.Max(span.Start, stroke.PathStart);
+                double end = Math.Min(span.End, stroke.PathEnd);
+                if (span.IsContent)
+                {
+                    if (span.Start >= stroke.PathStart && span.Start <= stroke.PathEnd)
+                    {
+                        if (++placementCount > maxPlacements)
+                        {
+                            patternStepCount = spans.PatternStepCount;
+                            return CadLineTypeLoweringStatus.PlacementLimitExceeded;
+                        }
+                        break;
+                    }
+                }
+                else if (end > start || (span.IsPoint && end >= start))
+                {
+                    if (++figureCount > maxFigures)
+                    {
+                        patternStepCount = spans.PatternStepCount;
+                        return CadLineTypeLoweringStatus.FigureLimitExceeded;
+                    }
+                }
+            }
+        }
+        patternStepCount = spans.PatternStepCount;
+        return spans.PatternStepLimitExceeded
+            ? CadLineTypeLoweringStatus.PatternStepLimitExceeded
+            : CadLineTypeLoweringStatus.Lowered;
+    }
+
+    private static Vector2 EvaluateMLineStroke(
+        CadDocumentSnapshot snapshot,
+        in CadMLineStroke stroke,
+        double distance)
+    {
+        double length = stroke.PathEnd - stroke.PathStart;
+        double amount = length <= 0.0
+            ? 0.0
+            : Math.Clamp((distance - stroke.PathStart) / length, 0.0, 1.0);
+        CadPoint3D point = stroke.Start + ((stroke.End - stroke.Start) * amount);
+        return Project(point, snapshot.RebaseOrigin);
+    }
+
     private static int GetSourceSegmentCount(
         CadDocumentSnapshot snapshot,
         in CadEntityHeader entity) =>

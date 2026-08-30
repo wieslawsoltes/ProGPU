@@ -29,9 +29,10 @@ public sealed class CadMLineTests
         Assert.Equal(new CadPoint3D(2, 1, 0), strokes[0].End);
         Assert.Equal(new CadPoint3D(4, 1, 0), strokes[1].Start);
         Assert.Equal(new CadPoint3D(10, 1, 0), strokes[1].End);
-        Assert.NotEqual(strokes[0].StyleIndex, strokes[2].StyleIndex);
-        Assert.Equal((byte)255, snapshot.Styles.Span[strokes[0].StyleIndex].Red);
-        Assert.Equal((byte)255, snapshot.Styles.Span[strokes[2].StyleIndex].Blue);
+        CadMLineElementPath[] elements = snapshot.MLineElementPaths.ToArray();
+        Assert.NotEqual(elements[0].StyleIndex, elements[1].StyleIndex);
+        Assert.Equal((byte)255, snapshot.Styles.Span[elements[0].StyleIndex].Red);
+        Assert.Equal((byte)255, snapshot.Styles.Span[elements[1].StyleIndex].Blue);
     }
 
     [Fact]
@@ -104,25 +105,58 @@ public sealed class CadMLineTests
     }
 
     [Fact]
-    public void NonContinuousElementIsExplicitlyUnsupported()
+    public void PatternedElementPreservesDashPhaseAcrossPersistedCuts()
     {
         var document = new CadDocument();
         var dashed = new LineType("MLINE_DASH");
+        dashed.AddSegment(new LineType.Segment { Length = 2.0 });
+        dashed.AddSegment(new LineType.Segment { Length = -2.0 });
+        document.LineTypes.Add(dashed);
+        MLine source = CreateMLine(
+            fill: false,
+            cutParameters: [1.0, 0.0, 2.0, 4.0]);
+        source.Style.Elements.First().LineType = dashed;
+        document.Entities.Add(source);
+
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+
+        Assert.Single(snapshot.Entities.ToArray());
+        Assert.Equal(1, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(3, scene.Statistics.LoweredLineTypeFigureCount);
+        Assert.Equal(2, scene.Statistics.RecordedCommandCount);
+        RenderCommand patterned = scene.DrawingContext.Commands[0];
+        Assert.Equal(3, patterned.Path!.Figures.Count);
+        Assert.Equal(new System.Numerics.Vector2(-5, 1), patterned.Path.Figures[0].StartPoint);
+        Assert.Equal(new System.Numerics.Vector2(-1, 1), patterned.Path.Figures[1].StartPoint);
+        Assert.Equal(new System.Numerics.Vector2(3, 1), patterned.Path.Figures[2].StartPoint);
+    }
+
+    [Fact]
+    public void PatternFigureBudgetFallsBackWithExplicitDiagnostic()
+    {
+        var document = new CadDocument();
+        var dashed = new LineType("MLINE_DENSE");
         dashed.AddSegment(new LineType.Segment { Length = 1.0 });
         dashed.AddSegment(new LineType.Segment { Length = -1.0 });
         document.LineTypes.Add(dashed);
         MLine source = CreateMLine(fill: false);
         source.Style.Elements.First().LineType = dashed;
         document.Entities.Add(source);
-
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
             new CadDocumentSession(document));
 
-        Assert.Empty(snapshot.Entities.ToArray());
-        Assert.Equal(1, snapshot.Statistics.UnsupportedEntityCount);
-        Assert.Contains(snapshot.Diagnostics.ToArray(), diagnostic =>
-            diagnostic.Code == "CADSNAP003" &&
-            diagnostic.Message.Contains("compound A-aligned", StringComparison.Ordinal));
+        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(
+            snapshot,
+            new CadPlanSceneOptions { MaxLineTypeFigures = 2 });
+
+        Assert.Equal(1, scene.Statistics.UnsupportedLineTypeCount);
+        Assert.Equal(0, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Contains(scene.Diagnostics.ToArray(), diagnostic =>
+            diagnostic.Code == "CADSCENE002" &&
+            diagnostic.Message.Contains("figure", StringComparison.Ordinal));
+        Assert.Equal(2, scene.Statistics.RecordedCommandCount);
     }
 
     [Fact]
