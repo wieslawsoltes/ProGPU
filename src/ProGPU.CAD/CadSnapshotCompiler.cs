@@ -428,6 +428,18 @@ public sealed partial class CadSnapshotCompiler
                     byBlockStyle,
                     options,
                     globalLineTypeScale);
+                if (entity is TableEntity table)
+                {
+                    CompileTable(
+                        table,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        depth);
+                    return;
+                }
                 if (entity is Insert insert)
                 {
                     CompileInsert(
@@ -829,6 +841,39 @@ public sealed partial class CadSnapshotCompiler
         {
             resolvedRasterImageSettings ??= ResolveRasterImageDisplaySettings(document);
             return resolvedRasterImageSettings.Value;
+        }
+
+        void CompileTable(
+            TableEntity table,
+            CadAffineTransform3D parentTransform,
+            bool parentHasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle resolvedStyle,
+            int depth)
+        {
+            BlockRecord block = table.Block ?? throw new ArgumentException(
+                "TABLE has no persisted table-cache block.");
+            if (block.Entities.Count == 0)
+            {
+                throw new CadUnsupportedEntityException(
+                    "TABLE persisted table-cache block is empty; cell layout regeneration is intentionally not performed during snapshot capture.");
+            }
+
+            // ACAD_TABLE derives from AcDbBlockReference and group 343 owns the
+            // anonymous *T display cache. Expanding that cache preserves cell
+            // borders, fills, formatted text, fields, and block-cell graphics
+            // without maintaining a second table layout engine. The ordinary
+            // INSERT path supplies bounded nesting, XRef/dynamic-block rejection,
+            // affine placement, ByBlock inheritance, and semantic root handles.
+            CompileInsert(
+                table,
+                parentTransform,
+                parentHasTransform,
+                rootHandle,
+                effectiveLayer,
+                resolvedStyle,
+                depth);
         }
 
         void CompileInsert(

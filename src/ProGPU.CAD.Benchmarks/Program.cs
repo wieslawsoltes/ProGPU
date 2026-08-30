@@ -25,6 +25,7 @@ int attributeInsertCount = ReadNonNegativeInt("--attribute-inserts", 0);
 AttributeVisibilityMode attributeDisplayMode = ReadAttributeDisplayMode();
 int dimensionEntityCount = ReadNonNegativeInt("--dimension-entities", 0);
 int toleranceEntityCount = ReadNonNegativeInt("--tolerance-entities", 0);
+int tableEntityCount = ReadNonNegativeInt("--table-entities", 0);
 int thickSolidEntityCount = ReadNonNegativeInt("--thick-solid-entities", 0);
 int meshEntityCount = ReadNonNegativeInt("--mesh-entities", 0);
 int meshSubdivisionLevel = ReadNonNegativeInt("--mesh-subdivision-level", 0);
@@ -61,21 +62,21 @@ string? outputPath = ReadString("--output-json");
 if (entityCount == 0 && blockArrayColumnCount == 0 && textEntityCount == 0 &&
     mtextEntityCount == 0 && shxTextEntityCount == 0 && shxMTextEntityCount == 0 &&
     attributeInsertCount == 0 && dimensionEntityCount == 0 &&
-    toleranceEntityCount == 0 &&
+    toleranceEntityCount == 0 && tableEntityCount == 0 &&
     thickSolidEntityCount == 0 && meshEntityCount == 0 &&
     polygonMeshEntityCount == 0 && polyfaceMeshEntityCount == 0 &&
     pointEntityCount == 0 && constructionLineCount == 0 &&
     solidHatchCount == 0 && patternHatchCount == 0)
 {
     throw new ArgumentException(
-        "At least one ordinary entity, block-array column, text entity, attributed INSERT, DIMENSION, thick SOLID, MESH, HATCH, or WIPEOUT is required.");
+        "At least one ordinary entity, block-array column, text entity, attributed INSERT, DIMENSION, TOLERANCE, TABLE, thick SOLID, MESH, HATCH, or WIPEOUT is required.");
 }
 
 if (useWipeouts &&
     (entityCount == 0 || blockArrayColumnCount != 0 || textEntityCount != 0 ||
      mtextEntityCount != 0 || shxTextEntityCount != 0 || shxMTextEntityCount != 0 ||
      attributeInsertCount != 0 || dimensionEntityCount != 0 ||
-     toleranceEntityCount != 0 ||
+     toleranceEntityCount != 0 || tableEntityCount != 0 ||
      thickSolidEntityCount != 0 || meshEntityCount != 0 ||
      polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 ||
      pointEntityCount != 0 || constructionLineCount != 0 ||
@@ -99,7 +100,7 @@ if (freezeAlternatingEntityLayers &&
     (entityCount == 0 || blockArrayColumnCount != 0 || textEntityCount != 0 ||
      mtextEntityCount != 0 || shxTextEntityCount != 0 || shxMTextEntityCount != 0 ||
      attributeInsertCount != 0 || dimensionEntityCount != 0 ||
-     toleranceEntityCount != 0 ||
+     toleranceEntityCount != 0 || tableEntityCount != 0 ||
      thickSolidEntityCount != 0 || meshEntityCount != 0 ||
      polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 ||
      pointEntityCount != 0 || constructionLineCount != 0 ||
@@ -129,7 +130,7 @@ if (measureSplineSelection &&
     (entityCount == 0 || blockArrayColumnCount != 0 ||
      textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
      shxMTextEntityCount != 0 || attributeInsertCount != 0 ||
-     dimensionEntityCount != 0 || toleranceEntityCount != 0 ||
+     dimensionEntityCount != 0 || toleranceEntityCount != 0 || tableEntityCount != 0 ||
      thickSolidEntityCount != 0 || meshEntityCount != 0 ||
      polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 || pointEntityCount != 0 ||
      constructionLineCount != 0 ||
@@ -141,7 +142,7 @@ if (measureSplineSelection &&
 if (measureTextSelection &&
     (entityCount != 0 || blockArrayColumnCount != 0 || solidHatchCount != 0 ||
      patternHatchCount != 0 || dimensionEntityCount != 0 ||
-     toleranceEntityCount != 0 ||
+     toleranceEntityCount != 0 || tableEntityCount != 0 ||
      thickSolidEntityCount != 0 || meshEntityCount != 0 ||
      polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 || pointEntityCount != 0 ||
      constructionLineCount != 0 ||
@@ -163,7 +164,7 @@ if (measureHatchSelection &&
      entityCount != 0 || blockArrayColumnCount != 0 ||
      textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
      shxMTextEntityCount != 0 || attributeInsertCount != 0 ||
-     dimensionEntityCount != 0 || toleranceEntityCount != 0 ||
+     dimensionEntityCount != 0 || toleranceEntityCount != 0 || tableEntityCount != 0 ||
      thickSolidEntityCount != 0 || meshEntityCount != 0 ||
      polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 || pointEntityCount != 0 ||
      constructionLineCount != 0))
@@ -208,6 +209,7 @@ CadDocumentSession session = CreateDocument(
     attributeDisplayMode,
     dimensionEntityCount,
     toleranceEntityCount,
+    tableEntityCount,
     thickSolidEntityCount,
     meshEntityCount,
     meshSubdivisionLevel,
@@ -273,7 +275,7 @@ CadSnapshotOptions snapshotOptions = new()
 {
     TextFontResolver = textEntityCount == 0 && mtextEntityCount == 0 &&
         attributeInsertCount == 0 && dimensionEntityCount == 0 &&
-        toleranceEntityCount == 0 &&
+        toleranceEntityCount == 0 && tableEntityCount == 0 &&
         !lowerComplexLineTypes
         ? null
         : new BenchmarkTextFontResolver(InterFontFamily.Regular),
@@ -430,6 +432,7 @@ var report = new CadBenchmarkReport(
     attributeDisplayMode,
     dimensionEntityCount,
     toleranceEntityCount,
+    tableEntityCount,
     thickSolidEntityCount,
     meshEntityCount,
     meshSubdivisionLevel,
@@ -510,6 +513,7 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         attributeInsertCount +
         dimensionEntityCount +
         toleranceEntityCount +
+        tableEntityCount +
         thickSolidEntityCount +
         meshEntityCount +
         polygonMeshEntityCount +
@@ -529,6 +533,7 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
             (attributeDisplayMode == AttributeVisibilityMode.None ? 1 : 2)) +
         (dimensionEntityCount * 6) +
         toleranceEntityCount +
+        (tableEntityCount * 8) +
         thickSolidEntityCount +
         (meshEntityCount * checked(1 + (6 * Pow4(meshSubdivisionLevel)))) +
         (polygonMeshEntityCount * 13) +
@@ -583,6 +588,7 @@ CadDocumentSession CreateDocument(
     AttributeVisibilityMode attributeVisibility,
     int dimensionCount,
     int toleranceCount,
+    int tableCount,
     int thickSolidCount,
     int meshCount,
     int meshSubdivision,
@@ -985,6 +991,48 @@ CadDocumentSession CreateDocument(
                         (i / 100) * 6.0,
                         0.0),
                     Direction = XYZ.AxisX,
+                    Normal = XYZ.AxisZ,
+                });
+            }
+        }
+
+        if (tableCount > 0)
+        {
+            var textStyle = new TextStyle("INTER_TABLE")
+            {
+                Filename = "Inter.ttf",
+            };
+            document.TextStyles.Add(textStyle);
+            for (int i = 0; i < tableCount; i++)
+            {
+                var cache = new BlockRecord($"*T_BENCHMARK_{i}")
+                {
+                    IsAnonymous = true,
+                };
+                cache.Entities.Add(new Line(XYZ.Zero, new XYZ(40, 0, 0)));
+                cache.Entities.Add(new Line(new XYZ(40, 0, 0), new XYZ(40, 6, 0)));
+                cache.Entities.Add(new Line(new XYZ(40, 6, 0), new XYZ(0, 6, 0)));
+                cache.Entities.Add(new Line(new XYZ(0, 6, 0), XYZ.Zero));
+                cache.Entities.Add(new Line(new XYZ(0, 3, 0), new XYZ(40, 3, 0)));
+                cache.Entities.Add(new Solid(
+                    new XYZ(0, 3, 0),
+                    new XYZ(40, 3, 0),
+                    new XYZ(0, 6, 0),
+                    new XYZ(40, 6, 0)));
+                cache.Entities.Add(new MText($"TABLE {i:D6}")
+                {
+                    Style = textStyle,
+                    InsertPoint = new XYZ(1, 5, 0),
+                    Height = 2.0,
+                });
+                document.BlockRecords.Add(cache);
+                document.Entities.Add(new TableEntity(cache)
+                {
+                    InsertPoint = new XYZ(
+                        (i % 100) * 48.0,
+                        (i / 100) * 9.0,
+                        0.0),
+                    HorizontalDirection = XYZ.AxisX,
                     Normal = XYZ.AxisZ,
                 });
             }
@@ -1813,6 +1861,7 @@ internal sealed record CadBenchmarkReport(
     AttributeVisibilityMode AttributeDisplayMode,
     int DimensionEntityCount,
     int ToleranceEntityCount,
+    int TableEntityCount,
     int ThickSolidEntityCount,
     int MeshEntityCount,
     int MeshSubdivisionLevel,
