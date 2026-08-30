@@ -28,6 +28,7 @@ public enum CadEntityKind : byte
     Wipeout = 21,
     RasterImage = 22,
     ModelerGeometry = 23,
+    MLine = 24,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -135,6 +136,29 @@ public readonly record struct CadEntityHeader(
     CadBounds3D Bounds);
 
 public readonly record struct CadLinePrimitive(CadPoint3D Start, CadPoint3D End);
+
+/// <summary>
+/// One immutable MLINE whose already-authored element cuts address the shared
+/// stroke stream. Element styles remain independent, as required by MLINESTYLE.
+/// </summary>
+public readonly record struct CadMLinePrimitive(
+    int StrokeOffset,
+    int StrokeCount,
+    int FillTriangleOffset,
+    int FillTriangleCount);
+
+/// <summary>One visible interval of one MLINESTYLE element.</summary>
+public readonly record struct CadMLineStroke(
+    CadPoint3D Start,
+    CadPoint3D End,
+    int StyleIndex);
+
+/// <summary>One triangle from a persisted MLINE area-fill interval.</summary>
+public readonly record struct CadMLineFillTriangle(
+    CadPoint3D First,
+    CadPoint3D Second,
+    CadPoint3D Third,
+    CadColor32 Color);
 
 /// <summary>
 /// One POINT location plus the drawing-wide regenerated marker contract captured
@@ -618,6 +642,9 @@ public sealed class CadDocumentSnapshot
     private readonly CadLineTypeShapeResource[] _lineTypeShapeResources;
     private readonly CadEntityHeader[] _entities;
     private readonly CadLinePrimitive[] _lines;
+    private readonly CadMLinePrimitive[] _mLines;
+    private readonly CadMLineStroke[] _mLineStrokes;
+    private readonly CadMLineFillTriangle[] _mLineFillTriangles;
     private readonly CadPointPrimitive[] _points;
     private readonly CadConstructionLinePrimitive[] _constructionLines;
     private readonly CadWipeoutPrimitive[] _wipeouts;
@@ -706,6 +733,9 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadLineTypeShapeResource> LineTypeShapeResources => _lineTypeShapeResources;
     public ReadOnlyMemory<CadEntityHeader> Entities => _entities;
     public ReadOnlyMemory<CadLinePrimitive> Lines => _lines;
+    public ReadOnlyMemory<CadMLinePrimitive> MLines => _mLines;
+    public ReadOnlyMemory<CadMLineStroke> MLineStrokes => _mLineStrokes;
+    public ReadOnlyMemory<CadMLineFillTriangle> MLineFillTriangles => _mLineFillTriangles;
     public ReadOnlyMemory<CadPointPrimitive> Points => _points;
     public ReadOnlyMemory<CadConstructionLinePrimitive> ConstructionLines => _constructionLines;
     public ReadOnlyMemory<CadWipeoutPrimitive> Wipeouts => _wipeouts;
@@ -778,6 +808,9 @@ public sealed class CadDocumentSnapshot
         CadLineTypeShapeResource[] lineTypeShapeResources,
         CadEntityHeader[] entities,
         CadLinePrimitive[] lines,
+        CadMLinePrimitive[] mLines,
+        CadMLineStroke[] mLineStrokes,
+        CadMLineFillTriangle[] mLineFillTriangles,
         CadPointPrimitive[] points,
         CadConstructionLinePrimitive[] constructionLines,
         CadWipeoutPrimitive[] wipeouts,
@@ -847,6 +880,9 @@ public sealed class CadDocumentSnapshot
         _lineTypeShapeResources = lineTypeShapeResources;
         _entities = entities;
         _lines = lines;
+        _mLines = mLines;
+        _mLineStrokes = mLineStrokes;
+        _mLineFillTriangles = mLineFillTriangles;
         _points = points;
         _constructionLines = constructionLines;
         _wipeouts = wipeouts;

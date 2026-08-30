@@ -383,6 +383,11 @@ public static class CadSelectionHitTester
                     snapshot.Lines.Span[header.PrimitiveIndex].Start,
                     snapshot.Lines.Span[header.PrimitiveIndex].End),
                 tolerance),
+            CadEntityKind.MLine => HitMLinePoint(
+                snapshot,
+                snapshot.MLines.Span[header.PrimitiveIndex],
+                point,
+                tolerance),
             CadEntityKind.Ray => HitConstructionLinePoint(
                 snapshot.ConstructionLines.Span[header.PrimitiveIndex],
                 point,
@@ -507,6 +512,11 @@ public static class CadSelectionHitTester
                 snapshot.Lines.Span[header.PrimitiveIndex],
                 bounds,
                 mode),
+            CadEntityKind.MLine => HitMLineBounds(
+                snapshot,
+                snapshot.MLines.Span[header.PrimitiveIndex],
+                bounds,
+                mode),
             CadEntityKind.Ray => HitConstructionLineBounds(
                 snapshot.ConstructionLines.Span[header.PrimitiveIndex],
                 bounds,
@@ -621,6 +631,97 @@ public static class CadSelectionHitTester
             ? ContainsPoint(bounds, line.Start) && ContainsPoint(bounds, line.End)
             : SegmentIntersectsBounds(line.Start, line.End, bounds);
         return FromBoundsHit(hit);
+    }
+
+    private static CadPointHitResult HitMLinePoint(
+        CadDocumentSnapshot snapshot,
+        in CadMLinePrimitive mline,
+        CadPoint3D point,
+        double tolerance)
+    {
+        double minimum = double.PositiveInfinity;
+        ReadOnlySpan<CadMLineStroke> strokes = snapshot.MLineStrokes.Span.Slice(
+            mline.StrokeOffset,
+            mline.StrokeCount);
+        for (int index = 0; index < strokes.Length; index++)
+        {
+            minimum = Math.Min(minimum, DistanceToSegment(
+                point,
+                strokes[index].Start,
+                strokes[index].End));
+        }
+        ReadOnlySpan<CadMLineFillTriangle> triangles =
+            snapshot.MLineFillTriangles.Span.Slice(
+                mline.FillTriangleOffset,
+                mline.FillTriangleCount);
+        for (int index = 0; index < triangles.Length; index++)
+        {
+            minimum = Math.Min(minimum, DistanceToTriangle(
+                point,
+                triangles[index].First,
+                triangles[index].Second,
+                triangles[index].Third));
+        }
+        return FromDistance(minimum, tolerance);
+    }
+
+    private static CadBoundsHitResult HitMLineBounds(
+        CadDocumentSnapshot snapshot,
+        in CadMLinePrimitive mline,
+        CadBounds3D bounds,
+        CadBoundsSelectionMode mode)
+    {
+        if (bounds.IsEmpty)
+        {
+            return BoundsMiss();
+        }
+        bool hasGeometry = false;
+        ReadOnlySpan<CadMLineStroke> strokes = snapshot.MLineStrokes.Span.Slice(
+            mline.StrokeOffset,
+            mline.StrokeCount);
+        for (int index = 0; index < strokes.Length; index++)
+        {
+            hasGeometry = true;
+            CadMLineStroke stroke = strokes[index];
+            bool hit = mode == CadBoundsSelectionMode.Window
+                ? ContainsPoint(bounds, stroke.Start) && ContainsPoint(bounds, stroke.End)
+                : SegmentIntersectsBounds(stroke.Start, stroke.End, bounds);
+            if (mode == CadBoundsSelectionMode.Crossing && hit)
+            {
+                return BoundsHit();
+            }
+            if (mode == CadBoundsSelectionMode.Window && !hit)
+            {
+                return BoundsMiss();
+            }
+        }
+        ReadOnlySpan<CadMLineFillTriangle> triangles =
+            snapshot.MLineFillTriangles.Span.Slice(
+                mline.FillTriangleOffset,
+                mline.FillTriangleCount);
+        for (int index = 0; index < triangles.Length; index++)
+        {
+            hasGeometry = true;
+            CadMLineFillTriangle triangle = triangles[index];
+            bool hit = mode == CadBoundsSelectionMode.Window
+                ? ContainsPoint(bounds, triangle.First) &&
+                    ContainsPoint(bounds, triangle.Second) &&
+                    ContainsPoint(bounds, triangle.Third)
+                : TriangleIntersectsBounds(
+                    triangle.First,
+                    triangle.Second,
+                    triangle.Third,
+                    bounds);
+            if (mode == CadBoundsSelectionMode.Crossing && hit)
+            {
+                return BoundsHit();
+            }
+            if (mode == CadBoundsSelectionMode.Window && !hit)
+            {
+                return BoundsMiss();
+            }
+        }
+        return FromBoundsHit(hasGeometry && mode == CadBoundsSelectionMode.Window);
     }
 
     private static CadPointHitResult HitConstructionLinePoint(

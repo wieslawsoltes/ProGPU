@@ -28,3 +28,7 @@ This matrix is a coverage index, not a completion claim. A row becomes
 
 Raster IMAGE decisions and evidence are recorded in
 [PROGPU_CAD_RASTER_IMAGE_RESEARCH.md](PROGPU_CAD_RASTER_IMAGE_RESEARCH.md).
+
+The current parameterized MLINE slice, its explicit remaining fidelity gates,
+and cross-engine research are recorded in
+[PROGPU_CAD_MLINE_RESEARCH.md](PROGPU_CAD_MLINE_RESEARCH.md).

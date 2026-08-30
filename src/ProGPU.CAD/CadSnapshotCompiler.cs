@@ -41,6 +41,8 @@ public sealed class CadSnapshotOptions
     public const int DefaultMaxModelerGeometryPoints = 10_000_000;
     public const int DefaultMaxModelerGeometryPayloadBytesPerEntity = 64 * 1024 * 1024;
     public const int DefaultMaxModelerGeometryPayloadBytes = 256 * 1024 * 1024;
+    public const int DefaultMaxMLineStrokes = 5_000_000;
+    public const int DefaultMaxMLineFillTriangles = 5_000_000;
 
     public double DefaultLineWeightMillimeters { get; init; } = 0.25;
     public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
@@ -82,6 +84,8 @@ public sealed class CadSnapshotOptions
         DefaultMaxModelerGeometryPayloadBytesPerEntity;
     public int MaxModelerGeometryPayloadBytes { get; init; } =
         DefaultMaxModelerGeometryPayloadBytes;
+    public int MaxMLineStrokes { get; init; } = DefaultMaxMLineStrokes;
+    public int MaxMLineFillTriangles { get; init; } = DefaultMaxMLineFillTriangles;
 
     /// <summary>
     /// Selects whether snapshot entity order represents interactive
@@ -153,6 +157,9 @@ public sealed partial class CadSnapshotCompiler
         var lineTypeShapeResources = new List<CadLineTypeShapeResource>();
         var entities = new List<CadEntityHeader>(document.Entities.Count);
         var lines = new List<CadLinePrimitive>();
+        var mLines = new List<CadMLinePrimitive>();
+        var mLineStrokes = new List<CadMLineStroke>();
+        var mLineFillTriangles = new List<CadMLineFillTriangle>();
         var points = new List<CadPointPrimitive>();
         var constructionLines = new List<CadConstructionLinePrimitive>();
         var wipeouts = new List<CadWipeoutPrimitive>();
@@ -290,6 +297,9 @@ public sealed partial class CadSnapshotCompiler
             lineTypeShapeResources.ToArray(),
             entities.ToArray(),
             lines.ToArray(),
+            mLines.ToArray(),
+            mLineStrokes.ToArray(),
+            mLineFillTriangles.ToArray(),
             points.ToArray(),
             constructionLines.ToArray(),
             wipeouts.ToArray(),
@@ -482,6 +492,34 @@ public sealed partial class CadSnapshotCompiler
                         resolvedStyle,
                         effectiveLayer.Color),
                     Line line => CompileLine(line, rootHandle, transform, hasTransform, layerIndex, styleIndex, lines),
+                    MLine mline => CompileMLine(
+                        mline,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        resolvedStyle,
+                        effectiveLayer,
+                        options,
+                        mLines,
+                        mLineStrokes,
+                        mLineFillTriangles,
+                        styles,
+                        styleIndices,
+                        lineTypePatterns,
+                        lineTypePatternIndices,
+                        lineTypeElements,
+                        lineTypeTextResources,
+                        lineTypeShapeResources,
+                        textGlyphRuns,
+                        textGlyphIndices,
+                        textGlyphPositions,
+                        textFonts,
+                        textFontIndices,
+                        shxGlyphInstances,
+                        shxFontResolver,
+                        drawingCodePage),
                     ACadSharp.Entities.Point point => CompilePoint(
                         point,
                         rootHandle,
@@ -4752,6 +4790,8 @@ public sealed partial class CadSnapshotCompiler
         ArgumentOutOfRangeException.ThrowIfLessThan(
             options.MaxModelerGeometryPayloadBytes,
             options.MaxModelerGeometryPayloadBytesPerEntity);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxMLineStrokes, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxMLineFillTriangles, 1);
     }
 
     private static void AddDiagnostic(

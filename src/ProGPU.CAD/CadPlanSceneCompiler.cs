@@ -207,7 +207,9 @@ public sealed class CadPlanSceneCompiler
             snapshot.MTextDecorations.Length +
             snapshot.MTextStrokes.Length +
             snapshot.ShxGlyphInstances.Length +
-            snapshot.ShxDecorationSegments.Length));
+            snapshot.ShxDecorationSegments.Length +
+            snapshot.MLineStrokes.Length +
+            snapshot.MLineFillTriangles.Length));
         Pen[] pens = CreatePens(styles, options);
         var mtextBrushes = new Dictionary<uint, Brush>();
         var diagnostics = new List<CadDiagnostic>();
@@ -414,6 +416,14 @@ public sealed class CadPlanSceneCompiler
                     break;
                 case CadEntityKind.Line:
                     RecordLine(context, pen, snapshot.Lines.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
+                    break;
+                case CadEntityKind.MLine:
+                    RecordMLine(
+                        context,
+                        pens,
+                        snapshot,
+                        snapshot.MLines.Span[entity.PrimitiveIndex],
+                        mtextBrushes);
                     break;
                 case CadEntityKind.Circle:
                     RecordCircle(context, pen, snapshot.Circles.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
@@ -846,6 +856,67 @@ public sealed class CadPlanSceneCompiler
         CadLinePrimitive line,
         CadPoint3D origin) =>
         context.DrawLine(pen, Project(line.Start, origin), Project(line.End, origin));
+
+    private static void RecordMLine(
+        DrawingContext context,
+        Pen[] pens,
+        CadDocumentSnapshot snapshot,
+        CadMLinePrimitive mline,
+        Dictionary<uint, Brush> brushes)
+    {
+        ReadOnlySpan<CadMLineFillTriangle> triangles =
+            snapshot.MLineFillTriangles.Span.Slice(
+                mline.FillTriangleOffset,
+                mline.FillTriangleCount);
+        if (!triangles.IsEmpty)
+        {
+            CadColor32 color = triangles[0].Color;
+            var path = new PathGeometry { FillRule = FillRule.Nonzero };
+            for (int index = 0; index < triangles.Length; index++)
+            {
+                CadMLineFillTriangle triangle = triangles[index];
+                var figure = new PathFigure(
+                    Project(triangle.First, snapshot.RebaseOrigin),
+                    isClosed: true);
+                figure.Segments.Add(new LineSegment(
+                    Project(triangle.Second, snapshot.RebaseOrigin)));
+                figure.Segments.Add(new LineSegment(
+                    Project(triangle.Third, snapshot.RebaseOrigin)));
+                path.Figures.Add(figure);
+            }
+            context.DrawPath(
+                GetMTextBrush(brushes, color.Red, color.Green, color.Blue, color.Alpha),
+                null,
+                path);
+        }
+
+        ReadOnlySpan<CadMLineStroke> strokes = snapshot.MLineStrokes.Span.Slice(
+            mline.StrokeOffset,
+            mline.StrokeCount);
+        var paths = new Dictionary<int, PathGeometry>();
+        for (int index = 0; index < strokes.Length; index++)
+        {
+            CadMLineStroke stroke = strokes[index];
+            if (!paths.TryGetValue(stroke.StyleIndex, out PathGeometry? path))
+            {
+                path = new PathGeometry();
+                paths.Add(stroke.StyleIndex, path);
+            }
+            var figure = new PathFigure(
+                Project(stroke.Start, snapshot.RebaseOrigin),
+                isClosed: false)
+            {
+                IsFilled = false,
+            };
+            figure.Segments.Add(new LineSegment(
+                Project(stroke.End, snapshot.RebaseOrigin)));
+            path.Figures.Add(figure);
+        }
+        foreach ((int styleIndex, PathGeometry path) in paths)
+        {
+            context.DrawPath(null, pens[styleIndex], path);
+        }
+    }
 
     private static void RecordPoint(
         DrawingContext context,
