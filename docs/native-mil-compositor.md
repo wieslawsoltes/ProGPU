@@ -5256,6 +5256,18 @@ compile/link succeeds, the focused Direct2D regression passes in 0.16 seconds,
 all 11 native suites pass in 1.05 seconds, and the exact 90-export gate is
 accepted.
 
+ABI v28 at checkpoint `ac10d4af` adds the Direct2D drawing-state properties
+needed by native Win2D drawing sessions without introducing a second state
+model. Both target and command-list sessions expose typed geometry and text
+antialiasing, primitive blend, DIP/pixel unit mode, two 64-bit tags, and DPI
+get/set operations. Each call requires the active producer. Enum values and DPI
+are checked in managed and native code; `(0, 0)` retains Direct2D's exact
+reset-to-96-DPI meaning while half-zero, negative, infinite, and NaN inputs fail
+closed. The native test round-trips all state and restores defaults before the
+existing pixel oracle. The exact allowlist becomes 102 exports, the managed
+contracts pass 5/5, and the package build has zero warnings. Windows execution
+remains pending the pushed checkpoint.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
