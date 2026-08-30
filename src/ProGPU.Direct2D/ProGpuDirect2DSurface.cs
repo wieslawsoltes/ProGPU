@@ -65,10 +65,14 @@ public sealed unsafe class ProGpuDirect2DSurface :
     private readonly object _gate = new();
     private readonly DawnGpuContext _dawn;
     private readonly DawnExplicitSharedTextureAccess _access;
+    private readonly ProGpuDirect2DResourceDomain _resourceDomain;
     private nint _nativeSurface;
     private ProducerKind _producer;
     private bool _disposeRequested;
     private bool _resourcesDisposed;
+    private bool _deviceLost;
+    private int _deviceLossHResult;
+    private int _deviceLostNotificationQueued;
     private int _leaseCount;
     private uint _typedLayerDepth;
     private ulong _contentVersion;
@@ -77,18 +81,57 @@ public sealed unsafe class ProGpuDirect2DSurface :
         DawnGpuContext dawn,
         DawnExplicitSharedTextureAccess access,
         nint nativeSurface,
-        in ProGpuDirect2DSurfaceDescriptor descriptor)
+        in ProGpuDirect2DSurfaceDescriptor descriptor,
+        in ProGpuDirect2DDeviceLossState deviceLossState)
     {
         _dawn = dawn;
         _access = access;
         _nativeSurface = nativeSurface;
         Descriptor = descriptor;
         _contentVersion = descriptor.ContentVersion;
+        DeviceLossCapabilities = deviceLossState.Flags &
+            ProGpuDirect2DDeviceLossFlags.RemovalEventRegistered;
+        ResourceGeneration = deviceLossState.ResourceGeneration;
+        _resourceDomain = new ProGpuDirect2DResourceDomain(
+            ResourceGeneration);
     }
 
     public event EventHandler? TextureChanged;
 
+    /// <summary>
+    /// Raised once after this Direct2D/D3D11 device domain becomes terminal.
+    /// Create a new Dawn context and Direct2D surface, then rebuild every
+    /// resource associated with <see cref="ResourceGeneration"/>.
+    /// </summary>
+    public event EventHandler<ProGpuDirect2DDeviceLostEventArgs>? DeviceLost;
+
     public ProGpuDirect2DSurfaceDescriptor Descriptor { get; private set; }
+
+    public ProGpuDirect2DDeviceLossFlags DeviceLossCapabilities { get; }
+
+    public ulong ResourceGeneration { get; }
+
+    public bool IsDeviceLost
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _deviceLost;
+            }
+        }
+    }
+
+    public int DeviceLossHResult
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _deviceLossHResult;
+            }
+        }
+    }
 
     public ulong ContentVersion
     {
@@ -135,13 +178,24 @@ public sealed unsafe class ProGpuDirect2DSurface :
                 &nativeOptions,
                 &nativeSurface,
                 &nativeHResult);
-        ThrowIfFailed("surface creation", status, nativeHResult);
+        ThrowIfFailedDuringCreate(
+            "surface creation",
+            status,
+            nativeHResult);
 
         var owner = new NativeSurfaceOwner(nativeSurface);
         try
         {
             ProGpuDirect2DSurfaceDescriptor descriptor =
                 ReadDescriptor(nativeSurface);
+            ProGpuDirect2DDeviceLossState deviceLossState =
+                ReadDeviceLossState(nativeSurface);
+            if (deviceLossState.ResourceGeneration == 0U ||
+                deviceLossState.IsDeviceLost)
+            {
+                throw new NotSupportedException(
+                    "The native Direct2D device domain was lost or did not publish a resource generation during creation.");
+            }
             ValidateDescriptor(descriptor, options);
             var externalDescriptor =
                 new ProGpuExternalTextureDescriptor(
@@ -170,7 +224,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
                 dawn,
                 access,
                 nativeSurface,
-                in descriptor);
+                in descriptor,
+                in deviceLossState);
         }
         finally
         {
@@ -200,8 +255,39 @@ public sealed unsafe class ProGpuDirect2DSurface :
                 throw new InvalidOperationException(
                     $"Direct2D returned a null {kind} interface.");
             }
-            return new ProGpuDirect2DComReference(value, kind);
+            return new ProGpuDirect2DComReference(
+                value,
+                kind,
+                _resourceDomain);
         }
+    }
+
+    /// <summary>
+    /// Polls the native removal event and persistent Direct2D device-domain
+    /// state. Device loss is terminal for this surface and its resource
+    /// generation.
+    /// </summary>
+    public ProGpuDirect2DDeviceLossState PollDeviceLoss()
+    {
+        DawnExplicitSharedTextureAccess? accessToDispose = null;
+        ProGpuDirect2DDeviceLossState state;
+        lock (_gate)
+        {
+            if (_resourcesDisposed)
+            {
+                return new ProGpuDirect2DDeviceLossState(
+                    _deviceLost
+                        ? ProGpuDirect2DDeviceLossFlags.DeviceLost
+                        : ProGpuDirect2DDeviceLossFlags.None,
+                    _deviceLossHResult,
+                    ResourceGeneration);
+            }
+            state = ReadDeviceLossState(_nativeSurface);
+            ObserveDeviceLoss(state);
+            accessToDispose = TryTakeResourcesForDisposal();
+        }
+        accessToDispose?.Dispose();
+        return state;
     }
 
     /// <summary>
@@ -241,7 +327,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
             }
             canvasDevice = new ProGpuDirect2DComReference(
                 value,
-                ProGpuDirect2DInterfaceKind.Win2DCanvasDevice);
+                ProGpuDirect2DInterfaceKind.Win2DCanvasDevice,
+                _resourceDomain);
             return true;
         }
     }
@@ -317,7 +404,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
             }
             return new ProGpuDirect2DComReference(
                 value,
-                ProGpuDirect2DInterfaceKind.D2D1SolidColorBrush);
+                ProGpuDirect2DInterfaceKind.D2D1SolidColorBrush,
+                _resourceDomain);
         }
     }
 
@@ -527,6 +615,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
         Matrix3x2? transform = null)
     {
         ArgumentNullException.ThrowIfNull(bitmap);
+        ValidateResourceDomain(bitmap, nameof(bitmap));
         if (bitmap.InterfaceKind != ProGpuDirect2DInterfaceKind.D2D1Bitmap1)
         {
             throw new ArgumentException(
@@ -584,6 +673,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
         Matrix3x2? transform = null)
     {
         ArgumentNullException.ThrowIfNull(image);
+        ValidateResourceDomain(image, nameof(image));
         if (!IsImageKind(image.InterfaceKind))
         {
             throw new ArgumentException(
@@ -749,11 +839,15 @@ public sealed unsafe class ProGpuDirect2DSurface :
         bool invalidate = true)
     {
         ValidateEffect(effect, nameof(effect));
-        if (image is not null && !IsImageKind(image.InterfaceKind))
+        if (image is not null)
         {
-            throw new ArgumentException(
-                "The COM reference must own a provider-created ID2D1Image.",
-                nameof(image));
+            ValidateResourceDomain(image, nameof(image));
+            if (!IsImageKind(image.InterfaceKind))
+            {
+                throw new ArgumentException(
+                    "The COM reference must own a provider-created ID2D1Image.",
+                    nameof(image));
+            }
         }
 
         bool effectReferenceAdded = false;
@@ -1124,6 +1218,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
         float maximumHeight)
     {
         ArgumentNullException.ThrowIfNull(textFormat);
+        ValidateResourceDomain(textFormat, nameof(textFormat));
         if (textFormat.InterfaceKind !=
             ProGpuDirect2DInterfaceKind.DWriteTextFormat1)
         {
@@ -1200,6 +1295,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
         ProGpuDirect2DComReference? drawingEffectBrush = null)
     {
         ArgumentNullException.ThrowIfNull(textLayout);
+        ValidateResourceDomain(textLayout, nameof(textLayout));
         if (textLayout.InterfaceKind !=
             ProGpuDirect2DInterfaceKind.DWriteTextLayout4)
         {
@@ -1388,6 +1484,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
         ProGpuDirect2DComReference fontFaceReference)
     {
         ArgumentNullException.ThrowIfNull(fontFaceReference);
+        ValidateResourceDomain(fontFaceReference, nameof(fontFaceReference));
         if (fontFaceReference.InterfaceKind !=
             ProGpuDirect2DInterfaceKind.DWriteFontFaceReference)
         {
@@ -1442,6 +1539,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
     {
         ArgumentNullException.ThrowIfNull(textLayout);
         ArgumentNullException.ThrowIfNull(typography);
+        ValidateResourceDomain(textLayout, nameof(textLayout));
+        ValidateResourceDomain(typography, nameof(typography));
         if (textLayout.InterfaceKind !=
             ProGpuDirect2DInterfaceKind.DWriteTextLayout4)
         {
@@ -1518,6 +1617,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
     {
         ArgumentNullException.ThrowIfNull(textFormat);
         ArgumentNullException.ThrowIfNull(defaultFillBrush);
+        ValidateResourceDomain(textFormat, nameof(textFormat));
+        ValidateResourceDomain(defaultFillBrush, nameof(defaultFillBrush));
         if (textFormat.InterfaceKind !=
             ProGpuDirect2DInterfaceKind.DWriteTextFormat1)
         {
@@ -1596,6 +1697,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
     {
         ArgumentNullException.ThrowIfNull(textLayout);
         ArgumentNullException.ThrowIfNull(defaultFillBrush);
+        ValidateResourceDomain(textLayout, nameof(textLayout));
+        ValidateResourceDomain(defaultFillBrush, nameof(defaultFillBrush));
         if (textLayout.InterfaceKind !=
             ProGpuDirect2DInterfaceKind.DWriteTextLayout4)
         {
@@ -1679,6 +1782,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
     {
         ArgumentNullException.ThrowIfNull(fontFace);
         ArgumentNullException.ThrowIfNull(foregroundBrush);
+        ValidateResourceDomain(fontFace, nameof(fontFace));
+        ValidateResourceDomain(foregroundBrush, nameof(foregroundBrush));
         if (fontFace.InterfaceKind !=
             ProGpuDirect2DInterfaceKind.DWriteFontFace5)
         {
@@ -1793,6 +1898,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
     {
         ArgumentNullException.ThrowIfNull(fontFace);
         ArgumentNullException.ThrowIfNull(foregroundBrush);
+        ValidateResourceDomain(fontFace, nameof(fontFace));
+        ValidateResourceDomain(foregroundBrush, nameof(foregroundBrush));
         if (fontFace.InterfaceKind !=
             ProGpuDirect2DInterfaceKind.DWriteFontFace5)
         {
@@ -1909,6 +2016,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
         Vector2 origin)
     {
         ArgumentNullException.ThrowIfNull(svgDocument);
+        ValidateResourceDomain(svgDocument, nameof(svgDocument));
         if (svgDocument.InterfaceKind !=
             ProGpuDirect2DInterfaceKind.D2D1SvgDocument)
         {
@@ -1962,12 +2070,15 @@ public sealed unsafe class ProGpuDirect2DSurface :
         {
             ValidateGeometry(geometricMask, nameof(geometricMask));
         }
-        if (opacityBrush is not null &&
-            !IsBrushKind(opacityBrush.InterfaceKind))
+        if (opacityBrush is not null)
         {
-            throw new ArgumentException(
-                "The COM reference must own a Direct2D brush.",
-                nameof(opacityBrush));
+            ValidateResourceDomain(opacityBrush, nameof(opacityBrush));
+            if (!IsBrushKind(opacityBrush.InterfaceKind))
+            {
+                throw new ArgumentException(
+                    "The COM reference must own a Direct2D brush.",
+                    nameof(opacityBrush));
+            }
         }
 
         ProGpuDirect2DNative.NativeLayerParameters nativeParameters = new()
@@ -2972,6 +3083,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
         out int nativeHResult)
     {
         ArgumentNullException.ThrowIfNull(nativeResource);
+        ValidateResourceDomain(nativeResource, nameof(nativeResource));
         if (!IsCompatibleInterfaceKind(
                 nativeResource.InterfaceKind,
                 expectedNativeKind))
@@ -3030,6 +3142,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
         out int nativeHResult)
     {
         ArgumentNullException.ThrowIfNull(wrapper);
+        ValidateResourceDomain(wrapper, nameof(wrapper));
         if (wrapper.InterfaceKind != expectedWrapperKind)
         {
             throw new ArgumentException(
@@ -3080,7 +3193,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
-    private static ProGpuDirect2DComReference CreateRequiredComReference(
+    private ProGpuDirect2DComReference CreateRequiredComReference(
         nint value,
         ProGpuDirect2DInterfaceKind kind,
         string operation)
@@ -3090,7 +3203,10 @@ public sealed unsafe class ProGpuDirect2DSurface :
             throw new InvalidOperationException(
                 $"{operation} succeeded without returning a COM interface.");
         }
-        return new ProGpuDirect2DComReference(value, kind);
+        return new ProGpuDirect2DComReference(
+            value,
+            kind,
+            _resourceDomain);
     }
 
     private bool TryAcquireMicrosoftWin2DNativeResource(
@@ -3129,7 +3245,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
             }
             nativeResource = new ProGpuDirect2DComReference(
                 value,
-                interfaceKind);
+                interfaceKind,
+                _resourceDomain);
             return true;
         }
     }
@@ -3207,6 +3324,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
         ProGpuDirect2DComReference commandList)
     {
         ArgumentNullException.ThrowIfNull(commandList);
+        ValidateResourceDomain(commandList, nameof(commandList));
         if (commandList.InterfaceKind !=
             ProGpuDirect2DInterfaceKind.D2D1CommandList)
         {
@@ -3323,7 +3441,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
             }
             renderTarget = new ProGpuDirect2DComReference(
                 value,
-                ProGpuDirect2DInterfaceKind.Win2DCanvasRenderTarget);
+                ProGpuDirect2DInterfaceKind.Win2DCanvasRenderTarget,
+                _resourceDomain);
             _producer = ProducerKind.MicrosoftWin2D;
         }
 
@@ -3423,10 +3542,6 @@ public sealed unsafe class ProGpuDirect2DSurface :
         DawnExplicitSharedTextureAccess? access = null;
         lock (_gate)
         {
-            if (_disposeRequested)
-            {
-                return;
-            }
             _disposeRequested = true;
             access = TryTakeResourcesForDisposal();
         }
@@ -3485,7 +3600,10 @@ public sealed unsafe class ProGpuDirect2DSurface :
                 _typedLayerDepth = 0U;
                 if (status == ProGpuDirect2DStatus.DeviceLost)
                 {
-                    _disposeRequested = true;
+                    ObserveDeviceLoss(new ProGpuDirect2DDeviceLossState(
+                        ProGpuDirect2DDeviceLossFlags.DeviceLost,
+                        nativeHResult,
+                        ResourceGeneration));
                 }
                 accessToDispose = TryTakeResourcesForDisposal();
             }
@@ -3567,6 +3685,13 @@ public sealed unsafe class ProGpuDirect2DSurface :
         {
             _producer = ProducerKind.None;
             _typedLayerDepth = 0U;
+            if (status == ProGpuDirect2DStatus.DeviceLost)
+            {
+                ObserveDeviceLoss(new ProGpuDirect2DDeviceLossState(
+                    ProGpuDirect2DDeviceLossFlags.DeviceLost,
+                    nativeHResult,
+                    ResourceGeneration));
+            }
             if (failure is null)
             {
                 Descriptor = descriptor;
@@ -3620,9 +3745,76 @@ public sealed unsafe class ProGpuDirect2DSurface :
 
     private void ThrowIfUnavailable()
     {
+        if (!_disposeRequested && !_resourcesDisposed)
+        {
+            ObserveDeviceLoss(ReadDeviceLossState(_nativeSurface));
+        }
+        if (_deviceLost)
+        {
+            throw new ProGpuDirect2DException(
+                "Direct2D device-domain availability",
+                ProGpuDirect2DStatus.DeviceLost,
+                _deviceLossHResult);
+        }
         ObjectDisposedException.ThrowIf(
             _disposeRequested || _resourcesDisposed,
             this);
+    }
+
+    private void ObserveDeviceLoss(
+        in ProGpuDirect2DDeviceLossState state)
+    {
+        if (!state.IsDeviceLost)
+        {
+            return;
+        }
+        bool queueNotification = false;
+        lock (_gate)
+        {
+            if (_deviceLost)
+            {
+                return;
+            }
+            _deviceLost = true;
+            _deviceLossHResult = state.ReasonHResult;
+            _resourceDomain.MarkDeviceLost(state.ReasonHResult);
+            _disposeRequested = true;
+            queueNotification = Interlocked.Exchange(
+                ref _deviceLostNotificationQueued,
+                1) == 0;
+        }
+        if (queueNotification)
+        {
+            ThreadPool.QueueUserWorkItem(
+                static owner => owner!.PublishDeviceLost(),
+                this,
+                preferLocal: false);
+        }
+    }
+
+    private void PublishDeviceLost()
+    {
+        DawnExplicitSharedTextureAccess? accessToDispose;
+        lock (_gate)
+        {
+            accessToDispose = TryTakeResourcesForDisposal();
+        }
+        accessToDispose?.Dispose();
+        var eventArgs = new ProGpuDirect2DDeviceLostEventArgs(
+            DeviceLossHResult,
+            ResourceGeneration);
+        _dawn.Context.ReportDeviceLost(
+            DeviceLostReason.Unknown,
+            $"The Direct2D/D3D11 device domain for resource generation {ResourceGeneration} was lost (HRESULT 0x{unchecked((uint)eventArgs.ReasonHResult):X8}). Create a new Dawn context and rebuild device-dependent resources.");
+        try
+        {
+            DeviceLost?.Invoke(this, eventArgs);
+        }
+        catch
+        {
+            // Device-loss propagation is terminal and must not be suppressed
+            // or tear down the process because a notification handler failed.
+        }
     }
 
     private void ValidateTypedDrawingProducer()
@@ -3785,10 +3977,13 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
-    private static void ValidateGradientStopCollection(
+    private void ValidateGradientStopCollection(
         ProGpuDirect2DComReference gradientStopCollection)
     {
         ArgumentNullException.ThrowIfNull(gradientStopCollection);
+        ValidateResourceDomain(
+            gradientStopCollection,
+            nameof(gradientStopCollection));
         if (gradientStopCollection.InterfaceKind !=
             ProGpuDirect2DInterfaceKind.D2D1GradientStopCollection1)
         {
@@ -3848,11 +4043,12 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
-    private static void ValidateGeometry(
+    private void ValidateGeometry(
         ProGpuDirect2DComReference geometry,
         string parameterName)
     {
         ArgumentNullException.ThrowIfNull(geometry, parameterName);
+        ValidateResourceDomain(geometry, parameterName);
         if (!IsGeometryKind(geometry.InterfaceKind))
         {
             throw new ArgumentException(
@@ -3861,11 +4057,12 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
-    private static void ValidateLayer(
+    private void ValidateLayer(
         ProGpuDirect2DComReference layer,
         string parameterName)
     {
         ArgumentNullException.ThrowIfNull(layer, parameterName);
+        ValidateResourceDomain(layer, parameterName);
         if (layer.InterfaceKind != ProGpuDirect2DInterfaceKind.D2D1Layer)
         {
             throw new ArgumentException(
@@ -3874,10 +4071,13 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
-    private static void ValidateDrawingStateBlock(
+    private void ValidateDrawingStateBlock(
         ProGpuDirect2DComReference drawingStateBlock)
     {
         ArgumentNullException.ThrowIfNull(drawingStateBlock);
+        ValidateResourceDomain(
+            drawingStateBlock,
+            nameof(drawingStateBlock));
         if (drawingStateBlock.InterfaceKind !=
             ProGpuDirect2DInterfaceKind.D2D1DrawingStateBlock1)
         {
@@ -3956,7 +4156,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
-    private static void ValidateTextRangeFormat(
+    private void ValidateTextRangeFormat(
         uint rangeStart,
         uint rangeLength,
         ProGpuDirect2DTextRangeFormat formatting,
@@ -4014,9 +4214,15 @@ public sealed unsafe class ProGpuDirect2DSurface :
                 "The drawing effect must own a genuine ID2D1Brush.",
                 nameof(drawingEffectBrush));
         }
+        if (drawingEffectBrush is not null)
+        {
+            ValidateResourceDomain(
+                drawingEffectBrush,
+                nameof(drawingEffectBrush));
+        }
     }
 
-    private static void ValidateStrokeStyle(
+    private void ValidateStrokeStyle(
         ProGpuDirect2DStrokeStyleProperties properties,
         ReadOnlySpan<float> customDashes)
     {
@@ -4092,11 +4298,12 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
-    private static void ValidateEffect(
+    private void ValidateEffect(
         ProGpuDirect2DComReference effect,
         string parameterName)
     {
         ArgumentNullException.ThrowIfNull(effect, parameterName);
+        ValidateResourceDomain(effect, parameterName);
         if (effect.InterfaceKind != ProGpuDirect2DInterfaceKind.D2D1Effect)
         {
             throw new ArgumentException(
@@ -4189,6 +4396,18 @@ public sealed unsafe class ProGpuDirect2DSurface :
             M31 = matrix.M31,
             M32 = matrix.M32
         };
+    }
+
+    private void ValidateResourceDomain(
+        ProGpuDirect2DComReference resource,
+        string parameterName)
+    {
+        if (resource.ResourceGeneration != ResourceGeneration)
+        {
+            throw new ArgumentException(
+                $"The COM reference belongs to Direct2D resource generation {resource.ResourceGeneration}, but this surface owns generation {ResourceGeneration}. Recreate the resource on the current device domain.",
+                parameterName);
+        }
     }
 
     private static float ConvertFiniteFloat(double value, string parameterName)
@@ -4376,7 +4595,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
             ProGpuDirect2DNative.SurfaceGetDescriptor(
                 nativeSurface,
                 &native);
-        ThrowIfFailed(
+        ThrowIfFailedDuringCreate(
             "descriptor query",
             status,
             ProGpuDirect2DNative.SurfaceGetLastHResult(nativeSurface));
@@ -4396,6 +4615,28 @@ public sealed unsafe class ProGpuDirect2DSurface :
             native.InitialAcquireKey,
             native.InitialReleaseKey,
             native.ContentVersion);
+    }
+
+    private static ProGpuDirect2DDeviceLossState ReadDeviceLossState(
+        nint nativeSurface)
+    {
+        var native = new ProGpuDirect2DNative.DeviceLossState
+        {
+            StructSize = (uint)Unsafe.SizeOf<
+                ProGpuDirect2DNative.DeviceLossState>()
+        };
+        ProGpuDirect2DStatus status =
+            ProGpuDirect2DNative.SurfaceGetDeviceLossState(
+                nativeSurface,
+                &native);
+        ThrowIfFailedDuringCreate(
+            "device-loss state query",
+            status,
+            ProGpuDirect2DNative.SurfaceGetLastHResult(nativeSurface));
+        return new ProGpuDirect2DDeviceLossState(
+            (ProGpuDirect2DDeviceLossFlags)native.Flags,
+            native.ReasonHResult,
+            native.ResourceGeneration);
     }
 
     private static void ValidateDescriptor(
@@ -4427,7 +4668,22 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
-    private static void ThrowIfFailed(
+    private void ThrowIfFailed(
+        string operation,
+        ProGpuDirect2DStatus status,
+        int nativeHResult)
+    {
+        if (status == ProGpuDirect2DStatus.DeviceLost)
+        {
+            ObserveDeviceLoss(new ProGpuDirect2DDeviceLossState(
+                ProGpuDirect2DDeviceLossFlags.DeviceLost,
+                nativeHResult,
+                ResourceGeneration));
+        }
+        ThrowIfFailedDuringCreate(operation, status, nativeHResult);
+    }
+
+    private static void ThrowIfFailedDuringCreate(
         string operation,
         ProGpuDirect2DStatus status,
         int nativeHResult)

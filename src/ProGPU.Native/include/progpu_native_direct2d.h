@@ -53,6 +53,15 @@ typedef enum progpu_native_direct2d_descriptor_flags {
     PROGPU_NATIVE_DIRECT2D_DESCRIPTOR_FLAG_SOFTWARE_ADAPTER = 1U << 2U
 } progpu_native_direct2d_descriptor_flags;
 
+typedef enum progpu_native_direct2d_device_loss_flags {
+    PROGPU_NATIVE_DIRECT2D_DEVICE_LOSS_FLAG_NONE = 0,
+    PROGPU_NATIVE_DIRECT2D_DEVICE_LOSS_FLAG_REMOVAL_EVENT_REGISTERED =
+        1U << 0U,
+    PROGPU_NATIVE_DIRECT2D_DEVICE_LOSS_FLAG_REMOVAL_EVENT_SIGNALED =
+        1U << 1U,
+    PROGPU_NATIVE_DIRECT2D_DEVICE_LOSS_FLAG_DEVICE_LOST = 1U << 2U
+} progpu_native_direct2d_device_loss_flags;
+
 /* Every returned pointer is a genuine Windows COM interface with one caller-
  * owned reference. Release it through IUnknown::Release. These pointers are
  * process-local Windows interop state and must never enter ProGPU's portable
@@ -364,6 +373,18 @@ typedef struct progpu_native_direct2d_surface_descriptor {
     uint64_t content_version;
 } progpu_native_direct2d_surface_descriptor;
 
+/* Persistent device-domain state for fail-closed resource recreation. A
+ * nonzero resource_generation identifies every COM reference created by this
+ * surface. DEVICE_LOST is terminal for that generation: callers must create a
+ * new Dawn/Direct2D device domain and rebuild its resources. */
+typedef struct progpu_native_direct2d_device_loss_state {
+    uint32_t struct_size;
+    uint32_t flags;
+    int32_t reason_hresult;
+    uint32_t reserved;
+    uint64_t resource_generation;
+} progpu_native_direct2d_device_loss_state;
+
 /* Binary-compatible Windows GUID layout. Keeping this definition in the C ABI
  * lets AOT callers request later Direct2D interface generations without COM
  * reflection or a new enum/ABI revision for every Windows SDK interface. */
@@ -549,7 +570,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 22U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 23U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -569,6 +590,14 @@ PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_surface_get_descriptor(
     const progpu_native_direct2d_surface* surface,
     progpu_native_direct2d_surface_descriptor* descriptor);
+
+/* Polls the registered ID3D11Device4 removal event when available and always
+ * confirms loss through ID3D11Device::GetDeviceRemovedReason. Direct2D's
+ * D2DERR_RECREATE_TARGET is also retained as terminal domain loss. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_device_loss_state(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_device_loss_state* state);
 
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_surface_get_interface(

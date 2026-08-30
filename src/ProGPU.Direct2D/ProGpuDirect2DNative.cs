@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 22U;
+    internal const uint AbiVersion = 23U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -41,6 +41,16 @@ internal static unsafe partial class ProGpuDirect2DNative
         internal ulong InitialAcquireKey;
         internal ulong InitialReleaseKey;
         internal ulong ContentVersion;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct DeviceLossState
+    {
+        internal uint StructSize;
+        internal uint Flags;
+        internal int ReasonHResult;
+        internal uint Reserved;
+        internal ulong ResourceGeneration;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -221,6 +231,14 @@ internal static unsafe partial class ProGpuDirect2DNative
     internal static partial ProGpuDirect2DStatus SurfaceGetDescriptor(
         nint surface,
         SurfaceDescriptor* descriptor);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_get_device_loss_state")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceGetDeviceLossState(
+        nint surface,
+        DeviceLossState* state);
 
     [LibraryImport(
         LibraryName,

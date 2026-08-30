@@ -163,6 +163,58 @@ int main()
             descriptor.content_version == 0U,
         "Direct2D initial synchronization state changed");
 
+    progpu_native_direct2d_device_loss_state invalid_loss_state{};
+    require(
+        progpu_native_direct2d_surface_get_device_loss_state(
+            surface,
+            &invalid_loss_state) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT,
+        "undersized device-loss state did not fail closed");
+    progpu_native_direct2d_device_loss_state loss_state{};
+    loss_state.struct_size = sizeof(loss_state);
+    require(
+        progpu_native_direct2d_surface_get_device_loss_state(
+            surface,
+            &loss_state) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "Direct2D device-loss state query failed");
+    require(
+        loss_state.resource_generation != 0U,
+        "Direct2D resource generation was zero");
+    require(
+        loss_state.reason_hresult == S_OK &&
+        (loss_state.flags &
+         (PROGPU_NATIVE_DIRECT2D_DEVICE_LOSS_FLAG_DEVICE_LOST |
+          PROGPU_NATIVE_DIRECT2D_DEVICE_LOSS_FLAG_REMOVAL_EVENT_SIGNALED)) ==
+            0U,
+        "new Direct2D device domain reported device loss");
+    require(
+        (loss_state.flags &
+         PROGPU_NATIVE_DIRECT2D_DEVICE_LOSS_FLAG_REMOVAL_EVENT_REGISTERED) !=
+            0U,
+        "ID3D11Device4 removal event was not registered");
+
+    progpu_native_direct2d_surface* replacement_surface = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create(
+            &options,
+            &replacement_surface,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            replacement_surface != nullptr && native_hresult == S_OK,
+        "replacement Direct2D surface creation failed");
+    progpu_native_direct2d_device_loss_state replacement_loss_state{};
+    replacement_loss_state.struct_size = sizeof(replacement_loss_state);
+    require(
+        progpu_native_direct2d_surface_get_device_loss_state(
+            replacement_surface,
+            &replacement_loss_state) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+        replacement_loss_state.resource_generation != 0U &&
+        replacement_loss_state.resource_generation !=
+            loss_state.resource_generation,
+        "replacement Direct2D surface reused a resource generation");
+    progpu_native_direct2d_surface_destroy(replacement_surface);
+
     auto factory1 = get_interface<ID2D1Factory1>(
         surface,
         PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_FACTORY1);
