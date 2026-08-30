@@ -495,7 +495,7 @@ for `progpu_native_direct2d.dll` and
 `cab7f76311cd5115a0f8f84ee680115eb6481c6842eb45a85eea0633c08292fc`
 for `progpu_native_direct2d_tests.exe`.
 
-The current ABI v20 gate includes transactional `BeginDraw`/`EndDraw`, safe COM
+The current ABI v21 gate includes transactional `BeginDraw`/`EndDraw`, safe COM
 release, nested/unmatched draw rejection, zero-key Dawn ownership, and a
 generic GUID-based `QueryInterface` export. The latter returns a caller-owned
 reference to any later Direct2D interface supported by the installed Windows
@@ -610,6 +610,17 @@ provider and its native regression with the repository's warning-as-error
 policy. The focused `progpu_native_direct2d_tests` executable passes in
 0.16 seconds, all 11 native tests pass, and the successful build script also
 accepts the exact 55-symbol Direct2D export allowlist.
+ABI v21 adds GPU-native color-font drawing for the same already-shaped spans.
+The fastest qualified path queries `ID2D1DeviceContext7` and calls
+`DrawGlyphRunWithColorSupport`, covering current COLR paint-tree, SVG, bitmap,
+layered-color, and monochrome representations inside Direct2D. A down-level
+Windows 10 path uses `IDWriteFactory4::TranslateColorGlyphRun` and
+`ID2D1DeviceContext4` `DrawColorBitmapGlyphRun`, `DrawSvgGlyphRun`, or
+`DrawGlyphRun` per enumerated representation; `DWRITE_E_NOCOLOR` alone selects
+the explicit monochrome path. It does not decode font images on the CPU or
+read pixels back. The selected context7/translated-context4/no-color path is a
+typed diagnostic returned to the caller. The allowlist grows from 55 to
+exactly 56 exports.
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any

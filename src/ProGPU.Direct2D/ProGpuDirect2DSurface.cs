@@ -1732,6 +1732,131 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    internal ProGpuDirect2DColorGlyphPath DrawColorGlyphRun(
+        Vector2 baselineOrigin,
+        float fontEmSize,
+        ProGpuDirect2DComReference fontFace,
+        ReadOnlySpan<ushort> glyphIndices,
+        ReadOnlySpan<float> glyphAdvances,
+        ReadOnlySpan<ProGpuDirect2DGlyphOffset> glyphOffsets,
+        ProGpuDirect2DComReference foregroundBrush,
+        uint colorPaletteIndex,
+        bool isSideways,
+        uint bidiLevel,
+        ProGpuDirect2DMeasuringMode measuringMode)
+    {
+        ArgumentNullException.ThrowIfNull(fontFace);
+        ArgumentNullException.ThrowIfNull(foregroundBrush);
+        if (fontFace.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.DWriteFontFace5)
+        {
+            throw new ArgumentException(
+                "The COM reference must own an IDWriteFontFace5.",
+                nameof(fontFace));
+        }
+        if (!IsBrushKind(foregroundBrush.InterfaceKind))
+        {
+            throw new ArgumentException(
+                "The COM reference must own a Direct2D brush.",
+                nameof(foregroundBrush));
+        }
+        if (!float.IsFinite(baselineOrigin.X) ||
+            !float.IsFinite(baselineOrigin.Y) ||
+            !float.IsFinite(fontEmSize) || fontEmSize <= 0.0F ||
+            glyphIndices.IsEmpty || glyphIndices.Length > 1 << 20 ||
+            !glyphAdvances.IsEmpty &&
+                glyphAdvances.Length != glyphIndices.Length ||
+            !glyphOffsets.IsEmpty && glyphOffsets.Length != glyphIndices.Length ||
+            bidiLevel > 125U ||
+            measuringMode > ProGpuDirect2DMeasuringMode.GdiNatural)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(glyphIndices),
+                "The DirectWrite color glyph run contains invalid bounds, counts, bidi state, or measuring mode.");
+        }
+        foreach (float advance in glyphAdvances)
+        {
+            if (!float.IsFinite(advance))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(glyphAdvances),
+                    "DirectWrite glyph advances must be finite.");
+            }
+        }
+        foreach (ProGpuDirect2DGlyphOffset offset in glyphOffsets)
+        {
+            if (!float.IsFinite(offset.AdvanceOffset) ||
+                !float.IsFinite(offset.AscenderOffset))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(glyphOffsets),
+                    "DirectWrite glyph offsets must be finite.");
+            }
+        }
+
+        bool faceReferenceAdded = false;
+        bool brushReferenceAdded = false;
+        try
+        {
+            fontFace.DangerousAddRef(ref faceReferenceAdded);
+            foregroundBrush.DangerousAddRef(ref brushReferenceAdded);
+            fixed (ushort* indicesPointer = glyphIndices)
+            fixed (float* advancesPointer = glyphAdvances)
+            fixed (ProGpuDirect2DGlyphOffset* offsetsPointer = glyphOffsets)
+            {
+                lock (_gate)
+                {
+                    ValidateTypedDrawingProducer();
+                    ProGpuDirect2DColorGlyphPath selectedPath = default;
+                    int nativeHResult = 0;
+                    ProGpuDirect2DStatus status = ProGpuDirect2DNative
+                        .SurfaceDrawColorGlyphRun(
+                            _nativeSurface,
+                            baselineOrigin.X,
+                            baselineOrigin.Y,
+                            fontEmSize,
+                            fontFace.DangerousGetHandle(),
+                            indicesPointer,
+                            checked((uint)glyphIndices.Length),
+                            advancesPointer,
+                            checked((uint)glyphAdvances.Length),
+                            offsetsPointer,
+                            checked((uint)glyphOffsets.Length),
+                            isSideways ? 1U : 0U,
+                            bidiLevel,
+                            foregroundBrush.DangerousGetHandle(),
+                            colorPaletteIndex,
+                            measuringMode,
+                            &selectedPath,
+                            &nativeHResult);
+                    ThrowIfFailed(
+                        "DirectWrite/Direct2D color glyph drawing",
+                        status,
+                        nativeHResult);
+                    if (selectedPath is <
+                            ProGpuDirect2DColorGlyphPath.DeviceContext7 or >
+                            ProGpuDirect2DColorGlyphPath.MonochromeNoColor)
+                    {
+                        throw new InvalidOperationException(
+                            "The native color-glyph path diagnostic is invalid.");
+                    }
+                    return selectedPath;
+                }
+            }
+        }
+        finally
+        {
+            if (brushReferenceAdded)
+            {
+                foregroundBrush.DangerousRelease();
+            }
+            if (faceReferenceAdded)
+            {
+                fontFace.DangerousRelease();
+            }
+        }
+    }
+
     internal uint PushLayer(
         ProGpuDirect2DComReference layer,
         ProGpuDirect2DLayerParameters parameters,
@@ -4319,6 +4444,34 @@ public sealed class ProGpuDirect2DDrawingSession : IDisposable
             bidiLevel,
             measuringMode);
 
+    public ProGpuDirect2DColorGlyphPath DrawColorGlyphRun(
+        Vector2 baselineOrigin,
+        float fontEmSize,
+        ProGpuDirect2DComReference fontFace,
+        ReadOnlySpan<ushort> glyphIndices,
+        ReadOnlySpan<float> glyphAdvances,
+        ReadOnlySpan<ProGpuDirect2DGlyphOffset> glyphOffsets,
+        ProGpuDirect2DComReference foregroundBrush,
+        uint colorPaletteIndex = 0U,
+        bool isSideways = false,
+        uint bidiLevel = 0U,
+        ProGpuDirect2DMeasuringMode measuringMode =
+            ProGpuDirect2DMeasuringMode.Natural) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .DrawColorGlyphRun(
+            baselineOrigin,
+            fontEmSize,
+            fontFace,
+            glyphIndices,
+            glyphAdvances,
+            glyphOffsets,
+            foregroundBrush,
+            colorPaletteIndex,
+            isSideways,
+            bidiLevel,
+            measuringMode);
+
     public void Dispose()
     {
         ProGpuDirect2DSurface? owner =
@@ -4448,6 +4601,34 @@ public sealed class ProGpuDirect2DCommandListDrawingSession : IDisposable
             glyphAdvances,
             glyphOffsets,
             foregroundBrush,
+            isSideways,
+            bidiLevel,
+            measuringMode);
+
+    public ProGpuDirect2DColorGlyphPath DrawColorGlyphRun(
+        Vector2 baselineOrigin,
+        float fontEmSize,
+        ProGpuDirect2DComReference fontFace,
+        ReadOnlySpan<ushort> glyphIndices,
+        ReadOnlySpan<float> glyphAdvances,
+        ReadOnlySpan<ProGpuDirect2DGlyphOffset> glyphOffsets,
+        ProGpuDirect2DComReference foregroundBrush,
+        uint colorPaletteIndex = 0U,
+        bool isSideways = false,
+        uint bidiLevel = 0U,
+        ProGpuDirect2DMeasuringMode measuringMode =
+            ProGpuDirect2DMeasuringMode.Natural) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .DrawColorGlyphRun(
+            baselineOrigin,
+            fontEmSize,
+            fontFace,
+            glyphIndices,
+            glyphAdvances,
+            glyphOffsets,
+            foregroundBrush,
+            colorPaletteIndex,
             isSideways,
             bidiLevel,
             measuringMode);

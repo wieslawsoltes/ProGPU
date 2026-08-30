@@ -1430,6 +1430,31 @@ int main()
             PROGPU_NATIVE_DIRECT2D_MEASURING_MODE_NATURAL,
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE,
         "ID2D1DeviceContext glyph-run draw outside a draw did not fail closed");
+    auto color_glyph_path =
+        static_cast<progpu_native_direct2d_color_glyph_path>(99);
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_draw_color_glyph_run(
+            surface,
+            2.0F,
+            24.0F,
+            13.0F,
+            font_face.Get(),
+            glyph_indices,
+            static_cast<uint32_t>(std::size(glyph_indices)),
+            glyph_advances,
+            static_cast<uint32_t>(std::size(glyph_advances)),
+            glyph_offsets,
+            static_cast<uint32_t>(std::size(glyph_offsets)),
+            0U,
+            0U,
+            solid_brush.Get(),
+            0U,
+            PROGPU_NATIVE_DIRECT2D_MEASURING_MODE_NATURAL,
+            &color_glyph_path,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE &&
+            static_cast<uint32_t>(color_glyph_path) == 0U,
+        "Direct2D color-glyph draw outside a draw did not fail closed");
 
     progpu_native_direct2d_layer_parameters layer_parameters{};
     layer_parameters.content_bounds = {0.0F, 0.0F, 24.0F, 24.0F};
@@ -2274,6 +2299,35 @@ int main()
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK,
         "provider typed ID2D1DeviceContext glyph-run draw failed");
+    color_glyph_path =
+        static_cast<progpu_native_direct2d_color_glyph_path>(0);
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_draw_color_glyph_run(
+            surface,
+            28.0F,
+            24.0F,
+            13.0F,
+            font_face.Get(),
+            glyph_indices,
+            static_cast<uint32_t>(std::size(glyph_indices)),
+            glyph_advances,
+            static_cast<uint32_t>(std::size(glyph_advances)),
+            glyph_offsets,
+            static_cast<uint32_t>(std::size(glyph_offsets)),
+            0U,
+            0U,
+            solid_brush.Get(),
+            0U,
+            PROGPU_NATIVE_DIRECT2D_MEASURING_MODE_NATURAL,
+            &color_glyph_path,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK &&
+            color_glyph_path >=
+                PROGPU_NATIVE_DIRECT2D_COLOR_GLYPH_PATH_DEVICE_CONTEXT7 &&
+            color_glyph_path <=
+                PROGPU_NATIVE_DIRECT2D_COLOR_GLYPH_PATH_MONOCHROME_NO_COLOR,
+        "provider typed Direct2D color-glyph draw failed");
     native_hresult = S_OK;
     require(
         progpu_native_direct2d_surface_draw_text(

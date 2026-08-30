@@ -111,8 +111,16 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_TYPOGRAPHY = 51,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_FONT_FACE_REFERENCE = 52,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_FONT_FACE = 53,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_FONT_FACE5 = 54
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_FONT_FACE5 = 54,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT4 = 55,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT7 = 56
 } progpu_native_direct2d_interface_kind;
+
+typedef enum progpu_native_direct2d_color_glyph_path {
+    PROGPU_NATIVE_DIRECT2D_COLOR_GLYPH_PATH_DEVICE_CONTEXT7 = 1,
+    PROGPU_NATIVE_DIRECT2D_COLOR_GLYPH_PATH_TRANSLATED_DEVICE_CONTEXT4 = 2,
+    PROGPU_NATIVE_DIRECT2D_COLOR_GLYPH_PATH_MONOCHROME_NO_COLOR = 3
+} progpu_native_direct2d_color_glyph_path;
 
 typedef enum progpu_native_direct2d_fill_mode {
     PROGPU_NATIVE_DIRECT2D_FILL_MODE_ALTERNATE = 0,
@@ -538,7 +546,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 20U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 21U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -906,6 +914,30 @@ progpu_native_direct2d_surface_draw_glyph_run(
     uint32_t bidi_level,
     void* foreground_brush,
     progpu_native_direct2d_measuring_mode measuring_mode,
+    int32_t* native_hresult);
+
+/* Draws an already-shaped run using native color-font representations. The
+ * fastest ID2D1DeviceContext7 path is preferred; Windows 10 falls back to
+ * IDWriteFactory4 translation plus ID2D1DeviceContext4 GPU drawing. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_color_glyph_run(
+    progpu_native_direct2d_surface* surface,
+    float baseline_origin_x,
+    float baseline_origin_y,
+    float font_em_size,
+    void* font_face,
+    const uint16_t* glyph_indices,
+    uint32_t glyph_count,
+    const float* glyph_advances,
+    uint32_t glyph_advance_count,
+    const progpu_native_direct2d_glyph_offset* glyph_offsets,
+    uint32_t glyph_offset_count,
+    uint32_t is_sideways,
+    uint32_t bidi_level,
+    void* foreground_brush,
+    uint32_t color_palette_index,
+    progpu_native_direct2d_measuring_mode measuring_mode,
+    progpu_native_direct2d_color_glyph_path* selected_path,
     int32_t* native_hresult);
 
 /* Draws a retained text layout through ID2D1RenderTarget::DrawTextLayout
