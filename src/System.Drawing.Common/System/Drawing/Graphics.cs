@@ -4353,13 +4353,31 @@ public partial class Graphics :
 
     private GpuTexture RetainBitmapTexture(Bitmap bitmap)
     {
+        var targetContext = _bitmap?.GetDrawingContext() ?? _targetContext ?? GpuProvider.Context;
         if (ReferenceEquals(bitmap, _bitmap))
         {
-            throw new InvalidOperationException(
-                "Drawing a Bitmap into itself requires an explicit snapshot texture and is not supported by the deferred GPU path.");
+            Bitmap snapshot;
+            SuspendRecorderState();
+            try
+            {
+                snapshot = (Bitmap)bitmap.Clone();
+            }
+            finally
+            {
+                ResumeRecorderState();
+            }
+
+            using (snapshot)
+            {
+                if (!_context.TryRetainTexture(snapshot, targetContext, out GpuTexture snapshotTexture))
+                {
+                    throw new ObjectDisposedException(nameof(bitmap), "Cannot draw a disposed GDI Bitmap.");
+                }
+
+                return snapshotTexture;
+            }
         }
 
-        var targetContext = _bitmap?.GetDrawingContext() ?? _targetContext ?? GpuProvider.Context;
         if (!_context.TryRetainTexture(bitmap, targetContext, out var retainedTexture))
         {
             throw new ObjectDisposedException(nameof(bitmap), "Cannot draw a disposed GDI Bitmap.");

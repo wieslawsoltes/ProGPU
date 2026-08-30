@@ -69,6 +69,42 @@ public sealed class GraphicsImageOverloadQualityTests
     }
 
     [Fact]
+    public void OverlappingSelfDrawsUseSequentialSnapshots()
+    {
+        using var bitmap = new Bitmap(4, 1);
+        bitmap.SetPixel(0, 0, Color.Red);
+        bitmap.SetPixel(1, 0, Color.Green);
+        bitmap.SetPixel(2, 0, Color.Blue);
+        bitmap.SetPixel(3, 0, Color.Yellow);
+        using (Graphics graphics = Graphics.FromImage(bitmap))
+        {
+            graphics.CompositingMode = Drawing2D.CompositingMode.SourceCopy;
+            graphics.InterpolationMode = Drawing2D.InterpolationMode.NearestNeighbor;
+            graphics.DrawImage(
+                bitmap,
+                new Rectangle(1, 0, 3, 1),
+                0,
+                0,
+                3,
+                1,
+                GraphicsUnit.Pixel);
+            graphics.DrawImage(
+                bitmap,
+                new Rectangle(0, 0, 3, 1),
+                1,
+                0,
+                3,
+                1,
+                GraphicsUnit.Pixel);
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), bitmap.GetPixel(0, 0).ToArgb());
+        Assert.Equal(Color.Green.ToArgb(), bitmap.GetPixel(1, 0).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), bitmap.GetPixel(2, 0).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), bitmap.GetPixel(3, 0).ToArgb());
+    }
+
+    [Fact]
     public void FloatSourceCallbacksAbortOrApplyImageAttributes()
     {
         using Bitmap source = CreateQuadrantSource();

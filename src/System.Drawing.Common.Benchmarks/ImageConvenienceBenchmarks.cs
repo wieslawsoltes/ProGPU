@@ -1,6 +1,7 @@
 using BenchmarkDotNet.Attributes;
 using ProGPU.Scene;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 
 namespace ProGPU.SystemDrawing.Benchmarks;
 
@@ -8,6 +9,7 @@ namespace ProGPU.SystemDrawing.Benchmarks;
 public class ImageConvenienceBenchmarks
 {
     private readonly Bitmap _source = new(64, 64);
+    private readonly Bitmap _selfTarget = new(64, 64);
     private readonly DrawingContext _context = new();
     private readonly PointF[] _perspectiveDestination =
     [
@@ -17,6 +19,7 @@ public class ImageConvenienceBenchmarks
         new(58f, 57f)
     ];
     private Graphics _graphics = null!;
+    private Graphics _selfGraphics = null!;
 
     [GlobalSetup]
     public void Setup()
@@ -24,7 +27,12 @@ public class ImageConvenienceBenchmarks
         _graphics = Graphics.FromProGpuDrawingContext(
             _context,
             new RectangleF(0f, 0f, 64f, 64f));
+        _selfTarget.SetPixel(0, 0, Color.Red);
+        _selfGraphics = Graphics.FromImage(_selfTarget);
+        _selfGraphics.CompositingMode = CompositingMode.SourceCopy;
+        _selfGraphics.InterpolationMode = InterpolationMode.NearestNeighbor;
         RecordPerspectiveDrawImage();
+        DrawImageOverlappingSelfSnapshot();
     }
 
     [Benchmark]
@@ -42,10 +50,25 @@ public class ImageConvenienceBenchmarks
         return _context.Commands.Count;
     }
 
+    [Benchmark]
+    public void DrawImageOverlappingSelfSnapshot()
+    {
+        _selfGraphics.DrawImage(
+            _selfTarget,
+            new Rectangle(1, 0, 63, 64),
+            0,
+            0,
+            63,
+            64,
+            GraphicsUnit.Pixel);
+    }
+
     [GlobalCleanup]
     public void Cleanup()
     {
         _graphics.Dispose();
+        _selfGraphics.Dispose();
+        _selfTarget.Dispose();
         _source.Dispose();
     }
 }
