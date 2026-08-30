@@ -147,6 +147,8 @@ try {
 
     Write-Host "Qualified genuine Microsoft Win2D drawing on the ProGPU Direct2D/Dawn surface."
 } finally {
+    Get-Process -Name $PackageName -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
     Get-AppxPackage -Name $PackageName -ErrorAction SilentlyContinue |
         Remove-AppxPackage -ErrorAction SilentlyContinue
     Remove-Item `
