@@ -591,7 +591,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 25U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 26U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -1237,6 +1237,111 @@ progpu_native_direct2d_surface_draw_geometry_realization(
     progpu_native_direct2d_surface* surface,
     void* realization,
     void* brush,
+    int32_t* native_hresult);
+
+/* Core ID2D1DeviceContext drawing state and vector operations. All drawing
+ * operations require an active shared-target or command-list producer. COM
+ * resources are QueryInterface-validated before Direct2D receives them; any
+ * deferred drawing error remains observable through EndDraw. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_clear(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_color_f* color,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_set_transform(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_transform(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_matrix_3x2_f* transform,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_line(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_point_2f point0,
+    progpu_native_direct2d_point_2f point1,
+    void* brush,
+    float stroke_width,
+    void* stroke_style,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_rectangle(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_rect_f* rectangle,
+    void* brush,
+    float stroke_width,
+    void* stroke_style,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_fill_rectangle(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_rect_f* rectangle,
+    void* brush,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_rounded_rectangle(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_rect_f* rectangle,
+    float radius_x,
+    float radius_y,
+    void* brush,
+    float stroke_width,
+    void* stroke_style,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_fill_rounded_rectangle(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_rect_f* rectangle,
+    float radius_x,
+    float radius_y,
+    void* brush,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_ellipse(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_point_2f center,
+    float radius_x,
+    float radius_y,
+    void* brush,
+    float stroke_width,
+    void* stroke_style,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_fill_ellipse(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_point_2f center,
+    float radius_x,
+    float radius_y,
+    void* brush,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_geometry(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    void* brush,
+    float stroke_width,
+    void* stroke_style,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_fill_geometry(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    void* brush,
+    void* opacity_brush,
     int32_t* native_hresult);
 
 /* Creates a genuine factory-domain ID2D1StrokeStyle1. Custom dash lengths are

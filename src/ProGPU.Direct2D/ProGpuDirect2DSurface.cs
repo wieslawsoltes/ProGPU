@@ -33,6 +33,14 @@ public sealed unsafe class ProGpuDirect2DSurface :
         Widen
     }
 
+    private enum VectorPrimitive
+    {
+        Line,
+        Rectangle,
+        RoundedRectangle,
+        Ellipse
+    }
+
     private const uint DefaultMutexTimeoutMilliseconds = 5_000U;
     private static readonly Guid D2D1Device1InterfaceId =
         new("D21768E1-23A4-4823-A14B-7C3EBA85D658");
@@ -4874,6 +4882,480 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    internal void Clear(ProGpuDirect2DColor? color)
+    {
+        ProGpuDirect2DNative.NativeColorF nativeColor = default;
+        ProGpuDirect2DNative.NativeColorF* colorPointer = null;
+        if (color is ProGpuDirect2DColor value)
+        {
+            ValidateColor(value);
+            nativeColor = new ProGpuDirect2DNative.NativeColorF
+            {
+                Red = value.Red,
+                Green = value.Green,
+                Blue = value.Blue,
+                Alpha = value.Alpha
+            };
+            colorPointer = &nativeColor;
+        }
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceClear(
+                    _nativeSurface,
+                    colorPointer,
+                    &nativeHResult);
+            ThrowIfFailed("ID2D1DeviceContext::Clear", status, nativeHResult);
+        }
+    }
+
+    internal void SetTransform(Matrix3x2 transform)
+    {
+        ProGpuDirect2DNative.NativeMatrix3X2F nativeTransform =
+            CreateNativeMatrix(transform);
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceSetTransform(
+                    _nativeSurface,
+                    &nativeTransform,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1DeviceContext::SetTransform",
+                status,
+                nativeHResult);
+        }
+    }
+
+    internal Matrix3x2 GetTransform()
+    {
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            ProGpuDirect2DNative.NativeMatrix3X2F transform = default;
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceGetTransform(
+                    _nativeSurface,
+                    &transform,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1DeviceContext::GetTransform",
+                status,
+                nativeHResult);
+            return new Matrix3x2(
+                transform.M11,
+                transform.M12,
+                transform.M21,
+                transform.M22,
+                transform.M31,
+                transform.M32);
+        }
+    }
+
+    internal void DrawLine(
+        Vector2 point0,
+        Vector2 point1,
+        ProGpuDirect2DComReference brush,
+        float strokeWidth,
+        ProGpuDirect2DComReference? strokeStyle)
+    {
+        ValidatePoint(point0, nameof(point0));
+        ValidatePoint(point1, nameof(point1));
+        DrawStrokePrimitive(
+            VectorPrimitive.Line,
+            default,
+            point0,
+            point1,
+            0.0F,
+            0.0F,
+            brush,
+            strokeWidth,
+            strokeStyle);
+    }
+
+    internal void DrawRectangle(
+        ProGpuDirect2DRect rectangle,
+        ProGpuDirect2DComReference brush,
+        float strokeWidth,
+        ProGpuDirect2DComReference? strokeStyle)
+    {
+        ValidateRectangle(rectangle);
+        DrawStrokePrimitive(
+            VectorPrimitive.Rectangle,
+            rectangle,
+            default,
+            default,
+            0.0F,
+            0.0F,
+            brush,
+            strokeWidth,
+            strokeStyle);
+    }
+
+    internal void FillRectangle(
+        ProGpuDirect2DRect rectangle,
+        ProGpuDirect2DComReference brush)
+    {
+        ValidateRectangle(rectangle);
+        FillPrimitive(
+            VectorPrimitive.Rectangle,
+            rectangle,
+            default,
+            0.0F,
+            0.0F,
+            brush);
+    }
+
+    internal void DrawRoundedRectangle(
+        ProGpuDirect2DRect rectangle,
+        float radiusX,
+        float radiusY,
+        ProGpuDirect2DComReference brush,
+        float strokeWidth,
+        ProGpuDirect2DComReference? strokeStyle)
+    {
+        ValidateRectangle(rectangle);
+        ValidateRadii(radiusX, radiusY);
+        DrawStrokePrimitive(
+            VectorPrimitive.RoundedRectangle,
+            rectangle,
+            default,
+            default,
+            radiusX,
+            radiusY,
+            brush,
+            strokeWidth,
+            strokeStyle);
+    }
+
+    internal void FillRoundedRectangle(
+        ProGpuDirect2DRect rectangle,
+        float radiusX,
+        float radiusY,
+        ProGpuDirect2DComReference brush)
+    {
+        ValidateRectangle(rectangle);
+        ValidateRadii(radiusX, radiusY);
+        FillPrimitive(
+            VectorPrimitive.RoundedRectangle,
+            rectangle,
+            default,
+            radiusX,
+            radiusY,
+            brush);
+    }
+
+    internal void DrawEllipse(
+        Vector2 center,
+        float radiusX,
+        float radiusY,
+        ProGpuDirect2DComReference brush,
+        float strokeWidth,
+        ProGpuDirect2DComReference? strokeStyle)
+    {
+        ValidatePoint(center, nameof(center));
+        ValidateRadii(radiusX, radiusY);
+        DrawStrokePrimitive(
+            VectorPrimitive.Ellipse,
+            default,
+            center,
+            default,
+            radiusX,
+            radiusY,
+            brush,
+            strokeWidth,
+            strokeStyle);
+    }
+
+    internal void FillEllipse(
+        Vector2 center,
+        float radiusX,
+        float radiusY,
+        ProGpuDirect2DComReference brush)
+    {
+        ValidatePoint(center, nameof(center));
+        ValidateRadii(radiusX, radiusY);
+        FillPrimitive(
+            VectorPrimitive.Ellipse,
+            default,
+            center,
+            radiusX,
+            radiusY,
+            brush);
+    }
+
+    internal void DrawGeometry(
+        ProGpuDirect2DComReference geometry,
+        ProGpuDirect2DComReference brush,
+        float strokeWidth,
+        ProGpuDirect2DComReference? strokeStyle)
+    {
+        ValidateGeometry(geometry, nameof(geometry));
+        ValidateBrush(brush, nameof(brush));
+        ValidateStrokeWidth(strokeWidth, nameof(strokeWidth));
+        ValidateOptionalStrokeStyle(strokeStyle, nameof(strokeStyle));
+        bool geometryReferenceAdded = false;
+        bool brushReferenceAdded = false;
+        bool styleReferenceAdded = false;
+        try
+        {
+            geometry.DangerousAddRef(ref geometryReferenceAdded);
+            brush.DangerousAddRef(ref brushReferenceAdded);
+            strokeStyle?.DangerousAddRef(ref styleReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.SurfaceDrawGeometry(
+                        _nativeSurface,
+                        geometry.DangerousGetHandle(),
+                        brush.DangerousGetHandle(),
+                        strokeWidth,
+                        strokeStyle?.DangerousGetHandle() ?? 0,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1DeviceContext::DrawGeometry",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (styleReferenceAdded)
+            {
+                strokeStyle!.DangerousRelease();
+            }
+            if (brushReferenceAdded)
+            {
+                brush.DangerousRelease();
+            }
+            if (geometryReferenceAdded)
+            {
+                geometry.DangerousRelease();
+            }
+        }
+    }
+
+    internal void FillGeometry(
+        ProGpuDirect2DComReference geometry,
+        ProGpuDirect2DComReference brush,
+        ProGpuDirect2DComReference? opacityBrush)
+    {
+        ValidateGeometry(geometry, nameof(geometry));
+        ValidateBrush(brush, nameof(brush));
+        if (opacityBrush is not null)
+        {
+            ValidateBrush(opacityBrush, nameof(opacityBrush));
+        }
+        bool geometryReferenceAdded = false;
+        bool brushReferenceAdded = false;
+        bool opacityReferenceAdded = false;
+        try
+        {
+            geometry.DangerousAddRef(ref geometryReferenceAdded);
+            brush.DangerousAddRef(ref brushReferenceAdded);
+            opacityBrush?.DangerousAddRef(ref opacityReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.SurfaceFillGeometry(
+                        _nativeSurface,
+                        geometry.DangerousGetHandle(),
+                        brush.DangerousGetHandle(),
+                        opacityBrush?.DangerousGetHandle() ?? 0,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1DeviceContext::FillGeometry",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (opacityReferenceAdded)
+            {
+                opacityBrush!.DangerousRelease();
+            }
+            if (brushReferenceAdded)
+            {
+                brush.DangerousRelease();
+            }
+            if (geometryReferenceAdded)
+            {
+                geometry.DangerousRelease();
+            }
+        }
+    }
+
+    private void DrawStrokePrimitive(
+        VectorPrimitive primitive,
+        ProGpuDirect2DRect rectangle,
+        Vector2 point0,
+        Vector2 point1,
+        float radiusX,
+        float radiusY,
+        ProGpuDirect2DComReference brush,
+        float strokeWidth,
+        ProGpuDirect2DComReference? strokeStyle)
+    {
+        ValidateBrush(brush, nameof(brush));
+        ValidateStrokeWidth(strokeWidth, nameof(strokeWidth));
+        ValidateOptionalStrokeStyle(strokeStyle, nameof(strokeStyle));
+        bool brushReferenceAdded = false;
+        bool styleReferenceAdded = false;
+        try
+        {
+            brush.DangerousAddRef(ref brushReferenceAdded);
+            strokeStyle?.DangerousAddRef(ref styleReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status = primitive switch
+                {
+                    VectorPrimitive.Line =>
+                        ProGpuDirect2DNative.SurfaceDrawLine(
+                            _nativeSurface,
+                            CreateNativePoint(point0),
+                            CreateNativePoint(point1),
+                            brush.DangerousGetHandle(),
+                            strokeWidth,
+                            strokeStyle?.DangerousGetHandle() ?? 0,
+                            &nativeHResult),
+                    VectorPrimitive.Rectangle =>
+                        ProGpuDirect2DNative.SurfaceDrawRectangle(
+                            _nativeSurface,
+                            &rectangle,
+                            brush.DangerousGetHandle(),
+                            strokeWidth,
+                            strokeStyle?.DangerousGetHandle() ?? 0,
+                            &nativeHResult),
+                    VectorPrimitive.RoundedRectangle =>
+                        ProGpuDirect2DNative.SurfaceDrawRoundedRectangle(
+                            _nativeSurface,
+                            &rectangle,
+                            radiusX,
+                            radiusY,
+                            brush.DangerousGetHandle(),
+                            strokeWidth,
+                            strokeStyle?.DangerousGetHandle() ?? 0,
+                            &nativeHResult),
+                    VectorPrimitive.Ellipse =>
+                        ProGpuDirect2DNative.SurfaceDrawEllipse(
+                            _nativeSurface,
+                            CreateNativePoint(point0),
+                            radiusX,
+                            radiusY,
+                            brush.DangerousGetHandle(),
+                            strokeWidth,
+                            strokeStyle?.DangerousGetHandle() ?? 0,
+                            &nativeHResult),
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(primitive))
+                };
+                string operation = primitive switch
+                {
+                    VectorPrimitive.Line => "ID2D1DeviceContext::DrawLine",
+                    VectorPrimitive.Rectangle =>
+                        "ID2D1DeviceContext::DrawRectangle",
+                    VectorPrimitive.RoundedRectangle =>
+                        "ID2D1DeviceContext::DrawRoundedRectangle",
+                    VectorPrimitive.Ellipse =>
+                        "ID2D1DeviceContext::DrawEllipse",
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(primitive))
+                };
+                ThrowIfFailed(operation, status, nativeHResult);
+            }
+        }
+        finally
+        {
+            if (styleReferenceAdded)
+            {
+                strokeStyle!.DangerousRelease();
+            }
+            if (brushReferenceAdded)
+            {
+                brush.DangerousRelease();
+            }
+        }
+    }
+
+    private void FillPrimitive(
+        VectorPrimitive primitive,
+        ProGpuDirect2DRect rectangle,
+        Vector2 center,
+        float radiusX,
+        float radiusY,
+        ProGpuDirect2DComReference brush)
+    {
+        ValidateBrush(brush, nameof(brush));
+        bool brushReferenceAdded = false;
+        try
+        {
+            brush.DangerousAddRef(ref brushReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status = primitive switch
+                {
+                    VectorPrimitive.Rectangle =>
+                        ProGpuDirect2DNative.SurfaceFillRectangle(
+                            _nativeSurface,
+                            &rectangle,
+                            brush.DangerousGetHandle(),
+                            &nativeHResult),
+                    VectorPrimitive.RoundedRectangle =>
+                        ProGpuDirect2DNative.SurfaceFillRoundedRectangle(
+                            _nativeSurface,
+                            &rectangle,
+                            radiusX,
+                            radiusY,
+                            brush.DangerousGetHandle(),
+                            &nativeHResult),
+                    VectorPrimitive.Ellipse =>
+                        ProGpuDirect2DNative.SurfaceFillEllipse(
+                            _nativeSurface,
+                            CreateNativePoint(center),
+                            radiusX,
+                            radiusY,
+                            brush.DangerousGetHandle(),
+                            &nativeHResult),
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(primitive))
+                };
+                string operation = primitive switch
+                {
+                    VectorPrimitive.Rectangle =>
+                        "ID2D1DeviceContext::FillRectangle",
+                    VectorPrimitive.RoundedRectangle =>
+                        "ID2D1DeviceContext::FillRoundedRectangle",
+                    VectorPrimitive.Ellipse =>
+                        "ID2D1DeviceContext::FillEllipse",
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(primitive))
+                };
+                ThrowIfFailed(operation, status, nativeHResult);
+            }
+        }
+        finally
+        {
+            if (brushReferenceAdded)
+            {
+                brush.DangerousRelease();
+            }
+        }
+    }
+
     private static void ValidateFlatteningTolerance(
         float value,
         string parameterName)
@@ -4906,6 +5388,20 @@ public sealed unsafe class ProGpuDirect2DSurface :
         {
             throw new ArgumentException(
                 "The COM reference must own a Direct2D geometry.",
+                parameterName);
+        }
+    }
+
+    private void ValidateBrush(
+        ProGpuDirect2DComReference brush,
+        string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(brush, parameterName);
+        ValidateResourceDomain(brush, parameterName);
+        if (!IsBrushKind(brush.InterfaceKind))
+        {
+            throw new ArgumentException(
+                "The COM reference must own a genuine ID2D1Brush.",
                 parameterName);
         }
     }
@@ -5636,6 +6132,117 @@ public sealed class ProGpuDirect2DDrawingSession : IDisposable
 
     public ProGpuDirect2DComReference DeviceContext { get; }
 
+    public void Clear(ProGpuDirect2DColor? color = null) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .Clear(color);
+
+    public Matrix3x2 Transform
+    {
+        get => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+            .GetTransform();
+        set => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+            .SetTransform(value);
+    }
+
+    public void DrawLine(
+        Vector2 point0,
+        Vector2 point1,
+        ProGpuDirect2DComReference brush,
+        float strokeWidth = 1.0F,
+        ProGpuDirect2DComReference? strokeStyle = null) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .DrawLine(point0, point1, brush, strokeWidth, strokeStyle);
+
+    public void DrawRectangle(
+        ProGpuDirect2DRect rectangle,
+        ProGpuDirect2DComReference brush,
+        float strokeWidth = 1.0F,
+        ProGpuDirect2DComReference? strokeStyle = null) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .DrawRectangle(rectangle, brush, strokeWidth, strokeStyle);
+
+    public void FillRectangle(
+        ProGpuDirect2DRect rectangle,
+        ProGpuDirect2DComReference brush) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .FillRectangle(rectangle, brush);
+
+    public void DrawRoundedRectangle(
+        ProGpuDirect2DRect rectangle,
+        float radiusX,
+        float radiusY,
+        ProGpuDirect2DComReference brush,
+        float strokeWidth = 1.0F,
+        ProGpuDirect2DComReference? strokeStyle = null) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .DrawRoundedRectangle(
+            rectangle,
+            radiusX,
+            radiusY,
+            brush,
+            strokeWidth,
+            strokeStyle);
+
+    public void FillRoundedRectangle(
+        ProGpuDirect2DRect rectangle,
+        float radiusX,
+        float radiusY,
+        ProGpuDirect2DComReference brush) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .FillRoundedRectangle(rectangle, radiusX, radiusY, brush);
+
+    public void DrawEllipse(
+        Vector2 center,
+        float radiusX,
+        float radiusY,
+        ProGpuDirect2DComReference brush,
+        float strokeWidth = 1.0F,
+        ProGpuDirect2DComReference? strokeStyle = null) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .DrawEllipse(
+            center,
+            radiusX,
+            radiusY,
+            brush,
+            strokeWidth,
+            strokeStyle);
+
+    public void FillEllipse(
+        Vector2 center,
+        float radiusX,
+        float radiusY,
+        ProGpuDirect2DComReference brush) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .FillEllipse(center, radiusX, radiusY, brush);
+
+    public void DrawGeometry(
+        ProGpuDirect2DComReference geometry,
+        ProGpuDirect2DComReference brush,
+        float strokeWidth = 1.0F,
+        ProGpuDirect2DComReference? strokeStyle = null) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .DrawGeometry(geometry, brush, strokeWidth, strokeStyle);
+
+    public void FillGeometry(
+        ProGpuDirect2DComReference geometry,
+        ProGpuDirect2DComReference brush,
+        ProGpuDirect2DComReference? opacityBrush = null) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .FillGeometry(geometry, brush, opacityBrush);
+
+
     public ProGpuDirect2DLayerScope PushLayer(
         ProGpuDirect2DComReference layer,
         ProGpuDirect2DLayerParameters parameters,
@@ -5811,6 +6418,117 @@ public sealed class ProGpuDirect2DCommandListDrawingSession : IDisposable
     public ProGpuDirect2DComReference DeviceContext { get; }
 
     public ProGpuDirect2DComReference CommandList { get; }
+
+    public void Clear(ProGpuDirect2DColor? color = null) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .Clear(color);
+
+    public Matrix3x2 Transform
+    {
+        get => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+            .GetTransform();
+        set => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+            .SetTransform(value);
+    }
+
+    public void DrawLine(
+        Vector2 point0,
+        Vector2 point1,
+        ProGpuDirect2DComReference brush,
+        float strokeWidth = 1.0F,
+        ProGpuDirect2DComReference? strokeStyle = null) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .DrawLine(point0, point1, brush, strokeWidth, strokeStyle);
+
+    public void DrawRectangle(
+        ProGpuDirect2DRect rectangle,
+        ProGpuDirect2DComReference brush,
+        float strokeWidth = 1.0F,
+        ProGpuDirect2DComReference? strokeStyle = null) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .DrawRectangle(rectangle, brush, strokeWidth, strokeStyle);
+
+    public void FillRectangle(
+        ProGpuDirect2DRect rectangle,
+        ProGpuDirect2DComReference brush) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .FillRectangle(rectangle, brush);
+
+    public void DrawRoundedRectangle(
+        ProGpuDirect2DRect rectangle,
+        float radiusX,
+        float radiusY,
+        ProGpuDirect2DComReference brush,
+        float strokeWidth = 1.0F,
+        ProGpuDirect2DComReference? strokeStyle = null) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .DrawRoundedRectangle(
+            rectangle,
+            radiusX,
+            radiusY,
+            brush,
+            strokeWidth,
+            strokeStyle);
+
+    public void FillRoundedRectangle(
+        ProGpuDirect2DRect rectangle,
+        float radiusX,
+        float radiusY,
+        ProGpuDirect2DComReference brush) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .FillRoundedRectangle(rectangle, radiusX, radiusY, brush);
+
+    public void DrawEllipse(
+        Vector2 center,
+        float radiusX,
+        float radiusY,
+        ProGpuDirect2DComReference brush,
+        float strokeWidth = 1.0F,
+        ProGpuDirect2DComReference? strokeStyle = null) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .DrawEllipse(
+            center,
+            radiusX,
+            radiusY,
+            brush,
+            strokeWidth,
+            strokeStyle);
+
+    public void FillEllipse(
+        Vector2 center,
+        float radiusX,
+        float radiusY,
+        ProGpuDirect2DComReference brush) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .FillEllipse(center, radiusX, radiusY, brush);
+
+    public void DrawGeometry(
+        ProGpuDirect2DComReference geometry,
+        ProGpuDirect2DComReference brush,
+        float strokeWidth = 1.0F,
+        ProGpuDirect2DComReference? strokeStyle = null) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .DrawGeometry(geometry, brush, strokeWidth, strokeStyle);
+
+    public void FillGeometry(
+        ProGpuDirect2DComReference geometry,
+        ProGpuDirect2DComReference brush,
+        ProGpuDirect2DComReference? opacityBrush = null) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .FillGeometry(geometry, brush, opacityBrush);
+
 
     public ProGpuDirect2DLayerScope PushLayer(
         ProGpuDirect2DComReference layer,

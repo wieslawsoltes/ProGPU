@@ -5214,6 +5214,24 @@ seconds, and passes all 11 native suites. Corrected native-identical commit
 `84ece34c` passes ClangCL x64 job `99312705172` in 0.15 seconds and all 12
 native suites; the final commit changes only managed operation-label scope.
 
+ABI v26 then adds typed immediate Direct2D vector drawing without creating a
+second scene implementation. Both shared-target and command-list producer
+sessions expose clear, affine transform get/set, line, rectangle,
+rounded-rectangle, ellipse, and geometry fill/stroke operations. The managed
+owner validates resource kind and monotonic generation and holds each borrowed
+`SafeHandle` reference across the call; the native boundary repeats finite
+geometry checks and `QueryInterface` validation. This gives the Windows MIL
+and Win2D lanes a native `ID2D1DeviceContext1` rendering seam while Metal,
+Vulkan, Linux, macOS, and browser hosts continue to use the same portable
+ProGPU retained vector pipeline. No pointer-shaped COM state enters MIL or
+WebGPU, no CPU readback/repack is introduced, and the exact Direct2D export
+allowlist grows from 74 to 86. Command-list coverage exercises all operations,
+transform round-trip, and an exact BGRA shared-texture readback pixel;
+portable managed contracts pass 5/5 with zero warnings. Windows
+warning-as-error execution of that pixel gate remains pending the pushed
+commit. Exact clip/layer cross-ordering is reserved for a unified LIFO
+draw-state ABI rather than being approximated with a separate clip counter.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

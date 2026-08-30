@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 25U;
+    internal const uint AbiVersion = 26U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -964,6 +964,145 @@ internal static unsafe partial class ProGpuDirect2DNative
             nint realization,
             nint brush,
             int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_clear")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceClear(
+        nint surface,
+        NativeColorF* color,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_set_transform")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceSetTransform(
+        nint surface,
+        NativeMatrix3X2F* transform,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_get_transform")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceGetTransform(
+        nint surface,
+        NativeMatrix3X2F* transform,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_draw_line")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceDrawLine(
+        nint surface,
+        NativePoint2F point0,
+        NativePoint2F point1,
+        nint brush,
+        float strokeWidth,
+        nint strokeStyle,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_draw_rectangle")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceDrawRectangle(
+        nint surface,
+        ProGpuDirect2DRect* rectangle,
+        nint brush,
+        float strokeWidth,
+        nint strokeStyle,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_fill_rectangle")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceFillRectangle(
+        nint surface,
+        ProGpuDirect2DRect* rectangle,
+        nint brush,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_draw_rounded_rectangle")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceDrawRoundedRectangle(
+            nint surface,
+            ProGpuDirect2DRect* rectangle,
+            float radiusX,
+            float radiusY,
+            nint brush,
+            float strokeWidth,
+            nint strokeStyle,
+            int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_fill_rounded_rectangle")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceFillRoundedRectangle(
+            nint surface,
+            ProGpuDirect2DRect* rectangle,
+            float radiusX,
+            float radiusY,
+            nint brush,
+            int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_draw_ellipse")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceDrawEllipse(
+        nint surface,
+        NativePoint2F center,
+        float radiusX,
+        float radiusY,
+        nint brush,
+        float strokeWidth,
+        nint strokeStyle,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_fill_ellipse")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceFillEllipse(
+        nint surface,
+        NativePoint2F center,
+        float radiusX,
+        float radiusY,
+        nint brush,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_draw_geometry")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceDrawGeometry(
+        nint surface,
+        nint geometry,
+        nint brush,
+        float strokeWidth,
+        nint strokeStyle,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_fill_geometry")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceFillGeometry(
+        nint surface,
+        nint geometry,
+        nint brush,
+        nint opacityBrush,
+        int* nativeHResult);
 
     [LibraryImport(
         LibraryName,

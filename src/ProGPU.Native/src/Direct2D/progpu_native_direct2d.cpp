@@ -162,6 +162,8 @@ constexpr uint32_t dxgi_format_b8g8r8a8_unorm = 87U;
 constexpr uint32_t d2d_alpha_mode_premultiplied = 1U;
 std::atomic<uint64_t> next_resource_generation{1U};
 
+progpu_native_direct2d_status status_from_win2d_hresult(HRESULT hr);
+
 bool is_device_loss_hresult(HRESULT hr)
 {
     return hr == DXGI_ERROR_DEVICE_REMOVED ||
@@ -681,6 +683,44 @@ bool is_valid(const progpu_native_direct2d_rect_f& rectangle)
         rectangle.width >= 0.0F && rectangle.height >= 0.0F &&
         std::isfinite(rectangle.x + rectangle.width) &&
         std::isfinite(rectangle.y + rectangle.height);
+}
+
+D2D1_RECT_F to_native_rect(
+    const progpu_native_direct2d_rect_f& rectangle)
+{
+    return D2D1::RectF(
+        rectangle.x,
+        rectangle.y,
+        rectangle.x + rectangle.width,
+        rectangle.y + rectangle.height);
+}
+
+HRESULT query_brush(void* brush, ComPtr<ID2D1Brush>& native_brush)
+{
+    return reinterpret_cast<IUnknown*>(brush)->QueryInterface(
+        IID_PPV_ARGS(&native_brush));
+}
+
+HRESULT query_optional_stroke_style(
+    void* stroke_style,
+    ComPtr<ID2D1StrokeStyle>& native_stroke_style)
+{
+    return stroke_style == nullptr
+        ? S_OK
+        : reinterpret_cast<IUnknown*>(stroke_style)->QueryInterface(
+              IID_PPV_ARGS(&native_stroke_style));
+}
+
+progpu_native_direct2d_status finish_draw_command(
+    progpu_native_direct2d_surface& surface,
+    HRESULT hr,
+    int32_t& native_hresult)
+{
+    surface.last_hresult.store(hr, std::memory_order_release);
+    native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
 }
 
 bool is_valid_effect_property(
@@ -4607,6 +4647,449 @@ progpu_native_direct2d_surface_draw_geometry_realization(
     return SUCCEEDED(hr)
         ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
         : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_clear(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_color_f* color,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || native_hresult == nullptr ||
+        (color != nullptr && !is_finite(*color))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    D2D1_COLOR_F native_color{};
+    const D2D1_COLOR_F* native_color_pointer = nullptr;
+    if (color != nullptr) {
+        native_color = D2D1::ColorF(
+            color->red,
+            color->green,
+            color->blue,
+            color->alpha);
+        native_color_pointer = &native_color;
+    }
+    surface->d2d_context->Clear(native_color_pointer);
+    return finish_draw_command(*surface, S_OK, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_set_transform(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || transform == nullptr ||
+        native_hresult == nullptr || !is_finite(*transform)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    surface->d2d_context->SetTransform(to_native_matrix(*transform));
+    return finish_draw_command(*surface, S_OK, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_transform(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_matrix_3x2_f* transform,
+    int32_t* native_hresult)
+{
+    if (transform != nullptr) {
+        *transform = {};
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || transform == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    D2D1_MATRIX_3X2_F native_transform{};
+    surface->d2d_context->GetTransform(&native_transform);
+    transform->m11 = native_transform._11;
+    transform->m12 = native_transform._12;
+    transform->m21 = native_transform._21;
+    transform->m22 = native_transform._22;
+    transform->m31 = native_transform._31;
+    transform->m32 = native_transform._32;
+    return finish_draw_command(*surface, S_OK, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_line(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_point_2f point0,
+    progpu_native_direct2d_point_2f point1,
+    void* brush,
+    float stroke_width,
+    void* stroke_style,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || brush == nullptr ||
+        native_hresult == nullptr || !is_finite(point0) ||
+        !is_finite(point1) || !std::isfinite(stroke_width) ||
+        stroke_width < 0.0F) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<ID2D1Brush> native_brush;
+    HRESULT hr = query_brush(brush, native_brush);
+    ComPtr<ID2D1StrokeStyle> native_stroke_style;
+    if (SUCCEEDED(hr)) {
+        hr = query_optional_stroke_style(
+            stroke_style,
+            native_stroke_style);
+    }
+    if (SUCCEEDED(hr)) {
+        surface->d2d_context->DrawLine(
+            D2D1::Point2F(point0.x, point0.y),
+            D2D1::Point2F(point1.x, point1.y),
+            native_brush.Get(),
+            stroke_width,
+            native_stroke_style.Get());
+    }
+    return finish_draw_command(*surface, hr, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_rectangle(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_rect_f* rectangle,
+    void* brush,
+    float stroke_width,
+    void* stroke_style,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || rectangle == nullptr || brush == nullptr ||
+        native_hresult == nullptr || !is_valid(*rectangle) ||
+        !std::isfinite(stroke_width) || stroke_width < 0.0F) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<ID2D1Brush> native_brush;
+    HRESULT hr = query_brush(brush, native_brush);
+    ComPtr<ID2D1StrokeStyle> native_stroke_style;
+    if (SUCCEEDED(hr)) {
+        hr = query_optional_stroke_style(
+            stroke_style,
+            native_stroke_style);
+    }
+    if (SUCCEEDED(hr)) {
+        surface->d2d_context->DrawRectangle(
+            to_native_rect(*rectangle),
+            native_brush.Get(),
+            stroke_width,
+            native_stroke_style.Get());
+    }
+    return finish_draw_command(*surface, hr, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_fill_rectangle(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_rect_f* rectangle,
+    void* brush,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || rectangle == nullptr || brush == nullptr ||
+        native_hresult == nullptr || !is_valid(*rectangle)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<ID2D1Brush> native_brush;
+    HRESULT hr = query_brush(brush, native_brush);
+    if (SUCCEEDED(hr)) {
+        surface->d2d_context->FillRectangle(
+            to_native_rect(*rectangle),
+            native_brush.Get());
+    }
+    return finish_draw_command(*surface, hr, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_rounded_rectangle(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_rect_f* rectangle,
+    float radius_x,
+    float radius_y,
+    void* brush,
+    float stroke_width,
+    void* stroke_style,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || rectangle == nullptr || brush == nullptr ||
+        native_hresult == nullptr || !is_valid(*rectangle) ||
+        !std::isfinite(radius_x) || radius_x < 0.0F ||
+        !std::isfinite(radius_y) || radius_y < 0.0F ||
+        !std::isfinite(stroke_width) || stroke_width < 0.0F) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<ID2D1Brush> native_brush;
+    HRESULT hr = query_brush(brush, native_brush);
+    ComPtr<ID2D1StrokeStyle> native_stroke_style;
+    if (SUCCEEDED(hr)) {
+        hr = query_optional_stroke_style(
+            stroke_style,
+            native_stroke_style);
+    }
+    if (SUCCEEDED(hr)) {
+        const D2D1_ROUNDED_RECT rounded_rectangle = {
+            to_native_rect(*rectangle),
+            radius_x,
+            radius_y
+        };
+        surface->d2d_context->DrawRoundedRectangle(
+            rounded_rectangle,
+            native_brush.Get(),
+            stroke_width,
+            native_stroke_style.Get());
+    }
+    return finish_draw_command(*surface, hr, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_fill_rounded_rectangle(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_rect_f* rectangle,
+    float radius_x,
+    float radius_y,
+    void* brush,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || rectangle == nullptr || brush == nullptr ||
+        native_hresult == nullptr || !is_valid(*rectangle) ||
+        !std::isfinite(radius_x) || radius_x < 0.0F ||
+        !std::isfinite(radius_y) || radius_y < 0.0F) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<ID2D1Brush> native_brush;
+    HRESULT hr = query_brush(brush, native_brush);
+    if (SUCCEEDED(hr)) {
+        const D2D1_ROUNDED_RECT rounded_rectangle = {
+            to_native_rect(*rectangle),
+            radius_x,
+            radius_y
+        };
+        surface->d2d_context->FillRoundedRectangle(
+            rounded_rectangle,
+            native_brush.Get());
+    }
+    return finish_draw_command(*surface, hr, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_ellipse(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_point_2f center,
+    float radius_x,
+    float radius_y,
+    void* brush,
+    float stroke_width,
+    void* stroke_style,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || brush == nullptr ||
+        native_hresult == nullptr || !is_finite(center) ||
+        !std::isfinite(radius_x) || radius_x < 0.0F ||
+        !std::isfinite(radius_y) || radius_y < 0.0F ||
+        !std::isfinite(stroke_width) || stroke_width < 0.0F) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<ID2D1Brush> native_brush;
+    HRESULT hr = query_brush(brush, native_brush);
+    ComPtr<ID2D1StrokeStyle> native_stroke_style;
+    if (SUCCEEDED(hr)) {
+        hr = query_optional_stroke_style(
+            stroke_style,
+            native_stroke_style);
+    }
+    if (SUCCEEDED(hr)) {
+        const D2D1_ELLIPSE ellipse = {
+            D2D1::Point2F(center.x, center.y),
+            radius_x,
+            radius_y
+        };
+        surface->d2d_context->DrawEllipse(
+            ellipse,
+            native_brush.Get(),
+            stroke_width,
+            native_stroke_style.Get());
+    }
+    return finish_draw_command(*surface, hr, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_fill_ellipse(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_point_2f center,
+    float radius_x,
+    float radius_y,
+    void* brush,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || brush == nullptr ||
+        native_hresult == nullptr || !is_finite(center) ||
+        !std::isfinite(radius_x) || radius_x < 0.0F ||
+        !std::isfinite(radius_y) || radius_y < 0.0F) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<ID2D1Brush> native_brush;
+    HRESULT hr = query_brush(brush, native_brush);
+    if (SUCCEEDED(hr)) {
+        const D2D1_ELLIPSE ellipse = {
+            D2D1::Point2F(center.x, center.y),
+            radius_x,
+            radius_y
+        };
+        surface->d2d_context->FillEllipse(ellipse, native_brush.Get());
+    }
+    return finish_draw_command(*surface, hr, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_geometry(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    void* brush,
+    float stroke_width,
+    void* stroke_style,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr || brush == nullptr ||
+        native_hresult == nullptr || !std::isfinite(stroke_width) ||
+        stroke_width < 0.0F) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<ID2D1Geometry> native_geometry;
+    HRESULT hr = reinterpret_cast<IUnknown*>(geometry)->QueryInterface(
+        IID_PPV_ARGS(&native_geometry));
+    ComPtr<ID2D1Brush> native_brush;
+    if (SUCCEEDED(hr)) {
+        hr = query_brush(brush, native_brush);
+    }
+    ComPtr<ID2D1StrokeStyle> native_stroke_style;
+    if (SUCCEEDED(hr)) {
+        hr = query_optional_stroke_style(
+            stroke_style,
+            native_stroke_style);
+    }
+    if (SUCCEEDED(hr)) {
+        surface->d2d_context->DrawGeometry(
+            native_geometry.Get(),
+            native_brush.Get(),
+            stroke_width,
+            native_stroke_style.Get());
+    }
+    return finish_draw_command(*surface, hr, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_fill_geometry(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    void* brush,
+    void* opacity_brush,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr || brush == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<ID2D1Geometry> native_geometry;
+    HRESULT hr = reinterpret_cast<IUnknown*>(geometry)->QueryInterface(
+        IID_PPV_ARGS(&native_geometry));
+    ComPtr<ID2D1Brush> native_brush;
+    if (SUCCEEDED(hr)) {
+        hr = query_brush(brush, native_brush);
+    }
+    ComPtr<ID2D1Brush> native_opacity_brush;
+    if (SUCCEEDED(hr) && opacity_brush != nullptr) {
+        hr = query_brush(opacity_brush, native_opacity_brush);
+    }
+    if (SUCCEEDED(hr)) {
+        surface->d2d_context->FillGeometry(
+            native_geometry.Get(),
+            native_brush.Get(),
+            native_opacity_brush.Get());
+    }
+    return finish_draw_command(*surface, hr, *native_hresult);
 }
 
 progpu_native_direct2d_status
