@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Brushes;
 using ProGPU.Backend.Dawn;
 using ProGPU.Direct2D;
 using Windows.Storage;
@@ -48,9 +49,12 @@ internal static partial class Program
                     ContentVersionAfter: 0UL,
                     CanvasDeviceType: null,
                     CanvasRenderTargetType: null,
+                    CanvasSolidColorBrushType: null,
                     DrawingSessionType: null,
                     NativeDeviceIdentityMatches: null,
                     NativeBitmapIdentityMatches: null,
+                    NativeSolidColorBrushIdentityMatches: null,
+                    SolidColorBrushColor: null,
                     CornerPixel: null,
                     CenterPixel: null,
                     Error: exception.ToString()));
@@ -146,6 +150,45 @@ internal static partial class Program
                 }
             }
 
+            Color fill = Color.FromArgb(255, 224, 48, 96);
+            using ProGpuDirect2DComReference nativeSolidColorBrush =
+                surface.CreateSolidColorBrush(
+                    ProGpuDirect2DColor.FromArgb(
+                        fill.A,
+                        fill.R,
+                        fill.G,
+                        fill.B));
+            if (!surface.TryAcquireMicrosoftWin2DSolidColorBrush(
+                    nativeSolidColorBrush,
+                    out ProGpuDirect2DComReference? wrappedSolidColorBrush,
+                    out int wrappedSolidColorBrushHResult) ||
+                wrappedSolidColorBrush is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasSolidColorBrush wrapping failed (0x{wrappedSolidColorBrushHResult:X8}).");
+            }
+            using ProGpuDirect2DComReference canvasSolidColorBrushReference =
+                wrappedSolidColorBrush;
+            if (!surface.TryAcquireMicrosoftWin2DNativeSolidColorBrush(
+                    canvasSolidColorBrushReference,
+                    out ProGpuDirect2DComReference? unwrappedSolidColorBrush,
+                    out int unwrappedSolidColorBrushHResult) ||
+                unwrappedSolidColorBrush is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasSolidColorBrush native-resource interop failed (0x{unwrappedSolidColorBrushHResult:X8}).");
+            }
+            using (unwrappedSolidColorBrush)
+            {
+                if (!HasSameComIdentity(
+                        nativeSolidColorBrush,
+                        unwrappedSolidColorBrush))
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasSolidColorBrush did not preserve ProGPU's ID2D1SolidColorBrush identity.");
+                }
+            }
+
             ulong contentVersionBefore = surface.ContentVersion;
             if (!surface.TryBeginMicrosoftWin2DProducerAccess(
                     out ProGpuMicrosoftWin2DProducerAccess? access,
@@ -158,19 +201,37 @@ internal static partial class Program
 
             string canvasDeviceType;
             string canvasRenderTargetType;
+            string canvasSolidColorBrushType;
             string drawingSessionType;
+            PixelEvidence solidColorBrushColor;
             PixelEvidence cornerPixel;
             PixelEvidence centerPixel;
             using (access)
             using (CanvasRenderTarget target =
                 CanvasRenderTarget.FromAbi(
                     access.CanvasRenderTarget.DangerousGetHandle()))
+            using (CanvasSolidColorBrush canvasSolidColorBrush =
+                CanvasSolidColorBrush.FromAbi(
+                    canvasSolidColorBrushReference.DangerousGetHandle()))
             {
                 canvasDeviceType = target.Device.GetType().FullName ??
                     target.Device.GetType().Name;
                 canvasRenderTargetType = target.GetType().FullName ??
                     target.GetType().Name;
-                Color fill = Color.FromArgb(255, 32, 96, 192);
+                canvasSolidColorBrushType =
+                    canvasSolidColorBrush.GetType().FullName ??
+                    canvasSolidColorBrush.GetType().Name;
+                Color projectedBrushColor = canvasSolidColorBrush.Color;
+                solidColorBrushColor =
+                    PixelEvidence.FromColor(projectedBrushColor);
+                if (projectedBrushColor.A != fill.A ||
+                    projectedBrushColor.R != fill.R ||
+                    projectedBrushColor.G != fill.G ||
+                    projectedBrushColor.B != fill.B)
+                {
+                    throw new InvalidOperationException(
+                        $"Win2D CanvasSolidColorBrush color changed: {solidColorBrushColor}.");
+                }
                 using (CanvasDrawingSession drawingSession =
                     target.CreateDrawingSession())
                 {
@@ -184,7 +245,7 @@ internal static partial class Program
                         8.0F,
                         48.0F,
                         48.0F,
-                        fill);
+                        canvasSolidColorBrush);
                 }
 
                 Color[] pixels = target.GetPixelColors();
@@ -228,9 +289,12 @@ internal static partial class Program
                 ContentVersionAfter: contentVersionAfter,
                 CanvasDeviceType: canvasDeviceType,
                 CanvasRenderTargetType: canvasRenderTargetType,
+                CanvasSolidColorBrushType: canvasSolidColorBrushType,
                 DrawingSessionType: drawingSessionType,
                 NativeDeviceIdentityMatches: true,
                 NativeBitmapIdentityMatches: true,
+                NativeSolidColorBrushIdentityMatches: true,
+                SolidColorBrushColor: solidColorBrushColor,
                 CornerPixel: cornerPixel,
                 CenterPixel: centerPixel,
                 Error: null);
@@ -311,9 +375,12 @@ internal static partial class Program
         ulong ContentVersionAfter,
         string? CanvasDeviceType,
         string? CanvasRenderTargetType,
+        string? CanvasSolidColorBrushType,
         string? DrawingSessionType,
         bool? NativeDeviceIdentityMatches,
         bool? NativeBitmapIdentityMatches,
+        bool? NativeSolidColorBrushIdentityMatches,
+        PixelEvidence? SolidColorBrushColor,
         PixelEvidence? CornerPixel,
         PixelEvidence? CenterPixel,
         string? Error);

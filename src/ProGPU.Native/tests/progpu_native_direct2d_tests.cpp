@@ -193,6 +193,45 @@ int main()
             original_device_identity.Get() == unwrapped_device_identity.Get(),
         "WinRT IDirect3DDevice did not preserve COM device identity");
 
+    progpu_native_direct2d_color_f solid_color = {
+        224.0F / 255.0F,
+        48.0F / 255.0F,
+        96.0F / 255.0F,
+        1.0F
+    };
+    void* solid_brush_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_solid_color_brush(
+            surface,
+            &solid_color,
+            &solid_brush_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            solid_brush_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1SolidColorBrush creation failed");
+    ComPtr<ID2D1SolidColorBrush> solid_brush;
+    solid_brush.Attach(
+        static_cast<ID2D1SolidColorBrush*>(solid_brush_value));
+    D2D1_COLOR_F created_color = solid_brush->GetColor();
+    require(
+        created_color.r == solid_color.red &&
+        created_color.g == solid_color.green &&
+        created_color.b == solid_color.blue &&
+        created_color.a == solid_color.alpha,
+        "provider ID2D1SolidColorBrush changed its color");
+
+    void* invalid_brush_value =
+        reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_surface_create_solid_color_brush(
+            surface,
+            nullptr,
+            &invalid_brush_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            invalid_brush_value == nullptr && native_hresult == E_INVALIDARG,
+        "invalid solid-brush creation did not fail closed");
+
     void* win2d_canvas_device_value = nullptr;
     native_hresult = E_FAIL;
     progpu_native_direct2d_status win2d_status =
@@ -237,6 +276,56 @@ int main()
             static_cast<ID2D1Device1*>(wrapped_device_value));
         require(has_same_com_identity(device.Get(), wrapped_device.Get()),
             "Win2D CanvasDevice did not preserve ID2D1Device1 identity");
+
+        void* canvas_solid_brush_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper(
+                surface,
+                solid_brush.Get(),
+                0.0F,
+                &canvas_solid_brush_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                canvas_solid_brush_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D CanvasSolidColorBrush wrapping failed");
+        ComPtr<IInspectable> canvas_solid_brush;
+        canvas_solid_brush.Attach(
+            static_cast<IInspectable*>(canvas_solid_brush_value));
+        constexpr GUID canvas_solid_color_brush_interface_id = {
+            0x8BC30F87,
+            0xBAD5,
+            0x4871,
+            {0x88, 0xB8, 0x9F, 0xE3, 0xC6, 0x3D, 0x20, 0x4A}
+        };
+        ComPtr<IUnknown> canvas_solid_brush_interface;
+        require(SUCCEEDED(canvas_solid_brush->QueryInterface(
+                    canvas_solid_color_brush_interface_id,
+                    &canvas_solid_brush_interface)),
+            "wrapped Win2D object omitted ICanvasSolidColorBrush");
+
+        progpu_native_direct2d_guid solid_brush_id =
+            to_portable_guid(__uuidof(ID2D1SolidColorBrush));
+        void* unwrapped_solid_brush_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_win2d_wrapper_native_resource(
+                surface,
+                canvas_solid_brush.Get(),
+                0.0F,
+                &solid_brush_id,
+                &unwrapped_solid_brush_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                unwrapped_solid_brush_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D CanvasSolidColorBrush native-resource query failed");
+        ComPtr<ID2D1SolidColorBrush> unwrapped_solid_brush;
+        unwrapped_solid_brush.Attach(
+            static_cast<ID2D1SolidColorBrush*>(unwrapped_solid_brush_value));
+        require(has_same_com_identity(
+                solid_brush.Get(),
+                unwrapped_solid_brush.Get()),
+            "Win2D CanvasSolidColorBrush changed native COM identity");
 
         progpu_native_direct2d_guid no_interface_id =
             to_portable_guid(GUID_NULL);
@@ -401,14 +490,9 @@ int main()
         "Direct2D draw scope allowed a raw mutex release");
 
     context->Clear(D2D1::ColorF(0.125F, 0.25F, 0.5F, 1.0F));
-    ComPtr<ID2D1SolidColorBrush> brush;
-    require(SUCCEEDED(context->CreateSolidColorBrush(
-        D2D1::ColorF(D2D1::ColorF::Orange),
-        brush.GetAddressOf())),
-        "Direct2D solid brush creation failed");
     context->FillRectangle(
         D2D1::RectF(4.0F, 5.0F, 32.0F, 28.0F),
-        brush.Get());
+        solid_brush.Get());
     D2D1_TAG tag1 = 0U;
     D2D1_TAG tag2 = 0U;
     native_hresult = E_FAIL;

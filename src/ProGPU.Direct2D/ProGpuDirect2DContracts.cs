@@ -39,7 +39,9 @@ public enum ProGpuDirect2DInterfaceKind
     D2D1Bitmap1 = 15,
     WinRtDirect3D11Device = 16,
     Win2DCanvasDevice = 17,
-    Win2DCanvasRenderTarget = 18
+    Win2DCanvasRenderTarget = 18,
+    D2D1SolidColorBrush = 19,
+    Win2DCanvasSolidColorBrush = 20
 }
 
 public enum ProGpuDirect2DStatus
@@ -84,6 +86,28 @@ public readonly record struct ProGpuDirect2DSurfaceDescriptor(
     ulong InitialAcquireKey,
     ulong InitialReleaseKey,
     ulong ContentVersion);
+
+/// <summary>
+/// Linear floating-point color for a genuine Direct2D resource. Finite HDR
+/// channel values outside zero to one are preserved.
+/// </summary>
+public readonly record struct ProGpuDirect2DColor(
+    float Red,
+    float Green,
+    float Blue,
+    float Alpha = 1.0F)
+{
+    public static ProGpuDirect2DColor FromArgb(
+        byte alpha,
+        byte red,
+        byte green,
+        byte blue) =>
+        new(
+            red / 255.0F,
+            green / 255.0F,
+            blue / 255.0F,
+            alpha / 255.0F);
+}
 
 public sealed class ProGpuDirect2DException : Exception
 {
