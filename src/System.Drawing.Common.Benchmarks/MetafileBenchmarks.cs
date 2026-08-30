@@ -18,6 +18,7 @@ public class MetafileBenchmarks
     private Graphics _playbackGraphics = null!;
     private Metafile _playbackMetafile = null!;
     private Metafile _wmfPlaybackMetafile = null!;
+    private Metafile _wmfRectanglePlaybackMetafile = null!;
     private Metafile _wmfEllipsePlaybackMetafile = null!;
     private readonly Graphics.EnumerateMetafileProc _enumerate = static (_, _, _, _, _) => true;
     private readonly byte[] _comment = new byte[64];
@@ -35,8 +36,10 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackEmf(256), writable: false));
         _wmfPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmf(256), writable: false));
+        _wmfRectanglePlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackWmfBoxes(256, 0x041B), writable: false));
         _wmfEllipsePlaybackMetafile = new Metafile(
-            new MemoryStream(CreatePlaybackWmfEllipses(256), writable: false));
+            new MemoryStream(CreatePlaybackWmfBoxes(256, 0x0418), writable: false));
     }
 
     [GlobalCleanup]
@@ -45,6 +48,7 @@ public class MetafileBenchmarks
         _metafile.Dispose();
         _playbackMetafile.Dispose();
         _wmfPlaybackMetafile.Dispose();
+        _wmfRectanglePlaybackMetafile.Dispose();
         _wmfEllipsePlaybackMetafile.Dispose();
         _playbackGraphics.Dispose();
         _graphics.Dispose();
@@ -94,6 +98,16 @@ public class MetafileBenchmarks
     {
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(_wmfPlaybackMetafile, new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256WmfRectanglesToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(_wmfRectanglePlaybackMetafile, new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
         return commandCount;
@@ -244,9 +258,9 @@ public class MetafileBenchmarks
         return bytes;
     }
 
-    private static byte[] CreatePlaybackWmfEllipses(int ellipseCount)
+    private static byte[] CreatePlaybackWmfBoxes(int recordCount, ushort function)
     {
-        int declaredWords = checked(9 + 7 + 8 + 4 + 4 + ellipseCount * 7 + 3);
+        int declaredWords = checked(9 + 7 + 8 + 4 + 4 + recordCount * 7 + 3);
         byte[] bytes = new byte[checked(22 + declaredWords * 2)];
         WriteUInt32(bytes, 0, 0x9AC6_CDD7);
         WriteInt16(bytes, 10, 640);
@@ -283,12 +297,12 @@ public class MetafileBenchmarks
         WriteWmfObjectIndexRecord(bytes, cursor, 0x012D, 1);
         cursor += 8;
 
-        for (int index = 0; index < ellipseCount; index++)
+        for (int index = 0; index < recordCount; index++)
         {
             short left = checked((short)((index % 16) * 40));
             short top = checked((short)((index / 16) * 30));
             WriteUInt32(bytes, cursor, 7);
-            WriteUInt16(bytes, cursor + 4, 0x0418);
+            WriteUInt16(bytes, cursor + 4, function);
             WriteInt16(bytes, cursor + 6, checked((short)(top + 22)));
             WriteInt16(bytes, cursor + 8, checked((short)(left + 32)));
             WriteInt16(bytes, cursor + 10, top);

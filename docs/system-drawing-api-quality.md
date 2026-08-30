@@ -86,7 +86,7 @@ member suppression, leaving zero missing types, zero missing members, and 13
     16-bit Y/X state parameters, uses the required lowest-free object-table
     allocation, and supports the state, solid/null pen/brush, polygon, polyline,
     and counterclockwise arc records used by the canonical LibreWinForms
-    `telescope_01.wmf` asset, plus filled/stroked ellipses. Four-point
+    `telescope_01.wmf` asset, plus filled/stroked rectangles and ellipses. Four-point
     perspective, image attributes, paths,
     text, DIBs, other WMF drawing families, and nonstructural EMF+ drawing remain
     explicit follow-up work. Contract, security bounds, and benchmark evidence are recorded
@@ -202,6 +202,8 @@ boundaries, saved clip and multi-polygon behavior, and rollback after partial
 temporary lowering. A local unchanged-asset smoke renders the canonical
 WinForms `milkmateya01.emf` fixture end to end; the repository-owned synthetic
 gates preserve the same required record families for standalone ProGPU CI.
+
+`MetafileBenchmarks.Playback256WmfRectanglesToRetainedCommands` guards the shared ordered-box decoder and typed selected brush/pen lowering. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 757.639 µs median (753.507 µs mean, 139.549 µs standard deviation) with 622.08 KB allocated for 256 rectangles. The three-iteration result is coarse transactional retained-command evidence; exact selected-fill pixels and shared malformed-bound rollback remain the correctness gates.
 
 `MetafileBenchmarks.Playback256WmfEllipsesToRetainedCommands` guards typed WMF ellipse playback through the selected fill and outline objects. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 ms median (1.109 ms mean, 0.115 ms standard deviation) with 622.14 KB allocated for 256 ellipses. The three-iteration result is coarse retained-command evidence; exact pixels and rollback after a later unsupported text record remain the independent correctness gates.
 

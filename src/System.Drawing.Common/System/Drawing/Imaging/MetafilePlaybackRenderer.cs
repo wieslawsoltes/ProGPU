@@ -142,6 +142,10 @@ internal static class MetafilePlaybackRenderer
                 DrawEllipse(state, record, ReadWmfRectangle(record, payload));
                 return;
 
+            case EmfPlusRecordType.WmfRectangle:
+                DrawRectangle(state, record, ReadWmfRectangle(record, payload));
+                return;
+
             default:
                 throw Unsupported(record);
         }
