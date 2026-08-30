@@ -111,6 +111,58 @@ fn signed_winding_program_row_coverage_mask(
     return winding_row_coverage_mask(stack[0], sampleGrid, 1u);
 }
 
+// Ordinary paths and mask-only boolean programs use a separate entry point so
+// D3D12 drivers do not compile the substantially larger signed-winding stack
+// evaluator into the overwhelmingly common coverage pipeline.
+fn ordinary_path_coverage_byte(x: u32, y: u32, uniforms: PathUniforms) -> u32 {
+    let pathIndex = uniforms.pathIndex;
+    let record = pathRecords[pathIndex];
+    let px = uniforms.xStart + f32(x);
+    let py = uniforms.yStart + f32(y);
+    var coveredSamples = 0u;
+    let sampleGrid = clamp(uniforms.sampleGrid, 1u, 8u);
+    let sampleWeight = 1.0 / f32(sampleGrid * sampleGrid);
+    for (var sampleY = 0u; sampleY < sampleGrid; sampleY = sampleY + 1u) {
+        let samplePositionY = py + (f32(sampleY) + 0.5) / f32(sampleGrid);
+        let samplePathY = samplePositionY / uniforms.scaleY;
+        var combinedMask = 0u;
+        if ((uniforms.pathOpKind & BOOLEAN_PROGRAM_FLAG) != 0u) {
+            combinedMask = boolean_program_row_coverage_mask(
+                px,
+                samplePathY,
+                sampleGrid,
+                uniforms.scaleX,
+                pathIndex,
+                uniforms.pathIndexB,
+                uniforms.pathOpKind);
+        } else {
+            let maskA = row_coverage_mask(
+                px,
+                samplePathY,
+                sampleGrid,
+                uniforms.scaleX,
+                record);
+            combinedMask = maskA;
+            if (uniforms.pathOpKind != 0u) {
+                let recordB = pathRecords[uniforms.pathIndexB];
+                let maskB = row_coverage_mask(
+                    px,
+                    samplePathY,
+                    sampleGrid,
+                    uniforms.scaleX,
+                    recordB);
+                combinedMask = combine_coverage_masks(
+                    maskA,
+                    maskB,
+                    uniforms.pathOpKind);
+            }
+        }
+        let validMask = (1u << sampleGrid) - 1u;
+        coveredSamples = coveredSamples + countOneBits(combinedMask & validMask);
+    }
+    return min(255u, u32(round(f32(coveredSamples) * sampleWeight * 255.0)));
+}
+
 fn path_coverage_byte(x: u32, y: u32, uniforms: PathUniforms) -> u32 {
     let pathIndex = uniforms.pathIndex;
     let record = pathRecords[pathIndex];
@@ -215,6 +267,28 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let x = firstX + lane;
         if (x < uniforms.width) {
             packed = packed | (path_coverage_byte(x, y, uniforms) << (lane * 8u));
+        }
+    }
+
+    coverageOutput[uniforms.outputOffsetWords + y * uniforms.outputRowWords + wordX] = packed;
+}
+
+@compute @workgroup_size(16, 16)
+fn cs_main_ordinary(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let uniforms = pathUniforms[global_id.z];
+    let wordX = global_id.x;
+    let y = global_id.y;
+    let firstX = wordX * 4u;
+    if (firstX >= uniforms.width || y >= uniforms.height) {
+        return;
+    }
+
+    var packed = 0u;
+    for (var lane = 0u; lane < 4u; lane = lane + 1u) {
+        let x = firstX + lane;
+        if (x < uniforms.width) {
+            packed = packed |
+                (ordinary_path_coverage_byte(x, y, uniforms) << (lane * 8u));
         }
     }
 

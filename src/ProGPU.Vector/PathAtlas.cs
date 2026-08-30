@@ -598,7 +598,7 @@ public unsafe class PathAtlas : IDisposable
         _computePipeline = _pipelineCache.GetOrCreateComputePipeline(
             "PathRasterizer",
             shaderModule,
-            "cs_main",
+            "cs_main_ordinary",
             _computePipelineLayout);
     }
 

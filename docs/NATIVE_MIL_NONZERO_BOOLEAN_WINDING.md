@@ -107,10 +107,17 @@ algorithms used by the ordinary and signed-leaf modules. CMake composes that
 source fragment into each complete shader at build time; the runtime does not
 concatenate or specialize shader text.
 
-The managed `PathAtlas` and native fastest path compose the same common
-fragment with `PathRasterizer.wgsl` and use the same bounded inline signed
-evaluator. The native C++ API also exposes the staged implementation as a typed
-forced path rather than silently selecting it.
+`PathRasterizer.wgsl` exposes two compute entry points. `cs_main_ordinary`
+contains only ordinary paths, direct two-operand operations, and mask-only
+postfix programs. `cs_main` additionally reaches the bounded inline signed
+evaluator. Managed `PathAtlas` descriptors cannot carry signed-winding program
+tokens and therefore always select the lean ordinary entry point. Native C++
+batches select the ordinary pipeline unless at least one path explicitly uses
+inline signed winding; mixed inline batches select the full pipeline. This
+keeps the common path out of the larger D3D12 shader-control-flow graph without
+changing pixels, uploading another arena, or adding a submission. The native
+C++ API also exposes the staged implementation as a typed forced path rather
+than silently selecting it.
 
 Neither route performs CPU readback, CPU repacking, per-item GPU submission, or
 managed fallback. For `S` visited segments, `N` instructions, sample-grid width
