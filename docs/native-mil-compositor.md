@@ -5168,6 +5168,14 @@ requires a new device domain plus rebuilt resources. Cross-generation resource
 use fails before entering COM. The allowlist grows from 58 to 59 exports;
 physical adapter-removal/recreation remains an explicit Windows integration
 gate rather than a synthetic success claim.
+Exact implementation `d67fe1bf` is qualified by GitHub Actions Build run
+`33329548704`, dedicated MSVC job `99305585595`: the warning-as-error provider
+and regression compile/link, the focused Direct2D test passes in 0.15 seconds,
+all 11 configured native suites pass, and the exact 59-export allowlist is
+accepted. ClangCL Windows job `99305585623` also passes the focused test in
+0.14 seconds and all 12 native suites before an unrelated later managed Dawn
+readback loses Microsoft Basic Render Driver; that downstream software-D3D12
+failure is not Direct2D qualification evidence.
 
 ## Managed glyph row-reuse SIMD checkpoint
 

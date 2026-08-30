@@ -662,6 +662,17 @@ initial non-lost state, removal-event registration, and unique replacement
 generations. Destructive physical-adapter removal remains a separate opt-in
 Windows integration gate; it is not simulated by silently recovering or by
 falling back to CPU rendering.
+GitHub Actions Build run `33329548704`, dedicated MSVC job `99305585595`,
+qualifies exact implementation `d67fe1bf` on Windows x64. MSVC compiles and
+links the provider plus regression under the warning-as-error lane, the focused
+`progpu_native_direct2d_tests` passes in 0.15 seconds, all 11 configured native
+suites pass, and the successful job enforces the exact 59-symbol Direct2D
+allowlist. The broader ClangCL Windows job `99305585623` independently compiles
+the same provider and passes the focused regression in 0.14 seconds plus all 12
+configured native suites. That broader job later loses the unrelated Dawn
+device during a long managed Microsoft Basic Render Driver readback, after the
+Direct2D DLL, export, and CTest gates completed; it is retained as a separate
+software-D3D12 stability failure rather than mislabeled as ABI v23 failure.
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
