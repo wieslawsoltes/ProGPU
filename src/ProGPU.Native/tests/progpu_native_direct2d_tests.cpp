@@ -59,6 +59,16 @@ progpu_native_direct2d_guid to_portable_guid(const GUID& value)
     return result;
 }
 
+bool has_same_com_identity(IUnknown* left, IUnknown* right)
+{
+    ComPtr<IUnknown> left_identity;
+    ComPtr<IUnknown> right_identity;
+    return left != nullptr && right != nullptr &&
+        SUCCEEDED(left->QueryInterface(IID_PPV_ARGS(&left_identity))) &&
+        SUCCEEDED(right->QueryInterface(IID_PPV_ARGS(&right_identity))) &&
+        left_identity.Get() == right_identity.Get();
+}
+
 } // namespace
 
 int main()
@@ -208,6 +218,42 @@ int main()
                     canvas_device_interface_id,
                     &canvas_device_interface)),
             "activated Win2D object omitted ICanvasDevice");
+
+        progpu_native_direct2d_guid device1_id =
+            to_portable_guid(__uuidof(ID2D1Device1));
+        void* wrapped_device_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_win2d_native_resource(
+                surface,
+                PROGPU_NATIVE_DIRECT2D_WIN2D_RESOURCE_CANVAS_DEVICE,
+                &device1_id,
+                &wrapped_device_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                wrapped_device_value != nullptr && native_hresult == S_OK,
+            "Win2D CanvasDevice native-resource query failed");
+        ComPtr<ID2D1Device1> wrapped_device;
+        wrapped_device.Attach(
+            static_cast<ID2D1Device1*>(wrapped_device_value));
+        require(has_same_com_identity(device.Get(), wrapped_device.Get()),
+            "Win2D CanvasDevice did not preserve ID2D1Device1 identity");
+
+        progpu_native_direct2d_guid no_interface_id =
+            to_portable_guid(GUID_NULL);
+        void* no_interface_value =
+            reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
+        native_hresult = S_OK;
+        require(
+            progpu_native_direct2d_surface_try_get_win2d_native_resource(
+                surface,
+                PROGPU_NATIVE_DIRECT2D_WIN2D_RESOURCE_CANVAS_DEVICE,
+                &no_interface_id,
+                &no_interface_value,
+                &native_hresult) ==
+                    PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED &&
+                no_interface_value == nullptr &&
+                native_hresult == E_NOINTERFACE,
+            "unsupported Win2D native-resource query did not fail closed");
     } else {
         require(
             win2d_status ==
@@ -245,6 +291,25 @@ int main()
                     canvas_render_target_interface_id,
                     &canvas_render_target_interface)),
             "wrapped Win2D object omitted ICanvasRenderTarget");
+
+        progpu_native_direct2d_guid bitmap1_id =
+            to_portable_guid(__uuidof(ID2D1Bitmap1));
+        void* wrapped_bitmap_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_win2d_native_resource(
+                surface,
+                PROGPU_NATIVE_DIRECT2D_WIN2D_RESOURCE_CANVAS_RENDER_TARGET,
+                &bitmap1_id,
+                &wrapped_bitmap_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                wrapped_bitmap_value != nullptr && native_hresult == S_OK,
+            "Win2D CanvasRenderTarget native-resource query failed");
+        ComPtr<ID2D1Bitmap1> wrapped_bitmap;
+        wrapped_bitmap.Attach(
+            static_cast<ID2D1Bitmap1*>(wrapped_bitmap_value));
+        require(has_same_com_identity(bitmap.Get(), wrapped_bitmap.Get()),
+            "Win2D CanvasRenderTarget did not preserve ID2D1Bitmap1 identity");
     } else {
         require(
             win2d_render_target_status ==
@@ -253,6 +318,21 @@ int main()
                 FAILED(native_hresult),
             "optional Win2D render-target wrapping did not fail closed");
     }
+
+    progpu_native_direct2d_guid invalid_resource_id =
+        to_portable_guid(__uuidof(ID2D1Device1));
+    void* invalid_resource_value =
+        reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_surface_try_get_win2d_native_resource(
+            surface,
+            static_cast<progpu_native_direct2d_win2d_resource_kind>(999),
+            &invalid_resource_id,
+            &invalid_resource_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            invalid_resource_value == nullptr && native_hresult == E_INVALIDARG,
+        "unknown Win2D native-resource kind did not fail closed");
 
     progpu_native_direct2d_guid context1_id =
         to_portable_guid(__uuidof(ID2D1DeviceContext1));

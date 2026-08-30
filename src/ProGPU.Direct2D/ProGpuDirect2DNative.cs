@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 5U;
+    internal const uint AbiVersion = 6U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -67,6 +67,12 @@ internal static unsafe partial class ProGpuDirect2DNative
                 Data4 = BinaryPrimitives.ReadUInt64LittleEndian(bytes[8..])
             };
         }
+    }
+
+    internal enum Win2DResourceKind
+    {
+        CanvasDevice = 1,
+        CanvasRenderTarget = 2
     }
 
     [LibraryImport(
@@ -140,6 +146,18 @@ internal static unsafe partial class ProGpuDirect2DNative
     internal static partial ProGpuDirect2DStatus
         SurfaceTryGetWin2DCanvasRenderTarget(
             nint surface,
+            nint* value,
+            int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_try_get_win2d_native_resource")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceTryGetWin2DNativeResource(
+            nint surface,
+            Win2DResourceKind resourceKind,
+            NativeGuid* interfaceId,
             nint* value,
             int* nativeHResult);
 

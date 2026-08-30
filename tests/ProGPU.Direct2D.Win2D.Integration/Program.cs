@@ -14,6 +14,8 @@ internal static partial class Program
     private const uint Width = 64U;
     private const uint Height = 64U;
     private const string ResultFileName = "direct2d-win2d-result.json";
+    private static readonly Guid IUnknownInterfaceId =
+        new("00000000-0000-0000-C000-000000000046");
 
     [STAThread]
     private static int Main()
@@ -47,6 +49,8 @@ internal static partial class Program
                     CanvasDeviceType: null,
                     CanvasRenderTargetType: null,
                     DrawingSessionType: null,
+                    NativeDeviceIdentityMatches: null,
+                    NativeBitmapIdentityMatches: null,
                     CornerPixel: null,
                     CenterPixel: null,
                     Error: exception.ToString()));
@@ -102,6 +106,45 @@ internal static partial class Program
                         Height,
                         Flags:
                             ProGpuDirect2DSurfaceFlags.AllowWarpFallback));
+
+            using ProGpuDirect2DComReference originalDevice =
+                surface.AcquireInterface(
+                    ProGpuDirect2DInterfaceKind.D2D1Device1);
+            using ProGpuDirect2DComReference originalBitmap =
+                surface.AcquireInterface(
+                    ProGpuDirect2DInterfaceKind.D2D1Bitmap1);
+            if (!surface.TryAcquireMicrosoftWin2DNativeDevice(
+                    out ProGpuDirect2DComReference? wrappedDevice,
+                    out int wrappedDeviceHResult) ||
+                wrappedDevice is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasDevice native-resource interop failed (0x{wrappedDeviceHResult:X8}).");
+            }
+            using (wrappedDevice)
+            {
+                if (!HasSameComIdentity(originalDevice, wrappedDevice))
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasDevice did not return ProGPU's exact ID2D1Device1 identity.");
+                }
+            }
+            if (!surface.TryAcquireMicrosoftWin2DNativeBitmap(
+                    out ProGpuDirect2DComReference? wrappedBitmap,
+                    out int wrappedBitmapHResult) ||
+                wrappedBitmap is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasRenderTarget native-resource interop failed (0x{wrappedBitmapHResult:X8}).");
+            }
+            using (wrappedBitmap)
+            {
+                if (!HasSameComIdentity(originalBitmap, wrappedBitmap))
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasRenderTarget did not return ProGPU's exact ID2D1Bitmap1 identity.");
+                }
+            }
 
             ulong contentVersionBefore = surface.ContentVersion;
             if (!surface.TryBeginMicrosoftWin2DProducerAccess(
@@ -186,6 +229,8 @@ internal static partial class Program
                 CanvasDeviceType: canvasDeviceType,
                 CanvasRenderTargetType: canvasRenderTargetType,
                 DrawingSessionType: drawingSessionType,
+                NativeDeviceIdentityMatches: true,
+                NativeBitmapIdentityMatches: true,
                 CornerPixel: cornerPixel,
                 CenterPixel: centerPixel,
                 Error: null);
@@ -194,6 +239,18 @@ internal static partial class Program
         {
             _ = DestroyWindow(hwnd);
         }
+    }
+
+    private static bool HasSameComIdentity(
+        ProGpuDirect2DComReference left,
+        ProGpuDirect2DComReference right)
+    {
+        using ProGpuDirect2DComReference leftIdentity =
+            left.QueryInterface(IUnknownInterfaceId);
+        using ProGpuDirect2DComReference rightIdentity =
+            right.QueryInterface(IUnknownInterfaceId);
+        return leftIdentity.DangerousGetHandle() ==
+            rightIdentity.DangerousGetHandle();
     }
 
     private static void WriteEvidence(IntegrationEvidence evidence)
@@ -255,6 +312,8 @@ internal static partial class Program
         string? CanvasDeviceType,
         string? CanvasRenderTargetType,
         string? DrawingSessionType,
+        bool? NativeDeviceIdentityMatches,
+        bool? NativeBitmapIdentityMatches,
         PixelEvidence? CornerPixel,
         PixelEvidence? CenterPixel,
         string? Error);

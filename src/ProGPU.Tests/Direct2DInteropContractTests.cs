@@ -42,7 +42,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 5U;",
+            "internal const uint AbiVersion = 6U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -55,6 +55,10 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "progpu_native_direct2d_surface_try_get_win2d_canvas_render_target",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_try_get_win2d_native_resource",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -120,7 +124,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 5U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 6U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -160,6 +164,10 @@ public sealed class Direct2DInteropContractTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
+            "IProGpuWin2DCanvasResourceWrapperNative",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "surface.win2d_factory->GetOrCreate(",
             source,
             StringComparison.Ordinal);
@@ -170,6 +178,18 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains(
             "surface.d2d_bitmap.Get()",
             source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "resource_wrapper->GetNativeResource(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_DIRECT2D_WIN2D_RESOURCE_CANVAS_RENDER_TARGET",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "has_same_com_identity(bitmap.Get(), wrapped_bitmap.Get())",
+            test,
             StringComparison.Ordinal);
         Assert.Contains(
             "Microsoft.Graphics.Canvas.CanvasDevice",
@@ -343,6 +363,10 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("drawingSession.FillRectangle(", program, StringComparison.Ordinal);
         Assert.Contains("target.GetPixelColors()", program, StringComparison.Ordinal);
         Assert.Contains("contentVersionAfter <= contentVersionBefore", program, StringComparison.Ordinal);
+        Assert.Contains("TryAcquireMicrosoftWin2DNativeDevice(", program, StringComparison.Ordinal);
+        Assert.Contains("TryAcquireMicrosoftWin2DNativeBitmap(", program, StringComparison.Ordinal);
+        Assert.Contains("HasSameComIdentity(originalDevice, wrappedDevice)", program, StringComparison.Ordinal);
+        Assert.Contains("HasSameComIdentity(originalBitmap, wrappedBitmap)", program, StringComparison.Ordinal);
         Assert.Contains("Microsoft.Graphics.Canvas.CanvasDevice", manifest, StringComparison.Ordinal);
         Assert.Contains("Microsoft.Graphics.Canvas.dll", manifest, StringComparison.Ordinal);
         Assert.Contains("runFullTrust", manifest, StringComparison.Ordinal);
