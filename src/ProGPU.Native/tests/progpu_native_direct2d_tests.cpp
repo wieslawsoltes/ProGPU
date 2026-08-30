@@ -990,6 +990,123 @@ int main()
             effect_brush_image.Get()),
         "effect image brush changed output COM identity");
 
+    progpu_native_direct2d_size_f layer_size = {64.0F, 48.0F};
+    void* layer_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_layer(
+            surface,
+            &layer_size,
+            &layer_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            layer_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1Layer creation failed");
+    ComPtr<ID2D1Layer> layer;
+    layer.Attach(static_cast<ID2D1Layer*>(layer_value));
+    D2D1_SIZE_F observed_layer_size = layer->GetSize();
+    require(observed_layer_size.width == layer_size.width &&
+            observed_layer_size.height == layer_size.height,
+        "provider ID2D1Layer size changed");
+
+    progpu_native_direct2d_size_f invalid_layer_size = {-1.0F, 48.0F};
+    void* invalid_layer_value =
+        reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_surface_create_layer(
+            surface,
+            &invalid_layer_size,
+            &invalid_layer_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            invalid_layer_value == nullptr && native_hresult == E_INVALIDARG,
+        "invalid ID2D1Layer size did not fail closed");
+
+    void* drawing_state_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_drawing_state_block(
+            surface,
+            &drawing_state_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            drawing_state_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1DrawingStateBlock1 creation failed");
+    ComPtr<ID2D1DrawingStateBlock1> drawing_state;
+    drawing_state.Attach(
+        static_cast<ID2D1DrawingStateBlock1*>(drawing_state_value));
+    D2D1_DRAWING_STATE_DESCRIPTION1 initial_drawing_state{};
+    drawing_state->GetDescription(&initial_drawing_state);
+    require(initial_drawing_state.transform._11 == 1.0F &&
+            initial_drawing_state.transform._22 == 1.0F,
+        "provider default drawing state changed");
+
+    progpu_native_direct2d_layer_parameters layer_parameters{};
+    layer_parameters.content_bounds = {0.0F, 0.0F, 24.0F, 24.0F};
+    layer_parameters.mask_antialias_mode =
+        PROGPU_NATIVE_DIRECT2D_ANTIALIAS_MODE_PER_PRIMITIVE;
+    layer_parameters.mask_transform.m11 = 1.0F;
+    layer_parameters.mask_transform.m22 = 1.0F;
+    layer_parameters.opacity = 0.5F;
+    layer_parameters.options = PROGPU_NATIVE_DIRECT2D_LAYER_OPTION_NONE;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_push_layer(
+            surface,
+            &layer_parameters,
+            rectangle_geometry.Get(),
+            nullptr,
+            layer.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE,
+        "ID2D1Layer push outside a draw did not fail closed");
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_save_drawing_state(
+            surface,
+            drawing_state.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE,
+        "drawing-state save outside a draw did not fail closed");
+
+    void* unbalanced_command_list_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_command_list(
+            surface,
+            &unbalanced_command_list_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            unbalanced_command_list_value != nullptr && native_hresult == S_OK,
+        "unbalanced-layer command-list creation failed");
+    ComPtr<ID2D1CommandList> unbalanced_command_list;
+    unbalanced_command_list.Attach(
+        static_cast<ID2D1CommandList*>(unbalanced_command_list_value));
+    require(
+        progpu_native_direct2d_surface_begin_command_list_draw(
+            surface,
+            unbalanced_command_list.Get()) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "unbalanced-layer command-list recording did not begin");
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_push_layer(
+            surface,
+            &layer_parameters,
+            rectangle_geometry.Get(),
+            nullptr,
+            layer.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "unbalanced-layer command-list push failed");
+    uint64_t unbalanced_tag1 = 0U;
+    uint64_t unbalanced_tag2 = 0U;
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_surface_end_command_list_draw(
+            surface,
+            &unbalanced_tag1,
+            &unbalanced_tag2,
+            &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH &&
+            native_hresult == D2DERR_WRONG_STATE,
+        "unbalanced ID2D1Layer scope did not fail closed and unwind");
+
     void* win2d_canvas_device_value = nullptr;
     native_hresult = E_FAIL;
     progpu_native_direct2d_status win2d_status =
@@ -1653,6 +1770,63 @@ int main()
         "Direct2D draw scope allowed a raw mutex release");
 
     context->Clear(D2D1::ColorF(0.125F, 0.25F, 0.5F, 1.0F));
+    D2D1_MATRIX_3X2_F saved_transform =
+        D2D1::Matrix3x2F::Translation(3.0F, 5.0F);
+    context->SetTransform(saved_transform);
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_save_drawing_state(
+            surface,
+            drawing_state.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider drawing-state save failed");
+    context->SetTransform(D2D1::Matrix3x2F::Identity());
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_restore_drawing_state(
+            surface,
+            drawing_state.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider drawing-state restore failed");
+    D2D1_MATRIX_3X2_F restored_transform{};
+    context->GetTransform(&restored_transform);
+    require(restored_transform._31 == saved_transform._31 &&
+            restored_transform._32 == saved_transform._32,
+        "provider drawing-state restore changed the transform");
+    context->SetTransform(D2D1::Matrix3x2F::Identity());
+
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_push_layer(
+            surface,
+            &layer_parameters,
+            rectangle_geometry.Get(),
+            nullptr,
+            layer.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider typed ID2D1Layer push failed");
+    context->FillRectangle(
+        D2D1::RectF(0.0F, 0.0F, 24.0F, 24.0F),
+        solid_brush.Get());
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_pop_layer(
+            surface,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider typed ID2D1Layer pop failed");
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_pop_layer(
+            surface,
+            &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH &&
+            native_hresult == D2DERR_WRONG_STATE,
+        "unmatched ID2D1Layer pop did not fail closed");
+
     context->FillRectangle(
         D2D1::RectF(4.0F, 5.0F, 32.0F, 28.0F),
         solid_brush.Get());

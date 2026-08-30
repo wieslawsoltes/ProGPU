@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 14U;
+    internal const uint AbiVersion = 15U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -94,6 +94,23 @@ internal static unsafe partial class ProGpuDirect2DNative
         internal float M22;
         internal float M31;
         internal float M32;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeSizeF
+    {
+        internal float Width;
+        internal float Height;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeLayerParameters
+    {
+        internal ProGpuDirect2DRect ContentBounds;
+        internal ProGpuDirect2DAntialiasMode MaskAntialiasMode;
+        internal NativeMatrix3X2F MaskTransform;
+        internal float Opacity;
+        internal ProGpuDirect2DLayerOptions Options;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -375,6 +392,64 @@ internal static unsafe partial class ProGpuDirect2DNative
         nint surface,
         nint effect,
         nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_layer")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceCreateLayer(
+        nint surface,
+        NativeSizeF* size,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_drawing_state_block")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceCreateDrawingStateBlock(
+            nint surface,
+            nint* value,
+            int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_save_drawing_state")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceSaveDrawingState(
+        nint surface,
+        nint drawingStateBlock,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_restore_drawing_state")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceRestoreDrawingState(
+        nint surface,
+        nint drawingStateBlock,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_push_layer")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfacePushLayer(
+        nint surface,
+        NativeLayerParameters* parameters,
+        nint geometricMask,
+        nint opacityBrush,
+        nint layer,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_pop_layer")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfacePopLayer(
+        nint surface,
         int* nativeHResult);
 
     [LibraryImport(

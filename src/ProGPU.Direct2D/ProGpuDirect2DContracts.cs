@@ -65,7 +65,9 @@ public enum ProGpuDirect2DInterfaceKind
     D2D1CommandList = 39,
     Win2DCanvasCommandList = 40,
     D2D1Effect = 41,
-    D2D1Image = 42
+    D2D1Image = 42,
+    D2D1Layer = 43,
+    D2D1DrawingStateBlock1 = 44
 }
 
 /// <summary>
@@ -227,6 +229,20 @@ public enum ProGpuDirect2DInterpolationMode : uint
     HighQualityCubic = 5
 }
 
+public enum ProGpuDirect2DAntialiasMode : uint
+{
+    PerPrimitive = 0,
+    Aliased = 1
+}
+
+[Flags]
+public enum ProGpuDirect2DLayerOptions : uint
+{
+    None = 0,
+    InitializeFromBackground = 1U << 0,
+    IgnoreAlpha = 1U << 1
+}
+
 public enum ProGpuDirect2DColorInterpolationMode
 {
     Straight = 0,
@@ -250,7 +266,8 @@ public enum ProGpuDirect2DStatus
     DrawFailed = 12,
     InterfaceNotSupported = 13,
     Win2DRuntimeUnavailable = 14,
-    WindowsRuntimeNotInitialized = 15
+    WindowsRuntimeNotInitialized = 15,
+    DrawingStateMismatch = 16
 }
 
 public sealed record ProGpuDirect2DSurfaceOptions(
@@ -320,6 +337,19 @@ public readonly record struct ProGpuDirect2DRect(
     float Y,
     float Width,
     float Height);
+
+/// <summary>
+/// Pointer-free state for one ID2D1DeviceContext layer push. Optional geometry
+/// mask, opacity brush, and backing ID2D1Layer references are passed separately
+/// so this metadata remains typed and AOT-safe.
+/// </summary>
+public readonly record struct ProGpuDirect2DLayerParameters(
+    ProGpuDirect2DRect ContentBounds,
+    float Opacity = 1.0F,
+    ProGpuDirect2DAntialiasMode MaskAntialiasMode =
+        ProGpuDirect2DAntialiasMode.PerPrimitive,
+    Matrix3x2? MaskTransform = null,
+    ProGpuDirect2DLayerOptions Options = ProGpuDirect2DLayerOptions.None);
 
 /// <summary>
 /// Blittable source, tiling, and sampling state for a genuine

@@ -60,6 +60,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
     private bool _disposeRequested;
     private bool _resourcesDisposed;
     private int _leaseCount;
+    private uint _typedLayerDepth;
     private ulong _contentVersion;
 
     private ProGpuDirect2DSurface(
@@ -919,6 +920,175 @@ public sealed unsafe class ProGpuDirect2DSurface :
             {
                 effect.DangerousRelease();
             }
+        }
+    }
+
+    /// <summary>
+    /// Creates a genuine device-context-domain ID2D1Layer. Omit size to let
+    /// Direct2D choose the backing-store dimensions for each push.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateLayer(Vector2? size = null)
+    {
+        ProGpuDirect2DNative.NativeSizeF nativeSize = default;
+        ProGpuDirect2DNative.NativeSizeF* nativeSizePointer = null;
+        if (size.HasValue)
+        {
+            ValidatePoint(size.Value, nameof(size));
+            if (size.Value.X <= 0.0F || size.Value.Y <= 0.0F)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(size),
+                    "Explicit Direct2D layer dimensions must be positive.");
+            }
+            nativeSize = new ProGpuDirect2DNative.NativeSizeF
+            {
+                Width = size.Value.X,
+                Height = size.Value.Y
+            };
+            nativeSizePointer = &nativeSize;
+        }
+
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            nint value = 0;
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceCreateLayer(
+                    _nativeSurface,
+                    nativeSizePointer,
+                    &value,
+                    &nativeHResult);
+            ThrowIfFailed("ID2D1Layer creation", status, nativeHResult);
+            return CreateRequiredComReference(
+                value,
+                ProGpuDirect2DInterfaceKind.D2D1Layer,
+                "ID2D1Layer creation");
+        }
+    }
+
+    /// <summary>
+    /// Creates a genuine default ID2D1DrawingStateBlock1 for repeated typed
+    /// save/restore operations within Direct2D drawing sessions.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateDrawingStateBlock()
+    {
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            nint value = 0;
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceCreateDrawingStateBlock(
+                    _nativeSurface,
+                    &value,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1DrawingStateBlock1 creation",
+                status,
+                nativeHResult);
+            return CreateRequiredComReference(
+                value,
+                ProGpuDirect2DInterfaceKind.D2D1DrawingStateBlock1,
+                "ID2D1DrawingStateBlock1 creation");
+        }
+    }
+
+    internal void SaveDrawingState(
+        ProGpuDirect2DComReference drawingStateBlock) =>
+        ApplyDrawingState(drawingStateBlock, restore: false);
+
+    internal void RestoreDrawingState(
+        ProGpuDirect2DComReference drawingStateBlock) =>
+        ApplyDrawingState(drawingStateBlock, restore: true);
+
+    internal uint PushLayer(
+        ProGpuDirect2DComReference layer,
+        ProGpuDirect2DLayerParameters parameters,
+        ProGpuDirect2DComReference? geometricMask,
+        ProGpuDirect2DComReference? opacityBrush)
+    {
+        ValidateLayer(layer, nameof(layer));
+        ValidateLayerParameters(parameters);
+        if (geometricMask is not null)
+        {
+            ValidateGeometry(geometricMask, nameof(geometricMask));
+        }
+        if (opacityBrush is not null &&
+            !IsBrushKind(opacityBrush.InterfaceKind))
+        {
+            throw new ArgumentException(
+                "The COM reference must own a Direct2D brush.",
+                nameof(opacityBrush));
+        }
+
+        ProGpuDirect2DNative.NativeLayerParameters nativeParameters = new()
+        {
+            ContentBounds = parameters.ContentBounds,
+            MaskAntialiasMode = parameters.MaskAntialiasMode,
+            MaskTransform = CreateNativeMatrix(
+                parameters.MaskTransform ?? Matrix3x2.Identity),
+            Opacity = parameters.Opacity,
+            Options = parameters.Options
+        };
+        bool layerReferenceAdded = false;
+        bool maskReferenceAdded = false;
+        bool brushReferenceAdded = false;
+        try
+        {
+            layer.DangerousAddRef(ref layerReferenceAdded);
+            geometricMask?.DangerousAddRef(ref maskReferenceAdded);
+            opacityBrush?.DangerousAddRef(ref brushReferenceAdded);
+            lock (_gate)
+            {
+                ValidateTypedDrawingProducer();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.SurfacePushLayer(
+                        _nativeSurface,
+                        &nativeParameters,
+                        geometricMask?.DangerousGetHandle() ?? 0,
+                        opacityBrush?.DangerousGetHandle() ?? 0,
+                        layer.DangerousGetHandle(),
+                        &nativeHResult);
+                ThrowIfFailed("ID2D1Layer push", status, nativeHResult);
+                return checked(++_typedLayerDepth);
+            }
+        }
+        finally
+        {
+            if (brushReferenceAdded)
+            {
+                opacityBrush!.DangerousRelease();
+            }
+            if (maskReferenceAdded)
+            {
+                geometricMask!.DangerousRelease();
+            }
+            if (layerReferenceAdded)
+            {
+                layer.DangerousRelease();
+            }
+        }
+    }
+
+    internal void PopLayer(uint expectedDepth)
+    {
+        lock (_gate)
+        {
+            ValidateTypedDrawingProducer();
+            if (expectedDepth == 0U || expectedDepth != _typedLayerDepth)
+            {
+                throw new InvalidOperationException(
+                    "Direct2D layer scopes must be disposed once in LIFO order.");
+            }
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfacePopLayer(
+                    _nativeSurface,
+                    &nativeHResult);
+            ThrowIfFailed("ID2D1Layer pop", status, nativeHResult);
+            --_typedLayerDepth;
         }
     }
 
@@ -1871,6 +2041,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
             context = AcquireInterface(
                 ProGpuDirect2DInterfaceKind.D2D1DeviceContext1);
             _producer = ProducerKind.Direct2D;
+            _typedLayerDepth = 0U;
         }
 
         DawnExplicitSharedTextureAccess? accessToDispose = null;
@@ -1952,6 +2123,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
                 context = AcquireInterface(
                     ProGpuDirect2DInterfaceKind.D2D1DeviceContext1);
                 _producer = ProducerKind.CommandList;
+                _typedLayerDepth = 0U;
                 producerClaimed = true;
             }
             ProGpuDirect2DStatus status =
@@ -2196,6 +2368,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
             lock (_gate)
             {
                 _producer = ProducerKind.None;
+                _typedLayerDepth = 0U;
                 if (status == ProGpuDirect2DStatus.DeviceLost)
                 {
                     _disposeRequested = true;
@@ -2279,6 +2452,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
         lock (_gate)
         {
             _producer = ProducerKind.None;
+            _typedLayerDepth = 0U;
             if (failure is null)
             {
                 Descriptor = descriptor;
@@ -2335,6 +2509,56 @@ public sealed unsafe class ProGpuDirect2DSurface :
         ObjectDisposedException.ThrowIf(
             _disposeRequested || _resourcesDisposed,
             this);
+    }
+
+    private void ValidateTypedDrawingProducer()
+    {
+        ThrowIfUnavailable();
+        if (_producer is not ProducerKind.Direct2D and
+            not ProducerKind.CommandList)
+        {
+            throw new InvalidOperationException(
+                "A typed Direct2D or command-list drawing session must be active.");
+        }
+    }
+
+    private void ApplyDrawingState(
+        ProGpuDirect2DComReference drawingStateBlock,
+        bool restore)
+    {
+        ValidateDrawingStateBlock(drawingStateBlock);
+        bool referenceAdded = false;
+        try
+        {
+            drawingStateBlock.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ValidateTypedDrawingProducer();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status = restore
+                    ? ProGpuDirect2DNative.SurfaceRestoreDrawingState(
+                        _nativeSurface,
+                        drawingStateBlock.DangerousGetHandle(),
+                        &nativeHResult)
+                    : ProGpuDirect2DNative.SurfaceSaveDrawingState(
+                        _nativeSurface,
+                        drawingStateBlock.DangerousGetHandle(),
+                        &nativeHResult);
+                ThrowIfFailed(
+                    restore
+                        ? "ID2D1DrawingStateBlock1 restore"
+                        : "ID2D1DrawingStateBlock1 save",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                drawingStateBlock.DangerousRelease();
+            }
+        }
     }
 
     private void SetEffectUnmanagedValue<T>(
@@ -2510,6 +2734,55 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    private static void ValidateLayer(
+        ProGpuDirect2DComReference layer,
+        string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(layer, parameterName);
+        if (layer.InterfaceKind != ProGpuDirect2DInterfaceKind.D2D1Layer)
+        {
+            throw new ArgumentException(
+                "The COM reference must own an ID2D1Layer.",
+                parameterName);
+        }
+    }
+
+    private static void ValidateDrawingStateBlock(
+        ProGpuDirect2DComReference drawingStateBlock)
+    {
+        ArgumentNullException.ThrowIfNull(drawingStateBlock);
+        if (drawingStateBlock.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.D2D1DrawingStateBlock1)
+        {
+            throw new ArgumentException(
+                "The COM reference must own an ID2D1DrawingStateBlock1.",
+                nameof(drawingStateBlock));
+        }
+    }
+
+    private static void ValidateLayerParameters(
+        ProGpuDirect2DLayerParameters parameters)
+    {
+        ValidateRectangle(parameters.ContentBounds);
+        const ProGpuDirect2DLayerOptions knownOptions =
+            ProGpuDirect2DLayerOptions.InitializeFromBackground |
+            ProGpuDirect2DLayerOptions.IgnoreAlpha;
+        if (!float.IsFinite(parameters.Opacity) ||
+            parameters.Opacity < 0.0F || parameters.Opacity > 1.0F ||
+            parameters.MaskAntialiasMode >
+                ProGpuDirect2DAntialiasMode.Aliased ||
+            (parameters.Options & ~knownOptions) != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(parameters),
+                "Direct2D layer opacity, antialias mode, or options are invalid.");
+        }
+        if (parameters.MaskTransform.HasValue)
+        {
+            _ = CreateNativeMatrix(parameters.MaskTransform.Value);
+        }
+    }
+
     private static void ValidateStrokeStyle(
         ProGpuDirect2DStrokeStyleProperties properties,
         ReadOnlySpan<float> customDashes)
@@ -2635,6 +2908,13 @@ public sealed unsafe class ProGpuDirect2DSurface :
             ProGpuDirect2DInterfaceKind.D2D1Bitmap1 or
             ProGpuDirect2DInterfaceKind.D2D1CommandList or
             ProGpuDirect2DInterfaceKind.D2D1Image;
+
+    private static bool IsBrushKind(ProGpuDirect2DInterfaceKind kind) =>
+        kind is ProGpuDirect2DInterfaceKind.D2D1SolidColorBrush or
+            ProGpuDirect2DInterfaceKind.D2D1LinearGradientBrush or
+            ProGpuDirect2DInterfaceKind.D2D1RadialGradientBrush or
+            ProGpuDirect2DInterfaceKind.D2D1BitmapBrush1 or
+            ProGpuDirect2DInterfaceKind.D2D1ImageBrush;
 
     private static bool IsGeometryKind(ProGpuDirect2DInterfaceKind kind) =>
         kind >= ProGpuDirect2DInterfaceKind.D2D1Geometry &&
@@ -2982,6 +3262,35 @@ public sealed class ProGpuDirect2DDrawingSession : IDisposable
 
     public ProGpuDirect2DComReference DeviceContext { get; }
 
+    public ProGpuDirect2DLayerScope PushLayer(
+        ProGpuDirect2DComReference layer,
+        ProGpuDirect2DLayerParameters parameters,
+        ProGpuDirect2DComReference? geometricMask = null,
+        ProGpuDirect2DComReference? opacityBrush = null)
+    {
+        ProGpuDirect2DSurface owner = _owner ??
+            throw new ObjectDisposedException(
+                nameof(ProGpuDirect2DDrawingSession));
+        uint depth = owner.PushLayer(
+            layer,
+            parameters,
+            geometricMask,
+            opacityBrush);
+        return new ProGpuDirect2DLayerScope(owner, depth);
+    }
+
+    public void SaveDrawingState(
+        ProGpuDirect2DComReference drawingStateBlock) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .SaveDrawingState(drawingStateBlock);
+
+    public void RestoreDrawingState(
+        ProGpuDirect2DComReference drawingStateBlock) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .RestoreDrawingState(drawingStateBlock);
+
     public void Dispose()
     {
         ProGpuDirect2DSurface? owner =
@@ -3027,6 +3336,35 @@ public sealed class ProGpuDirect2DCommandListDrawingSession : IDisposable
 
     public ProGpuDirect2DComReference CommandList { get; }
 
+    public ProGpuDirect2DLayerScope PushLayer(
+        ProGpuDirect2DComReference layer,
+        ProGpuDirect2DLayerParameters parameters,
+        ProGpuDirect2DComReference? geometricMask = null,
+        ProGpuDirect2DComReference? opacityBrush = null)
+    {
+        ProGpuDirect2DSurface owner = _owner ??
+            throw new ObjectDisposedException(
+                nameof(ProGpuDirect2DCommandListDrawingSession));
+        uint depth = owner.PushLayer(
+            layer,
+            parameters,
+            geometricMask,
+            opacityBrush);
+        return new ProGpuDirect2DLayerScope(owner, depth);
+    }
+
+    public void SaveDrawingState(
+        ProGpuDirect2DComReference drawingStateBlock) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .SaveDrawingState(drawingStateBlock);
+
+    public void RestoreDrawingState(
+        ProGpuDirect2DComReference drawingStateBlock) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .RestoreDrawingState(drawingStateBlock);
+
     public void Dispose()
     {
         ProGpuDirect2DSurface? owner =
@@ -3047,6 +3385,36 @@ public sealed class ProGpuDirect2DCommandListDrawingSession : IDisposable
                 CommandList.DangerousRelease();
             }
         }
+    }
+}
+
+/// <summary>
+/// Allocation-free LIFO scope for one typed ID2D1Layer push. Dispose before
+/// the owning drawing session; out-of-order or duplicate disposal fails
+/// closed without popping a different layer.
+/// </summary>
+public ref struct ProGpuDirect2DLayerScope
+{
+    private ProGpuDirect2DSurface? _owner;
+    private readonly uint _depth;
+
+    internal ProGpuDirect2DLayerScope(
+        ProGpuDirect2DSurface owner,
+        uint depth)
+    {
+        _owner = owner;
+        _depth = depth;
+    }
+
+    public void Dispose()
+    {
+        ProGpuDirect2DSurface? owner = _owner;
+        if (owner is null)
+        {
+            return;
+        }
+        owner.PopLayer(_depth);
+        _owner = null;
     }
 }
 

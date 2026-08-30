@@ -63,6 +63,9 @@ static_assert(
     sizeof(progpu_native_direct2d_image_brush_properties) ==
         sizeof(D2D1_IMAGE_BRUSH_PROPERTIES),
     "Direct2D portable image-brush layout changed");
+static_assert(
+    sizeof(progpu_native_direct2d_size_f) == sizeof(D2D1_SIZE_F),
+    "Direct2D portable size layout changed");
 
 struct progpu_native_direct2d_surface {
     ComPtr<ID3D11Device> d3d_device;
@@ -90,6 +93,7 @@ struct progpu_native_direct2d_surface {
     bool access_acquired = false;
     bool draw_active = false;
     bool command_list_draw_active = false;
+    uint32_t layer_depth = 0U;
     ComPtr<ID2D1CommandList> active_command_list;
     std::mutex access_mutex;
     std::atomic<uint64_t> content_version{0U};
@@ -98,6 +102,10 @@ struct progpu_native_direct2d_surface {
     ~progpu_native_direct2d_surface()
     {
         if (draw_active && d2d_context) {
+            while (layer_depth != 0U) {
+                d2d_context->PopLayer();
+                --layer_depth;
+            }
             D2D1_TAG tag1 = 0U;
             D2D1_TAG tag2 = 0U;
             HRESULT draw_hr = d2d_context->EndDraw(&tag1, &tag2);
@@ -185,6 +193,29 @@ bool is_valid_interpolation_mode(uint32_t value)
 {
     return value <=
         PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC;
+}
+
+bool is_valid(progpu_native_direct2d_antialias_mode value)
+{
+    return value == PROGPU_NATIVE_DIRECT2D_ANTIALIAS_MODE_PER_PRIMITIVE ||
+        value == PROGPU_NATIVE_DIRECT2D_ANTIALIAS_MODE_ALIASED;
+}
+
+bool is_valid_layer_options(uint32_t value)
+{
+    constexpr uint32_t allowed =
+        PROGPU_NATIVE_DIRECT2D_LAYER_OPTION_INITIALIZE_FROM_BACKGROUND |
+        PROGPU_NATIVE_DIRECT2D_LAYER_OPTION_IGNORE_ALPHA;
+    return (value & ~allowed) == 0U;
+}
+
+bool is_valid(const progpu_native_direct2d_rect_f& rectangle)
+{
+    return std::isfinite(rectangle.x) && std::isfinite(rectangle.y) &&
+        std::isfinite(rectangle.width) && std::isfinite(rectangle.height) &&
+        rectangle.width >= 0.0F && rectangle.height >= 0.0F &&
+        std::isfinite(rectangle.x + rectangle.width) &&
+        std::isfinite(rectangle.y + rectangle.height);
 }
 
 bool is_valid_effect_property(
@@ -1716,6 +1747,241 @@ progpu_native_direct2d_effect_get_output(
 }
 
 progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_layer(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_size_f* size,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || value == nullptr || native_hresult == nullptr ||
+        (size != nullptr &&
+         (!std::isfinite(size->width) || !std::isfinite(size->height) ||
+          size->width <= 0.0F || size->height <= 0.0F))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    D2D1_SIZE_F native_size{};
+    const D2D1_SIZE_F* native_size_pointer = nullptr;
+    if (size != nullptr) {
+        native_size = {size->width, size->height};
+        native_size_pointer = &native_size;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Layer> layer;
+    HRESULT hr = surface->d2d_context->CreateLayer(
+        native_size_pointer,
+        layer.GetAddressOf());
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(layer, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_drawing_state_block(
+    progpu_native_direct2d_surface* surface,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || value == nullptr || native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Factory1> factory;
+    HRESULT hr = surface->d2d_factory.As(&factory);
+    ComPtr<ID2D1DrawingStateBlock1> drawing_state_block;
+    if (SUCCEEDED(hr)) {
+        hr = factory->CreateDrawingStateBlock(
+            drawing_state_block.GetAddressOf());
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(drawing_state_block, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_save_drawing_state(
+    progpu_native_direct2d_surface* surface,
+    void* drawing_state_block,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || drawing_state_block == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<ID2D1DrawingStateBlock1> native_state;
+    HRESULT hr = reinterpret_cast<IUnknown*>(drawing_state_block)->QueryInterface(
+        IID_PPV_ARGS(&native_state));
+    if (SUCCEEDED(hr)) {
+        surface->d2d_context->SaveDrawingState(native_state.Get());
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_restore_drawing_state(
+    progpu_native_direct2d_surface* surface,
+    void* drawing_state_block,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || drawing_state_block == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<ID2D1DrawingStateBlock1> native_state;
+    HRESULT hr = reinterpret_cast<IUnknown*>(drawing_state_block)->QueryInterface(
+        IID_PPV_ARGS(&native_state));
+    if (SUCCEEDED(hr)) {
+        surface->d2d_context->RestoreDrawingState(native_state.Get());
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_push_layer(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_layer_parameters* parameters,
+    void* geometric_mask,
+    void* opacity_brush,
+    void* layer,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || parameters == nullptr || layer == nullptr ||
+        native_hresult == nullptr || !is_valid(parameters->content_bounds) ||
+        !is_valid(static_cast<progpu_native_direct2d_antialias_mode>(
+            parameters->mask_antialias_mode)) ||
+        !is_finite(parameters->mask_transform) ||
+        !std::isfinite(parameters->opacity) || parameters->opacity < 0.0F ||
+        parameters->opacity > 1.0F ||
+        !is_valid_layer_options(parameters->options)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+
+    ComPtr<ID2D1Layer> native_layer;
+    HRESULT hr = reinterpret_cast<IUnknown*>(layer)->QueryInterface(
+        IID_PPV_ARGS(&native_layer));
+    ComPtr<ID2D1Geometry> native_mask;
+    if (SUCCEEDED(hr) && geometric_mask != nullptr) {
+        hr = reinterpret_cast<IUnknown*>(geometric_mask)->QueryInterface(
+            IID_PPV_ARGS(&native_mask));
+    }
+    ComPtr<ID2D1Brush> native_opacity_brush;
+    if (SUCCEEDED(hr) && opacity_brush != nullptr) {
+        hr = reinterpret_cast<IUnknown*>(opacity_brush)->QueryInterface(
+            IID_PPV_ARGS(&native_opacity_brush));
+    }
+    if (SUCCEEDED(hr)) {
+        D2D1_LAYER_PARAMETERS1 native_parameters{};
+        native_parameters.contentBounds = D2D1::RectF(
+            parameters->content_bounds.x,
+            parameters->content_bounds.y,
+            parameters->content_bounds.x +
+                parameters->content_bounds.width,
+            parameters->content_bounds.y +
+                parameters->content_bounds.height);
+        native_parameters.geometricMask = native_mask.Get();
+        native_parameters.maskAntialiasMode =
+            static_cast<D2D1_ANTIALIAS_MODE>(
+                parameters->mask_antialias_mode);
+        native_parameters.maskTransform =
+            to_native_matrix(parameters->mask_transform);
+        native_parameters.opacity = parameters->opacity;
+        native_parameters.opacityBrush = native_opacity_brush.Get();
+        native_parameters.layerOptions =
+            static_cast<D2D1_LAYER_OPTIONS1>(parameters->options);
+        surface->d2d_context->PushLayer(
+            native_parameters,
+            native_layer.Get());
+        ++surface->layer_depth;
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_pop_layer(
+    progpu_native_direct2d_surface* surface,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    if (surface->layer_depth == 0U) {
+        surface->last_hresult.store(
+            D2DERR_WRONG_STATE,
+            std::memory_order_release);
+        *native_hresult = D2DERR_WRONG_STATE;
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH;
+    }
+    surface->d2d_context->PopLayer();
+    --surface->layer_depth;
+    surface->last_hresult.store(S_OK, std::memory_order_release);
+    *native_hresult = S_OK;
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status
 progpu_native_direct2d_surface_create_rectangle_geometry(
     progpu_native_direct2d_surface* surface,
     const progpu_native_direct2d_rect_f* rectangle,
@@ -2267,6 +2533,7 @@ progpu_native_direct2d_status progpu_native_direct2d_surface_begin_draw(
     surface->d2d_context->BeginDraw();
     surface->draw_active = true;
     surface->command_list_draw_active = false;
+    surface->layer_depth = 0U;
     return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
 }
 
@@ -2295,11 +2562,19 @@ progpu_native_direct2d_status progpu_native_direct2d_surface_end_draw(
     if (!surface->draw_active || surface->command_list_draw_active) {
         return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
     }
+    bool unbalanced_layers = surface->layer_depth != 0U;
+    while (surface->layer_depth != 0U) {
+        surface->d2d_context->PopLayer();
+        --surface->layer_depth;
+    }
     D2D1_TAG native_tag1 = 0U;
     D2D1_TAG native_tag2 = 0U;
     HRESULT draw_hr = surface->d2d_context->EndDraw(
         &native_tag1,
         &native_tag2);
+    if (unbalanced_layers && SUCCEEDED(draw_hr)) {
+        draw_hr = D2DERR_WRONG_STATE;
+    }
     surface->draw_active = false;
     *tag1 = native_tag1;
     *tag2 = native_tag2;
@@ -2313,6 +2588,9 @@ progpu_native_direct2d_status progpu_native_direct2d_surface_end_draw(
     surface->last_hresult.store(draw_hr, std::memory_order_release);
     if (SUCCEEDED(draw_hr)) {
         return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+    }
+    if (unbalanced_layers) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH;
     }
     if (draw_hr == D2DERR_RECREATE_TARGET ||
         draw_hr == DXGI_ERROR_DEVICE_REMOVED ||
@@ -2346,6 +2624,7 @@ progpu_native_direct2d_surface_begin_command_list_draw(
     surface->d2d_context->BeginDraw();
     surface->draw_active = true;
     surface->command_list_draw_active = true;
+    surface->layer_depth = 0U;
     return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
 }
 
@@ -2376,15 +2655,23 @@ progpu_native_direct2d_surface_end_command_list_draw(
         return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
     }
 
+    bool unbalanced_layers = surface->layer_depth != 0U;
+    while (surface->layer_depth != 0U) {
+        surface->d2d_context->PopLayer();
+        --surface->layer_depth;
+    }
     D2D1_TAG native_tag1 = 0U;
     D2D1_TAG native_tag2 = 0U;
     HRESULT draw_hr = surface->d2d_context->EndDraw(
         &native_tag1,
         &native_tag2);
     surface->d2d_context->SetTarget(surface->d2d_bitmap.Get());
-    HRESULT result_hr = SUCCEEDED(draw_hr)
+    HRESULT close_hr = SUCCEEDED(draw_hr)
         ? surface->active_command_list->Close()
         : draw_hr;
+    HRESULT result_hr = unbalanced_layers && SUCCEEDED(close_hr)
+        ? D2DERR_WRONG_STATE
+        : close_hr;
     surface->active_command_list.Reset();
     surface->draw_active = false;
     surface->command_list_draw_active = false;
@@ -2395,6 +2682,9 @@ progpu_native_direct2d_surface_end_command_list_draw(
 
     if (SUCCEEDED(result_hr)) {
         return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+    }
+    if (unbalanced_layers) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH;
     }
     if (result_hr == D2DERR_RECREATE_TARGET ||
         result_hr == DXGI_ERROR_DEVICE_REMOVED ||
