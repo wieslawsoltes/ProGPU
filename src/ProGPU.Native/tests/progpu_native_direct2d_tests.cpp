@@ -232,6 +232,111 @@ int main()
             invalid_brush_value == nullptr && native_hresult == E_INVALIDARG,
         "invalid solid-brush creation did not fail closed");
 
+    progpu_native_direct2d_gradient_stop gradient_stops[] = {
+        {
+            0.0F,
+            {32.0F / 255.0F, 160.0F / 255.0F, 224.0F / 255.0F, 1.0F}
+        },
+        {
+            1.0F,
+            {224.0F / 255.0F, 96.0F / 255.0F, 32.0F / 255.0F, 1.0F}
+        }
+    };
+    void* gradient_collection_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_gradient_stop_collection(
+            surface,
+            gradient_stops,
+            2U,
+            PROGPU_NATIVE_DIRECT2D_COLOR_SPACE_SRGB,
+            PROGPU_NATIVE_DIRECT2D_COLOR_SPACE_SRGB,
+            PROGPU_NATIVE_DIRECT2D_BUFFER_PRECISION_8BPC_UNORM,
+            PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_CLAMP,
+            PROGPU_NATIVE_DIRECT2D_COLOR_INTERPOLATION_MODE_PREMULTIPLIED,
+            &gradient_collection_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            gradient_collection_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1GradientStopCollection1 creation failed");
+    ComPtr<ID2D1GradientStopCollection1> gradient_collection;
+    gradient_collection.Attach(
+        static_cast<ID2D1GradientStopCollection1*>(
+            gradient_collection_value));
+    require(gradient_collection->GetGradientStopCount() == 2U &&
+            gradient_collection->GetPreInterpolationSpace() ==
+                D2D1_COLOR_SPACE_SRGB &&
+            gradient_collection->GetPostInterpolationSpace() ==
+                D2D1_COLOR_SPACE_SRGB &&
+            gradient_collection->GetBufferPrecision() ==
+                D2D1_BUFFER_PRECISION_8BPC_UNORM &&
+            gradient_collection->GetExtendMode() == D2D1_EXTEND_MODE_CLAMP &&
+            gradient_collection->GetColorInterpolationMode() ==
+                D2D1_COLOR_INTERPOLATION_MODE_PREMULTIPLIED,
+        "provider gradient-stop collection metadata changed");
+    D2D1_GRADIENT_STOP returned_stops[2]{};
+    gradient_collection->GetGradientStops1(returned_stops, 2U);
+    require(returned_stops[0].position == gradient_stops[0].position &&
+            returned_stops[1].position == gradient_stops[1].position &&
+            returned_stops[0].color.g == gradient_stops[0].color.green &&
+            returned_stops[1].color.r == gradient_stops[1].color.red,
+        "provider gradient-stop collection changed its stops");
+
+    progpu_native_direct2d_brush_properties gradient_brush_properties{};
+    gradient_brush_properties.opacity = 0.75F;
+    gradient_brush_properties.transform.m11 = 1.0F;
+    gradient_brush_properties.transform.m22 = 1.0F;
+    progpu_native_direct2d_linear_gradient_brush_properties linear_properties{
+        {0.0F, 0.0F},
+        {64.0F, 0.0F}
+    };
+    void* linear_brush_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_linear_gradient_brush(
+            surface,
+            &linear_properties,
+            &gradient_brush_properties,
+            gradient_collection.Get(),
+            &linear_brush_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            linear_brush_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1LinearGradientBrush creation failed");
+    ComPtr<ID2D1LinearGradientBrush> linear_brush;
+    linear_brush.Attach(
+        static_cast<ID2D1LinearGradientBrush*>(linear_brush_value));
+    require(linear_brush->GetStartPoint().x == 0.0F &&
+            linear_brush->GetEndPoint().x == 64.0F &&
+            linear_brush->GetOpacity() == 0.75F,
+        "provider linear-gradient brush properties changed");
+
+    progpu_native_direct2d_radial_gradient_brush_properties radial_properties{
+        {32.0F, 24.0F},
+        {2.0F, 3.0F},
+        20.0F,
+        16.0F
+    };
+    void* radial_brush_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_radial_gradient_brush(
+            surface,
+            &radial_properties,
+            &gradient_brush_properties,
+            gradient_collection.Get(),
+            &radial_brush_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            radial_brush_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1RadialGradientBrush creation failed");
+    ComPtr<ID2D1RadialGradientBrush> radial_brush;
+    radial_brush.Attach(
+        static_cast<ID2D1RadialGradientBrush*>(radial_brush_value));
+    require(radial_brush->GetCenter().x == 32.0F &&
+            radial_brush->GetGradientOriginOffset().y == 3.0F &&
+            radial_brush->GetRadiusX() == 20.0F &&
+            radial_brush->GetRadiusY() == 16.0F &&
+            radial_brush->GetOpacity() == 0.75F,
+        "provider radial-gradient brush properties changed");
+
     void* win2d_canvas_device_value = nullptr;
     native_hresult = E_FAIL;
     progpu_native_direct2d_status win2d_status =
@@ -326,6 +431,104 @@ int main()
                 solid_brush.Get(),
                 unwrapped_solid_brush.Get()),
             "Win2D CanvasSolidColorBrush changed native COM identity");
+
+        void* canvas_linear_brush_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper(
+                surface,
+                linear_brush.Get(),
+                0.0F,
+                &canvas_linear_brush_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                canvas_linear_brush_value != nullptr && native_hresult == S_OK,
+            "Win2D CanvasLinearGradientBrush wrapping failed");
+        ComPtr<IInspectable> canvas_linear_brush;
+        canvas_linear_brush.Attach(
+            static_cast<IInspectable*>(canvas_linear_brush_value));
+        constexpr GUID canvas_linear_gradient_brush_interface_id = {
+            0xA4FFBCB1,
+            0xEC22,
+            0x48C8,
+            {0xB1, 0xAF, 0x09, 0xBC, 0xFD, 0x34, 0xEE, 0xBD}
+        };
+        ComPtr<IUnknown> canvas_linear_brush_interface;
+        require(SUCCEEDED(canvas_linear_brush->QueryInterface(
+                    canvas_linear_gradient_brush_interface_id,
+                    &canvas_linear_brush_interface)),
+            "wrapped Win2D object omitted ICanvasLinearGradientBrush");
+        progpu_native_direct2d_guid linear_brush_id =
+            to_portable_guid(__uuidof(ID2D1LinearGradientBrush));
+        void* unwrapped_linear_brush_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_win2d_wrapper_native_resource(
+                surface,
+                canvas_linear_brush.Get(),
+                0.0F,
+                &linear_brush_id,
+                &unwrapped_linear_brush_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                unwrapped_linear_brush_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D CanvasLinearGradientBrush native-resource query failed");
+        ComPtr<ID2D1LinearGradientBrush> unwrapped_linear_brush;
+        unwrapped_linear_brush.Attach(
+            static_cast<ID2D1LinearGradientBrush*>(
+                unwrapped_linear_brush_value));
+        require(has_same_com_identity(
+                linear_brush.Get(),
+                unwrapped_linear_brush.Get()),
+            "Win2D CanvasLinearGradientBrush changed native COM identity");
+
+        void* canvas_radial_brush_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper(
+                surface,
+                radial_brush.Get(),
+                0.0F,
+                &canvas_radial_brush_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                canvas_radial_brush_value != nullptr && native_hresult == S_OK,
+            "Win2D CanvasRadialGradientBrush wrapping failed");
+        ComPtr<IInspectable> canvas_radial_brush;
+        canvas_radial_brush.Attach(
+            static_cast<IInspectable*>(canvas_radial_brush_value));
+        constexpr GUID canvas_radial_gradient_brush_interface_id = {
+            0x4D27D756,
+            0x14A9,
+            0x4EB7,
+            {0x97, 0x3F, 0xE6, 0x61, 0x4D, 0x4F, 0x89, 0xE7}
+        };
+        ComPtr<IUnknown> canvas_radial_brush_interface;
+        require(SUCCEEDED(canvas_radial_brush->QueryInterface(
+                    canvas_radial_gradient_brush_interface_id,
+                    &canvas_radial_brush_interface)),
+            "wrapped Win2D object omitted ICanvasRadialGradientBrush");
+        progpu_native_direct2d_guid radial_brush_id =
+            to_portable_guid(__uuidof(ID2D1RadialGradientBrush));
+        void* unwrapped_radial_brush_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_win2d_wrapper_native_resource(
+                surface,
+                canvas_radial_brush.Get(),
+                0.0F,
+                &radial_brush_id,
+                &unwrapped_radial_brush_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                unwrapped_radial_brush_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D CanvasRadialGradientBrush native-resource query failed");
+        ComPtr<ID2D1RadialGradientBrush> unwrapped_radial_brush;
+        unwrapped_radial_brush.Attach(
+            static_cast<ID2D1RadialGradientBrush*>(
+                unwrapped_radial_brush_value));
+        require(has_same_com_identity(
+                radial_brush.Get(),
+                unwrapped_radial_brush.Get()),
+            "Win2D CanvasRadialGradientBrush changed native COM identity");
 
         progpu_native_direct2d_guid no_interface_id =
             to_portable_guid(GUID_NULL);
@@ -493,6 +696,12 @@ int main()
     context->FillRectangle(
         D2D1::RectF(4.0F, 5.0F, 32.0F, 28.0F),
         solid_brush.Get());
+    context->FillRectangle(
+        D2D1::RectF(32.0F, 0.0F, 64.0F, 24.0F),
+        linear_brush.Get());
+    context->FillRectangle(
+        D2D1::RectF(32.0F, 24.0F, 64.0F, 48.0F),
+        radial_brush.Get());
     D2D1_TAG tag1 = 0U;
     D2D1_TAG tag2 = 0U;
     native_hresult = E_FAIL;

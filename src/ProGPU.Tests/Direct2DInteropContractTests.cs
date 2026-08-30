@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 7U;",
+            "internal const uint AbiVersion = 8U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -66,6 +66,18 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "progpu_native_direct2d_surface_create_solid_color_brush",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_create_gradient_stop_collection",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_create_linear_gradient_brush",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_create_radial_gradient_brush",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -101,7 +113,7 @@ public sealed class Direct2DInteropContractTests
             exports,
             StringComparison.Ordinal);
         Assert.Equal(
-            18,
+            21,
             exports.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries |
@@ -149,7 +161,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 7U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 8U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -230,6 +242,26 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "has_same_com_identity(\n                solid_brush.Get(),\n                unwrapped_solid_brush.Get())",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ID2D1GradientStopCollection1",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CreateLinearGradientBrush(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CreateRadialGradientBrush(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "unwrapped_linear_brush.Get())",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "unwrapped_radial_brush.Get())",
             test,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -369,7 +401,18 @@ public sealed class Direct2DInteropContractTests
         Assert.Equal(ProGpuDirect2DInterfaceKind.Win2DCanvasRenderTarget, (ProGpuDirect2DInterfaceKind)18);
         Assert.Equal(ProGpuDirect2DInterfaceKind.D2D1SolidColorBrush, (ProGpuDirect2DInterfaceKind)19);
         Assert.Equal(ProGpuDirect2DInterfaceKind.Win2DCanvasSolidColorBrush, (ProGpuDirect2DInterfaceKind)20);
+        Assert.Equal(ProGpuDirect2DInterfaceKind.D2D1GradientStopCollection1, (ProGpuDirect2DInterfaceKind)21);
+        Assert.Equal(ProGpuDirect2DInterfaceKind.Win2DCanvasLinearGradientBrush, (ProGpuDirect2DInterfaceKind)23);
+        Assert.Equal(ProGpuDirect2DInterfaceKind.Win2DCanvasRadialGradientBrush, (ProGpuDirect2DInterfaceKind)25);
         Assert.Equal(ProGpuDirect2DStatus.DrawFailed, (ProGpuDirect2DStatus)12);
+        Assert.Equal(
+            16,
+            System.Runtime.InteropServices.Marshal.SizeOf<
+                ProGpuDirect2DColor>());
+        Assert.Equal(
+            20,
+            System.Runtime.InteropServices.Marshal.SizeOf<
+                ProGpuDirect2DGradientStop>());
 
         if (!OperatingSystem.IsWindows())
         {
@@ -412,9 +455,15 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("TryAcquireMicrosoftWin2DSolidColorBrush(", program, StringComparison.Ordinal);
         Assert.Contains("TryAcquireMicrosoftWin2DNativeSolidColorBrush(", program, StringComparison.Ordinal);
         Assert.Contains("CanvasSolidColorBrush.FromAbi(", program, StringComparison.Ordinal);
+        Assert.Contains("CanvasLinearGradientBrush.FromAbi(", program, StringComparison.Ordinal);
+        Assert.Contains("CanvasRadialGradientBrush.FromAbi(", program, StringComparison.Ordinal);
+        Assert.Contains("TryAcquireMicrosoftWin2DLinearGradientBrush(", program, StringComparison.Ordinal);
+        Assert.Contains("TryAcquireMicrosoftWin2DRadialGradientBrush(", program, StringComparison.Ordinal);
         Assert.Contains("HasSameComIdentity(originalDevice, wrappedDevice)", program, StringComparison.Ordinal);
         Assert.Contains("HasSameComIdentity(originalBitmap, wrappedBitmap)", program, StringComparison.Ordinal);
         Assert.Contains("NativeSolidColorBrushIdentityMatches: true", program, StringComparison.Ordinal);
+        Assert.Contains("NativeLinearGradientBrushIdentityMatches: true", program, StringComparison.Ordinal);
+        Assert.Contains("NativeRadialGradientBrushIdentityMatches: true", program, StringComparison.Ordinal);
         Assert.Contains("Microsoft.Graphics.Canvas.CanvasDevice", manifest, StringComparison.Ordinal);
         Assert.Contains("Microsoft.Graphics.Canvas.dll", manifest, StringComparison.Ordinal);
         Assert.Contains("runFullTrust", manifest, StringComparison.Ordinal);

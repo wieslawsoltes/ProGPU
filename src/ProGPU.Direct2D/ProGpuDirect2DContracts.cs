@@ -1,4 +1,5 @@
 using Microsoft.Win32.SafeHandles;
+using System.Runtime.InteropServices;
 
 namespace ProGPU.Direct2D;
 
@@ -41,7 +42,42 @@ public enum ProGpuDirect2DInterfaceKind
     Win2DCanvasDevice = 17,
     Win2DCanvasRenderTarget = 18,
     D2D1SolidColorBrush = 19,
-    Win2DCanvasSolidColorBrush = 20
+    Win2DCanvasSolidColorBrush = 20,
+    D2D1GradientStopCollection1 = 21,
+    D2D1LinearGradientBrush = 22,
+    Win2DCanvasLinearGradientBrush = 23,
+    D2D1RadialGradientBrush = 24,
+    Win2DCanvasRadialGradientBrush = 25
+}
+
+public enum ProGpuDirect2DColorSpace
+{
+    Custom = 0,
+    SRgb = 1,
+    ScRgb = 2
+}
+
+public enum ProGpuDirect2DBufferPrecision
+{
+    Unknown = 0,
+    Precision8UIntNormalized = 1,
+    Precision8UIntNormalizedSrgb = 2,
+    Precision16UIntNormalized = 3,
+    Precision16Float = 4,
+    Precision32Float = 5
+}
+
+public enum ProGpuDirect2DExtendMode
+{
+    Clamp = 0,
+    Wrap = 1,
+    Mirror = 2
+}
+
+public enum ProGpuDirect2DColorInterpolationMode
+{
+    Straight = 0,
+    Premultiplied = 1
 }
 
 public enum ProGpuDirect2DStatus
@@ -91,6 +127,7 @@ public readonly record struct ProGpuDirect2DSurfaceDescriptor(
 /// Linear floating-point color for a genuine Direct2D resource. Finite HDR
 /// channel values outside zero to one are preserved.
 /// </summary>
+[StructLayout(LayoutKind.Sequential)]
 public readonly record struct ProGpuDirect2DColor(
     float Red,
     float Green,
@@ -108,6 +145,11 @@ public readonly record struct ProGpuDirect2DColor(
             blue / 255.0F,
             alpha / 255.0F);
 }
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct ProGpuDirect2DGradientStop(
+    float Position,
+    ProGpuDirect2DColor Color);
 
 public sealed class ProGpuDirect2DException : Exception
 {

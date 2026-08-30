@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 7U;
+    internal const uint AbiVersion = 8U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -76,6 +76,47 @@ internal static unsafe partial class ProGpuDirect2DNative
         internal float Green;
         internal float Blue;
         internal float Alpha;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativePoint2F
+    {
+        internal float X;
+        internal float Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeMatrix3X2F
+    {
+        internal float M11;
+        internal float M12;
+        internal float M21;
+        internal float M22;
+        internal float M31;
+        internal float M32;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeBrushProperties
+    {
+        internal float Opacity;
+        internal NativeMatrix3X2F Transform;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeLinearGradientBrushProperties
+    {
+        internal NativePoint2F StartPoint;
+        internal NativePoint2F EndPoint;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeRadialGradientBrushProperties
+    {
+        internal NativePoint2F Center;
+        internal NativePoint2F GradientOriginOffset;
+        internal float RadiusX;
+        internal float RadiusY;
     }
 
     internal enum Win2DResourceKind
@@ -179,6 +220,49 @@ internal static unsafe partial class ProGpuDirect2DNative
         NativeColorF* color,
         nint* value,
         int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_gradient_stop_collection")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceCreateGradientStopCollection(
+            nint surface,
+            ProGpuDirect2DGradientStop* stops,
+            uint stopCount,
+            ProGpuDirect2DColorSpace preInterpolationSpace,
+            ProGpuDirect2DColorSpace postInterpolationSpace,
+            ProGpuDirect2DBufferPrecision bufferPrecision,
+            ProGpuDirect2DExtendMode extendMode,
+            ProGpuDirect2DColorInterpolationMode interpolationMode,
+            nint* value,
+            int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_linear_gradient_brush")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceCreateLinearGradientBrush(
+            nint surface,
+            NativeLinearGradientBrushProperties* properties,
+            NativeBrushProperties* brushProperties,
+            nint gradientStopCollection,
+            nint* value,
+            int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_radial_gradient_brush")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceCreateRadialGradientBrush(
+            nint surface,
+            NativeRadialGradientBrushProperties* properties,
+            NativeBrushProperties* brushProperties,
+            nint gradientStopCollection,
+            nint* value,
+            int* nativeHResult);
 
     [LibraryImport(
         LibraryName,
