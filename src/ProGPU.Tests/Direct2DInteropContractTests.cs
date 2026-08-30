@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 14U;",
+            "internal const uint AbiVersion = 15U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -122,6 +122,30 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "progpu_native_direct2d_effect_get_output",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_create_layer",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_create_drawing_state_block",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_save_drawing_state",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_restore_drawing_state",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_push_layer",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_pop_layer",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -227,7 +251,7 @@ public sealed class Direct2DInteropContractTests
             exports,
             StringComparison.Ordinal);
         Assert.Equal(
-            39,
+            45,
             exports.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries |
@@ -275,7 +299,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 14U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 15U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -463,6 +487,42 @@ public sealed class Direct2DInteropContractTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
+            "surface->d2d_context->CreateLayer(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "factory->CreateDrawingStateBlock(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "surface->d2d_context->SaveDrawingState(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "surface->d2d_context->RestoreDrawingState(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "surface->d2d_context->PushLayer(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "surface->d2d_context->PopLayer();",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "provider drawing-state restore changed the transform",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "unbalanced ID2D1Layer scope did not fail closed and unwind",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "to_portable_guid(gaussian_blur_effect_id)",
             test,
             StringComparison.Ordinal);
@@ -585,7 +645,11 @@ public sealed class Direct2DInteropContractTests
             surface,
             StringComparison.Ordinal);
         Assert.Contains(
-            "_producer = ProducerKind.Direct2D;\n        }\n\n        DawnExplicitSharedTextureAccess?",
+            "_producer = ProducerKind.Direct2D;",
+            surface,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "_typedLayerDepth = 0U;",
             surface,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -655,6 +719,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Equal(ProGpuDirect2DInterfaceKind.Win2DCanvasCommandList, (ProGpuDirect2DInterfaceKind)40);
         Assert.Equal(ProGpuDirect2DInterfaceKind.D2D1Effect, (ProGpuDirect2DInterfaceKind)41);
         Assert.Equal(ProGpuDirect2DInterfaceKind.D2D1Image, (ProGpuDirect2DInterfaceKind)42);
+        Assert.Equal(ProGpuDirect2DInterfaceKind.D2D1Layer, (ProGpuDirect2DInterfaceKind)43);
+        Assert.Equal(ProGpuDirect2DInterfaceKind.D2D1DrawingStateBlock1, (ProGpuDirect2DInterfaceKind)44);
         Assert.Equal(
             new Guid("1FEB6D69-2FE6-4AC9-8C58-1D7F93E7A6A5"),
             ProGpuDirect2DBuiltInEffects.GaussianBlur);
@@ -662,6 +728,8 @@ public sealed class Direct2DInteropContractTests
             new Guid("C67EA361-1863-4E69-89DB-695D3E9A5B6B"),
             ProGpuDirect2DBuiltInEffects.Shadow);
         Assert.Equal(ProGpuDirect2DStatus.DrawFailed, (ProGpuDirect2DStatus)12);
+        Assert.Equal(ProGpuDirect2DStatus.DrawingStateMismatch, (ProGpuDirect2DStatus)16);
+        Assert.Equal(ProGpuDirect2DLayerOptions.IgnoreAlpha, (ProGpuDirect2DLayerOptions)2);
         Assert.Equal(
             16,
             System.Runtime.InteropServices.Marshal.SizeOf<

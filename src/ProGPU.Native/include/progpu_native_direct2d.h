@@ -35,7 +35,8 @@ typedef enum progpu_native_direct2d_status {
     PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_FAILED = 12,
     PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED = 13,
     PROGPU_NATIVE_DIRECT2D_STATUS_WIN2D_RUNTIME_UNAVAILABLE = 14,
-    PROGPU_NATIVE_DIRECT2D_STATUS_WINDOWS_RUNTIME_NOT_INITIALIZED = 15
+    PROGPU_NATIVE_DIRECT2D_STATUS_WINDOWS_RUNTIME_NOT_INITIALIZED = 15,
+    PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH = 16
 } progpu_native_direct2d_status;
 
 typedef enum progpu_native_direct2d_surface_flags {
@@ -98,7 +99,9 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_COMMAND_LIST = 39,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_COMMAND_LIST = 40,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_EFFECT = 41,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_IMAGE = 42
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_IMAGE = 42,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_LAYER = 43,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DRAWING_STATE_BLOCK1 = 44
 } progpu_native_direct2d_interface_kind;
 
 typedef enum progpu_native_direct2d_fill_mode {
@@ -188,6 +191,17 @@ typedef enum progpu_native_direct2d_interpolation_mode {
     PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_ANISOTROPIC = 4,
     PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC = 5
 } progpu_native_direct2d_interpolation_mode;
+
+typedef enum progpu_native_direct2d_antialias_mode {
+    PROGPU_NATIVE_DIRECT2D_ANTIALIAS_MODE_PER_PRIMITIVE = 0,
+    PROGPU_NATIVE_DIRECT2D_ANTIALIAS_MODE_ALIASED = 1
+} progpu_native_direct2d_antialias_mode;
+
+typedef enum progpu_native_direct2d_layer_options {
+    PROGPU_NATIVE_DIRECT2D_LAYER_OPTION_NONE = 0,
+    PROGPU_NATIVE_DIRECT2D_LAYER_OPTION_INITIALIZE_FROM_BACKGROUND = 1U << 0U,
+    PROGPU_NATIVE_DIRECT2D_LAYER_OPTION_IGNORE_ALPHA = 1U << 1U
+} progpu_native_direct2d_layer_options;
 
 /* Fixed-layout ID2D1Properties values supported by the portable C ABI.
  * Pointer-bearing STRING/IUNKNOWN/ARRAY/COLOR_CONTEXT properties remain
@@ -329,6 +343,22 @@ typedef struct progpu_native_direct2d_rect_f {
     float height;
 } progpu_native_direct2d_rect_f;
 
+typedef struct progpu_native_direct2d_size_f {
+    float width;
+    float height;
+} progpu_native_direct2d_size_f;
+
+/* Pointer-free portion of D2D1_LAYER_PARAMETERS1. The optional geometry mask,
+ * opacity brush, and concrete layer are supplied as separately validated COM
+ * references to keep the C ABI blittable and AOT-safe. */
+typedef struct progpu_native_direct2d_layer_parameters {
+    progpu_native_direct2d_rect_f content_bounds;
+    uint32_t mask_antialias_mode;
+    progpu_native_direct2d_matrix_3x2_f mask_transform;
+    float opacity;
+    uint32_t options;
+} progpu_native_direct2d_layer_parameters;
+
 typedef struct progpu_native_direct2d_image_brush_properties {
     progpu_native_direct2d_rect_f source_rectangle;
     uint32_t extend_mode_x;
@@ -367,7 +397,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 14U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 15U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -571,6 +601,55 @@ progpu_native_direct2d_effect_get_output(
     progpu_native_direct2d_surface* surface,
     void* effect,
     void** value,
+    int32_t* native_hresult);
+
+/* Creates a genuine device-context-domain ID2D1Layer. A null size asks
+ * Direct2D to choose the backing-store size; a supplied size must be positive
+ * and finite. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_layer(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_size_f* size,
+    void** value,
+    int32_t* native_hresult);
+
+/* Creates a default genuine factory-domain ID2D1DrawingStateBlock1. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_drawing_state_block(
+    progpu_native_direct2d_surface* surface,
+    void** value,
+    int32_t* native_hresult);
+
+/* Saves/restores the active context's transform, antialias, text-antialias,
+ * tags, primitive-blend, unit-mode, and text-rendering state. Clip/layer
+ * stacks remain explicitly scoped and are not hidden inside the block. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_save_drawing_state(
+    progpu_native_direct2d_surface* surface,
+    void* drawing_state_block,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_restore_drawing_state(
+    progpu_native_direct2d_surface* surface,
+    void* drawing_state_block,
+    int32_t* native_hresult);
+
+/* Pushes one typed opacity/mask layer during an active surface or command-list
+ * draw. All optional COM arguments are queried for their concrete Direct2D
+ * interfaces before any context state changes. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_push_layer(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_layer_parameters* parameters,
+    void* geometric_mask,
+    void* opacity_brush,
+    void* layer,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_pop_layer(
+    progpu_native_direct2d_surface* surface,
     int32_t* native_hresult);
 
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
