@@ -15,7 +15,7 @@ namespace ProGPU.Direct2D.Win2D.Integration;
 internal static partial class Program
 {
     private const uint RoInitSingleThreaded = 0U;
-    private const uint Width = 68U;
+    private const uint Width = 72U;
     private const uint Height = 64U;
     private const string ResultFileName = "direct2d-win2d-result.json";
     private const string ProgressFileName = "direct2d-win2d-progress.txt";
@@ -65,6 +65,7 @@ internal static partial class Program
                     CanvasBitmapType: null,
                     CanvasImageBrushType: null,
                     CanvasGeneralImageBrushType: null,
+                    CanvasCommandListType: null,
                     CanvasGeometryType: null,
                     CanvasStrokeStyleType: null,
                     DrawingSessionType: null,
@@ -76,6 +77,8 @@ internal static partial class Program
                     NativeSourceBitmapIdentityMatches: null,
                     NativeImageBrushIdentityMatches: null,
                     NativeGeneralImageBrushIdentityMatches: null,
+                    NativeCommandListIdentityMatches: null,
+                    NativeCommandListImageBrushIdentityMatches: null,
                     NativeGeometryIdentityMatches: null,
                     NativeStrokeStyleIdentityMatches: null,
                     SolidColorBrushColor: null,
@@ -87,6 +90,7 @@ internal static partial class Program
                     RadialPixel: null,
                     ImageBrushPixel: null,
                     GeneralImageBrushPixel: null,
+                    CommandListPixel: null,
                     GeometryPixel: null,
                     Error: exception.ToString()));
             return 1;
@@ -484,6 +488,102 @@ internal static partial class Program
             }
             WriteProgress("general-image-brush-roundtrip-complete");
 
+            Color commandListColor = Color.FromArgb(255, 248, 112, 40);
+            using ProGpuDirect2DComReference nativeCommandList =
+                surface.CreateCommandList();
+            WriteProgress("command-list-created");
+            if (!surface.TryAcquireMicrosoftWin2DCommandList(
+                    nativeCommandList,
+                    out ProGpuDirect2DComReference? wrappedCommandList,
+                    out int wrappedCommandListHResult) ||
+                wrappedCommandList is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasCommandList wrapping failed (0x{wrappedCommandListHResult:X8}).");
+            }
+            using ProGpuDirect2DComReference canvasCommandListReference =
+                wrappedCommandList;
+            string canvasCommandListType;
+            using (CanvasCommandList canvasCommandList =
+                CanvasCommandList.FromAbi(
+                    canvasCommandListReference.DangerousGetHandle()))
+            {
+                canvasCommandListType =
+                    canvasCommandList.GetType().FullName ??
+                    canvasCommandList.GetType().Name;
+                using CanvasDrawingSession commandListDrawingSession =
+                    canvasCommandList.CreateDrawingSession();
+                commandListDrawingSession.FillRectangle(
+                    0.0F,
+                    0.0F,
+                    4.0F,
+                    56.0F,
+                    commandListColor);
+            }
+            WriteProgress("command-list-recorded");
+            if (!surface.TryAcquireMicrosoftWin2DNativeCommandList(
+                    canvasCommandListReference,
+                    out ProGpuDirect2DComReference? unwrappedCommandList,
+                    out int unwrappedCommandListHResult) ||
+                unwrappedCommandList is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasCommandList native-resource interop failed (0x{unwrappedCommandListHResult:X8}).");
+            }
+            using (unwrappedCommandList)
+            {
+                if (!HasSameComIdentity(
+                        nativeCommandList,
+                        unwrappedCommandList))
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasCommandList did not preserve ProGPU's ID2D1CommandList identity.");
+                }
+            }
+            using ProGpuDirect2DComReference nativeCommandListImageBrush =
+                surface.CreateImageBrush(
+                    nativeCommandList,
+                    new ProGpuDirect2DImageBrushProperties(
+                        new ProGpuDirect2DRect(0.0F, 0.0F, 4.0F, 56.0F),
+                        ProGpuDirect2DExtendMode.Wrap,
+                        ProGpuDirect2DExtendMode.Wrap,
+                        ProGpuDirect2DInterpolationMode.NearestNeighbor));
+            if (!surface.TryAcquireMicrosoftWin2DImageBrush(
+                    nativeCommandListImageBrush,
+                    out ProGpuDirect2DComReference?
+                        wrappedCommandListImageBrush,
+                    out int wrappedCommandListImageBrushHResult) ||
+                wrappedCommandListImageBrush is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D command-list CanvasImageBrush wrapping failed (0x{wrappedCommandListImageBrushHResult:X8}).");
+            }
+            using ProGpuDirect2DComReference
+                canvasCommandListImageBrushReference =
+                    wrappedCommandListImageBrush;
+            if (!surface.TryAcquireMicrosoftWin2DNativeImageBrush(
+                    canvasCommandListImageBrushReference,
+                    ProGpuDirect2DInterfaceKind.D2D1ImageBrush,
+                    out ProGpuDirect2DComReference?
+                        unwrappedCommandListImageBrush,
+                    out int unwrappedCommandListImageBrushHResult) ||
+                unwrappedCommandListImageBrush is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D command-list CanvasImageBrush native-resource interop failed (0x{unwrappedCommandListImageBrushHResult:X8}).");
+            }
+            using (unwrappedCommandListImageBrush)
+            {
+                if (!HasSameComIdentity(
+                        nativeCommandListImageBrush,
+                        unwrappedCommandListImageBrush))
+                {
+                    throw new InvalidOperationException(
+                        "Win2D command-list CanvasImageBrush did not preserve ProGPU's ID2D1ImageBrush identity.");
+                }
+            }
+            WriteProgress("command-list-roundtrips-complete");
+
             var combinedGeometry = new PortableGeometryPath
             {
                 Kind = PortableGeometryPathKind.Combined,
@@ -617,6 +717,7 @@ internal static partial class Program
             PixelEvidence radialPixel;
             PixelEvidence imageBrushPixel;
             PixelEvidence generalImageBrushPixel;
+            PixelEvidence commandListPixel;
             PixelEvidence geometryPixel;
             using (access)
             {
@@ -651,6 +752,11 @@ internal static partial class Program
                     CanvasImageBrush.FromAbi(
                         canvasGeneralImageBrushReference.DangerousGetHandle());
                 WriteProgress("canvas-general-image-brush-projected");
+                using CanvasImageBrush canvasCommandListImageBrush =
+                    CanvasImageBrush.FromAbi(
+                        canvasCommandListImageBrushReference
+                            .DangerousGetHandle());
+                WriteProgress("canvas-command-list-image-brush-projected");
                 using CanvasGeometry canvasGeometry =
                     CanvasGeometry.FromAbi(
                         canvasGeometryReference.DangerousGetHandle());
@@ -733,6 +839,17 @@ internal static partial class Program
                     throw new InvalidOperationException(
                         "Win2D CanvasImageBrush source rectangle changed.");
                 }
+                Windows.Foundation.Rect? projectedCommandListRectangle =
+                    canvasCommandListImageBrush.SourceRectangle;
+                if (projectedCommandListRectangle is not Windows.Foundation.Rect commandListRectangle ||
+                    commandListRectangle.X != 0.0 ||
+                    commandListRectangle.Y != 0.0 ||
+                    commandListRectangle.Width != 4.0 ||
+                    commandListRectangle.Height != 56.0)
+                {
+                    throw new InvalidOperationException(
+                        "Win2D command-list CanvasImageBrush source rectangle changed.");
+                }
                 canvasGeometryType = canvasGeometry.GetType().FullName ??
                     canvasGeometry.GetType().Name;
                 canvasStrokeStyleType =
@@ -786,6 +903,12 @@ internal static partial class Program
                         4.0F,
                         56.0F,
                         canvasGeneralImageBrush);
+                    drawingSession.FillRectangle(
+                        68.0F,
+                        4.0F,
+                        4.0F,
+                        56.0F,
+                        canvasCommandListImageBrush);
                     drawingSession.FillGeometry(
                         canvasGeometry,
                         Color.FromArgb(255, 240, 208, 32));
@@ -813,6 +936,8 @@ internal static partial class Program
                     pixels[checked((int)(32U * Width + 62U))];
                 Color generalImageBrush =
                     pixels[checked((int)(32U * Width + 66U))];
+                Color commandList =
+                    pixels[checked((int)(32U * Width + 70U))];
                 Color geometryColor =
                     pixels[checked((int)(32U * Width + 8U))];
                 cornerPixel = PixelEvidence.FromColor(corner);
@@ -822,6 +947,7 @@ internal static partial class Program
                 imageBrushPixel = PixelEvidence.FromColor(imageBrush);
                 generalImageBrushPixel =
                     PixelEvidence.FromColor(generalImageBrush);
+                commandListPixel = PixelEvidence.FromColor(commandList);
                 geometryPixel = PixelEvidence.FromColor(geometryColor);
                 if (corner.A != 0 ||
                     !MatchesColor(solid, fill) ||
@@ -829,12 +955,13 @@ internal static partial class Program
                     !MatchesColor(radial, radialColor) ||
                     !MatchesColor(imageBrush, imageColor) ||
                     !MatchesColor(generalImageBrush, generalImageColor) ||
+                    !MatchesColor(commandList, commandListColor) ||
                     !MatchesColor(
                         geometryColor,
                         Color.FromArgb(255, 240, 208, 32)))
                 {
                     throw new InvalidOperationException(
-                        $"Win2D pixel oracle failed: corner={cornerPixel}, solid={solidPixel}, linear={centerPixel}, radial={radialPixel}, bitmapBrush={imageBrushPixel}, imageBrush={generalImageBrushPixel}, geometry={geometryPixel}.");
+                        $"Win2D pixel oracle failed: corner={cornerPixel}, solid={solidPixel}, linear={centerPixel}, radial={radialPixel}, bitmapBrush={imageBrushPixel}, imageBrush={generalImageBrushPixel}, commandList={commandListPixel}, geometry={geometryPixel}.");
                 }
             }
 
@@ -863,6 +990,7 @@ internal static partial class Program
                 CanvasBitmapType: canvasBitmapType,
                 CanvasImageBrushType: canvasImageBrushType,
                 CanvasGeneralImageBrushType: canvasGeneralImageBrushType,
+                CanvasCommandListType: canvasCommandListType,
                 CanvasGeometryType: canvasGeometryType,
                 CanvasStrokeStyleType: canvasStrokeStyleType,
                 DrawingSessionType: drawingSessionType,
@@ -874,6 +1002,8 @@ internal static partial class Program
                 NativeSourceBitmapIdentityMatches: true,
                 NativeImageBrushIdentityMatches: true,
                 NativeGeneralImageBrushIdentityMatches: true,
+                NativeCommandListIdentityMatches: true,
+                NativeCommandListImageBrushIdentityMatches: true,
                 NativeGeometryIdentityMatches: true,
                 NativeStrokeStyleIdentityMatches: true,
                 SolidColorBrushColor: solidColorBrushColor,
@@ -885,6 +1015,7 @@ internal static partial class Program
                 RadialPixel: radialPixel,
                 ImageBrushPixel: imageBrushPixel,
                 GeneralImageBrushPixel: generalImageBrushPixel,
+                CommandListPixel: commandListPixel,
                 GeometryPixel: geometryPixel,
                 Error: null);
         }
@@ -1079,6 +1210,7 @@ internal static partial class Program
         string? CanvasBitmapType,
         string? CanvasImageBrushType,
         string? CanvasGeneralImageBrushType,
+        string? CanvasCommandListType,
         string? CanvasGeometryType,
         string? CanvasStrokeStyleType,
         string? DrawingSessionType,
@@ -1090,6 +1222,8 @@ internal static partial class Program
         bool? NativeSourceBitmapIdentityMatches,
         bool? NativeImageBrushIdentityMatches,
         bool? NativeGeneralImageBrushIdentityMatches,
+        bool? NativeCommandListIdentityMatches,
+        bool? NativeCommandListImageBrushIdentityMatches,
         bool? NativeGeometryIdentityMatches,
         bool? NativeStrokeStyleIdentityMatches,
         PixelEvidence? SolidColorBrushColor,
@@ -1101,6 +1235,7 @@ internal static partial class Program
         PixelEvidence? RadialPixel,
         PixelEvidence? ImageBrushPixel,
         PixelEvidence? GeneralImageBrushPixel,
+        PixelEvidence? CommandListPixel,
         PixelEvidence? GeometryPixel,
         string? Error);
 
