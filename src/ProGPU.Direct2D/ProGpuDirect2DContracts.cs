@@ -433,6 +433,18 @@ public enum ProGpuDirect2DLayerOptions : uint
     IgnoreAlpha = 1U << 1
 }
 
+[Flags]
+public enum ProGpuDirect2DCommandStreamFlags : uint
+{
+    None = 0,
+    BalancedScopes = 1U << 0,
+    HasUnsupportedOperations = 1U << 1,
+    HasTextRenderingParameters = 1U << 2,
+    HasGdiMetafile = 1U << 3,
+    HasMesh = 1U << 4,
+    HasOpacityMask = 1U << 5
+}
+
 public enum ProGpuDirect2DColorInterpolationMode
 {
     Straight = 0,
@@ -619,6 +631,34 @@ public readonly record struct ProGpuDirect2DBitmapDescriptor(
     uint DxgiFormat,
     uint AlphaMode,
     ProGpuDirect2DBitmapOptions Options);
+
+/// <summary>
+/// Pointer-free structural preflight of one closed ID2D1CommandList. Resource
+/// COM identities are never retained or transported into the portable scene.
+/// </summary>
+public readonly record struct ProGpuDirect2DCommandStreamSummary(
+    ProGpuDirect2DCommandStreamFlags Flags,
+    uint TotalCommandCount,
+    uint StateChangeCount,
+    uint ClearCount,
+    uint DrawCount,
+    uint FillCount,
+    uint TextDrawCount,
+    uint ImageDrawCount,
+    uint ClipPushCount,
+    uint ClipPopCount,
+    uint LayerPushCount,
+    uint LayerPopCount,
+    uint UnsupportedOperationCount,
+    uint MaxScopeDepth)
+{
+    public bool HasBalancedScopes =>
+        (Flags & ProGpuDirect2DCommandStreamFlags.BalancedScopes) != 0;
+
+    public bool HasUnsupportedOperations =>
+        (Flags &
+            ProGpuDirect2DCommandStreamFlags.HasUnsupportedOperations) != 0;
+}
 
 /// <summary>
 /// One point and unit tangent sampled from a genuine ID2D1Geometry.

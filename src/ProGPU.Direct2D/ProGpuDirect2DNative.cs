@@ -7,9 +7,16 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 31U;
+    internal const uint AbiVersion = 32U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
+
+    [Flags]
+    internal enum CommandStreamOptions : uint
+    {
+        None = 0,
+        RequireSupportedOperations = 1U << 0
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct SurfaceOptions
@@ -231,6 +238,27 @@ internal static unsafe partial class ProGpuDirect2DNative
         internal uint DxgiFormat;
         internal uint AlphaMode;
         internal ProGpuDirect2DBitmapOptions Options;
+        internal uint Reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeCommandStreamSummary
+    {
+        internal uint StructSize;
+        internal ProGpuDirect2DCommandStreamFlags Flags;
+        internal uint TotalCommandCount;
+        internal uint StateChangeCount;
+        internal uint ClearCount;
+        internal uint DrawCount;
+        internal uint FillCount;
+        internal uint TextDrawCount;
+        internal uint ImageDrawCount;
+        internal uint ClipPushCount;
+        internal uint ClipPopCount;
+        internal uint LayerPushCount;
+        internal uint LayerPopCount;
+        internal uint UnsupportedOperationCount;
+        internal uint MaxScopeDepth;
         internal uint Reserved;
     }
 
@@ -507,6 +535,18 @@ internal static unsafe partial class ProGpuDirect2DNative
         nint surface,
         nint* value,
         int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_command_list_get_stream_summary")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        CommandListGetStreamSummary(
+            nint surface,
+            nint commandList,
+            CommandStreamOptions options,
+            NativeCommandStreamSummary* summary,
+            int* nativeHResult);
 
     [LibraryImport(
         LibraryName,
