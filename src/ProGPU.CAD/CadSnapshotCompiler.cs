@@ -37,6 +37,10 @@ public sealed class CadSnapshotOptions
     public const int DefaultMaxRasterImagePathCodeUnits = 32_768;
     public const int DefaultMaxRasterImageClipVerticesPerEntity = 65_536;
     public const int DefaultMaxRasterImageClipVertices = 1_000_000;
+    public const int DefaultMaxModelerGeometryWires = 1_000_000;
+    public const int DefaultMaxModelerGeometryPoints = 10_000_000;
+    public const int DefaultMaxModelerGeometryPayloadBytesPerEntity = 64 * 1024 * 1024;
+    public const int DefaultMaxModelerGeometryPayloadBytes = 256 * 1024 * 1024;
 
     public double DefaultLineWeightMillimeters { get; init; } = 0.25;
     public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
@@ -70,6 +74,14 @@ public sealed class CadSnapshotOptions
         DefaultMaxRasterImageClipVerticesPerEntity;
     public int MaxRasterImageClipVertices { get; init; } =
         DefaultMaxRasterImageClipVertices;
+    public int MaxModelerGeometryWires { get; init; } =
+        DefaultMaxModelerGeometryWires;
+    public int MaxModelerGeometryPoints { get; init; } =
+        DefaultMaxModelerGeometryPoints;
+    public int MaxModelerGeometryPayloadBytesPerEntity { get; init; } =
+        DefaultMaxModelerGeometryPayloadBytesPerEntity;
+    public int MaxModelerGeometryPayloadBytes { get; init; } =
+        DefaultMaxModelerGeometryPayloadBytes;
 
     /// <summary>
     /// Selects whether snapshot entity order represents interactive
@@ -154,6 +166,10 @@ public sealed partial class CadSnapshotCompiler
         var mesh3DDrawRanges = new List<CadMesh3DDrawRange>();
         var mesh3DVertices = new List<CadMesh3DVertex>();
         var mesh3DIndices = new List<uint>();
+        var modelerGeometries = new List<CadModelerGeometryPrimitive>();
+        var modelerGeometryWires = new List<CadModelerGeometryWire>();
+        var modelerGeometryPoints = new List<CadPoint3D>();
+        var modelerGeometryPayloadBytes = new List<byte>();
         var circles = new List<CadCirclePrimitive>();
         var arcs = new List<CadArcPrimitive>();
         var ellipses = new List<CadEllipsePrimitive>();
@@ -284,6 +300,10 @@ public sealed partial class CadSnapshotCompiler
             mesh3DDrawRanges.ToArray(),
             mesh3DVertices.ToArray(),
             mesh3DIndices.ToArray(),
+            modelerGeometries.ToArray(),
+            modelerGeometryWires.ToArray(),
+            modelerGeometryPoints.ToArray(),
+            modelerGeometryPayloadBytes.ToArray(),
             circles.ToArray(),
             arcs.ToArray(),
             ellipses.ToArray(),
@@ -514,6 +534,18 @@ public sealed partial class CadSnapshotCompiler
                         rasterImageResources,
                         rasterImageResourceIndices,
                         rasterImageClipPoints),
+                    ModelerGeometry modelerGeometry => CompileModelerGeometry(
+                        modelerGeometry,
+                        rootHandle,
+                        transform,
+                        hasTransform,
+                        layerIndex,
+                        styleIndex,
+                        options,
+                        modelerGeometries,
+                        modelerGeometryWires,
+                        modelerGeometryPoints,
+                        modelerGeometryPayloadBytes),
                     Arc arc => CompileArc(arc, rootHandle, transform, hasTransform, layerIndex, styleIndex, arcs),
                     Circle circle => CompileCircle(circle, rootHandle, transform, hasTransform, layerIndex, styleIndex, circles),
                     Ellipse ellipse => CompileEllipse(ellipse, rootHandle, transform, hasTransform, layerIndex, styleIndex, ellipses),
@@ -4679,6 +4711,18 @@ public sealed partial class CadSnapshotCompiler
         ArgumentOutOfRangeException.ThrowIfLessThan(
             options.MaxRasterImageClipVertices,
             4);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxModelerGeometryWires,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxModelerGeometryPoints,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxModelerGeometryPayloadBytesPerEntity,
+            1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxModelerGeometryPayloadBytes,
+            options.MaxModelerGeometryPayloadBytesPerEntity);
     }
 
     private static void AddDiagnostic(

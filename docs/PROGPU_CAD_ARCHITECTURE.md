@@ -4634,3 +4634,16 @@ Sources consulted on 2026-08-27 through 2026-08-30:
   and [cluster contract](https://harfbuzz.github.io/clusters.html):
   adopted reusable shaping inputs/results keyed by font, direction, script,
   language, features, variations, and content; no CAD-specific glyph remapping.
+
+## ACIS-backed modeler geometry retention boundary
+
+BODY, REGION, and 3DSOLID now enter the immutable snapshot as typed modeler
+resources with bounded byte-exact payload storage and optional transformed DWG
+display-wire topology. Display wires lower once per entity through ProGPU's
+existing managed ACIS extension and native Line3D picture path; selection measures
+those retained segments exactly. Payload-only entities remain explicitly deferred,
+and move/rotate/scale fail before mutation until an edit kernel can update the
+authoritative payload and display data together. Complete source research,
+provenance, managed/native applicability, complexity, tests, and rejected
+approximations are recorded in
+[`PROGPU_CAD_MODELER_GEOMETRY_RESEARCH.md`](PROGPU_CAD_MODELER_GEOMETRY_RESEARCH.md).

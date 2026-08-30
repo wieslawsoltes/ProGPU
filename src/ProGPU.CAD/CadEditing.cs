@@ -180,6 +180,7 @@ public abstract class CadEditCommand
     /// </remarks>
     protected static void ApplyEntityTranslation(Entity entity, XYZ translation)
     {
+        RejectModelerGeometryTransform(entity);
         if (entity is Solid solid)
         {
             CadCoordinateSystem solidBasis = CreateEntityBasis(solid.Normal);
@@ -234,6 +235,7 @@ public abstract class CadEditCommand
         HashSet<BlockRecord> activePictures,
         int depth)
     {
+        RejectModelerGeometryTransform(entity);
         if (entity is Solid solid)
         {
             ApplySolidRotation(solid, axis, radians);
@@ -347,6 +349,7 @@ public abstract class CadEditCommand
         HashSet<BlockRecord> activePictures,
         int depth)
     {
+        RejectModelerGeometryTransform(entity);
         if (entity is Solid solid)
         {
             ApplySolidScaling(solid, scale, origin);
@@ -435,6 +438,15 @@ public abstract class CadEditCommand
     {
         CadCoordinateSystem basis = CreateEntityBasis(normal);
         return basis.Transform(new CadPoint3D(value.X, value.Y, value.Z));
+    }
+
+    private static void RejectModelerGeometryTransform(Entity entity)
+    {
+        if (entity is ModelerGeometry)
+        {
+            throw new InvalidOperationException(
+                "BODY, REGION, and 3DSOLID transforms require synchronized ACIS payload editing and cannot be applied to display wires alone.");
+        }
     }
 
     private static XYZ WorldToObjectVector(XYZ normal, CadPoint3D value)

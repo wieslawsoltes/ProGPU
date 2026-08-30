@@ -398,6 +398,11 @@ public static class CadSelectionHitTester
                 snapshot.Meshes3D.Span[header.PrimitiveIndex],
                 point,
                 tolerance),
+            CadEntityKind.ModelerGeometry => HitModelerGeometryPoint(
+                snapshot,
+                snapshot.ModelerGeometries.Span[header.PrimitiveIndex],
+                point,
+                tolerance),
             CadEntityKind.Circle => HitCircle(
                 snapshot.Circles.Span[header.PrimitiveIndex],
                 point,
@@ -515,6 +520,11 @@ public static class CadSelectionHitTester
             CadEntityKind.Mesh3D => HitMesh3DBounds(
                 snapshot,
                 snapshot.Meshes3D.Span[header.PrimitiveIndex],
+                bounds,
+                mode),
+            CadEntityKind.ModelerGeometry => HitModelerGeometryBounds(
+                snapshot,
+                snapshot.ModelerGeometries.Span[header.PrimitiveIndex],
                 bounds,
                 mode),
             CadEntityKind.Circle => HitCircleBounds(
@@ -726,6 +736,121 @@ public static class CadSelectionHitTester
             }
         }
         return BoundsMiss();
+    }
+
+    private static CadPointHitResult HitModelerGeometryPoint(
+        CadDocumentSnapshot snapshot,
+        CadModelerGeometryPrimitive geometry,
+        CadPoint3D point,
+        double tolerance)
+    {
+        ReadOnlySpan<CadModelerGeometryWire> wires =
+            snapshot.ModelerGeometryWires.Span.Slice(
+                geometry.WireOffset,
+                geometry.WireCount);
+        ReadOnlySpan<CadPoint3D> points = snapshot.ModelerGeometryPoints.Span;
+        double minimum = double.PositiveInfinity;
+        bool hasGeometry = false;
+        for (int wireIndex = 0; wireIndex < wires.Length; wireIndex++)
+        {
+            CadModelerGeometryWire wire = wires[wireIndex];
+            ReadOnlySpan<CadPoint3D> wirePoints = points.Slice(
+                wire.PointOffset,
+                wire.PointCount);
+            if (wirePoints.Length == 1)
+            {
+                hasGeometry = true;
+                minimum = Math.Min(minimum, (point - wirePoints[0]).Length);
+            }
+            for (int pointIndex = 1; pointIndex < wirePoints.Length; pointIndex++)
+            {
+                hasGeometry = true;
+                minimum = Math.Min(
+                    minimum,
+                    DistanceToSegment(
+                        point,
+                        wirePoints[pointIndex - 1],
+                        wirePoints[pointIndex]));
+                if (minimum <= tolerance)
+                {
+                    return FromDistance(minimum, tolerance);
+                }
+            }
+        }
+        return hasGeometry
+            ? FromDistance(minimum, tolerance)
+            : new CadPointHitResult(
+                CadPointHitStatus.UnsupportedGeometry,
+                double.NaN);
+    }
+
+    private static CadBoundsHitResult HitModelerGeometryBounds(
+        CadDocumentSnapshot snapshot,
+        CadModelerGeometryPrimitive geometry,
+        CadBounds3D bounds,
+        CadBoundsSelectionMode mode)
+    {
+        if (bounds.IsEmpty)
+        {
+            return BoundsMiss();
+        }
+        ReadOnlySpan<CadModelerGeometryWire> wires =
+            snapshot.ModelerGeometryWires.Span.Slice(
+                geometry.WireOffset,
+                geometry.WireCount);
+        ReadOnlySpan<CadPoint3D> points = snapshot.ModelerGeometryPoints.Span;
+        bool hasGeometry = false;
+        if (mode == CadBoundsSelectionMode.Window)
+        {
+            for (int wireIndex = 0; wireIndex < wires.Length; wireIndex++)
+            {
+                CadModelerGeometryWire wire = wires[wireIndex];
+                ReadOnlySpan<CadPoint3D> wirePoints = points.Slice(
+                    wire.PointOffset,
+                    wire.PointCount);
+                for (int pointIndex = 0; pointIndex < wirePoints.Length; pointIndex++)
+                {
+                    hasGeometry = true;
+                    if (!ContainsPoint(bounds, wirePoints[pointIndex]))
+                    {
+                        return BoundsMiss();
+                    }
+                }
+            }
+            return hasGeometry
+                ? BoundsHit()
+                : new CadBoundsHitResult(CadBoundsHitStatus.UnsupportedGeometry);
+        }
+
+        for (int wireIndex = 0; wireIndex < wires.Length; wireIndex++)
+        {
+            CadModelerGeometryWire wire = wires[wireIndex];
+            ReadOnlySpan<CadPoint3D> wirePoints = points.Slice(
+                wire.PointOffset,
+                wire.PointCount);
+            if (wirePoints.Length == 1)
+            {
+                hasGeometry = true;
+                if (ContainsPoint(bounds, wirePoints[0]))
+                {
+                    return BoundsHit();
+                }
+            }
+            for (int pointIndex = 1; pointIndex < wirePoints.Length; pointIndex++)
+            {
+                hasGeometry = true;
+                if (SegmentIntersectsBounds(
+                        wirePoints[pointIndex - 1],
+                        wirePoints[pointIndex],
+                        bounds))
+                {
+                    return BoundsHit();
+                }
+            }
+        }
+        return hasGeometry
+            ? BoundsMiss()
+            : new CadBoundsHitResult(CadBoundsHitStatus.UnsupportedGeometry);
     }
 
     private static bool ClipAxis(

@@ -42,6 +42,8 @@ public readonly record struct CadPlanSceneStatistics(
     int LineTypeSourceSegmentCount)
 {
     public int UnsupportedRasterImageCount { get; init; }
+    public int ModelerGeometryWireframeCount { get; init; }
+    public int DeferredModelerSurfaceCount { get; init; }
 
     public CadPlanSceneStatistics(
         int recordedEntityCount,
@@ -225,6 +227,8 @@ public sealed class CadPlanSceneCompiler
         int lineTypePlacementBudgetUsed = 0;
         int hatchPatternAuxiliaryRecords = 0;
         int unsupportedRasterImages = 0;
+        int modelerGeometryWireframes = 0;
+        int deferredModelerSurfaces = 0;
 
         using var recordingLeaseGuard = new RecordingLeaseGuard(context);
         foreach (CadEntityHeader entity in entities)
@@ -486,6 +490,30 @@ public sealed class CadPlanSceneCompiler
                         deferredImageFrame,
                         deferredImageFramePattern);
                     break;
+                case CadEntityKind.ModelerGeometry:
+                    CadModelerGeometryPrimitive modelerGeometry =
+                        snapshot.ModelerGeometries.Span[entity.PrimitiveIndex];
+                    deferredModelerSurfaces++;
+                    if (RecordModelerGeometry(
+                            context,
+                            pen,
+                            snapshot,
+                            modelerGeometry))
+                    {
+                        modelerGeometryWireframes++;
+                        diagnostics.Add(new CadDiagnostic(
+                            CadDiagnosticSeverity.Information,
+                            "CADSCENE007",
+                            $"{modelerGeometry.Kind} handle {entity.Handle:X} is retained as batched display-wire topology; ACIS face tessellation remains deferred."));
+                    }
+                    else
+                    {
+                        diagnostics.Add(new CadDiagnostic(
+                            CadDiagnosticSeverity.Information,
+                            "CADSCENE008",
+                            $"{modelerGeometry.Kind} handle {entity.Handle:X} retains its byte-exact ACIS payload but has no display-wire topology; surface tessellation remains deferred."));
+                    }
+                    break;
                 case CadEntityKind.Face3D:
                     RecordFace3D(context, pen, snapshot.Faces.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
                     break;
@@ -558,7 +586,11 @@ public sealed class CadPlanSceneCompiler
                 loweredLineTypePlacements,
                 lineTypePatternSteps,
                 lineTypeSourceSegments,
-                unsupportedRasterImages),
+                unsupportedRasterImages)
+            {
+                ModelerGeometryWireframeCount = modelerGeometryWireframes,
+                DeferredModelerSurfaceCount = deferredModelerSurfaces,
+            },
             diagnostics.ToArray());
         recordingLeaseGuard.Complete();
         return scene;
@@ -1837,6 +1869,52 @@ public sealed class CadPlanSceneCompiler
         path.Figures.Add(figure);
         context.DrawPath(null, pen, path);
     }
+
+    private static bool RecordModelerGeometry(
+        DrawingContext context,
+        Pen pen,
+        CadDocumentSnapshot snapshot,
+        CadModelerGeometryPrimitive geometry)
+    {
+        ReadOnlySpan<CadModelerGeometryWire> wires =
+            snapshot.ModelerGeometryWires.Span.Slice(
+                geometry.WireOffset,
+                geometry.WireCount);
+        int edgeCount = 0;
+        for (int wireIndex = 0; wireIndex < wires.Length; wireIndex++)
+        {
+            edgeCount = checked(edgeCount + Math.Max(0, wires[wireIndex].PointCount - 1));
+        }
+        if (edgeCount == 0)
+        {
+            return false;
+        }
+
+        var edges = new Line3D[edgeCount];
+        ReadOnlySpan<CadPoint3D> points = snapshot.ModelerGeometryPoints.Span;
+        int destination = 0;
+        for (int wireIndex = 0; wireIndex < wires.Length; wireIndex++)
+        {
+            CadModelerGeometryWire wire = wires[wireIndex];
+            ReadOnlySpan<CadPoint3D> wirePoints = points.Slice(
+                wire.PointOffset,
+                wire.PointCount);
+            for (int pointIndex = 1; pointIndex < wirePoints.Length; pointIndex++)
+            {
+                edges[destination++] = new Line3D(
+                    Rebase(wirePoints[pointIndex - 1], snapshot.RebaseOrigin),
+                    Rebase(wirePoints[pointIndex], snapshot.RebaseOrigin));
+            }
+        }
+        context.DrawAcisSolid(pen, edges, Matrix4x4.Identity);
+        return true;
+    }
+
+    private static Vector3 Rebase(CadPoint3D point, CadPoint3D origin) =>
+        new(
+            ToFloat(point.X - origin.X),
+            ToFloat(point.Y - origin.Y),
+            ToFloat(point.Z - origin.Z));
 
     private static void RecordText(
         DrawingContext context,

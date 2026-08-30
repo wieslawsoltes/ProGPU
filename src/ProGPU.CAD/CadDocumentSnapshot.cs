@@ -27,6 +27,7 @@ public enum CadEntityKind : byte
     Mesh3D = 20,
     Wipeout = 21,
     RasterImage = 22,
+    ModelerGeometry = 23,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -238,6 +239,36 @@ public readonly record struct CadMesh3DPrimitive(
     int DrawRangeOffset,
     int DrawRangeCount,
     CadBounds3D Bounds);
+
+public enum CadModelerGeometryKind : byte
+{
+    Body = 1,
+    Region = 2,
+    Solid3D = 3,
+}
+
+/// <summary>
+/// One immutable ACIS-backed BODY, REGION, or 3DSOLID resource. The payload
+/// addresses <see cref="CadDocumentSnapshot.ModelerGeometryPayloadBytes"/> and
+/// remains byte-exact; display wires are independent, bounded topology used for
+/// wireframe replay and selection until face tessellation is available.
+/// </summary>
+public readonly record struct CadModelerGeometryPrimitive(
+    CadModelerGeometryKind Kind,
+    short ModelerFormatVersion,
+    int WireOffset,
+    int WireCount,
+    int PayloadOffset,
+    int PayloadCount,
+    bool IsBinaryPayload);
+
+/// <summary>One retained display-wire polyline within a modeler entity.</summary>
+public readonly record struct CadModelerGeometryWire(
+    int PointOffset,
+    int PointCount,
+    int SelectionMarker,
+    int AcisIndex,
+    byte Type);
 
 public readonly record struct CadCirclePrimitive(
     CadPoint3D Center,
@@ -598,6 +629,10 @@ public sealed class CadDocumentSnapshot
     private readonly CadMesh3DDrawRange[] _mesh3DDrawRanges;
     private readonly CadMesh3DVertex[] _mesh3DVertices;
     private readonly uint[] _mesh3DIndices;
+    private readonly CadModelerGeometryPrimitive[] _modelerGeometries;
+    private readonly CadModelerGeometryWire[] _modelerGeometryWires;
+    private readonly CadPoint3D[] _modelerGeometryPoints;
+    private readonly byte[] _modelerGeometryPayloadBytes;
     private readonly CadCirclePrimitive[] _circles;
     private readonly CadArcPrimitive[] _arcs;
     private readonly CadEllipsePrimitive[] _ellipses;
@@ -682,6 +717,10 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadMesh3DDrawRange> Mesh3DDrawRanges => _mesh3DDrawRanges;
     public ReadOnlyMemory<CadMesh3DVertex> Mesh3DVertices => _mesh3DVertices;
     public ReadOnlyMemory<uint> Mesh3DIndices => _mesh3DIndices;
+    public ReadOnlyMemory<CadModelerGeometryPrimitive> ModelerGeometries => _modelerGeometries;
+    public ReadOnlyMemory<CadModelerGeometryWire> ModelerGeometryWires => _modelerGeometryWires;
+    public ReadOnlyMemory<CadPoint3D> ModelerGeometryPoints => _modelerGeometryPoints;
+    public ReadOnlyMemory<byte> ModelerGeometryPayloadBytes => _modelerGeometryPayloadBytes;
     public ReadOnlyMemory<CadCirclePrimitive> Circles => _circles;
     public ReadOnlyMemory<CadArcPrimitive> Arcs => _arcs;
     public ReadOnlyMemory<CadEllipsePrimitive> Ellipses => _ellipses;
@@ -750,6 +789,10 @@ public sealed class CadDocumentSnapshot
         CadMesh3DDrawRange[] mesh3DDrawRanges,
         CadMesh3DVertex[] mesh3DVertices,
         uint[] mesh3DIndices,
+        CadModelerGeometryPrimitive[] modelerGeometries,
+        CadModelerGeometryWire[] modelerGeometryWires,
+        CadPoint3D[] modelerGeometryPoints,
+        byte[] modelerGeometryPayloadBytes,
         CadCirclePrimitive[] circles,
         CadArcPrimitive[] arcs,
         CadEllipsePrimitive[] ellipses,
@@ -815,6 +858,10 @@ public sealed class CadDocumentSnapshot
         _mesh3DDrawRanges = mesh3DDrawRanges;
         _mesh3DVertices = mesh3DVertices;
         _mesh3DIndices = mesh3DIndices;
+        _modelerGeometries = modelerGeometries;
+        _modelerGeometryWires = modelerGeometryWires;
+        _modelerGeometryPoints = modelerGeometryPoints;
+        _modelerGeometryPayloadBytes = modelerGeometryPayloadBytes;
         _circles = circles;
         _arcs = arcs;
         _ellipses = ellipses;
