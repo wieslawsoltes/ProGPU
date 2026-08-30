@@ -522,6 +522,8 @@ internal static partial class Program
                         commandListColor);
                 }
                 WriteProgress("command-list-recorded");
+                _ = canvasCommandList.GetBounds(canvasCommandList.Device);
+                WriteProgress("command-list-realized");
                 if (!surface.TryAcquireMicrosoftWin2DNativeCommandList(
                         canvasCommandListReference,
                         out ProGpuDirect2DComReference? unwrappedCommandList,
