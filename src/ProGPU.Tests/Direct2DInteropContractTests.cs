@@ -463,11 +463,11 @@ public sealed class Direct2DInteropContractTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
-            "to_portable_guid(CLSID_D2D1GaussianBlur)",
+            "to_portable_guid(gaussian_blur_effect_id)",
             test,
             StringComparison.Ordinal);
         Assert.Contains(
-            "to_portable_guid(CLSID_D2D1Shadow)",
+            "to_portable_guid(shadow_effect_id)",
             test,
             StringComparison.Ordinal);
         Assert.Contains(
