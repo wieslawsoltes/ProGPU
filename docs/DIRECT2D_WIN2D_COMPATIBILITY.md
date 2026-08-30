@@ -34,7 +34,7 @@ binary.
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
 | Direct2D `ID2D1*` API | Foundation plus bitmap/solid/gradient/bitmap-brush/geometry/stroke-style resources implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine factory, device, context, target and uploaded bitmaps, solid/gradient/bitmap brushes, gradient-stop collections, primitive/path/transformed/combined geometries, `ID2D1StrokeStyle1`, and generic later-interface queries over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` |
-| Native Win2D binary interop | Device/target/solid/gradient/geometry/stroke-style package-qualified; uploaded-bitmap/image-brush gate implemented | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, and `CanvasStrokeStyle` projections. The packaged Microsoft Win2D 1.4.0 oracle covers identities, resource metadata, boolean geometry/styled-stroke/image-brush drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; general image/effect brushes, text, effects, and full device-loss recreation remain gated work |
+| Native Win2D binary interop | Device/target/bitmap/solid/gradient/bitmap-brush/geometry/stroke-style round trips package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, and `CanvasStrokeStyle` projections. The packaged Microsoft Win2D 1.4.0 oracle qualifies identities, resource metadata, boolean geometry/styled-stroke/image-brush drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; general image/effect brushes, text, effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
 | Arbitrary Win2D native-resource wrapping (`GetOrCreate(IUnknown*)`) off Windows | Unsupported by design | Fail closed; there is no portable COM object identity to preserve |
@@ -614,14 +614,20 @@ SHA-256 is
 `B8D1FA66E0FC311804702D1E3D097F6F7DD7A2988C110DDF83C9312523400C9B`
 for `progpu_native_direct2d.dll` and
 `1A7D600426BE75FEA6C4EED1688104374688FEF07584D54A14FA462B1E710CEF`
-for `progpu_native_direct2d_tests.exe`. The matching ARM64 Microsoft Win2D
-1.4.0 integration app also compiles, produces an MSIX, signs successfully with
-the pre-provisioned certificate, installs, and launches. That run did not emit
-its JSON evidence sentinel, however, so exact
+for `progpu_native_direct2d_tests.exe`. After the stale-process and durable
+evidence hardening at commits `16734c64` and `88bf7765`, the matching ARM64
+Microsoft Win2D 1.4.0 integration app compiles, produces and signs an MSIX,
+installs, launches, and passes. It reports real `CanvasBitmap` and
+`CanvasImageBrush` runtime types, exact
 `ID2D1Bitmap1 <-> CanvasBitmap` and
-`ID2D1BitmapBrush1 <-> CanvasImageBrush` package qualification remains pending;
-the support matrix intentionally distinguishes this implemented gate from the
-already package-qualified ABI v10 families.
+`ID2D1BitmapBrush1 <-> CanvasImageBrush` identities, and image-brush sample
+ARGB `(255,144,64,240)`. All ABI v10 and earlier identities and pixel probes
+remain green, the adapter is `Dawn D3D12`, and content version advances from
+`0` to `1`. The persisted JSON evidence SHA-256 is
+`925BFA8B5D1B48F9A06BC433D0444339EBB82915EC5968320EA86FC1DA38644C`.
+The gate now removes stale same-name processes before launch, writes progress
+to package LocalState plus its fallback directory, and reports the last durable
+stage when the current process exits or times out without evidence.
 
 Run this qualification with
 `eng/progpu-run-direct2d-win2d-integration.ps1`, or opt it into the complete
