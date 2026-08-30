@@ -5235,6 +5235,24 @@ native suites pass, and the exact 86-export allowlist is accepted. Exact
 clip/layer cross-ordering is reserved for a unified LIFO
 draw-state ABI rather than being approximated with a separate clip counter.
 
+ABI v27 supplies that unified draw-state ABI. A bounded, allocation-free native
+stack tags every layer and axis-aligned clip, so mixed scopes unwind in exact
+reverse order during normal disposal, failed completion, and destruction.
+Cross-kind pops return `DrawingStateMismatch` without consuming state. Managed
+layer and clip ref scopes use the same depth sequence and fail before native
+entry when disposal is out of order. Typed bitmap/image draws are added on top:
+bitmap calls preserve optional destination/source rectangles, opacity,
+interpolation, and a complete 4x4 perspective matrix; image calls preserve
+optional offset/rectangle plus all Direct2D interpolation and composite modes.
+All COM resources stay kind/generation checked and borrowed under safe-handle
+protection. No COM identity enters MIL, no CPU copy or command-array allocation
+is introduced, and portable hosts keep using the shared retained vector/image
+pipeline. The exact allowlist becomes 90 exports. The native command-list test
+uses the new clip, bitmap, and image operations, rejects a layer pop while a
+clip is above it, and retains the exact BGRA shared-texture oracle. Managed
+contracts pass 5/5 with zero warnings; Windows execution remains pending the
+pushed checkpoint.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

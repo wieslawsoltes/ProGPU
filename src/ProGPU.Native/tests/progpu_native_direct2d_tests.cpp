@@ -1166,6 +1166,13 @@ int main()
         0.0F, 0.0F, 16.0F, 16.0F
     };
     require(
+        progpu_native_direct2d_surface_push_axis_aligned_clip(
+            surface,
+            &vector_rectangle,
+            PROGPU_NATIVE_DIRECT2D_ANTIALIAS_MODE_ALIASED,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider typed Direct2D axis-aligned clip push failed");
+    require(
         progpu_native_direct2d_surface_fill_rectangle(
             surface,
             &vector_rectangle,
@@ -1248,6 +1255,45 @@ int main()
             nullptr,
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
         "provider typed Direct2D geometry operations failed");
+    const progpu_native_direct2d_rect_f bitmap_destination = {
+        0.0F, 0.0F, 2.0F, 2.0F
+    };
+    const progpu_native_direct2d_rect_f bitmap_source = {
+        0.0F, 0.0F, 2.0F, 2.0F
+    };
+    const progpu_native_direct2d_matrix_4x4_f bitmap_perspective = {
+        1.0F, 0.0F, 0.0F, 0.0F,
+        0.0F, 1.0F, 0.0F, 0.0F,
+        0.0F, 0.0F, 1.0F, 0.0F,
+        0.0F, 0.0F, 0.0F, 1.0F
+    };
+    require(
+        progpu_native_direct2d_surface_draw_bitmap(
+            surface,
+            source_bitmap.Get(),
+            &bitmap_destination,
+            1.0F,
+            PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+            &bitmap_source,
+            &bitmap_perspective,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider typed Direct2D bitmap draw failed");
+    const progpu_native_direct2d_point_2f image_offset = {12.0F, 0.0F};
+    require(
+        progpu_native_direct2d_surface_draw_image(
+            surface,
+            source_bitmap.Get(),
+            &image_offset,
+            &bitmap_source,
+            PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_LINEAR,
+            PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_SOURCE_OVER,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider typed Direct2D image draw failed");
+    require(
+        progpu_native_direct2d_surface_pop_axis_aligned_clip(
+            surface,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider typed Direct2D axis-aligned clip pop failed");
     uint64_t command_tag1 = 1U;
     uint64_t command_tag2 = 1U;
     native_hresult = E_FAIL;
@@ -2940,6 +2986,29 @@ int main()
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK,
         "provider typed ID2D1Layer push failed");
+    const progpu_native_direct2d_rect_f nested_clip = {
+        0.0F, 0.0F, 24.0F, 24.0F
+    };
+    require(
+        progpu_native_direct2d_surface_push_axis_aligned_clip(
+            surface,
+            &nested_clip,
+            PROGPU_NATIVE_DIRECT2D_ANTIALIAS_MODE_PER_PRIMITIVE,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider nested Direct2D clip push failed");
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_pop_layer(
+            surface,
+            &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH &&
+            native_hresult == D2DERR_WRONG_STATE,
+        "cross-kind Direct2D scope pop consumed the wrong state");
+    require(
+        progpu_native_direct2d_surface_pop_axis_aligned_clip(
+            surface,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider nested Direct2D clip pop failed");
     context->FillRectangle(
         D2D1::RectF(0.0F, 0.0F, 24.0F, 24.0F),
         solid_brush.Get());

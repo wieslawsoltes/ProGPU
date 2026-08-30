@@ -89,7 +89,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
     private int _deviceLossHResult;
     private int _deviceLostNotificationQueued;
     private int _leaseCount;
-    private uint _typedLayerDepth;
+    private uint _typedDrawScopeDepth;
     private ulong _contentVersion;
 
     private ProGpuDirect2DSurface(
@@ -2126,7 +2126,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
                         layer.DangerousGetHandle(),
                         &nativeHResult);
                 ThrowIfFailed("ID2D1Layer push", status, nativeHResult);
-                return checked(++_typedLayerDepth);
+                return checked(++_typedDrawScopeDepth);
             }
         }
         finally
@@ -2151,7 +2151,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
         lock (_gate)
         {
             ValidateTypedDrawingProducer();
-            if (expectedDepth == 0U || expectedDepth != _typedLayerDepth)
+            if (expectedDepth == 0U ||
+                expectedDepth != _typedDrawScopeDepth)
             {
                 throw new InvalidOperationException(
                     "Direct2D layer scopes must be disposed once in LIFO order.");
@@ -2162,7 +2163,204 @@ public sealed unsafe class ProGpuDirect2DSurface :
                     _nativeSurface,
                     &nativeHResult);
             ThrowIfFailed("ID2D1Layer pop", status, nativeHResult);
-            --_typedLayerDepth;
+            --_typedDrawScopeDepth;
+        }
+    }
+
+    internal uint PushAxisAlignedClip(
+        ProGpuDirect2DRect clipRectangle,
+        ProGpuDirect2DAntialiasMode antialiasMode)
+    {
+        ValidateRectangle(clipRectangle);
+        ValidateAntialiasMode(antialiasMode, nameof(antialiasMode));
+        lock (_gate)
+        {
+            ValidateTypedDrawingProducer();
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfacePushAxisAlignedClip(
+                    _nativeSurface,
+                    &clipRectangle,
+                    antialiasMode,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1DeviceContext::PushAxisAlignedClip",
+                status,
+                nativeHResult);
+            return checked(++_typedDrawScopeDepth);
+        }
+    }
+
+    internal void PopAxisAlignedClip(uint expectedDepth)
+    {
+        lock (_gate)
+        {
+            ValidateTypedDrawingProducer();
+            if (expectedDepth == 0U ||
+                expectedDepth != _typedDrawScopeDepth)
+            {
+                throw new InvalidOperationException(
+                    "Direct2D clip and layer scopes must be disposed once in LIFO order.");
+            }
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfacePopAxisAlignedClip(
+                    _nativeSurface,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1DeviceContext::PopAxisAlignedClip",
+                status,
+                nativeHResult);
+            --_typedDrawScopeDepth;
+        }
+    }
+
+    internal void DrawBitmap(
+        ProGpuDirect2DComReference bitmap,
+        ProGpuDirect2DRect? destinationRectangle,
+        float opacity,
+        ProGpuDirect2DInterpolationMode interpolationMode,
+        ProGpuDirect2DRect? sourceRectangle,
+        Matrix4x4? perspectiveTransform)
+    {
+        ArgumentNullException.ThrowIfNull(bitmap);
+        ValidateResourceDomain(bitmap, nameof(bitmap));
+        if (bitmap.InterfaceKind is not
+                ProGpuDirect2DInterfaceKind.D2D1Bitmap and not
+                ProGpuDirect2DInterfaceKind.D2D1Bitmap1)
+        {
+            throw new ArgumentException(
+                "The COM reference must own a genuine ID2D1Bitmap.",
+                nameof(bitmap));
+        }
+        if (destinationRectangle is ProGpuDirect2DRect destination)
+        {
+            ValidateRectangle(destination);
+        }
+        if (sourceRectangle is ProGpuDirect2DRect source)
+        {
+            ValidateRectangle(source);
+        }
+        ValidateOpacity(opacity, nameof(opacity));
+        ValidateInterpolationMode(interpolationMode, nameof(interpolationMode));
+
+        ProGpuDirect2DRect nativeDestination =
+            destinationRectangle.GetValueOrDefault();
+        ProGpuDirect2DRect* destinationPointer = destinationRectangle.HasValue
+            ? &nativeDestination
+            : null;
+        ProGpuDirect2DRect nativeSource = sourceRectangle.GetValueOrDefault();
+        ProGpuDirect2DRect* sourcePointer = sourceRectangle.HasValue
+            ? &nativeSource
+            : null;
+        ProGpuDirect2DNative.NativeMatrix4X4F nativePerspective = default;
+        ProGpuDirect2DNative.NativeMatrix4X4F* perspectivePointer = null;
+        if (perspectiveTransform is Matrix4x4 perspective)
+        {
+            nativePerspective = CreateNativeMatrix(perspective);
+            perspectivePointer = &nativePerspective;
+        }
+
+        bool referenceAdded = false;
+        try
+        {
+            bitmap.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ValidateTypedDrawingProducer();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.SurfaceDrawBitmap(
+                        _nativeSurface,
+                        bitmap.DangerousGetHandle(),
+                        destinationPointer,
+                        opacity,
+                        interpolationMode,
+                        sourcePointer,
+                        perspectivePointer,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1DeviceContext::DrawBitmap",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                bitmap.DangerousRelease();
+            }
+        }
+    }
+
+    internal void DrawImage(
+        ProGpuDirect2DComReference image,
+        Vector2? targetOffset,
+        ProGpuDirect2DRect? imageRectangle,
+        ProGpuDirect2DInterpolationMode interpolationMode,
+        ProGpuDirect2DCompositeMode compositeMode)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ValidateResourceDomain(image, nameof(image));
+        if (!IsImageKind(image.InterfaceKind))
+        {
+            throw new ArgumentException(
+                "The COM reference must own a genuine ID2D1Image.",
+                nameof(image));
+        }
+        if (targetOffset is Vector2 offset)
+        {
+            ValidatePoint(offset, nameof(targetOffset));
+        }
+        if (imageRectangle is ProGpuDirect2DRect rectangle)
+        {
+            ValidateRectangle(rectangle);
+        }
+        ValidateInterpolationMode(interpolationMode, nameof(interpolationMode));
+        ValidateCompositeMode(compositeMode, nameof(compositeMode));
+
+        ProGpuDirect2DNative.NativePoint2F nativeOffset = default;
+        ProGpuDirect2DNative.NativePoint2F* offsetPointer = null;
+        if (targetOffset is Vector2 offsetValue)
+        {
+            nativeOffset = CreateNativePoint(offsetValue);
+            offsetPointer = &nativeOffset;
+        }
+        ProGpuDirect2DRect nativeRectangle = imageRectangle.GetValueOrDefault();
+        ProGpuDirect2DRect* rectanglePointer = imageRectangle.HasValue
+            ? &nativeRectangle
+            : null;
+
+        bool referenceAdded = false;
+        try
+        {
+            image.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ValidateTypedDrawingProducer();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.SurfaceDrawImage(
+                        _nativeSurface,
+                        image.DangerousGetHandle(),
+                        offsetPointer,
+                        rectanglePointer,
+                        interpolationMode,
+                        compositeMode,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1DeviceContext::DrawImage",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                image.DangerousRelease();
+            }
         }
     }
 
@@ -3838,7 +4036,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
             context = AcquireInterface(
                 ProGpuDirect2DInterfaceKind.D2D1DeviceContext1);
             _producer = ProducerKind.Direct2D;
-            _typedLayerDepth = 0U;
+            _typedDrawScopeDepth = 0U;
         }
 
         DawnExplicitSharedTextureAccess? accessToDispose = null;
@@ -3921,7 +4119,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
                 context = AcquireInterface(
                     ProGpuDirect2DInterfaceKind.D2D1DeviceContext1);
                 _producer = ProducerKind.CommandList;
-                _typedLayerDepth = 0U;
+                _typedDrawScopeDepth = 0U;
                 producerClaimed = true;
             }
             ProGpuDirect2DStatus status =
@@ -4163,7 +4361,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
             lock (_gate)
             {
                 _producer = ProducerKind.None;
-                _typedLayerDepth = 0U;
+                _typedDrawScopeDepth = 0U;
                 if (status == ProGpuDirect2DStatus.DeviceLost)
                 {
                     ObserveDeviceLoss(new ProGpuDirect2DDeviceLossState(
@@ -4250,7 +4448,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
         lock (_gate)
         {
             _producer = ProducerKind.None;
-            _typedLayerDepth = 0U;
+            _typedDrawScopeDepth = 0U;
             if (status == ProGpuDirect2DStatus.DeviceLost)
             {
                 ObserveDeviceLoss(new ProGpuDirect2DDeviceLossState(
@@ -4606,6 +4804,55 @@ public sealed unsafe class ProGpuDirect2DSurface :
             throw new ArgumentOutOfRangeException(
                 nameof(radiusX),
                 "Direct2D radii must be finite and nonnegative.");
+        }
+    }
+
+    private static void ValidateOpacity(float value, string parameterName)
+    {
+        if (!float.IsFinite(value) || value < 0.0F || value > 1.0F)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "Direct2D opacity must be finite and between zero and one.");
+        }
+    }
+
+    private static void ValidateAntialiasMode(
+        ProGpuDirect2DAntialiasMode value,
+        string parameterName)
+    {
+        if (value is < ProGpuDirect2DAntialiasMode.PerPrimitive or >
+            ProGpuDirect2DAntialiasMode.Aliased)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "Direct2D antialias mode is unknown.");
+        }
+    }
+
+    private static void ValidateInterpolationMode(
+        ProGpuDirect2DInterpolationMode value,
+        string parameterName)
+    {
+        if (value is < ProGpuDirect2DInterpolationMode.NearestNeighbor or >
+            ProGpuDirect2DInterpolationMode.HighQualityCubic)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "Direct2D interpolation mode is unknown.");
+        }
+    }
+
+    private static void ValidateCompositeMode(
+        ProGpuDirect2DCompositeMode value,
+        string parameterName)
+    {
+        if (value is < ProGpuDirect2DCompositeMode.SourceOver or >
+            ProGpuDirect2DCompositeMode.MaskInvert)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "Direct2D composite mode is unknown.");
         }
     }
 
@@ -5779,6 +6026,51 @@ public sealed unsafe class ProGpuDirect2DSurface :
         };
     }
 
+    private static ProGpuDirect2DNative.NativeMatrix4X4F CreateNativeMatrix(
+        Matrix4x4 matrix)
+    {
+        if (!float.IsFinite(matrix.M11) ||
+            !float.IsFinite(matrix.M12) ||
+            !float.IsFinite(matrix.M13) ||
+            !float.IsFinite(matrix.M14) ||
+            !float.IsFinite(matrix.M21) ||
+            !float.IsFinite(matrix.M22) ||
+            !float.IsFinite(matrix.M23) ||
+            !float.IsFinite(matrix.M24) ||
+            !float.IsFinite(matrix.M31) ||
+            !float.IsFinite(matrix.M32) ||
+            !float.IsFinite(matrix.M33) ||
+            !float.IsFinite(matrix.M34) ||
+            !float.IsFinite(matrix.M41) ||
+            !float.IsFinite(matrix.M42) ||
+            !float.IsFinite(matrix.M43) ||
+            !float.IsFinite(matrix.M44))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(matrix),
+                "Direct2D perspective transforms must be finite.");
+        }
+        return new ProGpuDirect2DNative.NativeMatrix4X4F
+        {
+            M11 = matrix.M11,
+            M12 = matrix.M12,
+            M13 = matrix.M13,
+            M14 = matrix.M14,
+            M21 = matrix.M21,
+            M22 = matrix.M22,
+            M23 = matrix.M23,
+            M24 = matrix.M24,
+            M31 = matrix.M31,
+            M32 = matrix.M32,
+            M33 = matrix.M33,
+            M34 = matrix.M34,
+            M41 = matrix.M41,
+            M42 = matrix.M42,
+            M43 = matrix.M43,
+            M44 = matrix.M44
+        };
+    }
+
     private void ValidateResourceDomain(
         ProGpuDirect2DComReference resource,
         string parameterName)
@@ -6147,6 +6439,55 @@ public sealed class ProGpuDirect2DDrawingSession : IDisposable
             .SetTransform(value);
     }
 
+    public ProGpuDirect2DAxisAlignedClipScope PushAxisAlignedClip(
+        ProGpuDirect2DRect clipRectangle,
+        ProGpuDirect2DAntialiasMode antialiasMode =
+            ProGpuDirect2DAntialiasMode.PerPrimitive)
+    {
+        ProGpuDirect2DSurface owner = _owner ??
+            throw new ObjectDisposedException(
+                nameof(ProGpuDirect2DDrawingSession));
+        uint depth = owner.PushAxisAlignedClip(
+            clipRectangle,
+            antialiasMode);
+        return new ProGpuDirect2DAxisAlignedClipScope(owner, depth);
+    }
+
+    public void DrawBitmap(
+        ProGpuDirect2DComReference bitmap,
+        ProGpuDirect2DRect? destinationRectangle = null,
+        float opacity = 1.0F,
+        ProGpuDirect2DInterpolationMode interpolationMode =
+            ProGpuDirect2DInterpolationMode.Linear,
+        ProGpuDirect2DRect? sourceRectangle = null,
+        Matrix4x4? perspectiveTransform = null) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .DrawBitmap(
+            bitmap,
+            destinationRectangle,
+            opacity,
+            interpolationMode,
+            sourceRectangle,
+            perspectiveTransform);
+
+    public void DrawImage(
+        ProGpuDirect2DComReference image,
+        Vector2? targetOffset = null,
+        ProGpuDirect2DRect? imageRectangle = null,
+        ProGpuDirect2DInterpolationMode interpolationMode =
+            ProGpuDirect2DInterpolationMode.Linear,
+        ProGpuDirect2DCompositeMode compositeMode =
+            ProGpuDirect2DCompositeMode.SourceOver) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .DrawImage(
+            image,
+            targetOffset,
+            imageRectangle,
+            interpolationMode,
+            compositeMode);
+
     public void DrawLine(
         Vector2 point0,
         Vector2 point1,
@@ -6434,6 +6775,55 @@ public sealed class ProGpuDirect2DCommandListDrawingSession : IDisposable
             .SetTransform(value);
     }
 
+    public ProGpuDirect2DAxisAlignedClipScope PushAxisAlignedClip(
+        ProGpuDirect2DRect clipRectangle,
+        ProGpuDirect2DAntialiasMode antialiasMode =
+            ProGpuDirect2DAntialiasMode.PerPrimitive)
+    {
+        ProGpuDirect2DSurface owner = _owner ??
+            throw new ObjectDisposedException(
+                nameof(ProGpuDirect2DCommandListDrawingSession));
+        uint depth = owner.PushAxisAlignedClip(
+            clipRectangle,
+            antialiasMode);
+        return new ProGpuDirect2DAxisAlignedClipScope(owner, depth);
+    }
+
+    public void DrawBitmap(
+        ProGpuDirect2DComReference bitmap,
+        ProGpuDirect2DRect? destinationRectangle = null,
+        float opacity = 1.0F,
+        ProGpuDirect2DInterpolationMode interpolationMode =
+            ProGpuDirect2DInterpolationMode.Linear,
+        ProGpuDirect2DRect? sourceRectangle = null,
+        Matrix4x4? perspectiveTransform = null) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .DrawBitmap(
+            bitmap,
+            destinationRectangle,
+            opacity,
+            interpolationMode,
+            sourceRectangle,
+            perspectiveTransform);
+
+    public void DrawImage(
+        ProGpuDirect2DComReference image,
+        Vector2? targetOffset = null,
+        ProGpuDirect2DRect? imageRectangle = null,
+        ProGpuDirect2DInterpolationMode interpolationMode =
+            ProGpuDirect2DInterpolationMode.Linear,
+        ProGpuDirect2DCompositeMode compositeMode =
+            ProGpuDirect2DCompositeMode.SourceOver) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .DrawImage(
+            image,
+            targetOffset,
+            imageRectangle,
+            interpolationMode,
+            compositeMode);
+
     public void DrawLine(
         Vector2 point0,
         Vector2 point1,
@@ -6710,6 +7100,35 @@ public ref struct ProGpuDirect2DLayerScope
             return;
         }
         owner.PopLayer(_depth);
+        _owner = null;
+    }
+}
+
+/// <summary>
+/// Allocation-free LIFO scope for one axis-aligned Direct2D clip. Clip and
+/// layer scopes share one depth sequence, so cross-kind disposal is checked.
+/// </summary>
+public ref struct ProGpuDirect2DAxisAlignedClipScope
+{
+    private ProGpuDirect2DSurface? _owner;
+    private readonly uint _depth;
+
+    internal ProGpuDirect2DAxisAlignedClipScope(
+        ProGpuDirect2DSurface owner,
+        uint depth)
+    {
+        _owner = owner;
+        _depth = depth;
+    }
+
+    public void Dispose()
+    {
+        ProGpuDirect2DSurface? owner = _owner;
+        if (owner is null)
+        {
+            return;
+        }
+        owner.PopAxisAlignedClip(_depth);
         _owner = null;
     }
 }
