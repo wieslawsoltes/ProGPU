@@ -37,7 +37,7 @@ public sealed class CustomCapCompoundPenQualityTests
     }
 
     [Fact]
-    public void CustomFillPathRequiresClosureAndAttachmentAxis()
+    public void CustomFillPathRequiresClosureAndRendersDetachedGeometry()
     {
         using var incomplete = new GraphicsPath();
         incomplete.AddLine(0f, -2f, 0f, 2f);
@@ -50,17 +50,20 @@ public sealed class CustomCapCompoundPenQualityTests
             new PointF(0f, 3f),
             new PointF(-2f, 1f),
         ]);
-        Assert.Throws<NotImplementedException>(() => new CustomLineCap(detached, null));
+        using var cap = new CustomLineCap(detached, null);
+        using var pen = new Pen(Color.Black, 4f) { CustomEndCap = cap };
+        using var path = new GraphicsPath();
+        path.AddLine(8, 24, 40, 24);
+        using var bitmap = new Bitmap(64, 48);
+        using Graphics graphics = Graphics.FromImage(bitmap);
+        graphics.Clear(Color.Transparent);
 
-        using var attached = new GraphicsPath();
-        attached.AddLines([
-            new PointF(-2f, -1f),
-            new PointF(0f, 3f),
-            new PointF(2f, -1f),
-            new PointF(-2f, -1f),
-        ]);
-        using var cap = new CustomLineCap(attached, null);
-        Assert.Equal(LineCap.Flat, cap.BaseCap);
+        graphics.DrawPath(pen, path);
+        RectangleF bounds = path.GetBounds(null, pen);
+
+        Assert.Equal(0, bitmap.GetPixel(42, 24).A);
+        Assert.True(bitmap.GetPixel(48, 24).A > 0);
+        Assert.True(bounds.Right >= 52f);
     }
 
     [Fact]

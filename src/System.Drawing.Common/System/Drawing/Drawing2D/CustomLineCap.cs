@@ -198,12 +198,9 @@ public class CustomLineCap : MarshalByRefObject, ICloneable, IDisposable
         }
 
         PathGeometry geometry = fillPath.Geometry;
-        bool crossesAxis = false;
         foreach (PathFigure figure in geometry.Figures)
         {
             Vector2 endpoint = figure.StartPoint;
-            float minimumY = figure.StartPoint.Y;
-            float maximumY = figure.StartPoint.Y;
             foreach (PathSegment segment in figure.Segments)
             {
                 Vector2 point = segment switch
@@ -214,8 +211,6 @@ public class CustomLineCap : MarshalByRefObject, ICloneable, IDisposable
                     _ => figure.StartPoint,
                 };
                 endpoint = point;
-                minimumY = MathF.Min(minimumY, point.Y);
-                maximumY = MathF.Max(maximumY, point.Y);
             }
 
             if (!figure.IsClosed &&
@@ -223,13 +218,6 @@ public class CustomLineCap : MarshalByRefObject, ICloneable, IDisposable
             {
                 throw new ArgumentException("The fill path must be closed.", nameof(fillPath));
             }
-
-            crossesAxis |= minimumY <= 0f && maximumY >= 0f;
-        }
-
-        if (!crossesAxis)
-        {
-            throw new NotImplementedException("The fill path must intersect the local Y axis.");
         }
     }
 
