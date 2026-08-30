@@ -38,7 +38,7 @@ public sealed unsafe class ProGpuDirect2DSurface :
     private static readonly Guid D2D1GeometryInterfaceId =
         new("2CD906A1-12E2-11DC-9FED-001143A055F9");
     private static readonly Guid D2D1StrokeStyle1InterfaceId =
-        new("10A72A66-E91C-43F4-993F-DD5AF37B26E7");
+        new("10A72A66-E91C-43F4-993F-DDF4B82B0B4A");
 
     private readonly object _gate = new();
     private readonly DawnGpuContext _dawn;

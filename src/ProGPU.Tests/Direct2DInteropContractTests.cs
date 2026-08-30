@@ -121,6 +121,13 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
+            "10A72A66-E91C-43F4-993F-DDF4B82B0B4A",
+            ReadRepoFile(
+                "src",
+                "ProGPU.Direct2D",
+                "ProGpuDirect2DSurface.cs"),
+            StringComparison.Ordinal);
+        Assert.Contains(
             "progpu_native_direct2d_surface_release",
             native,
             StringComparison.Ordinal);
