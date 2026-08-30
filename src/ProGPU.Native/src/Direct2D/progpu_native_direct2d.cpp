@@ -55,6 +55,10 @@ static_assert(
     sizeof(progpu_native_direct2d_stroke_style_properties) ==
         sizeof(D2D1_STROKE_STYLE_PROPERTIES1),
     "Direct2D portable stroke-style layout changed");
+static_assert(
+    sizeof(progpu_native_direct2d_bitmap_brush_properties) ==
+        sizeof(D2D1_BITMAP_BRUSH_PROPERTIES1),
+    "Direct2D portable bitmap-brush layout changed");
 
 struct progpu_native_direct2d_surface {
     ComPtr<ID3D11Device> d3d_device;
@@ -163,6 +167,12 @@ bool is_valid(progpu_native_direct2d_extend_mode value)
 {
     return value >= PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_CLAMP &&
         value <= PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_MIRROR;
+}
+
+bool is_valid_interpolation_mode(uint32_t value)
+{
+    return value <=
+        PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC;
 }
 
 bool is_valid(progpu_native_direct2d_color_interpolation_mode value)
@@ -1234,6 +1244,120 @@ progpu_native_direct2d_surface_create_radial_gradient_brush(
         native_brush_properties,
         reinterpret_cast<ID2D1GradientStopCollection*>(
             gradient_stop_collection),
+        brush.GetAddressOf());
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(brush, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_bitmap(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_bitmap_properties* properties,
+    const uint8_t* pixels,
+    uint64_t pixel_byte_count,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+
+    uint64_t row_byte_count = properties == nullptr
+        ? 0U
+        : static_cast<uint64_t>(properties->width) * 4U;
+    uint64_t required_byte_count = properties == nullptr ||
+            properties->height == 0U
+        ? 0U
+        : static_cast<uint64_t>(properties->stride) *
+                (properties->height - 1U) +
+            row_byte_count;
+    if (surface == nullptr || properties == nullptr || pixels == nullptr ||
+        value == nullptr || native_hresult == nullptr ||
+        properties->width == 0U || properties->height == 0U ||
+        properties->reserved != 0U ||
+        row_byte_count > UINT32_MAX ||
+        properties->stride < row_byte_count ||
+        pixel_byte_count < required_byte_count ||
+        !std::isfinite(properties->dpi_x) ||
+        !std::isfinite(properties->dpi_y) ||
+        properties->dpi_x <= 0.0F || properties->dpi_y <= 0.0F) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    D2D1_BITMAP_PROPERTIES1 native_properties = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_NONE,
+        D2D1::PixelFormat(
+            DXGI_FORMAT_B8G8R8A8_UNORM,
+            D2D1_ALPHA_MODE_PREMULTIPLIED),
+        properties->dpi_x,
+        properties->dpi_y);
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Bitmap1> bitmap;
+    HRESULT hr = surface->d2d_context->CreateBitmap(
+        D2D1::SizeU(properties->width, properties->height),
+        pixels,
+        properties->stride,
+        &native_properties,
+        bitmap.GetAddressOf());
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(bitmap, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_bitmap_brush(
+    progpu_native_direct2d_surface* surface,
+    void* bitmap,
+    const progpu_native_direct2d_bitmap_brush_properties* properties,
+    const progpu_native_direct2d_brush_properties* brush_properties,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || bitmap == nullptr || properties == nullptr ||
+        brush_properties == nullptr || value == nullptr ||
+        native_hresult == nullptr ||
+        !is_valid(static_cast<progpu_native_direct2d_extend_mode>(
+            properties->extend_mode_x)) ||
+        !is_valid(static_cast<progpu_native_direct2d_extend_mode>(
+            properties->extend_mode_y)) ||
+        !is_valid_interpolation_mode(properties->interpolation_mode) ||
+        !std::isfinite(brush_properties->opacity) ||
+        !is_finite(brush_properties->transform)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    D2D1_BITMAP_BRUSH_PROPERTIES1 native_properties = {
+        static_cast<D2D1_EXTEND_MODE>(properties->extend_mode_x),
+        static_cast<D2D1_EXTEND_MODE>(properties->extend_mode_y),
+        static_cast<D2D1_INTERPOLATION_MODE>(
+            properties->interpolation_mode)
+    };
+    D2D1_BRUSH_PROPERTIES native_brush_properties = {
+        brush_properties->opacity,
+        to_native_matrix(brush_properties->transform)
+    };
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1BitmapBrush1> brush;
+    HRESULT hr = surface->d2d_context->CreateBitmapBrush(
+        reinterpret_cast<ID2D1Bitmap*>(bitmap),
+        &native_properties,
+        &native_brush_properties,
         brush.GetAddressOf());
     surface->last_hresult.store(hr, std::memory_order_release);
     *native_hresult = hr;

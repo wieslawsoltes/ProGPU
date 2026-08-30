@@ -39,6 +39,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
         new("2CD906A1-12E2-11DC-9FED-001143A055F9");
     private static readonly Guid D2D1StrokeStyle1InterfaceId =
         new("10A72A66-E91C-43F4-993F-DDF4B82B0B4A");
+    private static readonly Guid D2D1BitmapBrush1InterfaceId =
+        new("41343A53-E41A-49A2-91CD-21793BBB62E5");
 
     private readonly object _gate = new();
     private readonly DawnGpuContext _dawn;
@@ -412,6 +414,141 @@ public sealed unsafe class ProGpuDirect2DSurface :
             &nativeProperties,
             &nativeBrushProperties,
             radial: true);
+    }
+
+    /// <summary>
+    /// Uploads one immutable premultiplied BGRA8 image as a genuine
+    /// same-device ID2D1Bitmap1. The pinned source span is consumed
+    /// synchronously and is not retained by Direct2D.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateBitmap(
+        ReadOnlySpan<byte> bgra8PremultipliedPixels,
+        uint width,
+        uint height,
+        uint stride = 0U,
+        float dpiX = 96.0F,
+        float dpiY = 96.0F)
+    {
+        ulong rowByteCount = checked((ulong)width * 4U);
+        if (stride == 0U && rowByteCount <= uint.MaxValue)
+        {
+            stride = (uint)rowByteCount;
+        }
+        ulong requiredByteCount = height == 0U
+            ? 0U
+            : checked((ulong)stride * (height - 1U) + rowByteCount);
+        if (width == 0U || height == 0U ||
+            rowByteCount > uint.MaxValue || stride < rowByteCount ||
+            (ulong)bgra8PremultipliedPixels.Length < requiredByteCount ||
+            !float.IsFinite(dpiX) || !float.IsFinite(dpiY) ||
+            dpiX <= 0.0F || dpiY <= 0.0F)
+        {
+            throw new ArgumentException(
+                "A Direct2D bitmap requires nonzero dimensions, positive finite DPI, and a complete BGRA8 row span.",
+                nameof(bgra8PremultipliedPixels));
+        }
+
+        var properties = new ProGpuDirect2DNative.NativeBitmapProperties
+        {
+            Width = width,
+            Height = height,
+            Stride = stride,
+            DpiX = dpiX,
+            DpiY = dpiY
+        };
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            fixed (byte* pixelPointer = bgra8PremultipliedPixels)
+            {
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.SurfaceCreateBitmap(
+                        _nativeSurface,
+                        &properties,
+                        pixelPointer,
+                        checked((ulong)bgra8PremultipliedPixels.Length),
+                        &value,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1Bitmap1 creation",
+                    status,
+                    nativeHResult);
+                return CreateRequiredComReference(
+                    value,
+                    ProGpuDirect2DInterfaceKind.D2D1Bitmap1,
+                    "ID2D1Bitmap1 creation");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Creates a genuine ID2D1BitmapBrush1 over a provider-created bitmap.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateBitmapBrush(
+        ProGpuDirect2DComReference bitmap,
+        float opacity = 1.0F,
+        Matrix3x2? transform = null) =>
+        CreateBitmapBrush(
+            bitmap,
+            new ProGpuDirect2DBitmapBrushProperties(
+                ProGpuDirect2DExtendMode.Clamp,
+                ProGpuDirect2DExtendMode.Clamp,
+                ProGpuDirect2DInterpolationMode.Linear),
+            opacity,
+            transform);
+
+    public ProGpuDirect2DComReference CreateBitmapBrush(
+        ProGpuDirect2DComReference bitmap,
+        ProGpuDirect2DBitmapBrushProperties properties,
+        float opacity = 1.0F,
+        Matrix3x2? transform = null)
+    {
+        ArgumentNullException.ThrowIfNull(bitmap);
+        if (bitmap.InterfaceKind != ProGpuDirect2DInterfaceKind.D2D1Bitmap1)
+        {
+            throw new ArgumentException(
+                "The COM reference must own ID2D1Bitmap1.",
+                nameof(bitmap));
+        }
+        ValidateBitmapBrushProperties(properties);
+        ProGpuDirect2DNative.NativeBrushProperties nativeBrushProperties =
+            CreateNativeBrushProperties(opacity, transform);
+        bool referenceAdded = false;
+        try
+        {
+            bitmap.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.SurfaceCreateBitmapBrush(
+                        _nativeSurface,
+                        bitmap.DangerousGetHandle(),
+                        &properties,
+                        &nativeBrushProperties,
+                        &value,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1BitmapBrush1 creation",
+                    status,
+                    nativeHResult);
+                return CreateRequiredComReference(
+                    value,
+                    ProGpuDirect2DInterfaceKind.D2D1BitmapBrush1,
+                    "ID2D1BitmapBrush1 creation");
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                bitmap.DangerousRelease();
+            }
+        }
     }
 
     public ProGpuDirect2DComReference CreateRectangleGeometry(
@@ -1012,6 +1149,56 @@ public sealed unsafe class ProGpuDirect2DSurface :
             ProGpuDirect2DInterfaceKind.D2D1StrokeStyle1,
             "Microsoft Win2D CanvasStrokeStyle native-resource query",
             out nativeStrokeStyle,
+            out nativeHResult);
+
+    public bool TryAcquireMicrosoftWin2DBitmap(
+        ProGpuDirect2DComReference nativeBitmap,
+        out ProGpuDirect2DComReference? canvasBitmap,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapper(
+            nativeBitmap,
+            ProGpuDirect2DInterfaceKind.D2D1Bitmap1,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasBitmap,
+            "Microsoft Win2D CanvasBitmap wrapping",
+            out canvasBitmap,
+            out nativeHResult);
+
+    public bool TryAcquireMicrosoftWin2DNativeBitmap(
+        ProGpuDirect2DComReference canvasBitmap,
+        out ProGpuDirect2DComReference? nativeBitmap,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapperNativeResource(
+            canvasBitmap,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasBitmap,
+            D2D1Bitmap1InterfaceId,
+            ProGpuDirect2DInterfaceKind.D2D1Bitmap1,
+            "Microsoft Win2D CanvasBitmap native-resource query",
+            out nativeBitmap,
+            out nativeHResult);
+
+    public bool TryAcquireMicrosoftWin2DImageBrush(
+        ProGpuDirect2DComReference nativeBrush,
+        out ProGpuDirect2DComReference? canvasBrush,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapper(
+            nativeBrush,
+            ProGpuDirect2DInterfaceKind.D2D1BitmapBrush1,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasImageBrush,
+            "Microsoft Win2D CanvasImageBrush wrapping",
+            out canvasBrush,
+            out nativeHResult);
+
+    public bool TryAcquireMicrosoftWin2DNativeImageBrush(
+        ProGpuDirect2DComReference canvasBrush,
+        out ProGpuDirect2DComReference? nativeBrush,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapperNativeResource(
+            canvasBrush,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasImageBrush,
+            D2D1BitmapBrush1InterfaceId,
+            ProGpuDirect2DInterfaceKind.D2D1BitmapBrush1,
+            "Microsoft Win2D CanvasImageBrush native-resource query",
+            out nativeBrush,
             out nativeHResult);
 
     private ProGpuDirect2DComReference CreateGradientBrush(
@@ -1797,6 +1984,20 @@ public sealed unsafe class ProGpuDirect2DSurface :
             throw new ArgumentException(
                 "A custom Direct2D dash pattern must contain a positive length.",
                 nameof(customDashes));
+        }
+    }
+
+    private static void ValidateBitmapBrushProperties(
+        ProGpuDirect2DBitmapBrushProperties properties)
+    {
+        if (properties.ExtendModeX > ProGpuDirect2DExtendMode.Mirror ||
+            properties.ExtendModeY > ProGpuDirect2DExtendMode.Mirror ||
+            properties.InterpolationMode >
+                ProGpuDirect2DInterpolationMode.HighQualityCubic)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(properties),
+                "Direct2D bitmap-brush tiling or interpolation metadata is invalid.");
         }
     }
 

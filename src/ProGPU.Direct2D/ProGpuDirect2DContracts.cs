@@ -57,7 +57,10 @@ public enum ProGpuDirect2DInterfaceKind
     D2D1TransformedGeometry = 31,
     Win2DCanvasGeometry = 32,
     D2D1StrokeStyle1 = 33,
-    Win2DCanvasStrokeStyle = 34
+    Win2DCanvasStrokeStyle = 34,
+    D2D1BitmapBrush1 = 35,
+    Win2DCanvasBitmap = 36,
+    Win2DCanvasImageBrush = 37
 }
 
 public enum ProGpuDirect2DFillMode
@@ -163,6 +166,16 @@ public enum ProGpuDirect2DExtendMode
     Mirror = 2
 }
 
+public enum ProGpuDirect2DInterpolationMode : uint
+{
+    NearestNeighbor = 0,
+    Linear = 1,
+    Cubic = 2,
+    MultiSampleLinear = 3,
+    Anisotropic = 4,
+    HighQualityCubic = 5
+}
+
 public enum ProGpuDirect2DColorInterpolationMode
 {
     Straight = 0,
@@ -239,6 +252,16 @@ public readonly record struct ProGpuDirect2DColor(
 public readonly record struct ProGpuDirect2DGradientStop(
     float Position,
     ProGpuDirect2DColor Color);
+
+/// <summary>
+/// Blittable tiling and sampling state for a genuine ID2D1BitmapBrush1.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct ProGpuDirect2DBitmapBrushProperties(
+    ProGpuDirect2DExtendMode ExtendModeX = ProGpuDirect2DExtendMode.Clamp,
+    ProGpuDirect2DExtendMode ExtendModeY = ProGpuDirect2DExtendMode.Clamp,
+    ProGpuDirect2DInterpolationMode InterpolationMode =
+        ProGpuDirect2DInterpolationMode.Linear);
 
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct ProGpuDirect2DRect(
