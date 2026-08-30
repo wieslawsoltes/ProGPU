@@ -5266,7 +5266,10 @@ reset-to-96-DPI meaning while half-zero, negative, infinite, and NaN inputs fail
 closed. The native test round-trips all state and restores defaults before the
 existing pixel oracle. The exact allowlist becomes 102 exports, the managed
 contracts pass 5/5, and the package build has zero warnings. Windows execution
-remains pending the pushed checkpoint.
+is qualified by GitHub Actions Build run `33335230522`, dedicated MSVC job
+`99320851539`: warning-as-error compile/link succeeds, the focused Direct2D
+regression passes in 0.17 seconds, all 11 native suites pass in 1.07 seconds,
+and the exact 102-export gate is accepted.
 
 ## Managed glyph row-reuse SIMD checkpoint
 
