@@ -247,7 +247,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         get => _objectSnapModes;
         set
         {
-            if ((value & ~CadObjectSnapModes.Standard) != 0)
+            if ((value & ~(CadObjectSnapModes.Standard |
+                           CadObjectSnapModes.Nearest)) != 0)
             {
                 throw new ArgumentOutOfRangeException(nameof(value));
             }
@@ -2596,6 +2597,20 @@ public sealed class CadSampleCanvas : FrameworkElement
                 context.DrawLine(_drawOrderReferencePen, right, bottom);
                 context.DrawLine(_drawOrderReferencePen, bottom, left);
                 context.DrawLine(_drawOrderReferencePen, left, top);
+                break;
+            }
+            case CadObjectSnapKind.Nearest:
+            {
+                Vector2 topLeft = center - horizontal - vertical;
+                Vector2 topRight = center + horizontal - vertical;
+                Vector2 bottomLeft = center - horizontal + vertical;
+                Vector2 bottomRight = center + horizontal + vertical;
+                context.DrawLine(_drawOrderReferencePen, topLeft, center);
+                context.DrawLine(_drawOrderReferencePen, center, bottomLeft);
+                context.DrawLine(_drawOrderReferencePen, topRight, center);
+                context.DrawLine(_drawOrderReferencePen, center, bottomRight);
+                context.DrawLine(_drawOrderReferencePen, topLeft, bottomLeft);
+                context.DrawLine(_drawOrderReferencePen, topRight, bottomRight);
                 break;
             }
         }

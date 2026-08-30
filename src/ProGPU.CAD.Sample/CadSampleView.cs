@@ -632,11 +632,15 @@ public sealed class CadSampleView : Grid
         {
             Tag = CadObjectSnapModes.Quadrant,
         });
+        _objectSnapSelector.Items.Add(new ComboBoxItem("Snap: Nearest")
+        {
+            Tag = CadObjectSnapModes.Nearest,
+        });
         _objectSnapSelector.Items.Add(new ComboBoxItem("Snap: Standard")
         {
             Tag = CadObjectSnapModes.Standard,
         });
-        _objectSnapSelector.SelectedIndex = 7;
+        _objectSnapSelector.SelectedIndex = 8;
         transformActions.AddChild(_objectSnapSelector);
         transformActions.AddChild(new TextBlock
         {

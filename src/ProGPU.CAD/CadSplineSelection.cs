@@ -68,6 +68,88 @@ internal static class CadSplineSelection
         return found && AreFinite(start) && AreFinite(end);
     }
 
+    /// <summary>
+    /// Finds the exact closest point in the WCS XY projection across every
+    /// canonical rational-Bezier span, retaining the selected point's WCS Z.
+    /// </summary>
+    internal static bool TryGetClosestPlanPoint(
+        CadDocumentSnapshot snapshot,
+        in CadSplinePrimitive spline,
+        CadPoint3D point,
+        out CadPoint3D closest)
+    {
+        closest = default;
+        if (!CadSplineCanonicalizer.TryCreate(
+                snapshot,
+                spline,
+                out CadCanonicalSpline canonical))
+        {
+            return false;
+        }
+
+        Span<CadHomogeneousPoint> controlPoints =
+            stackalloc CadHomogeneousPoint[MaximumSplineDegree + 1];
+        double minimumDistance = double.PositiveInfinity;
+        CadPoint3D firstPoint = default;
+        CadPoint3D lastPoint = default;
+        bool hasSpan = false;
+        for (int sourceSpan = canonical.Degree;
+             sourceSpan < canonical.ControlPointCount;
+             sourceSpan++)
+        {
+            if (!(canonical.GetKnot(sourceSpan + 1) >
+                  canonical.GetKnot(sourceSpan)))
+            {
+                continue;
+            }
+            Span<CadHomogeneousPoint> span =
+                controlPoints[..(canonical.Degree + 1)];
+            if (!CadRationalBezier.TryExtractSpan(canonical, sourceSpan, span) ||
+                !TryClosestPlanPointToBezier(
+                    span,
+                    point,
+                    out CadPoint3D candidate,
+                    out double distance))
+            {
+                return false;
+            }
+            if (!hasSpan)
+            {
+                firstPoint = span[0].Cartesian;
+                hasSpan = true;
+            }
+            lastPoint = span[^1].Cartesian;
+            if (distance < minimumDistance)
+            {
+                minimumDistance = distance;
+                closest = candidate;
+            }
+        }
+        if (!hasSpan)
+        {
+            return false;
+        }
+        if (canonical.HasClosingEdge)
+        {
+            Span<CadHomogeneousPoint> closing =
+                controlPoints[..(canonical.Degree + 1)];
+            CadRationalBezier.CreateElevatedLine(lastPoint, firstPoint, closing);
+            if (!TryClosestPlanPointToBezier(
+                    closing,
+                    point,
+                    out CadPoint3D candidate,
+                    out double distance))
+            {
+                return false;
+            }
+            if (distance < minimumDistance)
+            {
+                closest = candidate;
+            }
+        }
+        return AreFinite(closest);
+    }
+
     public static CadPointHitResult HitTestPoint(
         CadDocumentSnapshot snapshot,
         in CadSplinePrimitive spline,
@@ -240,8 +322,34 @@ internal static class CadSplineSelection
     internal static bool TryDistanceToBezier(
         ReadOnlySpan<CadHomogeneousPoint> points,
         CadPoint3D point,
+        out double distance) =>
+        TryClosestPointToBezier(
+            points,
+            point,
+            usePlanDistance: false,
+            out _,
+            out distance);
+
+    internal static bool TryClosestPlanPointToBezier(
+        ReadOnlySpan<CadHomogeneousPoint> points,
+        CadPoint3D point,
+        out CadPoint3D closest,
+        out double distance) =>
+        TryClosestPointToBezier(
+            points,
+            point,
+            usePlanDistance: true,
+            out closest,
+            out distance);
+
+    private static bool TryClosestPointToBezier(
+        ReadOnlySpan<CadHomogeneousPoint> points,
+        CadPoint3D point,
+        bool usePlanDistance,
+        out CadPoint3D closest,
         out double distance)
     {
+        closest = default;
         distance = double.PositiveInfinity;
         int degree = points.Length - 1;
         double coordinateScale = 1.0;
@@ -254,7 +362,10 @@ internal static class CadSplineSelection
             {
                 return false;
             }
-            translated[i] = cartesian - point;
+            CadPoint3D delta = cartesian - point;
+            translated[i] = usePlanDistance
+                ? new CadPoint3D(delta.X, delta.Y, 0.0)
+                : delta;
             coordinateScale = Math.Max(
                 coordinateScale,
                 Math.Max(
@@ -302,7 +413,8 @@ internal static class CadSplineSelection
             derivativeWeight[i] = degree * (w[i + 1] - w[i]);
         }
 
-        for (int component = 0; component < 3; component++)
+        int componentCount = usePlanDistance ? 2 : 3;
+        for (int component = 0; component < componentCount; component++)
         {
             ReadOnlySpan<double> source = component switch
             {
@@ -354,8 +466,17 @@ internal static class CadSplineSelection
         }
 
         double minimumNormalized = double.PositiveInfinity;
-        if (!TryIncludeDistance(normalizedPoints[..(degree + 1)], 0.0, ref minimumNormalized) ||
-            !TryIncludeDistance(normalizedPoints[..(degree + 1)], 1.0, ref minimumNormalized))
+        double bestParameter = 0.0;
+        if (!TryIncludeDistance(
+                normalizedPoints[..(degree + 1)],
+                0.0,
+                ref minimumNormalized,
+                ref bestParameter) ||
+            !TryIncludeDistance(
+                normalizedPoints[..(degree + 1)],
+                1.0,
+                ref minimumNormalized,
+                ref bestParameter))
         {
             return false;
         }
@@ -364,20 +485,29 @@ internal static class CadSplineSelection
             if (!TryIncludeDistance(
                     normalizedPoints[..(degree + 1)],
                     roots[i],
-                    ref minimumNormalized))
+                    ref minimumNormalized,
+                    ref bestParameter))
             {
                 return false;
             }
         }
 
+        CadHomogeneousPoint closestValue =
+            CadRationalBezier.EvaluateHomogeneous(points, bestParameter);
+        if (!double.IsFinite(closestValue.W) || !(closestValue.W > 0.0))
+        {
+            return false;
+        }
+        closest = closestValue.Cartesian;
         distance = minimumNormalized * coordinateScale;
-        return !double.IsNaN(distance);
+        return AreFinite(closest) && !double.IsNaN(distance);
     }
 
     private static bool TryIncludeDistance(
         ReadOnlySpan<CadHomogeneousPoint> points,
         double parameter,
-        ref double minimumNormalized)
+        ref double minimumNormalized,
+        ref double bestParameter)
     {
         CadHomogeneousPoint value = CadRationalBezier.EvaluateHomogeneous(
             points,
@@ -391,9 +521,12 @@ internal static class CadSplineSelection
         {
             return false;
         }
-        minimumNormalized = Math.Min(
-            minimumNormalized,
-            normalized.Length);
+        double candidate = normalized.Length;
+        if (candidate < minimumNormalized)
+        {
+            minimumNormalized = candidate;
+            bestParameter = parameter;
+        }
         return true;
     }
 

@@ -4,10 +4,10 @@ Status: implemented foundation, 2026-08-30
 
 ## Scope and clean-room sources
 
-This slice adds running Endpoint, Midpoint, Center, Node, Quadrant, and actual
-geometric Intersection acquisition to the shared desktop/browser MOVE and COPY
-point prompts. It does not copy, translate, or imitate another engine's source
-code, helper structure, naming, tables, or control flow. The implementation was
+This slice adds running Endpoint, Midpoint, Center, Node, Quadrant, actual
+geometric Intersection, and Nearest acquisition to the shared desktop/browser
+MOVE and COPY point prompts. It does not copy, translate, or imitate another
+engine's source code, helper structure, naming, tables, or control flow. The implementation was
 designed from public behavior contracts and existing ProGPU-owned immutable
 geometry:
 
@@ -19,19 +19,25 @@ geometry:
   selected running modes to the closest eligible aperture point.
 - Autodesk's current [Web object-snap reference](https://help.autodesk.com/cloudhelp/ENU/AutoCAD-Web-Help/files/Drafting-and-Creating/AutoCAD_Web_Help_Drafting_and_Creating_Osnap_html.html)
   independently lists the same four Quadrant families while listing polyline
-  arcs only for other modes; ProGPU therefore does not silently broaden this
-  slice to bulge segments.
+  arcs only for other modes; ProGPU therefore does not silently broaden
+  Quadrant to bulge segments. It defines Nearest on arcs, circles, ellipses,
+  elliptical arcs, lines, points, polylines, rays, splines, and xlines.
+- Autodesk's current [Drafting Settings reference for macOS](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-MAC-Core/files/GUID-A782462F-F85C-4496-85A5-3D9A54548489.htm)
+  independently gives the same Nearest family list.
+- Autodesk's [OSNAP command reference](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-LT/files/GUID-CF5780AD-D1AB-4526-9608-83D7952749E7.htm)
+  confirms that Nearest selects the closest point on one of those entities.
 - Autodesk's [AutoLISP object-snap reference](https://help.autodesk.com/view/ACD/2027/ENU/?caas=caas%2Fdocumentation%2FACD%2F2014%2FENU%2Ffiles%2FGUID-4EEE5488-01D8-454F-9386-79E493E55D6E-htm.html)
   documents combined Endpoint/Midpoint/Center modes and an aperture controlling
   which nearby points are eligible.
 - Autodesk's [OSMODE reference](https://help.autodesk.com/cloudhelp/2016/ENU/AutoCAD-Core/files/GUID-DD9B3216-A533-4D47-95D8-7585F738FD75.htm)
   assigns stable bit values 1/2/4/8/16/32 to Endpoint, Midpoint, Center, Node,
-  Quadrant, and Intersection; the ProGPU mode flags preserve that compatible
-  base ordering without importing the unrelated remaining modes.
+  Quadrant, and Intersection and 512 to Nearest; the ProGPU mode flags preserve
+  those compatible assignments without importing unrelated modes.
 - QCAD's current [reference manual](https://www.qcad.org/doc/qcad/latest/reference/en/qcad_reference_manual_en.html)
   documents Endpoint on bounded curve ends and vertices, Midpoint on lines and
   arcs (the midpoint lies on the arc, not at its center), Center on circles,
-  arcs, and ellipses, and automatic snap priority.
+  arcs, and ellipses, automatic snap priority, and On Entity as the closest
+  point on an entity.
 - QCAD's [Intersection Manual reference](https://qcad.org/doc/qcad/latest/reference/en/scripts/Snap/SnapIntersectionManual/doc/SnapIntersectionManual_en.html)
   distinguishes intersections of two entities from a separate manual tool that
   can extend entities beyond their authored limits.
@@ -53,12 +59,14 @@ third-party implementation text.
 ## Adopted behavior
 
 The default Standard mode composes Intersection, Endpoint, Midpoint, Center,
-Quadrant, and Node. The shared selector can instead enable one mode or turn
-running snaps off. A fixed 10-logical-pixel aperture is evaluated in device
+Quadrant, and Node. Nearest remains an explicit selector choice because its
+continuous projection would otherwise mask discrete endpoint/midpoint/center
+attraction. The shared selector can instead enable one mode or turn running
+snaps off. A fixed 10-logical-pixel aperture is evaluated in device
 space, so zoom does not change the acquisition radius. The closest point wins.
 Exact distance ties use the documented ProGPU order Intersection, Endpoint,
-Midpoint, Center, Quadrant, Node, followed by immutable retained entity order,
-second entity order, and per-pair point order. This makes replay and tests
+Midpoint, Center, Quadrant, Node, Nearest, followed by immutable retained entity
+order, second entity order, and per-pair point order. This makes replay and tests
 independent of hash or tree traversal order.
 
 Supported exact candidates are:
@@ -80,6 +88,19 @@ on the authored curve. Retained coordinate-system and major/minor-axis vectors
 are applied directly, so rotated and tilted geometry is not reconstructed from
 an AABB. When an arc endpoint is also a quadrant, Endpoint wins the exact tie.
 
+Nearest means the closest point in the plan viewport's WCS XY projection while
+retaining the exact source curve's WCS Z. It covers finite lines, RAYs, XLINEs,
+POINTs, circles, arcs, ellipses and elliptical arcs, straight or bulged
+lightweight/legacy 2D-polyline segments, 3D-polyline segments, and valid
+positive-weight rational splines. Finite segment and sweep extents are clamped;
+construction lines retain their authored unbounded domain. Circular and
+elliptical curves are represented exactly as positive-weight rational quadratic
+spans of at most 90 degrees and share ProGPU's bounded Bernstein
+stationary-root solver with canonical rational-Bezier spline spans. No curve is flattened and
+the result is not reconstructed from an AABB. Equal projected minima retain
+authored parameter/span order, including a projection that collapses an entity;
+a numerically unresolved curve is counted as unsupported instead of guessed.
+
 Intersection means a point that lies on both authored entities in the same WCS
 XY plane. Exact closed-form solvers cover line segments, RAYs, XLINEs, planar
 conformal circles and arcs, planar ellipses or ellipse arcs against linear
@@ -97,7 +118,7 @@ WCS Z planes do not intersect. This avoids silently flattening 3D geometry or
 extending bounded geometry to imitate a separate snap mode.
 
 Full circles/ellipses have no synthetic Endpoint. Closed/periodic splines have
-no Endpoint. Perpendicular/tangent/nearest snaps, grid snap,
+no Endpoint. Perpendicular/tangent snaps, grid snap,
 extension/tracking, cycling, tooltips, global last-point/UCS behavior, and
 arbitrary-camera acquisition remain explicit later contracts. ProGPU rejects
 flattening an analytic curve merely to obtain a snap point and rejects silently
@@ -118,11 +139,13 @@ explicit truncation. Scratch truncation is explicit; the query never allocates
 a replacement. The shared shell refuses a possibly incomplete snap result and
 falls back to raw input when either entity or intersection work was truncated.
 
-For E retained entities, K broad-phase candidates, P ordinary snap points, B the
+For E retained entities, K broad-phase candidates, P ordinary snap points, S
+exact Nearest segments or rational-Bezier spans, B the
 fixed 65,536 entity-pair budget, and C the fixed 262,144 analytic-component-pair
 budget, average broad-phase work is `O(log E + K)`, deterministic candidate
 sorting is `O(K log K)` in Intersection mode, and exact work is
-`O(P + min(K^2, B) + C)`. The broad phase is `O(E + K)` worst case. Internal
+`O(P + S + min(K^2, B) + C)` for fixed maximum spline degree ten. The broad
+phase is `O(E + K)` worst case. Internal
 storage is `O(1)` plus caller scratch. A single very large polyline pair cannot
 exceed C component tests; a dedicated immutable
 snap-point/intersection index is deferred until profiling justifies its build
@@ -138,8 +161,8 @@ changes also clear or recompute state transactionally.
 ## Rendering and managed/native applicability audit
 
 The marker is a fixed-device shared-shell overlay (square, triangle, circle,
-plus, diagonal X, or diamond) recorded after the retained CAD picture. It adds no
-shader, GPU resource,
+plus, diagonal X, diamond, or hourglass) recorded after the retained CAD
+picture. It adds no shader, GPU resource,
 scene-cache key, upload, C ABI, or native document algorithm. The managed and
 native renderers continue consuming the same committed retained picture after
 one MOVE/COPY edit; therefore a separate native CAD snap implementation is not
@@ -163,6 +186,10 @@ device-loss contract changes in this slice.
 Core tests cover each semantic kind; analytic arc/ellipse and bulge midpoints;
 all four circle/rotated-ellipse quadrants, bounded circular/elliptical arc
 parameters, and Endpoint/Quadrant tie priority;
+exact plan Nearest points on finite/unbounded lines, POINTs, circles, bounded
+arcs, ellipses, straight/bulged current and legacy 2D polylines, 3D-polyline
+segments, and a positive-weight rational spline, including retained Z and
+zero-allocation conic replay;
 line/line, line/circle, line/arc, circle/circle, line/ellipse, polyline/RAY, and
 polyline/XLINE intersections; authored extents and WCS planes; a unique
 collinear shared endpoint; unsupported overlap; deterministic ties; explicit
@@ -171,10 +198,11 @@ disabled modes; generation tagging;
 and zero-allocation 1,024-query replay. Shared-shell tests cover hover before
 the base point, no snapshot publication across 1,024 motions, fixed-device
 marker recording, exact one-generation snapped MOVE with two successive
-Intersection points or Quadrant points, raw plan input when disabled, and
+Intersection, Quadrant, or Nearest points, raw plan input when disabled, and
 selector propagation without document edits.
 
 Future mode families require their own exact geometry and ambiguity contracts.
 Large-scene p50/p95/p99 measurements, dense coincident-candidate cycling, grid
-and dedicated intersection indexes, arbitrary camera planes, and desktop/browser visual
-goldens remain before object snapping can be called complete.
+and dedicated intersection indexes, arbitrary camera planes, and
+desktop/browser visual goldens remain before object snapping can be called
+complete.

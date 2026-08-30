@@ -17,6 +17,7 @@ public sealed class CadObjectSnapTests
         Assert.Equal(8, (int)CadObjectSnapModes.Node);
         Assert.Equal(16, (int)CadObjectSnapModes.Quadrant);
         Assert.Equal(32, (int)CadObjectSnapModes.Intersection);
+        Assert.Equal(512, (int)CadObjectSnapModes.Nearest);
         Assert.Equal(63, (int)CadObjectSnapModes.Standard);
     }
 
@@ -222,6 +223,193 @@ public sealed class CadObjectSnapTests
     }
 
     [Fact]
+    public void NearestSnapProjectsFiniteAndUnboundedLinearEntitiesInPlan()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add nearest linear geometry", document =>
+        {
+            document.Entities.Add(new Line(
+                new XYZ(0, 0, 2),
+                new XYZ(10, 0, 4)));
+            document.Entities.Add(new Ray
+            {
+                StartPoint = new XYZ(20, 0, 5),
+                Direction = XYZ.AxisX,
+            });
+            document.Entities.Add(new XLine
+            {
+                FirstPoint = new XYZ(40, 0, 7),
+                Direction = new XYZ(1, 1, 0),
+            });
+            document.Entities.Add(new Point(new XYZ(60, 5, 9)));
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        AssertNearest(
+            snapshot,
+            viewport,
+            new CadPoint3D(3, 1, 0),
+            new CadPoint3D(3, 0, 2.6),
+            scratch);
+        AssertNearest(
+            snapshot,
+            viewport,
+            new CadPoint3D(17, 1, 0),
+            new CadPoint3D(20, 0, 5),
+            scratch);
+        AssertNearest(
+            snapshot,
+            viewport,
+            new CadPoint3D(43, 4, 0),
+            new CadPoint3D(43.5, 3.5, 7),
+            scratch);
+        AssertNearest(
+            snapshot,
+            viewport,
+            new CadPoint3D(60, 6, 0),
+            new CadPoint3D(60, 5, 9),
+            scratch);
+    }
+
+    [Fact]
+    public void NearestSnapSolvesCircularAndEllipticalCurvesWithoutFlattening()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add nearest curves", document =>
+        {
+            document.Entities.Add(new Circle(XYZ.Zero, 5));
+            document.Entities.Add(new Arc
+            {
+                Center = new XYZ(20, 0, 0),
+                Radius = 5,
+                StartAngle = 0,
+                EndAngle = Math.PI / 2,
+            });
+            document.Entities.Add(new Ellipse
+            {
+                Center = new XYZ(40, 0, 3),
+                MajorAxisEndPoint = new XYZ(8, 0, 0),
+                RadiusRatio = 0.5,
+            });
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        double inverse = 1.0 / Math.Sqrt(20.0);
+        AssertNearest(
+            snapshot,
+            viewport,
+            new CadPoint3D(4, 2, 0),
+            new CadPoint3D(20 * inverse, 10 * inverse, 0),
+            scratch,
+            tolerance: 1e-9);
+        AssertNearest(
+            snapshot,
+            viewport,
+            new CadPoint3D(17, 1, 0),
+            new CadPoint3D(20, 5, 0),
+            scratch,
+            tolerance: 1e-9);
+
+        CadPoint3D query = new(45, 3, 0);
+        CadObjectSnapResult ellipse = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(query),
+            100,
+            CadObjectSnapModes.Nearest,
+            scratch);
+        Assert.Equal(CadObjectSnapKind.Nearest, ellipse.Kind);
+        Assert.Equal(2, ellipse.EntityIndex);
+        double localX = (ellipse.Point.X - 40) / 8;
+        double localY = ellipse.Point.Y / 4;
+        Assert.Equal(1.0, (localX * localX) + (localY * localY), 10);
+        double tangentX = -8 * localY;
+        double tangentY = 4 * localX;
+        double deltaX = ellipse.Point.X - query.X;
+        double deltaY = ellipse.Point.Y - query.Y;
+        Assert.Equal(0.0, (deltaX * tangentX) + (deltaY * tangentY), 9);
+        Assert.Equal(3.0, ellipse.Point.Z, 12);
+    }
+
+    [Fact]
+    public void NearestSnapUsesExactPolylineSegmentsAndRationalSplineSpans()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add nearest composite curves", document =>
+        {
+            var lightweight = new LwPolyline();
+            lightweight.Vertices.Add(
+                new LwPolyline.Vertex(0, 0) { Bulge = 1 });
+            lightweight.Vertices.Add(new LwPolyline.Vertex(10, 0));
+            lightweight.Vertices.Add(new LwPolyline.Vertex(20, 0));
+            document.Entities.Add(lightweight);
+
+            var legacy = new Polyline2D();
+            legacy.Vertices.Add(
+                new Vertex2D(new XYZ(30, 0, 0)) { Bulge = 1 });
+            legacy.Vertices.Add(new Vertex2D(new XYZ(40, 0, 0)));
+            document.Entities.Add(legacy);
+
+            document.Entities.Add(new Polyline3D(
+                [new XYZ(60, 0, 2), new XYZ(70, 0, 4)],
+                isClosed: false));
+
+            var spline = new Spline { Degree = 2 };
+            spline.ControlPoints.AddRange([
+                new XYZ(91, 0, 6),
+                new XYZ(91, 1, 6),
+                new XYZ(90, 1, 6),
+            ]);
+            spline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+            spline.Weights.AddRange([1, Math.Sqrt(0.5), 1]);
+            document.Entities.Add(spline);
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        AssertNearest(
+            snapshot,
+            viewport,
+            new CadPoint3D(5, -7, 0),
+            new CadPoint3D(5, -5, 0),
+            scratch,
+            tolerance: 1e-9);
+        AssertNearest(
+            snapshot,
+            viewport,
+            new CadPoint3D(15, 2, 0),
+            new CadPoint3D(15, 0, 0),
+            scratch);
+        AssertNearest(
+            snapshot,
+            viewport,
+            new CadPoint3D(35, -7, 0),
+            new CadPoint3D(35, -5, 0),
+            scratch,
+            tolerance: 1e-9);
+        AssertNearest(
+            snapshot,
+            viewport,
+            new CadPoint3D(63, 2, 0),
+            new CadPoint3D(63, 0, 2.6),
+            scratch);
+
+        double diagonal = Math.Sqrt(0.5);
+        AssertNearest(
+            snapshot,
+            viewport,
+            new CadPoint3D(90.8, 0.8, 0),
+            new CadPoint3D(90 + diagonal, diagonal, 6),
+            scratch,
+            tolerance: 1e-6);
+    }
+
+    [Fact]
     public void PolylineMidpointUsesExactBulgeArcInsteadOfChordFlattening()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
@@ -307,7 +495,9 @@ public sealed class CadObjectSnapTests
             viewport,
             viewport.WorldToScreen(CadPoint3D.Zero),
             1,
-            CadObjectSnapModes.Endpoint | CadObjectSnapModes.Midpoint,
+            CadObjectSnapModes.Endpoint |
+                CadObjectSnapModes.Midpoint |
+                CadObjectSnapModes.Nearest,
             scratch);
 
         Assert.Equal(CadObjectSnapKind.Endpoint, result.Kind);
@@ -342,6 +532,13 @@ public sealed class CadObjectSnapTests
             2,
             CadObjectSnapModes.None,
             scratch);
+        CadObjectSnapResult nearest = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(new CadPoint3D(0.25, 0.25, 0)),
+            10,
+            CadObjectSnapModes.Nearest,
+            scratch);
 
         Assert.True(truncated.AreCandidatesTruncated);
         Assert.Equal(1, truncated.CandidateWrittenCount);
@@ -349,6 +546,10 @@ public sealed class CadObjectSnapTests
         Assert.True(truncated.IsSnapped);
         Assert.False(disabled.IsSnapped);
         Assert.Equal(0, disabled.CandidateTotalCount);
+        Assert.True(nearest.IsSnapped);
+        Assert.True(nearest.AreCandidatesTruncated);
+        Assert.Equal(1, nearest.CandidateWrittenCount);
+        Assert.Equal(2, nearest.CandidateTotalCount);
     }
 
     [Fact]
@@ -378,6 +579,40 @@ public sealed class CadObjectSnapTests
                 point,
                 10,
                 CadObjectSnapModes.Standard,
+                scratch);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void WarmNearestConicQueriesAllocateNoManagedMemory()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add circle", document =>
+            document.Entities.Add(new Circle(XYZ.Zero, 5)));
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+        Vector2 point = viewport.WorldToScreen(new CadPoint3D(4, 2, 0));
+        _ = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            point,
+            20,
+            CadObjectSnapModes.Nearest,
+            scratch);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 256; index++)
+        {
+            _ = CadObjectSnapQuery.Query(
+                snapshot,
+                viewport,
+                point,
+                20,
+                CadObjectSnapModes.Nearest,
                 scratch);
         }
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
@@ -752,6 +987,28 @@ public sealed class CadObjectSnapTests
         AssertPoint(expected, result.Point, tolerance);
         Assert.Equal(snapshot.ContentGeneration, result.ContentGeneration);
         Assert.Equal(0, result.DistancePixels, 5);
+    }
+
+    private static void AssertNearest(
+        CadDocumentSnapshot snapshot,
+        CadPlanViewport viewport,
+        CadPoint3D query,
+        CadPoint3D expected,
+        int[] scratch,
+        double tolerance = 1e-10)
+    {
+        CadObjectSnapResult result = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(query),
+            100,
+            CadObjectSnapModes.Nearest,
+            scratch);
+
+        Assert.True(result.IsSnapped);
+        Assert.Equal(CadObjectSnapKind.Nearest, result.Kind);
+        AssertPoint(expected, result.Point, tolerance);
+        Assert.Equal(snapshot.ContentGeneration, result.ContentGeneration);
     }
 
     private static CadDocumentSnapshot Compile(CadDocumentSession session) =>

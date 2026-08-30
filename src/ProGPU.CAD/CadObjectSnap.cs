@@ -4,7 +4,7 @@ namespace ProGPU.CAD;
 
 /// <summary>Composable running object-snap modes for immutable CAD snapshots.</summary>
 [Flags]
-public enum CadObjectSnapModes : byte
+public enum CadObjectSnapModes : ushort
 {
     None = 0,
     Endpoint = 1 << 0,
@@ -13,6 +13,7 @@ public enum CadObjectSnapModes : byte
     Node = 1 << 3,
     Quadrant = 1 << 4,
     Intersection = 1 << 5,
+    Nearest = 1 << 9,
     Standard = Endpoint | Midpoint | Center | Node | Intersection | Quadrant,
 }
 
@@ -26,6 +27,7 @@ public enum CadObjectSnapKind : byte
     Node = 4,
     Quadrant = 5,
     Intersection = 6,
+    Nearest = 7,
 }
 
 /// <summary>
@@ -108,10 +110,11 @@ public static partial class CadObjectSnapQuery
     /// sorts caller scratch in O(K log K), tests at most B entity pairs and C
     /// analytic component pairs. Other candidate evaluation is O(P) for P
     /// exact snap points. B and C are the corresponding public maximums above.
-    /// Internal storage is O(1) plus caller-owned entity-index scratch. Equal
-    /// device distances prefer
-    /// Intersection, Endpoint, Midpoint, Center, Quadrant, then Node, followed
-    /// by retained entity order, second entity order, and point ordinal.
+    /// Nearest mode performs exact segment/span closest-point work S. Internal
+    /// storage is O(1) plus caller-owned entity-index scratch. Equal device
+    /// distances prefer Intersection, Endpoint, Midpoint, Center, Quadrant,
+    /// Node, then Nearest, followed by retained entity order, second entity
+    /// order, and point ordinal.
     /// </remarks>
     public static CadObjectSnapResult Query(
         CadDocumentSnapshot snapshot,
@@ -134,7 +137,8 @@ public static partial class CadObjectSnapQuery
                 nameof(aperturePixels),
                 "The object-snap aperture must be finite and non-negative.");
         }
-        if ((modes & ~CadObjectSnapModes.Standard) != 0)
+        if ((modes & ~(CadObjectSnapModes.Standard |
+                       CadObjectSnapModes.Nearest)) != 0)
         {
             throw new ArgumentOutOfRangeException(nameof(modes));
         }
@@ -162,14 +166,18 @@ public static partial class CadObjectSnapQuery
             entityIndexScratch);
         int candidateWrittenCount = spatial.WrittenCount;
         int candidateTotalCount = spatial.TotalCount;
-        if ((modes & CadObjectSnapModes.Intersection) != 0)
+        if ((modes & (CadObjectSnapModes.Intersection |
+                      CadObjectSnapModes.Nearest)) != 0)
         {
             AppendConstructionLineCandidates(
                 snapshot,
                 entityIndexScratch,
                 ref candidateWrittenCount,
                 ref candidateTotalCount);
-            entityIndexScratch[..candidateWrittenCount].Sort();
+            if ((modes & CadObjectSnapModes.Intersection) != 0)
+            {
+                entityIndexScratch[..candidateWrittenCount].Sort();
+            }
         }
 
         var search = new SearchState(
@@ -181,7 +189,8 @@ public static partial class CadObjectSnapQuery
             candidateWrittenCount,
             candidateTotalCount);
         ReadOnlySpan<CadEntityHeader> entities = snapshot.Entities.Span;
-        if ((modes & ~CadObjectSnapModes.Intersection) != 0)
+        if ((modes & ~(CadObjectSnapModes.Intersection |
+                       CadObjectSnapModes.Nearest)) != 0)
         {
             for (int i = 0; i < candidateWrittenCount; i++)
             {
@@ -190,6 +199,20 @@ public static partial class CadObjectSnapQuery
                     snapshot,
                     entities[entityIndex],
                     entityIndex,
+                    ref search);
+            }
+        }
+        if ((modes & CadObjectSnapModes.Nearest) != 0)
+        {
+            CadPoint3D queryPoint = viewport.ScreenToWorld(screenPoint);
+            for (int i = 0; i < candidateWrittenCount; i++)
+            {
+                int entityIndex = entityIndexScratch[i];
+                EvaluateNearest(
+                    snapshot,
+                    entities[entityIndex],
+                    entityIndex,
+                    queryPoint,
                     ref search);
             }
         }
@@ -811,6 +834,8 @@ public static partial class CadObjectSnapQuery
                 (_modes & CadObjectSnapModes.Intersection) != 0,
             CadObjectSnapKind.Quadrant =>
                 (_modes & CadObjectSnapModes.Quadrant) != 0,
+            CadObjectSnapKind.Nearest =>
+                (_modes & CadObjectSnapModes.Nearest) != 0,
             _ => false,
         };
 
@@ -849,6 +874,7 @@ public static partial class CadObjectSnapQuery
             CadObjectSnapKind.Center => 3,
             CadObjectSnapKind.Quadrant => 4,
             CadObjectSnapKind.Node => 5,
+            CadObjectSnapKind.Nearest => 6,
             _ => int.MaxValue,
         };
     }

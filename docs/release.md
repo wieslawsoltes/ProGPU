@@ -48,8 +48,11 @@ translated selection bounds, with no entity mutation, snapshot publication, or
 scene rebuild; the second click commits through the existing one-generation
 transactional MOVE/COPY commands. Escape and document/selection teardown cancel
 without edits, source handles remain selected, and coincident MOVE/COPY behavior
-is explicit. Object snaps, typed coordinates, UCS/arbitrary-camera planes, COPY
-Multiple, and full geometry ghosting remain. This workflow changes no renderer,
+is explicit. The same prompts now accept bounded typed coordinates and exact
+running Intersection/Endpoint/Midpoint/Center/Quadrant/Node/Nearest points;
+Nearest covers documented linear, conic, polyline, POINT, and rational-spline
+families without flattening. Grid, remaining object snaps, UCS/arbitrary-camera
+planes, COPY Multiple, and full geometry ghosting remain. This workflow changes no renderer,
 shader, GPU/native ABI, or persistence contract and makes no performance-
 improvement claim.
 
