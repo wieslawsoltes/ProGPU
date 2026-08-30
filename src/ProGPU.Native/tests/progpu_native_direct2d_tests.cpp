@@ -1868,7 +1868,7 @@ int main()
         "unsupported-operation command-list recording did not begin");
     context->SetTextRenderingParams(text_rendering_params.Get());
     const D2D1_RECT_F preflight_text_bounds = {0.0F, 0.0F, 16.0F, 16.0F};
-    context->DrawTextW(
+    context->DrawText(
         L"x",
         1U,
         preflight_text_format.Get(),
