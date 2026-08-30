@@ -10,6 +10,7 @@
 #include <wrl/client.h>
 
 #include <atomic>
+#include <cmath>
 #include <mutex>
 #include <new>
 #include <utility>
@@ -468,6 +469,60 @@ HRESULT create_win2d_canvas_render_target(
         surface.win2d_canvas_render_target.GetAddressOf());
 }
 
+HRESULT create_win2d_wrapper(
+    progpu_native_direct2d_surface& surface,
+    IUnknown* native_resource,
+    float dpi,
+    IInspectable** wrapper)
+{
+    HRESULT hr = create_win2d_canvas_device(surface);
+    if (FAILED(hr)) {
+        return hr;
+    }
+    ComPtr<IProGpuWin2DCanvasDevice> canvas_device;
+    hr = surface.win2d_canvas_device.As(&canvas_device);
+    if (FAILED(hr)) {
+        return hr;
+    }
+    return surface.win2d_factory->GetOrCreate(
+        canvas_device.Get(),
+        native_resource,
+        dpi,
+        wrapper);
+}
+
+HRESULT get_win2d_wrapper_native_resource(
+    progpu_native_direct2d_surface& surface,
+    IUnknown* wrapper,
+    float dpi,
+    REFIID interface_id,
+    void** native_resource)
+{
+    HRESULT hr = create_win2d_canvas_device(surface);
+    if (FAILED(hr)) {
+        return hr;
+    }
+    ComPtr<IProGpuWin2DCanvasDevice> canvas_device;
+    hr = surface.win2d_canvas_device.As(&canvas_device);
+    if (FAILED(hr)) {
+        return hr;
+    }
+    ComPtr<IProGpuWin2DCanvasResourceWrapperNative> resource_wrapper;
+    hr = wrapper->QueryInterface(IID_PPV_ARGS(&resource_wrapper));
+    if (FAILED(hr)) {
+        return hr;
+    }
+    hr = resource_wrapper->GetNativeResource(
+        canvas_device.Get(),
+        dpi,
+        interface_id,
+        native_resource);
+    if (SUCCEEDED(hr) && *native_resource == nullptr) {
+        return E_UNEXPECTED;
+    }
+    return hr;
+}
+
 progpu_native_direct2d_status status_from_win2d_hresult(HRESULT hr)
 {
     if (hr == CO_E_NOTINITIALIZED) {
@@ -851,6 +906,117 @@ progpu_native_direct2d_surface_try_get_win2d_native_resource(
         }
     }
 
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        *value = nullptr;
+        return status_from_win2d_hresult(hr);
+    }
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_solid_color_brush(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_color_f* color,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || color == nullptr || value == nullptr ||
+        native_hresult == nullptr || !std::isfinite(color->red) ||
+        !std::isfinite(color->green) || !std::isfinite(color->blue) ||
+        !std::isfinite(color->alpha)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    D2D1_COLOR_F native_color = {
+        color->red,
+        color->green,
+        color->blue,
+        color->alpha
+    };
+    ComPtr<ID2D1SolidColorBrush> brush;
+    HRESULT hr = surface->d2d_context->CreateSolidColorBrush(
+        native_color,
+        brush.GetAddressOf());
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(brush, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper(
+    progpu_native_direct2d_surface* surface,
+    void* native_resource,
+    float dpi,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || native_resource == nullptr || value == nullptr ||
+        native_hresult == nullptr || !std::isfinite(dpi) || dpi < 0.0F) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<IInspectable> wrapper;
+    HRESULT hr = create_win2d_wrapper(
+        *surface,
+        reinterpret_cast<IUnknown*>(native_resource),
+        dpi,
+        wrapper.GetAddressOf());
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(wrapper, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_try_get_win2d_wrapper_native_resource(
+    progpu_native_direct2d_surface* surface,
+    void* wrapper,
+    float dpi,
+    const progpu_native_direct2d_guid* interface_id,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || wrapper == nullptr || interface_id == nullptr ||
+        value == nullptr || native_hresult == nullptr ||
+        !std::isfinite(dpi) || dpi < 0.0F) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    GUID native_interface_id = to_native_guid(*interface_id);
+    HRESULT hr = get_win2d_wrapper_native_resource(
+        *surface,
+        reinterpret_cast<IUnknown*>(wrapper),
+        dpi,
+        native_interface_id,
+        value);
     surface->last_hresult.store(hr, std::memory_order_release);
     *native_hresult = hr;
     if (FAILED(hr)) {

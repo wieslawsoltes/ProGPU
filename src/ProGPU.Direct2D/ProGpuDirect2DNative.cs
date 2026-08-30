@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 6U;
+    internal const uint AbiVersion = 7U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -67,6 +67,15 @@ internal static unsafe partial class ProGpuDirect2DNative
                 Data4 = BinaryPrimitives.ReadUInt64LittleEndian(bytes[8..])
             };
         }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeColorF
+    {
+        internal float Red;
+        internal float Green;
+        internal float Blue;
+        internal float Alpha;
     }
 
     internal enum Win2DResourceKind
@@ -157,6 +166,41 @@ internal static unsafe partial class ProGpuDirect2DNative
         SurfaceTryGetWin2DNativeResource(
             nint surface,
             Win2DResourceKind resourceKind,
+            NativeGuid* interfaceId,
+            nint* value,
+            int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_solid_color_brush")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceCreateSolidColorBrush(
+        nint surface,
+        NativeColorF* color,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceTryGetOrCreateWin2DWrapper(
+            nint surface,
+            nint nativeResource,
+            float dpi,
+            nint* value,
+            int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_try_get_win2d_wrapper_native_resource")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceTryGetWin2DWrapperNativeResource(
+            nint surface,
+            nint wrapper,
+            float dpi,
             NativeGuid* interfaceId,
             nint* value,
             int* nativeHResult);

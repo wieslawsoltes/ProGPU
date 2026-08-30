@@ -26,6 +26,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
         new("D21768E1-23A4-4823-A14B-7C3EBA85D658");
     private static readonly Guid D2D1Bitmap1InterfaceId =
         new("A898A84C-3873-4588-B08B-EBBF978DF041");
+    private static readonly Guid D2D1SolidColorBrushInterfaceId =
+        new("2CD906A9-12E2-11DC-9FED-001143A055F9");
 
     private readonly object _gate = new();
     private readonly DawnGpuContext _dawn;
@@ -242,6 +244,183 @@ public sealed unsafe class ProGpuDirect2DSurface :
             "Microsoft Win2D CanvasRenderTarget native-resource query",
             out nativeBitmap,
             out nativeHResult);
+
+    /// <summary>
+    /// Creates a genuine device-context-domain ID2D1SolidColorBrush. The
+    /// returned safe handle owns one COM reference and may be used with the
+    /// ID2D1DeviceContext exposed by this surface.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateSolidColorBrush(
+        ProGpuDirect2DColor color)
+    {
+        ValidateColor(color);
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            var nativeColor = new ProGpuDirect2DNative.NativeColorF
+            {
+                Red = color.Red,
+                Green = color.Green,
+                Blue = color.Blue,
+                Alpha = color.Alpha
+            };
+            nint value = 0;
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceCreateSolidColorBrush(
+                    _nativeSurface,
+                    &nativeColor,
+                    &value,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1SolidColorBrush creation",
+                status,
+                nativeHResult);
+            if (value == 0)
+            {
+                throw new InvalidOperationException(
+                    "Direct2D brush creation succeeded without returning an interface.");
+            }
+            return new ProGpuDirect2DComReference(
+                value,
+                ProGpuDirect2DInterfaceKind.D2D1SolidColorBrush);
+        }
+    }
+
+    /// <summary>
+    /// Wraps a provider-created ID2D1SolidColorBrush as a genuine Microsoft
+    /// Win2D CanvasSolidColorBrush through ICanvasFactoryNative. The returned
+    /// safe handle owns one COM reference.
+    /// </summary>
+    public bool TryAcquireMicrosoftWin2DSolidColorBrush(
+        ProGpuDirect2DComReference nativeBrush,
+        out ProGpuDirect2DComReference? canvasBrush,
+        out int nativeHResult)
+    {
+        ArgumentNullException.ThrowIfNull(nativeBrush);
+        if (nativeBrush.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.D2D1SolidColorBrush)
+        {
+            throw new ArgumentException(
+                "The COM reference must own an ID2D1SolidColorBrush created by this provider.",
+                nameof(nativeBrush));
+        }
+
+        bool referenceAdded = false;
+        try
+        {
+            nativeBrush.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                nint value = 0;
+                int resultHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.SurfaceTryGetOrCreateWin2DWrapper(
+                        _nativeSurface,
+                        nativeBrush.DangerousGetHandle(),
+                        0.0F,
+                        &value,
+                        &resultHResult);
+                nativeHResult = resultHResult;
+                if (status == ProGpuDirect2DStatus.Win2DRuntimeUnavailable)
+                {
+                    canvasBrush = null;
+                    return false;
+                }
+                ThrowIfFailed(
+                    "Microsoft Win2D CanvasSolidColorBrush wrapping",
+                    status,
+                    nativeHResult);
+                if (value == 0)
+                {
+                    throw new InvalidOperationException(
+                        "Win2D brush wrapping succeeded without returning an interface.");
+                }
+                canvasBrush = new ProGpuDirect2DComReference(
+                    value,
+                    ProGpuDirect2DInterfaceKind.Win2DCanvasSolidColorBrush);
+                return true;
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                nativeBrush.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reverse-unwraps a genuine Microsoft Win2D CanvasSolidColorBrush through
+    /// ICanvasResourceWrapperNative and returns its exact
+    /// ID2D1SolidColorBrush with one caller-owned COM reference.
+    /// </summary>
+    public bool TryAcquireMicrosoftWin2DNativeSolidColorBrush(
+        ProGpuDirect2DComReference canvasBrush,
+        out ProGpuDirect2DComReference? nativeBrush,
+        out int nativeHResult)
+    {
+        ArgumentNullException.ThrowIfNull(canvasBrush);
+        if (canvasBrush.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.Win2DCanvasSolidColorBrush)
+        {
+            throw new ArgumentException(
+                "The COM reference must own a Win2D CanvasSolidColorBrush returned by this provider.",
+                nameof(canvasBrush));
+        }
+
+        bool referenceAdded = false;
+        try
+        {
+            canvasBrush.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                ProGpuDirect2DNative.NativeGuid interfaceId =
+                    ProGpuDirect2DNative.NativeGuid.FromGuid(
+                        D2D1SolidColorBrushInterfaceId);
+                nint value = 0;
+                int resultHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative
+                        .SurfaceTryGetWin2DWrapperNativeResource(
+                            _nativeSurface,
+                            canvasBrush.DangerousGetHandle(),
+                            0.0F,
+                            &interfaceId,
+                            &value,
+                            &resultHResult);
+                nativeHResult = resultHResult;
+                if (status == ProGpuDirect2DStatus.Win2DRuntimeUnavailable)
+                {
+                    nativeBrush = null;
+                    return false;
+                }
+                ThrowIfFailed(
+                    "Microsoft Win2D CanvasSolidColorBrush native-resource query",
+                    status,
+                    nativeHResult);
+                if (value == 0)
+                {
+                    throw new InvalidOperationException(
+                        "Win2D brush unwrapping succeeded without returning an interface.");
+                }
+                nativeBrush = new ProGpuDirect2DComReference(
+                    value,
+                    ProGpuDirect2DInterfaceKind.D2D1SolidColorBrush);
+                return true;
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                canvasBrush.DangerousRelease();
+            }
+        }
+    }
 
     private bool TryAcquireMicrosoftWin2DNativeResource(
         ProGpuDirect2DNative.Win2DResourceKind resourceKind,
@@ -675,6 +854,19 @@ public sealed unsafe class ProGpuDirect2DSurface :
             throw new ArgumentException(
                 "A forced WARP device cannot select a hardware adapter LUID.",
                 nameof(options));
+        }
+    }
+
+    private static void ValidateColor(ProGpuDirect2DColor color)
+    {
+        if (!float.IsFinite(color.Red) ||
+            !float.IsFinite(color.Green) ||
+            !float.IsFinite(color.Blue) ||
+            !float.IsFinite(color.Alpha))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(color),
+                "Direct2D color channels must be finite.");
         }
     }
 

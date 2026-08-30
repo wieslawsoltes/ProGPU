@@ -74,7 +74,9 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_BITMAP1 = 15,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WINRT_DIRECT3D11_DEVICE = 16,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_DEVICE = 17,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_RENDER_TARGET = 18
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_RENDER_TARGET = 18,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_SOLID_COLOR_BRUSH = 19,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_SOLID_COLOR_BRUSH = 20
 } progpu_native_direct2d_interface_kind;
 
 /* Selects a surface-owned Win2D wrapper for reverse native-resource
@@ -123,8 +125,17 @@ typedef struct progpu_native_direct2d_guid {
     uint8_t data4[8];
 } progpu_native_direct2d_guid;
 
+/* Linear floating-point color passed directly to D2D1_COLOR_F. Values must be
+ * finite; HDR values outside [0, 1] remain valid and are not clamped. */
+typedef struct progpu_native_direct2d_color_f {
+    float red;
+    float green;
+    float blue;
+    float alpha;
+} progpu_native_direct2d_color_f;
+
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 6U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 7U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -192,6 +203,40 @@ PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_surface_try_get_win2d_native_resource(
     progpu_native_direct2d_surface* surface,
     progpu_native_direct2d_win2d_resource_kind resource_kind,
+    const progpu_native_direct2d_guid* interface_id,
+    void** value,
+    int32_t* native_hresult);
+
+/* Creates a device-context-domain ID2D1SolidColorBrush. The returned genuine
+ * COM interface owns one caller reference. Resource creation does not begin a
+ * draw or acquire the shared target. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_solid_color_brush(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_color_f* color,
+    void** value,
+    int32_t* native_hresult);
+
+/* Wraps a caller-owned native Direct2D resource through Win2D's official
+ * ICanvasFactoryNative::GetOrCreate contract using this surface's exact
+ * CanvasDevice. The native resource must remain alive for the duration of the
+ * call. The returned IInspectable owns one caller reference. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper(
+    progpu_native_direct2d_surface* surface,
+    void* native_resource,
+    float dpi,
+    void** value,
+    int32_t* native_hresult);
+
+/* Reverse-unwraps any genuine Win2D resource wrapper in this surface's device
+ * domain through ICanvasResourceWrapperNative. The returned native interface
+ * owns one caller reference. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_try_get_win2d_wrapper_native_resource(
+    progpu_native_direct2d_surface* surface,
+    void* wrapper,
+    float dpi,
     const progpu_native_direct2d_guid* interface_id,
     void** value,
     int32_t* native_hresult);
