@@ -1,6 +1,6 @@
 #include "progpu_native_direct2d.h"
 
-#include <d2d1_2.h>
+#include <d2d1_3.h>
 #include <d3d11.h>
 #include <dwrite_3.h>
 #include <dxgi1_2.h>
@@ -1126,6 +1126,20 @@ progpu_native_direct2d_status progpu_native_direct2d_surface_get_interface(
         }
         case PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT1:
             return return_interface(surface->d2d_context, value);
+        case PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT4: {
+            ComPtr<ID2D1DeviceContext4> result;
+            if (FAILED(surface->d2d_context.As(&result))) {
+                return PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED;
+            }
+            return return_interface(result, value);
+        }
+        case PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT7: {
+            ComPtr<ID2D1DeviceContext7> result;
+            if (FAILED(surface->d2d_context.As(&result))) {
+                return PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED;
+            }
+            return return_interface(result, value);
+        }
         case PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_BITMAP: {
             ComPtr<ID2D1Bitmap> result;
             if (FAILED(surface->d2d_bitmap.As(&result))) {
@@ -2697,6 +2711,218 @@ progpu_native_direct2d_surface_draw_glyph_run(
             nullptr,
             brush.Get(),
             static_cast<DWRITE_MEASURING_MODE>(measuring_mode));
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_color_glyph_run(
+    progpu_native_direct2d_surface* surface,
+    float baseline_origin_x,
+    float baseline_origin_y,
+    float font_em_size,
+    void* font_face,
+    const uint16_t* glyph_indices,
+    uint32_t glyph_count,
+    const float* glyph_advances,
+    uint32_t glyph_advance_count,
+    const progpu_native_direct2d_glyph_offset* glyph_offsets,
+    uint32_t glyph_offset_count,
+    uint32_t is_sideways,
+    uint32_t bidi_level,
+    void* foreground_brush,
+    uint32_t color_palette_index,
+    progpu_native_direct2d_measuring_mode measuring_mode,
+    progpu_native_direct2d_color_glyph_path* selected_path,
+    int32_t* native_hresult)
+{
+    if (selected_path != nullptr) {
+        *selected_path = static_cast<progpu_native_direct2d_color_glyph_path>(0);
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    constexpr uint32_t maximum_glyph_count = 1U << 20U;
+    if (surface == nullptr || !std::isfinite(baseline_origin_x) ||
+        !std::isfinite(baseline_origin_y) || !std::isfinite(font_em_size) ||
+        font_em_size <= 0.0F || font_face == nullptr ||
+        glyph_indices == nullptr || glyph_count == 0U ||
+        glyph_count > maximum_glyph_count ||
+        (glyph_advances == nullptr
+            ? glyph_advance_count != 0U
+            : glyph_advance_count != glyph_count) ||
+        (glyph_offsets == nullptr
+            ? glyph_offset_count != 0U
+            : glyph_offset_count != glyph_count) ||
+        is_sideways > 1U || bidi_level > 125U ||
+        foreground_brush == nullptr || !is_valid(measuring_mode) ||
+        selected_path == nullptr || native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    for (uint32_t index = 0U; index < glyph_advance_count; ++index) {
+        if (!std::isfinite(glyph_advances[index])) {
+            return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+        }
+    }
+    for (uint32_t index = 0U; index < glyph_offset_count; ++index) {
+        if (!std::isfinite(glyph_offsets[index].advance_offset) ||
+            !std::isfinite(glyph_offsets[index].ascender_offset)) {
+            return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+        }
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<IDWriteFontFace> face;
+    HRESULT hr = reinterpret_cast<IUnknown*>(font_face)->QueryInterface(
+        IID_PPV_ARGS(&face));
+    ComPtr<ID2D1Brush> foreground;
+    if (SUCCEEDED(hr)) {
+        hr = reinterpret_cast<IUnknown*>(foreground_brush)->QueryInterface(
+            IID_PPV_ARGS(&foreground));
+    }
+    const DWRITE_GLYPH_RUN run = {
+        face.Get(),
+        font_em_size,
+        glyph_count,
+        glyph_indices,
+        glyph_advances,
+        reinterpret_cast<const DWRITE_GLYPH_OFFSET*>(glyph_offsets),
+        is_sideways != 0U,
+        bidi_level};
+    const D2D1_POINT_2F origin =
+        D2D1::Point2F(baseline_origin_x, baseline_origin_y);
+    ComPtr<ID2D1DeviceContext7> context7;
+    if (SUCCEEDED(hr)) {
+        hr = surface->d2d_context.As(&context7);
+    }
+    if (SUCCEEDED(hr)) {
+        context7->DrawGlyphRunWithColorSupport(
+            origin,
+            &run,
+            nullptr,
+            foreground.Get(),
+            nullptr,
+            color_palette_index,
+            static_cast<DWRITE_MEASURING_MODE>(measuring_mode),
+            D2D1_COLOR_BITMAP_GLYPH_SNAP_OPTION_DEFAULT);
+        *selected_path =
+            PROGPU_NATIVE_DIRECT2D_COLOR_GLYPH_PATH_DEVICE_CONTEXT7;
+    } else if (hr == E_NOINTERFACE) {
+        ComPtr<ID2D1DeviceContext4> context4;
+        hr = surface->d2d_context.As(&context4);
+        ComPtr<IDWriteFactory4> factory4;
+        if (SUCCEEDED(hr)) {
+            hr = surface->dwrite_factory.As(&factory4);
+        }
+        ComPtr<IDWriteColorGlyphRunEnumerator1> color_runs;
+        if (SUCCEEDED(hr)) {
+            constexpr DWRITE_GLYPH_IMAGE_FORMATS desired_formats =
+                static_cast<DWRITE_GLYPH_IMAGE_FORMATS>(
+                    DWRITE_GLYPH_IMAGE_FORMATS_TRUETYPE |
+                    DWRITE_GLYPH_IMAGE_FORMATS_CFF |
+                    DWRITE_GLYPH_IMAGE_FORMATS_COLR |
+                    DWRITE_GLYPH_IMAGE_FORMATS_SVG |
+                    DWRITE_GLYPH_IMAGE_FORMATS_PNG |
+                    DWRITE_GLYPH_IMAGE_FORMATS_JPEG |
+                    DWRITE_GLYPH_IMAGE_FORMATS_TIFF |
+                    DWRITE_GLYPH_IMAGE_FORMATS_PREMULTIPLIED_B8G8R8A8);
+            hr = factory4->TranslateColorGlyphRun(
+                origin,
+                &run,
+                nullptr,
+                desired_formats,
+                static_cast<DWRITE_MEASURING_MODE>(measuring_mode),
+                nullptr,
+                color_palette_index,
+                &color_runs);
+        }
+        if (hr == DWRITE_E_NOCOLOR) {
+            context4->DrawGlyphRun(
+                origin,
+                &run,
+                nullptr,
+                foreground.Get(),
+                static_cast<DWRITE_MEASURING_MODE>(measuring_mode));
+            *selected_path =
+                PROGPU_NATIVE_DIRECT2D_COLOR_GLYPH_PATH_MONOCHROME_NO_COLOR;
+            hr = S_OK;
+        } else if (SUCCEEDED(hr)) {
+            ComPtr<ID2D1SolidColorBrush> color_brush;
+            for (;;) {
+                BOOL has_run = FALSE;
+                hr = color_runs->MoveNext(&has_run);
+                if (FAILED(hr) || has_run == FALSE) {
+                    break;
+                }
+                const DWRITE_COLOR_GLYPH_RUN1* color_run = nullptr;
+                hr = color_runs->GetCurrentRun(&color_run);
+                if (FAILED(hr) || color_run == nullptr) {
+                    if (SUCCEEDED(hr)) {
+                        hr = E_UNEXPECTED;
+                    }
+                    break;
+                }
+                ID2D1Brush* run_brush = foreground.Get();
+                if (color_run->paletteIndex != DWRITE_NO_PALETTE_INDEX) {
+                    if (!color_brush) {
+                        hr = context4->CreateSolidColorBrush(
+                            color_run->runColor,
+                            &color_brush);
+                        if (FAILED(hr)) {
+                            break;
+                        }
+                    } else {
+                        color_brush->SetColor(color_run->runColor);
+                    }
+                    run_brush = color_brush.Get();
+                }
+                const D2D1_POINT_2F run_origin = D2D1::Point2F(
+                    color_run->baselineOriginX,
+                    color_run->baselineOriginY);
+                switch (color_run->glyphImageFormat) {
+                    case DWRITE_GLYPH_IMAGE_FORMATS_NONE:
+                        break;
+                    case DWRITE_GLYPH_IMAGE_FORMATS_PNG:
+                    case DWRITE_GLYPH_IMAGE_FORMATS_JPEG:
+                    case DWRITE_GLYPH_IMAGE_FORMATS_TIFF:
+                    case DWRITE_GLYPH_IMAGE_FORMATS_PREMULTIPLIED_B8G8R8A8:
+                        context4->DrawColorBitmapGlyphRun(
+                            color_run->glyphImageFormat,
+                            run_origin,
+                            &color_run->glyphRun,
+                            color_run->measuringMode,
+                            D2D1_COLOR_BITMAP_GLYPH_SNAP_OPTION_DEFAULT);
+                        break;
+                    case DWRITE_GLYPH_IMAGE_FORMATS_SVG:
+                        context4->DrawSvgGlyphRun(
+                            run_origin,
+                            &color_run->glyphRun,
+                            run_brush,
+                            nullptr,
+                            color_palette_index,
+                            color_run->measuringMode);
+                        break;
+                    default:
+                        context4->DrawGlyphRun(
+                            run_origin,
+                            &color_run->glyphRun,
+                            color_run->glyphRunDescription,
+                            run_brush,
+                            color_run->measuringMode);
+                        break;
+                }
+            }
+            if (SUCCEEDED(hr)) {
+                *selected_path = PROGPU_NATIVE_DIRECT2D_COLOR_GLYPH_PATH_TRANSLATED_DEVICE_CONTEXT4;
+            }
+        }
     }
     surface->last_hresult.store(hr, std::memory_order_release);
     *native_hresult = hr;

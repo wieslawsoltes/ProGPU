@@ -994,6 +994,7 @@ internal static partial class Program
             ];
             using ProGpuDirect2DComReference nativeGlyphCommandList =
                 surface.CreateCommandList();
+            ProGpuDirect2DColorGlyphPath colorGlyphPath;
             using (ProGpuDirect2DCommandListDrawingSession glyphSession =
                 surface.BeginCommandListDrawing(nativeGlyphCommandList))
             {
@@ -1005,6 +1006,21 @@ internal static partial class Program
                     nativeGlyphAdvances,
                     nativeGlyphOffsets,
                     nativeSolidColorBrush);
+                colorGlyphPath = glyphSession.DrawColorGlyphRun(
+                    new Vector2(28.0F, 16.0F),
+                    13.0F,
+                    nativeFontFace,
+                    nativeGlyphIndices,
+                    nativeGlyphAdvances,
+                    nativeGlyphOffsets,
+                    nativeSolidColorBrush);
+            }
+            if (colorGlyphPath is <
+                    ProGpuDirect2DColorGlyphPath.DeviceContext7 or >
+                    ProGpuDirect2DColorGlyphPath.MonochromeNoColor)
+            {
+                throw new InvalidOperationException(
+                    "Direct2D color-glyph drawing returned an invalid path diagnostic.");
             }
             WriteProgress("font-face-roundtrip-native-glyph-draw-complete");
             using ProGpuDirect2DComReference nativeTextLayoutCommandList =

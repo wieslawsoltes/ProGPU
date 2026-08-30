@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 20U;",
+            "internal const uint AbiVersion = 21U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -189,6 +189,10 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
+            "progpu_native_direct2d_surface_draw_color_glyph_run",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "progpu_native_direct2d_surface_create_rectangle_geometry",
             native,
             StringComparison.Ordinal);
@@ -312,7 +316,7 @@ public sealed class Direct2DInteropContractTests
             exports,
             StringComparison.Ordinal);
         Assert.Equal(
-            55,
+            56,
             exports.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries |
@@ -360,7 +364,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 20U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 21U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -468,7 +472,19 @@ public sealed class Direct2DInteropContractTests
             test,
             StringComparison.Ordinal);
         Assert.Contains(
+            "progpu_native_direct2d_surface_draw_color_glyph_run(",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "surface->d2d_context->DrawGlyphRun(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DrawGlyphRunWithColorSupport(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "TranslateColorGlyphRun(",
             source,
             StringComparison.Ordinal);
         Assert.Contains(

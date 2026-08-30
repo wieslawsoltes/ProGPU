@@ -5124,6 +5124,16 @@ under the warning-as-error lane, `progpu_native_direct2d_tests` passes in
 0.16 seconds, the complete native CTest suite passes 11/11, and the exact
 55-export Direct2D allowlist is accepted.
 
+ABI v21 extends that shaped run with GPU-native color-font rendering. It
+prefers `ID2D1DeviceContext7::DrawGlyphRunWithColorSupport`; down-level Windows
+10 uses `IDWriteFactory4::TranslateColorGlyphRun` and dispatches each returned
+representation through `ID2D1DeviceContext4` bitmap, SVG, or outline drawing.
+Only `DWRITE_E_NOCOLOR` selects monochrome rendering, while a missing required
+COM interface or other translation failure fails closed. No font bitmap/SVG
+payload crosses into managed or CPU fallback code. A typed diagnostic reports
+the selected context7, translated-context4, or no-color path, and the exact
+allowlist grows from 55 to 56 exports.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
