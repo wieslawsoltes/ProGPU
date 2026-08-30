@@ -58,6 +58,8 @@ public sealed class CadSampleView : Grid
     private readonly Button[] _drawOrderButtons;
     private readonly Button[] _moveButtons;
     private readonly Button[] _copyButtons;
+    private readonly Button _moveByPointsButton;
+    private readonly Button _copyByPointsButton;
     private readonly Button[] _rotateButtons;
     private readonly Button[] _scaleButtons;
     private readonly TextBox _selectionColorInput;
@@ -465,14 +467,17 @@ public sealed class CadSampleView : Grid
         Button movePositiveX = CreateButton("+X", font, 48, 30);
         Button moveNegativeY = CreateButton("−Y", font, 48, 30);
         Button movePositiveY = CreateButton("+Y", font, 48, 30);
+        _moveByPointsButton = CreateButton("Move points…", font, 104, 30);
         moveNegativeX.Margin = new Thickness(0, 0, 4, 0);
         movePositiveX.Margin = new Thickness(0, 0, 8, 0);
         moveNegativeY.Margin = new Thickness(0, 0, 4, 0);
+        movePositiveY.Margin = new Thickness(0, 0, 8, 0);
         _moveButtons = [
             moveNegativeX,
             movePositiveX,
             moveNegativeY,
             movePositiveY,
+            _moveByPointsButton,
         ];
         foreach (Button moveButton in _moveButtons)
         {
@@ -568,14 +573,17 @@ public sealed class CadSampleView : Grid
         Button copyPositiveX = CreateButton("Copy +X", font, 72, 30);
         Button copyNegativeY = CreateButton("Copy −Y", font, 72, 30);
         Button copyPositiveY = CreateButton("Copy +Y", font, 72, 30);
+        _copyByPointsButton = CreateButton("Copy points…", font, 104, 30);
         copyNegativeX.Margin = new Thickness(0, 0, 4, 0);
         copyPositiveX.Margin = new Thickness(0, 0, 8, 0);
         copyNegativeY.Margin = new Thickness(0, 0, 4, 0);
+        copyPositiveY.Margin = new Thickness(0, 0, 8, 0);
         _copyButtons = [
             copyNegativeX,
             copyPositiveX,
             copyNegativeY,
             copyPositiveY,
+            _copyByPointsButton,
         ];
         foreach (Button copyButton in _copyButtons)
         {
@@ -1571,10 +1579,14 @@ public sealed class CadSampleView : Grid
         movePositiveX.Click += (_, _) => MoveSelection(1, 0);
         moveNegativeY.Click += (_, _) => MoveSelection(0, -1);
         movePositiveY.Click += (_, _) => MoveSelection(0, 1);
+        _moveByPointsButton.Click += (_, _) =>
+            BeginSelectionPointTransform(CadPointTransformOperation.Move);
         copyNegativeX.Click += (_, _) => CopySelection(-1, 0);
         copyPositiveX.Click += (_, _) => CopySelection(1, 0);
         copyNegativeY.Click += (_, _) => CopySelection(0, -1);
         copyPositiveY.Click += (_, _) => CopySelection(0, 1);
+        _copyByPointsButton.Click += (_, _) =>
+            BeginSelectionPointTransform(CadPointTransformOperation.Copy);
         rotateCounterclockwise.Click += (_, _) => RotateSelection(1);
         rotateClockwise.Click += (_, _) => RotateSelection(-1);
         scaleUp.Click += (_, _) => ScaleSelection(useReciprocal: false);
@@ -1597,6 +1609,11 @@ public sealed class CadSampleView : Grid
             {
                 SetStatus(DescribeDrawOrderReferencePick());
             }
+            UpdateEditControls();
+        };
+        _canvas.PointTransformChanged += (_, args) =>
+        {
+            SetStatus(DescribePointTransform(args));
             UpdateEditControls();
         };
         _canvas.SnapshotChanged += (_, _) =>
@@ -1630,6 +1647,16 @@ public sealed class CadSampleView : Grid
                 _currentDocumentName,
                 _currentDiagnosticCount));
             UpdateEditControls();
+            e.Handled = true;
+            return;
+        }
+
+        if (!e.Handled &&
+            _canvas.PendingPointTransformOperation is not null &&
+            e.Key == Key.Escape &&
+            FocusManager.GetFocusedElement() is not TextBox)
+        {
+            _canvas.CancelSelectionPointTransform();
             e.Handled = true;
             return;
         }
@@ -3681,6 +3708,69 @@ public sealed class CadSampleView : Grid
                         StringComparison.OrdinalIgnoreCase));
     }
 
+    private void BeginSelectionPointTransform(
+        CadPointTransformOperation operation)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!_canvas.BeginSelectionPointTransform(operation))
+            {
+                SetStatus(
+                    $"{DescribePointTransformOperation(operation)} requires at least one selected entity.");
+            }
+        }
+        catch (Exception exception)
+        {
+            SetStatus(
+                $"{DescribePointTransformOperation(operation)} failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private static string DescribePointTransform(
+        CadPointTransformChangedEventArgs args)
+    {
+        string operation = DescribePointTransformOperation(args.Operation);
+        return args.Stage switch
+        {
+            CadPointTransformStage.AwaitingBasePoint =>
+                $"{operation}: click a WCS base point; Escape cancels.",
+            CadPointTransformStage.AwaitingSecondPoint =>
+                $"{operation}: base {FormatPoint(args.BasePoint!.Value)}; " +
+                "click the second point; Escape cancels.",
+            CadPointTransformStage.Completed when args.ErrorMessage is null =>
+                $"{operation} completed with WCS displacement " +
+                $"{FormatPoint(args.Displacement!.Value)}.",
+            CadPointTransformStage.Completed =>
+                $"{operation} completed without changes: {args.ErrorMessage}",
+            CadPointTransformStage.Canceled => $"{operation} canceled.",
+            CadPointTransformStage.Failed =>
+                $"{operation} failed: {args.ErrorMessage}",
+            _ => throw new ArgumentOutOfRangeException(nameof(args)),
+        };
+    }
+
+    private static string DescribePointTransformOperation(
+        CadPointTransformOperation operation) => operation switch
+    {
+        CadPointTransformOperation.Move => "Move by points",
+        CadPointTransformOperation.Copy => "Copy by points",
+        _ => throw new ArgumentOutOfRangeException(nameof(operation)),
+    };
+
+    private static string FormatPoint(CadPoint3D point) =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"({point.X:G17}, {point.Y:G17}, {point.Z:G17})");
+
     private void MoveSelection(double xDirection, double yDirection)
     {
         if (_isBusy)
@@ -4394,8 +4484,12 @@ public sealed class CadSampleView : Grid
         EnsureLayerMergeSourcesAreCurrent();
         bool isReferencePicking =
             _canvas.PendingDrawOrderPlacement is not null;
+        bool isPointTransformPicking =
+            _canvas.PendingPointTransformOperation is not null;
+        bool isInteractivePicking =
+            isReferencePicking || isPointTransformPicking;
         bool canUsePlanTools =
-            !_isBusy && !_isPrintPreview && !isReferencePicking;
+            !_isBusy && !_isPrintPreview && !isInteractivePicking;
         _openButton.IsEnabled = canUsePlanTools;
         bool canImportLineTypes = canUsePlanTools &&
             _canvas.CurrentSession is not null;
@@ -4411,9 +4505,9 @@ public sealed class CadSampleView : Grid
         _attributeDisplaySelector.IsEnabled =
             canUsePlanTools && _canvas.CurrentSession is not null;
         _printPreviewButton.IsEnabled =
-            !_isBusy && !isReferencePicking &&
+            !_isBusy && !isInteractivePicking &&
             (_isPrintPreview || _canvas.CurrentSnapshot is not null);
-        bool canExport = !_isBusy && !isReferencePicking &&
+        bool canExport = !_isBusy && !isInteractivePicking &&
             _canvas.CurrentSnapshot is not null &&
             (_pageSetupSelector.SelectedItem as ComboBoxItem)?.Tag is
                 PageSetupChoice exportChoice &&
@@ -4421,7 +4515,7 @@ public sealed class CadSampleView : Grid
         _exportPdfButton.IsEnabled = canExport;
         _exportPngButton.IsEnabled = canExport;
         _pageSetupSelector.IsEnabled =
-            !_isBusy && !isReferencePicking &&
+            !_isBusy && !isInteractivePicking &&
             _canvas.CurrentSession is not null;
         _applyPageSetupButton.IsEnabled =
             canUsePlanTools &&

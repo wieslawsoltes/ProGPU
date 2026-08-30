@@ -341,6 +341,179 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void TwoPointMovePreviewsWithoutRecompileAndCommitsOneEdit()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(canvas, viewport.WorldToScreen(CadPoint3D.Zero));
+            var transitions = new List<CadPointTransformChangedEventArgs>();
+            int snapshotChanges = 0;
+            canvas.PointTransformChanged += (_, args) => transitions.Add(args);
+            canvas.SnapshotChanged += (_, _) => snapshotChanges++;
+            CadDocumentSnapshot snapshot = canvas.CurrentSnapshot!;
+            var basePoint = new CadPoint3D(-1, 0, 0);
+            var secondPoint = new CadPoint3D(2, 3, 0);
+
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+            Assert.Equal(
+                CadPointTransformStage.AwaitingBasePoint,
+                canvas.PendingPointTransformStage);
+            Assert.Throws<InvalidOperationException>(() =>
+                canvas.TranslateSelection(new CadPoint3D(1, 0, 0)));
+
+            Click(canvas, viewport.WorldToScreen(basePoint));
+            Vector2 secondScreen = viewport.WorldToScreen(secondPoint);
+            for (int index = 0; index < 1_024; index++)
+            {
+                canvas.OnPointerMoved(new PointerRoutedEventArgs
+                {
+                    Position = secondScreen + new Vector2(
+                        (index & 1) == 0 ? 0.25f : -0.25f,
+                        (index & 2) == 0 ? 0.25f : -0.25f),
+                });
+            }
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = secondScreen,
+            });
+            var preview = new DrawingContext();
+            canvas.OnRender(preview);
+
+            Assert.Equal(
+                CadPointTransformStage.AwaitingSecondPoint,
+                canvas.PendingPointTransformStage);
+            Assert.Equal(basePoint, canvas.PendingPointTransformBasePoint);
+            Assert.Same(snapshot, canvas.CurrentSnapshot);
+            Assert.Equal(0UL, session.ContentGeneration);
+            Assert.Equal(0, snapshotChanges);
+            Assert.Equal(
+                1,
+                preview.Commands.Count(command =>
+                    command.Type == RenderCommandType.DrawLine));
+            Assert.Equal(
+                3,
+                preview.Commands.Count(command =>
+                    command.Type == RenderCommandType.DrawRect));
+            Assert.Equal(2, transitions.Count);
+
+            canvas.OnPointerPressed(new PointerRoutedEventArgs
+            {
+                Position = new Vector2(100, 100),
+                IsMiddleButtonPressed = true,
+            });
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = new Vector2(120, 130),
+                IsMiddleButtonPressed = true,
+            });
+            canvas.OnPointerReleased(new PointerRoutedEventArgs
+            {
+                Position = new Vector2(120, 130),
+            });
+
+            Assert.Equal(basePoint, canvas.PendingPointTransformBasePoint);
+            Assert.Equal(0UL, session.ContentGeneration);
+            Click(
+                canvas,
+                canvas.CurrentViewport.WorldToScreen(secondPoint));
+
+            Assert.Null(canvas.PendingPointTransformOperation);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(1, snapshotChanges);
+            AssertPoint(new XYZ(1, 3, 0), line.StartPoint);
+            AssertPoint(new XYZ(5, 3, 0), line.EndPoint);
+            Assert.Equal([line.Handle], canvas.SelectedHandles.ToArray());
+            Assert.Equal(1, canvas.UndoCount);
+            Assert.Equal([
+                CadPointTransformStage.AwaitingBasePoint,
+                CadPointTransformStage.AwaitingSecondPoint,
+                CadPointTransformStage.Completed,
+            ], transitions.Select(static transition => transition.Stage));
+            Assert.Equal(
+                new CadPoint3D(3, 3, 0),
+                transitions[^1].Displacement);
+            Assert.Null(transitions[^1].ErrorMessage);
+
+            Assert.True(canvas.TryUndo());
+            AssertPoint(new XYZ(-2, 0, 0), line.StartPoint);
+            Assert.True(canvas.TryRedo());
+            AssertPoint(new XYZ(1, 3, 0), line.StartPoint);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void TwoPointCopySupportsCancellationAndExactZeroDisplacement()
+    {
+        var document = new CadDocument();
+        var line = new Line(XYZ.Zero, XYZ.AxisX);
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            Assert.False(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Copy));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(
+                canvas,
+                viewport.WorldToScreen(new CadPoint3D(0.5, 0, 0)));
+            var point = new CadPoint3D(4, -2, 0);
+
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Copy));
+            Click(canvas, viewport.WorldToScreen(point));
+            Assert.True(canvas.CancelSelectionPointTransform());
+
+            Assert.Null(canvas.PendingPointTransformOperation);
+            Assert.Equal(0UL, session.ContentGeneration);
+            Assert.Single(document.Entities);
+            Assert.Equal([line.Handle], canvas.SelectedHandles.ToArray());
+
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Copy));
+            Click(canvas, viewport.WorldToScreen(point));
+            Click(canvas, viewport.WorldToScreen(point));
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(2, document.Entities.Count);
+            Assert.Equal([line.Handle], canvas.SelectedHandles.ToArray());
+            Assert.All(document.Entities.OfType<Line>(), candidate =>
+            {
+                AssertPoint(XYZ.Zero, candidate.StartPoint);
+                AssertPoint(XYZ.AxisX, candidate.EndPoint);
+            });
+
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+            Click(canvas, viewport.WorldToScreen(point));
+            Click(canvas, viewport.WorldToScreen(point));
+
+            Assert.Null(canvas.PendingPointTransformOperation);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(1, canvas.UndoCount);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SelectionPropertiesCaptureMixedValuesAndRoundTripRenderedEdits()
     {
         var document = new CadDocument();
@@ -2604,6 +2777,77 @@ public sealed class CadSampleSelectionTests
             Assert.Equal(new XYZ(-1, 0, 0), line.StartPoint);
             Assert.True(undo.IsEnabled);
             Assert.False(redo.IsEnabled);
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewPointMoveAndCopyUseTwoClicksAndEscapeCancellation()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            Button move = FindButton(view, "Move points…");
+            Button copy = FindButton(view, "Copy points…");
+            Button fixedMove = FindButton(view, "+X");
+            Assert.False(move.IsEnabled);
+            Assert.False(copy.IsEnabled);
+
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = view.Canvas.CurrentViewport;
+            Click(view.Canvas, viewport.WorldToScreen(CadPoint3D.Zero));
+
+            Assert.True(move.IsEnabled);
+            Assert.True(copy.IsEnabled);
+            PressEnter(move);
+
+            Assert.Equal(
+                CadPointTransformOperation.Move,
+                view.Canvas.PendingPointTransformOperation);
+            Assert.False(fixedMove.IsEnabled);
+            Click(
+                view.Canvas,
+                viewport.WorldToScreen(new CadPoint3D(-1, 0, 0)));
+            var escape = new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.Escape,
+            };
+
+            view.OnKeyDown(escape);
+
+            Assert.True(escape.Handled);
+            Assert.Null(view.Canvas.PendingPointTransformOperation);
+            Assert.Equal(0UL, session.ContentGeneration);
+            AssertPoint(new XYZ(-2, 0, 0), line.StartPoint);
+            Assert.True(copy.IsEnabled);
+
+            PressEnter(copy);
+            Click(
+                view.Canvas,
+                viewport.WorldToScreen(new CadPoint3D(-1, 0, 0)));
+            Click(
+                view.Canvas,
+                viewport.WorldToScreen(new CadPoint3D(2, 3, 0)));
+
+            Assert.Null(view.Canvas.PendingPointTransformOperation);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(2, document.Entities.Count);
+            Assert.Contains(
+                document.Entities.OfType<Line>(),
+                candidate =>
+                    Math.Abs(candidate.StartPoint.X - 1) < 1e-8 &&
+                    Math.Abs(candidate.StartPoint.Y - 3) < 1e-8 &&
+                    Math.Abs(candidate.EndPoint.X - 5) < 1e-8 &&
+                    Math.Abs(candidate.EndPoint.Y - 3) < 1e-8);
+            Assert.Equal([line.Handle], view.Canvas.SelectedHandles.ToArray());
         }
         finally
         {

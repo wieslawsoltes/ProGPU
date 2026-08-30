@@ -985,14 +985,25 @@ Conflicting transform, order, delete, history, and 3D-view actions remain
 disabled while the prompt owns pointer selection. The
 second shared toolbar row applies a finite positive invariant WCS step along
 `-X`, `+X`, `-Y`, or `+Y` to every selected semantic root handle through one
-`CadTranslateEntitiesCommand`. A third row rotates the same selection in either
+`CadTranslateEntitiesCommand`. It also exposes distinct `Move points…` and
+`Copy points…` commands. Each preserves the prepared semantic selection,
+accepts one double-WCS base point and one second point through the current plan
+viewport, and commits their difference through the existing transactional MOVE
+or COPY command. Hover motion records only one fixed-device guide and translated
+selection-bounds rectangle: it is O(1), allocation-free with respect to point
+state, and never recompiles, clones, or mutates retained geometry. Escape,
+selection clear, document replacement, and resource release cancel without a
+generation. Coincident MOVE points are a no-op; coincident COPY points create
+one exact overlapping copy. A third row rotates the same selection in either
 direction by an invariant degree step around WCS +Z and uniformly enlarges or
 shrinks it by an invariant factor. Both use the center of the complete retained
 bounds for every selected semantic root as their base point, including all
 expanded primitives of a selected INSERT. The current plan shell has no UCS
-state, so its explicit base-axis contract is WCS +Z; arbitrary base-point, UCS,
-reference-angle, and reference-length input remain later editor tools. One
-`CadDocumentHistory` belongs to the loaded session, so each Move, Rotate, Scale,
+state, so point acquisition remains WCS-XY and its explicit rotation-axis
+contract is WCS +Z; object snaps, typed absolute/relative/polar coordinates,
+arbitrary-camera planes, reference-angle, and reference-length input remain
+later editor tools. One
+`CadDocumentHistory` belongs to the loaded session, so each Move, Copy, Rotate, Scale,
 Undo, or Redo publishes exactly one generation and then prepares one complete
 replacement snapshot and picture. The prior picture stays drawable until
 replacement preparation succeeds and is disposed immediately after the atomic
@@ -1005,6 +1016,9 @@ glyphs because the complete immutable snapshot/scene is rebuilt; it makes no
 incremental-compilation or edit-latency claim. Generation-keyed reusable chunks,
 worker preparation, stale-publication rejection, and equivalent managed/native
 measurements remain required before large-drawing edit performance is accepted.
+The two-point clean-room behavior sources, state machine, ownership/parity
+audit, complexity, and remaining interaction gates are recorded in
+[`PROGPU_CAD_POINT_TRANSFORM_RESEARCH.md`](PROGPU_CAD_POINT_TRANSFORM_RESEARCH.md).
 
 The representative scene exercises
 lines, OCS circles/arcs, analytic ellipses, bulge polylines, NURBS, filled
@@ -1455,6 +1469,17 @@ an interactive browser picker/download smoke remains open.
   provenance, adopted/rejected choices, and remaining interactive/associative
   ARRAY gaps are recorded in
   [PROGPU_CAD_LINEAR_COPY_RESEARCH.md](PROGPU_CAD_LINEAR_COPY_RESEARCH.md).
+- The same shell now closes the first interactive placement gap with
+  `Move points…` and `Copy points…`. The selected semantic roots stay fixed
+  while the user clicks a WCS-XY base point and second point. Hover records a
+  constant-size guide and translated-bounds preview without publishing a
+  snapshot; the second click dispatches the exact double-WCS difference through
+  the existing transactional command, and Escape cancels without an edit.
+  MOVE, COPY, Undo/Redo, source-selection retention, coincident-point behavior,
+  shared desktop/browser enablement, and zero pre-commit recompilation have
+  focused regressions. The clean-room behavior record and remaining snap/UCS/
+  typed-coordinate/COPY-Multiple gates are in
+  [PROGPU_CAD_POINT_TRANSFORM_RESEARCH.md](PROGPU_CAD_POINT_TRANSFORM_RESEARCH.md).
 - The clean-room behavior source for this workflow is Autodesk's public
   [Properties palette](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-DidYouKnow/files/GUID-94C065AB-FF9E-4752-B778-23D2FBB87E18.htm),
   [object-property tools](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-81585857-F1B1-44F4-B7D0-B707386CA721.htm),
@@ -4620,19 +4645,22 @@ Sources consulted on 2026-08-27 through 2026-08-30:
   point, a rotation axis parallel to the coordinate system's Z axis, and uniform
   factors above/below one for enlargement/reduction. Adapted the initial shared
   plan shell to use the complete semantic selection-bounds center and WCS +Z,
-  because no typed UCS or arbitrary base-point interaction exists yet. Rejected
-  silently presenting that fixed plan contract as full UCS, reference-angle, or
-  reference-length behavior. The implementation calls only existing original
-  ProGPU transform commands and does not reproduce Autodesk implementation code.
+  because ROTATE/SCALE still have no typed caller base point or UCS interaction.
+  The separate MOVE/COPY workflow now accepts an arbitrary WCS-XY base and
+  second point. Rejected silently presenting either plan contract as full UCS,
+  reference-angle, or reference-length behavior. The implementation calls only
+  existing original ProGPU transform commands and does not reproduce Autodesk
+  implementation code.
 - [Autodesk COPY](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-1CF9287F-06E8-4D03-8377-2E130862FE02.htm):
   adopted a selection set, one relative X/Y/Z displacement vector, independent
   copied objects, and Single-mode completion as the public behavior contract.
-  Adapted the current shared plan shell to four finite WCS-axis actions using
-  the existing Move step and to preserve the source selection for deterministic
-  repeated copies and generation-safe Undo/Redo. Multiple-mode prompting,
-  base/second-point acquisition, linear Array/Fit, clipboard transfer, UCS input,
-  and arbitrary 3D picking are rejected at this bounded toolbar seam until their
-  own typed interaction contracts exist. The implementation is original ProGPU
+  Adapted the shared plan shell to four finite WCS-axis actions and a distinct
+  WCS-XY base/second-point prompt while preserving the source selection for
+  deterministic repeated copies and generation-safe Undo/Redo. The separate
+  bounded array command implements item-count-includes-source Step/Fit.
+  Multiple-mode prompting, clipboard transfer, typed coordinates/snaps, UCS
+  input, and arbitrary 3D picking remain until their own typed interaction
+  contracts exist. The implementation is original ProGPU
   command/history/UI code over the pinned ACadSharp detached-clone and collection
   contracts; no Autodesk implementation text or structure was used.
 - [HarfBuzz shaping](https://harfbuzz.github.io/what-is-harfbuzz.html),

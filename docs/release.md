@@ -41,6 +41,18 @@ desktop/browser shell exposes supported-selected-page PDF/PNG picker output.
 This is a portable CPU publishing adapter; vector PDF/SVG, printer submission,
 GPU readback, color management, and GPU/native pixel certification remain.
 
+The shared ProGPU.CAD desktop/browser editor now supports selected-set
+`Move points…` and `Copy points…`: one WCS-XY base point plus one second point
+define the exact displacement. Hovering records only a fixed-device guide and
+translated selection bounds, with no entity mutation, snapshot publication, or
+scene rebuild; the second click commits through the existing one-generation
+transactional MOVE/COPY commands. Escape and document/selection teardown cancel
+without edits, source handles remain selected, and coincident MOVE/COPY behavior
+is explicit. Object snaps, typed coordinates, UCS/arbitrary-camera planes, COPY
+Multiple, and full geometry ghosting remain. This workflow changes no renderer,
+shader, GPU/native ABI, or persistence contract and makes no performance-
+improvement claim.
+
 The same continuation adds bounded external `.lin` library loading and reload to
 the shared desktop/browser shell. A clean-room ASCII parser retains simple,
 text, and SHX-shape descriptors; one reversible command rejects collisions or

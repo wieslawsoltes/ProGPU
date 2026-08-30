@@ -15,6 +15,57 @@ using ACadLayout = ACadSharp.Objects.Layout;
 
 namespace ProGPU.CAD.Sample;
 
+/// <summary>Selected-set operation driven by two WCS plan-view points.</summary>
+public enum CadPointTransformOperation : byte
+{
+    Move = 0,
+    Copy = 1,
+}
+
+/// <summary>Observable stage of a bounded two-point transform interaction.</summary>
+public enum CadPointTransformStage : byte
+{
+    AwaitingBasePoint = 0,
+    AwaitingSecondPoint = 1,
+    Completed = 2,
+    Canceled = 3,
+    Failed = 4,
+}
+
+/// <summary>
+/// Immutable state transition for one shared desktop/browser point transform.
+/// </summary>
+public sealed class CadPointTransformChangedEventArgs : EventArgs
+{
+    public CadPointTransformOperation Operation { get; }
+
+    public CadPointTransformStage Stage { get; }
+
+    public CadPoint3D? BasePoint { get; }
+
+    public CadPoint3D? SecondPoint { get; }
+
+    public CadPoint3D? Displacement { get; }
+
+    public string? ErrorMessage { get; }
+
+    internal CadPointTransformChangedEventArgs(
+        CadPointTransformOperation operation,
+        CadPointTransformStage stage,
+        CadPoint3D? basePoint = null,
+        CadPoint3D? secondPoint = null,
+        CadPoint3D? displacement = null,
+        string? errorMessage = null)
+    {
+        Operation = operation;
+        Stage = stage;
+        BasePoint = basePoint;
+        SecondPoint = secondPoint;
+        Displacement = displacement;
+        ErrorMessage = errorMessage;
+    }
+}
+
 /// <summary>
 /// Common general properties for the current semantic model-space selection.
 /// A null common property means selected entities have different persisted values;
@@ -110,6 +161,8 @@ public sealed class CadSampleCanvas : FrameworkElement
     private Vector2 _pointerOrigin;
     private Vector2 _panOrigin;
     private Vector2 _selectionCurrent;
+    private Vector2 _pointTransformCurrent;
+    private CadPoint3D _pointTransformBasePoint;
     private float _zoom = 1;
     private int[] _selectionEntityScratch = [];
     private int[] _selectionHandleScratch = [];
@@ -124,6 +177,8 @@ public sealed class CadSampleCanvas : FrameworkElement
     private bool _lastSelectionWasTruncated;
     private bool _isPanning;
     private bool _isSelecting;
+    private bool _isPointTransformPointerPressed;
+    private bool _hasPointTransformBasePoint;
     private bool _hasSelectionDrag;
     private bool _needsFit = true;
 
@@ -164,6 +219,22 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public CadDrawOrderPlacement? PendingDrawOrderPlacement { get; private set; }
 
+    public CadPointTransformOperation? PendingPointTransformOperation
+    {
+        get;
+        private set;
+    }
+
+    public CadPointTransformStage? PendingPointTransformStage =>
+        PendingPointTransformOperation is null
+            ? null
+            : _hasPointTransformBasePoint
+                ? CadPointTransformStage.AwaitingSecondPoint
+                : CadPointTransformStage.AwaitingBasePoint;
+
+    public CadPoint3D? PendingPointTransformBasePoint =>
+        _hasPointTransformBasePoint ? _pointTransformBasePoint : null;
+
     public int LastUnsupportedPrimitiveCount => _lastUnsupportedPrimitiveCount;
 
     public bool LastSelectionWasTruncated => _lastSelectionWasTruncated;
@@ -196,6 +267,13 @@ public sealed class CadSampleCanvas : FrameworkElement
     /// references, commits, or is canceled.
     /// </summary>
     public event EventHandler? DrawOrderReferencePickChanged;
+
+    /// <summary>
+    /// Raised only when a point transform begins, accepts a point, completes,
+    /// fails, or is canceled. Pointer-motion preview does not allocate events.
+    /// </summary>
+    public event EventHandler<CadPointTransformChangedEventArgs>?
+        PointTransformChanged;
 
     /// <summary>Raised after one complete immutable snapshot/picture replacement.</summary>
     public event EventHandler? SnapshotChanged;
@@ -345,6 +423,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (resetViewSelectionAndHistory)
         {
             ResetDrawOrderReferencePickState(notify: false);
+            ResetPointTransformState(notify: false);
             ResetSelectionState(notify: false);
             _needsFit = true;
         }
@@ -407,6 +486,28 @@ public sealed class CadSampleCanvas : FrameworkElement
                 _drawOrderReferencePen,
                 ToScreenRect(viewport, _drawOrderReferenceBounds));
         }
+        if (PendingPointTransformOperation is not null &&
+            _hasPointTransformBasePoint)
+        {
+            Vector2 basePoint = viewport.WorldToScreen(_pointTransformBasePoint);
+            context.DrawLine(
+                _drawOrderReferencePen,
+                basePoint,
+                _pointTransformCurrent);
+            if (!_selectedBounds.IsEmpty)
+            {
+                Vector2 displacement = _pointTransformCurrent - basePoint;
+                Rect preview = ToScreenRect(viewport, _selectedBounds);
+                context.DrawRectangle(
+                    null,
+                    _drawOrderReferencePen,
+                    new Rect(
+                        preview.X + displacement.X,
+                        preview.Y + displacement.Y,
+                        preview.Width,
+                        preview.Height));
+            }
+        }
         if (_isSelecting && _hasSelectionDrag)
         {
             context.DrawRectangle(
@@ -453,6 +554,18 @@ public sealed class CadSampleCanvas : FrameworkElement
             return;
         }
 
+        if (PendingPointTransformOperation is not null)
+        {
+            _isPointTransformPointerPressed = true;
+            _isSelecting = false;
+            _isPanning = false;
+            _pointTransformCurrent = args.Position;
+            CapturePointer(args.Pointer);
+            Invalidate();
+            args.Handled = true;
+            return;
+        }
+
         _isSelecting = true;
         _isPanning = false;
         _hasSelectionDrag = false;
@@ -473,6 +586,21 @@ public sealed class CadSampleCanvas : FrameworkElement
             args.Handled = true;
             return;
         }
+        if (_isPointTransformPointerPressed)
+        {
+            _pointTransformCurrent = args.Position;
+            Invalidate();
+            args.Handled = true;
+            return;
+        }
+        if (PendingPointTransformOperation is not null &&
+            _hasPointTransformBasePoint)
+        {
+            _pointTransformCurrent = args.Position;
+            Invalidate();
+            args.Handled = true;
+            return;
+        }
         if (!_isSelecting)
         {
             return;
@@ -488,7 +616,16 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     private void OnPointerReleased(object? sender, PointerRoutedEventArgs args)
     {
-        bool handled = _isPanning || _isSelecting;
+        bool handled =
+            _isPanning || _isSelecting || _isPointTransformPointerPressed;
+        if (_isPointTransformPointerPressed)
+        {
+            _pointTransformCurrent = args.Position;
+            if (!args.IsCanceled)
+            {
+                AcceptPointTransformPoint(args.Position);
+            }
+        }
         if (_isSelecting)
         {
             _selectionCurrent = args.Position;
@@ -499,6 +636,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
         _isPanning = false;
         _isSelecting = false;
+        _isPointTransformPointerPressed = false;
         _hasSelectionDrag = false;
         ReleasePointerCapture(args.Pointer);
         if (handled)
@@ -512,6 +650,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     {
         _isPanning = false;
         _isSelecting = false;
+        _isPointTransformPointerPressed = false;
         _hasSelectionDrag = false;
         ReleasePointerCapture(args.Pointer);
         Invalidate();
@@ -535,8 +674,68 @@ public sealed class CadSampleCanvas : FrameworkElement
     public void ClearSelection()
     {
         ResetDrawOrderReferencePickState(notify: true);
+        ResetPointTransformState(notify: true);
         ResetSelectionState(notify: true);
         Invalidate();
+    }
+
+    /// <summary>
+    /// Starts one bounded WCS-XY base-point/second-point MOVE or COPY over the
+    /// current semantic selection. The document remains unchanged until the
+    /// second point is accepted.
+    /// </summary>
+    public bool BeginSelectionPointTransform(CadPointTransformOperation operation)
+    {
+        if (!Enum.IsDefined(operation))
+        {
+            throw new ArgumentOutOfRangeException(nameof(operation));
+        }
+        if (_selectedHandleCount == 0)
+        {
+            return false;
+        }
+        if (PendingDrawOrderPlacement is not null)
+        {
+            throw new InvalidOperationException(
+                "Commit or cancel the pending draw-order reference selection first.");
+        }
+        if (PendingPointTransformOperation is not null)
+        {
+            throw new InvalidOperationException(
+                "Complete or cancel the pending point transform first.");
+        }
+
+        PendingPointTransformOperation = operation;
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        PointTransformChanged?.Invoke(
+            this,
+            new CadPointTransformChangedEventArgs(
+                operation,
+                CadPointTransformStage.AwaitingBasePoint));
+        Invalidate();
+        return true;
+    }
+
+    /// <summary>Cancels a pending point transform without editing the document.</summary>
+    public bool CancelSelectionPointTransform()
+    {
+        CadPointTransformOperation? operation = PendingPointTransformOperation;
+        if (operation is null)
+        {
+            return false;
+        }
+
+        CadPoint3D? basePoint = PendingPointTransformBasePoint;
+        ResetPointTransformState(notify: false);
+        PointTransformChanged?.Invoke(
+            this,
+            new CadPointTransformChangedEventArgs(
+                operation.Value,
+                CadPointTransformStage.Canceled,
+                basePoint));
+        Invalidate();
+        return true;
     }
 
     /// <summary>
@@ -546,6 +745,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     public bool BeginSelectionDrawOrderReferencePick(
         CadDrawOrderPlacement placement)
     {
+        ThrowIfPointTransformPending();
         if (_selectedHandleCount == 0)
         {
             return false;
@@ -2125,6 +2325,86 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
     }
 
+    private void AcceptPointTransformPoint(Vector2 screenPoint)
+    {
+        CadPointTransformOperation? operation = PendingPointTransformOperation;
+        if (operation is null)
+        {
+            return;
+        }
+
+        CadPoint3D point;
+        try
+        {
+            point = CreateViewport().ScreenToWorld(screenPoint);
+        }
+        catch (Exception exception)
+        {
+            ResetPointTransformState(notify: false);
+            PointTransformChanged?.Invoke(
+                this,
+                new CadPointTransformChangedEventArgs(
+                    operation.Value,
+                    CadPointTransformStage.Failed,
+                    errorMessage: exception.Message));
+            Invalidate();
+            return;
+        }
+
+        if (!_hasPointTransformBasePoint)
+        {
+            _pointTransformBasePoint = point;
+            _pointTransformCurrent = screenPoint;
+            _hasPointTransformBasePoint = true;
+            PointTransformChanged?.Invoke(
+                this,
+                new CadPointTransformChangedEventArgs(
+                    operation.Value,
+                    CadPointTransformStage.AwaitingSecondPoint,
+                    point));
+            Invalidate();
+            return;
+        }
+
+        CadPoint3D basePoint = _pointTransformBasePoint;
+        var displacement = new CadPoint3D(
+            point.X - basePoint.X,
+            point.Y - basePoint.Y,
+            point.Z - basePoint.Z);
+        ResetPointTransformState(notify: false);
+        try
+        {
+            bool applied = operation == CadPointTransformOperation.Copy
+                ? DuplicateSelection(displacement)
+                : displacement != CadPoint3D.Zero &&
+                    TranslateSelection(displacement);
+            PointTransformChanged?.Invoke(
+                this,
+                new CadPointTransformChangedEventArgs(
+                    operation.Value,
+                    CadPointTransformStage.Completed,
+                    basePoint,
+                    point,
+                    displacement,
+                    applied
+                        ? null
+                        : "The point transform did not change the selection."));
+        }
+        catch (Exception exception)
+        {
+            PointTransformChanged?.Invoke(
+                this,
+                new CadPointTransformChangedEventArgs(
+                    operation.Value,
+                    CadPointTransformStage.Failed,
+                    basePoint,
+                    point,
+                    displacement,
+                    exception.Message));
+        }
+        Invalidate();
+    }
+
     private void CompleteSelection()
     {
         CadDocumentSnapshot? snapshot = CurrentSnapshot;
@@ -2276,6 +2556,36 @@ public sealed class CadSampleCanvas : FrameworkElement
             throw new InvalidOperationException(
                 "Commit or cancel the pending draw-order reference selection first.");
         }
+        ThrowIfPointTransformPending();
+    }
+
+    private void ThrowIfPointTransformPending()
+    {
+        if (PendingPointTransformOperation is not null)
+        {
+            throw new InvalidOperationException(
+                "Complete or cancel the pending point transform first.");
+        }
+    }
+
+    private void ResetPointTransformState(bool notify)
+    {
+        CadPointTransformOperation? operation = PendingPointTransformOperation;
+        CadPoint3D? basePoint = PendingPointTransformBasePoint;
+        PendingPointTransformOperation = null;
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        _pointTransformBasePoint = default;
+        _pointTransformCurrent = default;
+        if (notify && operation is CadPointTransformOperation value)
+        {
+            PointTransformChanged?.Invoke(
+                this,
+                new CadPointTransformChangedEventArgs(
+                    value,
+                    CadPointTransformStage.Canceled,
+                    basePoint));
+        }
     }
 
     private void ResetSelectionState(bool notify)
@@ -2355,6 +2665,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     {
         ReleasePointerCaptures();
         ResetDrawOrderReferencePickState(notify: false);
+        ResetPointTransformState(notify: false);
         _picture?.Dispose();
         _picture = null;
         _constructionPicture?.Dispose();

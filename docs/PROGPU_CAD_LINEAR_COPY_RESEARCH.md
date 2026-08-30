@@ -114,18 +114,20 @@ native source-command count remain identical.
 - Adopted: item count includes the original; incremental second-point spacing;
   Fit places the final item at the requested vector; the complete selection is
   one copy unit.
-- Adapted: an interactive base/second-point prompt becomes a typed WCS vector
-  because the current shared shell has finite-step controls. Multiple mode is
-  already available as repeated explicit history actions; the new array itself
-  remains one action.
+- Adapted at this checkpoint: the array consumes a typed WCS vector from the
+  finite-step controls. The later shared two-point interaction now supplies an
+  exact base-to-second WCS vector for single COPY while this bounded array
+  remains one explicit history action.
 - Rejected for this checkpoint: creating an associative ARRAY object, silently
   exceeding the bounded edit budget, cloning sources again on Redo, retaining
   one displacement object per placement, rewriting source selection to newly
   created handles, clipboard transport, and tessellated or renderer-specific
   copies.
-- Deferred: arbitrary base/second-point acquisition, UCS and arbitrary-camera
-  interaction, COPY Multiple prompt state, clipboard exchange, and rectangular,
-  polar, or path associative ARRAY entities.
+- Implemented subsequently: shared WCS-XY base/second-point acquisition for
+  single MOVE/COPY, documented in
+  [`PROGPU_CAD_POINT_TRANSFORM_RESEARCH.md`](PROGPU_CAD_POINT_TRANSFORM_RESEARCH.md).
+  UCS and arbitrary-camera interaction, COPY Multiple prompt state, clipboard
+  exchange, and rectangular, polar, or path associative ARRAY entities remain.
 
 ## Verification evidence
 
