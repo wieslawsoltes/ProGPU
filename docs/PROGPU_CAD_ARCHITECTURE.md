@@ -2854,7 +2854,18 @@ are implemented by `CadPageSetupCatalogCompiler`,
   independently owned page picture suitable for preview or a later platform
   printer/vector/raster adapter. Compilation is O(E + C) time and O(C) retained
   storage for E entity headers and C scene commands; no raster surface is
-  allocated.
+  allocated;
+- `CadPrintJobCompiler` accepts an explicitly ordered, bounded span of named
+  physical plans and clones every source page once. `CadPrintJob` preserves
+  mixed page media, DPI, rotation, source setup, and per-document generation;
+  resolves forward or reverse collated/uncollated copies with O(1) arithmetic;
+  and returns independently leased managed/native-ready pictures. Copy count
+  never creates an output-page array or duplicates immutable command storage.
+  Defaults bound 4,096 source pages, 65,536 output pages, 4,096 UTF-16 code
+  units per page/setup name, and 1,048,576 owned name code units. Compilation
+  is transactional O(P + S) work/storage for P source pages and S owned code
+  units; output lookup is O(1), and page creation is O(R) for R retained
+  resource leases.
 
 The shared desktop/browser shell now consumes that contract through a retained
 page-setup-driven preview. Its selector is rebuilt from the detached catalog on
@@ -3042,15 +3053,16 @@ preview instead of presenting the old page.
 
 Catalog extraction, model-space page rotation, rectangular and exact closed-
 polyline/circle/ellipse/degree-1-through-3 SPLINE WCS-top paper-space viewport
-lowering, and applying a compatible named setup to a layout are now implemented,
-but this foundation does not claim arbitrary-camera DCS lowering,
-degree-4-through-10 SPLINE, REGION, or depth-aware viewports, page-setup
-creation/editing/import,
-CTB/STB overrides, shaded-viewport policies,
+lowering, complete fixed-field named-page-setup authoring/import, applying a
+compatible named setup to a layout, and bounded retained multi-page ordering,
+copies, reverse output, and collation are now implemented. This foundation does
+not claim arbitrary-camera DCS lowering, degree-4-through-10 SPLINE, REGION, or
+depth-aware viewports, CTB/STB overrides, shaded-viewport policies,
 transparency flattening, PDF/SVG, raster encoding, printer
-enumeration/spooling, or multi-page collation. Those remain explicit typed
-compilers/adapters and conformance gates; unsupported features are not silently
-rasterized or dropped. The preview adds no shader, stable C ABI, native renderer,
+enumeration/spooling, DSD persistence, page-range/duplex/N-up policy, or
+backend submission. Those remain explicit typed compilers/adapters and
+conformance gates; unsupported features are not silently rasterized or dropped.
+The preview and print job add no shader, stable C ABI, native renderer,
 compositor, atlas, or device-loss behavior. The ACI-7 decision occurs once in the
 shared immutable style stream; managed and native picture compilation consume
 the same resolved color, retained picture, clip, affine transform, shaped text,
