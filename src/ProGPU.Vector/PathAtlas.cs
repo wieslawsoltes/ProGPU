@@ -76,6 +76,13 @@ internal static class GpuPathFillRuleEncoding
         FillRule.EvenOdd => 1u,
         _ => throw new ArgumentOutOfRangeException(nameof(fillRule))
     };
+
+    public static FillRule Decode(uint encodedFillRule) => encodedFillRule switch
+    {
+        0u => FillRule.Nonzero,
+        1u => FillRule.EvenOdd,
+        _ => throw new ArgumentOutOfRangeException(nameof(encodedFillRule))
+    };
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 16)]

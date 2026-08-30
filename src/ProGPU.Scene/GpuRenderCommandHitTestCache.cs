@@ -755,7 +755,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
             max,
             startSegment,
             segmentCount,
-            (FillRule)records[0].FillRule);
+            GpuPathFillRuleEncoding.Decode(records[0].FillRule));
         return true;
     }
 

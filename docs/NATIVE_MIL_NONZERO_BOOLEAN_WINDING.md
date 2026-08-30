@@ -157,7 +157,10 @@ cancellation. `ProGPU.Vector.FillRule` retains its public managed ordering of
 explicit, fail-closed conversion whenever `PathAtlas` or
 `PathOpGeometrySolver` writes `GpuPathRecord`. Managed SVG/path rasterization,
 GPU boolean geometry, and the native C ABI therefore consume the same shader
-values without relying on managed enum ordinals.
+values without relying on managed enum ordinals. GPU hit-test primitives retain
+their older managed enum ABI, so the render-command hit-test cache uses the
+same typed codec in reverse when it consumes compiled path records; it does not
+cast shader values back to `FillRule`.
 
 ## Coverage and gates
 
