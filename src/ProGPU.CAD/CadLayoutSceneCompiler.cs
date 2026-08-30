@@ -433,6 +433,7 @@ public sealed class CadLayoutSceneCompiler
                 CreatePolylineClip(paper, boundary, viewportIndex),
             CadEntityKind.Circle => CreateCircleClip(paper, boundary),
             CadEntityKind.Ellipse => CreateEllipseClip(paper, boundary, viewportIndex),
+            CadEntityKind.Spline => CreateSplineClip(paper, boundary, viewportIndex),
             _ => throw Unsupported(
                 "CADVIEW009",
                 $"VIEWPORT {viewportIndex} clipping boundary kind {boundary.Kind} is not an exact supported closed path."),
@@ -546,6 +547,211 @@ public sealed class CadLayoutSceneCompiler
                 ellipse.MinorAxis,
                 paper.RebaseOrigin));
     }
+
+    private static PaperClip CreateSplineClip(
+        CadDocumentSnapshot paper,
+        in CadEntityHeader boundary,
+        int viewportIndex)
+    {
+        CadSplinePrimitive spline = paper.Splines.Span[boundary.PrimitiveIndex];
+        if (!spline.IsClosed && !spline.IsPeriodic)
+        {
+            throw Unsupported(
+                "CADVIEW011",
+                $"VIEWPORT {viewportIndex} clipping spline is not closed.");
+        }
+        if (spline.Degree > 3)
+        {
+            throw Unsupported(
+                "CADVIEW012",
+                $"VIEWPORT {viewportIndex} degree-{spline.Degree} clipping spline requires a shared filled-path segment above cubic degree.");
+        }
+        if (!CadSplineCanonicalizer.TryCreate(paper, spline, out CadCanonicalSpline canonical))
+        {
+            throw Unsupported(
+                "CADVIEW011",
+                $"VIEWPORT {viewportIndex} clipping spline has invalid retained NURBS topology.");
+        }
+
+        Span<CadHomogeneousPoint> controls = stackalloc CadHomogeneousPoint[4];
+        PathGeometry? path = null;
+        PathFigure? figure = null;
+        CadPoint3D anchor = default;
+        int emittedSpanCount = 0;
+        for (int sourceSpan = canonical.Degree;
+             sourceSpan < canonical.ControlPointCount;
+             sourceSpan++)
+        {
+            if (!(canonical.GetKnot(sourceSpan + 1) > canonical.GetKnot(sourceSpan)))
+            {
+                continue;
+            }
+
+            Span<CadHomogeneousPoint> span = controls[..(canonical.Degree + 1)];
+            if (!CadRationalBezier.TryExtractSpan(canonical, sourceSpan, span))
+            {
+                throw Unsupported(
+                    "CADVIEW011",
+                    $"VIEWPORT {viewportIndex} clipping spline cannot isolate an exact Bezier span.");
+            }
+            if (emittedSpanCount == 0)
+            {
+                anchor = span[0].Cartesian;
+                path = new PathGeometry { FillRule = FillRule.Nonzero };
+                figure = new PathFigure(Vector2.Zero, isClosed: true)
+                {
+                    IsFilled = true,
+                };
+                path.Figures.Add(figure);
+            }
+
+            AddSplineClipSpan(
+                figure!,
+                span,
+                canonical.Degree,
+                anchor,
+                viewportIndex);
+            emittedSpanCount++;
+        }
+        if (emittedSpanCount == 0)
+        {
+            throw Unsupported(
+                "CADVIEW011",
+                $"VIEWPORT {viewportIndex} clipping spline has an empty parameter domain.");
+        }
+
+        return new PaperClip(
+            default,
+            path,
+            CreateProjectionTransform(
+                anchor,
+                new CadPoint3D(1.0, 0.0, 0.0),
+                new CadPoint3D(0.0, 1.0, 0.0),
+                paper.RebaseOrigin));
+    }
+
+    private static void AddSplineClipSpan(
+        PathFigure figure,
+        ReadOnlySpan<CadHomogeneousPoint> controls,
+        int degree,
+        CadPoint3D anchor,
+        int viewportIndex)
+    {
+        Vector2 endpoint = ProjectSplineClipPoint(controls[^1], anchor);
+        switch (degree)
+        {
+            case 1:
+                figure.Segments.Add(new LineSegment(
+                    endpoint,
+                    isSmoothJoin: true,
+                    isStroked: false));
+                return;
+            case 2:
+                Vector2 quadraticControl = ProjectSplineClipPoint(controls[1], anchor);
+                if (!CadRationalBezier.TryGetCanonicalQuadraticWeight(
+                        controls,
+                        out double quadraticWeight))
+                {
+                    throw Unsupported(
+                        "CADVIEW012",
+                        $"VIEWPORT {viewportIndex} clipping spline has an unrepresentable quadratic weight.");
+                }
+                if (NearlyUnitSplineWeight(quadraticWeight))
+                {
+                    figure.Segments.Add(new QuadraticBezierSegment(
+                        quadraticControl,
+                        endpoint,
+                        isSmoothJoin: true,
+                        isStroked: false));
+                    return;
+                }
+                float retainedQuadraticWeight = (float)quadraticWeight;
+                EnsureWeightedSplineCoordinate(
+                    quadraticControl,
+                    retainedQuadraticWeight,
+                    viewportIndex);
+                figure.Segments.Add(new RationalQuadraticBezierSegment(
+                    quadraticControl,
+                    endpoint,
+                    retainedQuadraticWeight,
+                    isSmoothJoin: true,
+                    isStroked: false));
+                return;
+            case 3:
+                Vector2 cubicControl1 = ProjectSplineClipPoint(controls[1], anchor);
+                Vector2 cubicControl2 = ProjectSplineClipPoint(controls[2], anchor);
+                if (!CadRationalBezier.TryGetCanonicalCubicWeights(
+                        controls,
+                        out double cubicWeight1,
+                        out double cubicWeight2))
+                {
+                    throw Unsupported(
+                        "CADVIEW012",
+                        $"VIEWPORT {viewportIndex} clipping spline has unrepresentable cubic weights.");
+                }
+                if (NearlyUnitSplineWeight(cubicWeight1) &&
+                    NearlyUnitSplineWeight(cubicWeight2))
+                {
+                    figure.Segments.Add(new CubicBezierSegment(
+                        cubicControl1,
+                        cubicControl2,
+                        endpoint,
+                        isSmoothJoin: true,
+                        isStroked: false));
+                    return;
+                }
+                float retainedCubicWeight1 = (float)cubicWeight1;
+                float retainedCubicWeight2 = (float)cubicWeight2;
+                EnsureWeightedSplineCoordinate(
+                    cubicControl1,
+                    retainedCubicWeight1,
+                    viewportIndex);
+                EnsureWeightedSplineCoordinate(
+                    cubicControl2,
+                    retainedCubicWeight2,
+                    viewportIndex);
+                figure.Segments.Add(new RationalCubicBezierSegment(
+                    cubicControl1,
+                    cubicControl2,
+                    endpoint,
+                    retainedCubicWeight1,
+                    retainedCubicWeight2,
+                    isSmoothJoin: true,
+                    isStroked: false));
+                return;
+            default:
+                throw Unsupported(
+                    "CADVIEW012",
+                    $"VIEWPORT {viewportIndex} degree-{degree} clipping spline cannot be retained exactly.");
+        }
+    }
+
+    private static Vector2 ProjectSplineClipPoint(
+        CadHomogeneousPoint control,
+        CadPoint3D anchor)
+    {
+        CadPoint3D point = control.Cartesian;
+        return new Vector2(
+            ToFloat(point.X - anchor.X),
+            ToFloat(point.Y - anchor.Y));
+    }
+
+    private static void EnsureWeightedSplineCoordinate(
+        Vector2 point,
+        float weight,
+        int viewportIndex)
+    {
+        if (!float.IsFinite(point.X * weight) ||
+            !float.IsFinite(point.Y * weight))
+        {
+            throw Unsupported(
+                "CADVIEW012",
+                $"VIEWPORT {viewportIndex} clipping spline exceeds the shared-path weighted-coordinate range.");
+        }
+    }
+
+    private static bool NearlyUnitSplineWeight(double weight) =>
+        Math.Abs(weight - 1.0) <= Math.Max(1.0, Math.Abs(weight)) * 1e-13;
 
     private static PathGeometry CreateUnitCirclePath(double radius)
     {

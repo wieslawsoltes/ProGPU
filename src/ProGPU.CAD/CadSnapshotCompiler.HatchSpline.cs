@@ -307,12 +307,9 @@ public sealed partial class CadSnapshotCompiler
     private static double GetCanonicalQuadraticWeight(
         ReadOnlySpan<CadHomogeneousPoint> controls)
     {
-        double logarithm = Math.Log(controls[1].W) -
-            (0.5 * (Math.Log(controls[0].W) + Math.Log(controls[2].W)));
-        double weight = Math.Exp(logarithm);
-        float retainedWeight = (float)weight;
-        if (!double.IsFinite(weight) || weight <= 0.0 ||
-            !float.IsFinite(retainedWeight) || retainedWeight <= 0f)
+        if (!CadRationalBezier.TryGetCanonicalQuadraticWeight(
+                controls,
+                out double weight))
         {
             throw new CadUnsupportedEntityException(
                 "A rational quadratic HATCH span cannot be represented by a finite positive shared-path weight.");
@@ -323,22 +320,10 @@ public sealed partial class CadSnapshotCompiler
     private static (double Weight1, double Weight2) GetCanonicalCubicWeights(
         ReadOnlySpan<CadHomogeneousPoint> controls)
     {
-        double logarithm0 = Math.Log(controls[0].W);
-        double logarithm3 = Math.Log(controls[3].W);
-        double weight1 = Math.Exp(
-            Math.Log(controls[1].W) -
-            ((2.0 / 3.0) * logarithm0) -
-            ((1.0 / 3.0) * logarithm3));
-        double weight2 = Math.Exp(
-            Math.Log(controls[2].W) -
-            ((1.0 / 3.0) * logarithm0) -
-            ((2.0 / 3.0) * logarithm3));
-        float retainedWeight1 = (float)weight1;
-        float retainedWeight2 = (float)weight2;
-        if (!double.IsFinite(weight1) || weight1 <= 0.0 ||
-            !double.IsFinite(weight2) || weight2 <= 0.0 ||
-            !float.IsFinite(retainedWeight1) || retainedWeight1 <= 0f ||
-            !float.IsFinite(retainedWeight2) || retainedWeight2 <= 0f)
+        if (!CadRationalBezier.TryGetCanonicalCubicWeights(
+                controls,
+                out double weight1,
+                out double weight2))
         {
             throw new CadUnsupportedEntityException(
                 "A rational cubic HATCH span cannot be represented by finite positive shared-path weights.");

@@ -2754,7 +2754,10 @@ are implemented by `CadPageSetupCatalogCompiler`,
   center, WCS target/direction, twist, scale, status, render policy, boundary,
   and case-insensitive frozen-layer names. Each unique frozen-layer set compiles
   one shared model picture; occurrences record only a paper rectangle or exact
-  closed 2D-polyline/circle/ellipse geometry clip and affine picture replay.
+  closed 2D-polyline/circle/ellipse/degree-1-through-3 SPLINE geometry clip and
+  affine picture replay. SPLINE clips reuse the existing canonical ordinary or
+  periodic NURBS view and exact rational-Bezier span extraction, retaining one
+  linear/quadratic/cubic segment per non-empty span without flattening;
   Referenced boundaries are retained even on an off or non-plottable layer but
   stay hidden from ordinary paper drawing and selection; a frozen boundary fails
   explicitly because Autodesk does not preserve its clip. Paper objects and
@@ -2965,10 +2968,11 @@ scene cache is warm. A content-generation replacement exits and releases a stale
 preview instead of presenting the old page.
 
 Catalog extraction, model-space page rotation, rectangular and exact closed-
-polyline/circle/ellipse WCS-top paper-space viewport lowering, and applying a
-compatible named setup to a layout are now implemented, but this foundation
-does not claim arbitrary-camera DCS lowering, spline/region/other closed-object
-or depth-aware viewports, page-setup creation/editing/import,
+polyline/circle/ellipse/degree-1-through-3 SPLINE WCS-top paper-space viewport
+lowering, and applying a compatible named setup to a layout are now implemented,
+but this foundation does not claim arbitrary-camera DCS lowering,
+degree-4-through-10 SPLINE, REGION, or depth-aware viewports, page-setup
+creation/editing/import,
 CTB/STB overrides, shaded-viewport policies,
 transparency flattening, PDF/SVG, raster encoding, printer
 enumeration/spooling, or multi-page collation. Those remain explicit typed

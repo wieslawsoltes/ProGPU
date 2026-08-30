@@ -14,10 +14,12 @@ using ProGPU.Text;
 int viewportCount = ReadNonNegativeInt("--viewports", 0);
 if (viewportCount != 0)
 {
+    bool useSplineViewportBoundaries = HasFlag("--spline-viewport-boundaries");
     RunViewportBenchmark(
         viewportCount,
         ReadPositiveInt("--viewport-layer-variants", 4),
-        HasFlag("--nonrectangular-viewports"),
+        HasFlag("--nonrectangular-viewports") || useSplineViewportBoundaries,
+        useSplineViewportBoundaries,
         ReadPositiveInt("--entities", 10_000),
         ReadNonNegativeInt("--warmup", 3),
         ReadPositiveInt("--iterations", 24),
@@ -520,6 +522,7 @@ void RunViewportBenchmark(
     int measuredViewportCount,
     int layerVariantCount,
     bool useNonRectangularViewports,
+    bool useSplineViewportBoundaries,
     int modelEntityCount,
     int warmups,
     int iterations,
@@ -578,22 +581,45 @@ void RunViewportBenchmark(
             };
             if (useNonRectangularViewports)
             {
-                var boundary = new LwPolyline
+                Entity boundary;
+                if (useSplineViewportBoundaries)
                 {
-                    Flags = LwPolylineFlags.Closed,
-                };
-                boundary.Vertices.Add(new LwPolyline.Vertex(
-                    centerX - 22.0,
-                    centerY - 16.0)
+                    var spline = new Spline
+                    {
+                        Degree = 2,
+                        IsClosed = true,
+                        IsPeriodic = true,
+                    };
+                    spline.ControlPoints.AddRange([
+                        new XYZ(centerX - 22.0, centerY, 0.0),
+                        new XYZ(centerX, centerY + 16.0, 0.0),
+                        new XYZ(centerX + 22.0, centerY, 0.0),
+                        new XYZ(centerX, centerY - 16.0, 0.0),
+                    ]);
+                    spline.Knots.AddRange([0.0, 1.0, 2.0, 3.0, 4.0]);
+                    spline.Weights.AddRange([1.0, 2.0, 1.0, 2.0]);
+                    boundary = spline;
+                }
+                else
                 {
-                    Bulge = 0.125,
-                });
-                boundary.Vertices.Add(new LwPolyline.Vertex(
-                    centerX + 22.0,
-                    centerY - 16.0));
-                boundary.Vertices.Add(new LwPolyline.Vertex(
-                    centerX,
-                    centerY + 16.0));
+                    var polyline = new LwPolyline
+                    {
+                        Flags = LwPolylineFlags.Closed,
+                    };
+                    polyline.Vertices.Add(new LwPolyline.Vertex(
+                        centerX - 22.0,
+                        centerY - 16.0)
+                    {
+                        Bulge = 0.125,
+                    });
+                    polyline.Vertices.Add(new LwPolyline.Vertex(
+                        centerX + 22.0,
+                        centerY - 16.0));
+                    polyline.Vertices.Add(new LwPolyline.Vertex(
+                        centerX,
+                        centerY + 16.0));
+                    boundary = polyline;
+                }
                 layout.AssociatedBlock.Entities.Add(boundary);
                 viewport.Boundary = boundary;
                 viewport.Status |= ViewportStatusFlags.NonRectangularClipping;
@@ -671,6 +697,7 @@ void RunViewportBenchmark(
         ViewportCount = measuredViewportCount,
         LayerVariantCount = layerVariantCount,
         NonRectangularViewports = useNonRectangularViewports,
+        SplineViewportBoundaries = useSplineViewportBoundaries,
         ModelEntityCount = modelEntityCount,
         WarmupCount = warmups,
         IterationCount = iterations,

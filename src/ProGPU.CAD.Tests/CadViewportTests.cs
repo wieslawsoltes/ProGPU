@@ -334,12 +334,8 @@ public sealed class CadViewportTests
         document.Layers.Add(borderLayer);
         ACadLayout layout = document.Layouts[ACadLayout.PaperLayoutName];
         ConfigurePaperLayout(layout);
-        var boundary = new Circle
-        {
-            Center = new XYZ(50, 25, 0),
-            Radius = 20,
-            Layer = borderLayer,
-        };
+        Spline boundary = CreatePeriodicRationalSplineBoundary(50, 25);
+        boundary.Layer = borderLayer;
         layout.AssociatedBlock.Entities.Add(boundary);
         Viewport viewport = CreateTopViewport(
             new XYZ(50, 25, 0),
@@ -379,6 +375,106 @@ public sealed class CadViewportTests
             layoutPicture,
             96U,
             plan.ContentGeneration,
+            out NativeCompiledPicture? nativePicture,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(nativePicture);
+    }
+
+    [Fact]
+    public void LayoutSceneUsesExactPeriodicRationalSplineViewportBoundary()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 10, 0)));
+        ACadLayout layout = document.Layouts[ACadLayout.PaperLayoutName];
+        Spline boundary = CreatePeriodicRationalSplineBoundary(100, 80);
+        layout.AssociatedBlock.Entities.Add(boundary);
+        Viewport viewport = CreateTopViewport(
+            new XYZ(100, 80, 0),
+            XY.Zero,
+            XYZ.Zero,
+            0.0);
+        viewport.Boundary = boundary;
+        viewport.Status |= ViewportStatusFlags.NonRectangularClipping;
+        layout.AddViewport(viewport);
+        var session = new CadDocumentSession(document);
+        session.Edit("publish rational spline viewport generation", static _ => { });
+        CadLayoutSnapshot snapshot = new CadLayoutSnapshotCompiler().Compile(
+            session,
+            ACadLayout.PaperLayoutName);
+
+        using CadRecordedLayoutScene scene = new CadLayoutSceneCompiler().Compile(snapshot);
+        using GpuPicture picture = scene.CreatePicture();
+
+        RenderCommand clip = picture.GetCommand(0);
+        Assert.Equal(RenderCommandType.PushGeometryClip, clip.Type);
+        PathFigure figure = Assert.Single(clip.Path!.Figures);
+        Assert.True(figure.IsClosed);
+        Assert.True(figure.IsFilled);
+        Assert.Equal(4, figure.Segments.Count);
+        Assert.All(
+            figure.Segments,
+            segment => Assert.IsType<RationalQuadraticBezierSegment>(segment));
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            98U,
+            scene.ContentGeneration,
+            out NativeCompiledPicture? nativePicture,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(nativePicture);
+    }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(3, false)]
+    [InlineData(3, true)]
+    public void LayoutSceneUsesExactClosedOrdinarySplineDegrees(
+        int degree,
+        bool rational)
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 10, 0)));
+        ACadLayout layout = document.Layouts[ACadLayout.PaperLayoutName];
+        Spline boundary = CreateClosedOrdinarySplineBoundary(degree);
+        if (rational)
+        {
+            boundary.Weights.AddRange([1.0, 2.0, 3.0, 2.0, 1.0]);
+        }
+        layout.AssociatedBlock.Entities.Add(boundary);
+        Viewport viewport = CreateTopViewport(
+            new XYZ(100, 80, 0),
+            XY.Zero,
+            XYZ.Zero,
+            0.0);
+        viewport.Boundary = boundary;
+        viewport.Status |= ViewportStatusFlags.NonRectangularClipping;
+        layout.AddViewport(viewport);
+        var session = new CadDocumentSession(document);
+        session.Edit("publish ordinary spline viewport generation", static _ => { });
+        CadLayoutSnapshot snapshot = new CadLayoutSnapshotCompiler().Compile(
+            session,
+            ACadLayout.PaperLayoutName);
+
+        using CadRecordedLayoutScene scene = new CadLayoutSceneCompiler().Compile(snapshot);
+        using GpuPicture picture = scene.CreatePicture();
+
+        PathFigure figure = Assert.Single(picture.GetCommand(0).Path!.Figures);
+        Assert.True(figure.IsClosed);
+        Assert.Equal(2, figure.Segments.Count);
+        Assert.All(figure.Segments, segment => Assert.True(segment switch
+        {
+            LineSegment => degree == 1,
+            QuadraticBezierSegment => degree == 2,
+            CubicBezierSegment => degree == 3 && !rational,
+            RationalCubicBezierSegment => degree == 3 && rational,
+            _ => false,
+        }));
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            checked((ulong)(100 + degree)),
+            scene.ContentGeneration,
             out NativeCompiledPicture? nativePicture,
             out NativePictureCompileFailure failure),
             failure.ToString());
@@ -432,21 +528,33 @@ public sealed class CadViewportTests
     }
 
     [Theory]
-    [InlineData(CadDocumentFormat.Dxf)]
-    [InlineData(CadDocumentFormat.Dwg)]
+    [InlineData(CadDocumentFormat.Dxf, false)]
+    [InlineData(CadDocumentFormat.Dwg, false)]
+    [InlineData(CadDocumentFormat.Dxf, true)]
+    [InlineData(CadDocumentFormat.Dwg, true)]
     public async Task NonRectangularViewportBoundarySurvivesAdvertisedRoundTrips(
-        CadDocumentFormat format)
+        CadDocumentFormat format,
+        bool useSpline)
     {
         var document = new CadDocument(ACadVersion.AC1032);
         document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 10, 0)));
         ACadLayout layout = document.Layouts[ACadLayout.PaperLayoutName];
-        var boundary = new LwPolyline
+        Entity boundary;
+        if (useSpline)
         {
-            Flags = LwPolylineFlags.Closed,
-        };
-        boundary.Vertices.Add(new LwPolyline.Vertex(50, 40));
-        boundary.Vertices.Add(new LwPolyline.Vertex(150, 40));
-        boundary.Vertices.Add(new LwPolyline.Vertex(100, 120));
+            boundary = CreatePeriodicRationalSplineBoundary(100, 80);
+        }
+        else
+        {
+            var polyline = new LwPolyline
+            {
+                Flags = LwPolylineFlags.Closed,
+            };
+            polyline.Vertices.Add(new LwPolyline.Vertex(50, 40));
+            polyline.Vertices.Add(new LwPolyline.Vertex(150, 40));
+            polyline.Vertices.Add(new LwPolyline.Vertex(100, 120));
+            boundary = polyline;
+        }
         layout.AssociatedBlock.Entities.Add(boundary);
         Viewport viewport = CreateTopViewport(
             new XYZ(100, 80, 0),
@@ -478,6 +586,10 @@ public sealed class CadViewportTests
         using CadRecordedLayoutScene scene = new CadLayoutSceneCompiler().Compile(snapshot);
         using GpuPicture picture = scene.CreatePicture();
         Assert.Equal(RenderCommandType.PushGeometryClip, picture.GetCommand(0).Type);
+        Assert.Equal(
+            useSpline,
+            picture.GetCommand(0).Path!.Figures[0].Segments[0] is
+                RationalQuadraticBezierSegment);
     }
 
     [Fact]
@@ -595,6 +707,32 @@ public sealed class CadViewportTests
             CompileUnsupportedBoundary(
                 new Circle { Center = XYZ.Zero, Radius = 10 },
                 freezeLayer: true).Message);
+        var openSpline = new Spline { Degree = 2 };
+        openSpline.ControlPoints.AddRange([
+            new XYZ(0, 0, 0),
+            new XYZ(5, 10, 0),
+            new XYZ(10, 0, 0),
+        ]);
+        openSpline.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+        Assert.StartsWith(
+            "CADVIEW011:",
+            CompileUnsupportedBoundary(openSpline).Message);
+        var quarticSpline = new Spline
+        {
+            Degree = 4,
+            IsClosed = true,
+        };
+        quarticSpline.ControlPoints.AddRange([
+            new XYZ(0, 0, 0),
+            new XYZ(5, 10, 0),
+            new XYZ(10, 12, 0),
+            new XYZ(15, 10, 0),
+            new XYZ(20, 0, 0),
+        ]);
+        quarticSpline.Knots.AddRange([0, 0, 0, 0, 0, 1, 1, 1, 1, 1]);
+        Assert.StartsWith(
+            "CADVIEW012:",
+            CompileUnsupportedBoundary(quarticSpline).Message);
     }
 
     [Fact]
@@ -703,6 +841,65 @@ public sealed class CadViewportTests
             RenderMode = RenderMode.Optimized2D,
             ShadePlotMode = ShadePlotMode.Wireframe,
         };
+
+    private static Spline CreatePeriodicRationalSplineBoundary(
+        double centerX,
+        double centerY)
+    {
+        var spline = new Spline
+        {
+            Degree = 2,
+            IsClosed = true,
+            IsPeriodic = true,
+        };
+        spline.ControlPoints.AddRange([
+            new XYZ(centerX - 30, centerY, 0),
+            new XYZ(centerX, centerY + 20, 0),
+            new XYZ(centerX + 30, centerY, 0),
+            new XYZ(centerX, centerY - 20, 0),
+        ]);
+        spline.Knots.AddRange([0, 1, 2, 3, 4]);
+        spline.Weights.AddRange([1, 2, 1, 2]);
+        return spline;
+    }
+
+    private static Spline CreateClosedOrdinarySplineBoundary(int degree)
+    {
+        var spline = new Spline
+        {
+            Degree = degree,
+            IsClosed = true,
+        };
+        spline.ControlPoints.AddRange(degree switch
+        {
+            1 =>
+            [
+                new XYZ(70, 60, 0),
+                new XYZ(130, 60, 0),
+                new XYZ(100, 110, 0),
+            ],
+            2 =>
+            [
+                new XYZ(70, 60, 0),
+                new XYZ(100, 110, 0),
+                new XYZ(130, 60, 0),
+                new XYZ(100, 45, 0),
+            ],
+            3 =>
+            [
+                new XYZ(70, 60, 0),
+                new XYZ(70, 105, 0),
+                new XYZ(130, 105, 0),
+                new XYZ(130, 60, 0),
+                new XYZ(100, 45, 0),
+            ],
+            _ => throw new ArgumentOutOfRangeException(nameof(degree)),
+        });
+        spline.Knots.AddRange(Enumerable.Repeat(0.0, degree + 1));
+        spline.Knots.Add(1.0);
+        spline.Knots.AddRange(Enumerable.Repeat(2.0, degree + 1));
+        return spline;
+    }
 
     private static void ConfigurePaperLayout(ACadLayout layout)
     {

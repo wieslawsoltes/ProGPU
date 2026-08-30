@@ -6,10 +6,11 @@ Date: 2026-08-30
 
 This checkpoint implements a bounded paper-space output slice: one atomic
 model/paper snapshot generation, rectangular and exact closed-polyline/circle/
-ellipse active floating `VIEWPORT` boundaries, orthographic WCS top views, DCS
-panning, view twist, viewport scale, per-viewport frozen layers, independently
-visible viewport borders, paper/model draw order, managed/native retained
-replay, and millimeter 1:1 `PlotType Layout` printing.
+ellipse/degree-1-through-3 SPLINE active floating `VIEWPORT` boundaries,
+orthographic WCS top views, DCS panning, view twist, viewport scale,
+per-viewport frozen layers, independently visible viewport borders, paper/model
+draw order, managed/native retained replay, and millimeter 1:1 `PlotType Layout`
+printing.
 
 The implementation is clean-room. No third-party renderer source was copied,
 ported, translated, or used as an implementation template. Autodesk's public
@@ -31,6 +32,11 @@ the only implementation sources reused directly.
   off, while freezing that layer does not preserve correct clipping. ProGPU
   therefore retains an off-layer boundary as a hidden dependency and fails a
   frozen boundary explicitly.
+- Autodesk's current [`VPCLIP` contract](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-Core/files/GUID-D5FD4D1A-5785-4A8E-B0D1-D12079C0A4FF.htm)
+  explicitly lists closed polylines, circles, ellipses, closed splines, and
+  regions as valid clipping objects. ProGPU adopts closed SPLINE identity and
+  exact curve topology here; REGION boundary topology remains a separate ACIS
+  gate.
 - Autodesk's [coordinate-system contract](https://help.autodesk.com/cloudhelp/2022/ENU/OARX-DevGuide/files/GUID-01A45BA0-CC4F-4DCA-840E-DCA8802A060A.htm)
   defines the DCS origin as the WCS target and its Z axis as the view direction;
   a viewport is a plan view of that DCS.
@@ -111,11 +117,19 @@ ratio defines visible model width implicitly, exactly as `Hp/Hm` plus the paper
 width/height ratio. Nonrectangular boundaries retain their exact paper-space
 closed path: straight and bulged 2D-polyline segments remain analytic lines and
 arcs, circles use two analytic arcs, and full ellipses use the unit circle plus
-the exact major/minor-axis affine transform. Anchor-relative coordinates and
-the paper rebase preserve float precision. Final paper output adds the paper
-rebase, maps one paper unit to one millimeter, flips Y into page coordinates,
-applies plot origin and the existing rotated-media convention, and clips to the
-printable area.
+the exact major/minor-axis affine transform. Closed ordinary and periodic
+SPLINEs through degree three reuse `CadSplineCanonicalizer` and
+`CadRationalBezier`: every non-empty knot span becomes one exact linear,
+quadratic, cubic, rational-quadratic, or rational-cubic path segment. A closed
+nonperiodic spline uses the source's explicit closing edge; periodic expansion
+meets itself without adding a sampled seam. Canonical homogeneous weights are
+normalized to the shared unit-endpoint path representation before checked float
+retention. Anchor-relative coordinates and the paper rebase preserve float
+precision. Degree four through ten remains fail-closed because the shared
+filled-path grammar has no above-cubic segment; flattening is not substituted.
+Final paper output adds the paper rebase, maps one paper unit to one millimeter,
+flips Y into page coordinates, applies plot origin and the existing
+rotated-media convention, and clips to the printable area.
 
 ## Retention, frozen layers, ordering, and linetypes
 
@@ -140,11 +154,14 @@ recording; no entity or cache is mutated.
 
 For `V` active viewports, `E` model entities, `P` paper entities, `U` unique
 frozen-layer sets, and `B` referenced boundary segments, compilation is
-`O(U*E + P + V + B)` time and retained storage. Boundary-handle resolution is
-`O(P + V)` and duplicate handles fail as ambiguous rather than selecting an
-arbitrary entity. Camera-only replay is `O(Pc + V)` retained commands, where
-`Pc` is the paper command count, with no ACadSharp traversal, reshape, raster
-upload, or managed/native boundary call.
+`O(U*E + P + V + B)` time and retained storage. Exact spline extraction is
+`O(B*D^2)` for degree `D`, with `D <= 3`, bounded stack working storage, and one
+retained segment per non-empty span; it is therefore linear in `B` for the
+supported grammar. Boundary-handle resolution is `O(P + V)` and duplicate
+handles fail as ambiguous rather than selecting an arbitrary entity.
+Camera-only replay is `O(Pc + V)` retained commands, where `Pc` is the paper
+command count, with no ACadSharp traversal, reshape, raster upload, or
+managed/native boundary call.
 
 ## Printing, managed/native parity, and measured evidence
 
@@ -197,6 +214,21 @@ dotnet run --project src/ProGPU.CAD.Benchmarks/ProGPU.CAD.Benchmarks.csproj -c R
 This is likewise a new-feature baseline, not a comparison or optimization
 claim. The canonical benchmark artifact records .NET 10.0.5 on macOS 26.6.
 
+The exact periodic rational-SPLINE lane replaced each polyline boundary with a
+compact degree-two periodic NURBS containing four non-empty rational-quadratic
+spans. On the same workload it measured `33.578/62.113/63.166` ms for atomic
+capture, `131.644/165.708/173.644` ms for scene compilation, and
+`132.296/192.316/220.913` ms for the physical print plan. Picture clone was
+`0.000/0.004/0.634` ms and 112 managed bytes; the retained layout still
+contained 4,000 top-level commands and four shared model variants. The exact
+command was:
+
+```text
+dotnet run --project src/ProGPU.CAD.Benchmarks/ProGPU.CAD.Benchmarks.csproj -c Release --no-build -- --viewports 1000 --spline-viewport-boundaries --viewport-layer-variants 4 --entities 10000 --warmup 3 --iterations 24 --output-json artifacts/progpu-cad-spline-viewport-benchmark.json
+```
+
+This third lane is also a new-feature baseline and makes no optimization claim.
+
 ## Dependency provenance
 
 The pinned ACadSharp feature branch commit `d6494cff` adds the missing DXF code
@@ -207,15 +239,24 @@ correct. This exact in-repository dependency change is the only dependency
 source used by ProGPU. The ACadSharp `master`, `origin/master`, and
 `upstream/master` refs remain unchanged at `b469bd1e`.
 
+Spline clipping directly reuses the original in-repository ProGPU algorithms
+in `CadCanonicalSpline.cs`, `CadRationalBezier.cs`, and the rational path
+fill/clip grammar in `ProGPU.Vector` and `ProGPU.Scene.Native`. No third-party
+curve extraction, helper structure, lookup data, or implementation text was
+introduced. Focused differential tests prove the same compact periodic NURBS
+identity across snapshot, managed clip, native compilation, physical print,
+and DXF/DWG persistence.
+
 ## Explicit remaining fidelity gates
 
 - Arbitrary orthographic directions, bottom views, perspective, front/back
   depth clipping, hidden-line removal, rendered/shaded output, and visual-style
   overrides require the depth-aware 3D scene and matched image tests.
-- Spline, region, and other closed-object viewport boundaries require exact
-  retained-path lowering and conformance evidence. Missing, ambiguous,
-  malformed, open, unsupported, or frozen boundary references remain
-  fail-closed with `CADVIEW004`, `CADVIEW009`, `CADVIEW010`, or `CADVIEW011`.
+- Degree-four-through-ten SPLINE and REGION viewport boundaries require an
+  exact above-cubic filled-path or ACIS region-topology contract respectively.
+  Missing, ambiguous, malformed, open, unsupported, frozen, or
+  unrepresentable-weight boundary references remain fail-closed with
+  `CADVIEW004`, `CADVIEW009`, `CADVIEW010`, `CADVIEW011`, or `CADVIEW012`.
 - Viewport layer overrides beyond frozen membership, annotative scale,
   paper-space UCS, named views, pixel media, non-1:1/centered layout plotting,
   CTB/STB, transparency policy, and device `PaperImageOrigin` need typed

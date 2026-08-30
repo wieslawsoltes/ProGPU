@@ -63,8 +63,8 @@ internal readonly record struct CadHomogeneousPoint(
 /// performs at most 2P knot insertions, and costs O(P^2) time with O(P) bounded
 /// stack storage. Positive weights remain positive under knot insertion and de
 /// Casteljau subdivision. The helper is shared by retained linetype lowering,
-/// HATCH boundary compilation, and geometry selection so all consume the same
-/// open, closed, and periodic curve topology.
+/// HATCH boundary compilation, viewport clipping, and geometry selection so
+/// all consume the same open, closed, and periodic curve topology.
 /// </remarks>
 internal static class CadRationalBezier
 {
@@ -79,6 +79,64 @@ internal static class CadRationalBezier
         int sourceSpan,
         Span<CadHomogeneousPoint> destination) =>
         TryExtractSpan<CadCanonicalSpline>(canonical, sourceSpan, destination);
+
+    /// <summary>
+    /// Normalizes one homogeneous quadratic Bezier to the shared path contract,
+    /// whose endpoint weights are one and whose middle weight remains positive.
+    /// </summary>
+    public static bool TryGetCanonicalQuadraticWeight(
+        ReadOnlySpan<CadHomogeneousPoint> controls,
+        out double weight)
+    {
+        weight = 0.0;
+        if (controls.Length != 3 ||
+            !HasFinitePositiveWeights(controls))
+        {
+            return false;
+        }
+
+        double logarithm = Math.Log(controls[1].W) -
+            (0.5 * (Math.Log(controls[0].W) + Math.Log(controls[2].W)));
+        weight = Math.Exp(logarithm);
+        float retainedWeight = (float)weight;
+        return double.IsFinite(weight) && weight > 0.0 &&
+            float.IsFinite(retainedWeight) && retainedWeight > 0.0f;
+    }
+
+    /// <summary>
+    /// Normalizes one homogeneous cubic Bezier to the shared path contract,
+    /// whose endpoint weights are one and whose two interior weights are positive.
+    /// </summary>
+    public static bool TryGetCanonicalCubicWeights(
+        ReadOnlySpan<CadHomogeneousPoint> controls,
+        out double weight1,
+        out double weight2)
+    {
+        weight1 = 0.0;
+        weight2 = 0.0;
+        if (controls.Length != 4 ||
+            !HasFinitePositiveWeights(controls))
+        {
+            return false;
+        }
+
+        double logarithm0 = Math.Log(controls[0].W);
+        double logarithm3 = Math.Log(controls[3].W);
+        weight1 = Math.Exp(
+            Math.Log(controls[1].W) -
+            ((2.0 / 3.0) * logarithm0) -
+            ((1.0 / 3.0) * logarithm3));
+        weight2 = Math.Exp(
+            Math.Log(controls[2].W) -
+            ((1.0 / 3.0) * logarithm0) -
+            ((2.0 / 3.0) * logarithm3));
+        float retainedWeight1 = (float)weight1;
+        float retainedWeight2 = (float)weight2;
+        return double.IsFinite(weight1) && weight1 > 0.0 &&
+            double.IsFinite(weight2) && weight2 > 0.0 &&
+            float.IsFinite(retainedWeight1) && retainedWeight1 > 0.0f &&
+            float.IsFinite(retainedWeight2) && retainedWeight2 > 0.0f;
+    }
 
     public static bool TryExtractSpan<TSpline>(
         in TSpline canonical,
@@ -256,6 +314,19 @@ internal static class CadRationalBezier
             }
         }
         return work[0];
+    }
+
+    private static bool HasFinitePositiveWeights(
+        ReadOnlySpan<CadHomogeneousPoint> controls)
+    {
+        for (int index = 0; index < controls.Length; index++)
+        {
+            if (!double.IsFinite(controls[index].W) || controls[index].W <= 0.0)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     public static void Subdivide(
