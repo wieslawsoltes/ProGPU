@@ -780,8 +780,11 @@ producer and allocate no command object or callback. The native regression
 round-trips every property, rejects an unknown antialias value, then restores
 defaults before the existing clipped bitmap/image and exact-BGRA oracle. The
 allowlist grows from 90 to exactly 102 exports. Portable managed contracts pass
-5/5 and the package builds with zero warnings. Windows MSVC qualification is
-pending checkpoint `ac10d4af`.
+5/5 and the package builds with zero warnings. Exact checkpoint `ac10d4af` is
+qualified by GitHub Actions Build run `33335230522`, dedicated MSVC job
+`99320851539`: warning-as-error compile/link succeeds, the focused Direct2D
+regression passes in 0.17 seconds, all 11 native suites pass in 1.07 seconds,
+and the successful Windows build accepts the exact 102-symbol allowlist.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
