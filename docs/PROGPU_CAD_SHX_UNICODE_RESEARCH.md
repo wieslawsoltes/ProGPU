@@ -2,7 +2,8 @@
 
 Date: 2026-08-30
 
-Status: implemented for `AutoCAD-86 unifont 1.0` encoding 0; Big Font and
+Status: implemented for `AutoCAD-86 unifont 1.0` encoding 0. Big Font is now
+covered by the separate [compiled Big Font research record](PROGPU_CAD_SHX_BIGFONT_RESEARCH.md);
 non-Unicode `*UNIFONT` encodings remain explicit capability gates.
 
 ## Scope and clean-room method
@@ -84,12 +85,11 @@ which guards against treating one artifact's incidental offsets as a contract.
 The parser validates every length, terminator, duplicate identity, limit, shape
 zero metadata field, and exact end boundary before publication.
 
-Compiled Big Font artifacts were also inspected only to confirm that their
-indexed directory is structurally distinct. That observation is not sufficient
-to implement faithful text mapping: ACadSharp exposes decoded .NET strings,
-whereas Big Font selection depends on original lead-byte/code-page sequences.
-ProGPU therefore rejects `BigFontFilename` resolution rather than guessing that
-a Unicode scalar is a Big Font code.
+Compiled Big Font artifacts were initially inspected only to confirm that their
+indexed directory is structurally distinct. The later implementation added
+independent multi-artifact envelope observations and strict round-trip encoding
+through the persisted drawing code page; it never guesses that a Unicode scalar
+is a Big Font code. That evidence and design are recorded separately.
 
 ## Adopted design
 
@@ -192,11 +192,6 @@ remain required before any latency, throughput, or quality claim.
 
 ## Remaining work
 
-- Add a typed Big Font text-source/code-page seam that preserves original
-  encoded character identity through ACadSharp import and ProGPU editing.
-- Implement the indexed Big Font parser, lead-byte ranges, extended primitive
-  calls, and matched standard/extended fixtures only after that identity seam is
-  authoritative.
 - Decide whether `*UNIFONT` encodings 1 and 2 need separate source-byte APIs.
 - Expand the independently licensed compiled Unicode conformance corpus without
   vendoring third-party fonts into ordinary implementation files.

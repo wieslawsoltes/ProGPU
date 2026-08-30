@@ -236,6 +236,7 @@ public sealed partial class CadSnapshotCompiler
             _ => throw new ArgumentOutOfRangeException(nameof(options)),
         };
         double globalLineTypeScale = document.Header.LineTypeScale;
+        string drawingCodePage = document.Header.CodePage;
         if (!double.IsFinite(globalLineTypeScale) || globalLineTypeScale <= 0.0)
         {
             throw new ArgumentException(
@@ -467,7 +468,8 @@ public sealed partial class CadSnapshotCompiler
                     textFontIndices,
                     shxGlyphInstances,
                     shxFontResolver,
-                    options);
+                    options,
+                    drawingCodePage);
                 CadEntityHeader? header = entity switch
                 {
                     AttributeBase attributeEntity => CompileAttribute(
@@ -635,7 +637,8 @@ public sealed partial class CadSnapshotCompiler
                         shxTexts,
                         shxGlyphInstances,
                         shxDecorationSegments,
-                        shxFontResolver),
+                        shxFontResolver,
+                        drawingCodePage),
                     MText mtext => CompileMText(
                         mtext,
                         rootHandle,
@@ -659,7 +662,8 @@ public sealed partial class CadSnapshotCompiler
                         shxMTexts,
                         shxMTextGlyphRuns,
                         shxGlyphInstances,
-                        shxFontResolver),
+                        shxFontResolver,
+                        drawingCodePage),
                     _ => null,
                 };
 
@@ -1141,7 +1145,8 @@ public sealed partial class CadSnapshotCompiler
                 textFontIndices,
                 shxGlyphInstances,
                 shxFontResolver,
-                options);
+                options,
+                drawingCodePage);
             var meshFaces = new List<CadMesh3DFaceSource>(displayFaces.Count);
             for (int faceIndex = 0; faceIndex < displayFaces.Count; faceIndex++)
             {
@@ -1277,7 +1282,8 @@ public sealed partial class CadSnapshotCompiler
                 textFontIndices,
                 shxGlyphInstances,
                 shxFontResolver,
-                options);
+                options,
+                drawingCodePage);
             int mFaceCount = (mCount - 1) + (closeM && mCount > 2 ? 1 : 0);
             int nFaceCount = (nCount - 1) + (closeN && nCount > 2 ? 1 : 0);
             var meshFaces = new List<CadMesh3DFaceSource>(checked(mFaceCount * nFaceCount));
@@ -1446,7 +1452,8 @@ public sealed partial class CadSnapshotCompiler
                     textFontIndices,
                     shxGlyphInstances,
                     shxFontResolver,
-                    options);
+                    options,
+                    drawingCodePage);
 
                 if (count == 1)
                 {
@@ -1741,7 +1748,8 @@ public sealed partial class CadSnapshotCompiler
                     shxTexts,
                     shxGlyphInstances,
                     shxDecorationSegments,
-                    shxFontResolver),
+                    shxFontResolver,
+                    drawingCodePage),
                 AttributeType.MultiLine or AttributeType.ConstantMultiLine
                     when attribute.MText is not null => CompileMText(
                         attribute.MText,
@@ -1766,7 +1774,8 @@ public sealed partial class CadSnapshotCompiler
                         shxMTexts,
                         shxMTextGlyphRuns,
                         shxGlyphInstances,
-                        shxFontResolver),
+                        shxFontResolver,
+                        drawingCodePage),
                 AttributeType.MultiLine or AttributeType.ConstantMultiLine =>
                     throw new CadUnsupportedEntityException(
                         "Multiline attribute has no embedded MTEXT payload."),
@@ -2659,7 +2668,8 @@ public sealed partial class CadSnapshotCompiler
         List<CadShxTextPrimitive> shxTexts,
         List<CadShxGlyphInstance> shxGlyphInstances,
         List<CadShxDecorationSegment> shxDecorationSegments,
-        ICadShxFontResolver? shxFontResolver)
+        ICadShxFontResolver? shxFontResolver,
+        string drawingCodePage)
     {
         if (text.Thickness != 0.0)
         {
@@ -2707,7 +2717,8 @@ public sealed partial class CadSnapshotCompiler
                 shxGlyphInstances,
                 shxDecorationSegments,
                 glyphIndices.Count,
-                shxFontResolver);
+                shxFontResolver,
+                drawingCodePage);
         }
 
         if (cadStyle.Flags.HasFlag(StyleFlags.VerticalText))
@@ -2994,14 +3005,10 @@ public sealed partial class CadSnapshotCompiler
         List<CadShxGlyphInstance> glyphInstances,
         List<CadShxDecorationSegment> decorationSegments,
         int retainedTrueTypeGlyphCount,
-        ICadShxFontResolver? shxFontResolver)
+        ICadShxFontResolver? shxFontResolver,
+        string drawingCodePage)
     {
         TextStyle cadStyle = text.Style;
-        if (!string.IsNullOrWhiteSpace(cadStyle.BigFontFilename))
-        {
-            throw new CadUnsupportedEntityException(
-                "Big Font TEXT requires the distinct bounded Big Font container and character-range contract.");
-        }
         bool isVertical = cadStyle.Flags.HasFlag(StyleFlags.VerticalText);
         if (isVertical &&
             (text.HorizontalAlignment != TextHorizontalAlignment.Left ||
@@ -3018,6 +3025,12 @@ public sealed partial class CadSnapshotCompiler
             cadStyle.Name,
             cadStyle.Filename,
             cadStyle.BigFontFilename));
+        if (!string.IsNullOrWhiteSpace(cadStyle.BigFontFilename) &&
+            fontResolution.BigFontGlyphCache is null)
+        {
+            throw new CadUnsupportedEntityException(
+                $"Big Font TEXT font '{cadStyle.BigFontFilename}' could not resolve an SHX Big Font.");
+        }
         CadShxGlyphCache cache = fontResolution.GlyphCache ??
             throw new CadUnsupportedEntityException(
                 $"Text style '{cadStyle.Name}' could not resolve an SHX font.");
@@ -3033,7 +3046,9 @@ public sealed partial class CadSnapshotCompiler
                 {
                     MaxCodeUnits = options.MaxTextCodeUnitsPerEntity,
                     MaxGlyphs = options.MaxTextGlyphs,
-                });
+                },
+                fontResolution.BigFontGlyphCache,
+                drawingCodePage);
         }
         catch (Exception exception) when (
             exception is InvalidDataException or NotSupportedException or
@@ -3263,16 +3278,25 @@ public sealed partial class CadSnapshotCompiler
             decorationCount));
         if (fontResolution.IsSubstitution)
         {
-            string resolved = string.IsNullOrWhiteSpace(fontResolution.ResolvedFontName)
+            string resolvedPrimary = string.IsNullOrWhiteSpace(fontResolution.ResolvedFontName)
                 ? cache.Font.Name
                 : fontResolution.ResolvedFontName;
+            string requested = string.IsNullOrWhiteSpace(cadStyle.BigFontFilename)
+                ? cadStyle.Filename
+                : $"{cadStyle.Filename}, {cadStyle.BigFontFilename}";
+            string resolved = string.IsNullOrWhiteSpace(fontResolution.ResolvedBigFontName)
+                ? resolvedPrimary
+                : $"{resolvedPrimary}, {fontResolution.ResolvedBigFontName}";
+            string resolutionKind = string.IsNullOrWhiteSpace(cadStyle.BigFontFilename)
+                ? "font"
+                : "font pair";
             AddDiagnostic(
                 diagnostics,
                 options.DiagnosticLimit,
                 new CadDiagnostic(
                     CadDiagnosticSeverity.Warning,
                     "CADSNAP006",
-                    $"TEXT path {FormatEntityPath(handle, text.Handle)} substitutes '{cadStyle.Filename}' with SHX font '{resolved}'."));
+                    $"TEXT path {FormatEntityPath(handle, text.Handle)} substitutes '{requested}' with SHX {resolutionKind} '{resolved}'."));
         }
 
         return new CadEntityHeader(
@@ -3917,7 +3941,8 @@ public sealed partial class CadSnapshotCompiler
         Dictionary<TtfFont, int> textFontIndices,
         List<CadShxGlyphInstance> shxGlyphInstances,
         ICadShxFontResolver? shxFontResolver,
-        CadSnapshotOptions options)
+        CadSnapshotOptions options,
+        string drawingCodePage)
     {
         ACadSharp.Color color = resolved.Color;
         LineWeightType lineWeight = resolved.LineWeight;
@@ -3942,7 +3967,8 @@ public sealed partial class CadSnapshotCompiler
             textFontIndices,
             shxGlyphInstances,
             shxFontResolver,
-            options);
+            options,
+            drawingCodePage);
         CadStrokeStyle style = new(
             color.R,
             color.G,
@@ -3979,7 +4005,8 @@ public sealed partial class CadSnapshotCompiler
         Dictionary<TtfFont, int> textFontIndices,
         List<CadShxGlyphInstance> shxGlyphInstances,
         ICadShxFontResolver? shxFontResolver,
-        CadSnapshotOptions options)
+        CadSnapshotOptions options,
+        string drawingCodePage)
     {
         string name = lineType.Name;
         if (indices.TryGetValue(name, out int existing))
@@ -4047,7 +4074,8 @@ public sealed partial class CadSnapshotCompiler
                     textFontIndices,
                     shxGlyphInstances,
                     shxFontResolver,
-                    options));
+                    options,
+                    drawingCodePage));
                 elementCount++;
             }
 
@@ -4141,7 +4169,8 @@ public sealed partial class CadSnapshotCompiler
         Dictionary<TtfFont, int> textFontIndices,
         List<CadShxGlyphInstance> shxGlyphInstances,
         ICadShxFontResolver? shxFontResolver,
-        CadSnapshotOptions options)
+        CadSnapshotOptions options,
+        string drawingCodePage)
     {
         int textResourceOffset = textResources.Count;
         int shapeResourceOffset = shapeResources.Count;
@@ -4227,10 +4256,6 @@ public sealed partial class CadSnapshotCompiler
             }
 
             TextStyle textStyle = segment.Style;
-            if (!string.IsNullOrWhiteSpace(textStyle.BigFontFilename))
-            {
-                return Unresolved();
-            }
             if (!double.IsFinite(textStyle.Height) || textStyle.Height < 0.0 ||
                 !double.IsFinite(textStyle.Width) || textStyle.Width <= 0.0 ||
                 !double.IsFinite(textStyle.ObliqueAngle) ||
@@ -4261,7 +4286,9 @@ public sealed partial class CadSnapshotCompiler
                     textStyle.Filename,
                     textStyle.BigFontFilename));
                 CadShxGlyphCache? cache = resolution.GlyphCache;
-                if (cache is null || !cache.Font.IsTextFont || cache.Font.Above == 0)
+                if (cache is null || !cache.Font.IsTextFont || cache.Font.Above == 0 ||
+                    (!string.IsNullOrWhiteSpace(textStyle.BigFontFilename) &&
+                     resolution.BigFontGlyphCache is null))
                 {
                     return Unresolved();
                 }
@@ -4273,7 +4300,9 @@ public sealed partial class CadSnapshotCompiler
                     {
                         MaxCodeUnits = options.MaxTextCodeUnitsPerEntity,
                         MaxGlyphs = options.MaxTextGlyphs,
-                    });
+                    },
+                    resolution.BigFontGlyphCache,
+                    drawingCodePage);
                 ReadOnlySpan<CadShxGlyphPlacement> placements = layout.Glyphs.Span;
                 if (placements.Length > options.MaxTextGlyphs -
                     textGlyphIndices.Count - shxGlyphInstances.Count)

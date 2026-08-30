@@ -9,6 +9,8 @@ public sealed partial class CadSnapshotCompiler
 {
     private readonly record struct ShxMTextResolvedStyle(
         CadShxGlyphCache Cache,
+        CadShxGlyphCache? BigFontCache,
+        string DrawingCodePage,
         float FontSize,
         float ScaleX,
         float ScaleY,
@@ -109,7 +111,8 @@ public sealed partial class CadSnapshotCompiler
         List<CadMTextRectangle> retainedDecorations,
         List<CadMTextStroke> retainedStrokes,
         int retainedTrueTypeGlyphCount,
-        ICadShxFontResolver? shxFontResolver)
+        ICadShxFontResolver? shxFontResolver,
+        string drawingCodePage)
     {
         TextStyle cadStyle = mtext.Style;
         if (cadStyle.Flags.HasFlag(StyleFlags.VerticalText))
@@ -446,7 +449,8 @@ public sealed partial class CadSnapshotCompiler
                 cadStyle,
                 entityStyle,
                 layerColor,
-                resolver);
+                resolver,
+                drawingCodePage);
             if (style.IsSubstitution)
             {
                 substitutions.Add(style.ResolvedFontName);
@@ -473,7 +477,9 @@ public sealed partial class CadSnapshotCompiler
                     {
                         MaxCodeUnits = options.MaxTextCodeUnitsPerEntity,
                         MaxGlyphs = options.MaxTextGlyphs,
-                    });
+                    },
+                    style.BigFontCache,
+                    style.DrawingCodePage);
             }
             catch (Exception exception) when (
                 exception is InvalidDataException or NotSupportedException or
@@ -519,8 +525,20 @@ public sealed partial class CadSnapshotCompiler
             CadShxTextLayout lower;
             try
             {
-                upper = new CadShxTextLayout(inline.Text, child.Cache);
-                lower = new CadShxTextLayout(inline.SecondaryText, child.Cache);
+                upper = new CadShxTextLayout(
+                    inline.Text,
+                    child.Cache,
+                    CadShxOrientation.Horizontal,
+                    null,
+                    child.BigFontCache,
+                    child.DrawingCodePage);
+                lower = new CadShxTextLayout(
+                    inline.SecondaryText,
+                    child.Cache,
+                    CadShxOrientation.Horizontal,
+                    null,
+                    child.BigFontCache,
+                    child.DrawingCodePage);
             }
             catch (Exception exception) when (
                 exception is InvalidDataException or NotSupportedException or
@@ -824,7 +842,8 @@ public sealed partial class CadSnapshotCompiler
         TextStyle cadStyle,
         CadResolvedStyle entityStyle,
         ACadSharp.Color layerColor,
-        ICadShxFontResolver resolver)
+        ICadShxFontResolver resolver,
+        string drawingCodePage)
     {
         if (inline.Font.IsSpecified && (inline.Font.IsBold || inline.Font.IsItalic))
         {
@@ -843,10 +862,19 @@ public sealed partial class CadSnapshotCompiler
         string filename = inline.Font.IsSpecified
             ? inline.Font.FamilyName
             : cadStyle.Filename;
+        string bigFontFilename = inline.Font.IsSpecified
+            ? string.Empty
+            : cadStyle.BigFontFilename;
         CadShxFontResolution resolution = resolver.Resolve(new CadShxFontRequest(
             styleName,
             filename,
-            inline.Font.IsSpecified ? string.Empty : cadStyle.BigFontFilename));
+            bigFontFilename));
+        if (!string.IsNullOrWhiteSpace(bigFontFilename) &&
+            resolution.BigFontGlyphCache is null)
+        {
+            throw new CadUnsupportedEntityException(
+                $"Big Font MTEXT font '{bigFontFilename}' could not resolve an SHX Big Font.");
+        }
         CadShxGlyphCache cache = resolution.GlyphCache ??
             throw new CadUnsupportedEntityException(
                 $"SHX MTEXT font '{filename}' could not resolve an SHX font.");
@@ -890,6 +918,8 @@ public sealed partial class CadSnapshotCompiler
         };
         return new ShxMTextResolvedStyle(
             cache,
+            resolution.BigFontGlyphCache,
+            drawingCodePage,
             size,
             checked(scaleY * (float)width),
             scaleY,
@@ -904,7 +934,9 @@ public sealed partial class CadSnapshotCompiler
                 ResolveAlpha(entityStyle.Transparency)),
             inline.Decorations,
             resolution.IsSubstitution,
-            resolution.ResolvedFontName);
+            string.IsNullOrEmpty(resolution.ResolvedBigFontName)
+                ? resolution.ResolvedFontName
+                : $"{resolution.ResolvedFontName}, {resolution.ResolvedBigFontName}");
     }
 
     private static CadMTextDecoration FromShxDecoration(

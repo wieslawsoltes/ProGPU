@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Text;
 using ProGPU.Vector;
 
 namespace ProGPU.CAD;
@@ -41,8 +42,8 @@ public sealed class CadShxGlyph
 }
 
 /// <summary>
-/// Owns device-independent interpreted glyphs for one immutable standard or
-/// Unicode SHX font or shape file.
+/// Owns device-independent interpreted glyphs for one immutable standard,
+/// Unicode, or Big Font SHX font or shape file.
 /// </summary>
 public sealed class CadShxGlyphCache
 {
@@ -114,7 +115,8 @@ public readonly record struct CadShxGlyphPlacement(
     bool IsBreakOpportunity = false);
 
 /// <summary>
-/// A bounded device-independent standard or Unicode SHX character layout.
+/// A bounded device-independent standard, Unicode, or primary-plus-Big-Font
+/// SHX character layout.
 /// </summary>
 /// <remarks>
 /// Layout is O(C + G) time and O(G) placement storage for C UTF-16/control-code
@@ -123,6 +125,13 @@ public readonly record struct CadShxGlyphPlacement(
 /// </remarks>
 public sealed class CadShxTextLayout
 {
+    private readonly record struct Token(
+        int Scalar,
+        ushort DirectShape,
+        bool IsDirectShape,
+        CadShxTextDecoration Decorations,
+        bool IsBreakOpportunity);
+
     private readonly CadShxGlyphPlacement[] _glyphs;
 
     public CadShxOrientation Orientation { get; }
@@ -136,6 +145,23 @@ public sealed class CadShxTextLayout
         CadShxGlyphCache cache,
         CadShxOrientation orientation = CadShxOrientation.Horizontal,
         CadShxTextLayoutOptions? options = null)
+        : this(
+            source,
+            cache,
+            orientation,
+            options,
+            bigFontCache: null,
+            drawingCodePage: null)
+    {
+    }
+
+    public CadShxTextLayout(
+        string source,
+        CadShxGlyphCache cache,
+        CadShxOrientation orientation,
+        CadShxTextLayoutOptions? options,
+        CadShxGlyphCache? bigFontCache,
+        string? drawingCodePage)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(cache);
@@ -145,11 +171,31 @@ public sealed class CadShxTextLayout
                 "SHX text layout requires a text-font header shape.",
                 nameof(cache));
         }
+        if (cache.Font.IsBigFont)
+        {
+            throw new ArgumentException(
+                "SHX text layout requires a primary font before an optional Big Font.",
+                nameof(cache));
+        }
         if (cache.Font.IsUnicodeFont &&
             cache.Font.UnicodeEncoding != CadShxUnicodeEncoding.Unicode)
         {
             throw new NotSupportedException(
                 $"Unicode SHX encoding {cache.Font.UnicodeEncoding} requires a distinct character decoder.");
+        }
+        if (bigFontCache is not null)
+        {
+            if (!bigFontCache.Font.IsBigFont)
+            {
+                throw new ArgumentException(
+                    "The secondary SHX cache must contain a Big Font container.",
+                    nameof(bigFontCache));
+            }
+            if (cache.Font.IsUnicodeFont)
+            {
+                throw new NotSupportedException(
+                    "A Big Font must be paired with a standard primary SHX font, not a Unicode font.");
+            }
         }
         options ??= new CadShxTextLayoutOptions();
         ValidateOptions(options);
@@ -166,16 +212,11 @@ public sealed class CadShxTextLayout
         }
 
         Orientation = orientation;
-        var placements = new List<CadShxGlyphPlacement>(Math.Min(source.Length, options.MaxGlyphs));
+        Encoding? bigFontEncoding = bigFontCache is null
+            ? null
+            : CadDrawingCodePage.Resolve(drawingCodePage ?? string.Empty);
+        var tokens = new List<Token>(Math.Min(source.Length, options.MaxGlyphs));
         CadShxTextDecoration decorations = CadShxTextDecoration.None;
-        double penX = 0.0;
-        double penY = 0.0;
-        double minimumX = 0.0;
-        double minimumY = 0.0;
-        double maximumX = 0.0;
-        double maximumY = 0.0;
-        bool hasBounds = false;
-
         for (int i = 0; i < source.Length; i++)
         {
             char value = source[i];
@@ -197,9 +238,12 @@ public sealed class CadShxTextLayout
                     }
                     scalar = (scalar << 4) | hex;
                 }
-                AddShape(
-                    MapScalar(cache.Font, scalar),
-                    isBreakOpportunity: scalar == 0x20);
+                tokens.Add(new Token(
+                    scalar,
+                    0,
+                    false,
+                    decorations,
+                    scalar == 0x20));
                 i += 6;
                 continue;
             }
@@ -236,20 +280,26 @@ public sealed class CadShxTextLayout
                         ((source[i + 2] - '0') * 100) +
                         ((source[i + 3] - '0') * 10) +
                         (source[i + 4] - '0')));
-                    AddShape(shapeNumber, isBreakOpportunity: shapeNumber == 32);
+                    tokens.Add(new Token(
+                        0,
+                        shapeNumber,
+                        true,
+                        decorations,
+                        shapeNumber == 32));
                     i += 4;
                     continue;
                 }
 
-                AddShape(code switch
+                int scalar = code switch
                 {
-                    'd' => MapScalar(cache.Font, 0x00B0),
-                    'p' => MapScalar(cache.Font, 0x00B1),
-                    'c' => MapScalar(cache.Font, 0x2205),
-                    '%' => (ushort)'%',
+                    'd' => 0x00B0,
+                    'p' => 0x00B1,
+                    'c' => 0x2205,
+                    '%' => '%',
                     _ => throw new NotSupportedException(
                         $"SHX text contains unsupported AutoCAD control code '%%{source[i + 2]}'."),
-                });
+                };
+                tokens.Add(new Token(scalar, 0, false, decorations, false));
                 i += 2;
                 continue;
             }
@@ -257,11 +307,113 @@ public sealed class CadShxTextLayout
             if (char.IsSurrogate(value))
             {
                 throw new NotSupportedException(
-                    "SHX shape identities are 16-bit and do not accept UTF-16 surrogate code units.");
+                    "SHX and Big Font character identities do not accept UTF-16 surrogate code units.");
+            }
+            tokens.Add(new Token(
+                value,
+                0,
+                false,
+                decorations,
+                value == ' '));
+        }
+
+        var placements = new List<CadShxGlyphPlacement>(Math.Min(source.Length, options.MaxGlyphs));
+        double penX = 0.0;
+        double penY = 0.0;
+        double minimumX = 0.0;
+        double minimumY = 0.0;
+        double maximumX = 0.0;
+        double maximumY = 0.0;
+        bool hasBounds = false;
+
+        Span<byte> encoded = stackalloc byte[8];
+        Span<byte> trailing = stackalloc byte[8];
+        for (int i = 0; i < tokens.Count; i++)
+        {
+            Token token = tokens[i];
+            if (token.IsDirectShape)
+            {
+                AddShape(
+                    cache,
+                    token.DirectShape,
+                    token.Decorations,
+                    token.IsBreakOpportunity);
+                continue;
+            }
+            if (bigFontCache is null)
+            {
+                AddShape(
+                    cache,
+                    MapScalar(cache.Font, token.Scalar),
+                    token.Decorations,
+                    token.IsBreakOpportunity);
+                continue;
+            }
+
+            if (token.Scalar is 0x00A0 or 0x00B0 or 0x00B1 or 0x2205)
+            {
+                AddShape(
+                    cache,
+                    MapStandardScalar(token.Scalar),
+                    token.Decorations,
+                    token.IsBreakOpportunity);
+                continue;
+            }
+
+            int byteCount = EncodeScalar(bigFontEncoding!, token.Scalar, encoded);
+            if (byteCount == 1 && !bigFontCache.Font.IsBigFontLeadByte(encoded[0]))
+            {
+                AddShape(
+                    cache,
+                    encoded[0],
+                    token.Decorations,
+                    token.IsBreakOpportunity);
+                continue;
+            }
+
+            byte lead;
+            byte trail;
+            if (byteCount == 2)
+            {
+                lead = encoded[0];
+                trail = encoded[1];
+            }
+            else if (byteCount == 1)
+            {
+                if (++i >= tokens.Count || tokens[i].IsDirectShape ||
+                    tokens[i].Decorations != token.Decorations)
+                {
+                    throw new NotSupportedException(
+                        $"Big Font lead byte 0x{encoded[0]:X2} requires one equally decorated trailing character.");
+                }
+                int trailingCount = EncodeScalar(
+                    bigFontEncoding!,
+                    tokens[i].Scalar,
+                    trailing);
+                if (trailingCount != 1)
+                {
+                    throw new NotSupportedException(
+                        "A Big Font escape character must be followed by one single-byte drawing-code-page character.");
+                }
+                lead = encoded[0];
+                trail = trailing[0];
+            }
+            else
+            {
+                throw new NotSupportedException(
+                    $"U+{token.Scalar:X4} encodes to {byteCount} bytes; Big Font identities require one or two bytes.");
+            }
+
+            if (!bigFontCache.Font.IsBigFontLeadByte(lead))
+            {
+                throw new NotSupportedException(
+                    $"Drawing-code-page lead byte 0x{lead:X2} is outside Big Font '{bigFontCache.Font.Name}' ranges.");
             }
             AddShape(
-                MapScalar(cache.Font, value),
-                isBreakOpportunity: value == ' ');
+                bigFontCache,
+                (ushort)((lead << 8) | trail),
+                token.Decorations,
+                false);
         }
 
         if (placements.Count == 0)
@@ -280,7 +432,11 @@ public sealed class CadShxTextLayout
             ? new Vector2((float)maximumX, (float)maximumY)
             : Vector2.Zero;
 
-        void AddShape(ushort shapeNumber, bool isBreakOpportunity = false)
+        void AddShape(
+            CadShxGlyphCache glyphCache,
+            ushort shapeNumber,
+            CadShxTextDecoration glyphDecorations,
+            bool isBreakOpportunity = false)
         {
             if (placements.Count == options.MaxGlyphs)
             {
@@ -291,12 +447,12 @@ public sealed class CadShxTextLayout
             CadShxGlyph glyph;
             try
             {
-                glyph = cache.GetGlyph(shapeNumber, orientation);
+                glyph = glyphCache.GetGlyph(shapeNumber, orientation);
             }
             catch (KeyNotFoundException exception)
             {
                 throw new InvalidDataException(
-                    $"SHX font '{cache.Font.Name}' has no shape {shapeNumber} required by the text.",
+                    $"SHX font '{glyphCache.Font.Name}' has no shape {shapeNumber} required by the text.",
                     exception);
             }
 
@@ -306,7 +462,7 @@ public sealed class CadShxTextLayout
             placements.Add(new CadShxGlyphPlacement(
                 glyph,
                 origin,
-                decorations,
+                glyphDecorations,
                 isBreakOpportunity));
             if (glyph.HasGeometry)
             {
@@ -339,6 +495,45 @@ public sealed class CadShxTextLayout
                     $"SHX text {field} exceeds the configured coordinate limit.");
             }
         }
+    }
+
+    private static int EncodeScalar(
+        Encoding encoding,
+        int scalar,
+        Span<byte> destination)
+    {
+        Span<char> source = stackalloc char[1];
+        source[0] = checked((char)scalar);
+        int written;
+        try
+        {
+            written = encoding.GetBytes(source, destination);
+        }
+        catch (EncoderFallbackException exception)
+        {
+            throw new NotSupportedException(
+                $"U+{scalar:X4} is not representable in drawing code page {encoding.WebName}.",
+                exception);
+        }
+
+        Span<char> roundTrip = stackalloc char[2];
+        int decoded;
+        try
+        {
+            decoded = encoding.GetChars(destination[..written], roundTrip);
+        }
+        catch (DecoderFallbackException exception)
+        {
+            throw new NotSupportedException(
+                $"U+{scalar:X4} does not form a valid drawing-code-page character.",
+                exception);
+        }
+        if (decoded != 1 || roundTrip[0] != source[0])
+        {
+            throw new NotSupportedException(
+                $"U+{scalar:X4} does not round-trip through drawing code page {encoding.WebName}.");
+        }
+        return written;
     }
 
     private static ushort MapScalar(CadShxFont font, int scalar)

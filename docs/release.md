@@ -68,6 +68,18 @@ managed/native retained-text compilation are covered. The existing TEXT/MTEXT
 renderer, caches, shaders, and native ABI are unchanged, so this slice makes no
 rendering-performance claim.
 
+ProGPU.CAD now parses and renders regular and extended compiled AutoCAD-86 Big
+Fonts through a clean-room indexed container, strict persisted drawing-code-page
+mapping, immutable primary/Big-Font resolution, and the existing retained SHX
+path pipeline. Extended composite primitives preserve caller advance, apply
+independent documented width/height scaling, and retain transformed arcs as
+analytic ellipses. TEXT, horizontal MTEXT, complex linetypes, ordered desktop
+discovery, exact selection, printing, managed/native picture replay, and
+DXF/DWG code-page/style/content round trips share the same font pair. The change
+adds no shader, texture, upload, or native ABI and makes no performance claim;
+format provenance and the cross-engine audit are recorded in
+`PROGPU_CAD_SHX_BIGFONT_RESEARCH.md`.
+
 Definition entries in that catalog now also expose their persisted ATTDEF
 prompt. The shared shell can edit either constant or variable definition
 prompts through the selected INSERT with explicit tag/occurrence addressing,

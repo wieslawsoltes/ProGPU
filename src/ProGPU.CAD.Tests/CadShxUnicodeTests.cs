@@ -126,7 +126,7 @@ public sealed class CadShxUnicodeTests
         Assert.Throws<InvalidDataException>(() => CadShxFont.Parse(
             valid,
             new CadShxParseOptions { MaxShapeCount = 2 }));
-        Assert.Throws<NotSupportedException>(() => CadShxFont.Parse(
+        Assert.Throws<InvalidDataException>(() => CadShxFont.Parse(
             "AutoCAD-86 bigfont 1.0\r\n\x1A"u8));
     }
 

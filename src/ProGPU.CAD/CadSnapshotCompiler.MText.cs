@@ -71,7 +71,8 @@ public sealed partial class CadSnapshotCompiler
         List<CadShxMTextPrimitive> retainedShxMTexts,
         List<CadShxMTextGlyphRun> retainedShxRuns,
         List<CadShxGlyphInstance> retainedShxGlyphs,
-        ICadShxFontResolver? shxFontResolver)
+        ICadShxFontResolver? shxFontResolver,
+        string drawingCodePage)
     {
         int retainedFontCountBefore = retainedFonts.Count;
         try
@@ -104,11 +105,6 @@ public sealed partial class CadSnapshotCompiler
                 cadStyle.Filename.EndsWith(".shx", StringComparison.OrdinalIgnoreCase);
             if (usesShx || !string.IsNullOrWhiteSpace(cadStyle.BigFontFilename))
             {
-                if (!string.IsNullOrWhiteSpace(cadStyle.BigFontFilename))
-                {
-                    throw new CadUnsupportedEntityException(
-                        "Big Font MTEXT requires the distinct bounded Big Font container and character-range contract.");
-                }
                 return CompileShxMText(
                     mtext,
                     handle,
@@ -127,7 +123,8 @@ public sealed partial class CadSnapshotCompiler
                     retainedDecorations,
                     retainedStrokes,
                     retainedGlyphIndices.Count,
-                    shxFontResolver);
+                    shxFontResolver,
+                    drawingCodePage);
             }
             if (cadStyle.Flags.HasFlag(StyleFlags.VerticalText))
             {

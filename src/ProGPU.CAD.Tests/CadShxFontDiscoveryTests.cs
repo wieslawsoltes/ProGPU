@@ -173,6 +173,44 @@ public sealed class CadShxFontDiscoveryTests
         Assert.Equal(0, catalog.RegisteredNameCount);
     }
 
+    [Fact]
+    public async Task DiscoveryLoadsPrimaryAndBigFontRequestedByOneStyle()
+    {
+        using var files = new TemporaryDirectory();
+        string drawing = files.CreateDirectory("drawing");
+        File.WriteAllBytes(
+            Path.Combine(drawing, "primary.shx"),
+            BuildTextShx("PRIMARY", 4));
+        File.WriteAllBytes(
+            Path.Combine(drawing, "asian.shx"),
+            BuildBigFontShx());
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add Big Font style", document =>
+        {
+            document.TextStyles.Add(new TextStyle("ASIAN")
+            {
+                Filename = "primary.shx",
+                BigFontFilename = "asian.shx",
+            });
+        });
+        var catalog = new CadShxFontCatalog();
+
+        CadShxFontDiscoveryResult result = await CadShxFontDiscovery.DiscoverAsync(
+            session,
+            catalog,
+            new CadShxFontDiscoveryOptions { DrawingDirectory = drawing });
+        CadShxFontResolution resolution = catalog.Resolve(new CadShxFontRequest(
+            "ASIAN",
+            "primary.shx",
+            "asian.shx"));
+
+        Assert.Equal(2, result.RequestedFontCount);
+        Assert.Equal(new[] { "primary.shx", "asian.shx" }, result.LoadedFontNames.ToArray());
+        Assert.NotNull(resolution.GlyphCache);
+        Assert.NotNull(resolution.BigFontGlyphCache);
+        Assert.True(resolution.BigFontGlyphCache!.Font.IsBigFont);
+    }
+
     private static CadDocumentSession CreateSession(params string[] filenames)
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
@@ -208,6 +246,32 @@ public sealed class CadShxFontDiscoveryTests
         writer.Write((byte)0);
         writer.Write(new byte[] { 2, 8, advance, 0, 0 });
         writer.Write("EOF"u8);
+        return stream.ToArray();
+    }
+
+    private static byte[] BuildBigFontShx()
+    {
+        byte[] header = [.. "ASIAN"u8.ToArray(), 0, 10, 2, 0, 0];
+        byte[] glyph = [.. "HIRAGANA-A"u8.ToArray(), 0, 1, 8, 4, 8, 0];
+        int dataOffset = "AutoCAD-86 bigfont 1.0\r\n\x1A"u8.Length + 6 + 4 + 16;
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);
+        writer.Write("AutoCAD-86 bigfont 1.0\r\n\x1A"u8);
+        writer.Write((ushort)8);
+        writer.Write((ushort)2);
+        writer.Write((ushort)1);
+        writer.Write((ushort)0x82);
+        writer.Write((ushort)0x82);
+        writer.Write((byte)0);
+        writer.Write((byte)0);
+        writer.Write(checked((ushort)header.Length));
+        writer.Write(checked((uint)dataOffset));
+        writer.Write((byte)0x82);
+        writer.Write((byte)0xA0);
+        writer.Write(checked((ushort)glyph.Length));
+        writer.Write(checked((uint)(dataOffset + header.Length)));
+        writer.Write(header);
+        writer.Write(glyph);
         return stream.ToArray();
     }
 

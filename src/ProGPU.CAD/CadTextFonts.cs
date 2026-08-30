@@ -26,7 +26,11 @@ public readonly record struct CadShxFontRequest(
 public readonly record struct CadShxFontResolution(
     CadShxGlyphCache? GlyphCache,
     string ResolvedFontName,
-    bool IsSubstitution);
+    bool IsSubstitution)
+{
+    public CadShxGlyphCache? BigFontGlyphCache { get; init; }
+    public string ResolvedBigFontName { get; init; } = string.Empty;
+}
 
 public interface ICadShxFontResolver
 {

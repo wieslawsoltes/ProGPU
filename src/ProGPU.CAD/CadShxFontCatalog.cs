@@ -1,8 +1,8 @@
 namespace ProGPU.CAD;
 
 /// <summary>
-/// A thread-safe, browser-neutral catalog of immutable standard and Unicode
-/// SHX fonts.
+/// A thread-safe, browser-neutral catalog of immutable standard, Unicode, and
+/// Big Font SHX fonts.
 /// </summary>
 /// <remarks>
 /// Registration and mapping changes are intended for host initialization.
@@ -241,6 +241,12 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver, ICadShxShapeResolve
                 throw new KeyNotFoundException(
                     $"SHX alternate font '{registeredName}' is not registered.");
             }
+            if (entry.Cache.Font.IsBigFont)
+            {
+                throw new ArgumentException(
+                    "The general SHX alternate must be a primary standard or Unicode font, not a Big Font.",
+                    nameof(registeredName));
+            }
             _alternate = entry;
             _resolverSnapshot = null;
         }
@@ -257,23 +263,43 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver, ICadShxShapeResolve
 
     public CadShxFontResolution Resolve(in CadShxFontRequest request)
     {
-        if (!string.IsNullOrWhiteSpace(request.BigFontFilename))
-        {
-            return default;
-        }
-
         string primary = NormalizeOptionalLookupName(request.PrimaryFontFilename);
         string style = NormalizeOptionalLookupName(request.StyleName);
         string mappingSource = NormalizeOptionalMappingSource(primary);
         lock (_gate)
         {
-            return ResolveCore(
+            CadShxFontResolution primaryResolution = ResolveCore(
                 primary,
                 mappingSource,
                 style,
                 _fonts,
                 _mappings,
-                _alternate);
+                _alternate,
+                expectedBigFont: false);
+            if (primaryResolution.GlyphCache is null ||
+                string.IsNullOrWhiteSpace(request.BigFontFilename))
+            {
+                return primaryResolution;
+            }
+
+            string bigFont = NormalizeOptionalLookupName(request.BigFontFilename);
+            CadShxFontResolution bigFontResolution = ResolveCore(
+                bigFont,
+                NormalizeOptionalMappingSource(bigFont),
+                string.Empty,
+                _fonts,
+                _mappings,
+                alternate: null,
+                expectedBigFont: true);
+            return bigFontResolution.GlyphCache is null
+                ? default
+                : primaryResolution with
+                {
+                    IsSubstitution = primaryResolution.IsSubstitution ||
+                        bigFontResolution.IsSubstitution,
+                    BigFontGlyphCache = bigFontResolution.GlyphCache,
+                    ResolvedBigFontName = bigFontResolution.ResolvedFontName,
+                };
         }
     }
 
@@ -317,23 +343,27 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver, ICadShxShapeResolve
         string style,
         IReadOnlyDictionary<string, Entry> fonts,
         IReadOnlyDictionary<string, string> mappings,
-        Entry? alternate)
+        Entry? alternate,
+        bool expectedBigFont)
     {
         if (mappingSource.Length != 0 &&
             mappings.TryGetValue(mappingSource, out string? mappedName) &&
-            fonts.TryGetValue(mappedName, out Entry? mapped))
+            fonts.TryGetValue(mappedName, out Entry? mapped) &&
+            mapped.Cache.Font.IsBigFont == expectedBigFont)
         {
             return Resolution(mapped, isSubstitution: true);
         }
-        if (primary.Length != 0 && fonts.TryGetValue(primary, out Entry? exact))
+        if (primary.Length != 0 && fonts.TryGetValue(primary, out Entry? exact) &&
+            exact.Cache.Font.IsBigFont == expectedBigFont)
         {
             return Resolution(exact, isSubstitution: false);
         }
-        if (style.Length != 0 && fonts.TryGetValue(style, out Entry? styleMatch))
+        if (style.Length != 0 && fonts.TryGetValue(style, out Entry? styleMatch) &&
+            styleMatch.Cache.Font.IsBigFont == expectedBigFont)
         {
             return Resolution(styleMatch, isSubstitution: primary.Length != 0);
         }
-        return alternate is null
+        return alternate is null || alternate.Cache.Font.IsBigFont != expectedBigFont
             ? default
             : Resolution(alternate, isSubstitution: true);
     }
@@ -366,7 +396,7 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver, ICadShxShapeResolve
                 fonts.TryGetValue(primary, out entry);
             }
 
-            if (entry is null ||
+            if (entry is null || entry.Cache.Font.IsBigFont ||
                 !TryResolveShapeNumber(entry.Cache.Font, shapeName, shapeNumber, out ushort resolved))
             {
                 return default;
@@ -492,18 +522,39 @@ public sealed class CadShxFontCatalog : ICadShxFontResolver, ICadShxShapeResolve
     {
         public CadShxFontResolution Resolve(in CadShxFontRequest request)
         {
-            if (!string.IsNullOrWhiteSpace(request.BigFontFilename))
-            {
-                return default;
-            }
             string primary = NormalizeOptionalLookupName(request.PrimaryFontFilename);
-            return ResolveCore(
+            CadShxFontResolution primaryResolution = ResolveCore(
                 primary,
                 NormalizeOptionalMappingSource(primary),
                 NormalizeOptionalLookupName(request.StyleName),
                 fonts,
                 mappings,
-                alternate);
+                alternate,
+                expectedBigFont: false);
+            if (primaryResolution.GlyphCache is null ||
+                string.IsNullOrWhiteSpace(request.BigFontFilename))
+            {
+                return primaryResolution;
+            }
+
+            string bigFont = NormalizeOptionalLookupName(request.BigFontFilename);
+            CadShxFontResolution bigFontResolution = ResolveCore(
+                bigFont,
+                NormalizeOptionalMappingSource(bigFont),
+                string.Empty,
+                fonts,
+                mappings,
+                alternate: null,
+                expectedBigFont: true);
+            return bigFontResolution.GlyphCache is null
+                ? default
+                : primaryResolution with
+                {
+                    IsSubstitution = primaryResolution.IsSubstitution ||
+                        bigFontResolution.IsSubstitution,
+                    BigFontGlyphCache = bigFontResolution.GlyphCache,
+                    ResolvedBigFontName = bigFontResolution.ResolvedFontName,
+                };
         }
 
         public CadShxShapeResolution ResolveShape(in CadShxShapeRequest request)

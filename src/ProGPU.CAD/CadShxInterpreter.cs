@@ -45,8 +45,9 @@ public sealed class CadShxGeometry
 }
 
 /// <summary>
-/// Interprets standard and Unicode AutoCAD-86 SHX programs into retained
-/// analytic paths.
+/// Interprets standard, Unicode, regular Big Font, and extended Big Font
+/// AutoCAD-86 SHX programs
+/// into retained analytic paths.
 /// </summary>
 /// <remarks>
 /// Interpretation is O(C + A) time and O(S + D) storage for executed command
@@ -118,7 +119,8 @@ public static class CadShxInterpreter
         private readonly HashSet<ushort> _activeShapes = new();
         private PointD _position;
         private PathFigure? _figure;
-        private double _scale = 1.0;
+        private double _scaleX = 1.0;
+        private double _scaleY = 1.0;
         private int _positionStackCount;
         private int _commandCount;
         private int _segmentCount;
@@ -234,9 +236,12 @@ public static class CadShxInterpreter
                         }
                         if (execute)
                         {
-                            _scale = command == 3 ? _scale / factor : _scale * factor;
-                            if (!double.IsFinite(_scale) || _scale <= 0.0 ||
-                                _scale > _options.MaxScaleMagnitude)
+                            _scaleX = command == 3 ? _scaleX / factor : _scaleX * factor;
+                            _scaleY = command == 3 ? _scaleY / factor : _scaleY * factor;
+                            if (!double.IsFinite(_scaleX) || _scaleX <= 0.0 ||
+                                _scaleX > _options.MaxScaleMagnitude ||
+                                !double.IsFinite(_scaleY) || _scaleY <= 0.0 ||
+                                _scaleY > _options.MaxScaleMagnitude)
                             {
                                 throw Invalid(shapeNumber, "exceeds the configured scale limit");
                             }
@@ -266,11 +271,45 @@ public static class CadShxInterpreter
                     return;
                 case 7:
                     {
-                        ushort subshapeNumber = _font.IsUnicodeFont
-                            ? (ushort)(
+                        ushort subshapeNumber;
+                        if (_font.IsBigFont)
+                        {
+                            byte high = ReadByte(
+                                shapeNumber,
+                                program,
+                                ref offset,
+                                "Big Font subshape number high byte");
+                            if (_font.IsExtendedBigFont && high == 0)
+                            {
+                                ExecuteExtendedBigFontPrimitive(
+                                    shapeNumber,
+                                    program,
+                                    ref offset,
+                                    depth,
+                                    execute);
+                                return;
+                            }
+                            byte low = ReadByte(
+                                shapeNumber,
+                                program,
+                                ref offset,
+                                "Big Font subshape number low byte");
+                            subshapeNumber = (ushort)((high << 8) | low);
+                        }
+                        else if (_font.IsUnicodeFont)
+                        {
+                            subshapeNumber = (ushort)(
                                 ReadByte(shapeNumber, program, ref offset, "subshape number low byte") |
-                                (ReadByte(shapeNumber, program, ref offset, "subshape number high byte") << 8))
-                            : ReadByte(shapeNumber, program, ref offset, "subshape number");
+                                (ReadByte(shapeNumber, program, ref offset, "subshape number high byte") << 8));
+                        }
+                        else
+                        {
+                            subshapeNumber = ReadByte(
+                                shapeNumber,
+                                program,
+                                ref offset,
+                                "subshape number");
+                        }
                         if (subshapeNumber == 0)
                         {
                             throw Invalid(shapeNumber, "references reserved subshape zero");
@@ -344,6 +383,95 @@ public static class CadShxInterpreter
             }
         }
 
+        private void ExecuteExtendedBigFontPrimitive(
+            ushort shapeNumber,
+            ReadOnlySpan<byte> program,
+            ref int offset,
+            int depth,
+            bool execute)
+        {
+            byte primitiveHigh = ReadByte(
+                shapeNumber,
+                program,
+                ref offset,
+                "extended Big Font primitive number high byte");
+            byte primitiveLow = ReadByte(
+                shapeNumber,
+                program,
+                ref offset,
+                "extended Big Font primitive number low byte");
+            sbyte basePointX = ReadSignedByte(
+                shapeNumber,
+                program,
+                ref offset,
+                "extended Big Font primitive basepoint X");
+            sbyte basePointY = ReadSignedByte(
+                shapeNumber,
+                program,
+                ref offset,
+                "extended Big Font primitive basepoint Y");
+            byte width = ReadByte(
+                shapeNumber,
+                program,
+                ref offset,
+                "extended Big Font primitive width");
+            byte height = ReadByte(
+                shapeNumber,
+                program,
+                ref offset,
+                "extended Big Font primitive height");
+            ushort primitiveNumber = (ushort)((primitiveHigh << 8) | primitiveLow);
+            if (primitiveNumber == 0)
+            {
+                throw Invalid(shapeNumber, "references reserved extended Big Font primitive zero");
+            }
+            if (width == 0 || height == 0)
+            {
+                throw Invalid(shapeNumber, "contains a zero extended Big Font primitive dimension");
+            }
+            if (!execute)
+            {
+                return;
+            }
+            if (!_font.TryGetShape(primitiveNumber, out CadShxShape? primitive))
+            {
+                throw Invalid(
+                    shapeNumber,
+                    $"references missing extended Big Font primitive {primitiveNumber}");
+            }
+
+            PointD callerPosition = _position;
+            PathFigure? callerFigure = _figure;
+            double callerScaleX = _scaleX;
+            double callerScaleY = _scaleY;
+            bool callerDraw = _draw;
+            try
+            {
+                _position = CheckedPoint(
+                    shapeNumber,
+                    callerPosition.X + basePointX * callerScaleX,
+                    callerPosition.Y + basePointY * callerScaleY);
+                _figure = null;
+                _scaleX = CheckedScale(
+                    shapeNumber,
+                    callerScaleX * width / _font.BigFontCharacterWidth,
+                    "extended Big Font primitive width scale");
+                _scaleY = CheckedScale(
+                    shapeNumber,
+                    callerScaleY * height / _font.Above,
+                    "extended Big Font primitive height scale");
+                ExecuteShape(primitive!, checked(depth + 1));
+            }
+            finally
+            {
+                _position = callerPosition;
+                _figure = callerFigure;
+                _scaleX = callerScaleX;
+                _scaleY = callerScaleY;
+                _draw = callerDraw;
+            }
+        }
+
         private void ExecuteDisplacementSequence(
             ushort shapeNumber,
             ReadOnlySpan<byte> program,
@@ -382,7 +510,7 @@ public static class CadShxInterpreter
             {
                 double start = startOctant * EighthTurn;
                 double sweep = sign * (count == 0 ? FullTurn : count * EighthTurn);
-                AddCenterArc(shapeNumber, radius * _scale, start, sweep);
+                AddCenterArc(shapeNumber, radius, start, sweep);
             }
         }
 
@@ -427,7 +555,7 @@ public static class CadShxInterpreter
                     sweep -= FullTurn;
                 }
             }
-            AddCenterArc(shapeNumber, radius * _scale, start, sweep);
+            AddCenterArc(shapeNumber, radius, start, sweep);
         }
 
         private void ExecuteBulgeArc(
@@ -475,8 +603,8 @@ public static class CadShxInterpreter
         {
             PointD end = CheckedPoint(
                 shapeNumber,
-                _position.X + x * _scale,
-                _position.Y + y * _scale);
+                _position.X + x * _scaleX,
+                _position.Y + y * _scaleY);
             if (_draw)
             {
                 EnsureFigure();
@@ -494,8 +622,8 @@ public static class CadShxInterpreter
         {
             PointD end = CheckedPoint(
                 shapeNumber,
-                _position.X + x * _scale,
-                _position.Y + y * _scale);
+                _position.X + x * _scaleX,
+                _position.Y + y * _scaleY);
             if (!_draw)
             {
                 _position = end;
@@ -511,17 +639,19 @@ public static class CadShxInterpreter
                 return;
             }
 
-            double deltaX = end.X - _position.X;
-            double deltaY = end.Y - _position.Y;
-            double chord = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
+            double chord = Math.Sqrt(x * x + y * y);
             double bulge = packedBulge / 127.0;
             double radius = chord * (1.0 + bulge * bulge) / (4.0 * Math.Abs(bulge));
             CheckedMagnitude(shapeNumber, radius, "bulge-arc radius");
+            CheckedMagnitude(shapeNumber, radius * _scaleX, "scaled bulge-arc X radius");
+            CheckedMagnitude(shapeNumber, radius * _scaleY, "scaled bulge-arc Y radius");
             EnsureFigure();
             CountSegment(shapeNumber);
             _figure!.Segments.Add(new ArcSegment(
                 ToVector(end),
-                new Vector2(ToFloat(radius), ToFloat(radius)),
+                new Vector2(
+                    ToFloat(radius * _scaleX),
+                    ToFloat(radius * _scaleY)),
                 rotationAngle: 0.0f,
                 isLargeArc: false,
                 sweepDirection: packedBulge > 0
@@ -537,14 +667,16 @@ public static class CadShxInterpreter
             double sweep)
         {
             CheckedMagnitude(shapeNumber, radius, "arc radius");
+            CheckedMagnitude(shapeNumber, radius * _scaleX, "scaled arc X radius");
+            CheckedMagnitude(shapeNumber, radius * _scaleY, "scaled arc Y radius");
             PointD center = CheckedPoint(
                 shapeNumber,
-                _position.X - radius * Math.Cos(startAngle),
-                _position.Y - radius * Math.Sin(startAngle));
+                _position.X - radius * Math.Cos(startAngle) * _scaleX,
+                _position.Y - radius * Math.Sin(startAngle) * _scaleY);
             PointD end = CheckedPoint(
                 shapeNumber,
-                center.X + radius * Math.Cos(startAngle + sweep),
-                center.Y + radius * Math.Sin(startAngle + sweep));
+                center.X + radius * Math.Cos(startAngle + sweep) * _scaleX,
+                center.Y + radius * Math.Sin(startAngle + sweep) * _scaleY);
             if (!_draw)
             {
                 _position = end;
@@ -558,8 +690,8 @@ public static class CadShxInterpreter
                 double middleAngle = startAngle + Math.CopySign(Math.PI, sweep);
                 PointD middle = CheckedPoint(
                     shapeNumber,
-                    center.X + radius * Math.Cos(middleAngle),
-                    center.Y + radius * Math.Sin(middleAngle));
+                    center.X + radius * Math.Cos(middleAngle) * _scaleX,
+                    center.Y + radius * Math.Sin(middleAngle) * _scaleY);
                 AddArcSegment(shapeNumber, middle, radius, Math.CopySign(Math.PI, sweep));
                 AddArcSegment(shapeNumber, end, radius, Math.CopySign(Math.PI, sweep));
             }
@@ -579,7 +711,9 @@ public static class CadShxInterpreter
             CountSegment(shapeNumber);
             _figure!.Segments.Add(new ArcSegment(
                 ToVector(end),
-                new Vector2(ToFloat(radius), ToFloat(radius)),
+                new Vector2(
+                    ToFloat(radius * _scaleX),
+                    ToFloat(radius * _scaleY)),
                 rotationAngle: 0.0f,
                 isLargeArc: Math.Abs(sweep) > Math.PI,
                 sweepDirection: sweep > 0.0
@@ -614,6 +748,16 @@ public static class CadShxInterpreter
             {
                 throw Invalid(shapeNumber, $"{field} exceeds the configured coordinate limit");
             }
+        }
+
+        private double CheckedScale(ushort shapeNumber, double value, string field)
+        {
+            if (!double.IsFinite(value) || value <= 0.0 ||
+                value > _options.MaxScaleMagnitude)
+            {
+                throw Invalid(shapeNumber, $"{field} exceeds the configured scale limit");
+            }
+            return value;
         }
 
         private void CountCommand(ushort shapeNumber)

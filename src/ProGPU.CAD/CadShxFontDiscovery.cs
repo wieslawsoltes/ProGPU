@@ -256,15 +256,22 @@ public static class CadShxFontDiscovery
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (TextStyle style in document.TextStyles)
             {
-                string filename = ExtractFilename(style.Filename);
+                Add(style.Filename);
+                Add(style.BigFontFilename);
+            }
+            return result.ToArray();
+
+            void Add(string? requested)
+            {
+                string filename = ExtractFilename(requested);
                 if (filename.Length == 0 ||
                     !filename.EndsWith(".shx", StringComparison.OrdinalIgnoreCase))
                 {
-                    continue;
+                    return;
                 }
                 if (!seen.Add(filename))
                 {
-                    continue;
+                    return;
                 }
                 result.Add(filename);
                 if (result.Count > maxFontRequests)
@@ -273,7 +280,6 @@ public static class CadShxFontDiscovery
                         $"Document SHX font requests exceed the configured limit of {maxFontRequests}.");
                 }
             }
-            return result.ToArray();
         });
 
     private static string[] GetSearchDirectories(CadShxFontDiscoveryOptions options)
