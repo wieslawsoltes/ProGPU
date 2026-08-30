@@ -60,6 +60,8 @@ public sealed class CadSampleView : Grid
     private readonly Button[] _copyButtons;
     private readonly Button _moveByPointsButton;
     private readonly Button _copyByPointsButton;
+    private readonly TextBox _pointTransformInput;
+    private readonly Button _acceptPointTransformInputButton;
     private readonly Button[] _rotateButtons;
     private readonly Button[] _scaleButtons;
     private readonly TextBox _selectionColorInput;
@@ -193,6 +195,8 @@ public sealed class CadSampleView : Grid
     public TextBox CopyArrayItemsInput => _copyArrayItemsInput;
 
     public ComboBox CopyArrayModeSelector => _copyArrayModeSelector;
+
+    public TextBox PointTransformInput => _pointTransformInput;
 
     public ComboBox SelectionAttributeSelector =>
         _selectionAttributeSelector;
@@ -589,6 +593,30 @@ public sealed class CadSampleView : Grid
         {
             transformActions.AddChild(copyButton);
         }
+        transformActions.AddChild(new TextBlock
+        {
+            Text = "Point / displacement",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(12, 6, 8, 0),
+        });
+        _pointTransformInput = new TextBox
+        {
+            Text = string.Empty,
+            Font = font,
+            WidthConstraint = 180,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        _acceptPointTransformInputButton = CreateButton(
+            "Enter point",
+            font,
+            92,
+            30);
+        transformActions.AddChild(_pointTransformInput);
+        transformActions.AddChild(_acceptPointTransformInputButton);
 
         selectionPropertyActions.AddChild(new TextBlock
         {
@@ -1587,6 +1615,17 @@ public sealed class CadSampleView : Grid
         copyPositiveY.Click += (_, _) => CopySelection(0, 1);
         _copyByPointsButton.Click += (_, _) =>
             BeginSelectionPointTransform(CadPointTransformOperation.Copy);
+        _pointTransformInput.TextChanged += (_, _) => UpdateEditControls();
+        _pointTransformInput.KeyDown += (_, args) =>
+        {
+            if (!args.Handled && args.Key == Key.Enter)
+            {
+                AcceptPointTransformInput();
+                args.Handled = true;
+            }
+        };
+        _acceptPointTransformInputButton.Click += (_, _) =>
+            AcceptPointTransformInput();
         rotateCounterclockwise.Click += (_, _) => RotateSelection(1);
         rotateClockwise.Click += (_, _) => RotateSelection(-1);
         scaleUp.Click += (_, _) => ScaleSelection(useReciprocal: false);
@@ -1613,6 +1652,7 @@ public sealed class CadSampleView : Grid
         };
         _canvas.PointTransformChanged += (_, args) =>
         {
+            _pointTransformInput.Text = string.Empty;
             SetStatus(DescribePointTransform(args));
             UpdateEditControls();
         };
@@ -3718,6 +3758,7 @@ public sealed class CadSampleView : Grid
 
         try
         {
+            _pointTransformInput.Text = string.Empty;
             if (!_canvas.BeginSelectionPointTransform(operation))
             {
                 SetStatus(
@@ -3735,6 +3776,23 @@ public sealed class CadSampleView : Grid
         }
     }
 
+    private void AcceptPointTransformInput()
+    {
+        if (_isBusy || _canvas.PendingPointTransformOperation is null)
+        {
+            return;
+        }
+
+        string input = _pointTransformInput.Text;
+        if (!_canvas.TryAcceptSelectionPointTransformInput(
+                input,
+                out string? errorMessage))
+        {
+            SetStatus(errorMessage ?? "The coordinate input was rejected.");
+        }
+        UpdateEditControls();
+    }
+
     private static string DescribePointTransform(
         CadPointTransformChangedEventArgs args)
     {
@@ -3742,10 +3800,10 @@ public sealed class CadSampleView : Grid
         return args.Stage switch
         {
             CadPointTransformStage.AwaitingBasePoint =>
-                $"{operation}: click a WCS base point; Escape cancels.",
+                $"{operation}: click or enter absolute WCS x,y[,z] / distance<angle; Escape cancels.",
             CadPointTransformStage.AwaitingSecondPoint =>
                 $"{operation}: base {FormatPoint(args.BasePoint!.Value)}; " +
-                "click the second point; Escape cancels.",
+                "click or enter an absolute point or relative @dx,dy[,dz] / @distance<angle; Escape cancels.",
             CadPointTransformStage.Completed when args.ErrorMessage is null =>
                 $"{operation} completed with WCS displacement " +
                 $"{FormatPoint(args.Displacement!.Value)}.",
@@ -4728,6 +4786,13 @@ public sealed class CadSampleView : Grid
         _copyArrayModeSelector.IsEnabled = canUsePlanTools;
         _rotationStepInput.IsEnabled = canUsePlanTools;
         _scaleFactorInput.IsEnabled = canUsePlanTools;
+        _pointTransformInput.IsEnabled =
+            !_isBusy && isPointTransformPicking;
+        _acceptPointTransformInputButton.IsEnabled =
+            !_isBusy &&
+            isPointTransformPicking &&
+            _canvas.CanAcceptSelectionPointTransformInput(
+                _pointTransformInput.Text);
         foreach (Button drawOrderButton in _drawOrderButtons)
         {
             drawOrderButton.IsEnabled = canTransform;

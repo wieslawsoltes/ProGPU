@@ -39,8 +39,11 @@ The adopted observable contract is the common subset: preserve the prepared
 selection, accept two points, compute `second - base`, and commit one atomic
 MOVE or COPY. ProGPU chooses the operation before point acquisition because its
 shared shell already exposes separate typed commands. Autodesk's displacement
-shortcut, COPY Multiple prompt loop, coordinate entry, snapping, UCS, and
-QCAD's post-point option dialog remain separate future interaction contracts.
+shortcut, COPY Multiple prompt loop, snapping, UCS, and QCAD's post-point
+option dialog remain separate future interaction contracts. Bounded explicit
+absolute/relative Cartesian and polar coordinate entry was added in the next
+checkpoint and is specified independently in
+[`PROGPU_CAD_COORDINATE_INPUT_RESEARCH.md`](PROGPU_CAD_COORDINATE_INPUT_RESEARCH.md).
 
 ## State, ownership, and invalidation
 
@@ -99,8 +102,8 @@ direct cancellation, and shared desktop/browser button enablement. Existing
 command tests cover nested/attributed entities, transaction rollback,
 managed/native replay, and DXF/DWG round trips.
 
-Object/grid/intersection snaps, typed absolute/relative/polar coordinates,
-Ortho/polar tracking, UCS or arbitrary-camera planes, 3D point acquisition,
+Object/grid/intersection snaps, direct-distance cursor entry, Ortho/polar
+tracking, global-last-point state, UCS or arbitrary-camera planes, 3D point acquisition,
 COPY Multiple, clipboard COPYBASE, associative arrays, full transformed-geometry
 ghosting, and grip editing remain explicit follow-ups. This is a behavior and
 workflow checkpoint, not a before/after performance improvement; macOS

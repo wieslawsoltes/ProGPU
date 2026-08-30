@@ -514,6 +514,113 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void TypedPointMoveRejectsInvalidInputThenCommitsOneExactWcsEdit()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            Click(canvas, canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
+            CadDocumentSnapshot snapshot = canvas.CurrentSnapshot!;
+            var transitions = new List<CadPointTransformChangedEventArgs>();
+            canvas.PointTransformChanged += (_, args) => transitions.Add(args);
+
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+            Assert.False(canvas.CanAcceptSelectionPointTransformInput("@1,2"));
+            Assert.False(canvas.TryAcceptSelectionPointTransformInput(
+                "@1,2",
+                out string? firstError));
+            Assert.Contains("absolute first point", firstError);
+            Assert.Same(snapshot, canvas.CurrentSnapshot);
+            Assert.Equal(0UL, session.ContentGeneration);
+            Assert.Equal(
+                CadPointTransformStage.AwaitingBasePoint,
+                canvas.PendingPointTransformStage);
+
+            Assert.True(canvas.CanAcceptSelectionPointTransformInput("1.5,-2,3"));
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "1.5,-2,3",
+                out string? baseError));
+            Assert.Null(baseError);
+            Assert.Equal(
+                new CadPoint3D(1.5, -2, 3),
+                canvas.PendingPointTransformBasePoint);
+            Assert.Same(snapshot, canvas.CurrentSnapshot);
+            Assert.Equal(0UL, session.ContentGeneration);
+
+            Assert.True(canvas.CanAcceptSelectionPointTransformInput(
+                "@4.25,5.5,-1"));
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "@4.25,5.5,-1",
+                out string? secondError));
+
+            Assert.Null(secondError);
+            Assert.Null(canvas.PendingPointTransformOperation);
+            Assert.Equal(1UL, session.ContentGeneration);
+            AssertPoint(new XYZ(2.25, 5.5, -1), line.StartPoint);
+            AssertPoint(new XYZ(6.25, 5.5, -1), line.EndPoint);
+            Assert.Equal([line.Handle], canvas.SelectedHandles.ToArray());
+            Assert.Equal(1, canvas.UndoCount);
+            Assert.Equal(
+                new CadPoint3D(4.25, 5.5, -1),
+                transitions[^1].Displacement);
+
+            Assert.True(canvas.TryUndo());
+            AssertPoint(new XYZ(-2, 0, 0), line.StartPoint);
+            Assert.True(canvas.TryRedo());
+            AssertPoint(new XYZ(2.25, 5.5, -1), line.StartPoint);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void PointCopyMixesPointerBaseWithTypedRelativePolarTarget()
+    {
+        var document = new CadDocument();
+        var line = new Line(XYZ.Zero, XYZ.AxisX);
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(canvas, viewport.WorldToScreen(new CadPoint3D(0.5, 0, 0)));
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Copy));
+            Click(canvas, viewport.WorldToScreen(new CadPoint3D(2, 3, 0)));
+
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "@5<90",
+                out string? error));
+
+            Assert.Null(error);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(2, document.Entities.Count);
+            Line copy = document.Entities
+                .OfType<Line>()
+                .Single(candidate => !ReferenceEquals(candidate, line));
+            AssertPoint(new XYZ(0, 5, 0), copy.StartPoint);
+            AssertPoint(new XYZ(1, 5, 0), copy.EndPoint);
+            Assert.Equal([line.Handle], canvas.SelectedHandles.ToArray());
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SelectionPropertiesCaptureMixedValuesAndRoundTripRenderedEdits()
     {
         var document = new CadDocument();
@@ -2847,6 +2954,66 @@ public sealed class CadSampleSelectionTests
                     Math.Abs(candidate.StartPoint.Y - 3) < 1e-8 &&
                     Math.Abs(candidate.EndPoint.X - 5) < 1e-8 &&
                     Math.Abs(candidate.EndPoint.Y - 3) < 1e-8);
+            Assert.Equal([line.Handle], view.Canvas.SelectedHandles.ToArray());
+        }
+        finally
+        {
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewTypedPointFieldTracksPromptAndSubmitsWithEnter()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            Button move = FindButton(view, "Move points…");
+            Button enterPoint = FindButton(view, "Enter point");
+            TextBox input = view.PointTransformInput;
+            Assert.False(input.IsEnabled);
+            Assert.False(enterPoint.IsEnabled);
+
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            Click(
+                view.Canvas,
+                view.Canvas.CurrentViewport.WorldToScreen(CadPoint3D.Zero));
+            PressEnter(move);
+
+            Assert.True(input.IsEnabled);
+            input.Text = "@3,4";
+            Assert.False(enterPoint.IsEnabled);
+            input.Text = "-1,0";
+            Assert.True(enterPoint.IsEnabled);
+            input.OnKeyDown(new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.Enter,
+            });
+
+            Assert.Equal(
+                CadPointTransformStage.AwaitingSecondPoint,
+                view.Canvas.PendingPointTransformStage);
+            Assert.Equal(string.Empty, input.Text);
+            Assert.True(input.IsEnabled);
+            input.Text = "@3,4";
+            Assert.True(enterPoint.IsEnabled);
+            input.OnKeyDown(new KeyRoutedEventArgs
+            {
+                Key = Silk.NET.Input.Key.Enter,
+            });
+
+            Assert.Null(view.Canvas.PendingPointTransformOperation);
+            Assert.False(input.IsEnabled);
+            Assert.False(enterPoint.IsEnabled);
+            Assert.Equal(string.Empty, input.Text);
+            Assert.Equal(1UL, session.ContentGeneration);
+            AssertPoint(new XYZ(1, 4, 0), line.StartPoint);
+            AssertPoint(new XYZ(5, 4, 0), line.EndPoint);
             Assert.Equal([line.Handle], view.Canvas.SelectedHandles.ToArray());
         }
         finally

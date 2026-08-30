@@ -739,6 +739,103 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
+    /// Returns whether one bounded invariant coordinate can be accepted by the
+    /// current point-transform stage without changing interaction state.
+    /// </summary>
+    public bool CanAcceptSelectionPointTransformInput(string? text)
+    {
+        if (PendingPointTransformOperation is null ||
+            !CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate) ||
+            (!_hasPointTransformBasePoint && coordinate.IsRelative))
+        {
+            return false;
+        }
+
+        CadPoint3D relativeOrigin = _hasPointTransformBasePoint
+            ? _pointTransformBasePoint
+            : CadPoint3D.Zero;
+        if (!coordinate.TryResolve(relativeOrigin, out CadPoint3D point))
+        {
+            return false;
+        }
+        if (_hasPointTransformBasePoint)
+        {
+            return IsFinite(point - _pointTransformBasePoint);
+        }
+
+        try
+        {
+            _ = CreateViewport().WorldToScreen(point);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Accepts an absolute WCS first point or an absolute/relative WCS second
+    /// point through the same bounded transition and edit path as pointer input.
+    /// Rejection leaves the prompt and document unchanged.
+    /// </summary>
+    public bool TryAcceptSelectionPointTransformInput(
+        string? text,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (PendingPointTransformOperation is null)
+        {
+            errorMessage = "No point transform is awaiting coordinate input.";
+            return false;
+        }
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            errorMessage =
+                "Enter x,y[,z], @dx,dy[,dz], distance<angle, or @distance<angle using invariant numbers.";
+            return false;
+        }
+        if (!_hasPointTransformBasePoint && coordinate.IsRelative)
+        {
+            errorMessage =
+                "Enter an absolute first point before using a relative coordinate.";
+            return false;
+        }
+
+        CadPoint3D relativeOrigin = _hasPointTransformBasePoint
+            ? _pointTransformBasePoint
+            : CadPoint3D.Zero;
+        if (!coordinate.TryResolve(relativeOrigin, out CadPoint3D point))
+        {
+            errorMessage = "The coordinate resolves outside finite WCS values.";
+            return false;
+        }
+
+        Vector2? screenPoint = null;
+        if (!_hasPointTransformBasePoint)
+        {
+            try
+            {
+                screenPoint = CreateViewport().WorldToScreen(point);
+            }
+            catch (ArgumentException)
+            {
+                errorMessage =
+                    "The first point cannot be represented by the current plan viewport.";
+                return false;
+            }
+        }
+        else if (!IsFinite(point - _pointTransformBasePoint))
+        {
+            errorMessage = "The coordinate produces a non-finite displacement.";
+            return false;
+        }
+
+        AcceptPointTransformPoint(point, screenPoint);
+        return true;
+    }
+
+    /// <summary>
     /// Starts a bounded multi-gesture reference selection for an Above or Under
     /// draw-order edit. The edited selection remains unchanged until commit.
     /// </summary>
@@ -2351,10 +2448,24 @@ public sealed class CadSampleCanvas : FrameworkElement
             return;
         }
 
+        AcceptPointTransformPoint(point, screenPoint);
+    }
+
+    private void AcceptPointTransformPoint(
+        CadPoint3D point,
+        Vector2? screenPoint)
+    {
+        CadPointTransformOperation? operation = PendingPointTransformOperation;
+        if (operation is null)
+        {
+            return;
+        }
+
         if (!_hasPointTransformBasePoint)
         {
             _pointTransformBasePoint = point;
-            _pointTransformCurrent = screenPoint;
+            _pointTransformCurrent = screenPoint ??
+                CreateViewport().WorldToScreen(point);
             _hasPointTransformBasePoint = true;
             PointTransformChanged?.Invoke(
                 this,
@@ -2404,6 +2515,11 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
         Invalidate();
     }
+
+    private static bool IsFinite(CadPoint3D point) =>
+        double.IsFinite(point.X) &&
+        double.IsFinite(point.Y) &&
+        double.IsFinite(point.Z);
 
     private void CompleteSelection()
     {
