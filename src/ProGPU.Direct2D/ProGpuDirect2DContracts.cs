@@ -72,7 +72,9 @@ public enum ProGpuDirect2DInterfaceKind
     DWriteTextFormat1 = 46,
     Win2DCanvasTextFormat = 47,
     DWriteTextLayout4 = 48,
-    Win2DCanvasTextLayout = 49
+    Win2DCanvasTextLayout = 49,
+    DWriteTypography = 50,
+    Win2DCanvasTypography = 51
 }
 
 /// <summary>
@@ -483,6 +485,38 @@ public readonly record struct ProGpuDirect2DTextRangeFormat(
     float FontSize = 12.0F,
     bool Underline = false,
     bool Strikethrough = false);
+
+/// <summary>
+/// One OpenType feature for a genuine IDWriteTypography. <see
+/// cref="NameTag"/> uses DirectWrite's little-endian four-byte tag layout.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct ProGpuDirect2DTypographyFeature(
+    uint NameTag,
+    uint Parameter = 1U)
+{
+    public static uint CreateTag(char first, char second, char third, char fourth)
+    {
+        ValidateTagCharacter(first, nameof(first));
+        ValidateTagCharacter(second, nameof(second));
+        ValidateTagCharacter(third, nameof(third));
+        ValidateTagCharacter(fourth, nameof(fourth));
+        return (uint)first |
+            (uint)second << 8 |
+            (uint)third << 16 |
+            (uint)fourth << 24;
+    }
+
+    private static void ValidateTagCharacter(char value, string parameterName)
+    {
+        if (value is < ' ' or > '~')
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "OpenType feature tags require printable ASCII characters.");
+        }
+    }
+}
 
 /// <summary>
 /// Blittable source, tiling, and sampling state for a genuine

@@ -833,10 +833,12 @@ HRESULT create_win2d_wrapper(
 {
     ComPtr<IDWriteTextLayout> text_layout;
     ComPtr<IDWriteTextFormat> text_format;
+    ComPtr<IDWriteTypography> typography;
     bool is_text_layout = SUCCEEDED(
         native_resource->QueryInterface(IID_PPV_ARGS(&text_layout)));
-    bool device_independent = !is_text_layout && SUCCEEDED(
-        native_resource->QueryInterface(IID_PPV_ARGS(&text_format)));
+    bool device_independent = !is_text_layout &&
+        (SUCCEEDED(native_resource->QueryInterface(IID_PPV_ARGS(&text_format))) ||
+         SUCCEEDED(native_resource->QueryInterface(IID_PPV_ARGS(&typography))));
     HRESULT hr = device_independent
         ? get_win2d_factory(surface)
         : create_win2d_canvas_device(surface);
@@ -866,7 +868,8 @@ HRESULT get_win2d_wrapper_native_resource(
 {
     bool device_independent =
         IsEqualIID(interface_id, __uuidof(IDWriteTextFormat)) ||
-        IsEqualIID(interface_id, __uuidof(IDWriteTextFormat1));
+        IsEqualIID(interface_id, __uuidof(IDWriteTextFormat1)) ||
+        IsEqualIID(interface_id, __uuidof(IDWriteTypography));
     HRESULT hr = device_independent
         ? get_win2d_factory(surface)
         : create_win2d_canvas_device(surface);
@@ -2390,6 +2393,87 @@ progpu_native_direct2d_text_layout_set_range_format(
     if (SUCCEEDED(hr) && (formatting->flags &
             PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_DRAWING_EFFECT) != 0U) {
         hr = layout->SetDrawingEffect(brush.Get(), range);
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_typography(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_typography_feature* features,
+    uint32_t feature_count,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    constexpr uint32_t maximum_feature_count = 4096U;
+    if (surface == nullptr || features == nullptr || feature_count == 0U ||
+        feature_count > maximum_feature_count || value == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    for (uint32_t index = 0U; index < feature_count; ++index) {
+        if (features[index].name_tag == 0U) {
+            return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+        }
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<IDWriteTypography> typography;
+    HRESULT hr = surface->dwrite_factory->CreateTypography(&typography);
+    for (uint32_t index = 0U; SUCCEEDED(hr) && index < feature_count; ++index) {
+        const DWRITE_FONT_FEATURE feature = {
+            static_cast<DWRITE_FONT_FEATURE_TAG>(features[index].name_tag),
+            features[index].parameter};
+        hr = typography->AddFontFeature(feature);
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(typography, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_text_layout_set_typography(
+    progpu_native_direct2d_surface* surface,
+    void* text_layout,
+    void* typography,
+    uint32_t range_start,
+    uint32_t range_length,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || text_layout == nullptr || typography == nullptr ||
+        range_length == 0U || range_start > UINT32_MAX - range_length ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<IDWriteTextLayout> layout;
+    HRESULT hr = reinterpret_cast<IUnknown*>(text_layout)->QueryInterface(
+        IID_PPV_ARGS(&layout));
+    ComPtr<IDWriteTypography> native_typography;
+    if (SUCCEEDED(hr)) {
+        hr = reinterpret_cast<IUnknown*>(typography)->QueryInterface(
+            IID_PPV_ARGS(&native_typography));
+    }
+    if (SUCCEEDED(hr)) {
+        const DWRITE_TEXT_RANGE range = {range_start, range_length};
+        hr = layout->SetTypography(native_typography.Get(), range);
     }
     surface->last_hresult.store(hr, std::memory_order_release);
     *native_hresult = hr;

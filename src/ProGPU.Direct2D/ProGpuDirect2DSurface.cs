@@ -55,6 +55,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
         new("5F174B49-0D8B-4CFB-8BCA-F1CCE9D06C67");
     private static readonly Guid DWriteTextLayout4InterfaceId =
         new("05A9BF42-223F-4441-B5FB-8263685F55E9");
+    private static readonly Guid DWriteTypographyInterfaceId =
+        new("55F1112B-1DC2-4B3C-9541-F46894ED85B6");
 
     private readonly object _gate = new();
     private readonly DawnGpuContext _dawn;
@@ -1214,6 +1216,125 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    /// <summary>
+    /// Creates one genuine device-independent IDWriteTypography from a pinned
+    /// OpenType feature span consumed synchronously by DirectWrite.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateTypography(
+        ReadOnlySpan<ProGpuDirect2DTypographyFeature> features)
+    {
+        if (features.IsEmpty || features.Length > 4096)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(features),
+                "DirectWrite typography requires 1 through 4096 features.");
+        }
+        foreach (ProGpuDirect2DTypographyFeature feature in features)
+        {
+            if (feature.NameTag == 0U)
+            {
+                throw new ArgumentException(
+                    "OpenType typography feature tags must be nonzero.",
+                    nameof(features));
+            }
+        }
+
+        fixed (ProGpuDirect2DTypographyFeature* featurePointer = features)
+        {
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.SurfaceCreateTypography(
+                        _nativeSurface,
+                        featurePointer,
+                        checked((uint)features.Length),
+                        &value,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "IDWriteTypography creation",
+                    status,
+                    nativeHResult);
+                return CreateRequiredComReference(
+                    value,
+                    ProGpuDirect2DInterfaceKind.DWriteTypography,
+                    "IDWriteTypography creation");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Applies one genuine IDWriteTypography to a nonempty UTF-16 range in a
+    /// retained IDWriteTextLayout4.
+    /// </summary>
+    public void SetTextLayoutTypography(
+        ProGpuDirect2DComReference textLayout,
+        uint rangeStart,
+        uint rangeLength,
+        ProGpuDirect2DComReference typography)
+    {
+        ArgumentNullException.ThrowIfNull(textLayout);
+        ArgumentNullException.ThrowIfNull(typography);
+        if (textLayout.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.DWriteTextLayout4)
+        {
+            throw new ArgumentException(
+                "The COM reference must own an IDWriteTextLayout4.",
+                nameof(textLayout));
+        }
+        if (typography.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.DWriteTypography)
+        {
+            throw new ArgumentException(
+                "The COM reference must own an IDWriteTypography.",
+                nameof(typography));
+        }
+        if (rangeLength == 0U || rangeStart > uint.MaxValue - rangeLength)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(rangeLength),
+                "DirectWrite typography requires a nonempty, nonoverflowing range.");
+        }
+
+        bool layoutReferenceAdded = false;
+        bool typographyReferenceAdded = false;
+        try
+        {
+            textLayout.DangerousAddRef(ref layoutReferenceAdded);
+            typography.DangerousAddRef(ref typographyReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.TextLayoutSetTypography(
+                        _nativeSurface,
+                        textLayout.DangerousGetHandle(),
+                        typography.DangerousGetHandle(),
+                        rangeStart,
+                        rangeLength,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "IDWriteTextLayout4 typography assignment",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (typographyReferenceAdded)
+            {
+                typography.DangerousRelease();
+            }
+            if (layoutReferenceAdded)
+            {
+                textLayout.DangerousRelease();
+            }
+        }
+    }
+
     internal void SaveDrawingState(
         ProGpuDirect2DComReference drawingStateBlock) =>
         ApplyDrawingState(drawingStateBlock, restore: false);
@@ -2238,6 +2359,39 @@ public sealed unsafe class ProGpuDirect2DSurface :
             ProGpuDirect2DInterfaceKind.DWriteTextLayout4,
             "Microsoft Win2D CanvasTextLayout native-resource query",
             out nativeTextLayout,
+            out nativeHResult);
+
+    /// <summary>
+    /// Wraps a provider-created device-independent IDWriteTypography as a
+    /// genuine Microsoft Win2D CanvasTypography.
+    /// </summary>
+    public bool TryAcquireMicrosoftWin2DTypography(
+        ProGpuDirect2DComReference nativeTypography,
+        out ProGpuDirect2DComReference? canvasTypography,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapper(
+            nativeTypography,
+            ProGpuDirect2DInterfaceKind.DWriteTypography,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasTypography,
+            "Microsoft Win2D CanvasTypography wrapping",
+            out canvasTypography,
+            out nativeHResult);
+
+    /// <summary>
+    /// Reverse-unwraps a genuine Microsoft Win2D CanvasTypography and returns
+    /// its exact IDWriteTypography with one caller-owned COM reference.
+    /// </summary>
+    public bool TryAcquireMicrosoftWin2DNativeTypography(
+        ProGpuDirect2DComReference canvasTypography,
+        out ProGpuDirect2DComReference? nativeTypography,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapperNativeResource(
+            canvasTypography,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasTypography,
+            DWriteTypographyInterfaceId,
+            ProGpuDirect2DInterfaceKind.DWriteTypography,
+            "Microsoft Win2D CanvasTypography native-resource query",
+            out nativeTypography,
             out nativeHResult);
 
     private ProGpuDirect2DComReference CreateGradientBrush(
