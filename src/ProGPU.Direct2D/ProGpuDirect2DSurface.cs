@@ -816,6 +816,167 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    public ProGpuDirect2DBitmapDescriptor GetBitmapDescriptor(
+        ProGpuDirect2DComReference bitmap)
+    {
+        ValidateBitmap1(bitmap, nameof(bitmap));
+        bool referenceAdded = false;
+        try
+        {
+            bitmap.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                ProGpuDirect2DNative.NativeBitmapDescriptor descriptor =
+                    default;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.BitmapGetDescriptor(
+                        _nativeSurface,
+                        bitmap.DangerousGetHandle(),
+                        &descriptor,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1Bitmap1 descriptor query",
+                    status,
+                    nativeHResult);
+                return new ProGpuDirect2DBitmapDescriptor(
+                    descriptor.PixelWidth,
+                    descriptor.PixelHeight,
+                    descriptor.Width,
+                    descriptor.Height,
+                    descriptor.DpiX,
+                    descriptor.DpiY,
+                    descriptor.DxgiFormat,
+                    descriptor.AlphaMode,
+                    descriptor.Options);
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                bitmap.DangerousRelease();
+            }
+        }
+    }
+
+    public void CopyBitmapFromMemory(
+        ProGpuDirect2DComReference bitmap,
+        ReadOnlySpan<byte> sourceData,
+        uint sourcePitch,
+        ProGpuDirect2DRectU? destinationRectangle = null)
+    {
+        ValidateBitmap1(bitmap, nameof(bitmap));
+        if (sourceData.IsEmpty || sourcePitch == 0U)
+        {
+            throw new ArgumentException(
+                "A Direct2D bitmap upload requires nonempty bytes and a nonzero pitch.",
+                nameof(sourceData));
+        }
+        ProGpuDirect2DRectU nativeRectangle = default;
+        ProGpuDirect2DRectU* rectanglePointer = null;
+        if (destinationRectangle is ProGpuDirect2DRectU rectangle)
+        {
+            ValidateCopyRectangle(rectangle, nameof(destinationRectangle));
+            nativeRectangle = rectangle;
+            rectanglePointer = &nativeRectangle;
+        }
+        bool referenceAdded = false;
+        try
+        {
+            bitmap.DangerousAddRef(ref referenceAdded);
+            fixed (byte* sourcePointer = sourceData)
+            {
+                lock (_gate)
+                {
+                    ThrowIfUnavailable();
+                    int nativeHResult = 0;
+                    ProGpuDirect2DStatus status =
+                        ProGpuDirect2DNative.BitmapCopyFromMemory(
+                            _nativeSurface,
+                            bitmap.DangerousGetHandle(),
+                            rectanglePointer,
+                            sourcePointer,
+                            checked((ulong)sourceData.Length),
+                            sourcePitch,
+                            &nativeHResult);
+                    ThrowIfFailed(
+                        "ID2D1Bitmap1::CopyFromMemory",
+                        status,
+                        nativeHResult);
+                }
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                bitmap.DangerousRelease();
+            }
+        }
+    }
+
+    public void CopyBitmapFromBitmap(
+        ProGpuDirect2DComReference bitmap,
+        ProGpuDirect2DComReference sourceBitmap,
+        ProGpuDirect2DPointU? destinationPoint = null,
+        ProGpuDirect2DRectU? sourceRectangle = null)
+    {
+        ValidateBitmap1(bitmap, nameof(bitmap));
+        ValidateBitmap1(sourceBitmap, nameof(sourceBitmap));
+        ProGpuDirect2DPointU nativePoint = default;
+        ProGpuDirect2DPointU* pointPointer = null;
+        if (destinationPoint is ProGpuDirect2DPointU point)
+        {
+            nativePoint = point;
+            pointPointer = &nativePoint;
+        }
+        ProGpuDirect2DRectU nativeRectangle = default;
+        ProGpuDirect2DRectU* rectanglePointer = null;
+        if (sourceRectangle is ProGpuDirect2DRectU rectangle)
+        {
+            ValidateCopyRectangle(rectangle, nameof(sourceRectangle));
+            nativeRectangle = rectangle;
+            rectanglePointer = &nativeRectangle;
+        }
+        bool bitmapReferenceAdded = false;
+        bool sourceReferenceAdded = false;
+        try
+        {
+            bitmap.DangerousAddRef(ref bitmapReferenceAdded);
+            sourceBitmap.DangerousAddRef(ref sourceReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.BitmapCopyFromBitmap(
+                        _nativeSurface,
+                        bitmap.DangerousGetHandle(),
+                        pointPointer,
+                        sourceBitmap.DangerousGetHandle(),
+                        rectanglePointer,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1Bitmap1::CopyFromBitmap",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (sourceReferenceAdded)
+            {
+                sourceBitmap.DangerousRelease();
+            }
+            if (bitmapReferenceAdded)
+            {
+                bitmap.DangerousRelease();
+            }
+        }
+    }
+
     /// <summary>
     /// Creates a genuine ID2D1BitmapBrush1 over a provider-created bitmap.
     /// </summary>
@@ -6484,6 +6645,34 @@ public sealed unsafe class ProGpuDirect2DSurface :
             throw new ArgumentException(
                 "The COM reference must own a genuine ID2D1Brush.",
                 parameterName);
+        }
+    }
+
+    private void ValidateBitmap1(
+        ProGpuDirect2DComReference bitmap,
+        string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(bitmap, parameterName);
+        ValidateResourceDomain(bitmap, parameterName);
+        if (bitmap.InterfaceKind != ProGpuDirect2DInterfaceKind.D2D1Bitmap1)
+        {
+            throw new ArgumentException(
+                "The COM reference must own ID2D1Bitmap1.",
+                parameterName);
+        }
+    }
+
+    private static void ValidateCopyRectangle(
+        ProGpuDirect2DRectU rectangle,
+        string parameterName)
+    {
+        if (rectangle.Width == 0U || rectangle.Height == 0U ||
+            (ulong)rectangle.X + rectangle.Width > uint.MaxValue ||
+            (ulong)rectangle.Y + rectangle.Height > uint.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "Direct2D bitmap copy rectangles must be nonempty and nonoverflowing.");
         }
     }
 

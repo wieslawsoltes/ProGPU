@@ -774,6 +774,72 @@ D2D1_RECT_F to_native_rect(
         rectangle.y + rectangle.height);
 }
 
+bool try_get_copy_rectangle(
+    const progpu_native_direct2d_rect_u* rectangle,
+    D2D1_SIZE_U bounds,
+    D2D1_RECT_U& result)
+{
+    if (rectangle == nullptr) {
+        if (bounds.width == 0U || bounds.height == 0U) {
+            return false;
+        }
+        result = D2D1::RectU(0U, 0U, bounds.width, bounds.height);
+        return true;
+    }
+    const uint64_t right =
+        static_cast<uint64_t>(rectangle->x) + rectangle->width;
+    const uint64_t bottom =
+        static_cast<uint64_t>(rectangle->y) + rectangle->height;
+    if (rectangle->width == 0U || rectangle->height == 0U ||
+        right > bounds.width || bottom > bounds.height) {
+        return false;
+    }
+    result = D2D1::RectU(
+        rectangle->x,
+        rectangle->y,
+        static_cast<uint32_t>(right),
+        static_cast<uint32_t>(bottom));
+    return true;
+}
+
+uint32_t bytes_per_pixel(DXGI_FORMAT format)
+{
+    switch (format) {
+    case DXGI_FORMAT_R8_UNORM:
+    case DXGI_FORMAT_A8_UNORM:
+        return 1U;
+    case DXGI_FORMAT_R8G8_UNORM:
+    case DXGI_FORMAT_R16_UNORM:
+    case DXGI_FORMAT_R16_FLOAT:
+    case DXGI_FORMAT_B5G6R5_UNORM:
+    case DXGI_FORMAT_B5G5R5A1_UNORM:
+    case DXGI_FORMAT_B4G4R4A4_UNORM:
+        return 2U;
+    case DXGI_FORMAT_R8G8B8A8_UNORM:
+    case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+    case DXGI_FORMAT_B8G8R8A8_UNORM:
+    case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+    case DXGI_FORMAT_B8G8R8X8_UNORM:
+    case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
+    case DXGI_FORMAT_R10G10B10A2_UNORM:
+    case DXGI_FORMAT_R11G11B10_FLOAT:
+    case DXGI_FORMAT_R16G16_UNORM:
+    case DXGI_FORMAT_R16G16_FLOAT:
+    case DXGI_FORMAT_R32_FLOAT:
+        return 4U;
+    case DXGI_FORMAT_R16G16B16A16_UNORM:
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+    case DXGI_FORMAT_R32G32_FLOAT:
+        return 8U;
+    case DXGI_FORMAT_R32G32B32_FLOAT:
+        return 12U;
+    case DXGI_FORMAT_R32G32B32A32_FLOAT:
+        return 16U;
+    default:
+        return 0U;
+    }
+}
+
 HRESULT query_brush(void* brush, ComPtr<ID2D1Brush>& native_brush)
 {
     return reinterpret_cast<IUnknown*>(brush)->QueryInterface(
@@ -2405,6 +2471,180 @@ progpu_native_direct2d_surface_create_bitmap(
         return status_from_win2d_hresult(hr);
     }
     return return_interface(bitmap, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_bitmap_get_descriptor(
+    progpu_native_direct2d_surface* surface,
+    void* bitmap,
+    progpu_native_direct2d_bitmap_descriptor* descriptor,
+    int32_t* native_hresult)
+{
+    if (descriptor != nullptr) {
+        *descriptor = {};
+        descriptor->struct_size = sizeof(*descriptor);
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || bitmap == nullptr || descriptor == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Bitmap1> native_bitmap;
+    HRESULT hr = reinterpret_cast<IUnknown*>(bitmap)->QueryInterface(
+        IID_PPV_ARGS(&native_bitmap));
+    if (SUCCEEDED(hr)) {
+        const D2D1_SIZE_U pixel_size = native_bitmap->GetPixelSize();
+        const D2D1_SIZE_F size = native_bitmap->GetSize();
+        const D2D1_PIXEL_FORMAT format = native_bitmap->GetPixelFormat();
+        descriptor->pixel_width = pixel_size.width;
+        descriptor->pixel_height = pixel_size.height;
+        descriptor->width = size.width;
+        descriptor->height = size.height;
+        native_bitmap->GetDpi(&descriptor->dpi_x, &descriptor->dpi_y);
+        descriptor->dxgi_format = static_cast<uint32_t>(format.format);
+        descriptor->alpha_mode = static_cast<uint32_t>(format.alphaMode);
+        descriptor->options = static_cast<uint32_t>(native_bitmap->GetOptions());
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_bitmap_copy_from_memory(
+    progpu_native_direct2d_surface* surface,
+    void* bitmap,
+    const progpu_native_direct2d_rect_u* destination_rectangle,
+    const uint8_t* source_data,
+    uint64_t source_byte_count,
+    uint32_t source_pitch,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || bitmap == nullptr || source_data == nullptr ||
+        source_byte_count == 0U || source_pitch == 0U ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Bitmap1> native_bitmap;
+    HRESULT hr = reinterpret_cast<IUnknown*>(bitmap)->QueryInterface(
+        IID_PPV_ARGS(&native_bitmap));
+    D2D1_RECT_U native_destination{};
+    if (SUCCEEDED(hr) && !try_get_copy_rectangle(
+            destination_rectangle,
+            native_bitmap->GetPixelSize(),
+            native_destination)) {
+        hr = E_INVALIDARG;
+    }
+    uint32_t pixel_bytes = 0U;
+    if (SUCCEEDED(hr)) {
+        pixel_bytes = bytes_per_pixel(native_bitmap->GetPixelFormat().format);
+        if (pixel_bytes == 0U) {
+            hr = D2DERR_UNSUPPORTED_PIXEL_FORMAT;
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        const uint64_t width = native_destination.right -
+            native_destination.left;
+        const uint64_t height = native_destination.bottom -
+            native_destination.top;
+        const uint64_t row_bytes = width * pixel_bytes;
+        const uint64_t required_bytes =
+            (height - 1U) * source_pitch + row_bytes;
+        if (row_bytes > source_pitch || required_bytes > source_byte_count) {
+            hr = E_INVALIDARG;
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        hr = native_bitmap->CopyFromMemory(
+            &native_destination,
+            source_data,
+            source_pitch);
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (hr == E_INVALIDARG) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_bitmap_copy_from_bitmap(
+    progpu_native_direct2d_surface* surface,
+    void* bitmap,
+    const progpu_native_direct2d_point_2u* destination_point,
+    void* source_bitmap,
+    const progpu_native_direct2d_rect_u* source_rectangle,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || bitmap == nullptr || source_bitmap == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Bitmap1> native_bitmap;
+    HRESULT hr = reinterpret_cast<IUnknown*>(bitmap)->QueryInterface(
+        IID_PPV_ARGS(&native_bitmap));
+    ComPtr<ID2D1Bitmap> native_source;
+    if (SUCCEEDED(hr)) {
+        hr = reinterpret_cast<IUnknown*>(source_bitmap)->QueryInterface(
+            IID_PPV_ARGS(&native_source));
+    }
+    if (SUCCEEDED(hr) && has_same_com_identity(
+            native_bitmap.Get(), native_source.Get())) {
+        hr = E_INVALIDARG;
+    }
+    D2D1_RECT_U native_source_rectangle{};
+    if (SUCCEEDED(hr) && !try_get_copy_rectangle(
+            source_rectangle,
+            native_source->GetPixelSize(),
+            native_source_rectangle)) {
+        hr = E_INVALIDARG;
+    }
+    D2D1_POINT_2U native_destination = destination_point == nullptr
+        ? D2D1::Point2U(0U, 0U)
+        : D2D1::Point2U(destination_point->x, destination_point->y);
+    if (SUCCEEDED(hr)) {
+        const D2D1_SIZE_U destination_size = native_bitmap->GetPixelSize();
+        const uint64_t copy_width = native_source_rectangle.right -
+            native_source_rectangle.left;
+        const uint64_t copy_height = native_source_rectangle.bottom -
+            native_source_rectangle.top;
+        if (static_cast<uint64_t>(native_destination.x) + copy_width >
+                destination_size.width ||
+            static_cast<uint64_t>(native_destination.y) + copy_height >
+                destination_size.height) {
+            hr = E_INVALIDARG;
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        hr = native_bitmap->CopyFromBitmap(
+            &native_destination,
+            native_source.Get(),
+            &native_source_rectangle);
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (hr == E_INVALIDARG) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
 }
 
 progpu_native_direct2d_status

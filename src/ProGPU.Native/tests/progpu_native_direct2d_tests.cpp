@@ -1067,6 +1067,92 @@ int main()
             source_pixel_format.format == DXGI_FORMAT_B8G8R8A8_UNORM &&
             source_pixel_format.alphaMode == D2D1_ALPHA_MODE_PREMULTIPLIED,
         "provider ID2D1Bitmap1 metadata changed");
+    progpu_native_direct2d_bitmap_descriptor bitmap_descriptor{};
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_bitmap_get_descriptor(
+            surface,
+            source_bitmap.Get(),
+            &bitmap_descriptor,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK &&
+            bitmap_descriptor.struct_size == static_cast<uint32_t>(sizeof(bitmap_descriptor)) &&
+            bitmap_descriptor.pixel_width == 2U &&
+            bitmap_descriptor.pixel_height == 2U &&
+            std::abs(bitmap_descriptor.width - (96.0F / 120.0F * 2.0F)) < 0.0001F &&
+            std::abs(bitmap_descriptor.height - (96.0F / 144.0F * 2.0F)) < 0.0001F &&
+            bitmap_descriptor.dpi_x == 120.0F &&
+            bitmap_descriptor.dpi_y == 144.0F &&
+            bitmap_descriptor.dxgi_format == DXGI_FORMAT_B8G8R8A8_UNORM &&
+            bitmap_descriptor.alpha_mode == D2D1_ALPHA_MODE_PREMULTIPLIED &&
+            bitmap_descriptor.options == static_cast<uint32_t>(D2D1_BITMAP_OPTIONS_NONE),
+        "provider typed ID2D1Bitmap1 descriptor changed");
+
+    const uint8_t zero_bitmap_pixels[16]{};
+    void* mutable_bitmap_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_bitmap(
+            surface,
+            &bitmap_properties,
+            zero_bitmap_pixels,
+            sizeof(zero_bitmap_pixels),
+            &mutable_bitmap_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            mutable_bitmap_value != nullptr && native_hresult == S_OK,
+        "provider mutable ID2D1Bitmap1 creation failed");
+    ComPtr<ID2D1Bitmap1> mutable_bitmap;
+    mutable_bitmap.Attach(static_cast<ID2D1Bitmap1*>(mutable_bitmap_value));
+    const uint8_t memory_update_pixel[] = {17U, 34U, 51U, 255U};
+    const progpu_native_direct2d_rect_u memory_update_rectangle = {
+        0U, 0U, 1U, 1U
+    };
+    require(
+        progpu_native_direct2d_bitmap_copy_from_memory(
+            surface,
+            mutable_bitmap.Get(),
+            &memory_update_rectangle,
+            memory_update_pixel,
+            sizeof(memory_update_pixel),
+            4U,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider typed ID2D1Bitmap1 memory update failed");
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_bitmap_copy_from_memory(
+            surface,
+            mutable_bitmap.Get(),
+            &memory_update_rectangle,
+            memory_update_pixel,
+            sizeof(memory_update_pixel) - 1U,
+            4U,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            native_hresult == E_INVALIDARG,
+        "truncated ID2D1Bitmap1 memory update did not fail closed");
+    const progpu_native_direct2d_point_2u bitmap_copy_destination = {1U, 0U};
+    const progpu_native_direct2d_rect_u bitmap_copy_source = {
+        0U, 1U, 1U, 1U
+    };
+    require(
+        progpu_native_direct2d_bitmap_copy_from_bitmap(
+            surface,
+            mutable_bitmap.Get(),
+            &bitmap_copy_destination,
+            source_bitmap.Get(),
+            &bitmap_copy_source,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider same-device ID2D1Bitmap1 GPU copy failed");
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_bitmap_copy_from_bitmap(
+            surface,
+            mutable_bitmap.Get(),
+            nullptr,
+            mutable_bitmap.Get(),
+            nullptr,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            native_hresult == E_INVALIDARG,
+        "self ID2D1Bitmap1 copy did not fail closed");
 
     void* invalid_bitmap_value =
         reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
@@ -3439,6 +3525,23 @@ int main()
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK,
         "provider stroked geometry-realization draw failed");
+    const progpu_native_direct2d_rect_f mutable_bitmap_destination = {
+        0.0F, 44.0F, 2.0F, 2.0F
+    };
+    const progpu_native_direct2d_rect_f mutable_bitmap_source = {
+        0.0F, 0.0F, 2.0F, 2.0F
+    };
+    require(
+        progpu_native_direct2d_surface_draw_bitmap(
+            surface,
+            mutable_bitmap.Get(),
+            &mutable_bitmap_destination,
+            1.0F,
+            PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+            &mutable_bitmap_source,
+            nullptr,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider mutated Direct2D bitmap draw failed");
     D2D1_TAG tag1 = 0U;
     D2D1_TAG tag2 = 0U;
     native_hresult = E_FAIL;
@@ -3507,6 +3610,19 @@ int main()
     require(vector_pixel[0] == 96U && vector_pixel[1] == 48U &&
             vector_pixel[2] == 224U && vector_pixel[3] == 255U,
         "typed Direct2D command-list vector pixel changed");
+    const uint8_t* memory_update_output =
+        pixel_bytes + mapped_texture.RowPitch * 44U;
+    require(memory_update_output[0] == 17U &&
+            memory_update_output[1] == 34U &&
+            memory_update_output[2] == 51U &&
+            memory_update_output[3] == 255U,
+        "typed Direct2D bitmap memory-update pixel changed");
+    const uint8_t* bitmap_copy_output = memory_update_output + 4U;
+    require(bitmap_copy_output[0] == 255U &&
+            bitmap_copy_output[1] == 0U &&
+            bitmap_copy_output[2] == 255U &&
+            bitmap_copy_output[3] == 255U,
+        "typed Direct2D GPU bitmap-copy pixel changed");
     immediate_context->Unmap(staging_texture.Get(), 0U);
     require(SUCCEEDED(imported_mutex->ReleaseSync(0U)),
         "DXGI consumer mutex release failed");

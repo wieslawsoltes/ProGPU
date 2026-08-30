@@ -262,6 +262,14 @@ typedef enum progpu_native_direct2d_unit_mode {
     PROGPU_NATIVE_DIRECT2D_UNIT_MODE_PIXELS = 1
 } progpu_native_direct2d_unit_mode;
 
+typedef enum progpu_native_direct2d_bitmap_options {
+    PROGPU_NATIVE_DIRECT2D_BITMAP_OPTION_NONE = 0,
+    PROGPU_NATIVE_DIRECT2D_BITMAP_OPTION_TARGET = 1U << 0U,
+    PROGPU_NATIVE_DIRECT2D_BITMAP_OPTION_CANNOT_DRAW = 1U << 1U,
+    PROGPU_NATIVE_DIRECT2D_BITMAP_OPTION_CPU_READ = 1U << 2U,
+    PROGPU_NATIVE_DIRECT2D_BITMAP_OPTION_GDI_COMPATIBLE = 1U << 3U
+} progpu_native_direct2d_bitmap_options;
+
 typedef enum progpu_native_direct2d_composite_mode {
     PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_SOURCE_OVER = 0,
     PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_DESTINATION_OVER = 1,
@@ -521,6 +529,32 @@ typedef struct progpu_native_direct2d_bitmap_properties {
     float dpi_y;
 } progpu_native_direct2d_bitmap_properties;
 
+typedef struct progpu_native_direct2d_point_2u {
+    uint32_t x;
+    uint32_t y;
+} progpu_native_direct2d_point_2u;
+
+typedef struct progpu_native_direct2d_rect_u {
+    uint32_t x;
+    uint32_t y;
+    uint32_t width;
+    uint32_t height;
+} progpu_native_direct2d_rect_u;
+
+typedef struct progpu_native_direct2d_bitmap_descriptor {
+    uint32_t struct_size;
+    uint32_t pixel_width;
+    uint32_t pixel_height;
+    float width;
+    float height;
+    float dpi_x;
+    float dpi_y;
+    uint32_t dxgi_format;
+    uint32_t alpha_mode;
+    uint32_t options;
+    uint32_t reserved;
+} progpu_native_direct2d_bitmap_descriptor;
+
 typedef struct progpu_native_direct2d_bitmap_brush_properties {
     uint32_t extend_mode_x;
     uint32_t extend_mode_y;
@@ -646,7 +680,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 30U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 31U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -833,6 +867,32 @@ progpu_native_direct2d_surface_create_bitmap(
     const uint8_t* pixels,
     uint64_t pixel_byte_count,
     void** value,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_bitmap_get_descriptor(
+    progpu_native_direct2d_surface* surface,
+    void* bitmap,
+    progpu_native_direct2d_bitmap_descriptor* descriptor,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_bitmap_copy_from_memory(
+    progpu_native_direct2d_surface* surface,
+    void* bitmap,
+    const progpu_native_direct2d_rect_u* destination_rectangle,
+    const uint8_t* source_data,
+    uint64_t source_byte_count,
+    uint32_t source_pitch,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_bitmap_copy_from_bitmap(
+    progpu_native_direct2d_surface* surface,
+    void* bitmap,
+    const progpu_native_direct2d_point_2u* destination_point,
+    void* source_bitmap,
+    const progpu_native_direct2d_rect_u* source_rectangle,
     int32_t* native_hresult);
 
 /* Creates a genuine ID2D1BitmapBrush1 over a same-domain ID2D1Bitmap. */

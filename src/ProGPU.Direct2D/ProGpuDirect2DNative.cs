@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 30U;
+    internal const uint AbiVersion = 31U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -218,6 +218,22 @@ internal static unsafe partial class ProGpuDirect2DNative
         internal float DpiY;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeBitmapDescriptor
+    {
+        internal uint StructSize;
+        internal uint PixelWidth;
+        internal uint PixelHeight;
+        internal float Width;
+        internal float Height;
+        internal float DpiX;
+        internal float DpiY;
+        internal uint DxgiFormat;
+        internal uint AlphaMode;
+        internal ProGpuDirect2DBitmapOptions Options;
+        internal uint Reserved;
+    }
+
     internal enum Win2DResourceKind
     {
         CanvasDevice = 1,
@@ -414,6 +430,18 @@ internal static unsafe partial class ProGpuDirect2DNative
         ulong pixelByteCount,
         nint* value,
         int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_bitmap_get_descriptor")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus BitmapGetDescriptor(nint surface, nint bitmap, NativeBitmapDescriptor* descriptor, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_bitmap_copy_from_memory")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus BitmapCopyFromMemory(nint surface, nint bitmap, ProGpuDirect2DRectU* destinationRectangle, byte* sourceData, ulong sourceByteCount, uint sourcePitch, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_bitmap_copy_from_bitmap")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus BitmapCopyFromBitmap(nint surface, nint bitmap, ProGpuDirect2DPointU* destinationPoint, nint sourceBitmap, ProGpuDirect2DRectU* sourceRectangle, int* nativeHResult);
 
     [LibraryImport(
         LibraryName,

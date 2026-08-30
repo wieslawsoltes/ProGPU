@@ -308,6 +308,16 @@ public enum ProGpuDirect2DUnitMode : uint
     Pixels = 1
 }
 
+[Flags]
+public enum ProGpuDirect2DBitmapOptions : uint
+{
+    None = 0,
+    Target = 1U << 0,
+    CannotDraw = 1U << 1,
+    CpuRead = 1U << 2,
+    GdiCompatible = 1U << 3
+}
+
 public enum ProGpuDirect2DCompositeMode : uint
 {
     SourceOver = 0,
@@ -586,6 +596,29 @@ public readonly record struct ProGpuDirect2DRect(
     float Y,
     float Width,
     float Height);
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct ProGpuDirect2DPointU(
+    uint X,
+    uint Y);
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct ProGpuDirect2DRectU(
+    uint X,
+    uint Y,
+    uint Width,
+    uint Height);
+
+public readonly record struct ProGpuDirect2DBitmapDescriptor(
+    uint PixelWidth,
+    uint PixelHeight,
+    float Width,
+    float Height,
+    float DpiX,
+    float DpiY,
+    uint DxgiFormat,
+    uint AlphaMode,
+    ProGpuDirect2DBitmapOptions Options);
 
 /// <summary>
 /// One point and unit tangent sampled from a genuine ID2D1Geometry.
