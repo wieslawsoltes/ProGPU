@@ -114,6 +114,16 @@ internal static class MetafilePlaybackRenderer
                 state.ExcludeClip(record, ReadWmfRectangle(record, payload));
                 return;
 
+            case EmfPlusRecordType.WmfSaveDC:
+                RequireSize(record, payload, 0);
+                state.Save();
+                return;
+
+            case EmfPlusRecordType.WmfRestoreDC:
+                RequireSize(record, payload, 2);
+                state.Restore(ReadInt16(payload, 0), record);
+                return;
+
             case EmfPlusRecordType.WmfSelectObject:
                 RequireSize(record, payload, 2);
                 state.SelectWmfObject(ReadUInt16(payload, 0), record);
@@ -919,6 +929,8 @@ internal static class MetafilePlaybackRenderer
                 MapMode,
                 BackgroundMode,
                 RasterOperation,
+                TextAlignment,
+                BackgroundColor,
                 _selectedPen,
                 _selectedBrush,
                 graphicsState));
@@ -950,6 +962,8 @@ internal static class MetafilePlaybackRenderer
             MapMode = saved.MapMode;
             BackgroundMode = saved.BackgroundMode;
             RasterOperation = saved.RasterOperation;
+            TextAlignment = saved.TextAlignment;
+            BackgroundColor = saved.BackgroundColor;
             _selectedPen = saved.SelectedPen;
             _selectedBrush = saved.SelectedBrush;
             Graphics.Restore(saved.GraphicsState);
@@ -1158,6 +1172,8 @@ internal static class MetafilePlaybackRenderer
             int MapMode,
             int BackgroundMode,
             int RasterOperation,
+            int TextAlignment,
+            Color BackgroundColor,
             Pen? SelectedPen,
             Brush? SelectedBrush,
             GraphicsState GraphicsState);

@@ -367,6 +367,32 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void WmfRestoreDcRejectsUnavailableRelativeLevelWithoutPublishingCommands()
+    {
+        byte[] bytes = CreatePlaybackWmf();
+        int restoreDataOffset;
+        using (var parsed = new Metafile(new MemoryStream(bytes, writable: false)))
+        {
+            restoreDataOffset = Assert.Single(
+                parsed.Records.ToArray(),
+                record => record.Type == EmfPlusRecordType.WmfRestoreDC).DataOffset;
+        }
+        WriteInt16(bytes, restoreDataOffset, -2);
+
+        using var metafile = new Metafile(new MemoryStream(bytes, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Contains(nameof(EmfPlusRecordType.WmfRestoreDC), exception.Message, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(16, 16).ToArgb());
+    }
+
+    [Fact]
     public void EmfPlaybackFailureDoesNotPublishPartialCommands()
     {
         byte[] bytes = CreatePlaybackEmf();
@@ -719,8 +745,10 @@ public sealed class MetafileParserTests
             (0x012D, WmfWords(1)),
             (0x0325, WmfPoints(new Point(4, 32), new Point(60, 32))),
             (0x0817, WmfWords(36, 18, 46, 28, 56, 28, 36, 8)),
-            (0x0415, WmfWords(50, 20, 42, 12)),
+            (0x001E, []),
+            (0x0415, WmfWords(50, 50, 42, 12)),
             (0x041B, WmfWords(56, 28, 36, 4)),
+            (0x0127, WmfWords(-1)),
             (0x0418, WmfWords(56, 56, 36, 36))
         };
         if (includeUnsupportedRecord)

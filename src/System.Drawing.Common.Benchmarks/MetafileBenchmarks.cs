@@ -277,7 +277,7 @@ public class MetafileBenchmarks
         ushort function,
         bool includeClipState = false)
     {
-        int clipWords = includeClipState ? 14 : 0;
+        int clipWords = includeClipState ? 21 : 0;
         int declaredWords = checked(9 + 7 + 8 + 4 + 4 + clipWords + recordCount * 7 + 3);
         byte[] bytes = new byte[checked(22 + declaredWords * 2)];
         WriteUInt32(bytes, 0, 0x9AC6_CDD7);
@@ -319,12 +319,23 @@ public class MetafileBenchmarks
         {
             WriteWmfBoxRecord(bytes, cursor, 0x0416, left: 0, top: 0, right: 640, bottom: 480);
             cursor += 14;
+            WriteUInt32(bytes, cursor, 3);
+            WriteUInt16(bytes, cursor + 4, 0x001E);
+            cursor += 6;
             WriteWmfBoxRecord(bytes, cursor, 0x0415, left: 280, top: 180, right: 360, bottom: 300);
             cursor += 14;
         }
 
         for (int index = 0; index < recordCount; index++)
         {
+            if (includeClipState && index == recordCount / 2)
+            {
+                WriteUInt32(bytes, cursor, 4);
+                WriteUInt16(bytes, cursor + 4, 0x0127);
+                WriteInt16(bytes, cursor + 6, -1);
+                cursor += 8;
+            }
+
             short left = checked((short)((index % 16) * 40));
             short top = checked((short)((index / 16) * 30));
             WriteWmfBoxRecord(
