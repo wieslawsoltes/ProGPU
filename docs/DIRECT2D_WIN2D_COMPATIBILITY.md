@@ -449,7 +449,7 @@ for `progpu_native_direct2d.dll` and
 `cab7f76311cd5115a0f8f84ee680115eb6481c6842eb45a85eea0633c08292fc`
 for `progpu_native_direct2d_tests.exe`.
 
-The current ABI v9 gate includes transactional `BeginDraw`/`EndDraw`, safe COM
+The current ABI v10 gate includes transactional `BeginDraw`/`EndDraw`, safe COM
 release, nested/unmatched draw rejection, zero-key Dawn ownership, and a
 generic GUID-based `QueryInterface` export. The latter returns a caller-owned
 reference to any later Direct2D interface supported by the installed Windows
@@ -463,9 +463,13 @@ factory-native wrap and resource-wrapper-native unwrap operations. The gate
 also requires exact solid-brush projection and drawing. ABI v8 adds
 `ID2D1GradientStopCollection1`, linear-gradient brush, and radial-gradient
 brush creation while reusing those generic identity operations. The gate
-enforces an exact 27-export allowlist. ABI v9 adds primitive/path/transformed/
+also preserves their typed metadata and exact native identities. ABI v9 adds
+primitive/path/transformed/
 combined geometry creation, real `FillGeometry`/`DrawGeometry` execution, and
-exact `ID2D1Geometry <-> CanvasGeometry` identity.
+exact `ID2D1Geometry <-> CanvasGeometry` identity. ABI v10 adds typed
+`ID2D1StrokeStyle1` creation, one-span custom dashes, styled drawing, and exact
+`ID2D1StrokeStyle1 <-> CanvasStrokeStyle` identity. The gate enforces an exact
+28-export allowlist.
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
@@ -564,6 +568,25 @@ ARGB `(255,224,48,96)`. Existing solid/linear/radial samples, transparent
 corner, all native identities, content version `0 -> 1`, and `Dawn D3D12`
 remain green. The gate now persists JSON before package cleanup and records a
 best-effort last-stage marker so native termination cannot erase evidence.
+
+ABI v10 was qualified at ProGPU implementation commit `a0febfd3` plus the
+typed-IID audit fix `39c947d4` in the same Windows 11 ARM64 Parallels guest.
+MSVC 19.44 builds the provider and focused native regression with `/W4 /WX`;
+the executable exits zero after validating all stroke metadata, custom-dash
+copying, malformed-span rejection, Win2D canonical identity, and an actual
+styled `DrawGeometry`. SHA-256 is
+`2CBA50FD8C3B2963B46EC5A918DCC8A03CBDA69FA5B47A28D17D9CD528441158`
+for `progpu_native_direct2d.dll` and
+`287EE1183BA296AE62912EC8692A21F76D7A2044E412387EF1C3E9BEECB9FCE9`
+for `progpu_native_direct2d_tests.exe`. The exact `39c947d4` source archive is
+`B7C37C6F23D4A1CAD46B4AB6CDD41BE2921AE9E7CBFBD2CBE41BF30CD8BF1976`.
+The signed Microsoft Win2D 1.4.0 oracle reports the real
+`Microsoft.Graphics.Canvas.Geometry.CanvasStrokeStyle`,
+`NativeStrokeStyleIdentityMatches=true`, the expected four-value custom dash
+pattern, and successful styled geometry drawing. All previous device, bitmap,
+solid/linear/radial brush, and geometry identities remain true; the transparent
+corner and exact solid/linear/radial/geometry pixel probes remain unchanged,
+the adapter is `Dawn D3D12`, and content version advances from `0` to `1`.
 
 Run this qualification with
 `eng/progpu-run-direct2d-win2d-integration.ps1`, or opt it into the complete
