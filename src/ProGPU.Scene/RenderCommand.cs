@@ -753,20 +753,108 @@ public struct RenderCommand
     public GpuTexture? Texture;
     public Rect SrcRect;
     public TexturePatch[]? TexturePatches;
-    public TextureSamplingMode TextureSamplingMode;
-    public byte TextureMaxAnisotropy;
-    public TextureAddressMode TextureAddressModeU;
-    public TextureAddressMode TextureAddressModeV;
+    private uint _textureOptions;
     public float TextureOpacity;
-    public bool HasTextureOpacity;
-    public bool AllowExtendedTextureSourceRect;
     public Vector2 TextureCubicCoefficients;
-    public bool HasTextureCubicCoefficients;
-    public bool SnapTextureToPixels;
-    public bool HasImageEffect;
     private ImageEffectCommandDataBox? _imageEffect;
     internal int ImageEffectBufferIndex;
-    internal bool HasBufferedImageEffect;
+
+    public TextureSamplingMode TextureSamplingMode
+    {
+        readonly get => (TextureSamplingMode)(_textureOptions & 0x0fu);
+        set
+        {
+            if ((uint)value >
+                (uint)TextureSamplingMode.MagNearestMinNearestMipLinear)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            _textureOptions = (_textureOptions & ~0x0fu) | (uint)value;
+        }
+    }
+
+    public byte TextureMaxAnisotropy
+    {
+        readonly get => (byte)((_textureOptions >> 4) & 0xffu);
+        set => _textureOptions = (_textureOptions & ~(0xffu << 4)) |
+            ((uint)value << 4);
+    }
+
+    public TextureAddressMode TextureAddressModeU
+    {
+        readonly get => (TextureAddressMode)((_textureOptions >> 12) & 0x03u);
+        set
+        {
+            if ((uint)value > (uint)TextureAddressMode.MirrorRepeat)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            _textureOptions = (_textureOptions & ~(0x03u << 12)) |
+                ((uint)value << 12);
+        }
+    }
+
+    public TextureAddressMode TextureAddressModeV
+    {
+        readonly get => (TextureAddressMode)((_textureOptions >> 14) & 0x03u);
+        set
+        {
+            if ((uint)value > (uint)TextureAddressMode.MirrorRepeat)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            _textureOptions = (_textureOptions & ~(0x03u << 14)) |
+                ((uint)value << 14);
+        }
+    }
+
+    public bool HasTextureOpacity
+    {
+        readonly get => (_textureOptions & (1u << 16)) != 0;
+        set => SetTextureOption(1u << 16, value);
+    }
+
+    public bool AllowExtendedTextureSourceRect
+    {
+        readonly get => (_textureOptions & (1u << 17)) != 0;
+        set => SetTextureOption(1u << 17, value);
+    }
+
+    public bool HasTextureCubicCoefficients
+    {
+        readonly get => (_textureOptions & (1u << 18)) != 0;
+        set => SetTextureOption(1u << 18, value);
+    }
+
+    public bool SnapTextureToPixels
+    {
+        readonly get => (_textureOptions & (1u << 19)) != 0;
+        set => SetTextureOption(1u << 19, value);
+    }
+
+    public bool HasImageEffect
+    {
+        readonly get => (_textureOptions & (1u << 20)) != 0;
+        set => SetTextureOption(1u << 20, value);
+    }
+
+    internal bool HasBufferedImageEffect
+    {
+        readonly get => (_textureOptions & (1u << 21)) != 0;
+        set => SetTextureOption(1u << 21, value);
+    }
+
+    private void SetTextureOption(uint mask, bool value)
+    {
+        if (value)
+        {
+            _textureOptions |= mask;
+        }
+        else
+        {
+            _textureOptions &= ~mask;
+        }
+    }
 
     public ImageEffectCommandData ImageEffect
     {
@@ -1562,16 +1650,8 @@ internal readonly struct RetainedSimpleTextureCommand
     private readonly Rect _source;
     private readonly int _hitTestId;
     private readonly int _transformIndex;
-    private readonly RenderCommandPresentationDependencies _presentationDependencies;
-    private readonly byte _samplingMode;
-    private readonly byte _maxAnisotropy;
-    private readonly byte _addressModeU;
-    private readonly byte _addressModeV;
+    private readonly uint _options;
     private readonly float _opacity;
-    private readonly bool _hasOpacity;
-    private readonly bool _allowExtendedSourceRect;
-    private readonly bool _snapToPixels;
-    private readonly bool _isEdgeAliased;
 
     public RetainedSimpleTextureCommand(
         in RenderCommand command,
@@ -1582,16 +1662,8 @@ internal readonly struct RetainedSimpleTextureCommand
         _source = command.SrcRect;
         _hitTestId = command.HitTestId;
         _transformIndex = transformIndex;
-        _presentationDependencies = command.PresentationDependencies;
-        _samplingMode = checked((byte)command.TextureSamplingMode);
-        _maxAnisotropy = command.TextureMaxAnisotropy;
-        _addressModeU = checked((byte)command.TextureAddressModeU);
-        _addressModeV = checked((byte)command.TextureAddressModeV);
+        _options = PackOptions(in command);
         _opacity = command.TextureOpacity;
-        _hasOpacity = command.HasTextureOpacity;
-        _allowExtendedSourceRect = command.AllowExtendedTextureSourceRect;
-        _snapToPixels = command.SnapTextureToPixels;
-        _isEdgeAliased = command.IsEdgeAliased;
     }
 
     public RenderCommand Expand(Matrix4x4[] transforms) =>
@@ -1603,17 +1675,29 @@ internal readonly struct RetainedSimpleTextureCommand
             Texture = _texture,
             SrcRect = _source,
             Transform = transforms[_transformIndex],
-            PresentationDependencies = _presentationDependencies,
-            TextureSamplingMode = (TextureSamplingMode)_samplingMode,
-            TextureMaxAnisotropy = _maxAnisotropy,
-            TextureAddressModeU = (TextureAddressMode)_addressModeU,
-            TextureAddressModeV = (TextureAddressMode)_addressModeV,
+            PresentationDependencies =
+                (RenderCommandPresentationDependencies)((_options >> 16) & 0xffu),
+            TextureSamplingMode = (TextureSamplingMode)(_options & 0x0fu),
+            TextureMaxAnisotropy = (byte)((_options >> 4) & 0xffu),
+            TextureAddressModeU = (TextureAddressMode)((_options >> 12) & 0x03u),
+            TextureAddressModeV = (TextureAddressMode)((_options >> 14) & 0x03u),
             TextureOpacity = _opacity,
-            HasTextureOpacity = _hasOpacity,
-            AllowExtendedTextureSourceRect = _allowExtendedSourceRect,
-            SnapTextureToPixels = _snapToPixels,
-            IsEdgeAliased = _isEdgeAliased
+            HasTextureOpacity = (_options & (1u << 24)) != 0,
+            AllowExtendedTextureSourceRect = (_options & (1u << 25)) != 0,
+            SnapTextureToPixels = (_options & (1u << 26)) != 0,
+            IsEdgeAliased = (_options & (1u << 27)) != 0
         };
+
+    private static uint PackOptions(in RenderCommand command) =>
+        ((uint)command.TextureSamplingMode & 0x0fu) |
+        ((uint)command.TextureMaxAnisotropy << 4) |
+        (((uint)command.TextureAddressModeU & 0x03u) << 12) |
+        (((uint)command.TextureAddressModeV & 0x03u) << 14) |
+        (((uint)command.PresentationDependencies & 0xffu) << 16) |
+        (command.HasTextureOpacity ? 1u << 24 : 0u) |
+        (command.AllowExtendedTextureSourceRect ? 1u << 25 : 0u) |
+        (command.SnapTextureToPixels ? 1u << 26 : 0u) |
+        (command.IsEdgeAliased ? 1u << 27 : 0u);
 }
 
 internal readonly struct RetainedSimpleRectangleCommand

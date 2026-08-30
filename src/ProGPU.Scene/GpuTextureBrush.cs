@@ -30,6 +30,13 @@ public sealed class GpuTextureBrush : Brush
     public bool SnapToPixels { get; set; }
 
     /// <summary>
+    /// Extends the brush mapping across the complete fill geometry so GPU
+    /// sampler addressing supplies clamp, repeat, or mirror-repeat pixels.
+    /// When false, drawing remains bounded by <see cref="DestinationRect"/>.
+    /// </summary>
+    public bool ExtendToFillBounds { get; set; } = true;
+
+    /// <summary>
     /// Lowers an axis-preserving retained texture brush into one image draw.
     /// The extrapolated source rectangle deliberately remains outside the
     /// texture extent so the selected GPU sampler performs clamp/repeat/mirror
@@ -54,7 +61,31 @@ public sealed class GpuTextureBrush : Brush
         }
 
         Matrix4x4 mapping = Transform;
-        if (!IsFinite(mapping) || mapping.M12 != 0f || mapping.M21 != 0f ||
+        if (!IsFinite(mapping))
+        {
+            return false;
+        }
+
+        if (!ExtendToFillBounds)
+        {
+            command = new RenderCommand
+            {
+                Type = RenderCommandType.DrawTexture,
+                Texture = texture,
+                Rect = DestinationRect,
+                SrcRect = SourceRect,
+                Transform = mapping,
+                TextureSamplingMode = SamplingMode,
+                TextureAddressModeU = AddressModeU,
+                TextureAddressModeV = AddressModeV,
+                TextureOpacity = Opacity,
+                HasTextureOpacity = true,
+                SnapTextureToPixels = SnapToPixels
+            };
+            return true;
+        }
+
+        if (mapping.M12 != 0f || mapping.M21 != 0f ||
             mapping.M13 != 0f || mapping.M14 != 0f ||
             mapping.M23 != 0f || mapping.M24 != 0f ||
             mapping.M31 != 0f || mapping.M32 != 0f ||

@@ -473,8 +473,19 @@ fn mainImage(fragCoord: vec2<f32>) -> vec4<f32> {
                 Rect = new Rect(index & 7, index & 3, 16f, 16f),
                 SrcRect = new Rect(0f, 0f, 16f, 16f),
                 Transform = transform,
-                TextureSamplingMode = TextureSamplingMode.Linear,
-                TextureMaxAnisotropy = 1
+                TextureSamplingMode =
+                    TextureSamplingMode.MagNearestMinLinearMipLinear,
+                TextureMaxAnisotropy = byte.MaxValue,
+                TextureAddressModeU = TextureAddressMode.Repeat,
+                TextureAddressModeV = TextureAddressMode.MirrorRepeat,
+                TextureOpacity = 0.375f,
+                HasTextureOpacity = true,
+                AllowExtendedTextureSourceRect = true,
+                SnapTextureToPixels = true,
+                IsEdgeAliased = true,
+                PresentationDependencies =
+                    RenderCommandPresentationDependencies.TextureSampling |
+                    RenderCommandPresentationDependencies.TextHinting
             };
         }
 
