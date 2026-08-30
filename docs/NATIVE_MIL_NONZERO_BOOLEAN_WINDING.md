@@ -153,9 +153,11 @@ fill-rule ABI: `NonZero=0` and `EvenOdd=1`. Both `PathRasterizer.wgsl` and
 `PathOpGeometry.wgsl` now apply parity only for value `1`. A permanent sample
 uses two identical clockwise contours to require Nonzero coverage and EvenOdd
 cancellation. `ProGPU.Vector.FillRule` retains its public managed ordering of
-`EvenOdd=0` and `Nonzero=1`; `PathAtlas` performs an explicit, fail-closed
-conversion when it writes `GpuPathRecord` so managed SVG/path rendering and
-the native C ABI consume the same shader values.
+`EvenOdd=0` and `Nonzero=1`; the shared `GpuPathFillRuleEncoding` performs an
+explicit, fail-closed conversion whenever `PathAtlas` or
+`PathOpGeometrySolver` writes `GpuPathRecord`. Managed SVG/path rasterization,
+GPU boolean geometry, and the native C ABI therefore consume the same shader
+values without relying on managed enum ordinals.
 
 ## Coverage and gates
 
