@@ -1,7 +1,7 @@
 #include "progpu_native_direct2d.h"
 
 #include <d2d1_3.h>
-#include <d3d11.h>
+#include <d3d11_4.h>
 #include <dwrite_3.h>
 #include <dxgi1_2.h>
 #include <roapi.h>
@@ -80,6 +80,7 @@ static_assert(
 
 struct progpu_native_direct2d_surface {
     ComPtr<ID3D11Device> d3d_device;
+    ComPtr<ID3D11Device4> d3d_device4;
     ComPtr<ID3D11DeviceContext> d3d_context;
     ComPtr<IDXGIAdapter1> adapter;
     ComPtr<IDXGIDevice> dxgi_device;
@@ -96,6 +97,9 @@ struct progpu_native_direct2d_surface {
     ComPtr<ID2D1Bitmap1> d2d_bitmap;
     ComPtr<IDWriteFactory3> dwrite_factory;
     HANDLE shared_handle = nullptr;
+    HANDLE device_removed_event = nullptr;
+    DWORD device_removed_cookie = 0U;
+    bool device_removed_registered = false;
     DXGI_ADAPTER_DESC1 adapter_descriptor{};
     uint32_t width = 0U;
     uint32_t height = 0U;
@@ -109,7 +113,9 @@ struct progpu_native_direct2d_surface {
     ComPtr<ID2D1CommandList> active_command_list;
     std::mutex access_mutex;
     std::atomic<uint64_t> content_version{0U};
+    uint64_t resource_generation = 0U;
     std::atomic<int32_t> last_hresult{S_OK};
+    std::atomic<int32_t> device_loss_hresult{S_OK};
 
     ~progpu_native_direct2d_surface()
     {
@@ -137,6 +143,12 @@ struct progpu_native_direct2d_surface {
         if (shared_handle != nullptr) {
             static_cast<void>(CloseHandle(shared_handle));
         }
+        if (device_removed_registered && d3d_device4) {
+            d3d_device4->UnregisterDeviceRemoved(device_removed_cookie);
+        }
+        if (device_removed_event != nullptr) {
+            static_cast<void>(CloseHandle(device_removed_event));
+        }
     }
 };
 
@@ -144,6 +156,40 @@ namespace {
 
 constexpr uint32_t dxgi_format_b8g8r8a8_unorm = 87U;
 constexpr uint32_t d2d_alpha_mode_premultiplied = 1U;
+std::atomic<uint64_t> next_resource_generation{1U};
+
+bool is_device_loss_hresult(HRESULT hr)
+{
+    return hr == DXGI_ERROR_DEVICE_REMOVED ||
+        hr == DXGI_ERROR_DEVICE_RESET ||
+        hr == D2DERR_RECREATE_TARGET;
+}
+
+void retain_device_loss(
+    progpu_native_direct2d_surface& surface,
+    HRESULT hr)
+{
+    if (!is_device_loss_hresult(hr)) {
+        return;
+    }
+    int32_t expected = S_OK;
+    static_cast<void>(surface.device_loss_hresult.compare_exchange_strong(
+        expected,
+        hr,
+        std::memory_order_acq_rel,
+        std::memory_order_acquire));
+}
+
+uint64_t allocate_resource_generation()
+{
+    uint64_t generation = next_resource_generation.fetch_add(
+        1U,
+        std::memory_order_acq_rel);
+    if (generation != 0U) {
+        return generation;
+    }
+    return next_resource_generation.fetch_add(1U, std::memory_order_acq_rel);
+}
 
 class BorrowedMemoryStream final : public IStream {
 public:
@@ -829,6 +875,30 @@ HRESULT create_d3d_device(
         return hr;
     }
 
+    if (SUCCEEDED(surface.d3d_device.As(&surface.d3d_device4))) {
+        surface.device_removed_event = CreateEventW(
+            nullptr,
+            TRUE,
+            FALSE,
+            nullptr);
+        if (surface.device_removed_event != nullptr) {
+            DWORD cookie = 0U;
+            HRESULT registration_hr =
+                surface.d3d_device4->RegisterDeviceRemovedEvent(
+                    surface.device_removed_event,
+                    &cookie);
+            if (SUCCEEDED(registration_hr)) {
+                surface.device_removed_cookie = cookie;
+                surface.device_removed_registered = true;
+            }
+            else {
+                static_cast<void>(CloseHandle(
+                    surface.device_removed_event));
+                surface.device_removed_event = nullptr;
+            }
+        }
+    }
+
     hr = surface.d3d_device.As(&surface.dxgi_device);
     if (FAILED(hr)) {
         return hr;
@@ -1185,6 +1255,7 @@ progpu_native_direct2d_status progpu_native_direct2d_surface_create(
     instance->height = options->height;
     instance->dpi_x = options->dpi_x;
     instance->dpi_y = options->dpi_y;
+    instance->resource_generation = allocate_resource_generation();
 
     HRESULT hr = create_d3d_device(*options, *instance);
     if (FAILED(hr)) {
@@ -1257,6 +1328,51 @@ progpu_native_direct2d_surface_get_descriptor(
     descriptor->initial_release_key = 0U;
     descriptor->content_version =
         surface->content_version.load(std::memory_order_acquire);
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_device_loss_state(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_device_loss_state* state)
+{
+    if (surface == nullptr || state == nullptr ||
+        state->struct_size != sizeof(*state)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    uint32_t flags = PROGPU_NATIVE_DIRECT2D_DEVICE_LOSS_FLAG_NONE;
+    bool query_removal_reason = true;
+    if (surface->device_removed_registered &&
+        surface->device_removed_event != nullptr) {
+        query_removal_reason = false;
+        flags |=
+            PROGPU_NATIVE_DIRECT2D_DEVICE_LOSS_FLAG_REMOVAL_EVENT_REGISTERED;
+        if (WaitForSingleObject(surface->device_removed_event, 0U) ==
+            WAIT_OBJECT_0) {
+            flags |=
+                PROGPU_NATIVE_DIRECT2D_DEVICE_LOSS_FLAG_REMOVAL_EVENT_SIGNALED;
+            query_removal_reason = true;
+        }
+    }
+
+    retain_device_loss(
+        *surface,
+        surface->last_hresult.load(std::memory_order_acquire));
+    if (query_removal_reason) {
+        HRESULT removal_hr = surface->d3d_device->GetDeviceRemovedReason();
+        retain_device_loss(*surface, removal_hr);
+    }
+    HRESULT retained_hr = surface->device_loss_hresult.load(
+        std::memory_order_acquire);
+    if (FAILED(retained_hr)) {
+        flags |= PROGPU_NATIVE_DIRECT2D_DEVICE_LOSS_FLAG_DEVICE_LOST;
+    }
+
+    state->flags = flags;
+    state->reason_hresult = retained_hr;
+    state->reserved = 0U;
+    state->resource_generation = surface->resource_generation;
     return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
 }
 

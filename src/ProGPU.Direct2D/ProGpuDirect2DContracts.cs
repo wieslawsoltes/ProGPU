@@ -22,6 +22,15 @@ public enum ProGpuDirect2DDescriptorFlags : uint
     SoftwareAdapter = 1U << 2
 }
 
+[Flags]
+public enum ProGpuDirect2DDeviceLossFlags : uint
+{
+    None = 0,
+    RemovalEventRegistered = 1U << 0,
+    RemovalEventSignaled = 1U << 1,
+    DeviceLost = 1U << 2
+}
+
 public enum ProGpuDirect2DInterfaceKind
 {
     D3D11Device = 1,
@@ -405,6 +414,55 @@ public readonly record struct ProGpuDirect2DSurfaceDescriptor(
     ulong InitialReleaseKey,
     ulong ContentVersion);
 
+public readonly record struct ProGpuDirect2DDeviceLossState(
+    ProGpuDirect2DDeviceLossFlags Flags,
+    int ReasonHResult,
+    ulong ResourceGeneration)
+{
+    public bool IsDeviceLost =>
+        (Flags & ProGpuDirect2DDeviceLossFlags.DeviceLost) != 0;
+}
+
+public sealed class ProGpuDirect2DDeviceLostEventArgs : EventArgs
+{
+    internal ProGpuDirect2DDeviceLostEventArgs(
+        int reasonHResult,
+        ulong resourceGeneration)
+    {
+        ReasonHResult = reasonHResult;
+        ResourceGeneration = resourceGeneration;
+    }
+
+    public int ReasonHResult { get; }
+
+    public ulong ResourceGeneration { get; }
+}
+
+internal sealed class ProGpuDirect2DResourceDomain
+{
+    private int _deviceLost;
+    private int _reasonHResult;
+
+    internal ProGpuDirect2DResourceDomain(ulong generation)
+    {
+        Generation = generation;
+    }
+
+    internal ulong Generation { get; }
+
+    internal bool IsDeviceLost =>
+        Volatile.Read(ref _deviceLost) != 0;
+
+    internal int ReasonHResult =>
+        Volatile.Read(ref _reasonHResult);
+
+    internal void MarkDeviceLost(int reasonHResult)
+    {
+        Volatile.Write(ref _reasonHResult, reasonHResult);
+        Volatile.Write(ref _deviceLost, 1);
+    }
+}
+
 /// <summary>
 /// Linear floating-point color for a genuine Direct2D resource. Finite HDR
 /// channel values outside zero to one are preserved.
@@ -688,23 +746,35 @@ public sealed class ProGpuDirect2DComReference : SafeHandleZeroOrMinusOneIsInval
 {
     internal ProGpuDirect2DComReference(
         nint value,
-        ProGpuDirect2DInterfaceKind kind)
-        : this(value, kind, null)
+        ProGpuDirect2DInterfaceKind kind,
+        ProGpuDirect2DResourceDomain resourceDomain)
+        : this(value, kind, resourceDomain, null)
     {
     }
 
     private ProGpuDirect2DComReference(
         nint value,
         ProGpuDirect2DInterfaceKind kind,
+        ProGpuDirect2DResourceDomain resourceDomain,
         Guid? queriedInterfaceId)
         : base(ownsHandle: true)
     {
         InterfaceKind = kind;
+        _resourceDomain = resourceDomain;
         QueriedInterfaceId = queriedInterfaceId;
         SetHandle(value);
     }
 
     public ProGpuDirect2DInterfaceKind InterfaceKind { get; }
+
+    private readonly ProGpuDirect2DResourceDomain _resourceDomain;
+
+    /// <summary>
+    /// Identifies the native Direct2D/D3D11 device domain that created this
+    /// resource. References from a lost generation fail closed on a new
+    /// surface and must be recreated.
+    /// </summary>
+    public ulong ResourceGeneration => _resourceDomain.Generation;
 
     public Guid? QueriedInterfaceId { get; }
 
@@ -714,6 +784,13 @@ public sealed class ProGpuDirect2DComReference : SafeHandleZeroOrMinusOneIsInval
     /// </summary>
     public unsafe ProGpuDirect2DComReference QueryInterface(Guid interfaceId)
     {
+        if (_resourceDomain.IsDeviceLost)
+        {
+            throw new ProGpuDirect2DException(
+                $"QueryInterface({interfaceId:D}) on lost resource generation {ResourceGeneration}",
+                ProGpuDirect2DStatus.DeviceLost,
+                _resourceDomain.ReasonHResult);
+        }
         bool referenceAdded = false;
         try
         {
@@ -743,6 +820,7 @@ public sealed class ProGpuDirect2DComReference : SafeHandleZeroOrMinusOneIsInval
             return new ProGpuDirect2DComReference(
                 result,
                 InterfaceKind,
+                _resourceDomain,
                 interfaceId);
         }
         finally

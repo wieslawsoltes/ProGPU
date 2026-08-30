@@ -5156,6 +5156,19 @@ compile/link under the warning-as-error lane, the focused Direct2D test passes
 in 0.49 seconds, all 11 native suites pass, and the exact 58-export allowlist
 is accepted.
 
+ABI v23 makes loss of that Direct2D/D3D11 resource domain explicit. Every
+surface and managed COM safe handle carries one monotonic resource generation.
+The native provider registers the optional `ID3D11Device4` removal event,
+polls it without blocking, confirms its HRESULT with
+`ID3D11Device::GetDeviceRemovedReason`, and persistently classifies Direct2D's
+`D2DERR_RECREATE_TARGET` as terminal too. The managed owner invalidates its
+shared generation token before another safe-handle operation, raises one typed
+`DeviceLost` notification, reports the same terminal state to Dawn, and
+requires a new device domain plus rebuilt resources. Cross-generation resource
+use fails before entering COM. The allowlist grows from 58 to 59 exports;
+physical adapter-removal/recreation remains an explicit Windows integration
+gate rather than a synthetic success claim.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
