@@ -5227,9 +5227,12 @@ ProGPU retained vector pipeline. No pointer-shaped COM state enters MIL or
 WebGPU, no CPU readback/repack is introduced, and the exact Direct2D export
 allowlist grows from 74 to 86. Command-list coverage exercises all operations,
 transform round-trip, and an exact BGRA shared-texture readback pixel;
-portable managed contracts pass 5/5 with zero warnings. Windows
-warning-as-error execution of that pixel gate remains pending the pushed
-commit. Exact clip/layer cross-ordering is reserved for a unified LIFO
+portable managed contracts pass 5/5 with zero warnings. Corrected checkpoint
+`f1b1ca18` is qualified by Build run `33333671491`, dedicated MSVC job
+`99316705077`: the provider and pixel regression compile/link under
+warning-as-error, the focused Direct2D test passes in 0.16 seconds, all 11
+native suites pass, and the exact 86-export allowlist is accepted. Exact
+clip/layer cross-ordering is reserved for a unified LIFO
 draw-state ABI rather than being approximated with a separate clip counter.
 
 ## Managed glyph row-reuse SIMD checkpoint
