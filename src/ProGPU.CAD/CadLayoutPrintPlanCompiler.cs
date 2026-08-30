@@ -6,9 +6,10 @@ namespace ProGPU.CAD;
 
 /// <summary>Compiles one generation-matched paper layout into a physical print plan.</summary>
 /// <remarks>
-/// Compilation retains one clipped layout picture and is O(U*E + P + V), using the
-/// layout-scene bounds described by <see cref="CadLayoutSceneCompiler"/>. Page-picture
-/// creation remains one clip plus one replay and allocates no raster target.
+/// Compilation retains one clipped layout picture and is O(U*E + P + V + B), using the
+/// layout-scene bounds described by <see cref="CadLayoutSceneCompiler"/>, where B is the
+/// total referenced viewport-boundary segment count. Page-picture creation remains one
+/// clip plus one replay and allocates no raster target.
 /// </remarks>
 public sealed class CadLayoutPrintPlanCompiler
 {

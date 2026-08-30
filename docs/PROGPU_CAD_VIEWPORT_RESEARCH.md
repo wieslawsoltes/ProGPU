@@ -4,11 +4,12 @@ Date: 2026-08-30
 
 ## Scope and clean-room boundary
 
-This checkpoint implements a bounded first paper-space output slice: one atomic
-model/paper snapshot generation, rectangular active floating `VIEWPORT`
-entities, orthographic WCS top views, DCS panning, view twist, viewport scale,
-per-viewport frozen layers, viewport-border linetypes, paper/model draw order,
-managed/native retained replay, and millimeter 1:1 `PlotType Layout` printing.
+This checkpoint implements a bounded paper-space output slice: one atomic
+model/paper snapshot generation, rectangular and exact closed-polyline/circle/
+ellipse active floating `VIEWPORT` boundaries, orthographic WCS top views, DCS
+panning, view twist, viewport scale, per-viewport frozen layers, independently
+visible viewport borders, paper/model draw order, managed/native retained
+replay, and millimeter 1:1 `PlotType Layout` printing.
 
 The implementation is clean-room. No third-party renderer source was copied,
 ported, translated, or used as an implementation template. Autodesk's public
@@ -24,6 +25,12 @@ the only implementation sources reused directly.
   direction/target, model view height, twist, frozen layers, clipping flags,
   render mode, and the non-rectangular boundary reference. It also defines the
   paper/model scale as viewport paper height divided by model view height.
+- Autodesk's [nonrectangular layout-viewport workflow](https://help.autodesk.com/cloudhelp/2019/ENU/AutoCAD-Core/files/GUID-5272B8FC-88FD-4B58-BC7C-A32C71AA22C2.htm)
+  identifies a closed circle or polyline in paper space as the associated
+  boundary object. It also specifies that border suppression turns the layer
+  off, while freezing that layer does not preserve correct clipping. ProGPU
+  therefore retains an off-layer boundary as a hidden dependency and fails a
+  frozen boundary explicitly.
 - Autodesk's [coordinate-system contract](https://help.autodesk.com/cloudhelp/2022/ENU/OARX-DevGuide/files/GUID-01A45BA0-CC4F-4DCA-840E-DCA8802A060A.htm)
   defines the DCS origin as the WCS target and its Z axis as the view direction;
   a viewport is a plan view of that DCS.
@@ -51,7 +58,9 @@ The required rendering and text stacks were checked before design:
   retained picture replay under matrices plus rectangular/path clips. ProGPU
   adopts the retained-picture/transform/clip composition, not Skia source.
 - Direct2D's [axis-aligned clip contract](https://learn.microsoft.com/en-us/windows/win32/direct2d/how-to-clip-with-axis-aligned-rects)
-  uses push, draw, pop for efficient rectangular clipping. Direct2D and
+  uses push, draw, pop for efficient rectangular clipping, while its
+  [geometric-mask contract](https://learn.microsoft.com/en-us/windows/win32/direct2d/how-to-clip-with-layers)
+  uses a path geometry with `PushLayer`, drawing, and `PopLayer`. Direct2D and
   DirectWrite's [interoperation model](https://learn.microsoft.com/en-us/windows/win32/direct2d/direct2d-and-directwrite)
   keeps vector resources and shaped text reusable.
 - Win2D's [command-list guidance](https://learn.microsoft.com/en-us/windows/apps/develop/win2d/quick-start)
@@ -60,8 +69,8 @@ The required rendering and text stacks were checked before design:
   separates reusable display items from spatial transform and clip nodes so a
   view change does not require document layout.
 - Vello's [`Scene` contract](https://docs.rs/vello/latest/vello/struct.Scene.html)
-  applies explicit transforms to clips and retains clipped scene work until a
-  matching pop.
+  uses `push_clip_layer` with an explicit fill rule, shape, and shape-local
+  transform, retaining the clip until the matching pop.
 - [Parley](https://github.com/linebender/parley) retains CPU text layout, while
   HarfBuzz's [shaping concepts](https://harfbuzz.github.io/shaping-concepts.html)
   keep Unicode/OpenType shaping independent of drawing replay. No viewport
@@ -72,7 +81,8 @@ shaped text, and physical fixed-width strokes. Adapted: each unique
 case-insensitive frozen-layer set owns one retained model picture shared by all
 matching viewports. Rejected: per-viewport model snapshot duplication,
 per-frame document traversal, raster flattening, native-only camera lowering,
-unclipped replay, and approximating unsupported 3D or non-rectangular modes.
+unclipped replay, turning the boundary into a tessellated rectangle, and
+silently accepting unsupported 3D or boundary forms.
 
 ## Atomic snapshot and transform contract
 
@@ -80,7 +90,12 @@ unclipped replay, and approximating unsupported 3D or non-rectangular modes.
 compiling model space and the selected paper block. Both child snapshots,
 layout name, and all viewport/frozen-layer state therefore own one generation.
 Capture is `O(M + P)` time and storage for expanded model and paper primitives.
-Viewport and frozen-layer counts are bounded before proportional storage.
+Viewport and frozen-layer counts are bounded before proportional storage. A
+paper `VIEWPORT` and its referenced boundary are retained as one dependency
+unit even when their layer is off or non-plottable. Off/frozen dependency
+headers have `IsVisible=false` and are excluded from ordinary drawing and the
+spatial selection index; non-plottable dependencies retain their ordinary
+screen visibility. Both remain addressable by stable handle for clipping.
 
 For a model-local retained point `l`, model and paper rebase origins `Rm` and
 `Rp`, WCS target `T`, DCS center `C`, twist `a`, paper center `V`, paper height
@@ -91,22 +106,31 @@ d = rotateZ(+a) * ((l + Rm) - T) - C
 p = (Hp / Hm) * d + V - Rp
 ```
 
-The viewport rectangle is clipped in paper-local coordinates. Its aspect ratio
-defines visible model width implicitly, exactly as `Hp/Hm` plus the paper
-width/height ratio. Final paper output adds the paper rebase, maps one paper
-unit to one millimeter, flips Y into page coordinates, applies plot origin and
-the existing rotated-media convention, and clips to the printable area.
+Rectangular viewports are clipped in paper-local coordinates. Their aspect
+ratio defines visible model width implicitly, exactly as `Hp/Hm` plus the paper
+width/height ratio. Nonrectangular boundaries retain their exact paper-space
+closed path: straight and bulged 2D-polyline segments remain analytic lines and
+arcs, circles use two analytic arcs, and full ellipses use the unit circle plus
+the exact major/minor-axis affine transform. Anchor-relative coordinates and
+the paper rebase preserve float precision. Final paper output adds the paper
+rebase, maps one paper unit to one millimeter, flips Y into page coordinates,
+applies plot origin and the existing rotated-media convention, and clips to the
+printable area.
 
 ## Retention, frozen layers, ordering, and linetypes
 
 `CadLayoutSceneCompiler` compiles one paper scene and one model scene per unique
 frozen-layer set. Viewports with the same set share the same `GpuPicture` by
-identity; every occurrence records only push-clip, transformed-picture, and
-pop-clip commands. Paper commands are appended after viewport content when
-`DrawViewportsFirst` is set and before it otherwise. Paper viewport ID 1 never
-draws model content or a user viewport frame. Inactive/off viewports keep their
-paper frame but emit no model replay. `PlotViewportBorders` independently
-controls whether frames enter the print picture.
+identity; every occurrence records only rectangular or geometry push-clip,
+transformed-picture, and matching pop-clip commands. Paper commands are
+appended after viewport content when `DrawViewportsFirst` is set and before it
+otherwise. Paper viewport ID 1 never draws model content or a user viewport
+frame. Inactive/off viewports keep their paper frame but emit no model replay.
+A nonrectangular boundary entity is the viewport border, so it is drawn at most
+once as ordinary paper geometry and is suppressed together with rectangular
+frames when `IncludeViewportFrames=false`. `PlotViewportBorders` maps to that
+option independently of clipping, including when the border layer itself is
+off.
 
 Viewport frames participate in the existing exact A-aligned linetype lowering
 as a closed four-segment path. Pattern distance uses double paper width/height,
@@ -114,11 +138,13 @@ while retained endpoints remain rebased floats. Per-viewport frozen layers are
 matched case-insensitively against effective immutable layer names before scene
 recording; no entity or cache is mutated.
 
-For `V` active viewports, `E` model entities, `P` paper entities, and `U` unique
-frozen-layer sets, compilation is `O(U*E + P + V)` time and retained storage.
-Camera-only replay is `O(Pc + V)` retained commands, where `Pc` is the paper
-command count, with no ACadSharp traversal, reshape, raster upload, or
-managed/native boundary call.
+For `V` active viewports, `E` model entities, `P` paper entities, `U` unique
+frozen-layer sets, and `B` referenced boundary segments, compilation is
+`O(U*E + P + V + B)` time and retained storage. Boundary-handle resolution is
+`O(P + V)` and duplicate handles fail as ambiguous rather than selecting an
+arbitrary entity. Camera-only replay is `O(Pc + V)` retained commands, where
+`Pc` is the paper command count, with no ACadSharp traversal, reshape, raster
+upload, or managed/native boundary call.
 
 ## Printing, managed/native parity, and measured evidence
 
@@ -133,8 +159,8 @@ The layout picture contains only existing ProGPU commands. Managed replay and
 `GpuPictureNativeSceneCompiler` consume the same nested pictures, clips,
 transforms, paths, glyphs, images, and fixed strokes. No C ABI, shader, GPU
 algorithm, resource wire record, or per-frame P/Invoke changed, so a separate
-native implementation is not applicable; native flattening is covered by a
-focused regression.
+native implementation is not applicable; native flattening of both the layout
+scene and the nested physical print picture is covered by focused regressions.
 
 The Release benchmark lane used 10,000 model lines, 1,000 active viewports,
 four frozen-layer variants, three warmups, and 24 measured iterations on macOS
@@ -155,14 +181,41 @@ This is a baseline, not an improvement claim. No macOS Instruments optimization
 claim is made because this checkpoint establishes new behavior rather than
 claiming a memory/CPU/GPU speedup.
 
+The paired analytic-boundary lane used the same model/viewports/layer variants,
+with one closed three-vertex bulged polyline per viewport. It measured
+`28.268/47.171/66.501` ms for atomic capture,
+`92.864/148.852/160.377` ms for scene compilation, and
+`102.179/164.122/177.437` ms for the physical print plan. Picture clone was
+`0.000/0.002/0.193` ms and 112 managed bytes. The paper snapshot contained
+2,001 source entities, the retained layout contained 4,000 top-level commands
+and four shared model variants, and the exact command was:
+
+```text
+dotnet run --project src/ProGPU.CAD.Benchmarks/ProGPU.CAD.Benchmarks.csproj -c Release --no-build -- --viewports 1000 --nonrectangular-viewports --viewport-layer-variants 4 --entities 10000 --warmup 3 --iterations 24 --output-json artifacts/progpu-cad-nonrect-viewport-benchmark.json
+```
+
+This is likewise a new-feature baseline, not a comparison or optimization
+claim. The canonical benchmark artifact records .NET 10.0.5 on macOS 26.6.
+
+## Dependency provenance
+
+The pinned ACadSharp feature branch commit `d6494cff` adds the missing DXF code
+340 read into its existing `CadViewportTemplate.BoundaryHandle` contract and an
+independent DXF identity round-trip regression. ACadSharp already wrote code
+340 and its template already resolved that handle; DWG round trips were already
+correct. This exact in-repository dependency change is the only dependency
+source used by ProGPU. The ACadSharp `master`, `origin/master`, and
+`upstream/master` refs remain unchanged at `b469bd1e`.
+
 ## Explicit remaining fidelity gates
 
 - Arbitrary orthographic directions, bottom views, perspective, front/back
   depth clipping, hidden-line removal, rendered/shaded output, and visual-style
   overrides require the depth-aware 3D scene and matched image tests.
-- Non-rectangular viewport boundaries require exact referenced-boundary
-  resolution and path clipping. Unresolved/malformed boundary references must
-  remain fail-closed.
+- Spline, region, and other closed-object viewport boundaries require exact
+  retained-path lowering and conformance evidence. Missing, ambiguous,
+  malformed, open, unsupported, or frozen boundary references remain
+  fail-closed with `CADVIEW004`, `CADVIEW009`, `CADVIEW010`, or `CADVIEW011`.
 - Viewport layer overrides beyond frozen membership, annotative scale,
   paper-space UCS, named views, pixel media, non-1:1/centered layout plotting,
   CTB/STB, transparency policy, and device `PaperImageOrigin` need typed

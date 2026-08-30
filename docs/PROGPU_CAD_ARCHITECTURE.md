@@ -2753,17 +2753,22 @@ are implemented by `CadPageSetupCatalogCompiler`,
   generation. Rectangular active orthographic WCS-top VIEWPORTs retain DCS
   center, WCS target/direction, twist, scale, status, render policy, boundary,
   and case-insensitive frozen-layer names. Each unique frozen-layer set compiles
-  one shared model picture; occurrences record only a paper rectangle clip and
-  affine picture replay. Paper objects and viewport content honor the persisted
-  DrawViewportsFirst policy, while viewport frames use the existing exact
-  closed-path linetype lowering and remain independently controlled for plot;
+  one shared model picture; occurrences record only a paper rectangle or exact
+  closed 2D-polyline/circle/ellipse geometry clip and affine picture replay.
+  Referenced boundaries are retained even on an off or non-plottable layer but
+  stay hidden from ordinary paper drawing and selection; a frozen boundary fails
+  explicitly because Autodesk does not preserve its clip. Paper objects and
+  viewport content honor the persisted DrawViewportsFirst policy, while
+  viewport frames use the existing exact closed-path linetype lowering and
+  remain independently controlled for plot;
 - paper-layout lowering requires PlotType Layout and explicit millimeter 1:1
   scale. It maps paper `(0,0)` to the printable lower-left plus plot origin,
   preserves the existing rotated-media convention, fixed output-DPI
   lineweights, and one clipped retained page replay. Perspective, arbitrary
   orthographic direction, depth clipping, hidden/rendered modes,
-  non-rectangular boundaries, scaled/centered layout output, and device image
-  origin fail closed with typed diagnostics;
+  unsupported/missing/malformed nonrectangular boundary kinds,
+  scaled/centered layout output, and device image origin fail closed with typed
+  diagnostics;
 - the pinned ACadSharp page-setup surface does not expose Autodesk's separate
   Plot Transparency option. Generation-matched lowering therefore rejects a
   snapshot containing any non-opaque retained style (`CADPAGE118`) instead of
@@ -2959,10 +2964,11 @@ commands with no semantic-document access or retained upload after the compiled
 scene cache is warm. A content-generation replacement exits and releases a stale
 preview instead of presenting the old page.
 
-Catalog extraction, model-space page rotation, rectangular WCS-top paper-space
-viewport lowering, and applying a compatible named setup to a layout are now
-implemented, but this foundation does not claim arbitrary-camera DCS lowering,
-non-rectangular/depth-aware viewports, page-setup creation/editing/import,
+Catalog extraction, model-space page rotation, rectangular and exact closed-
+polyline/circle/ellipse WCS-top paper-space viewport lowering, and applying a
+compatible named setup to a layout are now implemented, but this foundation
+does not claim arbitrary-camera DCS lowering, spline/region/other closed-object
+or depth-aware viewports, page-setup creation/editing/import,
 CTB/STB overrides, shaded-viewport policies,
 transparency flattening, PDF/SVG, raster encoding, printer
 enumeration/spooling, or multi-page collation. Those remain explicit typed

@@ -38,7 +38,10 @@ public enum CadEntityKind : byte
 public readonly record struct CadLayerSnapshot(
     string Name,
     bool IsVisible,
-    bool IsPlottable);
+    bool IsPlottable)
+{
+    public bool IsFrozen { get; init; }
+}
 
 public readonly record struct CadColor32(
     byte Red,
@@ -137,7 +140,14 @@ public readonly record struct CadEntityHeader(
     int LayerIndex,
     int StyleIndex,
     int PrimitiveIndex,
-    CadBounds3D Bounds);
+    CadBounds3D Bounds)
+{
+    /// <summary>
+    /// Whether this retained record participates in ordinary drawing and selection.
+    /// Hidden VIEWPORT boundary dependencies remain addressable while false.
+    /// </summary>
+    public bool IsVisible { get; init; } = true;
+}
 
 public readonly record struct CadLinePrimitive(CadPoint3D Start, CadPoint3D End);
 
@@ -1167,7 +1177,7 @@ public sealed class CadSpatialIndex
         }
 
         int[] indices = Enumerable.Range(0, entities.Length)
-            .Where(index => !entities[index].Bounds.IsEmpty)
+            .Where(index => entities[index].IsVisible && !entities[index].Bounds.IsEmpty)
             .ToArray();
         CadBounds3D[] entityBounds = entities.Select(entity => entity.Bounds).ToArray();
         if (indices.Length == 0)

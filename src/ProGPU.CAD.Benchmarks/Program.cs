@@ -17,6 +17,7 @@ if (viewportCount != 0)
     RunViewportBenchmark(
         viewportCount,
         ReadPositiveInt("--viewport-layer-variants", 4),
+        HasFlag("--nonrectangular-viewports"),
         ReadPositiveInt("--entities", 10_000),
         ReadNonNegativeInt("--warmup", 3),
         ReadPositiveInt("--iterations", 24),
@@ -518,6 +519,7 @@ if (outputPath is not null)
 void RunViewportBenchmark(
     int measuredViewportCount,
     int layerVariantCount,
+    bool useNonRectangularViewports,
     int modelEntityCount,
     int warmups,
     int iterations,
@@ -560,12 +562,11 @@ void RunViewportBenchmark(
         layout.UpdatePaperViewport();
         for (int i = 0; i < measuredViewportCount; i++)
         {
+            double centerX = 25.0 + ((i % 20) * 48.0);
+            double centerY = 20.0 + ((i / 20) * 36.0);
             var viewport = new Viewport
             {
-                Center = new XYZ(
-                    25.0 + ((i % 20) * 48.0),
-                    20.0 + ((i / 20) * 36.0),
-                    0.0),
+                Center = new XYZ(centerX, centerY, 0.0),
                 Width = 44.0,
                 Height = 32.0,
                 ViewCenter = new XY((i % 100) * 12.0, (i / 100) * 12.0),
@@ -575,6 +576,28 @@ void RunViewportBenchmark(
                 RenderMode = RenderMode.Optimized2D,
                 ShadePlotMode = ShadePlotMode.Wireframe,
             };
+            if (useNonRectangularViewports)
+            {
+                var boundary = new LwPolyline
+                {
+                    Flags = LwPolylineFlags.Closed,
+                };
+                boundary.Vertices.Add(new LwPolyline.Vertex(
+                    centerX - 22.0,
+                    centerY - 16.0)
+                {
+                    Bulge = 0.125,
+                });
+                boundary.Vertices.Add(new LwPolyline.Vertex(
+                    centerX + 22.0,
+                    centerY - 16.0));
+                boundary.Vertices.Add(new LwPolyline.Vertex(
+                    centerX,
+                    centerY + 16.0));
+                layout.AssociatedBlock.Entities.Add(boundary);
+                viewport.Boundary = boundary;
+                viewport.Status |= ViewportStatusFlags.NonRectangularClipping;
+            }
             viewport.FrozenLayers.Add(layers[i % layers.Length]);
             layout.AddViewport(viewport);
         }
@@ -647,6 +670,7 @@ void RunViewportBenchmark(
         Runtime = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
         ViewportCount = measuredViewportCount,
         LayerVariantCount = layerVariantCount,
+        NonRectangularViewports = useNonRectangularViewports,
         ModelEntityCount = modelEntityCount,
         WarmupCount = warmups,
         IterationCount = iterations,

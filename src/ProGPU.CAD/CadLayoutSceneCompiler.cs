@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Text;
 using ProGPU.Backend;
 using ProGPU.Scene;
+using ProGPU.Vector;
 
 namespace ProGPU.CAD;
 
@@ -69,19 +70,26 @@ public sealed class CadRecordedLayoutScene : IDisposable
 }
 
 /// <summary>
-/// Composes rectangular orthographic paper-space VIEWPORTs from immutable retained scenes.
+/// Composes orthographic paper-space VIEWPORTs from immutable retained scenes.
 /// </summary>
 /// <remarks>
 /// For V active viewports, E model entities, P paper entities, and U unique viewport-frozen
-/// layer sets, compilation is O(U*E + P + V) time and O(U*E + P + V) retained storage.
+/// layer sets, with B total referenced boundary segments, compilation is
+/// O(U*E + P + V + B) time and O(U*E + P + V + B) retained storage.
 /// Camera-only replay is O(Pc + V), where Pc is the paper command count, without rebuilding
-/// model geometry. Perspective, depth clipping, non-rectangular boundaries, hidden/rendered
-/// modes, and non-top view directions fail explicitly until their exact contracts are present.
+/// model geometry. Perspective, depth clipping, unsupported or malformed boundary kinds,
+/// hidden/rendered modes, and non-top view directions fail explicitly.
 /// </remarks>
 public sealed class CadLayoutSceneCompiler
 {
     private const uint HidePlotModeFlag = 2_048U;
     private const double DirectionTolerance = 1e-12;
+    private const double TwoPi = Math.PI * 2.0;
+
+    private readonly record struct PaperClip(
+        Rect Rectangle,
+        PathGeometry? Geometry,
+        Matrix4x4 GeometryTransform);
 
     public CadRecordedLayoutScene Compile(
         CadLayoutSnapshot snapshot,
@@ -111,6 +119,8 @@ public sealed class CadLayoutSceneCompiler
         var modelPictures = new Dictionary<string, GpuPicture>(StringComparer.Ordinal);
         var diagnostics = new List<CadDiagnostic>(paperScene.Diagnostics.Length);
         diagnostics.AddRange(paperScene.Diagnostics.Span);
+        Dictionary<ulong, int> boundaryEntityIndices =
+            CreateBoundaryEntityIndex(paper);
         int activeViewportCount = 0;
         int modelSceneRecordedEntityCount = 0;
         int modelSceneRecordedCommandCount = 0;
@@ -160,15 +170,33 @@ public sealed class CadLayoutSceneCompiler
                     diagnostics.AddRange(modelScene.Diagnostics.Span);
                 }
 
-                Rect clip = CreatePaperClip(viewport, paper.RebaseOrigin);
-                context.PushClip(clip);
+                PaperClip clip = CreatePaperClip(
+                    paper,
+                    viewport,
+                    viewportIndex,
+                    boundaryEntityIndices);
+                if (clip.Geometry is null)
+                {
+                    context.PushClip(clip.Rectangle);
+                }
+                else
+                {
+                    context.PushGeometryClip(clip.Geometry, clip.GeometryTransform);
+                }
                 context.DrawPictureTransformed(
                     modelPicture,
                     CreateModelToPaperTransform(
                         viewport,
                         model.RebaseOrigin,
                         paper.RebaseOrigin));
-                context.PopClip();
+                if (clip.Geometry is null)
+                {
+                    context.PopClip();
+                }
+                else
+                {
+                    context.PopGeometryClip();
+                }
             }
 
             if (options.DrawViewportsFirst)
@@ -257,12 +285,6 @@ public sealed class CadLayoutSceneCompiler
         {
             throw Unsupported("CADVIEW003", $"VIEWPORT {index} uses depth clipping.");
         }
-        if (viewport.HasNonRectangularBoundary)
-        {
-            throw Unsupported(
-                "CADVIEW004",
-                $"VIEWPORT {index} uses a non-rectangular clipping boundary.");
-        }
         if ((viewport.StatusFlags & HidePlotModeFlag) != 0 ||
             viewport.RenderMode is not (0 or 1) ||
             viewport.ShadePlotMode is not (0 or 1))
@@ -342,14 +364,225 @@ public sealed class CadLayoutSceneCompiler
         return builder.ToString();
     }
 
-    private static Rect CreatePaperClip(
+    private static Dictionary<ulong, int> CreateBoundaryEntityIndex(
+        CadDocumentSnapshot paper)
+    {
+        var requestedHandles = new HashSet<ulong>();
+        foreach (CadViewportPrimitive viewport in paper.Viewports.Span)
+        {
+            if (viewport.BoundaryHandle != 0)
+            {
+                requestedHandles.Add(viewport.BoundaryHandle);
+            }
+        }
+
+        var result = new Dictionary<ulong, int>(requestedHandles.Count);
+        ReadOnlySpan<CadEntityHeader> entities = paper.Entities.Span;
+        for (int index = 0; index < entities.Length; index++)
+        {
+            ulong handle = entities[index].Handle;
+            if (!requestedHandles.Contains(handle))
+            {
+                continue;
+            }
+            if (!result.TryAdd(handle, index))
+            {
+                result[handle] = -1;
+            }
+        }
+        return result;
+    }
+
+    private static PaperClip CreatePaperClip(
+        CadDocumentSnapshot paper,
         in CadViewportPrimitive viewport,
-        CadPoint3D paperRebaseOrigin) =>
+        int viewportIndex,
+        IReadOnlyDictionary<ulong, int> boundaryEntityIndices)
+    {
+        if (!viewport.HasNonRectangularBoundary)
+        {
+            return new PaperClip(
+                new Rect(
+                    ToFloat(viewport.Center.X - (viewport.Width * 0.5) - paper.RebaseOrigin.X),
+                    ToFloat(viewport.Center.Y - (viewport.Height * 0.5) - paper.RebaseOrigin.Y),
+                    ToFloat(viewport.Width),
+                    ToFloat(viewport.Height)),
+                Geometry: null,
+                GeometryTransform: Matrix4x4.Identity);
+        }
+        if (viewport.BoundaryHandle == 0 ||
+            !boundaryEntityIndices.TryGetValue(viewport.BoundaryHandle, out int entityIndex) ||
+            entityIndex < 0)
+        {
+            throw Unsupported(
+                "CADVIEW004",
+                $"VIEWPORT {viewportIndex} has a missing or ambiguous clipping-boundary entity.");
+        }
+
+        CadEntityHeader boundary = paper.Entities.Span[entityIndex];
+        if (paper.Layers.Span[boundary.LayerIndex].IsFrozen)
+        {
+            throw Unsupported(
+                "CADVIEW010",
+                $"VIEWPORT {viewportIndex} has a clipping boundary on a frozen layer.");
+        }
+
+        return boundary.Kind switch
+        {
+            CadEntityKind.LightweightPolyline or CadEntityKind.Polyline2D =>
+                CreatePolylineClip(paper, boundary, viewportIndex),
+            CadEntityKind.Circle => CreateCircleClip(paper, boundary),
+            CadEntityKind.Ellipse => CreateEllipseClip(paper, boundary, viewportIndex),
+            _ => throw Unsupported(
+                "CADVIEW009",
+                $"VIEWPORT {viewportIndex} clipping boundary kind {boundary.Kind} is not an exact supported closed path."),
+        };
+    }
+
+    private static PaperClip CreatePolylineClip(
+        CadDocumentSnapshot paper,
+        in CadEntityHeader boundary,
+        int viewportIndex)
+    {
+        CadPolylinePrimitive polyline =
+            paper.Polylines.Span[boundary.PrimitiveIndex];
+        ReadOnlySpan<CadPolylineVertex> vertices = paper.PolylineVertices.Span.Slice(
+            polyline.VertexOffset,
+            polyline.VertexCount);
+        if (!polyline.IsClosed || vertices.Length < 3)
+        {
+            throw Unsupported(
+                "CADVIEW011",
+                $"VIEWPORT {viewportIndex} clipping polyline is not a closed contour with at least three vertices.");
+        }
+
+        double anchorX = vertices[0].X;
+        double anchorY = vertices[0].Y;
+        var path = new PathGeometry { FillRule = FillRule.Nonzero };
+        var figure = new PathFigure(Vector2.Zero, isClosed: true)
+        {
+            IsFilled = true,
+        };
+        for (int index = 0; index < vertices.Length; index++)
+        {
+            CadPolylineVertex start = vertices[index];
+            CadPolylineVertex end = vertices[(index + 1) % vertices.Length];
+            var endpoint = new Vector2(
+                ToFloat(end.X - anchorX),
+                ToFloat(end.Y - anchorY));
+            if (start.Bulge == 0.0)
+            {
+                figure.Segments.Add(new LineSegment(endpoint));
+                continue;
+            }
+
+            CadSnapshotCompiler.GetBulgeArc(
+                start,
+                end,
+                out _,
+                out _,
+                out double radius,
+                out _,
+                out double sweep);
+            float retainedRadius = ToFloat(radius);
+            figure.Segments.Add(new ArcSegment(
+                endpoint,
+                new Vector2(retainedRadius, retainedRadius),
+                rotationAngle: 0.0f,
+                isLargeArc: Math.Abs(sweep) > Math.PI,
+                sweepDirection: sweep >= 0.0
+                    ? SweepDirection.Counterclockwise
+                    : SweepDirection.Clockwise));
+        }
+        path.Figures.Add(figure);
+
+        CadPoint3D origin = polyline.WorldOrigin +
+            (polyline.CoordinateSystem.XAxis * anchorX) +
+            (polyline.CoordinateSystem.YAxis * anchorY);
+        return new PaperClip(
+            default,
+            path,
+            CreateProjectionTransform(
+                origin,
+                polyline.CoordinateSystem.XAxis,
+                polyline.CoordinateSystem.YAxis,
+                paper.RebaseOrigin));
+    }
+
+    private static PaperClip CreateCircleClip(
+        CadDocumentSnapshot paper,
+        in CadEntityHeader boundary)
+    {
+        CadCirclePrimitive circle = paper.Circles.Span[boundary.PrimitiveIndex];
+        PathGeometry path = CreateUnitCirclePath(circle.Radius);
+        return new PaperClip(
+            default,
+            path,
+            CreateProjectionTransform(
+                circle.Center,
+                circle.CoordinateSystem.XAxis,
+                circle.CoordinateSystem.YAxis,
+                paper.RebaseOrigin));
+    }
+
+    private static PaperClip CreateEllipseClip(
+        CadDocumentSnapshot paper,
+        in CadEntityHeader boundary,
+        int viewportIndex)
+    {
+        CadEllipsePrimitive ellipse = paper.Ellipses.Span[boundary.PrimitiveIndex];
+        if (ellipse.SweepParameter < TwoPi - 1e-12)
+        {
+            throw Unsupported(
+                "CADVIEW011",
+                $"VIEWPORT {viewportIndex} clipping ellipse is not closed.");
+        }
+        return new PaperClip(
+            default,
+            CreateUnitCirclePath(1.0),
+            CreateProjectionTransform(
+                ellipse.Center,
+                ellipse.MajorAxis,
+                ellipse.MinorAxis,
+                paper.RebaseOrigin));
+    }
+
+    private static PathGeometry CreateUnitCirclePath(double radius)
+    {
+        float retainedRadius = ToFloat(radius);
+        var path = new PathGeometry { FillRule = FillRule.Nonzero };
+        var figure = new PathFigure(
+            new Vector2(retainedRadius, 0.0f),
+            isClosed: true)
+        {
+            IsFilled = true,
+        };
+        figure.Segments.Add(new ArcSegment(
+            new Vector2(-retainedRadius, 0.0f),
+            new Vector2(retainedRadius, retainedRadius),
+            rotationAngle: 0.0f,
+            isLargeArc: false,
+            SweepDirection.Counterclockwise));
+        figure.Segments.Add(new ArcSegment(
+            new Vector2(retainedRadius, 0.0f),
+            new Vector2(retainedRadius, retainedRadius),
+            rotationAngle: 0.0f,
+            isLargeArc: false,
+            SweepDirection.Counterclockwise));
+        path.Figures.Add(figure);
+        return path;
+    }
+
+    private static Matrix4x4 CreateProjectionTransform(
+        CadPoint3D center,
+        CadPoint3D xAxis,
+        CadPoint3D yAxis,
+        CadPoint3D origin) =>
         new(
-            ToFloat(viewport.Center.X - (viewport.Width * 0.5) - paperRebaseOrigin.X),
-            ToFloat(viewport.Center.Y - (viewport.Height * 0.5) - paperRebaseOrigin.Y),
-            ToFloat(viewport.Width),
-            ToFloat(viewport.Height));
+            ToFloat(xAxis.X), ToFloat(xAxis.Y), 0.0f, 0.0f,
+            ToFloat(yAxis.X), ToFloat(yAxis.Y), 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f,
+            ToFloat(center.X - origin.X), ToFloat(center.Y - origin.Y), 0.0f, 1.0f);
 
     private static NotSupportedException Unsupported(string code, string message) =>
         new($"{code}: {message}");

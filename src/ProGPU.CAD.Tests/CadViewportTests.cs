@@ -5,6 +5,7 @@ using ACadSharp.Tables;
 using CSMath;
 using ProGPU.Scene;
 using ProGPU.Scene.Native;
+using ProGPU.Vector;
 using System.Numerics;
 using Xunit;
 using ACadLayout = ACadSharp.Objects.Layout;
@@ -226,6 +227,260 @@ public sealed class CadViewportTests
     }
 
     [Fact]
+    public void LayoutSceneUsesExactNonRectangularBoundaryAndIndependentFramePolicy()
+    {
+        CadLayoutSnapshot CreateSnapshot(bool borderLayerOn)
+        {
+            var document = new CadDocument();
+            document.Entities.Add(new Line(
+                new XYZ(0, 0, 0),
+                new XYZ(100, 100, 0)));
+            var borderLayer = new Layer("VIEWPORT_BORDER")
+            {
+                IsOn = borderLayerOn,
+            };
+            document.Layers.Add(borderLayer);
+            ACadLayout layout = document.Layouts[ACadLayout.PaperLayoutName];
+            var boundary = new LwPolyline
+            {
+                Flags = LwPolylineFlags.Closed,
+                Layer = borderLayer,
+            };
+            boundary.Vertices.Add(new LwPolyline.Vertex(50, 40) { Bulge = 0.25 });
+            boundary.Vertices.Add(new LwPolyline.Vertex(150, 40));
+            boundary.Vertices.Add(new LwPolyline.Vertex(100, 120));
+            layout.AssociatedBlock.Entities.Add(boundary);
+            Viewport viewport = CreateTopViewport(
+                new XYZ(100, 80, 0),
+                XY.Zero,
+                XYZ.Zero,
+                0.0);
+            viewport.Layer = borderLayer;
+            viewport.Boundary = boundary;
+            viewport.Status |= ViewportStatusFlags.NonRectangularClipping;
+            layout.AddViewport(viewport);
+            var session = new CadDocumentSession(document);
+            session.Edit("publish non-rectangular viewport", static _ => { });
+            return new CadLayoutSnapshotCompiler().Compile(
+                session,
+                ACadLayout.PaperLayoutName);
+        }
+
+        CadLayoutSnapshot visible = CreateSnapshot(borderLayerOn: true);
+        using CadRecordedLayoutScene visibleScene =
+            new CadLayoutSceneCompiler().Compile(visible);
+        using GpuPicture visiblePicture = visibleScene.CreatePicture();
+        RenderCommand[] visibleCommands = visiblePicture.Commands;
+        Assert.Equal(RenderCommandType.PushGeometryClip, visibleCommands[0].Type);
+        Assert.Equal(RenderCommandType.DrawPicture, visibleCommands[1].Type);
+        Assert.Equal(RenderCommandType.PopGeometryClip, visibleCommands[2].Type);
+        PathGeometry clipPath = Assert.IsType<PathGeometry>(visibleCommands[0].Path);
+        PathFigure clipFigure = Assert.Single(clipPath.Figures);
+        Assert.True(clipFigure.IsClosed);
+        Assert.Contains(clipFigure.Segments, segment => segment is ArcSegment);
+        Assert.Contains(
+            visibleCommands[3..],
+            command => command.Type == RenderCommandType.DrawPath);
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            visiblePicture,
+            96U,
+            visibleScene.ContentGeneration,
+            out NativeCompiledPicture? nativePicture,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(nativePicture);
+
+        using CadRecordedLayoutScene frameSuppressed =
+            new CadLayoutSceneCompiler().Compile(
+                visible,
+                new CadLayoutSceneOptions { IncludeViewportFrames = false });
+        using GpuPicture frameSuppressedPicture = frameSuppressed.CreatePicture();
+        Assert.Equal(
+            [
+                RenderCommandType.PushGeometryClip,
+                RenderCommandType.DrawPicture,
+                RenderCommandType.PopGeometryClip,
+            ],
+            frameSuppressedPicture.Commands.Select(command => command.Type).ToArray());
+
+        CadLayoutSnapshot hidden = CreateSnapshot(borderLayerOn: false);
+        CadEntityHeader hiddenBoundary = Assert.Single(
+            hidden.PaperSpace.Entities.ToArray(),
+            entity => entity.Kind == CadEntityKind.LightweightPolyline);
+        Assert.False(hiddenBoundary.IsVisible);
+        Assert.False(hidden.PaperSpace.Layers.Span[hiddenBoundary.LayerIndex].IsVisible);
+        Assert.Equal(1, hidden.PaperSpace.SpatialIndex.EntityCount);
+        using CadRecordedLayoutScene hiddenScene =
+            new CadLayoutSceneCompiler().Compile(hidden);
+        using GpuPicture hiddenPicture = hiddenScene.CreatePicture();
+        Assert.Equal(
+            [
+                RenderCommandType.PushGeometryClip,
+                RenderCommandType.DrawPicture,
+                RenderCommandType.PopGeometryClip,
+            ],
+            hiddenPicture.Commands.Select(command => command.Type).ToArray());
+    }
+
+    [Fact]
+    public void NonRectangularBoundaryFlowsThroughPhysicalPrintPicture()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 0, 0)));
+        var borderLayer = new Layer("HIDDEN_VIEWPORT_BORDER")
+        {
+            IsOn = false,
+        };
+        document.Layers.Add(borderLayer);
+        ACadLayout layout = document.Layouts[ACadLayout.PaperLayoutName];
+        ConfigurePaperLayout(layout);
+        var boundary = new Circle
+        {
+            Center = new XYZ(50, 25, 0),
+            Radius = 20,
+            Layer = borderLayer,
+        };
+        layout.AssociatedBlock.Entities.Add(boundary);
+        Viewport viewport = CreateTopViewport(
+            new XYZ(50, 25, 0),
+            XY.Zero,
+            XYZ.Zero,
+            0.0);
+        viewport.Layer = borderLayer;
+        viewport.Boundary = boundary;
+        viewport.Status |= ViewportStatusFlags.NonRectangularClipping;
+        layout.AddViewport(viewport);
+        var session = new CadDocumentSession(document);
+        session.Edit("publish non-rectangular print generation", static _ => { });
+        CadLayoutSnapshot snapshot = new CadLayoutSnapshotCompiler().Compile(
+            session,
+            ACadLayout.PaperLayoutName,
+            new CadSnapshotOptions { DrawOrderPurpose = CadDrawOrderPurpose.Plotting });
+        CadPageSetupSnapshot pageSetup = new CadPageSetupCatalogCompiler()
+            .Compile(session)
+            .FindLayout(ACadLayout.PaperLayoutName)!;
+
+        using CadPrintPlan plan = new CadLayoutPrintPlanCompiler().Compile(
+            snapshot,
+            pageSetup,
+            new CadPageSetupPrintOptionsCompilerOptions { OutputDpi = 254 });
+        using GpuPicture pagePicture = plan.CreatePagePicture();
+
+        GpuPicture layoutPicture = Assert.IsType<GpuPicture>(
+            pagePicture.GetCommand(1).Picture);
+        Assert.Equal(
+            [
+                RenderCommandType.PushGeometryClip,
+                RenderCommandType.DrawPicture,
+                RenderCommandType.PopGeometryClip,
+            ],
+            layoutPicture.Commands.Select(command => command.Type).ToArray());
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            layoutPicture,
+            96U,
+            plan.ContentGeneration,
+            out NativeCompiledPicture? nativePicture,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(nativePicture);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LayoutSceneSupportsCircularAndEllipticViewportBoundaries(
+        bool useEllipse)
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 0, 0)));
+        ACadLayout layout = document.Layouts[ACadLayout.PaperLayoutName];
+        Entity boundary = useEllipse
+            ? new Ellipse
+            {
+                Center = new XYZ(100, 80, 0),
+                MajorAxisEndPoint = new XYZ(50, 0, 0),
+                RadiusRatio = 0.5,
+                StartParameter = 0.0,
+                EndParameter = Math.PI * 2.0,
+            }
+            : new Circle
+            {
+                Center = new XYZ(100, 80, 0),
+                Radius = 40,
+            };
+        layout.AssociatedBlock.Entities.Add(boundary);
+        Viewport viewport = CreateTopViewport(
+            new XYZ(100, 80, 0),
+            XY.Zero,
+            XYZ.Zero,
+            0.0);
+        viewport.Boundary = boundary;
+        viewport.Status |= ViewportStatusFlags.NonRectangularClipping;
+        layout.AddViewport(viewport);
+        CadLayoutSnapshot snapshot = new CadLayoutSnapshotCompiler().Compile(
+            new CadDocumentSession(document),
+            ACadLayout.PaperLayoutName);
+
+        using CadRecordedLayoutScene scene = new CadLayoutSceneCompiler().Compile(snapshot);
+        using GpuPicture picture = scene.CreatePicture();
+
+        RenderCommand clip = picture.GetCommand(0);
+        Assert.Equal(RenderCommandType.PushGeometryClip, clip.Type);
+        Assert.Equal(2, Assert.Single(clip.Path!.Figures).Segments.Count);
+        Assert.NotEqual(0.0f, clip.Transform.M11);
+        Assert.NotEqual(0.0f, clip.Transform.M22);
+    }
+
+    [Theory]
+    [InlineData(CadDocumentFormat.Dxf)]
+    [InlineData(CadDocumentFormat.Dwg)]
+    public async Task NonRectangularViewportBoundarySurvivesAdvertisedRoundTrips(
+        CadDocumentFormat format)
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 10, 0)));
+        ACadLayout layout = document.Layouts[ACadLayout.PaperLayoutName];
+        var boundary = new LwPolyline
+        {
+            Flags = LwPolylineFlags.Closed,
+        };
+        boundary.Vertices.Add(new LwPolyline.Vertex(50, 40));
+        boundary.Vertices.Add(new LwPolyline.Vertex(150, 40));
+        boundary.Vertices.Add(new LwPolyline.Vertex(100, 120));
+        layout.AssociatedBlock.Entities.Add(boundary);
+        Viewport viewport = CreateTopViewport(
+            new XYZ(100, 80, 0),
+            XY.Zero,
+            XYZ.Zero,
+            0.0);
+        viewport.Boundary = boundary;
+        viewport.Status |= ViewportStatusFlags.NonRectangularClipping;
+        layout.AddViewport(viewport);
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+
+        await store.SaveAsync(
+            new CadDocumentSession(document),
+            stream,
+            format,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            format,
+            sourceName: $"nonrect-viewport.{format.ToString().ToLowerInvariant()}");
+        CadLayoutSnapshot snapshot = new CadLayoutSnapshotCompiler().Compile(
+            loaded.Session,
+            ACadLayout.PaperLayoutName);
+
+        CadViewportPrimitive restored = snapshot.PaperSpace.Viewports.Span[1];
+        Assert.NotEqual(0UL, restored.BoundaryHandle);
+        using CadRecordedLayoutScene scene = new CadLayoutSceneCompiler().Compile(snapshot);
+        using GpuPicture picture = scene.CreatePicture();
+        Assert.Equal(RenderCommandType.PushGeometryClip, picture.GetCommand(0).Type);
+    }
+
+    [Fact]
     public void LayoutSceneFailsClosedForUnsupportedViewportProjection()
     {
         static NotSupportedException CompileUnsupported(Action<Viewport> configure)
@@ -291,6 +546,55 @@ public sealed class CadViewportTests
                 document.Header.PointDisplayMode = 2;
                 document.Entities.Add(new Point(XYZ.Zero));
             }).Message);
+
+        static NotSupportedException CompileUnsupportedBoundary(
+            Entity boundary,
+            bool freezeLayer = false)
+        {
+            var document = new CadDocument();
+            if (freezeLayer)
+            {
+                var frozen = new Layer("FROZEN_BOUNDARY")
+                {
+                    Flags = LayerFlags.Frozen,
+                };
+                document.Layers.Add(frozen);
+                boundary.Layer = frozen;
+            }
+            ACadLayout layout = document.Layouts[ACadLayout.PaperLayoutName];
+            layout.AssociatedBlock.Entities.Add(boundary);
+            Viewport viewport = CreateTopViewport(
+                new XYZ(100, 80, 0),
+                XY.Zero,
+                XYZ.Zero,
+                0.0);
+            viewport.Boundary = boundary;
+            viewport.Status |= ViewportStatusFlags.NonRectangularClipping;
+            layout.AddViewport(viewport);
+            CadLayoutSnapshot snapshot = new CadLayoutSnapshotCompiler().Compile(
+                new CadDocumentSession(document),
+                ACadLayout.PaperLayoutName);
+            return Assert.Throws<NotSupportedException>(() =>
+                new CadLayoutSceneCompiler().Compile(snapshot));
+        }
+
+        Assert.StartsWith(
+            "CADVIEW009:",
+            CompileUnsupportedBoundary(new Line(
+                XYZ.Zero,
+                new XYZ(10, 10, 0))).Message);
+        var openBoundary = new LwPolyline();
+        openBoundary.Vertices.Add(new LwPolyline.Vertex(0, 0));
+        openBoundary.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        openBoundary.Vertices.Add(new LwPolyline.Vertex(0, 10));
+        Assert.StartsWith(
+            "CADVIEW011:",
+            CompileUnsupportedBoundary(openBoundary).Message);
+        Assert.StartsWith(
+            "CADVIEW010:",
+            CompileUnsupportedBoundary(
+                new Circle { Center = XYZ.Zero, Radius = 10 },
+                freezeLayer: true).Message);
     }
 
     [Fact]

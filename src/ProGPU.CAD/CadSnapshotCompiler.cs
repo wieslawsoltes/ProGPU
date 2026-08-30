@@ -291,18 +291,39 @@ public sealed partial class CadSnapshotCompiler
                 nameof(document));
         }
 
+        var viewportDependencies = new HashSet<Entity>(ReferenceEqualityComparer.Instance);
+        foreach (Entity entity in sourceSpace.Entities)
+        {
+            if (entity is Viewport viewport)
+            {
+                viewportDependencies.Add(viewport);
+                if (viewport.Boundary is not null)
+                {
+                    viewportDependencies.Add(viewport.Boundary);
+                }
+            }
+        }
+
         foreach (Entity entity in GetOrderedEntities(sourceSpace))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (entity.IsInvisible || !entity.Layer.IsOn ||
-                IsLayerFrozen(entity.Layer) ||
-                (!options.IncludeNonPlottableLayers && !entity.Layer.PlotFlag) ||
-                IsAttributeExcluded(entity, attributeVisibility))
+            bool isViewportDependency = viewportDependencies.Contains(entity);
+            bool forceCapture = isViewportDependency &&
+                (entity is not Viewport || !entity.IsInvisible);
+            bool isVisible = !entity.IsInvisible &&
+                entity.Layer.IsOn &&
+                !IsLayerFrozen(entity.Layer) &&
+                (options.IncludeNonPlottableLayers || entity.Layer.PlotFlag) &&
+                !IsAttributeExcluded(entity, attributeVisibility);
+            if (!isVisible && !forceCapture)
             {
                 continue;
             }
 
-            visibleCount++;
+            if (isVisible)
+            {
+                visibleCount++;
+            }
             CompileEntityTree(
                 entity,
                 CadAffineTransform3D.Identity,
@@ -310,7 +331,8 @@ public sealed partial class CadSnapshotCompiler
                 entity.Handle,
                 inheritedLayer: null,
                 byBlockStyle: null,
-                depth: 0);
+                depth: 0,
+                forceCapture: forceCapture);
         }
 
         return new CadDocumentSnapshot(
@@ -406,15 +428,16 @@ public sealed partial class CadSnapshotCompiler
             ulong rootHandle,
             Layer? inheritedLayer,
             CadResolvedStyle? byBlockStyle,
-            int depth)
+            int depth,
+            bool forceCapture = false)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Layer effectiveLayer = inheritedLayer is not null && IsLayerZero(entity.Layer)
                 ? inheritedLayer
                 : entity.Layer;
-            if (entity.IsInvisible || !effectiveLayer.IsOn ||
+            if (!forceCapture && (entity.IsInvisible || !effectiveLayer.IsOn ||
                 IsLayerFrozen(effectiveLayer) ||
-                (!options.IncludeNonPlottableLayers && !effectiveLayer.PlotFlag))
+                (!options.IncludeNonPlottableLayers && !effectiveLayer.PlotFlag)))
             {
                 return;
             }
@@ -814,6 +837,12 @@ public sealed partial class CadSnapshotCompiler
 
                 if (header is CadEntityHeader value)
                 {
+                    value = value with
+                    {
+                        IsVisible = !entity.IsInvisible &&
+                            effectiveLayer.IsOn &&
+                            !IsLayerFrozen(effectiveLayer),
+                    };
                     entities.Add(value);
                     documentBounds = documentBounds.Union(value.Bounds);
                     return;
@@ -969,7 +998,12 @@ public sealed partial class CadSnapshotCompiler
                 layerIndex,
                 styleIndex,
                 primitiveIndex,
-                bounds);
+                bounds)
+            {
+                IsVisible = !viewport.IsInvisible &&
+                    effectiveLayer.IsOn &&
+                    !IsLayerFrozen(effectiveLayer),
+            };
             entities.Add(header);
             documentBounds = documentBounds.Union(bounds);
         }
@@ -4894,7 +4928,14 @@ public sealed partial class CadSnapshotCompiler
 
         index = layers.Count;
         indices.Add(name, index);
-        layers.Add(new CadLayerSnapshot(name, layer.IsOn, layer.PlotFlag));
+        bool isFrozen = IsLayerFrozen(layer);
+        layers.Add(new CadLayerSnapshot(
+            name,
+            layer.IsOn && !isFrozen,
+            layer.PlotFlag)
+        {
+            IsFrozen = isFrozen,
+        });
         return index;
     }
 

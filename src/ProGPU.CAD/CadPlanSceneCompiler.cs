@@ -192,6 +192,14 @@ public sealed class CadPlanSceneCompiler
         ReadOnlySpan<CadLayerSnapshot> layers = snapshot.Layers.Span;
         ReadOnlySpan<CadStrokeStyle> styles = snapshot.Styles.Span;
         ReadOnlySpan<CadLineTypePattern> lineTypePatterns = snapshot.LineTypePatterns.Span;
+        var viewportBoundaryHandles = new HashSet<ulong>();
+        foreach (CadViewportPrimitive viewport in snapshot.Viewports.Span)
+        {
+            if (viewport.BoundaryHandle != 0)
+            {
+                viewportBoundaryHandles.Add(viewport.BoundaryHandle);
+            }
+        }
         HashSet<string>? excludedLayerNames = options.ExcludedLayerNames is { Count: > 0 }
             ? new HashSet<string>(
                 options.ExcludedLayerNames,
@@ -243,8 +251,9 @@ public sealed class CadPlanSceneCompiler
         foreach (CadEntityHeader entity in entities)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!options.IncludeNonPlottableLayers &&
-                !layers[entity.LayerIndex].IsPlottable)
+            if (!entity.IsVisible || !layers[entity.LayerIndex].IsVisible ||
+                (!options.IncludeNonPlottableLayers &&
+                    !layers[entity.LayerIndex].IsPlottable))
             {
                 continue;
             }
@@ -256,10 +265,17 @@ public sealed class CadPlanSceneCompiler
             {
                 CadViewportPrimitive viewport =
                     snapshot.Viewports.Span[entity.PrimitiveIndex];
-                if (viewport.RepresentsPaper || !options.IncludeViewportFrames)
+                if (viewport.RepresentsPaper ||
+                    viewport.HasNonRectangularBoundary ||
+                    !options.IncludeViewportFrames)
                 {
                     continue;
                 }
+            }
+            if (!options.IncludeViewportFrames &&
+                viewportBoundaryHandles.Contains(entity.Handle))
+            {
+                continue;
             }
             if (entity.Kind is CadEntityKind.Ray or CadEntityKind.XLine)
             {
