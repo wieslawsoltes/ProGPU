@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 8U;
+    internal const uint AbiVersion = 9U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -263,6 +263,81 @@ internal static unsafe partial class ProGpuDirect2DNative
             nint gradientStopCollection,
             nint* value,
             int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_rectangle_geometry")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceCreateRectangleGeometry(
+        nint surface,
+        ProGpuDirect2DRect* rectangle,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_rounded_rectangle_geometry")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceCreateRoundedRectangleGeometry(
+            nint surface,
+            ProGpuDirect2DRect* rectangle,
+            float radiusX,
+            float radiusY,
+            nint* value,
+            int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_ellipse_geometry")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceCreateEllipseGeometry(
+        nint surface,
+        NativePoint2F* center,
+        float radiusX,
+        float radiusY,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_path_geometry")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceCreatePathGeometry(
+        nint surface,
+        ProGpuDirect2DFillMode fillMode,
+        ProGpuDirect2DPathFigure* figures,
+        uint figureCount,
+        ProGpuDirect2DPathSegment* segments,
+        uint segmentCount,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_transformed_geometry")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceCreateTransformedGeometry(
+            nint surface,
+            nint geometry,
+            NativeMatrix3X2F* transform,
+            nint* value,
+            int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_combine_geometry")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceCombineGeometry(
+        nint surface,
+        nint geometryA,
+        nint geometryB,
+        ProGpuDirect2DCombineMode combineMode,
+        NativeMatrix3X2F* geometryBTransform,
+        float flatteningTolerance,
+        nint* value,
+        int* nativeHResult);
 
     [LibraryImport(
         LibraryName,

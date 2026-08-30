@@ -337,6 +337,168 @@ int main()
             radial_brush->GetOpacity() == 0.75F,
         "provider radial-gradient brush properties changed");
 
+    progpu_native_direct2d_rect_f rectangle_value{
+        4.0F,
+        4.0F,
+        16.0F,
+        12.0F
+    };
+    void* rectangle_geometry_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_rectangle_geometry(
+            surface,
+            &rectangle_value,
+            &rectangle_geometry_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            rectangle_geometry_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1RectangleGeometry creation failed");
+    ComPtr<ID2D1RectangleGeometry> rectangle_geometry;
+    rectangle_geometry.Attach(
+        static_cast<ID2D1RectangleGeometry*>(rectangle_geometry_value));
+    D2D1_RECT_F returned_rectangle = rectangle_geometry->GetRect();
+    require(returned_rectangle.left == 4.0F &&
+            returned_rectangle.top == 4.0F &&
+            returned_rectangle.right == 20.0F &&
+            returned_rectangle.bottom == 16.0F,
+        "provider rectangle geometry changed its rectangle");
+
+    void* rounded_geometry_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_rounded_rectangle_geometry(
+            surface,
+            &rectangle_value,
+            3.0F,
+            2.0F,
+            &rounded_geometry_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            rounded_geometry_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1RoundedRectangleGeometry creation failed");
+    ComPtr<ID2D1RoundedRectangleGeometry> rounded_geometry;
+    rounded_geometry.Attach(
+        static_cast<ID2D1RoundedRectangleGeometry*>(rounded_geometry_value));
+    D2D1_ROUNDED_RECT returned_rounded = rounded_geometry->GetRoundedRect();
+    require(returned_rounded.radiusX == 3.0F &&
+            returned_rounded.radiusY == 2.0F,
+        "provider rounded-rectangle geometry changed its radii");
+
+    progpu_native_direct2d_point_2f ellipse_center{32.0F, 24.0F};
+    void* ellipse_geometry_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_ellipse_geometry(
+            surface,
+            &ellipse_center,
+            8.0F,
+            6.0F,
+            &ellipse_geometry_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            ellipse_geometry_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1EllipseGeometry creation failed");
+    ComPtr<ID2D1EllipseGeometry> ellipse_geometry;
+    ellipse_geometry.Attach(
+        static_cast<ID2D1EllipseGeometry*>(ellipse_geometry_value));
+    D2D1_ELLIPSE returned_ellipse = ellipse_geometry->GetEllipse();
+    require(returned_ellipse.point.x == 32.0F &&
+            returned_ellipse.point.y == 24.0F &&
+            returned_ellipse.radiusX == 8.0F &&
+            returned_ellipse.radiusY == 6.0F,
+        "provider ellipse geometry changed its values");
+
+    progpu_native_direct2d_path_figure path_figure{};
+    path_figure.start_point = {4.0F, 24.0F};
+    path_figure.segment_count = 4U;
+    path_figure.flags =
+        PROGPU_NATIVE_DIRECT2D_PATH_FIGURE_FLAG_FILLED |
+        PROGPU_NATIVE_DIRECT2D_PATH_FIGURE_FLAG_CLOSED;
+    progpu_native_direct2d_path_segment path_segments[4]{};
+    path_segments[0].kind = PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_LINE;
+    path_segments[0].point1 = {20.0F, 24.0F};
+    path_segments[1].kind =
+        PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_QUADRATIC;
+    path_segments[1].point1 = {24.0F, 28.0F};
+    path_segments[1].point2 = {20.0F, 32.0F};
+    path_segments[1].flags =
+        PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_FLAG_FORCE_ROUND_LINE_JOIN;
+    path_segments[2].kind = PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_CUBIC;
+    path_segments[2].point1 = {16.0F, 36.0F};
+    path_segments[2].point2 = {8.0F, 36.0F};
+    path_segments[2].point3 = {4.0F, 32.0F};
+    path_segments[3].kind = PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_ARC;
+    path_segments[3].point1 = {4.0F, 24.0F};
+    path_segments[3].size = {4.0F, 4.0F};
+    path_segments[3].arc_flags =
+        PROGPU_NATIVE_DIRECT2D_ARC_FLAG_CLOCKWISE;
+    void* path_geometry_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_path_geometry(
+            surface,
+            PROGPU_NATIVE_DIRECT2D_FILL_MODE_WINDING,
+            &path_figure,
+            1U,
+            path_segments,
+            4U,
+            &path_geometry_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            path_geometry_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1PathGeometry1 creation failed");
+    ComPtr<ID2D1PathGeometry1> path_geometry;
+    path_geometry.Attach(
+        static_cast<ID2D1PathGeometry1*>(path_geometry_value));
+    require(path_geometry->GetFigureCount() == 1U &&
+            path_geometry->GetSegmentCount() == 4U,
+        "provider path geometry changed its topology");
+
+    progpu_native_direct2d_matrix_3x2_f geometry_transform{
+        1.0F,
+        0.0F,
+        0.0F,
+        1.0F,
+        2.0F,
+        3.0F
+    };
+    void* transformed_geometry_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_transformed_geometry(
+            surface,
+            path_geometry.Get(),
+            &geometry_transform,
+            &transformed_geometry_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            transformed_geometry_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1TransformedGeometry creation failed");
+    ComPtr<ID2D1TransformedGeometry> transformed_geometry;
+    transformed_geometry.Attach(
+        static_cast<ID2D1TransformedGeometry*>(transformed_geometry_value));
+    D2D1_MATRIX_3X2_F returned_transform{};
+    transformed_geometry->GetTransform(&returned_transform);
+    require(returned_transform._31 == 2.0F &&
+            returned_transform._32 == 3.0F,
+        "provider transformed geometry changed its transform");
+
+    void* combined_geometry_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_combine_geometry(
+            surface,
+            rectangle_geometry.Get(),
+            ellipse_geometry.Get(),
+            PROGPU_NATIVE_DIRECT2D_COMBINE_MODE_XOR,
+            nullptr,
+            0.25F,
+            &combined_geometry_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            combined_geometry_value != nullptr && native_hresult == S_OK,
+        "provider Direct2D geometry combination failed");
+    ComPtr<ID2D1PathGeometry1> combined_geometry;
+    combined_geometry.Attach(
+        static_cast<ID2D1PathGeometry1*>(combined_geometry_value));
+    require(combined_geometry->GetFigureCount() != 0U,
+        "provider combined geometry was unexpectedly empty");
+
     void* win2d_canvas_device_value = nullptr;
     native_hresult = E_FAIL;
     progpu_native_direct2d_status win2d_status =
@@ -530,6 +692,53 @@ int main()
                 unwrapped_radial_brush.Get()),
             "Win2D CanvasRadialGradientBrush changed native COM identity");
 
+        void* canvas_geometry_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper(
+                surface,
+                transformed_geometry.Get(),
+                0.0F,
+                &canvas_geometry_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                canvas_geometry_value != nullptr && native_hresult == S_OK,
+            "Win2D CanvasGeometry wrapping failed");
+        ComPtr<IInspectable> canvas_geometry;
+        canvas_geometry.Attach(
+            static_cast<IInspectable*>(canvas_geometry_value));
+        constexpr GUID canvas_geometry_interface_id = {
+            0x74EA89FA,
+            0xC87C,
+            0x4D0D,
+            {0x90, 0x57, 0x27, 0x43, 0xB8, 0xDB, 0x67, 0xEE}
+        };
+        ComPtr<IUnknown> canvas_geometry_interface;
+        require(SUCCEEDED(canvas_geometry->QueryInterface(
+                    canvas_geometry_interface_id,
+                    &canvas_geometry_interface)),
+            "wrapped Win2D object omitted ICanvasGeometry");
+        progpu_native_direct2d_guid geometry_id =
+            to_portable_guid(__uuidof(ID2D1Geometry));
+        void* unwrapped_geometry_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_win2d_wrapper_native_resource(
+                surface,
+                canvas_geometry.Get(),
+                0.0F,
+                &geometry_id,
+                &unwrapped_geometry_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                unwrapped_geometry_value != nullptr && native_hresult == S_OK,
+            "Win2D CanvasGeometry native-resource query failed");
+        ComPtr<ID2D1Geometry> unwrapped_geometry;
+        unwrapped_geometry.Attach(
+            static_cast<ID2D1Geometry*>(unwrapped_geometry_value));
+        require(has_same_com_identity(
+                transformed_geometry.Get(),
+                unwrapped_geometry.Get()),
+            "Win2D CanvasGeometry changed native COM identity");
+
         progpu_native_direct2d_guid no_interface_id =
             to_portable_guid(GUID_NULL);
         void* no_interface_value =
@@ -702,6 +911,11 @@ int main()
     context->FillRectangle(
         D2D1::RectF(32.0F, 24.0F, 64.0F, 48.0F),
         radial_brush.Get());
+    context->FillGeometry(path_geometry.Get(), solid_brush.Get());
+    context->DrawGeometry(
+        combined_geometry.Get(),
+        solid_brush.Get(),
+        1.0F);
     D2D1_TAG tag1 = 0U;
     D2D1_TAG tag2 = 0U;
     native_hresult = E_FAIL;

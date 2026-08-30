@@ -1,4 +1,5 @@
 using Microsoft.Win32.SafeHandles;
+using System.Numerics;
 using System.Runtime.InteropServices;
 
 namespace ProGPU.Direct2D;
@@ -47,7 +48,60 @@ public enum ProGpuDirect2DInterfaceKind
     D2D1LinearGradientBrush = 22,
     Win2DCanvasLinearGradientBrush = 23,
     D2D1RadialGradientBrush = 24,
-    Win2DCanvasRadialGradientBrush = 25
+    Win2DCanvasRadialGradientBrush = 25,
+    D2D1Geometry = 26,
+    D2D1RectangleGeometry = 27,
+    D2D1RoundedRectangleGeometry = 28,
+    D2D1EllipseGeometry = 29,
+    D2D1PathGeometry1 = 30,
+    D2D1TransformedGeometry = 31,
+    Win2DCanvasGeometry = 32
+}
+
+public enum ProGpuDirect2DFillMode
+{
+    Alternate = 0,
+    Winding = 1
+}
+
+public enum ProGpuDirect2DPathSegmentKind : uint
+{
+    Line = 0,
+    Quadratic = 1,
+    Cubic = 2,
+    Arc = 3
+}
+
+public enum ProGpuDirect2DCombineMode
+{
+    Union = 0,
+    Intersect = 1,
+    Xor = 2,
+    Exclude = 3
+}
+
+[Flags]
+public enum ProGpuDirect2DPathSegmentFlags : uint
+{
+    None = 0,
+    ForceUnstroked = 1U << 0,
+    ForceRoundLineJoin = 1U << 1
+}
+
+[Flags]
+public enum ProGpuDirect2DPathFigureFlags : uint
+{
+    None = 0,
+    Filled = 1U << 0,
+    Closed = 1U << 1
+}
+
+[Flags]
+public enum ProGpuDirect2DArcFlags : uint
+{
+    None = 0,
+    Clockwise = 1U << 0,
+    Large = 1U << 1
 }
 
 public enum ProGpuDirect2DColorSpace
@@ -150,6 +204,95 @@ public readonly record struct ProGpuDirect2DColor(
 public readonly record struct ProGpuDirect2DGradientStop(
     float Position,
     ProGpuDirect2DColor Color);
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct ProGpuDirect2DRect(
+    float X,
+    float Y,
+    float Width,
+    float Height);
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct ProGpuDirect2DPathFigure(
+    Vector2 StartPoint,
+    uint FirstSegment,
+    uint SegmentCount,
+    ProGpuDirect2DPathFigureFlags Flags,
+    uint Reserved = 0U);
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct ProGpuDirect2DPathSegment(
+    Vector2 Point1,
+    Vector2 Point2,
+    Vector2 Point3,
+    Vector2 Size,
+    float RotationAngle,
+    ProGpuDirect2DPathSegmentKind Kind,
+    ProGpuDirect2DPathSegmentFlags Flags,
+    ProGpuDirect2DArcFlags ArcFlags)
+{
+    public static ProGpuDirect2DPathSegment Line(
+        Vector2 point,
+        ProGpuDirect2DPathSegmentFlags flags =
+            ProGpuDirect2DPathSegmentFlags.None) =>
+        new(
+            point,
+            default,
+            default,
+            default,
+            0.0F,
+            ProGpuDirect2DPathSegmentKind.Line,
+            flags,
+            ProGpuDirect2DArcFlags.None);
+
+    public static ProGpuDirect2DPathSegment Quadratic(
+        Vector2 controlPoint,
+        Vector2 endPoint,
+        ProGpuDirect2DPathSegmentFlags flags =
+            ProGpuDirect2DPathSegmentFlags.None) =>
+        new(
+            controlPoint,
+            endPoint,
+            default,
+            default,
+            0.0F,
+            ProGpuDirect2DPathSegmentKind.Quadratic,
+            flags,
+            ProGpuDirect2DArcFlags.None);
+
+    public static ProGpuDirect2DPathSegment Cubic(
+        Vector2 controlPoint1,
+        Vector2 controlPoint2,
+        Vector2 endPoint,
+        ProGpuDirect2DPathSegmentFlags flags =
+            ProGpuDirect2DPathSegmentFlags.None) =>
+        new(
+            controlPoint1,
+            controlPoint2,
+            endPoint,
+            default,
+            0.0F,
+            ProGpuDirect2DPathSegmentKind.Cubic,
+            flags,
+            ProGpuDirect2DArcFlags.None);
+
+    public static ProGpuDirect2DPathSegment Arc(
+        Vector2 endPoint,
+        Vector2 radius,
+        float rotationAngle,
+        ProGpuDirect2DArcFlags arcFlags,
+        ProGpuDirect2DPathSegmentFlags flags =
+            ProGpuDirect2DPathSegmentFlags.None) =>
+        new(
+            endPoint,
+            default,
+            default,
+            radius,
+            rotationAngle,
+            ProGpuDirect2DPathSegmentKind.Arc,
+            flags,
+            arcFlags);
+}
 
 public sealed class ProGpuDirect2DException : Exception
 {

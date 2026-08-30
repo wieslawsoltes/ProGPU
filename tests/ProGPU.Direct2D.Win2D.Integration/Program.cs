@@ -3,8 +3,10 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Brushes;
+using Microsoft.Graphics.Canvas.Geometry;
 using ProGPU.Backend.Dawn;
 using ProGPU.Direct2D;
+using ProGPU.Wpf.Interop;
 using Windows.Storage;
 using Windows.UI;
 
@@ -53,12 +55,14 @@ internal static partial class Program
                     CanvasSolidColorBrushType: null,
                     CanvasLinearGradientBrushType: null,
                     CanvasRadialGradientBrushType: null,
+                    CanvasGeometryType: null,
                     DrawingSessionType: null,
                     NativeDeviceIdentityMatches: null,
                     NativeBitmapIdentityMatches: null,
                     NativeSolidColorBrushIdentityMatches: null,
                     NativeLinearGradientBrushIdentityMatches: null,
                     NativeRadialGradientBrushIdentityMatches: null,
+                    NativeGeometryIdentityMatches: null,
                     SolidColorBrushColor: null,
                     LinearGradientBrushColor: null,
                     RadialGradientBrushColor: null,
@@ -66,6 +70,7 @@ internal static partial class Program
                     CenterPixel: null,
                     SolidPixel: null,
                     RadialPixel: null,
+                    GeometryPixel: null,
                     Error: exception.ToString()));
             return 1;
         }
@@ -316,6 +321,51 @@ internal static partial class Program
                 }
             }
 
+            var combinedGeometry = new PortableGeometryPath
+            {
+                Kind = PortableGeometryPathKind.Combined,
+                PathA = CreateRectanglePath(4.0, 20.0, 12.0, 24.0),
+                PathB = CreateRectanglePath(8.0, 26.0, 4.0, 12.0),
+                CombineOperation = (int)ProGpuDirect2DCombineMode.Exclude,
+                Transform = new PortableMatrix3x2(
+                    1.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    2.0,
+                    0.0)
+            };
+            using ProGpuDirect2DComReference nativeGeometry =
+                surface.CreateGeometry(combinedGeometry);
+            if (!surface.TryAcquireMicrosoftWin2DGeometry(
+                    nativeGeometry,
+                    out ProGpuDirect2DComReference? wrappedGeometry,
+                    out int wrappedGeometryHResult) ||
+                wrappedGeometry is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasGeometry wrapping failed (0x{wrappedGeometryHResult:X8}).");
+            }
+            using ProGpuDirect2DComReference canvasGeometryReference =
+                wrappedGeometry;
+            if (!surface.TryAcquireMicrosoftWin2DNativeGeometry(
+                    canvasGeometryReference,
+                    out ProGpuDirect2DComReference? unwrappedGeometry,
+                    out int unwrappedGeometryHResult) ||
+                unwrappedGeometry is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasGeometry native-resource interop failed (0x{unwrappedGeometryHResult:X8}).");
+            }
+            using (unwrappedGeometry)
+            {
+                if (!HasSameComIdentity(nativeGeometry, unwrappedGeometry))
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasGeometry did not preserve ProGPU's ID2D1Geometry identity.");
+                }
+            }
+
             ulong contentVersionBefore = surface.ContentVersion;
             if (!surface.TryBeginMicrosoftWin2DProducerAccess(
                     out ProGpuMicrosoftWin2DProducerAccess? access,
@@ -331,6 +381,7 @@ internal static partial class Program
             string canvasSolidColorBrushType;
             string canvasLinearGradientBrushType;
             string canvasRadialGradientBrushType;
+            string canvasGeometryType;
             string drawingSessionType;
             PixelEvidence solidColorBrushColor;
             PixelEvidence linearGradientBrushColor;
@@ -339,6 +390,7 @@ internal static partial class Program
             PixelEvidence centerPixel;
             PixelEvidence solidPixel;
             PixelEvidence radialPixel;
+            PixelEvidence geometryPixel;
             using (access)
             using (CanvasRenderTarget target =
                 CanvasRenderTarget.FromAbi(
@@ -352,6 +404,9 @@ internal static partial class Program
             using (CanvasRadialGradientBrush canvasRadialGradientBrush =
                 CanvasRadialGradientBrush.FromAbi(
                     canvasRadialGradientBrushReference.DangerousGetHandle()))
+            using (CanvasGeometry canvasGeometry =
+                CanvasGeometry.FromAbi(
+                    canvasGeometryReference.DangerousGetHandle()))
             {
                 canvasDeviceType = target.Device.GetType().FullName ??
                     target.Device.GetType().Name;
@@ -409,6 +464,8 @@ internal static partial class Program
                 }
                 radialGradientBrushColor =
                     PixelEvidence.FromColor(projectedRadialStops[0].Color);
+                canvasGeometryType = canvasGeometry.GetType().FullName ??
+                    canvasGeometry.GetType().Name;
                 using (CanvasDrawingSession drawingSession =
                     target.CreateDrawingSession())
                 {
@@ -435,6 +492,9 @@ internal static partial class Program
                         16.0F,
                         56.0F,
                         canvasRadialGradientBrush);
+                    drawingSession.FillGeometry(
+                        canvasGeometry,
+                        Color.FromArgb(255, 240, 208, 32));
                 }
 
                 Color[] pixels = target.GetPixelColors();
@@ -448,17 +508,23 @@ internal static partial class Program
                     checked((int)((Height / 2U) * Width + Width / 2U))];
                 Color solid = pixels[checked((int)(32U * Width + 12U))];
                 Color radial = pixels[checked((int)(32U * Width + 52U))];
+                Color geometryColor =
+                    pixels[checked((int)(32U * Width + 8U))];
                 cornerPixel = PixelEvidence.FromColor(corner);
                 centerPixel = PixelEvidence.FromColor(center);
                 solidPixel = PixelEvidence.FromColor(solid);
                 radialPixel = PixelEvidence.FromColor(radial);
+                geometryPixel = PixelEvidence.FromColor(geometryColor);
                 if (corner.A != 0 ||
                     !MatchesColor(solid, fill) ||
                     !MatchesColor(center, linearColor) ||
-                    !MatchesColor(radial, radialColor))
+                    !MatchesColor(radial, radialColor) ||
+                    !MatchesColor(
+                        geometryColor,
+                        Color.FromArgb(255, 240, 208, 32)))
                 {
                     throw new InvalidOperationException(
-                        $"Win2D pixel oracle failed: corner={cornerPixel}, solid={solidPixel}, linear={centerPixel}, radial={radialPixel}.");
+                        $"Win2D pixel oracle failed: corner={cornerPixel}, solid={solidPixel}, linear={centerPixel}, radial={radialPixel}, geometry={geometryPixel}.");
                 }
             }
 
@@ -484,12 +550,14 @@ internal static partial class Program
                 CanvasSolidColorBrushType: canvasSolidColorBrushType,
                 CanvasLinearGradientBrushType: canvasLinearGradientBrushType,
                 CanvasRadialGradientBrushType: canvasRadialGradientBrushType,
+                CanvasGeometryType: canvasGeometryType,
                 DrawingSessionType: drawingSessionType,
                 NativeDeviceIdentityMatches: true,
                 NativeBitmapIdentityMatches: true,
                 NativeSolidColorBrushIdentityMatches: true,
                 NativeLinearGradientBrushIdentityMatches: true,
                 NativeRadialGradientBrushIdentityMatches: true,
+                NativeGeometryIdentityMatches: true,
                 SolidColorBrushColor: solidColorBrushColor,
                 LinearGradientBrushColor: linearGradientBrushColor,
                 RadialGradientBrushColor: radialGradientBrushColor,
@@ -497,6 +565,7 @@ internal static partial class Program
                 CenterPixel: centerPixel,
                 SolidPixel: solidPixel,
                 RadialPixel: radialPixel,
+                GeometryPixel: geometryPixel,
                 Error: null);
         }
         finally
@@ -522,6 +591,41 @@ internal static partial class Program
         actual.R == expected.R &&
         actual.G == expected.G &&
         actual.B == expected.B;
+
+    private static PortableGeometryPath CreateRectanglePath(
+        double x,
+        double y,
+        double width,
+        double height) =>
+        new()
+        {
+            Kind = PortableGeometryPathKind.Path,
+            FillRule = PortableFillRule.Nonzero,
+            Figures =
+            [
+                new PortablePathFigure
+                {
+                    StartPoint = new PortablePoint(x, y),
+                    IsClosed = true,
+                    IsFilled = true,
+                    Segments =
+                    [
+                        PortablePathSegment.Line(
+                            new PortablePoint(x + width, y),
+                            isSmoothJoin: false,
+                            isStroked: true),
+                        PortablePathSegment.Line(
+                            new PortablePoint(x + width, y + height),
+                            isSmoothJoin: false,
+                            isStroked: true),
+                        PortablePathSegment.Line(
+                            new PortablePoint(x, y + height),
+                            isSmoothJoin: false,
+                            isStroked: true)
+                    ]
+                }
+            ]
+        };
 
     private static void WriteEvidence(IntegrationEvidence evidence)
     {
@@ -584,12 +688,14 @@ internal static partial class Program
         string? CanvasSolidColorBrushType,
         string? CanvasLinearGradientBrushType,
         string? CanvasRadialGradientBrushType,
+        string? CanvasGeometryType,
         string? DrawingSessionType,
         bool? NativeDeviceIdentityMatches,
         bool? NativeBitmapIdentityMatches,
         bool? NativeSolidColorBrushIdentityMatches,
         bool? NativeLinearGradientBrushIdentityMatches,
         bool? NativeRadialGradientBrushIdentityMatches,
+        bool? NativeGeometryIdentityMatches,
         PixelEvidence? SolidColorBrushColor,
         PixelEvidence? LinearGradientBrushColor,
         PixelEvidence? RadialGradientBrushColor,
@@ -597,6 +703,7 @@ internal static partial class Program
         PixelEvidence? CenterPixel,
         PixelEvidence? SolidPixel,
         PixelEvidence? RadialPixel,
+        PixelEvidence? GeometryPixel,
         string? Error);
 
     private sealed record PixelEvidence(byte A, byte R, byte G, byte B)
