@@ -344,6 +344,7 @@ public sealed partial class CadSnapshotCompiler
                 !hasDrawOrderOverrides ||
                 (document.Header.EntitySortingFlags & ObjectSortingFlags.Plotting) != 0,
             globalLineTypeScale,
+            CapturePlanGridSnapSettings(document),
             documentBounds,
             new CadSnapshotStatistics(
                 sourceSpace.Entities.Count,
@@ -5796,6 +5797,70 @@ public sealed partial class CadSnapshotCompiler
         {
             diagnostics.Add(diagnostic);
         }
+    }
+
+    private static CadPlanGridSnapSettings CapturePlanGridSnapSettings(
+        CadDocument document)
+    {
+        if (!document.VPorts.TryGetValue(VPort.DefaultName, out VPort? active) ||
+            active is null)
+        {
+            return CadPlanGridSnapSettings.Disabled;
+        }
+
+        double spacingX = active.SnapSpacing.X;
+        double spacingY = active.SnapSpacing.Y;
+        if (!double.IsFinite(spacingX) || spacingX <= 0.0 ||
+            !double.IsFinite(spacingY) || spacingY <= 0.0)
+        {
+            return CadPlanGridSnapSettings.Disabled;
+        }
+
+        CadPoint3D ucsOrigin = ToPoint(active.Origin);
+        CadPoint3D ucsX;
+        CadPoint3D ucsY;
+        try
+        {
+            ucsX = ToPoint(active.XAxis).Normalize();
+            ucsY = ToPoint(active.YAxis).Normalize();
+        }
+        catch (ArgumentException)
+        {
+            return CadPlanGridSnapSettings.Disabled;
+        }
+
+        double axesDot = CadPoint3D.Dot(ucsX, ucsY);
+        if (!double.IsFinite(axesDot) || Math.Abs(axesDot) > 1e-10)
+        {
+            return CadPlanGridSnapSettings.Disabled;
+        }
+
+        CadPoint3D basePoint = ucsOrigin +
+            (ucsX * active.SnapBasePoint.X) +
+            (ucsY * active.SnapBasePoint.Y);
+        double cosine = Math.Cos(active.SnapRotation);
+        double sine = Math.Sin(active.SnapRotation);
+        CadPoint3D snapX = (ucsX * cosine) + (ucsY * sine);
+        CadPoint3D snapY = (ucsY * cosine) - (ucsX * sine);
+        if (!double.IsFinite(cosine) ||
+            !double.IsFinite(sine) ||
+            !double.IsFinite(basePoint.X) ||
+            !double.IsFinite(basePoint.Y) ||
+            !double.IsFinite(basePoint.Z))
+        {
+            return CadPlanGridSnapSettings.Disabled;
+        }
+
+        return new CadPlanGridSnapSettings(
+            active.SnapOn,
+            active.IsometricSnap
+                ? CadPlanGridSnapStyle.Isometric
+                : CadPlanGridSnapStyle.Rectangular,
+            basePoint,
+            snapX,
+            snapY,
+            spacingX,
+            spacingY);
     }
 
     private static CadPoint3D ToPoint(XYZ point) => new(point.X, point.Y, point.Z);

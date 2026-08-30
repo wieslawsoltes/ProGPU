@@ -164,8 +164,9 @@ WCS Z planes do not intersect. This avoids silently flattening 3D geometry or
 extending bounded geometry to imitate a separate snap mode.
 
 Full circles/ellipses have no synthetic Endpoint. Closed/periodic splines have
-no Endpoint. Grid snap,
-extension/tracking, cycling, tooltips, global last-point/UCS behavior, and
+no Endpoint. Rectangular grid snap is a separate point-input constraint recorded
+in [`PROGPU_CAD_GRID_SNAP_RESEARCH.md`](PROGPU_CAD_GRID_SNAP_RESEARCH.md), not
+an invented OSMODE flag. Extension/tracking, cycling, tooltips, global last-point/UCS behavior, and
 arbitrary-camera acquisition remain explicit later contracts. ProGPU rejects
 flattening an analytic curve merely to obtain a snap point and rejects silently
 treating an entity AABB as geometry.
@@ -268,7 +269,7 @@ Tangent second point, raw plan input when disabled, and
 selector propagation without document edits.
 
 Future mode families require their own exact geometry and ambiguity contracts.
-Large-scene p50/p95/p99 measurements, dense coincident-candidate cycling, grid
-and dedicated intersection indexes, arbitrary camera planes, and
+Large-scene p50/p95/p99 measurements, dense coincident-candidate cycling,
+dedicated snap-point/intersection indexes, arbitrary camera planes, and
 desktop/browser visual goldens remain before object snapping can be called
 complete.

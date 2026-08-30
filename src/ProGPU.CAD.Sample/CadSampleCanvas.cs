@@ -164,7 +164,10 @@ public sealed class CadSampleCanvas : FrameworkElement
     private Vector2 _pointTransformCurrent;
     private Vector2 _pointTransformPointerPosition;
     private CadPoint3D _pointTransformBasePoint;
+    private CadPoint3D _pointTransformGridSnap;
     private CadObjectSnapResult _pointTransformObjectSnap;
+    private CadPlanGridSnapSettings _planGridSnapSettings =
+        CadPlanGridSnapSettings.Disabled;
     private CadObjectSnapModes _objectSnapModes = CadObjectSnapModes.Standard;
     private float _zoom = 1;
     private int[] _selectionEntityScratch = [];
@@ -183,6 +186,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     private bool _isPointTransformPointerPressed;
     private bool _hasPointTransformPointerPosition;
     private bool _hasPointTransformBasePoint;
+    private bool _hasPointTransformGridSnap;
     private bool _hasSelectionDrag;
     private bool _needsFit = true;
 
@@ -277,6 +281,43 @@ public sealed class CadSampleCanvas : FrameworkElement
     public CadObjectSnapResult? PendingPointTransformObjectSnap =>
         _pointTransformObjectSnap.IsSnapped
             ? _pointTransformObjectSnap
+            : null;
+
+    /// <summary>The active viewport's immutable point-grid settings.</summary>
+    public CadPlanGridSnapSettings PlanGridSnapSettings =>
+        _planGridSnapSettings;
+
+    /// <summary>
+    /// Enables rectangular grid acquisition for pointer-driven MOVE/COPY prompts.
+    /// </summary>
+    public bool IsPlanGridSnapEnabled
+    {
+        get => _planGridSnapSettings.IsEnabled;
+        set
+        {
+            if (_planGridSnapSettings.IsEnabled == value)
+            {
+                return;
+            }
+
+            _planGridSnapSettings = _planGridSnapSettings.WithEnabled(value);
+            if (PendingPointTransformOperation is not null &&
+                _hasPointTransformPointerPosition)
+            {
+                UpdatePointTransformPointer(_pointTransformPointerPosition);
+            }
+            else
+            {
+                _hasPointTransformGridSnap = false;
+            }
+            Invalidate();
+        }
+    }
+
+    /// <summary>The exact grid point currently shown by the point prompt.</summary>
+    public CadPoint3D? PendingPointTransformGridSnap =>
+        _hasPointTransformGridSnap
+            ? _pointTransformGridSnap
             : null;
 
     public int LastUnsupportedPrimitiveCount => _lastUnsupportedPrimitiveCount;
@@ -454,6 +495,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         _picture = picture;
         CurrentSession = session;
         CurrentSnapshot = snapshot;
+        _planGridSnapSettings = resetViewSelectionAndHistory
+            ? snapshot.PlanGridSnapSettings
+            : snapshot.PlanGridSnapSettings.WithEnabled(
+                _planGridSnapSettings.IsEnabled);
         _bounds = snapshot.Bounds;
         _selectionEntityScratch = selectionEntityScratch;
         _selectionCandidates = selectionCandidates;
@@ -487,7 +532,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     protected override void ArrangeOverride(Rect arrangeRect)
     {
         Size = new Vector2(arrangeRect.Width, arrangeRect.Height);
-        ClearPointTransformObjectSnap();
+        ClearPointTransformSnapState();
         if (_needsFit && Size.X > 0 && Size.Y > 0)
         {
             FitToView();
@@ -553,6 +598,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                         preview.Height));
             }
         }
+        DrawPlanGridSnapMarker(context);
         DrawObjectSnapMarker(context, _pointTransformObjectSnap);
         if (_isSelecting && _hasSelectionDrag)
         {
@@ -579,7 +625,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         _zoom = Math.Clamp(_zoom, 0.00001f, 1_000_000f);
         _pan = Vector2.Zero;
         _needsFit = false;
-        ClearPointTransformObjectSnap();
+        ClearPointTransformSnapState();
         RefreshConstructionPicture();
         Invalidate();
     }
@@ -592,7 +638,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             _isSelecting = false;
             _pointerOrigin = args.Position;
             _panOrigin = _pan;
-            ClearPointTransformObjectSnap();
+            ClearPointTransformSnapState();
             CapturePointer(args.Pointer);
             args.Handled = true;
             return;
@@ -629,7 +675,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (_isPanning)
         {
             _pan = _panOrigin + (args.Position - _pointerOrigin);
-            ClearPointTransformObjectSnap();
+            ClearPointTransformSnapState();
             RefreshConstructionPicture();
             Invalidate();
             args.Handled = true;
@@ -700,7 +746,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         _isSelecting = false;
         _isPointTransformPointerPressed = false;
         _hasSelectionDrag = false;
-        ClearPointTransformObjectSnap();
+        ClearPointTransformSnapState();
         ReleasePointerCapture(args.Pointer);
         Invalidate();
         args.Handled = true;
@@ -715,7 +761,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         Vector2 local = (args.Position - center - _pan) / _zoom;
         _zoom = Math.Clamp(_zoom * factor, 0.00001f, 1_000_000f);
         _pan = args.Position - center - (local * _zoom);
-        ClearPointTransformObjectSnap();
+        ClearPointTransformSnapState();
         RefreshConstructionPicture();
         Invalidate();
         args.Handled = true;
@@ -760,6 +806,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         _isPointTransformPointerPressed = false;
         _hasPointTransformPointerPosition = false;
         _pointTransformObjectSnap = default;
+        _hasPointTransformGridSnap = false;
         PointTransformChanged?.Invoke(
             this,
             new CadPointTransformChangedEventArgs(
@@ -2479,14 +2526,28 @@ public sealed class CadSampleCanvas : FrameworkElement
         _pointTransformPointerPosition = screenPoint;
         _hasPointTransformPointerPosition = true;
         CadDocumentSnapshot? snapshot = CurrentSnapshot;
-        if (snapshot is null || _objectSnapModes == CadObjectSnapModes.None)
+        if (snapshot is null)
         {
             _pointTransformObjectSnap = default;
+            _hasPointTransformGridSnap = false;
             _pointTransformCurrent = screenPoint;
             return;
         }
 
         CadPlanViewport viewport = CreateViewport();
+        CadPoint3D pointerWorld = viewport.ScreenToWorld(screenPoint);
+        _hasPointTransformGridSnap = _planGridSnapSettings.TrySnap(
+            pointerWorld,
+            out _pointTransformGridSnap);
+        _pointTransformCurrent = _hasPointTransformGridSnap
+            ? viewport.WorldToScreen(_pointTransformGridSnap)
+            : screenPoint;
+        if (_objectSnapModes == CadObjectSnapModes.None)
+        {
+            _pointTransformObjectSnap = default;
+            return;
+        }
+
         _pointTransformObjectSnap = CadObjectSnapQuery.Query(
             snapshot,
             viewport,
@@ -2502,15 +2563,40 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             _pointTransformObjectSnap = default;
         }
-        _pointTransformCurrent = _pointTransformObjectSnap.IsSnapped
-            ? viewport.WorldToScreen(_pointTransformObjectSnap.Point)
-            : screenPoint;
+        if (_pointTransformObjectSnap.IsSnapped)
+        {
+            _hasPointTransformGridSnap = false;
+            _pointTransformCurrent =
+                viewport.WorldToScreen(_pointTransformObjectSnap.Point);
+        }
     }
 
-    private void ClearPointTransformObjectSnap()
+    private void ClearPointTransformSnapState()
     {
         _pointTransformObjectSnap = default;
+        _hasPointTransformGridSnap = false;
         _hasPointTransformPointerPosition = false;
+    }
+
+    private void DrawPlanGridSnapMarker(DrawingContext context)
+    {
+        if (!_hasPointTransformGridSnap)
+        {
+            return;
+        }
+
+        Vector2 center = _pointTransformCurrent;
+        float radius = ObjectSnapMarkerRadius * 0.8f;
+        Vector2 horizontal = new(radius, 0.0f);
+        Vector2 vertical = new(0.0f, radius);
+        context.DrawLine(
+            _crossingPen,
+            center - horizontal,
+            center + horizontal);
+        context.DrawLine(
+            _crossingPen,
+            center - vertical,
+            center + vertical);
     }
 
     private void DrawObjectSnapMarker(
@@ -2667,6 +2753,14 @@ public sealed class CadSampleCanvas : FrameworkElement
             return;
         }
 
+        if (_hasPointTransformGridSnap)
+        {
+            CadPoint3D point = _pointTransformGridSnap;
+            Vector2 snappedScreen = _pointTransformCurrent;
+            AcceptPointTransformPoint(point, snappedScreen);
+            return;
+        }
+
         AcceptPointTransformPoint(screenPoint);
     }
 
@@ -2709,7 +2803,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             return;
         }
 
-        ClearPointTransformObjectSnap();
+        ClearPointTransformSnapState();
 
         if (!_hasPointTransformBasePoint)
         {
@@ -2945,6 +3039,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         _pointTransformCurrent = default;
         _pointTransformPointerPosition = default;
         _pointTransformObjectSnap = default;
+        _pointTransformGridSnap = default;
+        _hasPointTransformGridSnap = false;
         _hasPointTransformPointerPosition = false;
         if (notify && operation is CadPointTransformOperation value)
         {

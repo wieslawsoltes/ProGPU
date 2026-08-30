@@ -845,6 +845,7 @@ public sealed class CadDocumentSnapshot
     /// </summary>
     public bool IsPlotOrderCompatible { get; }
     public double GlobalLineTypeScale { get; }
+    public CadPlanGridSnapSettings PlanGridSnapSettings { get; }
     public CadBounds3D Bounds { get; }
     public CadPoint3D RebaseOrigin { get; }
     public CadSnapshotStatistics Statistics { get; }
@@ -931,6 +932,7 @@ public sealed class CadDocumentSnapshot
         bool hasDrawOrderOverrides,
         bool isPlotOrderCompatible,
         double globalLineTypeScale,
+        CadPlanGridSnapSettings planGridSnapSettings,
         CadBounds3D bounds,
         CadSnapshotStatistics statistics,
         CadLayerSnapshot[] layers,
@@ -1009,6 +1011,7 @@ public sealed class CadDocumentSnapshot
         HasDrawOrderOverrides = hasDrawOrderOverrides;
         IsPlotOrderCompatible = isPlotOrderCompatible;
         GlobalLineTypeScale = globalLineTypeScale;
+        PlanGridSnapSettings = planGridSnapSettings;
         Bounds = bounds;
         RebaseOrigin = bounds.Center;
         Statistics = statistics;

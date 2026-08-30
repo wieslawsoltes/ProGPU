@@ -3633,6 +3633,153 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void PointCopyUsesActiveViewportGridForBothPointerStages()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(0, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        VPort active = document.VPorts[VPort.DefaultName];
+        active.SnapOn = true;
+        active.SnapBasePoint = new XY(0.25, -0.5);
+        active.SnapSpacing = new XY(2.0, 3.0);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(canvas, viewport.WorldToScreen(new CadPoint3D(1, 0, 0)));
+            canvas.ObjectSnapModes = CadObjectSnapModes.None;
+            Assert.True(canvas.IsPlanGridSnapEnabled);
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Copy));
+
+            Vector2 basePointer = viewport.WorldToScreen(
+                new CadPoint3D(1.1, 1.2, 0.0));
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = basePointer,
+            });
+
+            Assert.Null(canvas.PendingPointTransformObjectSnap);
+            AssertPoint(
+                new CadPoint3D(0.25, 2.5, 0.0),
+                canvas.PendingPointTransformGridSnap!.Value);
+            var drawing = new DrawingContext();
+            canvas.OnRender(drawing);
+            Assert.True(drawing.Commands.Count(command =>
+                command.Type == RenderCommandType.DrawLine) >= 2);
+            Click(canvas, basePointer);
+            AssertPoint(
+                new CadPoint3D(0.25, 2.5, 0.0),
+                canvas.PendingPointTransformBasePoint!.Value);
+            Assert.Null(canvas.PendingPointTransformGridSnap);
+
+            Vector2 secondPointer = viewport.WorldToScreen(
+                new CadPoint3D(4.3, 5.1, 0.0));
+            Click(canvas, secondPointer);
+
+            Assert.Null(canvas.PendingPointTransformOperation);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Contains(
+                document.Entities.OfType<Line>(),
+                candidate =>
+                    Math.Abs(candidate.StartPoint.X - 4.0) < 1e-10 &&
+                    Math.Abs(candidate.StartPoint.Y - 3.0) < 1e-10 &&
+                    Math.Abs(candidate.EndPoint.X - 6.0) < 1e-10 &&
+                    Math.Abs(candidate.EndPoint.Y - 3.0) < 1e-10);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void ObjectSnapOverridesGridAndTypedCoordinatesBypassBoth()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        VPort active = document.VPorts[VPort.DefaultName];
+        active.SnapOn = true;
+        active.SnapSpacing = new XY(10.0, 10.0);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(canvas, viewport.WorldToScreen(CadPoint3D.Zero));
+            canvas.ObjectSnapModes = CadObjectSnapModes.Endpoint;
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+            Vector2 nearEndpoint =
+                viewport.WorldToScreen(new CadPoint3D(2, 0, 0)) +
+                new Vector2(2, 1);
+
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = nearEndpoint,
+            });
+
+            Assert.Equal(
+                new CadPoint3D(2, 0, 0),
+                canvas.PendingPointTransformObjectSnap!.Value.Point);
+            Assert.Null(canvas.PendingPointTransformGridSnap);
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "1.25,2.75",
+                out string? firstError));
+            Assert.Null(firstError);
+            Assert.Equal(
+                new CadPoint3D(1.25, 2.75, 0.0),
+                canvas.PendingPointTransformBasePoint);
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "@1.5,-0.25",
+                out string? secondError));
+            Assert.Null(secondError);
+
+            AssertPoint(new XYZ(-0.5, -0.25, 0.0), line.StartPoint);
+            AssertPoint(new XYZ(3.5, -0.25, 0.0), line.EndPoint);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewGridToggleMirrorsActiveViewportAndControlsCanvas()
+    {
+        var document = new CadDocument();
+        VPort active = document.VPorts[VPort.DefaultName];
+        active.SnapOn = true;
+        active.SnapSpacing = new XY(2.0, 4.0);
+        var view = new CadSampleView();
+        try
+        {
+            view.Canvas.Load(new CadDocumentSession(document));
+
+            Assert.True(view.PlanGridSnapCheckBox.IsChecked);
+            Assert.True(view.PlanGridSnapCheckBox.IsEnabled);
+            Assert.True(view.Canvas.IsPlanGridSnapEnabled);
+            Assert.Equal(2.0, view.Canvas.PlanGridSnapSettings.SpacingX);
+            Assert.Equal(4.0, view.Canvas.PlanGridSnapSettings.SpacingY);
+
+            view.PlanGridSnapCheckBox.IsChecked = false;
+
+            Assert.False(view.Canvas.IsPlanGridSnapEnabled);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void DisablingObjectSnapPreservesRawPlanPointerPoint()
     {
         var document = new CadDocument();
@@ -4218,6 +4365,13 @@ public sealed class CadSampleSelectionTests
         });
 
     private static void AssertPoint(XYZ expected, XYZ actual)
+    {
+        Assert.Equal(expected.X, actual.X, 10);
+        Assert.Equal(expected.Y, actual.Y, 10);
+        Assert.Equal(expected.Z, actual.Z, 10);
+    }
+
+    private static void AssertPoint(CadPoint3D expected, CadPoint3D actual)
     {
         Assert.Equal(expected.X, actual.X, 10);
         Assert.Equal(expected.Y, actual.Y, 10);

@@ -5001,3 +5001,18 @@ No scene, shader, cache, native ABI, or renderer algorithm changes. Public
 behavior research, clean-room provenance, supported families, complexity,
 parity, tests, and explicit deferred modes are recorded in
 [`PROGPU_CAD_OBJECT_SNAP_RESEARCH.md`](PROGPU_CAD_OBJECT_SNAP_RESEARCH.md).
+
+## Rectangular drafting-grid boundary
+
+The immutable document snapshot now captures SNAPMODE, rectangular/isometric
+style, independent positive X/Y spacing, SNAPBASE, SNAPANG, and the active UCS
+from the authoritative `*ACTIVE` VPORT. Rectangular pointer acquisition is an
+allocation-free O(1) projection/round/reconstruction in the exact WCS grid
+basis and preserves the point component normal to that plane. The shared
+desktop/browser shell applies object-snap-over-grid-over-raw precedence to both
+MOVE/COPY point stages, commits the double-WCS result directly, leaves typed
+coordinate entry exact, and records only a fixed-device transient marker.
+Isometric and polar snap remain explicit, not rectangular approximations. The
+clean-room source record, equations, failure semantics, parity audit, and tests
+are in
+[`PROGPU_CAD_GRID_SNAP_RESEARCH.md`](PROGPU_CAD_GRID_SNAP_RESEARCH.md).

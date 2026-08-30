@@ -61,6 +61,7 @@ public sealed class CadSampleView : Grid
     private readonly Button _moveByPointsButton;
     private readonly Button _copyByPointsButton;
     private readonly ComboBox _objectSnapSelector;
+    private readonly CheckBox _planGridSnapCheckBox;
     private readonly TextBox _pointTransformInput;
     private readonly Button _acceptPointTransformInputButton;
     private readonly Button[] _rotateButtons;
@@ -198,6 +199,8 @@ public sealed class CadSampleView : Grid
     public ComboBox CopyArrayModeSelector => _copyArrayModeSelector;
 
     public ComboBox ObjectSnapSelector => _objectSnapSelector;
+
+    public CheckBox PlanGridSnapCheckBox => _planGridSnapCheckBox;
 
     public TextBox PointTransformInput => _pointTransformInput;
 
@@ -650,6 +653,11 @@ public sealed class CadSampleView : Grid
         });
         _objectSnapSelector.SelectedIndex = 10;
         transformActions.AddChild(_objectSnapSelector);
+        _planGridSnapCheckBox = CreateAttributeModeCheckBox(
+            "Grid snap",
+            font);
+        _planGridSnapCheckBox.IsChecked = _canvas.IsPlanGridSnapEnabled;
+        transformActions.AddChild(_planGridSnapCheckBox);
         transformActions.AddChild(new TextBlock
         {
             Text = "Point / displacement",
@@ -1680,6 +1688,9 @@ public sealed class CadSampleView : Grid
                 _canvas.ObjectSnapModes = modes;
             }
         };
+        _planGridSnapCheckBox.CheckedChanged += (_, _) =>
+            _canvas.IsPlanGridSnapEnabled =
+                _planGridSnapCheckBox.IsChecked;
         _pointTransformInput.TextChanged += (_, _) => UpdateEditControls();
         _pointTransformInput.KeyDown += (_, args) =>
         {
@@ -1723,6 +1734,8 @@ public sealed class CadSampleView : Grid
         };
         _canvas.SnapshotChanged += (_, _) =>
         {
+            _planGridSnapCheckBox.IsChecked =
+                _canvas.IsPlanGridSnapEnabled;
             EnsureLayerMergeSourcesAreCurrent();
             RebuildMesh3DView();
             if (_isPrintPreview)
@@ -1732,6 +1745,7 @@ public sealed class CadSampleView : Grid
             RefreshPageSetups(preserveSelection: true);
             RefreshAttributeDisplayMode();
             RefreshSelectionPropertyControls();
+            UpdateEditControls();
         };
         RebuildMesh3DView();
         RefreshPageSetups(preserveSelection: false);
@@ -3865,10 +3879,10 @@ public sealed class CadSampleView : Grid
         return args.Stage switch
         {
             CadPointTransformStage.AwaitingBasePoint =>
-                $"{operation}: click (running object snap applies) or enter absolute WCS x,y[,z] / distance<angle; Escape cancels.",
+                $"{operation}: click (object snap overrides grid snap) or enter absolute WCS x,y[,z] / distance<angle; Escape cancels.",
             CadPointTransformStage.AwaitingSecondPoint =>
                 $"{operation}: base {FormatPoint(args.BasePoint!.Value)}; " +
-                "click (running object snap applies) or enter an absolute point or relative @dx,dy[,dz] / @distance<angle; Escape cancels.",
+                "click (object snap overrides grid snap) or enter an absolute point or relative @dx,dy[,dz] / @distance<angle; Escape cancels.",
             CadPointTransformStage.Completed when args.ErrorMessage is null =>
                 $"{operation} completed with WCS displacement " +
                 $"{FormatPoint(args.Displacement!.Value)}.",
@@ -4854,6 +4868,10 @@ public sealed class CadSampleView : Grid
         _objectSnapSelector.IsEnabled =
             !_isBusy && !_isPrintPreview && !_is3DView &&
             _canvas.CurrentSnapshot is not null;
+        _planGridSnapCheckBox.IsEnabled =
+            !_isBusy && !_isPrintPreview && !_is3DView &&
+            _canvas.CurrentSnapshot is not null &&
+            _canvas.PlanGridSnapSettings.IsSupported;
         _pointTransformInput.IsEnabled =
             !_isBusy && isPointTransformPicking;
         _acceptPointTransformInputButton.IsEnabled =
