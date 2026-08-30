@@ -43,6 +43,36 @@ public class PathAtlasFillCompilerTests
         AssertOnlyFilledFigure(records, segments, minX, minY, maxX, maxY);
     }
 
+    [Theory]
+    [InlineData(FillRule.Nonzero, 0u)]
+    [InlineData(FillRule.EvenOdd, 1u)]
+    public void PathAtlasCompilerEncodesNativeShaderFillRuleAbi(
+        FillRule fillRule,
+        uint expected)
+    {
+        var path = CreateOpenRectangle();
+        path.FillRule = fillRule;
+
+        var (records, _) = PathAtlas.CompileFillPath(
+            path,
+            out _,
+            out _,
+            out _,
+            out _);
+
+        Assert.Equal(expected, Assert.Single(records).FillRule);
+    }
+
+    [Fact]
+    public void PathAtlasCompilerRejectsInvalidFillRule()
+    {
+        var path = CreateOpenRectangle();
+        path.FillRule = (FillRule)int.MaxValue;
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            PathAtlas.CompileFillPath(path, out _, out _, out _, out _));
+    }
+
     [Fact]
     public void TransitionMaskedIconPreservesAllContoursAndImplicitFillClosures()
     {

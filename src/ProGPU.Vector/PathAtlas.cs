@@ -992,7 +992,7 @@ public unsafe class PathAtlas : IDisposable
             MinY = minY,
             MaxX = maxX,
             MaxY = maxY,
-            FillRule = (uint)path.FillRule
+            FillRule = EncodeGpuFillRule(path.FillRule)
         };
 
         return (records, CopySegments(segments));
@@ -1040,6 +1040,13 @@ public unsafe class PathAtlas : IDisposable
 
         return result;
     }
+
+    private static uint EncodeGpuFillRule(FillRule fillRule) => fillRule switch
+    {
+        FillRule.Nonzero => 0u,
+        FillRule.EvenOdd => 1u,
+        _ => throw new ArgumentOutOfRangeException(nameof(fillRule))
+    };
 
     public bool TryGetCompiledHitTestPath(
         PathGeometry path,
