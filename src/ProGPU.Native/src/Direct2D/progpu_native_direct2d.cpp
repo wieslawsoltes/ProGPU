@@ -2708,8 +2708,9 @@ progpu_native_direct2d_image_brush_set_properties(
     HRESULT hr = reinterpret_cast<IUnknown*>(brush)->QueryInterface(
         IID_PPV_ARGS(&native_brush));
     if (SUCCEEDED(hr)) {
-        native_brush->SetSourceRectangle(
-            to_native_rect(properties->source_rectangle));
+        const D2D1_RECT_F source_rectangle =
+            to_native_rect(properties->source_rectangle);
+        native_brush->SetSourceRectangle(&source_rectangle);
         native_brush->SetExtendModeX(
             static_cast<D2D1_EXTEND_MODE>(properties->extend_mode_x));
         native_brush->SetExtendModeY(
