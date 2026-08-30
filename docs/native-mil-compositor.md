@@ -5104,6 +5104,20 @@ Malformed tags, feature counts, ranges, and COM kinds fail closed. The export
 allowlist grows from 50 to exactly 52 without reflection, text readback, or
 per-feature managed/native calls.
 
+ABI v20 adds the genuine DirectWrite font resource boundary required by WPF's
+already-shaped glyph runs. The typed provider resolves a system face as an
+`IDWriteFontFaceReference`, creates `IDWriteFontFace5`, and submits pinned
+glyph-index, optional advance, and optional offset spans through
+`ID2D1DeviceContext::DrawGlyphRun` in either surface or command-list draw
+transactions. The operation neither reshapes text nor copies/readbacks pixels,
+and rejects mismatched spans, non-finite state, invalid bidi levels, wrong COM
+kinds, oversized runs, and inactive draws. Official Win2D `CanvasFontFace`
+wrapping follows its documented device-independent
+`IDWriteFontFaceReference` mapping and must preserve exact COM identity. The
+allowlist grows from 52 to exactly 55 exports. This is the native MIL text seam
+used before adding the color-glyph enumerator/paint-tree layers; it does not
+replace the portable cross-platform glyph DTO path.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

@@ -70,6 +70,10 @@ static_assert(
     sizeof(progpu_native_direct2d_size_f) == sizeof(D2D1_SIZE_F),
     "Direct2D portable size layout changed");
 static_assert(
+    sizeof(progpu_native_direct2d_glyph_offset) ==
+        sizeof(DWRITE_GLYPH_OFFSET),
+    "DirectWrite portable glyph-offset layout changed");
+static_assert(
     sizeof(uint16_t) == sizeof(wchar_t),
     "The Windows DirectWrite ABI requires 16-bit wchar_t");
 
@@ -239,6 +243,18 @@ bool is_valid_text_format(
             PROGPU_NATIVE_DIRECT2D_FLOW_DIRECTION_RIGHT_TO_LEFT &&
         std::isfinite(properties.incremental_tab_stop) &&
         properties.incremental_tab_stop >= 0.0F;
+}
+
+bool is_valid_font_face(
+    const progpu_native_direct2d_font_face_properties& properties)
+{
+    return properties.struct_size == sizeof(properties) &&
+        properties.font_weight >= 1U && properties.font_weight <= 999U &&
+        properties.font_style <= PROGPU_NATIVE_DIRECT2D_FONT_STYLE_ITALIC &&
+        properties.font_stretch >=
+            PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_ULTRA_CONDENSED &&
+        properties.font_stretch <=
+            PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_ULTRA_EXPANDED;
 }
 
 bool is_valid_text_range_format(
@@ -834,11 +850,14 @@ HRESULT create_win2d_wrapper(
     ComPtr<IDWriteTextLayout> text_layout;
     ComPtr<IDWriteTextFormat> text_format;
     ComPtr<IDWriteTypography> typography;
+    ComPtr<IDWriteFontFaceReference> font_face_reference;
     bool is_text_layout = SUCCEEDED(
         native_resource->QueryInterface(IID_PPV_ARGS(&text_layout)));
     bool device_independent = !is_text_layout &&
         (SUCCEEDED(native_resource->QueryInterface(IID_PPV_ARGS(&text_format))) ||
-         SUCCEEDED(native_resource->QueryInterface(IID_PPV_ARGS(&typography))));
+         SUCCEEDED(native_resource->QueryInterface(IID_PPV_ARGS(&typography))) ||
+         SUCCEEDED(native_resource->QueryInterface(
+             IID_PPV_ARGS(&font_face_reference))));
     HRESULT hr = device_independent
         ? get_win2d_factory(surface)
         : create_win2d_canvas_device(surface);
@@ -869,7 +888,8 @@ HRESULT get_win2d_wrapper_native_resource(
     bool device_independent =
         IsEqualIID(interface_id, __uuidof(IDWriteTextFormat)) ||
         IsEqualIID(interface_id, __uuidof(IDWriteTextFormat1)) ||
-        IsEqualIID(interface_id, __uuidof(IDWriteTypography));
+        IsEqualIID(interface_id, __uuidof(IDWriteTypography)) ||
+        IsEqualIID(interface_id, __uuidof(IDWriteFontFaceReference));
     HRESULT hr = device_independent
         ? get_win2d_factory(surface)
         : create_win2d_canvas_device(surface);
@@ -2474,6 +2494,209 @@ progpu_native_direct2d_text_layout_set_typography(
     if (SUCCEEDED(hr)) {
         const DWRITE_TEXT_RANGE range = {range_start, range_length};
         hr = layout->SetTypography(native_typography.Get(), range);
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_system_font_face_reference(
+    progpu_native_direct2d_surface* surface,
+    const uint16_t* font_family,
+    uint32_t font_family_length,
+    const progpu_native_direct2d_font_face_properties* properties,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || font_family == nullptr ||
+        font_family_length == 0U || contains_null(font_family, font_family_length) ||
+        properties == nullptr || !is_valid_font_face(*properties) ||
+        value == nullptr || native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    try {
+        const std::wstring family_name(
+            reinterpret_cast<const wchar_t*>(font_family),
+            font_family_length);
+        std::scoped_lock lock(surface->access_mutex);
+        ComPtr<IDWriteFactory> base_factory;
+        HRESULT hr = surface->dwrite_factory.As(&base_factory);
+        ComPtr<IDWriteFontCollection> collection;
+        if (SUCCEEDED(hr)) {
+            hr = base_factory->GetSystemFontCollection(&collection, FALSE);
+        }
+        UINT32 family_index = 0U;
+        BOOL family_exists = FALSE;
+        if (SUCCEEDED(hr)) {
+            hr = collection->FindFamilyName(
+                family_name.c_str(),
+                &family_index,
+                &family_exists);
+        }
+        if (SUCCEEDED(hr) && family_exists == FALSE) {
+            hr = DWRITE_E_NOFONT;
+        }
+        ComPtr<IDWriteFontFamily> family;
+        if (SUCCEEDED(hr)) {
+            hr = collection->GetFontFamily(family_index, &family);
+        }
+        ComPtr<IDWriteFont> font;
+        if (SUCCEEDED(hr)) {
+            hr = family->GetFirstMatchingFont(
+                static_cast<DWRITE_FONT_WEIGHT>(properties->font_weight),
+                static_cast<DWRITE_FONT_STRETCH>(properties->font_stretch),
+                static_cast<DWRITE_FONT_STYLE>(properties->font_style),
+                &font);
+        }
+        ComPtr<IDWriteFont3> font3;
+        if (SUCCEEDED(hr)) {
+            hr = font.As(&font3);
+        }
+        ComPtr<IDWriteFontFaceReference> reference;
+        if (SUCCEEDED(hr)) {
+            hr = font3->GetFontFaceReference(&reference);
+        }
+        surface->last_hresult.store(hr, std::memory_order_release);
+        *native_hresult = hr;
+        if (FAILED(hr)) {
+            return status_from_win2d_hresult(hr);
+        }
+        return return_interface(reference, value);
+    } catch (const std::bad_alloc&) {
+        std::scoped_lock lock(surface->access_mutex);
+        surface->last_hresult.store(E_OUTOFMEMORY, std::memory_order_release);
+        *native_hresult = E_OUTOFMEMORY;
+        return PROGPU_NATIVE_DIRECT2D_STATUS_OUT_OF_MEMORY;
+    }
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_font_face_reference_create_font_face(
+    progpu_native_direct2d_surface* surface,
+    void* font_face_reference,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || font_face_reference == nullptr ||
+        value == nullptr || native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<IDWriteFontFaceReference> reference;
+    HRESULT hr = reinterpret_cast<IUnknown*>(font_face_reference)->QueryInterface(
+        IID_PPV_ARGS(&reference));
+    ComPtr<IDWriteFontFace3> face3;
+    if (SUCCEEDED(hr)) {
+        hr = reference->CreateFontFace(&face3);
+    }
+    ComPtr<IDWriteFontFace5> face5;
+    if (SUCCEEDED(hr)) {
+        hr = face3.As(&face5);
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(face5, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_glyph_run(
+    progpu_native_direct2d_surface* surface,
+    float baseline_origin_x,
+    float baseline_origin_y,
+    float font_em_size,
+    void* font_face,
+    const uint16_t* glyph_indices,
+    uint32_t glyph_count,
+    const float* glyph_advances,
+    uint32_t glyph_advance_count,
+    const progpu_native_direct2d_glyph_offset* glyph_offsets,
+    uint32_t glyph_offset_count,
+    uint32_t is_sideways,
+    uint32_t bidi_level,
+    void* foreground_brush,
+    progpu_native_direct2d_measuring_mode measuring_mode,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    constexpr uint32_t maximum_glyph_count = 1U << 20U;
+    if (surface == nullptr || !std::isfinite(baseline_origin_x) ||
+        !std::isfinite(baseline_origin_y) || !std::isfinite(font_em_size) ||
+        font_em_size <= 0.0F || font_face == nullptr ||
+        glyph_indices == nullptr || glyph_count == 0U ||
+        glyph_count > maximum_glyph_count ||
+        (glyph_advances == nullptr
+            ? glyph_advance_count != 0U
+            : glyph_advance_count != glyph_count) ||
+        (glyph_offsets == nullptr
+            ? glyph_offset_count != 0U
+            : glyph_offset_count != glyph_count) ||
+        is_sideways > 1U || bidi_level > 125U ||
+        foreground_brush == nullptr || !is_valid(measuring_mode) ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    for (uint32_t index = 0U; index < glyph_advance_count; ++index) {
+        if (!std::isfinite(glyph_advances[index])) {
+            return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+        }
+    }
+    for (uint32_t index = 0U; index < glyph_offset_count; ++index) {
+        if (!std::isfinite(glyph_offsets[index].advance_offset) ||
+            !std::isfinite(glyph_offsets[index].ascender_offset)) {
+            return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+        }
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<IDWriteFontFace> face;
+    HRESULT hr = reinterpret_cast<IUnknown*>(font_face)->QueryInterface(
+        IID_PPV_ARGS(&face));
+    ComPtr<ID2D1Brush> brush;
+    if (SUCCEEDED(hr)) {
+        hr = reinterpret_cast<IUnknown*>(foreground_brush)->QueryInterface(
+            IID_PPV_ARGS(&brush));
+    }
+    if (SUCCEEDED(hr)) {
+        const DWRITE_GLYPH_RUN run = {
+            face.Get(),
+            font_em_size,
+            glyph_count,
+            glyph_indices,
+            glyph_advances,
+            reinterpret_cast<const DWRITE_GLYPH_OFFSET*>(glyph_offsets),
+            is_sideways != 0U,
+            bidi_level};
+        surface->d2d_context->DrawGlyphRun(
+            D2D1::Point2F(baseline_origin_x, baseline_origin_y),
+            &run,
+            nullptr,
+            brush.Get(),
+            static_cast<DWRITE_MEASURING_MODE>(measuring_mode));
     }
     surface->last_hresult.store(hr, std::memory_order_release);
     *native_hresult = hr;

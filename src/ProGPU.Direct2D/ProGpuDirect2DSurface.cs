@@ -57,6 +57,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
         new("05A9BF42-223F-4441-B5FB-8263685F55E9");
     private static readonly Guid DWriteTypographyInterfaceId =
         new("55F1112B-1DC2-4B3C-9541-F46894ED85B6");
+    private static readonly Guid DWriteFontFaceReferenceInterfaceId =
+        new("5E7FA7CA-DDE3-424C-89F0-9FCD6FED58CD");
 
     private readonly object _gate = new();
     private readonly DawnGpuContext _dawn;
@@ -1266,6 +1268,123 @@ public sealed unsafe class ProGpuDirect2DSurface :
     }
 
     /// <summary>
+    /// Resolves one installed system family and returns a genuine,
+    /// device-independent IDWriteFontFaceReference. The family span is
+    /// consumed synchronously and is not retained.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateSystemFontFaceReference(
+        ReadOnlySpan<char> fontFamily) =>
+        CreateSystemFontFaceReference(
+            fontFamily,
+            new ProGpuDirect2DFontFaceProperties(
+                400U,
+                ProGpuDirect2DFontStyle.Normal,
+                ProGpuDirect2DFontStretch.Normal));
+
+    public ProGpuDirect2DComReference CreateSystemFontFaceReference(
+        ReadOnlySpan<char> fontFamily,
+        ProGpuDirect2DFontFaceProperties properties)
+    {
+        if (fontFamily.IsEmpty)
+        {
+            throw new ArgumentException(
+                "A DirectWrite system font family is required.",
+                nameof(fontFamily));
+        }
+        if (fontFamily.Contains('\0'))
+        {
+            throw new ArgumentException(
+                "A DirectWrite system font family cannot contain an embedded NUL.",
+                nameof(fontFamily));
+        }
+        ValidateFontFaceProperties(properties);
+        ProGpuDirect2DNative.NativeFontFaceProperties nativeProperties =
+            new()
+            {
+                StructSize = (uint)Unsafe.SizeOf<
+                    ProGpuDirect2DNative.NativeFontFaceProperties>(),
+                FontWeight = properties.FontWeight,
+                FontStyle = properties.FontStyle,
+                FontStretch = properties.FontStretch
+            };
+        fixed (char* familyPointer = fontFamily)
+        {
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status = ProGpuDirect2DNative
+                    .SurfaceCreateSystemFontFaceReference(
+                        _nativeSurface,
+                        familyPointer,
+                        checked((uint)fontFamily.Length),
+                        &nativeProperties,
+                        &value,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "IDWriteFontFaceReference system-font resolution",
+                    status,
+                    nativeHResult);
+                return CreateRequiredComReference(
+                    value,
+                    ProGpuDirect2DInterfaceKind.DWriteFontFaceReference,
+                    "IDWriteFontFaceReference system-font resolution");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Creates a genuine IDWriteFontFace5 used by shaped glyph-run drawing
+    /// from a caller-owned IDWriteFontFaceReference.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateFontFace(
+        ProGpuDirect2DComReference fontFaceReference)
+    {
+        ArgumentNullException.ThrowIfNull(fontFaceReference);
+        if (fontFaceReference.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.DWriteFontFaceReference)
+        {
+            throw new ArgumentException(
+                "The COM reference must own an IDWriteFontFaceReference.",
+                nameof(fontFaceReference));
+        }
+
+        bool referenceAdded = false;
+        try
+        {
+            fontFaceReference.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status = ProGpuDirect2DNative
+                    .FontFaceReferenceCreateFontFace(
+                        _nativeSurface,
+                        fontFaceReference.DangerousGetHandle(),
+                        &value,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "IDWriteFontFace5 creation",
+                    status,
+                    nativeHResult);
+                return CreateRequiredComReference(
+                    value,
+                    ProGpuDirect2DInterfaceKind.DWriteFontFace5,
+                    "IDWriteFontFace5 creation");
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                fontFaceReference.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
     /// Applies one genuine IDWriteTypography to a nonempty UTF-16 range in a
     /// retained IDWriteTextLayout4.
     /// </summary>
@@ -1496,6 +1615,119 @@ public sealed unsafe class ProGpuDirect2DSurface :
             if (layoutReferenceAdded)
             {
                 textLayout.DangerousRelease();
+            }
+        }
+    }
+
+    internal void DrawGlyphRun(
+        Vector2 baselineOrigin,
+        float fontEmSize,
+        ProGpuDirect2DComReference fontFace,
+        ReadOnlySpan<ushort> glyphIndices,
+        ReadOnlySpan<float> glyphAdvances,
+        ReadOnlySpan<ProGpuDirect2DGlyphOffset> glyphOffsets,
+        ProGpuDirect2DComReference foregroundBrush,
+        bool isSideways,
+        uint bidiLevel,
+        ProGpuDirect2DMeasuringMode measuringMode)
+    {
+        ArgumentNullException.ThrowIfNull(fontFace);
+        ArgumentNullException.ThrowIfNull(foregroundBrush);
+        if (fontFace.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.DWriteFontFace5)
+        {
+            throw new ArgumentException(
+                "The COM reference must own an IDWriteFontFace5.",
+                nameof(fontFace));
+        }
+        if (!IsBrushKind(foregroundBrush.InterfaceKind))
+        {
+            throw new ArgumentException(
+                "The COM reference must own a Direct2D brush.",
+                nameof(foregroundBrush));
+        }
+        if (!float.IsFinite(baselineOrigin.X) ||
+            !float.IsFinite(baselineOrigin.Y) ||
+            !float.IsFinite(fontEmSize) || fontEmSize <= 0.0F ||
+            glyphIndices.IsEmpty || glyphIndices.Length > 1 << 20 ||
+            !glyphAdvances.IsEmpty &&
+                glyphAdvances.Length != glyphIndices.Length ||
+            !glyphOffsets.IsEmpty && glyphOffsets.Length != glyphIndices.Length ||
+            bidiLevel > 125U ||
+            measuringMode > ProGpuDirect2DMeasuringMode.GdiNatural)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(glyphIndices),
+                "The DirectWrite glyph run contains invalid bounds, counts, bidi state, or measuring mode.");
+        }
+        foreach (float advance in glyphAdvances)
+        {
+            if (!float.IsFinite(advance))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(glyphAdvances),
+                    "DirectWrite glyph advances must be finite.");
+            }
+        }
+        foreach (ProGpuDirect2DGlyphOffset offset in glyphOffsets)
+        {
+            if (!float.IsFinite(offset.AdvanceOffset) ||
+                !float.IsFinite(offset.AscenderOffset))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(glyphOffsets),
+                    "DirectWrite glyph offsets must be finite.");
+            }
+        }
+
+        bool faceReferenceAdded = false;
+        bool brushReferenceAdded = false;
+        try
+        {
+            fontFace.DangerousAddRef(ref faceReferenceAdded);
+            foregroundBrush.DangerousAddRef(ref brushReferenceAdded);
+            fixed (ushort* indicesPointer = glyphIndices)
+            fixed (float* advancesPointer = glyphAdvances)
+            fixed (ProGpuDirect2DGlyphOffset* offsetsPointer = glyphOffsets)
+            {
+                lock (_gate)
+                {
+                    ValidateTypedDrawingProducer();
+                    int nativeHResult = 0;
+                    ProGpuDirect2DStatus status = ProGpuDirect2DNative
+                        .SurfaceDrawGlyphRun(
+                            _nativeSurface,
+                            baselineOrigin.X,
+                            baselineOrigin.Y,
+                            fontEmSize,
+                            fontFace.DangerousGetHandle(),
+                            indicesPointer,
+                            checked((uint)glyphIndices.Length),
+                            advancesPointer,
+                            checked((uint)glyphAdvances.Length),
+                            offsetsPointer,
+                            checked((uint)glyphOffsets.Length),
+                            isSideways ? 1U : 0U,
+                            bidiLevel,
+                            foregroundBrush.DangerousGetHandle(),
+                            measuringMode,
+                            &nativeHResult);
+                    ThrowIfFailed(
+                        "ID2D1DeviceContext DrawGlyphRun",
+                        status,
+                        nativeHResult);
+                }
+            }
+        }
+        finally
+        {
+            if (brushReferenceAdded)
+            {
+                foregroundBrush.DangerousRelease();
+            }
+            if (faceReferenceAdded)
+            {
+                fontFace.DangerousRelease();
             }
         }
     }
@@ -2392,6 +2624,39 @@ public sealed unsafe class ProGpuDirect2DSurface :
             ProGpuDirect2DInterfaceKind.DWriteTypography,
             "Microsoft Win2D CanvasTypography native-resource query",
             out nativeTypography,
+            out nativeHResult);
+
+    /// <summary>
+    /// Wraps a provider-created device-independent IDWriteFontFaceReference as
+    /// a genuine Microsoft Win2D CanvasFontFace.
+    /// </summary>
+    public bool TryAcquireMicrosoftWin2DFontFace(
+        ProGpuDirect2DComReference nativeFontFaceReference,
+        out ProGpuDirect2DComReference? canvasFontFace,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapper(
+            nativeFontFaceReference,
+            ProGpuDirect2DInterfaceKind.DWriteFontFaceReference,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasFontFace,
+            "Microsoft Win2D CanvasFontFace wrapping",
+            out canvasFontFace,
+            out nativeHResult);
+
+    /// <summary>
+    /// Reverse-unwraps a genuine Microsoft Win2D CanvasFontFace and returns
+    /// its exact IDWriteFontFaceReference with one caller-owned COM reference.
+    /// </summary>
+    public bool TryAcquireMicrosoftWin2DNativeFontFaceReference(
+        ProGpuDirect2DComReference canvasFontFace,
+        out ProGpuDirect2DComReference? nativeFontFaceReference,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapperNativeResource(
+            canvasFontFace,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasFontFace,
+            DWriteFontFaceReferenceInterfaceId,
+            ProGpuDirect2DInterfaceKind.DWriteFontFaceReference,
+            "Microsoft Win2D CanvasFontFace native-resource query",
+            out nativeFontFaceReference,
             out nativeHResult);
 
     private ProGpuDirect2DComReference CreateGradientBrush(
@@ -3411,6 +3676,22 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    private static void ValidateFontFaceProperties(
+        ProGpuDirect2DFontFaceProperties properties)
+    {
+        if (properties.FontWeight < 1U || properties.FontWeight > 999U ||
+            properties.FontStyle > ProGpuDirect2DFontStyle.Italic ||
+            properties.FontStretch <
+                ProGpuDirect2DFontStretch.UltraCondensed ||
+            properties.FontStretch >
+                ProGpuDirect2DFontStretch.UltraExpanded)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(properties),
+                "DirectWrite font-face matching state contains an invalid value.");
+        }
+    }
+
     private static void ValidateTextRangeFormat(
         uint rangeStart,
         uint rangeLength,
@@ -4012,6 +4293,32 @@ public sealed class ProGpuDirect2DDrawingSession : IDisposable
             defaultFillBrush,
             options);
 
+    public void DrawGlyphRun(
+        Vector2 baselineOrigin,
+        float fontEmSize,
+        ProGpuDirect2DComReference fontFace,
+        ReadOnlySpan<ushort> glyphIndices,
+        ReadOnlySpan<float> glyphAdvances,
+        ReadOnlySpan<ProGpuDirect2DGlyphOffset> glyphOffsets,
+        ProGpuDirect2DComReference foregroundBrush,
+        bool isSideways = false,
+        uint bidiLevel = 0U,
+        ProGpuDirect2DMeasuringMode measuringMode =
+            ProGpuDirect2DMeasuringMode.Natural) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .DrawGlyphRun(
+            baselineOrigin,
+            fontEmSize,
+            fontFace,
+            glyphIndices,
+            glyphAdvances,
+            glyphOffsets,
+            foregroundBrush,
+            isSideways,
+            bidiLevel,
+            measuringMode);
+
     public void Dispose()
     {
         ProGpuDirect2DSurface? owner =
@@ -4118,6 +4425,32 @@ public sealed class ProGpuDirect2DCommandListDrawingSession : IDisposable
             textLayout,
             defaultFillBrush,
             options);
+
+    public void DrawGlyphRun(
+        Vector2 baselineOrigin,
+        float fontEmSize,
+        ProGpuDirect2DComReference fontFace,
+        ReadOnlySpan<ushort> glyphIndices,
+        ReadOnlySpan<float> glyphAdvances,
+        ReadOnlySpan<ProGpuDirect2DGlyphOffset> glyphOffsets,
+        ProGpuDirect2DComReference foregroundBrush,
+        bool isSideways = false,
+        uint bidiLevel = 0U,
+        ProGpuDirect2DMeasuringMode measuringMode =
+            ProGpuDirect2DMeasuringMode.Natural) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .DrawGlyphRun(
+            baselineOrigin,
+            fontEmSize,
+            fontFace,
+            glyphIndices,
+            glyphAdvances,
+            glyphOffsets,
+            foregroundBrush,
+            isSideways,
+            bidiLevel,
+            measuringMode);
 
     public void Dispose()
     {

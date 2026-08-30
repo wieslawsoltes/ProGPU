@@ -929,6 +929,84 @@ internal static partial class Program
                         "Win2D CanvasTypography did not preserve ProGPU's IDWriteTypography identity.");
                 }
             }
+
+            using ProGpuDirect2DComReference nativeFontFaceReference =
+                surface.CreateSystemFontFaceReference(
+                    "Segoe UI".AsSpan(),
+                    new ProGpuDirect2DFontFaceProperties(
+                        600U,
+                        ProGpuDirect2DFontStyle.Normal,
+                        ProGpuDirect2DFontStretch.Normal));
+            using ProGpuDirect2DComReference nativeFontFace =
+                surface.CreateFontFace(nativeFontFaceReference);
+            if (!surface.TryAcquireMicrosoftWin2DFontFace(
+                    nativeFontFaceReference,
+                    out ProGpuDirect2DComReference? wrappedFontFace,
+                    out int wrappedFontFaceHResult) ||
+                wrappedFontFace is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasFontFace wrapping failed (0x{wrappedFontFaceHResult:X8}).");
+            }
+            using ProGpuDirect2DComReference canvasFontFaceReference =
+                wrappedFontFace;
+            if (!surface.TryAcquireMicrosoftWin2DNativeFontFaceReference(
+                    canvasFontFaceReference,
+                    out ProGpuDirect2DComReference? unwrappedFontFaceReference,
+                    out int unwrappedFontFaceHResult) ||
+                unwrappedFontFaceReference is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasFontFace native-resource interop failed (0x{unwrappedFontFaceHResult:X8}).");
+            }
+            using (unwrappedFontFaceReference)
+            {
+                if (!HasSameComIdentity(
+                        nativeFontFaceReference,
+                        unwrappedFontFaceReference))
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasFontFace did not preserve ProGPU's IDWriteFontFaceReference identity.");
+                }
+            }
+            using CanvasFontFace canvasFontFace = CanvasFontFace.FromAbi(
+                canvasFontFaceReference.DangerousGetHandle());
+            int[] projectedGlyphIndices =
+                canvasFontFace.GetGlyphIndices([(uint)'A', (uint)'B']);
+            if (projectedGlyphIndices.Length != 2 ||
+                projectedGlyphIndices[0] <= 0 || projectedGlyphIndices[1] <= 0 ||
+                projectedGlyphIndices[0] > ushort.MaxValue ||
+                projectedGlyphIndices[1] > ushort.MaxValue)
+            {
+                throw new InvalidOperationException(
+                    "Win2D CanvasFontFace returned invalid validation glyph indices.");
+            }
+            Span<ushort> nativeGlyphIndices =
+            [
+                checked((ushort)projectedGlyphIndices[0]),
+                checked((ushort)projectedGlyphIndices[1])
+            ];
+            ReadOnlySpan<float> nativeGlyphAdvances = [12.0F, 12.0F];
+            ReadOnlySpan<ProGpuDirect2DGlyphOffset> nativeGlyphOffsets =
+            [
+                new(0.0F, 0.0F),
+                new(0.5F, 0.0F)
+            ];
+            using ProGpuDirect2DComReference nativeGlyphCommandList =
+                surface.CreateCommandList();
+            using (ProGpuDirect2DCommandListDrawingSession glyphSession =
+                surface.BeginCommandListDrawing(nativeGlyphCommandList))
+            {
+                glyphSession.DrawGlyphRun(
+                    new Vector2(2.0F, 16.0F),
+                    13.0F,
+                    nativeFontFace,
+                    nativeGlyphIndices,
+                    nativeGlyphAdvances,
+                    nativeGlyphOffsets,
+                    nativeSolidColorBrush);
+            }
+            WriteProgress("font-face-roundtrip-native-glyph-draw-complete");
             using ProGpuDirect2DComReference nativeTextLayoutCommandList =
                 surface.CreateCommandList();
             using (ProGpuDirect2DCommandListDrawingSession textLayoutSession =
