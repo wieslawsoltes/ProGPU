@@ -547,6 +547,7 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("FallbackResultDirectoryName", program, StringComparison.Ordinal);
         Assert.Contains("WriteProgress(\"geometry-created\")", program, StringComparison.Ordinal);
         Assert.Contains("$ProgressPath", gate, StringComparison.Ordinal);
+        Assert.Contains("artifacts/direct2d-win2d", gate, StringComparison.Ordinal);
         Assert.DoesNotContain("New-SelfSignedCertificate", gate, StringComparison.Ordinal);
         Assert.DoesNotContain("Export-PfxCertificate", gate, StringComparison.Ordinal);
         Assert.DoesNotContain("RootStore.Add", gate, StringComparison.Ordinal);
