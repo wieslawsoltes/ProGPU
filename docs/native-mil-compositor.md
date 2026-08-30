@@ -4878,7 +4878,7 @@ boundary, not a fake `d2d1.dll` or a partial COM vtable implementation. COM
 pointers remain confined to the Windows header and process. The portable MIL
 packet retains zero pointers and zero event handles.
 
-ABI v6 and package `ProGPU.Direct2D` bind that producer lifecycle to Dawn's
+ABI v7 and package `ProGPU.Direct2D` bind that producer lifecycle to Dawn's
 same-adapter shared-texture import. `ProGpuDirect2DSurface` owns the native
 surface through Dawn, implements `IProGpuContextTextureLeaseSource`, and
 publishes `TextureChanged` only after one transactional native
@@ -4915,6 +4915,15 @@ the provider supplies the cached CanvasDevice and target DPI rather than asking
 managed callers to compose raw COM arguments. Canonical `IUnknown` comparison
 proves both returned resources are the original provider objects, so wrapping
 does not introduce a second Direct2D domain or copy.
+
+ABI v7 adds genuine device-context-domain `ID2D1SolidColorBrush` creation and
+reusable native device-domain Win2D wrap/unwrap operations. Public managed
+methods keep the raw generic seam internal, enforce solid-brush handle kinds,
+and protect each borrowed pointer with `DangerousAddRef`. The official Win2D
+projection returns a real `CanvasSolidColorBrush`; reverse unwrapping preserves
+the original brush's canonical `IUnknown` identity, and the packaged oracle
+uses the projected brush in an actual `CanvasDrawingSession.FillRectangle`
+call rather than validating metadata alone.
 
 Dawn ownership transitions run outside the Direct2D provider state lock. This
 preserves one lock order when a render submission already owns the WebGPU
@@ -4974,6 +4983,18 @@ both native device and bitmap identity matches as true, while preserving the
 transparent corner, center ARGB `(255,32,96,192)`, content version `0 -> 1`,
 and `Dawn D3D12` evidence. Broader Win2D resource families must pass this same
 forward-wrap/reverse-unwrap identity gate.
+
+ABI v7 at exact ProGPU `4f5e614f` was independently rebuilt in the same guest
+with MSVC 19.44, Windows SDK 26100, and `/W4 /WX`. The native regression exits
+zero and the exact 18-export audit passes. SHA-256 is
+`6c35ac88938fbdc483b6a932d1180a1fd041ead3097c4ef51bce2b31ad5e301c`
+for the DLL and
+`edb201be9ab6f1783d679bcafd8872c3f5c1495bcc9b8738c3235b5177f44d42`
+for its test executable. The signed official-Win2D 1.4.0 package gate reports
+the real `Microsoft.Graphics.Canvas.Brushes.CanvasSolidColorBrush` type,
+exact native solid-brush identity, exact brush and center ARGB
+`(255,224,48,96)`, a transparent corner, content version `0 -> 1`, and
+`Dawn D3D12`. Device and bitmap identity remain exact in the same run.
 
 ## Managed glyph row-reuse SIMD checkpoint
 
