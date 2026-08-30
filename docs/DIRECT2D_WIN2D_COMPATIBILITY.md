@@ -800,6 +800,20 @@ compile/link succeeds, the focused Direct2D regression passes in 0.14 seconds,
 all 11 native suites pass in 1.02 seconds, and the successful Windows build
 accepts the exact 110-export allowlist.
 
+ABI v30 completes mutable bitmap/image-brush resource state. Typed methods
+set/query bitmap-brush extend and interpolation modes, image-brush source
+rectangle/extend/interpolation state, and nullable bitmap/image bindings.
+Resource queries return caller-owned genuine interfaces; native coverage proves
+canonical COM identity after detach/rebind and exact null state. Managed code
+keeps both brush and optional source handles alive, requires the same resource
+generation and concrete kind, and native code independently uses
+`QueryInterface` for creation and mutation instead of pointer reinterpretation.
+No pixel copy, readback, repack, reflection, or managed command allocation is
+introduced. The regression restores all properties and bindings before the
+existing rendering/Win2D oracles. The allowlist grows from 110 to exactly 118
+exports; managed contracts pass 5/5 and the package builds with zero warnings.
+Windows qualification is pending checkpoint `96735d95`.
+
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
