@@ -20,6 +20,7 @@ public sealed class SilkWindowController : IDisposable
 
     public bool IsAttached => _platform != null;
     public NativeWindowHandle Handle => _platform?.Handle ?? ResolvePendingHandle();
+    public bool IsEnabled => _state.Enabled;
     public NativeWindowCapabilities Capabilities =>
         _platform?.Capabilities ?? NativeWindowCapabilities.ForKind(Handle.Kind);
     public bool IsClientAreaExtended =>

@@ -2,6 +2,7 @@
   <Project Path="SkiaSharp/SkiaSharp.csproj" />
   <Project Path="ProGPU.Transpiler/ProGPU.Transpiler.csproj" />
   <Project Path="ProGPU.Backend/ProGPU.Backend.csproj" />
+  <Project Path="ProGPU.Backend.Tests/ProGPU.Backend.Tests.csproj" />
   <Project Path="ProGPU.Backend.Native/ProGPU.Backend.Native.csproj" />
   <Project Path="ProGPU.Backend.Dawn/ProGPU.Backend.Dawn.csproj" />
   <Project Path="ProGPU.Media/ProGPU.Media.csproj" />
