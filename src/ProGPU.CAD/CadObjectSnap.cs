@@ -14,6 +14,7 @@ public enum CadObjectSnapModes : ushort
     Quadrant = 1 << 4,
     Intersection = 1 << 5,
     Perpendicular = 1 << 7,
+    Tangent = 1 << 8,
     Nearest = 1 << 9,
     Standard = Endpoint | Midpoint | Center | Node | Intersection | Quadrant,
 }
@@ -30,6 +31,7 @@ public enum CadObjectSnapKind : byte
     Intersection = 6,
     Nearest = 7,
     Perpendicular = 8,
+    Tangent = 9,
 }
 
 /// <summary>
@@ -112,12 +114,12 @@ public static partial class CadObjectSnapQuery
     /// sorts caller scratch in O(K log K), tests at most B entity pairs and C
     /// analytic component pairs. Other candidate evaluation is O(P) for P
     /// exact snap points. B and C are the corresponding public maximums above.
-    /// Nearest and reference-aware Perpendicular modes perform exact
-    /// segment/span stationary-point work S. Internal storage is O(1) plus
-    /// caller-owned entity-index scratch. Equal device distances prefer
-    /// Intersection, Endpoint, Midpoint, Center, Quadrant, Node,
-    /// Perpendicular, then Nearest, followed by retained entity order, second
-    /// entity order, and point ordinal.
+    /// Nearest, reference-aware Perpendicular, and reference-aware Tangent
+    /// modes perform exact segment/span polynomial-root work S. Internal
+    /// storage is O(1) plus caller-owned entity-index scratch. Equal device
+    /// distances prefer Intersection, Endpoint, Midpoint, Center, Quadrant,
+    /// Node, Perpendicular, Tangent, then Nearest, followed by retained entity
+    /// order, second entity order, and point ordinal.
     /// </remarks>
     public static CadObjectSnapResult Query(
         CadDocumentSnapshot snapshot,
@@ -143,6 +145,7 @@ public static partial class CadObjectSnapQuery
         }
         if ((modes & ~(CadObjectSnapModes.Standard |
                        CadObjectSnapModes.Perpendicular |
+                       CadObjectSnapModes.Tangent |
                        CadObjectSnapModes.Nearest)) != 0)
         {
             throw new ArgumentOutOfRangeException(nameof(modes));
@@ -180,6 +183,9 @@ public static partial class CadObjectSnapQuery
         bool evaluatePerpendicular =
             (modes & CadObjectSnapModes.Perpendicular) != 0 &&
             referencePoint.HasValue;
+        bool evaluateTangent =
+            (modes & CadObjectSnapModes.Tangent) != 0 &&
+            referencePoint.HasValue;
         if ((modes & (CadObjectSnapModes.Intersection |
                       CadObjectSnapModes.Nearest)) != 0 ||
             evaluatePerpendicular)
@@ -206,6 +212,7 @@ public static partial class CadObjectSnapQuery
         ReadOnlySpan<CadEntityHeader> entities = snapshot.Entities.Span;
         if ((modes & ~(CadObjectSnapModes.Intersection |
                        CadObjectSnapModes.Perpendicular |
+                       CadObjectSnapModes.Tangent |
                        CadObjectSnapModes.Nearest)) != 0)
         {
             for (int i = 0; i < candidateWrittenCount; i++)
@@ -219,7 +226,8 @@ public static partial class CadObjectSnapQuery
             }
         }
         bool evaluateNearest = (modes & CadObjectSnapModes.Nearest) != 0;
-        CadPoint3D queryPoint = evaluateNearest || evaluatePerpendicular
+        CadPoint3D queryPoint =
+            evaluateNearest || evaluatePerpendicular || evaluateTangent
             ? viewport.ScreenToWorld(screenPoint)
             : default;
         if (evaluateNearest)
@@ -246,6 +254,20 @@ public static partial class CadObjectSnapQuery
                     entities[entityIndex],
                     entityIndex,
                     perpendicularReference,
+                    queryPoint,
+                    ref search);
+            }
+        }
+        if (evaluateTangent && referencePoint is CadPoint3D tangentReference)
+        {
+            for (int i = 0; i < candidateWrittenCount; i++)
+            {
+                int entityIndex = entityIndexScratch[i];
+                EvaluateTangent(
+                    snapshot,
+                    entities[entityIndex],
+                    entityIndex,
+                    tangentReference,
                     queryPoint,
                     ref search);
             }
@@ -870,6 +892,8 @@ public static partial class CadObjectSnapQuery
                 (_modes & CadObjectSnapModes.Quadrant) != 0,
             CadObjectSnapKind.Perpendicular =>
                 (_modes & CadObjectSnapModes.Perpendicular) != 0,
+            CadObjectSnapKind.Tangent =>
+                (_modes & CadObjectSnapModes.Tangent) != 0,
             CadObjectSnapKind.Nearest =>
                 (_modes & CadObjectSnapModes.Nearest) != 0,
             _ => false,
@@ -911,7 +935,8 @@ public static partial class CadObjectSnapQuery
             CadObjectSnapKind.Quadrant => 4,
             CadObjectSnapKind.Node => 5,
             CadObjectSnapKind.Perpendicular => 6,
-            CadObjectSnapKind.Nearest => 7,
+            CadObjectSnapKind.Tangent => 7,
+            CadObjectSnapKind.Nearest => 8,
             _ => int.MaxValue,
         };
     }

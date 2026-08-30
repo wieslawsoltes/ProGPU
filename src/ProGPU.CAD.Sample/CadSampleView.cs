@@ -636,6 +636,10 @@ public sealed class CadSampleView : Grid
         {
             Tag = CadObjectSnapModes.Perpendicular,
         });
+        _objectSnapSelector.Items.Add(new ComboBoxItem("Snap: Tangent")
+        {
+            Tag = CadObjectSnapModes.Tangent,
+        });
         _objectSnapSelector.Items.Add(new ComboBoxItem("Snap: Nearest")
         {
             Tag = CadObjectSnapModes.Nearest,
@@ -644,7 +648,7 @@ public sealed class CadSampleView : Grid
         {
             Tag = CadObjectSnapModes.Standard,
         });
-        _objectSnapSelector.SelectedIndex = 9;
+        _objectSnapSelector.SelectedIndex = 10;
         transformActions.AddChild(_objectSnapSelector);
         transformActions.AddChild(new TextBlock
         {

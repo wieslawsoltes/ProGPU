@@ -16,6 +16,7 @@ internal static class CadSplineSelection
 {
     private const int MaximumSplineDegree = 10;
     private const int MaximumStationaryDegree = (3 * MaximumSplineDegree) - 1;
+    private const int MaximumTangentDegree = (2 * MaximumSplineDegree) - 1;
     private const int MaximumBoxPartitionCount = (6 * MaximumSplineDegree) + 2;
     private const double CoordinateToleranceFactor = 1.4210854715202004e-14;
 
@@ -391,6 +392,148 @@ internal static class CadSplineSelection
         Span<double> roots = stackalloc double[MaximumStationaryDegree];
         if (!CadBernsteinPolynomial.TryCollectRoots(
                 stationary[..(stationaryDegree + 1)],
+                roots,
+                out int rootCount) ||
+            rootCount > destination.Length)
+        {
+            return false;
+        }
+        for (int index = 0; index < rootCount; index++)
+        {
+            CadHomogeneousPoint value =
+                CadRationalBezier.EvaluateHomogeneous(points, roots[index]);
+            if (!double.IsFinite(value.W) || !(value.W > 0.0))
+            {
+                pointCount = 0;
+                return false;
+            }
+            CadPoint3D candidate = value.Cartesian;
+            if (!AreFinite(candidate))
+            {
+                pointCount = 0;
+                return false;
+            }
+            destination[pointCount++] = candidate;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Collects every exact WCS-XY tangency candidate from a reference point
+    /// to one rational Bezier span. When the complete span is collinear with
+    /// the reference, the unique candidate closest to the cursor is returned.
+    /// </summary>
+    internal static bool TryCollectPlanTangentPoints(
+        ReadOnlySpan<CadHomogeneousPoint> points,
+        CadPoint3D referencePoint,
+        CadPoint3D queryPoint,
+        Span<CadPoint3D> destination,
+        out int pointCount)
+    {
+        pointCount = 0;
+        int degree = points.Length - 1;
+        if (degree < 1 || degree > MaximumSplineDegree)
+        {
+            return false;
+        }
+
+        double coordinateScale = 1.0;
+        double weightScale = 0.0;
+        Span<CadPoint3D> translated =
+            stackalloc CadPoint3D[MaximumSplineDegree + 1];
+        for (int index = 0; index < points.Length; index++)
+        {
+            CadPoint3D cartesian = points[index].Cartesian;
+            if (!AreFinite(cartesian) || !double.IsFinite(points[index].W) ||
+                !(points[index].W > 0.0))
+            {
+                return false;
+            }
+            CadPoint3D delta = cartesian - referencePoint;
+            if (!AreFinite(delta))
+            {
+                return false;
+            }
+            translated[index] = delta;
+            coordinateScale = Math.Max(
+                coordinateScale,
+                Math.Max(Math.Abs(delta.X), Math.Abs(delta.Y)));
+            weightScale = Math.Max(weightScale, points[index].W);
+        }
+        if (!double.IsFinite(coordinateScale) || !(weightScale > 0.0))
+        {
+            return false;
+        }
+
+        Span<double> x = stackalloc double[MaximumSplineDegree + 1];
+        Span<double> y = stackalloc double[MaximumSplineDegree + 1];
+        Span<double> derivativeX = stackalloc double[MaximumSplineDegree];
+        Span<double> derivativeY = stackalloc double[MaximumSplineDegree];
+        for (int index = 0; index <= degree; index++)
+        {
+            double weight = points[index].W / weightScale;
+            x[index] = (translated[index].X / coordinateScale) * weight;
+            y[index] = (translated[index].Y / coordinateScale) * weight;
+            if (index < degree)
+            {
+                derivativeX[index] = degree *
+                    (((translated[index + 1].X / coordinateScale) *
+                      (points[index + 1].W / weightScale)) - x[index]);
+                derivativeY[index] = degree *
+                    (((translated[index + 1].Y / coordinateScale) *
+                      (points[index + 1].W / weightScale)) - y[index]);
+            }
+        }
+
+        int tangentDegree = (2 * degree) - 1;
+        Span<double> firstProduct = stackalloc double[MaximumTangentDegree + 1];
+        Span<double> secondProduct = stackalloc double[MaximumTangentDegree + 1];
+        Span<double> tangent = stackalloc double[MaximumTangentDegree + 1];
+        if (!TryMultiplyBernstein(
+                x[..(degree + 1)],
+                derivativeY[..degree],
+                firstProduct[..(tangentDegree + 1)]) ||
+            !TryMultiplyBernstein(
+                y[..(degree + 1)],
+                derivativeX[..degree],
+                secondProduct[..(tangentDegree + 1)]))
+        {
+            return false;
+        }
+
+        double tangentScale = 0.0;
+        double tangentReferenceScale = 0.0;
+        for (int index = 0; index <= tangentDegree; index++)
+        {
+            tangent[index] = firstProduct[index] - secondProduct[index];
+            tangentScale = Math.Max(tangentScale, Math.Abs(tangent[index]));
+            tangentReferenceScale = Math.Max(
+                tangentReferenceScale,
+                Math.Max(
+                    Math.Abs(firstProduct[index]),
+                    Math.Abs(secondProduct[index])));
+        }
+        double tangentTolerance =
+            tangentReferenceScale * CoordinateToleranceFactor *
+            (degree + 1);
+        if (tangentScale <= tangentTolerance)
+        {
+            if (destination.IsEmpty ||
+                !TryClosestPlanPointToBezier(
+                    points,
+                    queryPoint,
+                    out destination[0],
+                    out _))
+            {
+                return false;
+            }
+            pointCount = 1;
+            return true;
+        }
+
+        Span<double> roots = stackalloc double[MaximumTangentDegree];
+        if (!CadBernsteinPolynomial.TryCollectRoots(
+                tangent[..(tangentDegree + 1)],
                 roots,
                 out int rootCount) ||
             rootCount > destination.Length)

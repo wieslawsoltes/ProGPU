@@ -3995,6 +3995,106 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void PointMoveUsesBaseReferencedTangentAndTangencyMarker()
+    {
+        var document = new CadDocument();
+        var selected = new Line(
+            new XYZ(-10, -10, 0),
+            new XYZ(-8, -10, 0));
+        document.Entities.Add(selected);
+        document.Entities.Add(new Circle(new XYZ(0, 0, 7), 5));
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(canvas, viewport.WorldToScreen(new CadPoint3D(-9, -10, 0)));
+            Assert.Equal([selected.Handle], canvas.SelectedHandles.ToArray());
+            canvas.ObjectSnapModes = CadObjectSnapModes.Tangent;
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+            CadDocumentSnapshot snapshot = canvas.CurrentSnapshot!;
+            int snapshotChanges = 0;
+            canvas.SnapshotChanged += (_, _) => snapshotChanges++;
+
+            Vector2 targetPointer = viewport.WorldToScreen(
+                new CadPoint3D(25.0 / 13.0, 60.0 / 13.0, 0));
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = targetPointer,
+            });
+            Assert.Null(canvas.PendingPointTransformObjectSnap);
+
+            Click(canvas, viewport.WorldToScreen(new CadPoint3D(13, 0, 0)));
+            CadPoint3D basePoint =
+                canvas.PendingPointTransformBasePoint!.Value;
+            double baseLengthSquared =
+                (basePoint.X * basePoint.X) +
+                (basePoint.Y * basePoint.Y);
+            double radialScale = 25.0 / baseLengthSquared;
+            double tangentScale =
+                5.0 * Math.Sqrt(baseLengthSquared - 25.0) /
+                baseLengthSquared;
+            CadPoint3D expected = new(
+                (radialScale * basePoint.X) -
+                    (tangentScale * basePoint.Y),
+                (radialScale * basePoint.Y) +
+                    (tangentScale * basePoint.X),
+                7);
+            Vector2 tangentPointer =
+                viewport.WorldToScreen(expected) + new Vector2(0, -4);
+            for (int index = 0; index < 1_024; index++)
+            {
+                canvas.OnPointerMoved(new PointerRoutedEventArgs
+                {
+                    Position = tangentPointer,
+                });
+            }
+
+            CadObjectSnapResult snap =
+                canvas.PendingPointTransformObjectSnap!.Value;
+            Assert.Equal(CadObjectSnapKind.Tangent, snap.Kind);
+            Assert.Equal(expected.X, snap.Point.X, 5);
+            Assert.Equal(expected.Y, snap.Point.Y, 5);
+            Assert.Equal(expected.Z, snap.Point.Z, 10);
+            Assert.Same(snapshot, canvas.CurrentSnapshot);
+            Assert.Equal(0, snapshotChanges);
+            var drawing = new DrawingContext();
+            canvas.OnRender(drawing);
+            Assert.Contains(drawing.Commands, command =>
+                command.Type == RenderCommandType.DrawEllipse);
+            Assert.Contains(drawing.Commands, command =>
+                command.Type == RenderCommandType.DrawLine);
+
+            Click(canvas, tangentPointer);
+
+            Assert.Null(canvas.PendingPointTransformOperation);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(1, snapshotChanges);
+            CadPoint3D displacement = snap.Point - basePoint;
+            AssertPoint(
+                new XYZ(
+                    -10 + displacement.X,
+                    -10 + displacement.Y,
+                    displacement.Z),
+                selected.StartPoint);
+            AssertPoint(
+                new XYZ(
+                    -8 + displacement.X,
+                    -10 + displacement.Y,
+                    displacement.Z),
+                selected.EndPoint);
+            Assert.Equal(1, canvas.UndoCount);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedObjectSnapSelectorChangesCanvasModesWithoutEditingDocument()
     {
         var view = new CadSampleView();
@@ -4024,6 +4124,15 @@ public sealed class CadSampleSelectionTests
 
             Assert.Equal(
                 CadObjectSnapModes.Perpendicular,
+                view.Canvas.ObjectSnapModes);
+
+            view.ObjectSnapSelector.SelectedItem =
+                view.ObjectSnapSelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Tag is CadObjectSnapModes.Tangent);
+
+            Assert.Equal(
+                CadObjectSnapModes.Tangent,
                 view.Canvas.ObjectSnapModes);
 
             view.ObjectSnapSelector.SelectedItem =

@@ -249,6 +249,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             if ((value & ~(CadObjectSnapModes.Standard |
                            CadObjectSnapModes.Perpendicular |
+                           CadObjectSnapModes.Tangent |
                            CadObjectSnapModes.Nearest)) != 0)
             {
                 throw new ArgumentOutOfRangeException(nameof(value));
@@ -2630,6 +2631,23 @@ public sealed class CadSampleCanvas : FrameworkElement
                     _drawOrderReferencePen,
                     innerCorner - (vertical * 0.7f),
                     innerCorner + (horizontal * 0.7f));
+                break;
+            }
+            case CadObjectSnapKind.Tangent:
+            {
+                Vector2 circleCenter = center - (vertical * 0.25f);
+                float circleRadius = radius * 0.65f;
+                context.DrawEllipse(
+                    null,
+                    _drawOrderReferencePen,
+                    circleCenter,
+                    circleRadius,
+                    circleRadius);
+                Vector2 tangentOffset = vertical * 0.4f;
+                context.DrawLine(
+                    _drawOrderReferencePen,
+                    center - horizontal + tangentOffset,
+                    center + horizontal + tangentOffset);
                 break;
             }
         }

@@ -50,10 +50,12 @@ transactional MOVE/COPY commands. Escape and document/selection teardown cancel
 without edits, source handles remain selected, and coincident MOVE/COPY behavior
 is explicit. The same prompts now accept bounded typed coordinates and exact
 running Intersection/Endpoint/Midpoint/Center/Quadrant/Node/Nearest points and
-base-referenced Perpendicular second points;
+base-referenced Perpendicular or Tangent second points;
 Nearest covers documented linear, conic, polyline, POINT, and rational-spline
-families without flattening. Grid, remaining object snaps, UCS/arbitrary-camera
-planes, COPY Multiple, and full geometry ghosting remain. This workflow changes no renderer,
+families without flattening; Tangent keeps every exact root on documented conic,
+bulge-arc, and rational-spline families. Grid, remaining object snaps,
+UCS/arbitrary-camera planes, COPY Multiple, and full geometry ghosting remain.
+This workflow changes no renderer,
 shader, GPU/native ABI, or persistence contract and makes no performance-
 improvement claim.
 

@@ -18,10 +18,12 @@ public sealed class CadObjectSnapTests
         Assert.Equal(16, (int)CadObjectSnapModes.Quadrant);
         Assert.Equal(32, (int)CadObjectSnapModes.Intersection);
         Assert.Equal(128, (int)CadObjectSnapModes.Perpendicular);
+        Assert.Equal(256, (int)CadObjectSnapModes.Tangent);
         Assert.Equal(512, (int)CadObjectSnapModes.Nearest);
         Assert.Equal(63, (int)CadObjectSnapModes.Standard);
         Assert.Equal(7, (int)CadObjectSnapKind.Nearest);
         Assert.Equal(8, (int)CadObjectSnapKind.Perpendicular);
+        Assert.Equal(9, (int)CadObjectSnapKind.Tangent);
     }
 
     [Fact]
@@ -653,6 +655,180 @@ public sealed class CadObjectSnapTests
     }
 
     [Fact]
+    public void TangentSnapRequiresReferenceAndKeepsBothCircleRoots()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add tangent geometry", document =>
+        {
+            document.Entities.Add(new Circle(new XYZ(0, 0, 7), 5));
+            document.Entities.Add(new Line(
+                new XYZ(20, 0, 0),
+                new XYZ(30, 0, 0)));
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+        CadPoint3D reference = new(13, 0, 100);
+
+        AssertTangent(
+            snapshot,
+            viewport,
+            reference,
+            new CadPoint3D(25.0 / 13.0, 60.0 / 13.0, 7),
+            scratch,
+            tolerance: 2e-6);
+        AssertTangent(
+            snapshot,
+            viewport,
+            reference,
+            new CadPoint3D(25.0 / 13.0, -60.0 / 13.0, 7),
+            scratch,
+            tolerance: 2e-6);
+
+        CadObjectSnapResult insideCircle = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(new CadPoint3D(5, 0, 7)),
+            2,
+            CadObjectSnapModes.Tangent,
+            scratch,
+            new CadPoint3D(2, 0, 0));
+        CadObjectSnapResult missingReference = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(new CadPoint3D(25, 0, 0)),
+            2,
+            CadObjectSnapModes.Tangent,
+            scratch);
+        CadObjectSnapResult unsupportedLine = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(new CadPoint3D(25, 0, 0)),
+            2,
+            CadObjectSnapModes.Tangent,
+            scratch,
+            new CadPoint3D(20, 5, 0));
+
+        Assert.False(insideCircle.IsSnapped);
+        Assert.False(missingReference.IsSnapped);
+        Assert.False(unsupportedLine.IsSnapped);
+        Assert.Equal(1, unsupportedLine.UnsupportedGeometryCount);
+    }
+
+    [Fact]
+    public void TangentSnapHonorsArcEllipseAndPolylineArcDomains()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add bounded tangent curves", document =>
+        {
+            document.Entities.Add(new Arc
+            {
+                Center = new XYZ(20, 0, 2),
+                Radius = 5,
+                StartAngle = 0,
+                EndAngle = Math.PI / 2,
+            });
+            document.Entities.Add(new Ellipse
+            {
+                Center = new XYZ(40, 0, 3),
+                MajorAxisEndPoint = new XYZ(8, 0, 0),
+                RadiusRatio = 0.5,
+            });
+            var polyline = new LwPolyline();
+            polyline.Vertices.Add(
+                new LwPolyline.Vertex(60, 0) { Bulge = 1 });
+            polyline.Vertices.Add(new LwPolyline.Vertex(70, 0));
+            document.Entities.Add(polyline);
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        AssertTangent(
+            snapshot,
+            viewport,
+            new CadPoint3D(28, 0, 0),
+            new CadPoint3D(23.125, 5.0 * Math.Sqrt(39.0) / 8.0, 2),
+            scratch,
+            tolerance: 2e-6);
+        AssertTangent(
+            snapshot,
+            viewport,
+            new CadPoint3D(50, 0, 0),
+            new CadPoint3D(46.4, 2.4, 3),
+            scratch,
+            tolerance: 2e-6);
+        AssertTangent(
+            snapshot,
+            viewport,
+            new CadPoint3D(65, -13, 0),
+            new CadPoint3D(65 + (60.0 / 13.0), -25.0 / 13.0, 0),
+            scratch,
+            tolerance: 2e-6);
+    }
+
+    [Fact]
+    public void TangentSnapUsesExactRationalAndCollinearSplineRoots()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add tangent splines", document =>
+        {
+            var rational = new Spline { Degree = 2 };
+            rational.ControlPoints.AddRange([
+                new XYZ(61, 0, 6),
+                new XYZ(61, 1, 6),
+                new XYZ(60, 1, 6),
+            ]);
+            rational.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+            rational.Weights.AddRange([1, Math.Sqrt(0.5), 1]);
+            document.Entities.Add(rational);
+
+            var parabola = new Spline { Degree = 2 };
+            parabola.ControlPoints.AddRange([
+                new XYZ(80, 0, 8),
+                new XYZ(85, 10, 8),
+                new XYZ(90, 0, 8),
+            ]);
+            parabola.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+            document.Entities.Add(parabola);
+
+            var collinear = new Spline { Degree = 2 };
+            collinear.ControlPoints.AddRange([
+                new XYZ(100, 0, 9),
+                new XYZ(105, 0, 9),
+                new XYZ(110, 0, 9),
+            ]);
+            collinear.Knots.AddRange([0, 0, 0, 1, 1, 1]);
+            document.Entities.Add(collinear);
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        AssertTangent(
+            snapshot,
+            viewport,
+            new CadPoint3D(62, 0, 0),
+            new CadPoint3D(60.5, Math.Sqrt(3.0) * 0.5, 6),
+            scratch,
+            tolerance: 3e-6);
+        AssertTangent(
+            snapshot,
+            viewport,
+            new CadPoint3D(80, 5, 0),
+            new CadPoint3D(85, 5, 8),
+            scratch,
+            tolerance: 1e-8);
+        AssertTangent(
+            snapshot,
+            viewport,
+            new CadPoint3D(95, 0, 0),
+            new CadPoint3D(107, 0, 9),
+            scratch,
+            tolerance: 1e-8);
+    }
+
+    [Fact]
     public void PolylineMidpointUsesExactBulgeArcInsteadOfChordFlattening()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
@@ -728,6 +904,7 @@ public sealed class CadObjectSnapTests
             document.Entities.Add(new Line(
                 XYZ.Zero,
                 new XYZ(0, 2, 0)));
+            document.Entities.Add(new Circle(new XYZ(0, 1, 0), 1));
         });
         CadDocumentSnapshot snapshot = Compile(session);
         CadPlanViewport viewport = CreateViewport(snapshot);
@@ -741,9 +918,10 @@ public sealed class CadObjectSnapTests
             CadObjectSnapModes.Endpoint |
                 CadObjectSnapModes.Midpoint |
                 CadObjectSnapModes.Perpendicular |
+                CadObjectSnapModes.Tangent |
                 CadObjectSnapModes.Nearest,
             scratch,
-            new CadPoint3D(1, 0, 0));
+            new CadPoint3D(-1, 0, 0));
 
         Assert.Equal(CadObjectSnapKind.Endpoint, result.Kind);
         Assert.Equal(1, result.EntityIndex);
@@ -894,6 +1072,44 @@ public sealed class CadObjectSnapTests
                 point,
                 2,
                 CadObjectSnapModes.Perpendicular,
+                scratch,
+                reference);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(0, allocated);
+    }
+
+    [Fact]
+    public void WarmTangentConicQueriesAllocateNoManagedMemory()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add circle", document =>
+            document.Entities.Add(new Circle(XYZ.Zero, 5)));
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+        CadPoint3D candidate = new(25.0 / 13.0, 60.0 / 13.0, 0);
+        Vector2 point = viewport.WorldToScreen(candidate);
+        CadPoint3D reference = new(13, 0, 0);
+        _ = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            point,
+            2,
+            CadObjectSnapModes.Tangent,
+            scratch,
+            reference);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int index = 0; index < 256; index++)
+        {
+            _ = CadObjectSnapQuery.Query(
+                snapshot,
+                viewport,
+                point,
+                2,
+                CadObjectSnapModes.Tangent,
                 scratch,
                 reference);
         }
@@ -1312,6 +1528,30 @@ public sealed class CadObjectSnapTests
 
         Assert.True(result.IsSnapped);
         Assert.Equal(CadObjectSnapKind.Perpendicular, result.Kind);
+        AssertPoint(expected, result.Point, tolerance);
+        Assert.Equal(snapshot.ContentGeneration, result.ContentGeneration);
+        Assert.Equal(0, result.DistancePixels, 5);
+    }
+
+    private static void AssertTangent(
+        CadDocumentSnapshot snapshot,
+        CadPlanViewport viewport,
+        CadPoint3D reference,
+        CadPoint3D expected,
+        int[] scratch,
+        double tolerance = 1e-10)
+    {
+        CadObjectSnapResult result = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(expected),
+            2,
+            CadObjectSnapModes.Tangent,
+            scratch,
+            reference);
+
+        Assert.True(result.IsSnapped);
+        Assert.Equal(CadObjectSnapKind.Tangent, result.Kind);
         AssertPoint(expected, result.Point, tolerance);
         Assert.Equal(snapshot.ContentGeneration, result.ContentGeneration);
         Assert.Equal(0, result.DistancePixels, 5);
