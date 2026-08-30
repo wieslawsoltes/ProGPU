@@ -5309,7 +5309,16 @@ mutated bitmap into the existing shared target and checks distinct exact BGRA
 pixels for the upload and GPU copy. No CPU readback, staging fallback, repack,
 reflection, or managed command allocation is added. The exact allowlist becomes
 121 exports; portable contracts pass 5/5 and the package builds with zero
-warnings. Windows MSVC/native Direct2D qualification is pending.
+warnings. Immutable archive SHA-256
+`CBEF4F7F71DE3B61B43CE0A1C2C14941B0589C6440C92F0CD7553FA4DBAE82E3`
+is qualified in the Windows 11 ARM64 Parallels VM: MSVC 19.44/Windows SDK
+10.0.26100.0 compile and link under `/W4 /WX`, the exact 121-export comparison
+passes, and the focused live regression passes 1/1. The resulting DLL SHA-256
+is `07751974494C643CF899F60988AED1335EC10BF493E26142099528D4041B7C1C`.
+Build run `33337753262`, x64 native job `99327677774`, independently passes the
+Direct2D regression in 0.17 seconds and all 12 native suites in 1.14 seconds;
+its later managed WebGPU sample failure is a Microsoft Basic Render Driver
+device-loss event after the Direct2D qualification completed.
 
 ## Managed glyph row-reuse SIMD checkpoint
 
