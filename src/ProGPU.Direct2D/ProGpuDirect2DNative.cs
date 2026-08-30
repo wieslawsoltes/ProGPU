@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 29U;
+    internal const uint AbiVersion = 30U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -427,6 +427,22 @@ internal static unsafe partial class ProGpuDirect2DNative
         nint* value,
         int* nativeHResult);
 
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_bitmap_brush_set_properties")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus BitmapBrushSetProperties(nint surface, nint brush, ProGpuDirect2DBitmapBrushProperties* properties, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_bitmap_brush_get_properties")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus BitmapBrushGetProperties(nint surface, nint brush, ProGpuDirect2DBitmapBrushProperties* properties, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_bitmap_brush_set_bitmap")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus BitmapBrushSetBitmap(nint surface, nint brush, nint bitmap, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_bitmap_brush_get_bitmap")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus BitmapBrushGetBitmap(nint surface, nint brush, nint* bitmap, int* nativeHResult);
+
     [LibraryImport(
         LibraryName,
         EntryPoint = "progpu_native_direct2d_surface_create_image_brush")]
@@ -438,6 +454,22 @@ internal static unsafe partial class ProGpuDirect2DNative
         NativeBrushProperties* brushProperties,
         nint* value,
         int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_image_brush_set_properties")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus ImageBrushSetProperties(nint surface, nint brush, ProGpuDirect2DImageBrushProperties* properties, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_image_brush_get_properties")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus ImageBrushGetProperties(nint surface, nint brush, ProGpuDirect2DImageBrushProperties* properties, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_image_brush_set_image")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus ImageBrushSetImage(nint surface, nint brush, nint image, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_image_brush_get_image")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus ImageBrushGetImage(nint surface, nint brush, nint* image, int* nativeHResult);
 
     [LibraryImport(
         LibraryName,

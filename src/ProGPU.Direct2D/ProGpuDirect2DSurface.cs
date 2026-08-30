@@ -943,6 +943,350 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    public void SetBitmapBrushProperties(
+        ProGpuDirect2DComReference brush,
+        ProGpuDirect2DBitmapBrushProperties properties)
+    {
+        ValidateBrushKind(
+            brush,
+            ProGpuDirect2DInterfaceKind.D2D1BitmapBrush1,
+            nameof(brush));
+        ValidateBitmapBrushProperties(properties);
+        bool referenceAdded = false;
+        try
+        {
+            brush.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.BitmapBrushSetProperties(
+                        _nativeSurface,
+                        brush.DangerousGetHandle(),
+                        &properties,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1BitmapBrush1 property update",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                brush.DangerousRelease();
+            }
+        }
+    }
+
+    public ProGpuDirect2DBitmapBrushProperties GetBitmapBrushProperties(
+        ProGpuDirect2DComReference brush)
+    {
+        ValidateBrushKind(
+            brush,
+            ProGpuDirect2DInterfaceKind.D2D1BitmapBrush1,
+            nameof(brush));
+        bool referenceAdded = false;
+        try
+        {
+            brush.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                ProGpuDirect2DBitmapBrushProperties properties = default;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.BitmapBrushGetProperties(
+                        _nativeSurface,
+                        brush.DangerousGetHandle(),
+                        &properties,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1BitmapBrush1 property query",
+                    status,
+                    nativeHResult);
+                return properties;
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                brush.DangerousRelease();
+            }
+        }
+    }
+
+    public void SetBitmapBrushBitmap(
+        ProGpuDirect2DComReference brush,
+        ProGpuDirect2DComReference? bitmap)
+    {
+        ValidateBrushKind(
+            brush,
+            ProGpuDirect2DInterfaceKind.D2D1BitmapBrush1,
+            nameof(brush));
+        if (bitmap is not null)
+        {
+            ValidateResourceDomain(bitmap, nameof(bitmap));
+            if (bitmap.InterfaceKind != ProGpuDirect2DInterfaceKind.D2D1Bitmap1)
+            {
+                throw new ArgumentException(
+                    "The COM reference must own ID2D1Bitmap1.",
+                    nameof(bitmap));
+            }
+        }
+        bool brushReferenceAdded = false;
+        bool bitmapReferenceAdded = false;
+        try
+        {
+            brush.DangerousAddRef(ref brushReferenceAdded);
+            bitmap?.DangerousAddRef(ref bitmapReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.BitmapBrushSetBitmap(
+                        _nativeSurface,
+                        brush.DangerousGetHandle(),
+                        bitmap?.DangerousGetHandle() ?? 0,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1BitmapBrush1 bitmap update",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (bitmapReferenceAdded)
+            {
+                bitmap!.DangerousRelease();
+            }
+            if (brushReferenceAdded)
+            {
+                brush.DangerousRelease();
+            }
+        }
+    }
+
+    public ProGpuDirect2DComReference? GetBitmapBrushBitmap(
+        ProGpuDirect2DComReference brush)
+    {
+        ValidateBrushKind(
+            brush,
+            ProGpuDirect2DInterfaceKind.D2D1BitmapBrush1,
+            nameof(brush));
+        bool referenceAdded = false;
+        try
+        {
+            brush.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.BitmapBrushGetBitmap(
+                        _nativeSurface,
+                        brush.DangerousGetHandle(),
+                        &value,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1BitmapBrush1 bitmap query",
+                    status,
+                    nativeHResult);
+                return value == 0
+                    ? null
+                    : new ProGpuDirect2DComReference(
+                        value,
+                        ProGpuDirect2DInterfaceKind.D2D1Bitmap1,
+                        _resourceDomain);
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                brush.DangerousRelease();
+            }
+        }
+    }
+
+    public void SetImageBrushProperties(
+        ProGpuDirect2DComReference brush,
+        ProGpuDirect2DImageBrushProperties properties)
+    {
+        ValidateBrushKind(
+            brush,
+            ProGpuDirect2DInterfaceKind.D2D1ImageBrush,
+            nameof(brush));
+        ValidateImageBrushProperties(properties);
+        bool referenceAdded = false;
+        try
+        {
+            brush.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.ImageBrushSetProperties(
+                        _nativeSurface,
+                        brush.DangerousGetHandle(),
+                        &properties,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1ImageBrush property update",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                brush.DangerousRelease();
+            }
+        }
+    }
+
+    public ProGpuDirect2DImageBrushProperties GetImageBrushProperties(
+        ProGpuDirect2DComReference brush)
+    {
+        ValidateBrushKind(
+            brush,
+            ProGpuDirect2DInterfaceKind.D2D1ImageBrush,
+            nameof(brush));
+        bool referenceAdded = false;
+        try
+        {
+            brush.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                ProGpuDirect2DImageBrushProperties properties = default;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.ImageBrushGetProperties(
+                        _nativeSurface,
+                        brush.DangerousGetHandle(),
+                        &properties,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1ImageBrush property query",
+                    status,
+                    nativeHResult);
+                return properties;
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                brush.DangerousRelease();
+            }
+        }
+    }
+
+    public void SetImageBrushImage(
+        ProGpuDirect2DComReference brush,
+        ProGpuDirect2DComReference? image)
+    {
+        ValidateBrushKind(
+            brush,
+            ProGpuDirect2DInterfaceKind.D2D1ImageBrush,
+            nameof(brush));
+        if (image is not null)
+        {
+            ValidateResourceDomain(image, nameof(image));
+            if (!IsImageKind(image.InterfaceKind))
+            {
+                throw new ArgumentException(
+                    "The COM reference must own a provider-created ID2D1Image.",
+                    nameof(image));
+            }
+        }
+        bool brushReferenceAdded = false;
+        bool imageReferenceAdded = false;
+        try
+        {
+            brush.DangerousAddRef(ref brushReferenceAdded);
+            image?.DangerousAddRef(ref imageReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.ImageBrushSetImage(
+                        _nativeSurface,
+                        brush.DangerousGetHandle(),
+                        image?.DangerousGetHandle() ?? 0,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1ImageBrush image update",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (imageReferenceAdded)
+            {
+                image!.DangerousRelease();
+            }
+            if (brushReferenceAdded)
+            {
+                brush.DangerousRelease();
+            }
+        }
+    }
+
+    public ProGpuDirect2DComReference? GetImageBrushImage(
+        ProGpuDirect2DComReference brush)
+    {
+        ValidateBrushKind(
+            brush,
+            ProGpuDirect2DInterfaceKind.D2D1ImageBrush,
+            nameof(brush));
+        bool referenceAdded = false;
+        try
+        {
+            brush.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.ImageBrushGetImage(
+                        _nativeSurface,
+                        brush.DangerousGetHandle(),
+                        &value,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1ImageBrush image query",
+                    status,
+                    nativeHResult);
+                return value == 0
+                    ? null
+                    : new ProGpuDirect2DComReference(
+                        value,
+                        ProGpuDirect2DInterfaceKind.D2D1Image,
+                        _resourceDomain);
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                brush.DangerousRelease();
+            }
+        }
+    }
+
     /// <summary>
     /// Creates an open genuine ID2D1CommandList in this surface's exact
     /// Direct2D device domain. Use BeginCommandListDrawing to record and close
