@@ -817,6 +817,20 @@ dedicated MSVC job `99325361848`: warning-as-error compile/link succeeds, the
 focused Direct2D regression passes in 0.18 seconds, all 11 native suites pass
 in 1.33 seconds, and the exact 118-export allowlist is accepted.
 
+ABI v31 adds typed `ID2D1Bitmap1` metadata and update operations without
+introducing a readback fallback. Callers can query pixel/DIP size, DPI, pixel
+format, alpha mode, and bitmap options; upload a bounded rectangle directly
+from a caller-owned byte span with an explicit pitch; or copy a bounded source
+rectangle between same-generation bitmaps on the GPU. Managed code pins the
+input span only for the synchronous native call and performs no array copy or
+repack. Both boundaries validate dimensions, pitch, byte extent, resource
+kind/generation, and source/destination bounds; forced self-copy and unsupported
+pixel formats fail closed. The native regression verifies separate exact BGRA
+pixels for the memory upload and GPU bitmap copy while retaining the existing
+shared-texture oracle. The allowlist grows from 118 to exactly 121 exports;
+managed contracts pass 5/5 and the package builds with zero warnings. Exact
+checkpoint `2d24157d` awaits Windows MSVC and native Direct2D qualification.
+
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any

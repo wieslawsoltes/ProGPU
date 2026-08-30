@@ -5299,6 +5299,18 @@ compile/link succeeds, the focused Direct2D regression passes in 0.18 seconds,
 all 11 native suites pass in 1.33 seconds, and the exact 118-export gate is
 accepted.
 
+ABI v31 at checkpoint `2d24157d` adds non-readback bitmap metadata, bounded
+caller-span upload, and same-generation GPU bitmap-to-bitmap copy. The typed
+descriptor exposes pixel/DIP dimensions, DPI, format, alpha mode, and bitmap
+options. Upload validation proves the source pitch and full byte extent before
+pinning the caller span for the synchronous call; copy validation proves both
+rectangles and rejects canonical COM self-identity. Native coverage draws the
+mutated bitmap into the existing shared target and checks distinct exact BGRA
+pixels for the upload and GPU copy. No CPU readback, staging fallback, repack,
+reflection, or managed command allocation is added. The exact allowlist becomes
+121 exports; portable contracts pass 5/5 and the package builds with zero
+warnings. Windows MSVC/native Direct2D qualification is pending.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
