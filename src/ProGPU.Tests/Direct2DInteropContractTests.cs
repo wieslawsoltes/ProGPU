@@ -20,6 +20,9 @@ public sealed class Direct2DInteropContractTests
             "src",
             "ProGPU.Direct2D",
             "ProGpuDirect2DD3DImageSource.cs");
+        string exports = ReadRepoFile(
+            "eng",
+            "progpu-native-direct2d-exports.txt");
 
         Assert.Contains(
             "<DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>",
@@ -81,6 +84,16 @@ public sealed class Direct2DInteropContractTests
             "NativeLibrary.Load",
             native,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_try_get_win2d_native_resource",
+            exports,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            15,
+            exports.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries |
+                StringSplitOptions.TrimEntries).Length);
         Assert.Contains(
             "IPortableD3DImageSource",
             d3dImage,
