@@ -19,6 +19,55 @@ internal static class CadSplineSelection
     private const int MaximumBoxPartitionCount = (6 * MaximumSplineDegree) + 2;
     private const double CoordinateToleranceFactor = 1.4210854715202004e-14;
 
+    /// <summary>
+    /// Extracts exact open-spline endpoints from the first and last non-empty
+    /// rational Bezier spans without flattening or assuming clamped controls.
+    /// </summary>
+    internal static bool TryGetEndpoints(
+        CadDocumentSnapshot snapshot,
+        in CadSplinePrimitive spline,
+        out CadPoint3D start,
+        out CadPoint3D end)
+    {
+        start = default;
+        end = default;
+        if (spline.IsClosed || spline.IsPeriodic ||
+            !CadSplineCanonicalizer.TryCreate(
+                snapshot,
+                spline,
+                out CadCanonicalSpline canonical))
+        {
+            return false;
+        }
+
+        Span<CadHomogeneousPoint> controlPoints =
+            stackalloc CadHomogeneousPoint[MaximumSplineDegree + 1];
+        bool found = false;
+        for (int sourceSpan = canonical.Degree;
+             sourceSpan < canonical.ControlPointCount;
+             sourceSpan++)
+        {
+            if (!(canonical.GetKnot(sourceSpan + 1) >
+                  canonical.GetKnot(sourceSpan)))
+            {
+                continue;
+            }
+            Span<CadHomogeneousPoint> span =
+                controlPoints[..(canonical.Degree + 1)];
+            if (!CadRationalBezier.TryExtractSpan(canonical, sourceSpan, span))
+            {
+                return false;
+            }
+            if (!found)
+            {
+                start = span[0].Cartesian;
+                found = true;
+            }
+            end = span[^1].Cartesian;
+        }
+        return found && AreFinite(start) && AreFinite(end);
+    }
+
     public static CadPointHitResult HitTestPoint(
         CadDocumentSnapshot snapshot,
         in CadSplinePrimitive spline,

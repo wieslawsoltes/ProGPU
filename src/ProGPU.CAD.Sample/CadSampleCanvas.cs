@@ -162,7 +162,10 @@ public sealed class CadSampleCanvas : FrameworkElement
     private Vector2 _panOrigin;
     private Vector2 _selectionCurrent;
     private Vector2 _pointTransformCurrent;
+    private Vector2 _pointTransformPointerPosition;
     private CadPoint3D _pointTransformBasePoint;
+    private CadObjectSnapResult _pointTransformObjectSnap;
+    private CadObjectSnapModes _objectSnapModes = CadObjectSnapModes.Standard;
     private float _zoom = 1;
     private int[] _selectionEntityScratch = [];
     private int[] _selectionHandleScratch = [];
@@ -178,12 +181,15 @@ public sealed class CadSampleCanvas : FrameworkElement
     private bool _isPanning;
     private bool _isSelecting;
     private bool _isPointTransformPointerPressed;
+    private bool _hasPointTransformPointerPosition;
     private bool _hasPointTransformBasePoint;
     private bool _hasSelectionDrag;
     private bool _needsFit = true;
 
     private const float SelectionDragThreshold = 4.0f;
     private const float PointSelectionTolerance = 5.0f;
+    private const float PointTransformObjectSnapAperture = 10.0f;
+    private const float ObjectSnapMarkerRadius = 5.0f;
 
     public CadDocumentSession? CurrentSession { get; private set; }
 
@@ -234,6 +240,41 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public CadPoint3D? PendingPointTransformBasePoint =>
         _hasPointTransformBasePoint ? _pointTransformBasePoint : null;
+
+    /// <summary>Running object-snap modes used by MOVE/COPY point prompts.</summary>
+    public CadObjectSnapModes ObjectSnapModes
+    {
+        get => _objectSnapModes;
+        set
+        {
+            if ((value & ~CadObjectSnapModes.Standard) != 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            if (_objectSnapModes == value)
+            {
+                return;
+            }
+
+            _objectSnapModes = value;
+            if (PendingPointTransformOperation is not null &&
+                _hasPointTransformPointerPosition)
+            {
+                UpdatePointTransformPointer(_pointTransformPointerPosition);
+            }
+            else
+            {
+                _pointTransformObjectSnap = default;
+            }
+            Invalidate();
+        }
+    }
+
+    /// <summary>The exact generation-tagged snap currently shown by the prompt.</summary>
+    public CadObjectSnapResult? PendingPointTransformObjectSnap =>
+        _pointTransformObjectSnap.IsSnapped
+            ? _pointTransformObjectSnap
+            : null;
 
     public int LastUnsupportedPrimitiveCount => _lastUnsupportedPrimitiveCount;
 
@@ -443,6 +484,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     protected override void ArrangeOverride(Rect arrangeRect)
     {
         Size = new Vector2(arrangeRect.Width, arrangeRect.Height);
+        ClearPointTransformObjectSnap();
         if (_needsFit && Size.X > 0 && Size.Y > 0)
         {
             FitToView();
@@ -508,6 +550,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                         preview.Height));
             }
         }
+        DrawObjectSnapMarker(context, _pointTransformObjectSnap);
         if (_isSelecting && _hasSelectionDrag)
         {
             context.DrawRectangle(
@@ -533,6 +576,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         _zoom = Math.Clamp(_zoom, 0.00001f, 1_000_000f);
         _pan = Vector2.Zero;
         _needsFit = false;
+        ClearPointTransformObjectSnap();
         RefreshConstructionPicture();
         Invalidate();
     }
@@ -545,6 +589,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             _isSelecting = false;
             _pointerOrigin = args.Position;
             _panOrigin = _pan;
+            ClearPointTransformObjectSnap();
             CapturePointer(args.Pointer);
             args.Handled = true;
             return;
@@ -559,7 +604,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             _isPointTransformPointerPressed = true;
             _isSelecting = false;
             _isPanning = false;
-            _pointTransformCurrent = args.Position;
+            UpdatePointTransformPointer(args.Position);
             CapturePointer(args.Pointer);
             Invalidate();
             args.Handled = true;
@@ -581,6 +626,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (_isPanning)
         {
             _pan = _panOrigin + (args.Position - _pointerOrigin);
+            ClearPointTransformObjectSnap();
             RefreshConstructionPicture();
             Invalidate();
             args.Handled = true;
@@ -588,15 +634,14 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
         if (_isPointTransformPointerPressed)
         {
-            _pointTransformCurrent = args.Position;
+            UpdatePointTransformPointer(args.Position);
             Invalidate();
             args.Handled = true;
             return;
         }
-        if (PendingPointTransformOperation is not null &&
-            _hasPointTransformBasePoint)
+        if (PendingPointTransformOperation is not null)
         {
-            _pointTransformCurrent = args.Position;
+            UpdatePointTransformPointer(args.Position);
             Invalidate();
             args.Handled = true;
             return;
@@ -620,10 +665,10 @@ public sealed class CadSampleCanvas : FrameworkElement
             _isPanning || _isSelecting || _isPointTransformPointerPressed;
         if (_isPointTransformPointerPressed)
         {
-            _pointTransformCurrent = args.Position;
+            UpdatePointTransformPointer(args.Position);
             if (!args.IsCanceled)
             {
-                AcceptPointTransformPoint(args.Position);
+                AcceptPointTransformPointer(args.Position);
             }
         }
         if (_isSelecting)
@@ -652,6 +697,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         _isSelecting = false;
         _isPointTransformPointerPressed = false;
         _hasSelectionDrag = false;
+        ClearPointTransformObjectSnap();
         ReleasePointerCapture(args.Pointer);
         Invalidate();
         args.Handled = true;
@@ -666,6 +712,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         Vector2 local = (args.Position - center - _pan) / _zoom;
         _zoom = Math.Clamp(_zoom * factor, 0.00001f, 1_000_000f);
         _pan = args.Position - center - (local * _zoom);
+        ClearPointTransformObjectSnap();
         RefreshConstructionPicture();
         Invalidate();
         args.Handled = true;
@@ -708,6 +755,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         PendingPointTransformOperation = operation;
         _hasPointTransformBasePoint = false;
         _isPointTransformPointerPressed = false;
+        _hasPointTransformPointerPosition = false;
+        _pointTransformObjectSnap = default;
         PointTransformChanged?.Invoke(
             this,
             new CadPointTransformChangedEventArgs(
@@ -2422,6 +2471,124 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
     }
 
+    private void UpdatePointTransformPointer(Vector2 screenPoint)
+    {
+        _pointTransformPointerPosition = screenPoint;
+        _hasPointTransformPointerPosition = true;
+        CadDocumentSnapshot? snapshot = CurrentSnapshot;
+        if (snapshot is null || _objectSnapModes == CadObjectSnapModes.None)
+        {
+            _pointTransformObjectSnap = default;
+            _pointTransformCurrent = screenPoint;
+            return;
+        }
+
+        CadPlanViewport viewport = CreateViewport();
+        _pointTransformObjectSnap = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            screenPoint,
+            PointTransformObjectSnapAperture,
+            _objectSnapModes,
+            _selectionEntityScratch);
+        _pointTransformCurrent = _pointTransformObjectSnap.IsSnapped
+            ? viewport.WorldToScreen(_pointTransformObjectSnap.Point)
+            : screenPoint;
+    }
+
+    private void ClearPointTransformObjectSnap()
+    {
+        _pointTransformObjectSnap = default;
+        _hasPointTransformPointerPosition = false;
+    }
+
+    private void DrawObjectSnapMarker(
+        DrawingContext context,
+        CadObjectSnapResult snap)
+    {
+        if (!snap.IsSnapped)
+        {
+            return;
+        }
+
+        Vector2 center = _pointTransformCurrent;
+        float radius = ObjectSnapMarkerRadius;
+        Vector2 horizontal = new(radius, 0);
+        Vector2 vertical = new(0, radius);
+        switch (snap.Kind)
+        {
+            case CadObjectSnapKind.Endpoint:
+                context.DrawRectangle(
+                    null,
+                    _drawOrderReferencePen,
+                    new Rect(
+                        center.X - radius,
+                        center.Y - radius,
+                        radius * 2,
+                        radius * 2));
+                break;
+            case CadObjectSnapKind.Midpoint:
+            {
+                Vector2 top = center - vertical;
+                Vector2 lowerLeft = center +
+                    new Vector2(-radius, radius);
+                Vector2 lowerRight = center +
+                    new Vector2(radius, radius);
+                context.DrawLine(_drawOrderReferencePen, top, lowerLeft);
+                context.DrawLine(_drawOrderReferencePen, lowerLeft, lowerRight);
+                context.DrawLine(_drawOrderReferencePen, lowerRight, top);
+                break;
+            }
+            case CadObjectSnapKind.Center:
+                context.DrawEllipse(
+                    null,
+                    _drawOrderReferencePen,
+                    center,
+                    radius,
+                    radius);
+                context.DrawLine(
+                    _drawOrderReferencePen,
+                    center - horizontal,
+                    center + horizontal);
+                context.DrawLine(
+                    _drawOrderReferencePen,
+                    center - vertical,
+                    center + vertical);
+                break;
+            case CadObjectSnapKind.Node:
+            {
+                Vector2 diagonal = new(radius, radius);
+                Vector2 opposite = new(radius, -radius);
+                context.DrawLine(
+                    _drawOrderReferencePen,
+                    center - diagonal,
+                    center + diagonal);
+                context.DrawLine(
+                    _drawOrderReferencePen,
+                    center - opposite,
+                    center + opposite);
+                break;
+            }
+        }
+    }
+
+    private void AcceptPointTransformPointer(Vector2 screenPoint)
+    {
+        CadDocumentSnapshot? snapshot = CurrentSnapshot;
+        if (_pointTransformObjectSnap.IsSnapped &&
+            snapshot is not null &&
+            _pointTransformObjectSnap.ContentGeneration ==
+                snapshot.ContentGeneration)
+        {
+            CadPoint3D point = _pointTransformObjectSnap.Point;
+            Vector2 snappedScreen = _pointTransformCurrent;
+            AcceptPointTransformPoint(point, snappedScreen);
+            return;
+        }
+
+        AcceptPointTransformPoint(screenPoint);
+    }
+
     private void AcceptPointTransformPoint(Vector2 screenPoint)
     {
         CadPointTransformOperation? operation = PendingPointTransformOperation;
@@ -2460,6 +2627,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             return;
         }
+
+        ClearPointTransformObjectSnap();
 
         if (!_hasPointTransformBasePoint)
         {
@@ -2693,6 +2862,9 @@ public sealed class CadSampleCanvas : FrameworkElement
         _isPointTransformPointerPressed = false;
         _pointTransformBasePoint = default;
         _pointTransformCurrent = default;
+        _pointTransformPointerPosition = default;
+        _pointTransformObjectSnap = default;
+        _hasPointTransformPointerPosition = false;
         if (notify && operation is CadPointTransformOperation value)
         {
             PointTransformChanged?.Invoke(

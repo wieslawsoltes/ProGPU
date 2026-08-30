@@ -60,6 +60,7 @@ public sealed class CadSampleView : Grid
     private readonly Button[] _copyButtons;
     private readonly Button _moveByPointsButton;
     private readonly Button _copyByPointsButton;
+    private readonly ComboBox _objectSnapSelector;
     private readonly TextBox _pointTransformInput;
     private readonly Button _acceptPointTransformInputButton;
     private readonly Button[] _rotateButtons;
@@ -195,6 +196,8 @@ public sealed class CadSampleView : Grid
     public TextBox CopyArrayItemsInput => _copyArrayItemsInput;
 
     public ComboBox CopyArrayModeSelector => _copyArrayModeSelector;
+
+    public ComboBox ObjectSnapSelector => _objectSnapSelector;
 
     public TextBox PointTransformInput => _pointTransformInput;
 
@@ -593,6 +596,40 @@ public sealed class CadSampleView : Grid
         {
             transformActions.AddChild(copyButton);
         }
+        _objectSnapSelector = new ComboBox
+        {
+            Font = font,
+            FontSize = 11,
+            WidthConstraint = 116,
+            HeightConstraint = 30,
+            Margin = new Thickness(12, 0, 8, 0),
+        };
+        _objectSnapSelector.Items.Add(new ComboBoxItem("Snap: Off")
+        {
+            Tag = CadObjectSnapModes.None,
+        });
+        _objectSnapSelector.Items.Add(new ComboBoxItem("Snap: End")
+        {
+            Tag = CadObjectSnapModes.Endpoint,
+        });
+        _objectSnapSelector.Items.Add(new ComboBoxItem("Snap: Mid")
+        {
+            Tag = CadObjectSnapModes.Midpoint,
+        });
+        _objectSnapSelector.Items.Add(new ComboBoxItem("Snap: Center")
+        {
+            Tag = CadObjectSnapModes.Center,
+        });
+        _objectSnapSelector.Items.Add(new ComboBoxItem("Snap: Node")
+        {
+            Tag = CadObjectSnapModes.Node,
+        });
+        _objectSnapSelector.Items.Add(new ComboBoxItem("Snap: Standard")
+        {
+            Tag = CadObjectSnapModes.Standard,
+        });
+        _objectSnapSelector.SelectedIndex = 5;
+        transformActions.AddChild(_objectSnapSelector);
         transformActions.AddChild(new TextBlock
         {
             Text = "Point / displacement",
@@ -1615,6 +1652,14 @@ public sealed class CadSampleView : Grid
         copyPositiveY.Click += (_, _) => CopySelection(0, 1);
         _copyByPointsButton.Click += (_, _) =>
             BeginSelectionPointTransform(CadPointTransformOperation.Copy);
+        _objectSnapSelector.SelectionChanged += (_, _) =>
+        {
+            if ((_objectSnapSelector.SelectedItem as ComboBoxItem)?.Tag is
+                CadObjectSnapModes modes)
+            {
+                _canvas.ObjectSnapModes = modes;
+            }
+        };
         _pointTransformInput.TextChanged += (_, _) => UpdateEditControls();
         _pointTransformInput.KeyDown += (_, args) =>
         {
@@ -3800,10 +3845,10 @@ public sealed class CadSampleView : Grid
         return args.Stage switch
         {
             CadPointTransformStage.AwaitingBasePoint =>
-                $"{operation}: click or enter absolute WCS x,y[,z] / distance<angle; Escape cancels.",
+                $"{operation}: click (running object snap applies) or enter absolute WCS x,y[,z] / distance<angle; Escape cancels.",
             CadPointTransformStage.AwaitingSecondPoint =>
                 $"{operation}: base {FormatPoint(args.BasePoint!.Value)}; " +
-                "click or enter an absolute point or relative @dx,dy[,dz] / @distance<angle; Escape cancels.",
+                "click (running object snap applies) or enter an absolute point or relative @dx,dy[,dz] / @distance<angle; Escape cancels.",
             CadPointTransformStage.Completed when args.ErrorMessage is null =>
                 $"{operation} completed with WCS displacement " +
                 $"{FormatPoint(args.Displacement!.Value)}.",
@@ -4786,6 +4831,9 @@ public sealed class CadSampleView : Grid
         _copyArrayModeSelector.IsEnabled = canUsePlanTools;
         _rotationStepInput.IsEnabled = canUsePlanTools;
         _scaleFactorInput.IsEnabled = canUsePlanTools;
+        _objectSnapSelector.IsEnabled =
+            !_isBusy && !_isPrintPreview && !_is3DView &&
+            _canvas.CurrentSnapshot is not null;
         _pointTransformInput.IsEnabled =
             !_isBusy && isPointTransformPicking;
         _acceptPointTransformInputButton.IsEnabled =
