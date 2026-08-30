@@ -450,7 +450,8 @@ public enum ProGpuDirect2DSceneStreamFlags : uint
 {
     None = 0,
     HasLeadingClear = 1U << 0,
-    HasAliasedPrimitives = 1U << 1
+    HasAliasedPrimitives = 1U << 1,
+    HasAxisAlignedClips = 1U << 2
 }
 
 public enum ProGpuDirect2DSceneStreamFailureReason : uint
@@ -461,7 +462,8 @@ public enum ProGpuDirect2DSceneStreamFailureReason : uint
     UnsupportedOperation = 3,
     InvalidValue = 4,
     DrawingState = 5,
-    Builder = 6
+    Builder = 6,
+    CapacityExceeded = 7
 }
 
 public enum ProGpuDirect2DColorInterpolationMode
@@ -700,6 +702,9 @@ public readonly record struct ProGpuDirect2DSceneStreamResult(
 {
     public bool HasLeadingClear =>
         (Flags & ProGpuDirect2DSceneStreamFlags.HasLeadingClear) != 0;
+
+    public bool HasAxisAlignedClips =>
+        (Flags & ProGpuDirect2DSceneStreamFlags.HasAxisAlignedClips) != 0;
 }
 
 /// <summary>

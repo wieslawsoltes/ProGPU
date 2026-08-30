@@ -84,7 +84,8 @@ typedef enum progpu_native_direct2d_command_stream_flags {
 typedef enum progpu_native_direct2d_scene_stream_flags {
     PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_NONE = 0,
     PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_LEADING_CLEAR = 1U << 0U,
-    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_ALIASED_PRIMITIVES = 1U << 1U
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_ALIASED_PRIMITIVES = 1U << 1U,
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_AXIS_ALIGNED_CLIPS = 1U << 2U
 } progpu_native_direct2d_scene_stream_flags;
 
 typedef enum progpu_native_direct2d_scene_stream_failure_reason {
@@ -94,7 +95,8 @@ typedef enum progpu_native_direct2d_scene_stream_failure_reason {
     PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_OPERATION = 3,
     PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_INVALID_VALUE = 4,
     PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_DRAWING_STATE = 5,
-    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER = 6
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER = 6,
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_CAPACITY_EXCEEDED = 7
 } progpu_native_direct2d_scene_stream_failure_reason;
 
 /* Every returned pointer is a genuine Windows COM interface with one caller-
@@ -760,7 +762,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 33U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 34U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -1076,10 +1078,13 @@ progpu_native_direct2d_command_list_get_stream_summary(
  * semantic scene stream consumed by ProGPU's C++ renderer on D3D12, Metal,
  * Vulkan, and WebGPU. ABI 33 admits finite transforms, Direct2D source-over
  * DIPs state, solid-color brushes, FillRectangle, DrawRectangle with the
- * default stroke style, DrawLine with the default flat-cap style, and at most
- * one leading Clear. Every other state/resource/operation fails closed with
- * E_NOTIMPL and an explicit failure_reason. The caller owns destination; no
- * readback, repacking buffer, or COM pointer is introduced. */
+ * default stroke style, DrawLine with the default flat-cap style, up to 64
+ * nested aliased axis-aligned clips, and at most one leading Clear. Clip
+ * rectangles are transformed at push time and nested clips are intersected in
+ * target space. Per-primitive clip antialiasing and every other unsupported
+ * state/resource/operation fail closed with E_NOTIMPL and an explicit
+ * failure_reason. The caller owns destination; no readback, repacking buffer,
+ * or COM pointer is introduced. */
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_command_list_build_scene_stream(
     progpu_native_direct2d_surface* surface,
