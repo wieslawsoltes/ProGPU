@@ -90,7 +90,10 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_TRANSFORMED_GEOMETRY = 31,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_GEOMETRY = 32,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_STROKE_STYLE1 = 33,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_STROKE_STYLE = 34
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_STROKE_STYLE = 34,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_BITMAP_BRUSH1 = 35,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_BITMAP = 36,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_IMAGE_BRUSH = 37
 } progpu_native_direct2d_interface_kind;
 
 typedef enum progpu_native_direct2d_fill_mode {
@@ -171,6 +174,15 @@ typedef enum progpu_native_direct2d_extend_mode {
     PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_WRAP = 1,
     PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_MIRROR = 2
 } progpu_native_direct2d_extend_mode;
+
+typedef enum progpu_native_direct2d_interpolation_mode {
+    PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_NEAREST_NEIGHBOR = 0,
+    PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_LINEAR = 1,
+    PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_CUBIC = 2,
+    PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_MULTI_SAMPLE_LINEAR = 3,
+    PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_ANISOTROPIC = 4,
+    PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC = 5
+} progpu_native_direct2d_interpolation_mode;
 
 typedef enum progpu_native_direct2d_color_interpolation_mode {
     PROGPU_NATIVE_DIRECT2D_COLOR_INTERPOLATION_MODE_STRAIGHT = 0,
@@ -268,6 +280,23 @@ typedef struct progpu_native_direct2d_radial_gradient_brush_properties {
     float radius_y;
 } progpu_native_direct2d_radial_gradient_brush_properties;
 
+/* Describes one immutable premultiplied BGRA8 bitmap upload. Pixel bytes are
+ * supplied separately as a single caller-owned span. */
+typedef struct progpu_native_direct2d_bitmap_properties {
+    uint32_t width;
+    uint32_t height;
+    uint32_t stride;
+    uint32_t reserved;
+    float dpi_x;
+    float dpi_y;
+} progpu_native_direct2d_bitmap_properties;
+
+typedef struct progpu_native_direct2d_bitmap_brush_properties {
+    uint32_t extend_mode_x;
+    uint32_t extend_mode_y;
+    uint32_t interpolation_mode;
+} progpu_native_direct2d_bitmap_brush_properties;
+
 typedef struct progpu_native_direct2d_rect_f {
     float x;
     float y;
@@ -306,7 +335,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 10U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 11U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -416,6 +445,28 @@ progpu_native_direct2d_surface_create_radial_gradient_brush(
     const progpu_native_direct2d_radial_gradient_brush_properties* properties,
     const progpu_native_direct2d_brush_properties* brush_properties,
     void* gradient_stop_collection,
+    void** value,
+    int32_t* native_hresult);
+
+/* Uploads one immutable premultiplied BGRA8 bitmap into the surface's exact
+ * Direct2D device domain. The pixel span is consumed synchronously and is not
+ * retained by the provider. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_bitmap(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_bitmap_properties* properties,
+    const uint8_t* pixels,
+    uint64_t pixel_byte_count,
+    void** value,
+    int32_t* native_hresult);
+
+/* Creates a genuine ID2D1BitmapBrush1 over a same-domain ID2D1Bitmap. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_bitmap_brush(
+    progpu_native_direct2d_surface* surface,
+    void* bitmap,
+    const progpu_native_direct2d_bitmap_brush_properties* properties,
+    const progpu_native_direct2d_brush_properties* brush_properties,
     void** value,
     int32_t* native_hresult);
 

@@ -572,6 +572,88 @@ int main()
             native_hresult == E_INVALIDARG,
         "custom stroke style without dashes did not fail closed");
 
+    const uint8_t bitmap_pixels[] = {
+        0U, 255U, 255U, 255U,
+        255U, 255U, 0U, 255U,
+        255U, 0U, 255U, 255U,
+        255U, 255U, 255U, 255U
+    };
+    progpu_native_direct2d_bitmap_properties bitmap_properties{};
+    bitmap_properties.width = 2U;
+    bitmap_properties.height = 2U;
+    bitmap_properties.stride = 8U;
+    bitmap_properties.dpi_x = 120.0F;
+    bitmap_properties.dpi_y = 144.0F;
+    void* source_bitmap_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_bitmap(
+            surface,
+            &bitmap_properties,
+            bitmap_pixels,
+            sizeof(bitmap_pixels),
+            &source_bitmap_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            source_bitmap_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1Bitmap1 upload failed");
+    ComPtr<ID2D1Bitmap1> source_bitmap;
+    source_bitmap.Attach(static_cast<ID2D1Bitmap1*>(source_bitmap_value));
+    D2D1_SIZE_U source_pixel_size = source_bitmap->GetPixelSize();
+    D2D1_PIXEL_FORMAT source_pixel_format = source_bitmap->GetPixelFormat();
+    require(source_pixel_size.width == 2U && source_pixel_size.height == 2U &&
+            source_pixel_format.format == DXGI_FORMAT_B8G8R8A8_UNORM &&
+            source_pixel_format.alphaMode == D2D1_ALPHA_MODE_PREMULTIPLIED,
+        "provider ID2D1Bitmap1 metadata changed");
+
+    void* invalid_bitmap_value =
+        reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_surface_create_bitmap(
+            surface,
+            &bitmap_properties,
+            bitmap_pixels,
+            sizeof(bitmap_pixels) - 1U,
+            &invalid_bitmap_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            invalid_bitmap_value == nullptr && native_hresult == E_INVALIDARG,
+        "truncated Direct2D bitmap upload did not fail closed");
+
+    progpu_native_direct2d_bitmap_brush_properties bitmap_brush_properties{};
+    bitmap_brush_properties.extend_mode_x =
+        PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_WRAP;
+    bitmap_brush_properties.extend_mode_y =
+        PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_MIRROR;
+    bitmap_brush_properties.interpolation_mode =
+        PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_NEAREST_NEIGHBOR;
+    progpu_native_direct2d_brush_properties bitmap_common_properties{};
+    bitmap_common_properties.opacity = 0.625F;
+    bitmap_common_properties.transform.m11 = 1.0F;
+    bitmap_common_properties.transform.m22 = 1.0F;
+    void* bitmap_brush_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_bitmap_brush(
+            surface,
+            source_bitmap.Get(),
+            &bitmap_brush_properties,
+            &bitmap_common_properties,
+            &bitmap_brush_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            bitmap_brush_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1BitmapBrush1 creation failed");
+    ComPtr<ID2D1BitmapBrush1> bitmap_brush;
+    bitmap_brush.Attach(static_cast<ID2D1BitmapBrush1*>(bitmap_brush_value));
+    ComPtr<ID2D1Bitmap> brush_bitmap;
+    bitmap_brush->GetBitmap(brush_bitmap.GetAddressOf());
+    require(bitmap_brush->GetExtendModeX() == D2D1_EXTEND_MODE_WRAP &&
+            bitmap_brush->GetExtendModeY() == D2D1_EXTEND_MODE_MIRROR &&
+            bitmap_brush->GetInterpolationMode1() ==
+                D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR &&
+            bitmap_brush->GetOpacity() == 0.625F &&
+            has_same_com_identity(source_bitmap.Get(), brush_bitmap.Get()),
+        "provider ID2D1BitmapBrush1 metadata changed");
+
     void* win2d_canvas_device_value = nullptr;
     native_hresult = E_FAIL;
     progpu_native_direct2d_status win2d_status =
@@ -850,6 +932,79 @@ int main()
                 unwrapped_stroke_style.Get()),
             "Win2D CanvasStrokeStyle changed native COM identity");
 
+        void* canvas_bitmap_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper(
+                surface,
+                source_bitmap.Get(),
+                0.0F,
+                &canvas_bitmap_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                canvas_bitmap_value != nullptr && native_hresult == S_OK,
+            "Win2D CanvasBitmap wrapping failed");
+        ComPtr<IInspectable> canvas_bitmap;
+        canvas_bitmap.Attach(static_cast<IInspectable*>(canvas_bitmap_value));
+        progpu_native_direct2d_guid bitmap1_id =
+            to_portable_guid(__uuidof(ID2D1Bitmap1));
+        void* unwrapped_bitmap_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_win2d_wrapper_native_resource(
+                surface,
+                canvas_bitmap.Get(),
+                0.0F,
+                &bitmap1_id,
+                &unwrapped_bitmap_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                unwrapped_bitmap_value != nullptr && native_hresult == S_OK,
+            "Win2D CanvasBitmap native-resource query failed");
+        ComPtr<ID2D1Bitmap1> unwrapped_bitmap;
+        unwrapped_bitmap.Attach(
+            static_cast<ID2D1Bitmap1*>(unwrapped_bitmap_value));
+        require(has_same_com_identity(
+                source_bitmap.Get(),
+                unwrapped_bitmap.Get()),
+            "Win2D CanvasBitmap changed native COM identity");
+
+        void* canvas_image_brush_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper(
+                surface,
+                bitmap_brush.Get(),
+                0.0F,
+                &canvas_image_brush_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                canvas_image_brush_value != nullptr && native_hresult == S_OK,
+            "Win2D CanvasImageBrush wrapping failed");
+        ComPtr<IInspectable> canvas_image_brush;
+        canvas_image_brush.Attach(
+            static_cast<IInspectable*>(canvas_image_brush_value));
+        progpu_native_direct2d_guid bitmap_brush1_id =
+            to_portable_guid(__uuidof(ID2D1BitmapBrush1));
+        void* unwrapped_bitmap_brush_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_win2d_wrapper_native_resource(
+                surface,
+                canvas_image_brush.Get(),
+                0.0F,
+                &bitmap_brush1_id,
+                &unwrapped_bitmap_brush_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                unwrapped_bitmap_brush_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D CanvasImageBrush native-resource query failed");
+        ComPtr<ID2D1BitmapBrush1> unwrapped_bitmap_brush;
+        unwrapped_bitmap_brush.Attach(
+            static_cast<ID2D1BitmapBrush1*>(
+                unwrapped_bitmap_brush_value));
+        require(has_same_com_identity(
+                bitmap_brush.Get(),
+                unwrapped_bitmap_brush.Get()),
+            "Win2D CanvasImageBrush changed native COM identity");
+
         progpu_native_direct2d_guid no_interface_id =
             to_portable_guid(GUID_NULL);
         void* no_interface_value =
@@ -1022,6 +1177,9 @@ int main()
     context->FillRectangle(
         D2D1::RectF(32.0F, 24.0F, 64.0F, 48.0F),
         radial_brush.Get());
+    context->FillRectangle(
+        D2D1::RectF(48.0F, 0.0F, 64.0F, 16.0F),
+        bitmap_brush.Get());
     context->FillGeometry(path_geometry.Get(), solid_brush.Get());
     context->DrawGeometry(
         combined_geometry.Get(),

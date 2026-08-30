@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 10U;
+    internal const uint AbiVersion = 11U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -117,6 +117,17 @@ internal static unsafe partial class ProGpuDirect2DNative
         internal NativePoint2F GradientOriginOffset;
         internal float RadiusX;
         internal float RadiusY;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeBitmapProperties
+    {
+        internal uint Width;
+        internal uint Height;
+        internal uint Stride;
+        internal uint Reserved;
+        internal float DpiX;
+        internal float DpiY;
     }
 
     internal enum Win2DResourceKind
@@ -263,6 +274,30 @@ internal static unsafe partial class ProGpuDirect2DNative
             nint gradientStopCollection,
             nint* value,
             int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_bitmap")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceCreateBitmap(
+        nint surface,
+        NativeBitmapProperties* properties,
+        byte* pixels,
+        ulong pixelByteCount,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_bitmap_brush")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceCreateBitmapBrush(
+        nint surface,
+        nint bitmap,
+        ProGpuDirect2DBitmapBrushProperties* properties,
+        NativeBrushProperties* brushProperties,
+        nint* value,
+        int* nativeHResult);
 
     [LibraryImport(
         LibraryName,
