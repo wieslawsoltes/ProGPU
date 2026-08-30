@@ -2586,6 +2586,18 @@ public sealed class CadSampleCanvas : FrameworkElement
                     center + opposite);
                 break;
             }
+            case CadObjectSnapKind.Quadrant:
+            {
+                Vector2 top = center - vertical;
+                Vector2 right = center + horizontal;
+                Vector2 bottom = center + vertical;
+                Vector2 left = center - horizontal;
+                context.DrawLine(_drawOrderReferencePen, top, right);
+                context.DrawLine(_drawOrderReferencePen, right, bottom);
+                context.DrawLine(_drawOrderReferencePen, bottom, left);
+                context.DrawLine(_drawOrderReferencePen, left, top);
+                break;
+            }
         }
     }
 

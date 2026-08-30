@@ -4983,7 +4983,7 @@ approximations are recorded in
 ## Running object-snap boundary
 
 MOVE/COPY point acquisition now composes actual Intersection, Endpoint,
-Midpoint, Center, and Node over the immutable snapshot. A caller-buffered
+Midpoint, Center, Quadrant, and Node over the immutable snapshot. A caller-buffered
 spatial broad phase feeds exact analytic point and pair solvers, with explicit
 scratch, entity-pair, and component-pair truncation. Deterministic device-space
 arbitration returns a generation-tagged double-WCS point plus both source identities for an

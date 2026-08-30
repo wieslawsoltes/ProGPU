@@ -3755,6 +3755,73 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void PointMoveCommitsExactQuadrantsAndRecordsDiamondMarker()
+    {
+        var document = new CadDocument();
+        var selected = new Line(
+            new XYZ(-10, -10, 0),
+            new XYZ(-8, -10, 0));
+        document.Entities.Add(selected);
+        document.Entities.Add(new Circle(XYZ.Zero, 5));
+        document.Entities.Add(new Circle(new XYZ(20, 0, 0), 5));
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(canvas, viewport.WorldToScreen(new CadPoint3D(-9, -10, 0)));
+            Assert.Equal([selected.Handle], canvas.SelectedHandles.ToArray());
+            canvas.ObjectSnapModes = CadObjectSnapModes.Quadrant;
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+            CadDocumentSnapshot snapshot = canvas.CurrentSnapshot!;
+            int snapshotChanges = 0;
+            canvas.SnapshotChanged += (_, _) => snapshotChanges++;
+
+            Vector2 basePointer =
+                viewport.WorldToScreen(new CadPoint3D(5, 0, 0)) +
+                new Vector2(3, -2);
+            for (int index = 0; index < 1_024; index++)
+            {
+                canvas.OnPointerMoved(new PointerRoutedEventArgs
+                {
+                    Position = basePointer,
+                });
+            }
+
+            CadObjectSnapResult baseSnap =
+                canvas.PendingPointTransformObjectSnap!.Value;
+            Assert.Equal(CadObjectSnapKind.Quadrant, baseSnap.Kind);
+            Assert.Equal(new CadPoint3D(5, 0, 0), baseSnap.Point);
+            Assert.Same(snapshot, canvas.CurrentSnapshot);
+            Assert.Equal(0, snapshotChanges);
+            var drawing = new DrawingContext();
+            canvas.OnRender(drawing);
+            Assert.True(drawing.Commands.Count(command =>
+                command.Type == RenderCommandType.DrawLine) >= 4);
+            Click(canvas, basePointer);
+
+            Vector2 secondPointer =
+                viewport.WorldToScreen(new CadPoint3D(20, 5, 0)) +
+                new Vector2(-2, 3);
+            Click(canvas, secondPointer);
+
+            Assert.Null(canvas.PendingPointTransformOperation);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(1, snapshotChanges);
+            AssertPoint(new XYZ(5, -5, 0), selected.StartPoint);
+            AssertPoint(new XYZ(7, -5, 0), selected.EndPoint);
+            Assert.Equal(1, canvas.UndoCount);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedObjectSnapSelectorChangesCanvasModesWithoutEditingDocument()
     {
         var view = new CadSampleView();
@@ -3765,6 +3832,16 @@ public sealed class CadSampleSelectionTests
                 CadObjectSnapModes.Standard,
                 view.Canvas.ObjectSnapModes);
             Assert.True(view.ObjectSnapSelector.IsEnabled);
+
+            view.ObjectSnapSelector.SelectedItem =
+                view.ObjectSnapSelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Tag is
+                        CadObjectSnapModes.Quadrant);
+
+            Assert.Equal(
+                CadObjectSnapModes.Quadrant,
+                view.Canvas.ObjectSnapModes);
 
             view.ObjectSnapSelector.SelectedItem =
                 view.ObjectSnapSelector.Items

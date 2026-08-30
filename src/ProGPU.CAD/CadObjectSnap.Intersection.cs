@@ -4,7 +4,6 @@ public static partial class CadObjectSnapQuery
 {
     private const double IntersectionToleranceFactor =
         1.4210854715202004e-14;
-    private const double IntersectionParameterTolerance = 1e-12;
 
     private static void EvaluateIntersections(
         CadDocumentSnapshot snapshot,
@@ -722,28 +721,6 @@ public static partial class CadObjectSnapQuery
                 point.Y - curve.Center.Y,
                 point.X - curve.Center.X));
 
-    private static bool ContainsAngle(
-        double start,
-        double sweep,
-        double angle)
-    {
-        if (Math.Abs(sweep) >= TwoPi - FullSweepTolerance)
-        {
-            return true;
-        }
-        double extent = Math.Abs(sweep);
-        double relative = sweep >= 0.0
-            ? NormalizePositive(angle - start)
-            : NormalizePositive(start - angle);
-        return relative <= extent + IntersectionParameterTolerance;
-    }
-
-    private static double NormalizePositive(double angle)
-    {
-        double normalized = angle % TwoPi;
-        return normalized < 0.0 ? normalized + TwoPi : normalized;
-    }
-
     private static bool TrySolveQuadratic(
         double a,
         double b,
@@ -848,8 +825,8 @@ public static partial class CadObjectSnapQuery
         IntersectionCurve curve,
         double parameter) =>
         double.IsFinite(parameter) &&
-        parameter >= curve.MinimumParameter - IntersectionParameterTolerance &&
-        parameter <= curve.MaximumParameter + IntersectionParameterTolerance;
+        parameter >= curve.MinimumParameter - SnapParameterTolerance &&
+        parameter <= curve.MaximumParameter + SnapParameterTolerance;
 
     private static double ClampLinearParameter(
         IntersectionCurve curve,

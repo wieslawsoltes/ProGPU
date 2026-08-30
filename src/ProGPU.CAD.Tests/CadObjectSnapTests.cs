@@ -9,6 +9,18 @@ namespace ProGPU.CAD.Tests;
 public sealed class CadObjectSnapTests
 {
     [Fact]
+    public void ModesPreserveCadCompatibleBitAssignments()
+    {
+        Assert.Equal(1, (int)CadObjectSnapModes.Endpoint);
+        Assert.Equal(2, (int)CadObjectSnapModes.Midpoint);
+        Assert.Equal(4, (int)CadObjectSnapModes.Center);
+        Assert.Equal(8, (int)CadObjectSnapModes.Node);
+        Assert.Equal(16, (int)CadObjectSnapModes.Quadrant);
+        Assert.Equal(32, (int)CadObjectSnapModes.Intersection);
+        Assert.Equal(63, (int)CadObjectSnapModes.Standard);
+    }
+
+    [Fact]
     public void StandardModesResolveExactLineCircleArcEllipseAndNodePoints()
     {
         CadDocumentSession session = CadDocumentSession.CreateNew();
@@ -92,6 +104,121 @@ public sealed class CadObjectSnapTests
             CadObjectSnapModes.Node,
             CadObjectSnapKind.Node,
             scratch);
+    }
+
+    [Fact]
+    public void QuadrantSnapUsesExactCircleAxesAndHonorsArcExtents()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add circle and bounded arc", document =>
+        {
+            document.Entities.Add(new Circle(XYZ.Zero, 5));
+            document.Entities.Add(new Arc
+            {
+                Center = new XYZ(20, 0, 0),
+                Radius = 5,
+                StartAngle = Math.PI / 2,
+                EndAngle = Math.PI,
+            });
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        foreach (CadPoint3D point in new[]
+        {
+            new CadPoint3D(5, 0, 0),
+            new CadPoint3D(0, 5, 0),
+            new CadPoint3D(-5, 0, 0),
+            new CadPoint3D(0, -5, 0),
+            new CadPoint3D(20, 5, 0),
+            new CadPoint3D(15, 0, 0),
+        })
+        {
+            AssertSnap(
+                snapshot,
+                viewport,
+                point,
+                CadObjectSnapModes.Quadrant,
+                CadObjectSnapKind.Quadrant,
+                scratch,
+                tolerance: 1e-10);
+        }
+
+        CadObjectSnapResult outsideArc = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(new CadPoint3D(25, 0, 0)),
+            2,
+            CadObjectSnapModes.Quadrant,
+            scratch);
+        Assert.False(outsideArc.IsSnapped);
+
+        CadObjectSnapResult coincidentEndpoint = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(new CadPoint3D(20, 5, 0)),
+            2,
+            CadObjectSnapModes.Standard,
+            scratch);
+        Assert.Equal(CadObjectSnapKind.Endpoint, coincidentEndpoint.Kind);
+    }
+
+    [Fact]
+    public void QuadrantSnapPreservesRotatedEllipseAxesAndArcParameters()
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew();
+        session.Edit("Add rotated ellipses", document =>
+        {
+            document.Entities.Add(new Ellipse
+            {
+                Center = new XYZ(10, 20, 3),
+                MajorAxisEndPoint = new XYZ(3, 4, 0),
+                Normal = XYZ.AxisZ,
+                RadiusRatio = 0.5,
+            });
+            document.Entities.Add(new Ellipse
+            {
+                Center = new XYZ(40, 0, 0),
+                MajorAxisEndPoint = new XYZ(4, 0, 0),
+                Normal = XYZ.AxisZ,
+                RadiusRatio = 0.5,
+                StartParameter = Math.PI / 2,
+                EndParameter = Math.PI,
+            });
+        });
+        CadDocumentSnapshot snapshot = Compile(session);
+        CadPlanViewport viewport = CreateViewport(snapshot);
+        int[] scratch = new int[snapshot.Entities.Length];
+
+        foreach (CadPoint3D point in new[]
+        {
+            new CadPoint3D(13, 24, 3),
+            new CadPoint3D(8, 21.5, 3),
+            new CadPoint3D(7, 16, 3),
+            new CadPoint3D(12, 18.5, 3),
+            new CadPoint3D(40, 2, 0),
+            new CadPoint3D(36, 0, 0),
+        })
+        {
+            AssertSnap(
+                snapshot,
+                viewport,
+                point,
+                CadObjectSnapModes.Quadrant,
+                CadObjectSnapKind.Quadrant,
+                scratch,
+                tolerance: 1e-10);
+        }
+
+        CadObjectSnapResult outsideArc = CadObjectSnapQuery.Query(
+            snapshot,
+            viewport,
+            viewport.WorldToScreen(new CadPoint3D(44, 0, 0)),
+            2,
+            CadObjectSnapModes.Quadrant,
+            scratch);
+        Assert.False(outsideArc.IsSnapped);
     }
 
     [Fact]

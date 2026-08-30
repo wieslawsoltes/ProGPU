@@ -11,8 +11,9 @@ public enum CadObjectSnapModes : byte
     Midpoint = 1 << 1,
     Center = 1 << 2,
     Node = 1 << 3,
-    Intersection = 1 << 4,
-    Standard = Endpoint | Midpoint | Center | Node | Intersection,
+    Quadrant = 1 << 4,
+    Intersection = 1 << 5,
+    Standard = Endpoint | Midpoint | Center | Node | Intersection | Quadrant,
 }
 
 /// <summary>Exact semantic kind of one accepted object-snap point.</summary>
@@ -23,7 +24,8 @@ public enum CadObjectSnapKind : byte
     Midpoint = 2,
     Center = 3,
     Node = 4,
-    Intersection = 5,
+    Quadrant = 5,
+    Intersection = 6,
 }
 
 /// <summary>
@@ -95,6 +97,7 @@ public static partial class CadObjectSnapQuery
 
     private const double TwoPi = Math.PI * 2.0;
     private const double FullSweepTolerance = 1e-12;
+    private const double SnapParameterTolerance = 1e-12;
 
     /// <summary>
     /// Finds the closest enabled snap point inside a logical-pixel aperture.
@@ -107,8 +110,8 @@ public static partial class CadObjectSnapQuery
     /// exact snap points. B and C are the corresponding public maximums above.
     /// Internal storage is O(1) plus caller-owned entity-index scratch. Equal
     /// device distances prefer
-    /// Intersection, Endpoint, Midpoint, Center, then Node, followed by retained
-    /// entity order, second entity order, and point ordinal.
+    /// Intersection, Endpoint, Midpoint, Center, Quadrant, then Node, followed
+    /// by retained entity order, second entity order, and point ordinal.
     /// </remarks>
     public static CadObjectSnapResult Query(
         CadDocumentSnapshot snapshot,
@@ -264,6 +267,18 @@ public static partial class CadObjectSnapQuery
                     entityIndex,
                     header.Handle,
                     0);
+                for (int quadrant = 0; quadrant < 4; quadrant++)
+                {
+                    search.Consider(
+                        CadObjectSnapKind.Quadrant,
+                        circle.CoordinateSystem.PointOnCircle(
+                            circle.Center,
+                            circle.Radius,
+                            quadrant * (Math.PI * 0.5)),
+                        entityIndex,
+                        header.Handle,
+                        quadrant + 1);
+                }
                 break;
             }
             case CadEntityKind.Arc:
@@ -300,6 +315,25 @@ public static partial class CadObjectSnapQuery
                     entityIndex,
                     header.Handle,
                     3);
+                for (int quadrant = 0; quadrant < 4; quadrant++)
+                {
+                    double angle = quadrant * (Math.PI * 0.5);
+                    if (ContainsAngle(
+                            arc.StartAngle,
+                            arc.SweepAngle,
+                            angle))
+                    {
+                        search.Consider(
+                            CadObjectSnapKind.Quadrant,
+                            arc.CoordinateSystem.PointOnCircle(
+                                arc.Center,
+                                arc.Radius,
+                                angle),
+                            entityIndex,
+                            header.Handle,
+                            quadrant + 4);
+                    }
+                }
                 break;
             }
             case CadEntityKind.Ellipse:
@@ -336,6 +370,22 @@ public static partial class CadObjectSnapQuery
                     entityIndex,
                     header.Handle,
                     3);
+                for (int quadrant = 0; quadrant < 4; quadrant++)
+                {
+                    double parameter = quadrant * (Math.PI * 0.5);
+                    if (ContainsAngle(
+                            ellipse.StartParameter,
+                            ellipse.SweepParameter,
+                            parameter))
+                    {
+                        search.Consider(
+                            CadObjectSnapKind.Quadrant,
+                            ellipse.PointAt(parameter),
+                            entityIndex,
+                            header.Handle,
+                            quadrant + 4);
+                    }
+                }
                 break;
             }
             case CadEntityKind.LightweightPolyline:
@@ -546,6 +596,28 @@ public static partial class CadObjectSnapQuery
     private static bool IsFullSweep(double sweep) =>
         Math.Abs(sweep) >= TwoPi - FullSweepTolerance;
 
+    private static bool ContainsAngle(
+        double start,
+        double sweep,
+        double angle)
+    {
+        if (IsFullSweep(sweep))
+        {
+            return true;
+        }
+        double extent = Math.Abs(sweep);
+        double relative = sweep >= 0.0
+            ? NormalizePositive(angle - start)
+            : NormalizePositive(start - angle);
+        return relative <= extent + SnapParameterTolerance;
+    }
+
+    private static double NormalizePositive(double angle)
+    {
+        double normalized = angle % TwoPi;
+        return normalized < 0.0 ? normalized + TwoPi : normalized;
+    }
+
     private static bool IsFinite(CadPoint3D point) =>
         double.IsFinite(point.X) &&
         double.IsFinite(point.Y) &&
@@ -737,6 +809,8 @@ public static partial class CadObjectSnapQuery
                 (_modes & CadObjectSnapModes.Node) != 0,
             CadObjectSnapKind.Intersection =>
                 (_modes & CadObjectSnapModes.Intersection) != 0,
+            CadObjectSnapKind.Quadrant =>
+                (_modes & CadObjectSnapModes.Quadrant) != 0,
             _ => false,
         };
 
@@ -773,7 +847,8 @@ public static partial class CadObjectSnapQuery
             CadObjectSnapKind.Endpoint => 1,
             CadObjectSnapKind.Midpoint => 2,
             CadObjectSnapKind.Center => 3,
-            CadObjectSnapKind.Node => 4,
+            CadObjectSnapKind.Quadrant => 4,
+            CadObjectSnapKind.Node => 5,
             _ => int.MaxValue,
         };
     }
