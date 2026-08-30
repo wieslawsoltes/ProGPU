@@ -1259,8 +1259,8 @@ int main()
             surface,
             retained_text_layout.Get(),
             typography.Get(),
-            0U,
-            static_cast<uint32_t>(std::size(text)),
+            1U,
+            3U,
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK,
         "provider IDWriteTextLayout4 typography assignment failed");
@@ -1271,9 +1271,8 @@ int main()
                 2U,
                 &actual_typography,
                 &actual_typography_range)) &&
-            actual_typography_range.startPosition == 0U &&
-            actual_typography_range.length ==
-                static_cast<uint32_t>(std::size(text)) &&
+            actual_typography_range.startPosition == 1U &&
+            actual_typography_range.length == 3U &&
             actual_typography->GetFontFeatureCount() ==
                 static_cast<uint32_t>(std::size(typography_features)) &&
             SUCCEEDED(actual_typography->GetFontFeature(
