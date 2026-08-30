@@ -1168,18 +1168,45 @@ int main()
             native_hresult == S_OK,
         "provider IDWriteTextLayout4 range formatting failed");
     DWRITE_TEXT_RANGE actual_range{};
+    FLOAT actual_font_size = 0.0F;
+    DWRITE_FONT_WEIGHT actual_font_weight = DWRITE_FONT_WEIGHT_NORMAL;
+    DWRITE_FONT_STYLE actual_font_style = DWRITE_FONT_STYLE_NORMAL;
+    DWRITE_FONT_STRETCH actual_font_stretch = DWRITE_FONT_STRETCH_NORMAL;
+    BOOL actual_underline = FALSE;
+    BOOL actual_strikethrough = FALSE;
     ComPtr<IUnknown> actual_drawing_effect;
-    require(retained_text_layout->GetFontSize(2U, &actual_range) == 18.0F &&
+    require(SUCCEEDED(retained_text_layout->GetFontSize(
+                2U,
+                &actual_font_size,
+                &actual_range)) &&
+            actual_font_size == 18.0F &&
             actual_range.startPosition == 1U &&
             actual_range.length == 3U &&
-            retained_text_layout->GetFontWeight(2U, nullptr) ==
-                DWRITE_FONT_WEIGHT_BOLD &&
-            retained_text_layout->GetFontStyle(2U, nullptr) ==
-                DWRITE_FONT_STYLE_ITALIC &&
-            retained_text_layout->GetFontStretch(2U, nullptr) ==
-                DWRITE_FONT_STRETCH_SEMI_EXPANDED &&
-            retained_text_layout->GetUnderline(2U, nullptr) != FALSE &&
-            retained_text_layout->GetStrikethrough(2U, nullptr) != FALSE &&
+            SUCCEEDED(retained_text_layout->GetFontWeight(
+                2U,
+                &actual_font_weight,
+                nullptr)) &&
+            actual_font_weight == DWRITE_FONT_WEIGHT_BOLD &&
+            SUCCEEDED(retained_text_layout->GetFontStyle(
+                2U,
+                &actual_font_style,
+                nullptr)) &&
+            actual_font_style == DWRITE_FONT_STYLE_ITALIC &&
+            SUCCEEDED(retained_text_layout->GetFontStretch(
+                2U,
+                &actual_font_stretch,
+                nullptr)) &&
+            actual_font_stretch == DWRITE_FONT_STRETCH_SEMI_EXPANDED &&
+            SUCCEEDED(retained_text_layout->GetUnderline(
+                2U,
+                &actual_underline,
+                nullptr)) &&
+            actual_underline != FALSE &&
+            SUCCEEDED(retained_text_layout->GetStrikethrough(
+                2U,
+                &actual_strikethrough,
+                nullptr)) &&
+            actual_strikethrough != FALSE &&
             SUCCEEDED(retained_text_layout->GetDrawingEffect(
                 2U,
                 &actual_drawing_effect,
