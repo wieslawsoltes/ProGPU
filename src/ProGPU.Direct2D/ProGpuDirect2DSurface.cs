@@ -4830,6 +4830,45 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    private static void ValidateTextAntialiasMode(
+        ProGpuDirect2DTextAntialiasMode value,
+        string parameterName)
+    {
+        if (value is < ProGpuDirect2DTextAntialiasMode.Default or >
+            ProGpuDirect2DTextAntialiasMode.Aliased)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "Direct2D text antialias mode is unknown.");
+        }
+    }
+
+    private static void ValidatePrimitiveBlend(
+        ProGpuDirect2DPrimitiveBlend value,
+        string parameterName)
+    {
+        if (value is < ProGpuDirect2DPrimitiveBlend.SourceOver or >
+            ProGpuDirect2DPrimitiveBlend.Maximum)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "Direct2D primitive blend is unknown.");
+        }
+    }
+
+    private static void ValidateUnitMode(
+        ProGpuDirect2DUnitMode value,
+        string parameterName)
+    {
+        if (value is < ProGpuDirect2DUnitMode.Dips or >
+            ProGpuDirect2DUnitMode.Pixels)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "Direct2D unit mode is unknown.");
+        }
+    }
+
     private static void ValidateInterpolationMode(
         ProGpuDirect2DInterpolationMode value,
         string parameterName)
@@ -5201,6 +5240,248 @@ public sealed unsafe class ProGpuDirect2DSurface :
                 transform.M22,
                 transform.M31,
                 transform.M32);
+        }
+    }
+
+    internal void SetAntialiasMode(ProGpuDirect2DAntialiasMode mode)
+    {
+        ValidateAntialiasMode(mode, nameof(mode));
+        lock (_gate)
+        {
+            ValidateTypedDrawingProducer();
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceSetAntialiasMode(
+                    _nativeSurface,
+                    mode,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1RenderTarget::SetAntialiasMode",
+                status,
+                nativeHResult);
+        }
+    }
+
+    internal ProGpuDirect2DAntialiasMode GetAntialiasMode()
+    {
+        lock (_gate)
+        {
+            ValidateTypedDrawingProducer();
+            ProGpuDirect2DAntialiasMode mode = default;
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceGetAntialiasMode(
+                    _nativeSurface,
+                    &mode,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1RenderTarget::GetAntialiasMode",
+                status,
+                nativeHResult);
+            return mode;
+        }
+    }
+
+    internal void SetTextAntialiasMode(ProGpuDirect2DTextAntialiasMode mode)
+    {
+        ValidateTextAntialiasMode(mode, nameof(mode));
+        lock (_gate)
+        {
+            ValidateTypedDrawingProducer();
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceSetTextAntialiasMode(
+                    _nativeSurface,
+                    mode,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1RenderTarget::SetTextAntialiasMode",
+                status,
+                nativeHResult);
+        }
+    }
+
+    internal ProGpuDirect2DTextAntialiasMode GetTextAntialiasMode()
+    {
+        lock (_gate)
+        {
+            ValidateTypedDrawingProducer();
+            ProGpuDirect2DTextAntialiasMode mode = default;
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceGetTextAntialiasMode(
+                    _nativeSurface,
+                    &mode,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1RenderTarget::GetTextAntialiasMode",
+                status,
+                nativeHResult);
+            return mode;
+        }
+    }
+
+    internal void SetPrimitiveBlend(ProGpuDirect2DPrimitiveBlend blend)
+    {
+        ValidatePrimitiveBlend(blend, nameof(blend));
+        lock (_gate)
+        {
+            ValidateTypedDrawingProducer();
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceSetPrimitiveBlend(
+                    _nativeSurface,
+                    blend,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1DeviceContext::SetPrimitiveBlend",
+                status,
+                nativeHResult);
+        }
+    }
+
+    internal ProGpuDirect2DPrimitiveBlend GetPrimitiveBlend()
+    {
+        lock (_gate)
+        {
+            ValidateTypedDrawingProducer();
+            ProGpuDirect2DPrimitiveBlend blend = default;
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceGetPrimitiveBlend(
+                    _nativeSurface,
+                    &blend,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1DeviceContext::GetPrimitiveBlend",
+                status,
+                nativeHResult);
+            return blend;
+        }
+    }
+
+    internal void SetUnitMode(ProGpuDirect2DUnitMode mode)
+    {
+        ValidateUnitMode(mode, nameof(mode));
+        lock (_gate)
+        {
+            ValidateTypedDrawingProducer();
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceSetUnitMode(
+                    _nativeSurface,
+                    mode,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1DeviceContext::SetUnitMode",
+                status,
+                nativeHResult);
+        }
+    }
+
+    internal ProGpuDirect2DUnitMode GetUnitMode()
+    {
+        lock (_gate)
+        {
+            ValidateTypedDrawingProducer();
+            ProGpuDirect2DUnitMode mode = default;
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceGetUnitMode(
+                    _nativeSurface,
+                    &mode,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1DeviceContext::GetUnitMode",
+                status,
+                nativeHResult);
+            return mode;
+        }
+    }
+
+    internal void SetTags(ProGpuDirect2DTags tags)
+    {
+        lock (_gate)
+        {
+            ValidateTypedDrawingProducer();
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status = ProGpuDirect2DNative.SurfaceSetTags(
+                _nativeSurface,
+                tags.Tag1,
+                tags.Tag2,
+                &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1RenderTarget::SetTags",
+                status,
+                nativeHResult);
+        }
+    }
+
+    internal ProGpuDirect2DTags GetTags()
+    {
+        lock (_gate)
+        {
+            ValidateTypedDrawingProducer();
+            ulong tag1 = 0U;
+            ulong tag2 = 0U;
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status = ProGpuDirect2DNative.SurfaceGetTags(
+                _nativeSurface,
+                &tag1,
+                &tag2,
+                &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1RenderTarget::GetTags",
+                status,
+                nativeHResult);
+            return new ProGpuDirect2DTags(tag1, tag2);
+        }
+    }
+
+    internal void SetDpi(Vector2 dpi)
+    {
+        bool resetToDefault = dpi == Vector2.Zero;
+        if (!float.IsFinite(dpi.X) || !float.IsFinite(dpi.Y) ||
+            !resetToDefault && (dpi.X <= 0.0F || dpi.Y <= 0.0F))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(dpi),
+                "Direct2D DPI must be positive and finite, or both zero to restore 96 DPI.");
+        }
+        lock (_gate)
+        {
+            ValidateTypedDrawingProducer();
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status = ProGpuDirect2DNative.SurfaceSetDpi(
+                _nativeSurface,
+                dpi.X,
+                dpi.Y,
+                &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1RenderTarget::SetDpi",
+                status,
+                nativeHResult);
+        }
+    }
+
+    internal Vector2 GetDpi()
+    {
+        lock (_gate)
+        {
+            ValidateTypedDrawingProducer();
+            float dpiX = 0.0F;
+            float dpiY = 0.0F;
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status = ProGpuDirect2DNative.SurfaceGetDpi(
+                _nativeSurface,
+                &dpiX,
+                &dpiY,
+                &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1RenderTarget::GetDpi",
+                status,
+                nativeHResult);
+            return new Vector2(dpiX, dpiY);
         }
     }
 
@@ -6439,6 +6720,54 @@ public sealed class ProGpuDirect2DDrawingSession : IDisposable
             .SetTransform(value);
     }
 
+    public ProGpuDirect2DAntialiasMode AntialiasMode
+    {
+        get => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession))).GetAntialiasMode();
+        set => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession))).SetAntialiasMode(value);
+    }
+
+    public ProGpuDirect2DTextAntialiasMode TextAntialiasMode
+    {
+        get => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession))).GetTextAntialiasMode();
+        set => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession))).SetTextAntialiasMode(value);
+    }
+
+    public ProGpuDirect2DPrimitiveBlend PrimitiveBlend
+    {
+        get => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession))).GetPrimitiveBlend();
+        set => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession))).SetPrimitiveBlend(value);
+    }
+
+    public ProGpuDirect2DUnitMode UnitMode
+    {
+        get => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession))).GetUnitMode();
+        set => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession))).SetUnitMode(value);
+    }
+
+    public ProGpuDirect2DTags Tags
+    {
+        get => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession))).GetTags();
+        set => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession))).SetTags(value);
+    }
+
+    public Vector2 Dpi
+    {
+        get => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession))).GetDpi();
+        set => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession))).SetDpi(value);
+    }
+
     public ProGpuDirect2DAxisAlignedClipScope PushAxisAlignedClip(
         ProGpuDirect2DRect clipRectangle,
         ProGpuDirect2DAntialiasMode antialiasMode =
@@ -6773,6 +7102,54 @@ public sealed class ProGpuDirect2DCommandListDrawingSession : IDisposable
         set => (_owner ?? throw new ObjectDisposedException(
             nameof(ProGpuDirect2DCommandListDrawingSession)))
             .SetTransform(value);
+    }
+
+    public ProGpuDirect2DAntialiasMode AntialiasMode
+    {
+        get => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession))).GetAntialiasMode();
+        set => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession))).SetAntialiasMode(value);
+    }
+
+    public ProGpuDirect2DTextAntialiasMode TextAntialiasMode
+    {
+        get => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession))).GetTextAntialiasMode();
+        set => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession))).SetTextAntialiasMode(value);
+    }
+
+    public ProGpuDirect2DPrimitiveBlend PrimitiveBlend
+    {
+        get => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession))).GetPrimitiveBlend();
+        set => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession))).SetPrimitiveBlend(value);
+    }
+
+    public ProGpuDirect2DUnitMode UnitMode
+    {
+        get => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession))).GetUnitMode();
+        set => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession))).SetUnitMode(value);
+    }
+
+    public ProGpuDirect2DTags Tags
+    {
+        get => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession))).GetTags();
+        set => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession))).SetTags(value);
+    }
+
+    public Vector2 Dpi
+    {
+        get => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession))).GetDpi();
+        set => (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession))).SetDpi(value);
     }
 
     public ProGpuDirect2DAxisAlignedClipScope PushAxisAlignedClip(
