@@ -94,7 +94,9 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_BITMAP_BRUSH1 = 35,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_BITMAP = 36,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_IMAGE_BRUSH = 37,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_IMAGE_BRUSH = 38
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_IMAGE_BRUSH = 38,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_COMMAND_LIST = 39,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_COMMAND_LIST = 40
 } progpu_native_direct2d_interface_kind;
 
 typedef enum progpu_native_direct2d_fill_mode {
@@ -343,7 +345,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 12U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 13U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -489,6 +491,14 @@ progpu_native_direct2d_surface_create_image_brush(
     void** value,
     int32_t* native_hresult);
 
+/* Creates an open genuine ID2D1CommandList in this surface's exact Direct2D
+ * device domain. Record it through the paired command-list draw scope. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_command_list(
+    progpu_native_direct2d_surface* surface,
+    void** value,
+    int32_t* native_hresult);
+
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_surface_create_rectangle_geometry(
     progpu_native_direct2d_surface* surface,
@@ -606,6 +616,21 @@ PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_surface_end_draw(
     progpu_native_direct2d_surface* surface,
     uint64_t release_key,
+    uint64_t* tag1,
+    uint64_t* tag2,
+    int32_t* native_hresult);
+
+/* Records into an open same-domain command list without acquiring or
+ * modifying the shared texture. End restores the shared bitmap target and
+ * closes the command list. This scope never advances content_version. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_begin_command_list_draw(
+    progpu_native_direct2d_surface* surface,
+    void* command_list);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_end_command_list_draw(
+    progpu_native_direct2d_surface* surface,
     uint64_t* tag1,
     uint64_t* tag2,
     int32_t* native_hresult);
