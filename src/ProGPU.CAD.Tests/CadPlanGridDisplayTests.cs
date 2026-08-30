@@ -3,9 +3,11 @@ using ACadSharp;
 using ACadSharp.Entities;
 using ACadSharp.Tables;
 using CSMath;
+using Microsoft.UI.Xaml;
 using ProGPU.CAD.Sample;
 using ProGPU.Scene;
 using Xunit;
+using Key = Silk.NET.Input.Key;
 
 namespace ProGPU.CAD.Tests;
 
@@ -192,6 +194,202 @@ public sealed class CadPlanGridDisplayTests
         finally
         {
             canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void GridDisplayEditUsesOneGenerationAndExactUndoRedo()
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        VPort active = document.VPorts[VPort.DefaultName];
+        active.ShowGrid = true;
+        active.GridSpacing = new XY(2.0, 4.0);
+        active.GridFlags = (GridFlags)(1 | 8 | 32);
+        active.MinorGridLinesPerMajorGridLine = 5;
+        active.SnapOn = true;
+        active.SnapSpacing = new XY(3.0, 6.0);
+        active.SnapBasePoint = new XY(7.0, 9.0);
+        active.SnapRotation = 0.25;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var values = new CadPlanGridDisplayEditValues(
+            false,
+            0.0,
+            0.0,
+            true,
+            true,
+            false,
+            17);
+
+        ulong applied = history.Execute(
+            new CadSetPlanGridDisplayCommand(values));
+
+        Assert.Equal(1UL, applied);
+        Assert.Equal(values, session.Read(CadPlanGridDisplayEditValues.Capture));
+        Assert.Equal(
+            (GridFlags)(2 | 4 | 8 | 32),
+            session.Read(d => d.VPorts[VPort.DefaultName].GridFlags));
+        Assert.Equal(new XY(3.0, 6.0),
+            session.Read(d => d.VPorts[VPort.DefaultName].SnapSpacing));
+        Assert.Equal(new XY(7.0, 9.0),
+            session.Read(d => d.VPorts[VPort.DefaultName].SnapBasePoint));
+        Assert.Equal(0.25,
+            session.Read(d => d.VPorts[VPort.DefaultName].SnapRotation));
+        Assert.True(session.Read(d => d.VPorts[VPort.DefaultName].SnapOn));
+        CadPlanGridDisplaySettings appliedDisplay =
+            new CadSnapshotCompiler().Compile(session).PlanGridDisplaySettings;
+        Assert.Equal(3.0, appliedDisplay.SpacingX);
+        Assert.Equal(6.0, appliedDisplay.SpacingY);
+
+        Assert.True(history.TryUndo(out ulong undone));
+        Assert.Equal(2UL, undone);
+        Assert.True(session.Read(d => d.VPorts[VPort.DefaultName].ShowGrid));
+        Assert.Equal(new XY(2.0, 4.0),
+            session.Read(d => d.VPorts[VPort.DefaultName].GridSpacing));
+        Assert.Equal((GridFlags)(1 | 8 | 32),
+            session.Read(d => d.VPorts[VPort.DefaultName].GridFlags));
+        Assert.Equal(5,
+            session.Read(d => d.VPorts[VPort.DefaultName]
+                .MinorGridLinesPerMajorGridLine));
+
+        Assert.True(history.TryRedo(out ulong redone));
+        Assert.Equal(3UL, redone);
+        Assert.Equal(values, session.Read(CadPlanGridDisplayEditValues.Capture));
+        Assert.Throws<InvalidOperationException>(() => history.Execute(
+            new CadSetPlanGridDisplayCommand(values)));
+        Assert.Equal(redone, session.ContentGeneration);
+    }
+
+    [Fact]
+    public void GridDisplayEditValuesRejectMalformedPersistedRanges()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadPlanGridDisplayEditValues(
+                true, -1.0, 1.0, true, false, true, 5));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadPlanGridDisplayEditValues(
+                true, 1.0, double.NaN, true, false, true, 5));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadPlanGridDisplayEditValues(
+                true, 1.0, 1.0, true, false, true, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadPlanGridDisplayEditValues(
+                true, 1.0, 1.0, true, false, true, 101));
+    }
+
+    [Theory]
+    [InlineData(CadDocumentFormat.Dxf)]
+    [InlineData(CadDocumentFormat.Dwg)]
+    public async Task EditedGridDisplaySurvivesDxfAndDwgRoundTrip(
+        CadDocumentFormat format)
+    {
+        CadDocumentSession session = CadDocumentSession.CreateNew(
+            ACadVersion.AC1032);
+        var expected = new CadPlanGridDisplayEditValues(
+            false,
+            2.5,
+            7.25,
+            true,
+            true,
+            false,
+            17);
+        new CadDocumentHistory(session).Execute(
+            new CadSetPlanGridDisplayCommand(expected));
+        using var stream = new MemoryStream();
+        var store = new CadDocumentStore();
+
+        await store.SaveAsync(
+            session,
+            stream,
+            format,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            format,
+            sourceName: $"grid-display.{format.ToString().ToLowerInvariant()}");
+
+        Assert.Equal(
+            expected,
+            loaded.Session.Read(CadPlanGridDisplayEditValues.Capture));
+        CadPlanGridDisplaySettings display =
+            new CadSnapshotCompiler().Compile(loaded.Session)
+                .PlanGridDisplaySettings;
+        Assert.Equal(2.5, display.SpacingX);
+        Assert.Equal(7.25, display.SpacingY);
+        Assert.False(display.IsVisible);
+        Assert.True(display.IsAdaptive);
+        Assert.True(display.AllowsSubdivision);
+        Assert.False(display.ShowsBeyondLimits);
+        Assert.Equal(17, display.MinorLinesPerMajorLine);
+    }
+
+    [Fact]
+    public void SharedViewEditsPersistedGridWithoutChangingPointSnap()
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        VPort active = document.VPorts[VPort.DefaultName];
+        active.ShowGrid = true;
+        active.GridSpacing = new XY(2.0, 4.0);
+        active.GridFlags = GridFlags._1 | GridFlags._2;
+        active.MinorGridLinesPerMajorGridLine = 5;
+        active.SnapOn = true;
+        active.SnapSpacing = new XY(3.0, 6.0);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Canvas.Load(session);
+
+            Assert.True(view.PlanGridDisplayCheckBox.IsChecked);
+            Assert.Equal("2", view.PlanGridUnitXInput.Text);
+            Assert.Equal("4", view.PlanGridUnitYInput.Text);
+            Assert.True(view.PlanGridAdaptiveCheckBox.IsChecked);
+            Assert.False(view.PlanGridSubdivisionCheckBox.IsChecked);
+            Assert.True(view.PlanGridBeyondLimitsCheckBox.IsChecked);
+            Assert.Equal("5", view.PlanGridMajorInput.Text);
+
+            view.PlanGridDisplayCheckBox.IsChecked = false;
+            view.PlanGridUnitXInput.Text = "0";
+            view.PlanGridUnitYInput.Text = "0";
+            view.PlanGridAdaptiveCheckBox.IsChecked = true;
+            view.PlanGridSubdivisionCheckBox.IsChecked = true;
+            view.PlanGridBeyondLimitsCheckBox.IsChecked = false;
+            view.PlanGridMajorInput.Text = "17";
+
+            Assert.True(view.ApplyPlanGridDisplayButton.IsEnabled);
+            view.ApplyPlanGridDisplayButton.OnKeyDown(new KeyRoutedEventArgs
+            {
+                Key = Key.Enter,
+            });
+
+            CadPlanGridDisplayEditValues persisted =
+                session.Read(CadPlanGridDisplayEditValues.Capture);
+            Assert.False(persisted.IsVisible);
+            Assert.Equal(0.0, persisted.GridUnitX);
+            Assert.Equal(0.0, persisted.GridUnitY);
+            Assert.True(persisted.IsAdaptive);
+            Assert.True(persisted.AllowsSubdivision);
+            Assert.False(persisted.ShowsBeyondLimits);
+            Assert.Equal(17, persisted.MinorLinesPerMajorLine);
+            Assert.True(session.Read(d => d.VPorts[VPort.DefaultName].SnapOn));
+            Assert.Equal(new XY(3.0, 6.0),
+                session.Read(d => d.VPorts[VPort.DefaultName].SnapSpacing));
+            Assert.True(view.Canvas.IsPlanGridSnapEnabled);
+            Assert.Equal(3.0, view.Canvas.PlanGridDisplaySettings.SpacingX);
+            Assert.Equal(6.0, view.Canvas.PlanGridDisplaySettings.SpacingY);
+            Assert.False(view.ApplyPlanGridDisplayButton.IsEnabled);
+
+            Assert.True(view.Canvas.TryUndo());
+            Assert.True(view.PlanGridDisplayCheckBox.IsChecked);
+            Assert.Equal("2", view.PlanGridUnitXInput.Text);
+            Assert.Equal("4", view.PlanGridUnitYInput.Text);
+            Assert.True(view.Canvas.IsPlanGridSnapEnabled);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
         }
     }
 

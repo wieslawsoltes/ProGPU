@@ -5057,3 +5057,21 @@ resources, or draw count. Singular projections and unsupported isometric mode
 fail closed. Full behavior research, wire provenance, complexity, parity, tests,
 and deferred GRIDSTYLE/major-line/dynamic-UCS work are recorded in
 [`PROGPU_CAD_GRID_DISPLAY_RESEARCH.md`](PROGPU_CAD_GRID_DISPLAY_RESEARCH.md).
+
+## Persisted drafting-grid edit boundary
+
+The shared desktop/browser shell now edits active-VPORT GRIDMODE, rectangular
+GRIDUNIT, GRIDDISPLAY bits 1/2/4, and GRIDMAJOR through one typed reversible
+command. The command retains exact pre/post VPORT identity and raw flags,
+preserves dynamic-UCS/unknown bits, and does not mutate the independently owned
+SNAPMODE, SNAPUNIT, SNAPBASE, SNAPANG, UCS, limits, or style. A valid zero
+GRIDUNIT remains persisted and resolves from the matching SNAPUNIT component
+only while compiling the immutable display snapshot.
+
+Apply, Undo, and Redo each advance one document generation and transactionally
+replace one snapshot/picture; UI refresh is guarded against recursive edits.
+DXF R2007+ group 60/61 emission is supplied by the pinned ACadSharp feature
+commit, with matched ProGPU DXF/DWG persistence coverage. This host-side edit
+does not change the existing paired managed/native grid rendering contract.
+Research, provenance, complexity, validation, and deferred modes remain in
+[`PROGPU_CAD_GRID_DISPLAY_RESEARCH.md`](PROGPU_CAD_GRID_DISPLAY_RESEARCH.md).

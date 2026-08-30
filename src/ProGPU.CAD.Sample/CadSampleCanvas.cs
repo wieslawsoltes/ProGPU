@@ -301,6 +301,36 @@ public sealed class CadSampleCanvas : FrameworkElement
     public CadPlanGridSnapSettings PlanGridSnapSettings =>
         _planGridSnapSettings;
 
+    /// <summary>The active viewport's immutable drafting-grid display.</summary>
+    public CadPlanGridDisplaySettings PlanGridDisplaySettings =>
+        _planGridDisplaySettings;
+
+    /// <summary>
+    /// Returns the active VPORT's exact persisted GRIDMODE, GRIDUNIT,
+    /// GRIDDISPLAY, and GRIDMAJOR values.
+    /// </summary>
+    public CadPlanGridDisplayEditValues GetPlanGridDisplayEditValues()
+    {
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        return session.Read(CadPlanGridDisplayEditValues.Capture);
+    }
+
+    /// <summary>
+    /// Persists one active-VPORT drafting-grid display edit and recompiles one
+    /// immutable generation. Point-grid acquisition remains unchanged.
+    /// </summary>
+    public void EditPlanGridDisplay(CadPlanGridDisplayEditValues values)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        history.Execute(new CadSetPlanGridDisplayCommand(values));
+        RecompileAfterEdit(session);
+    }
+
     /// <summary>
     /// Enables rectangular grid acquisition for pointer-driven MOVE/COPY prompts.
     /// </summary>

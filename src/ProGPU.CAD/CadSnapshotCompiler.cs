@@ -5846,8 +5846,14 @@ public sealed partial class CadSnapshotCompiler
     {
         if (!document.VPorts.TryGetValue(VPort.DefaultName, out VPort? active) ||
             active is null ||
-            !double.IsFinite(active.GridSpacing.X) || active.GridSpacing.X <= 0.0 ||
-            !double.IsFinite(active.GridSpacing.Y) || active.GridSpacing.Y <= 0.0 ||
+            !TryResolveGridDisplaySpacing(
+                active.GridSpacing.X,
+                active.SnapSpacing.X,
+                out double spacingX) ||
+            !TryResolveGridDisplaySpacing(
+                active.GridSpacing.Y,
+                active.SnapSpacing.Y,
+                out double spacingY) ||
             !TryCapturePlanGridBasis(
                 active,
                 out CadPoint3D origin,
@@ -5883,8 +5889,8 @@ public sealed partial class CadSnapshotCompiler
             origin,
             xAxis,
             yAxis,
-            active.GridSpacing.X,
-            active.GridSpacing.Y,
+            spacingX,
+            spacingY,
             (gridFlags & 2) != 0,
             (gridFlags & 4) != 0,
             (gridFlags & 1) != 0,
@@ -5893,6 +5899,16 @@ public sealed partial class CadSnapshotCompiler
             new CadBounds3D(
                 new CadPoint3D(minimumX, minimumY, 0.0),
                 new CadPoint3D(maximumX, maximumY, 0.0)));
+    }
+
+    private static bool TryResolveGridDisplaySpacing(
+        double gridSpacing,
+        double snapSpacing,
+        out double effectiveSpacing)
+    {
+        effectiveSpacing = gridSpacing == 0.0 ? snapSpacing : gridSpacing;
+        return double.IsFinite(gridSpacing) && gridSpacing >= 0.0 &&
+            double.IsFinite(effectiveSpacing) && effectiveSpacing > 0.0;
     }
 
     private static bool TryCapturePlanGridBasis(

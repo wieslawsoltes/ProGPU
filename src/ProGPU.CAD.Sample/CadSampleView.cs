@@ -62,6 +62,14 @@ public sealed class CadSampleView : Grid
     private readonly Button _copyByPointsButton;
     private readonly ComboBox _objectSnapSelector;
     private readonly CheckBox _planGridSnapCheckBox;
+    private readonly CheckBox _planGridDisplayCheckBox;
+    private readonly TextBox _planGridUnitXInput;
+    private readonly TextBox _planGridUnitYInput;
+    private readonly CheckBox _planGridAdaptiveCheckBox;
+    private readonly CheckBox _planGridSubdivisionCheckBox;
+    private readonly CheckBox _planGridBeyondLimitsCheckBox;
+    private readonly TextBox _planGridMajorInput;
+    private readonly Button _applyPlanGridDisplayButton;
     private readonly CheckBox _planOrthoCheckBox;
     private readonly CheckBox _planPolarTrackingCheckBox;
     private readonly ComboBox _planPolarTrackingIncrementSelector;
@@ -141,6 +149,7 @@ public sealed class CadSampleView : Grid
     private bool _isRefreshingPageSetups;
     private bool _isRefreshingPageSetupFields;
     private bool _isRefreshingAttributeDisplay;
+    private bool _isRefreshingPlanGridDisplay;
     private bool _isRefreshingSelectionProperties;
     private bool _isSelectionEditable;
     private bool _isSolidThicknessSelection;
@@ -204,6 +213,24 @@ public sealed class CadSampleView : Grid
     public ComboBox ObjectSnapSelector => _objectSnapSelector;
 
     public CheckBox PlanGridSnapCheckBox => _planGridSnapCheckBox;
+
+    public CheckBox PlanGridDisplayCheckBox => _planGridDisplayCheckBox;
+
+    public TextBox PlanGridUnitXInput => _planGridUnitXInput;
+
+    public TextBox PlanGridUnitYInput => _planGridUnitYInput;
+
+    public CheckBox PlanGridAdaptiveCheckBox => _planGridAdaptiveCheckBox;
+
+    public CheckBox PlanGridSubdivisionCheckBox =>
+        _planGridSubdivisionCheckBox;
+
+    public CheckBox PlanGridBeyondLimitsCheckBox =>
+        _planGridBeyondLimitsCheckBox;
+
+    public TextBox PlanGridMajorInput => _planGridMajorInput;
+
+    public Button ApplyPlanGridDisplayButton => _applyPlanGridDisplayButton;
 
     public CheckBox PlanOrthoCheckBox => _planOrthoCheckBox;
 
@@ -292,7 +319,7 @@ public sealed class CadSampleView : Grid
             Visibility = Visibility.Collapsed,
         };
         TtfFont font = InterFontFamily.Regular;
-        RowDefinitions.Add(new GridLength(498, GridUnitType.Absolute));
+        RowDefinitions.Add(new GridLength(532, GridUnitType.Absolute));
         RowDefinitions.Add(GridLength.Star(1));
         RowDefinitions.Add(new GridLength(30, GridUnitType.Absolute));
 
@@ -319,6 +346,11 @@ public sealed class CadSampleView : Grid
             HorizontalAlignment = HorizontalAlignment.Left,
         };
         var transformActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        var draftingGridActions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Left,
@@ -381,6 +413,7 @@ public sealed class CadSampleView : Grid
         toolbarRows.AddChild(actions);
         toolbarRows.AddChild(editActions);
         toolbarRows.AddChild(transformActions);
+        toolbarRows.AddChild(draftingGridActions);
         toolbarRows.AddChild(selectionPropertyActions);
         toolbarRows.AddChild(selectionEntityActions);
         toolbarRows.AddChild(selectionAttributeActions);
@@ -728,6 +761,84 @@ public sealed class CadSampleView : Grid
             30);
         transformActions.AddChild(_pointTransformInput);
         transformActions.AddChild(_acceptPointTransformInputButton);
+
+        draftingGridActions.AddChild(new TextBlock
+        {
+            Text = "Drafting grid",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 8, 0),
+        });
+        _planGridDisplayCheckBox = CreateAttributeModeCheckBox("Visible", font);
+        draftingGridActions.AddChild(_planGridDisplayCheckBox);
+        draftingGridActions.AddChild(new TextBlock
+        {
+            Text = "GRIDUNIT X",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(8, 6, 6, 0),
+        });
+        _planGridUnitXInput = new TextBox
+        {
+            Font = font,
+            WidthConstraint = 76,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        draftingGridActions.AddChild(_planGridUnitXInput);
+        draftingGridActions.AddChild(new TextBlock
+        {
+            Text = "Y",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 6, 0),
+        });
+        _planGridUnitYInput = new TextBox
+        {
+            Font = font,
+            WidthConstraint = 76,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        draftingGridActions.AddChild(_planGridUnitYInput);
+        _planGridAdaptiveCheckBox = CreateAttributeModeCheckBox("Adaptive", font);
+        _planGridSubdivisionCheckBox = CreateAttributeModeCheckBox(
+            "Subdivide",
+            font);
+        _planGridBeyondLimitsCheckBox = CreateAttributeModeCheckBox(
+            "Beyond limits",
+            font);
+        draftingGridActions.AddChild(_planGridAdaptiveCheckBox);
+        draftingGridActions.AddChild(_planGridSubdivisionCheckBox);
+        draftingGridActions.AddChild(_planGridBeyondLimitsCheckBox);
+        draftingGridActions.AddChild(new TextBlock
+        {
+            Text = "GRIDMAJOR",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(8, 6, 6, 0),
+        });
+        _planGridMajorInput = new TextBox
+        {
+            Font = font,
+            WidthConstraint = 56,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        draftingGridActions.AddChild(_planGridMajorInput);
+        _applyPlanGridDisplayButton = CreateButton(
+            "Apply grid",
+            font,
+            88,
+            30);
+        draftingGridActions.AddChild(_applyPlanGridDisplayButton);
 
         selectionPropertyActions.AddChild(new TextBlock
         {
@@ -1737,6 +1848,22 @@ public sealed class CadSampleView : Grid
         _planGridSnapCheckBox.CheckedChanged += (_, _) =>
             _canvas.IsPlanGridSnapEnabled =
                 _planGridSnapCheckBox.IsChecked;
+        _planGridDisplayCheckBox.CheckedChanged += (_, _) =>
+            UpdatePlanGridDisplayEditControls();
+        _planGridAdaptiveCheckBox.CheckedChanged += (_, _) =>
+            UpdatePlanGridDisplayEditControls();
+        _planGridSubdivisionCheckBox.CheckedChanged += (_, _) =>
+            UpdatePlanGridDisplayEditControls();
+        _planGridBeyondLimitsCheckBox.CheckedChanged += (_, _) =>
+            UpdatePlanGridDisplayEditControls();
+        _planGridUnitXInput.TextChanged += (_, _) =>
+            UpdatePlanGridDisplayEditControls();
+        _planGridUnitYInput.TextChanged += (_, _) =>
+            UpdatePlanGridDisplayEditControls();
+        _planGridMajorInput.TextChanged += (_, _) =>
+            UpdatePlanGridDisplayEditControls();
+        _applyPlanGridDisplayButton.Click += (_, _) =>
+            ApplyPlanGridDisplaySettings();
         _planOrthoCheckBox.CheckedChanged += (_, _) =>
         {
             _canvas.IsPlanOrthoEnabled = _planOrthoCheckBox.IsChecked;
@@ -1802,6 +1929,7 @@ public sealed class CadSampleView : Grid
             UpdateEditControls();
         _canvas.SnapshotChanged += (_, _) =>
         {
+            RefreshPlanGridDisplayControls();
             _planGridSnapCheckBox.IsChecked =
                 _canvas.IsPlanGridSnapEnabled;
             _planOrthoCheckBox.IsChecked = _canvas.IsPlanOrthoEnabled;
@@ -1820,6 +1948,7 @@ public sealed class CadSampleView : Grid
             UpdateEditControls();
         };
         RebuildMesh3DView();
+        RefreshPlanGridDisplayControls();
         RefreshPageSetups(preserveSelection: false);
         RefreshAttributeDisplayMode();
         RefreshSelectionPropertyControls();
@@ -2574,6 +2703,114 @@ public sealed class CadSampleView : Grid
         AttributeVisibilityMode.All => "On",
         _ => throw new ArgumentOutOfRangeException(nameof(mode)),
     };
+
+    private void RefreshPlanGridDisplayControls()
+    {
+        _isRefreshingPlanGridDisplay = true;
+        try
+        {
+            CadPlanGridDisplayEditValues values =
+                _canvas.GetPlanGridDisplayEditValues();
+            _planGridDisplayCheckBox.IsChecked = values.IsVisible;
+            _planGridUnitXInput.Text = values.GridUnitX.ToString(
+                "G17",
+                CultureInfo.InvariantCulture);
+            _planGridUnitYInput.Text = values.GridUnitY.ToString(
+                "G17",
+                CultureInfo.InvariantCulture);
+            _planGridAdaptiveCheckBox.IsChecked = values.IsAdaptive;
+            _planGridSubdivisionCheckBox.IsChecked =
+                values.AllowsSubdivision;
+            _planGridBeyondLimitsCheckBox.IsChecked =
+                values.ShowsBeyondLimits;
+            _planGridMajorInput.Text =
+                values.MinorLinesPerMajorLine.ToString(
+                    CultureInfo.InvariantCulture);
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException or ArgumentException)
+        {
+            _planGridDisplayCheckBox.IsChecked = false;
+            _planGridUnitXInput.Text = string.Empty;
+            _planGridUnitYInput.Text = string.Empty;
+            _planGridAdaptiveCheckBox.IsChecked = false;
+            _planGridSubdivisionCheckBox.IsChecked = false;
+            _planGridBeyondLimitsCheckBox.IsChecked = false;
+            _planGridMajorInput.Text = string.Empty;
+        }
+        finally
+        {
+            _isRefreshingPlanGridDisplay = false;
+        }
+    }
+
+    private void UpdatePlanGridDisplayEditControls()
+    {
+        if (!_isRefreshingPlanGridDisplay)
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void ApplyPlanGridDisplaySettings()
+    {
+        if (_isRefreshingPlanGridDisplay ||
+            !TryCreatePlanGridDisplayEditValues(out var values))
+        {
+            return;
+        }
+
+        try
+        {
+            _canvas.EditPlanGridDisplay(values);
+            SetStatus(
+                $"Updated active VPORT grid display: " +
+                $"GRIDMODE={(values.IsVisible ? 1 : 0)}, " +
+                $"GRIDUNIT={values.GridUnitX.ToString("G17", CultureInfo.InvariantCulture)}," +
+                $"{values.GridUnitY.ToString("G17", CultureInfo.InvariantCulture)}, " +
+                $"GRIDMAJOR={values.MinorLinesPerMajorLine}.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Update drafting grid failed: {exception.Message}");
+            RefreshPlanGridDisplayControls();
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private bool TryCreatePlanGridDisplayEditValues(
+        out CadPlanGridDisplayEditValues values)
+    {
+        values = default;
+        if (!TryParseNonNegativeInvariantDouble(
+                _planGridUnitXInput.Text,
+                out double gridUnitX) ||
+            !TryParseNonNegativeInvariantDouble(
+                _planGridUnitYInput.Text,
+                out double gridUnitY) ||
+            !int.TryParse(
+                _planGridMajorInput.Text,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int cadence) ||
+            cadence is < 1 or > 100)
+        {
+            return false;
+        }
+
+        values = new CadPlanGridDisplayEditValues(
+            _planGridDisplayCheckBox.IsChecked,
+            gridUnitX,
+            gridUnitY,
+            _planGridAdaptiveCheckBox.IsChecked,
+            _planGridSubdivisionCheckBox.IsChecked,
+            _planGridBeyondLimitsCheckBox.IsChecked,
+            cadence);
+        return true;
+    }
 
     private void RebuildMesh3DView()
     {
@@ -4959,6 +5196,35 @@ public sealed class CadSampleView : Grid
             !_isBusy && !_isPrintPreview && !_is3DView &&
             _canvas.CurrentSnapshot is not null &&
             _canvas.PlanGridSnapSettings.IsSupported;
+        bool canEditPlanGridDisplay =
+            canUsePlanTools && !_is3DView &&
+            _canvas.CurrentSnapshot is not null &&
+            _canvas.PlanGridDisplaySettings.IsSupported;
+        _planGridDisplayCheckBox.IsEnabled = canEditPlanGridDisplay;
+        _planGridUnitXInput.IsEnabled = canEditPlanGridDisplay;
+        _planGridUnitYInput.IsEnabled = canEditPlanGridDisplay;
+        _planGridAdaptiveCheckBox.IsEnabled = canEditPlanGridDisplay;
+        _planGridSubdivisionCheckBox.IsEnabled =
+            canEditPlanGridDisplay && _planGridAdaptiveCheckBox.IsChecked;
+        _planGridBeyondLimitsCheckBox.IsEnabled = canEditPlanGridDisplay;
+        _planGridMajorInput.IsEnabled = canEditPlanGridDisplay;
+        bool hasValidChangedPlanGridDisplay = false;
+        if (canEditPlanGridDisplay &&
+            TryCreatePlanGridDisplayEditValues(out var planGridValues))
+        {
+            try
+            {
+                hasValidChangedPlanGridDisplay =
+                    _canvas.GetPlanGridDisplayEditValues() != planGridValues;
+            }
+            catch (Exception exception) when (
+                exception is InvalidOperationException or ArgumentException)
+            {
+                hasValidChangedPlanGridDisplay = false;
+            }
+        }
+        _applyPlanGridDisplayButton.IsEnabled =
+            hasValidChangedPlanGridDisplay;
         _planOrthoCheckBox.IsEnabled =
             !_isBusy && !_isPrintPreview && !_is3DView &&
             _canvas.CurrentSnapshot is not null &&
@@ -5415,6 +5681,17 @@ public sealed class CadSampleView : Grid
             out value) &&
         double.IsFinite(value) &&
         value > 0.0;
+
+    private static bool TryParseNonNegativeInvariantDouble(
+        string source,
+        out double value) =>
+        double.TryParse(
+            source,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out value) &&
+        double.IsFinite(value) &&
+        value >= 0.0;
 
     private static bool TryParseFiniteInvariantDouble(
         string source,

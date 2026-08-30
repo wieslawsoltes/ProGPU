@@ -7,10 +7,12 @@ Date: 2026-08-30
 This slice adds a visible rectangular drafting grid to the shared desktop/browser
 plan canvas. It captures the active VPORT display state independently from point
 snap, adapts density during zoom, honors drawing-limit clipping, and renders all
-visible dots through one retained affine GPU primitive. It does not approximate
-isometric mode, infer an unavailable GRIDSTYLE value, render line-style major
-lines, follow a transient dynamic UCS, edit persisted drafting settings, or add
-arbitrary-camera grid-plane projection.
+visible dots through one retained affine GPU primitive. The follow-up slice adds
+generation-safe persisted editing for rectangular GRIDMODE, GRIDUNIT,
+GRIDDISPLAY bits 1/2/4, and GRIDMAJOR through the shared shell. It does not
+approximate isometric mode, infer an unavailable GRIDSTYLE value, render
+line-style major lines, edit dynamic-UCS following, or add arbitrary-camera
+grid-plane projection.
 
 The implementation was designed clean-room from public behavior and format
 contracts:
@@ -27,6 +29,9 @@ contracts:
   as below-base subdivision when adaptive display is active.
 - Autodesk's [GRIDMAJOR reference](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-Core/files/GUID-94C8162E-B852-469D-B434-5BB822B0215C.htm)
   defines a valid major cadence of 1 through 100 and an initial value of 5.
+- Autodesk's [GRIDUNIT reference](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-6E37252F-77E5-4266-8759-AAD5E5577F1C.htm)
+  defines rectangular X/Y viewport spacing and the exact `0,0` inheritance from
+  the current snap spacing.
 - Autodesk's [VPORT DXF contract](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-8CE7CC87-27BD-4490-89DA-C21F516415A9.htm)
   identifies the first `*ACTIVE` VPORT as current and defines its persisted grid,
   snap, UCS, and display-behavior records.
@@ -36,9 +41,12 @@ an implementation template. Exact approved source provenance is the existing
 ProGPU-owned `DrawDotGrid`, vector shader, retained command compiler, semantic
 native geometry stream, `CadPlanViewport`, and active-VPORT grid-snap capture.
 The in-repository ACadSharp contract at pinned commit
-`6353e17ebcf4c6c57479a9998a9e05738b180f9c` supplies typed `VPort.ShowGrid`,
+`0a8c32940d35eb2efb3ada92d21dd4f85c3b07de` supplies typed `VPort.ShowGrid`,
 `GridSpacing`, `GridFlags`, `MinorGridLinesPerMajorGridLine`, UCS, SNAPBASE,
-SNAPANG, and model-limit values; no ACadSharp source change was required.
+SNAPANG, and model-limit values. ProGPU's existing ACadSharp feature branch adds
+the missing R2007+ DXF group 60/61 writer emission and its own two-version
+round-trip regression; ACadSharp `master` remains untouched and synchronized
+with upstream.
 
 ## Adopted display and GPU contract
 
@@ -105,20 +113,67 @@ affine transform, brush, alias flag, clip, and failure semantics. The stable C
 ABI record layout and generated C# wire declarations are unchanged. The shared
 desktop/browser canvas records the same command with a dynamic theme brush.
 
+## Persisted edit and shell contract
+
+`CadPlanGridDisplayEditValues` is a detached typed value for the editable active
+VPORT subset. `CadSetPlanGridDisplayCommand` captures the exact retained VPORT
+identity and raw pre/post values, including unedited GRIDDISPLAY bit 8 and
+unknown bits. Apply, Undo, and Redo are O(1), use one document generation each,
+and reject identity replacement, unexpected mutation, invalid finite ranges,
+or a no-op edit. The command mutates no SNAPMODE, SNAPUNIT, SNAPBASE, SNAPANG,
+UCS, limits, GRIDSTYLE, or transient host state.
+
+Persisted GRIDUNIT components accept finite values greater than or equal to
+zero. Snapshot capture resolves each zero component from the corresponding
+positive SNAPUNIT component; malformed inherited spacing still fails closed.
+The raw persisted values remain available to the shell and save pipeline, so a
+zero is not rewritten to an effective spacing merely because the drawing was
+displayed.
+
+The shared `CadSampleView` supplies dynamically themed controls for visibility,
+X/Y GRIDUNIT, adaptive display, subdivision, beyond-limits display, and
+GRIDMAJOR. One Apply action creates one history entry and one complete immutable
+snapshot/picture replacement. Snapshot notifications transactionally refresh
+the controls after Apply, Undo, Redo, or document load; a refresh guard prevents
+control assignment from creating edits. Invalid and unchanged values disable
+Apply. Desktop and browser hosts continue consuming the same shared view source.
+
+This follow-up does not change a shader, renderer, native ABI, draw command, GPU
+resource, cache, or native scene compiler. Managed/native rendering parity is
+therefore not separately applicable to the host-side document mutation; both
+render paths still consume the already-paired immutable grid display command.
+The ACadSharp save boundary is applicable and covered by matched DXF/DWG
+round-trip tests. Normal retained replay remains unchanged and allocation-free;
+editing intentionally pays one bounded command allocation and one snapshot
+compilation outside the per-frame path.
+
 ## Verification and remaining gates
 
 Focused managed tests cover command recording and invalid parameters, one-quad
 compilation, active-VPORT capture independent of SNAPMODE, rotated origin/basis,
 GRIDDISPLAY flags, GRIDMAJOR cadence, adaptive coarsening, below-base subdivision,
 limits clipping, isometric/edge-on rejection, 1,024 zero-allocation plans, shared
-canvas draw ordering, and native semantic wire lowering. The Clang C++ regression
+canvas draw ordering, exact persisted edits, raw flag preservation, zero GRIDUNIT
+inheritance, one-generation Apply/Undo/Redo, shared-shell synchronization,
+snap-state independence, DXF/DWG persistence, and native semantic wire lowering.
+The Clang C++ regression
 covers fixed-device decoding, vertex parameters, capacity, and the preserved
 legacy variant. Existing headless shader coverage verifies that the modified
 canonical module compiles and retains periodic-dot transparency.
 
+Final macOS arm64 Release validation passed 1,017/1,017 ProGPU.CAD tests. The
+focused grid-display class passed 11/11, including the two ProGPU format cases;
+the ACadSharp R2007/R2018 DXF dependency regression passed 2/2 on its net9.0
+target with major-runtime roll-forward. The shared desktop host's net10.0
+warning-as-error build completed with zero warnings and zero errors. Release
+packing produced `ProGPU.CAD.0.1.0-preview.62.nupkg` with the new release note.
+That package still declares the repository's pre-existing upstream
+`ACadSharp 3.7.9` dependency rather than distributing the pinned fork binary;
+therefore the source/submodule build is the certified path for group 60/61
+persistence, and fork-package publication remains an explicit packaging gate.
+
 GRIDSTYLE line grids, emphasized major lines, exact isometric lattices, transient
-dynamic-UCS following, persisted settings UI, screenshot goldens at multiple DPI
-scales, extreme-shear visual differentials, representative large-drawing GPU
-p50/p95/p99 measurements, and DXF/DWG round-trip fixtures remain before the
-broader drafting-grid area is complete. This functional slice makes no unmeasured
-FPS or latency claim.
+dynamic-UCS following/editing, screenshot goldens at multiple DPI scales,
+extreme-shear visual differentials, and representative large-drawing GPU
+p50/p95/p99 measurements remain before the broader drafting-grid area is
+complete. This functional slice makes no unmeasured FPS or latency claim.
