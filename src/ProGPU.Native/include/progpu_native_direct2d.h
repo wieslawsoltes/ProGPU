@@ -77,6 +77,14 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_RENDER_TARGET = 18
 } progpu_native_direct2d_interface_kind;
 
+/* Selects a surface-owned Win2D wrapper for reverse native-resource
+ * interop. The provider supplies the exact CanvasDevice and DPI required by
+ * each wrapper; callers supply only the requested native interface IID. */
+typedef enum progpu_native_direct2d_win2d_resource_kind {
+    PROGPU_NATIVE_DIRECT2D_WIN2D_RESOURCE_CANVAS_DEVICE = 1,
+    PROGPU_NATIVE_DIRECT2D_WIN2D_RESOURCE_CANVAS_RENDER_TARGET = 2
+} progpu_native_direct2d_win2d_resource_kind;
+
 typedef struct progpu_native_direct2d_surface_options {
     uint32_t struct_size;
     uint32_t flags;
@@ -116,7 +124,7 @@ typedef struct progpu_native_direct2d_guid {
 } progpu_native_direct2d_guid;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 5U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 6U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -172,6 +180,19 @@ progpu_native_direct2d_surface_try_get_win2d_canvas_device(
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_surface_try_get_win2d_canvas_render_target(
     progpu_native_direct2d_surface* surface,
+    void** value,
+    int32_t* native_hresult);
+
+/* Queries the selected genuine Win2D object for its official
+ * ICanvasResourceWrapperNative interface and returns the requested native
+ * resource with one caller-owned COM reference. CanvasDevice unwraps without
+ * a device/DPI argument. CanvasRenderTarget unwraps against this surface's
+ * exact CanvasDevice and scalar target DPI. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_try_get_win2d_native_resource(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_win2d_resource_kind resource_kind,
+    const progpu_native_direct2d_guid* interface_id,
     void** value,
     int32_t* native_hresult);
 

@@ -22,6 +22,10 @@ public sealed unsafe class ProGpuDirect2DSurface :
     }
 
     private const uint DefaultMutexTimeoutMilliseconds = 5_000U;
+    private static readonly Guid D2D1Device1InterfaceId =
+        new("D21768E1-23A4-4823-A14B-7C3EBA85D658");
+    private static readonly Guid D2D1Bitmap1InterfaceId =
+        new("A898A84C-3873-4588-B08B-EBBF978DF041");
 
     private readonly object _gate = new();
     private readonly DawnGpuContext _dawn;
@@ -202,6 +206,80 @@ public sealed unsafe class ProGpuDirect2DSurface :
             canvasDevice = new ProGpuDirect2DComReference(
                 value,
                 ProGpuDirect2DInterfaceKind.Win2DCanvasDevice);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Uses the genuine Win2D CanvasDevice's official
+    /// ICanvasResourceWrapperNative contract to return its exact
+    /// ID2D1Device1 with one caller-owned COM reference.
+    /// </summary>
+    public bool TryAcquireMicrosoftWin2DNativeDevice(
+        out ProGpuDirect2DComReference? nativeDevice,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DNativeResource(
+            ProGpuDirect2DNative.Win2DResourceKind.CanvasDevice,
+            D2D1Device1InterfaceId,
+            ProGpuDirect2DInterfaceKind.D2D1Device1,
+            "Microsoft Win2D CanvasDevice native-resource query",
+            out nativeDevice,
+            out nativeHResult);
+
+    /// <summary>
+    /// Uses the genuine Win2D CanvasRenderTarget's official
+    /// ICanvasResourceWrapperNative contract with this surface's exact
+    /// CanvasDevice and DPI to return its target ID2D1Bitmap1 with one
+    /// caller-owned COM reference.
+    /// </summary>
+    public bool TryAcquireMicrosoftWin2DNativeBitmap(
+        out ProGpuDirect2DComReference? nativeBitmap,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DNativeResource(
+            ProGpuDirect2DNative.Win2DResourceKind.CanvasRenderTarget,
+            D2D1Bitmap1InterfaceId,
+            ProGpuDirect2DInterfaceKind.D2D1Bitmap1,
+            "Microsoft Win2D CanvasRenderTarget native-resource query",
+            out nativeBitmap,
+            out nativeHResult);
+
+    private bool TryAcquireMicrosoftWin2DNativeResource(
+        ProGpuDirect2DNative.Win2DResourceKind resourceKind,
+        Guid interfaceId,
+        ProGpuDirect2DInterfaceKind interfaceKind,
+        string operation,
+        out ProGpuDirect2DComReference? nativeResource,
+        out int nativeHResult)
+    {
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            ProGpuDirect2DNative.NativeGuid nativeInterfaceId =
+                ProGpuDirect2DNative.NativeGuid.FromGuid(interfaceId);
+            nint value = 0;
+            int resultHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceTryGetWin2DNativeResource(
+                    _nativeSurface,
+                    resourceKind,
+                    &nativeInterfaceId,
+                    &value,
+                    &resultHResult);
+            nativeHResult = resultHResult;
+            if (status == ProGpuDirect2DStatus.Win2DRuntimeUnavailable)
+            {
+                nativeResource = null;
+                return false;
+            }
+            ThrowIfFailed(operation, status, nativeHResult);
+            if (value == 0)
+            {
+                throw new InvalidOperationException(
+                    $"{operation} succeeded without returning a COM interface.");
+            }
+            nativeResource = new ProGpuDirect2DComReference(
+                value,
+                interfaceKind);
             return true;
         }
     }

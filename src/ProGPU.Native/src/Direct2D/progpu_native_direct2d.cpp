@@ -30,6 +30,16 @@ public:
         IInspectable** wrapper) = 0;
 };
 
+MIDL_INTERFACE("5F10688D-EA55-4D55-A3B0-4DDB55C0C20A")
+IProGpuWin2DCanvasResourceWrapperNative : public IUnknown {
+public:
+    virtual HRESULT STDMETHODCALLTYPE GetNativeResource(
+        IProGpuWin2DCanvasDevice* canvas_device,
+        float dpi,
+        REFIID interface_id,
+        void** resource) = 0;
+};
+
 static_assert(
     sizeof(progpu_native_direct2d_guid) == sizeof(GUID),
     "Direct2D portable GUID layout changed");
@@ -91,6 +101,18 @@ bool luid_is_zero(const progpu_native_direct2d_surface_options& options)
 {
     return options.adapter_luid_low == 0U &&
         options.adapter_luid_high == 0;
+}
+
+GUID to_native_guid(const progpu_native_direct2d_guid& value)
+{
+    GUID result{};
+    result.Data1 = value.data1;
+    result.Data2 = value.data2;
+    result.Data3 = value.data3;
+    for (uint32_t index = 0U; index < 8U; ++index) {
+        result.Data4[index] = value.data4[index];
+    }
+    return result;
 }
 
 bool luid_equals(
@@ -693,13 +715,7 @@ progpu_native_direct2d_status progpu_native_direct2d_com_query_interface(
         return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
     }
 
-    GUID native_interface_id{};
-    native_interface_id.Data1 = interface_id->data1;
-    native_interface_id.Data2 = interface_id->data2;
-    native_interface_id.Data3 = interface_id->data3;
-    for (uint32_t index = 0U; index < 8U; ++index) {
-        native_interface_id.Data4[index] = interface_id->data4[index];
-    }
+    GUID native_interface_id = to_native_guid(*interface_id);
     HRESULT hr = reinterpret_cast<IUnknown*>(value)->QueryInterface(
         native_interface_id,
         result);
@@ -771,6 +787,77 @@ progpu_native_direct2d_surface_try_get_win2d_canvas_render_target(
         return status_from_win2d_hresult(hr);
     }
     return return_interface(surface->win2d_canvas_render_target, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_try_get_win2d_native_resource(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_win2d_resource_kind resource_kind,
+    const progpu_native_direct2d_guid* interface_id,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || interface_id == nullptr || value == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    HRESULT hr = S_OK;
+    ComPtr<IInspectable> wrapper;
+    ComPtr<IProGpuWin2DCanvasDevice> canvas_device;
+    float dpi = 0.0F;
+    switch (resource_kind) {
+        case PROGPU_NATIVE_DIRECT2D_WIN2D_RESOURCE_CANVAS_DEVICE:
+            hr = create_win2d_canvas_device(*surface);
+            if (SUCCEEDED(hr)) {
+                wrapper = surface->win2d_canvas_device;
+            }
+            break;
+        case PROGPU_NATIVE_DIRECT2D_WIN2D_RESOURCE_CANVAS_RENDER_TARGET:
+            hr = create_win2d_canvas_render_target(*surface);
+            if (SUCCEEDED(hr)) {
+                wrapper = surface->win2d_canvas_render_target;
+                hr = surface->win2d_canvas_device.As(&canvas_device);
+                dpi = surface->dpi_x;
+            }
+            break;
+        default:
+            surface->last_hresult.store(
+                E_INVALIDARG,
+                std::memory_order_release);
+            return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    ComPtr<IProGpuWin2DCanvasResourceWrapperNative> resource_wrapper;
+    if (SUCCEEDED(hr)) {
+        hr = wrapper.As(&resource_wrapper);
+    }
+    if (SUCCEEDED(hr)) {
+        GUID native_interface_id = to_native_guid(*interface_id);
+        hr = resource_wrapper->GetNativeResource(
+            canvas_device.Get(),
+            dpi,
+            native_interface_id,
+            value);
+        if (SUCCEEDED(hr) && *value == nullptr) {
+            hr = E_UNEXPECTED;
+        }
+    }
+
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        *value = nullptr;
+        return status_from_win2d_hresult(hr);
+    }
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
 }
 
 progpu_native_direct2d_status progpu_native_direct2d_surface_acquire(
