@@ -1,6 +1,6 @@
 #include "progpu_native_direct2d.h"
 
-#include <d2d1_2.h>
+#include <d2d1_3.h>
 #include <d2d1effects.h>
 #include <d3d11_1.h>
 #include <dwrite_3.h>
