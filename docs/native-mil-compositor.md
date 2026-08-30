@@ -5177,6 +5177,20 @@ accepted. ClangCL Windows job `99305585623` also passes the focused test in
 readback loses Microsoft Basic Render Driver; that downstream software-D3D12
 failure is not Direct2D qualification evidence.
 
+ABI v24 adds a typed native geometry-analysis seam for MIL bounds and hit-test
+parity. The isolated Direct2D provider now calls genuine `ID2D1Geometry`
+`GetBounds`, `GetWidenedBounds`, `FillContainsPoint`, `StrokeContainsPoint`,
+`CompareWithGeometry`, `ComputeArea`, `ComputeLength`, and
+`ComputePointAtLength`. Managed resources must match the surface's monotonic
+generation, optional stroke styles remain strongly kind-checked, and every
+borrowed safe handle is protected across the native call. Rectangle results
+are converted from Direct2D edge coordinates into the portable size form;
+invalid scalar, point, transform, and tolerance inputs fail closed with
+zeroed outputs. The exact allowlist is 67 exports. This lets the Windows MIL
+bridge use native Direct2D analysis without reflected WPF geometry shapes or a
+CPU tessellation detour. Simplify/outline/widen/tessellation realization sinks
+remain explicit follow-up work.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

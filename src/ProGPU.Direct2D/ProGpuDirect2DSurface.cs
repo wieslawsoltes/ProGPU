@@ -2397,6 +2397,396 @@ public sealed unsafe class ProGpuDirect2DSurface :
     }
 
     /// <summary>
+    /// Returns ID2D1Geometry bounds in this surface's resource domain.
+    /// </summary>
+    public ProGpuDirect2DRect GetGeometryBounds(
+        ProGpuDirect2DComReference geometry,
+        Matrix3x2? transform = null)
+    {
+        ValidateGeometry(geometry, nameof(geometry));
+        ProGpuDirect2DNative.NativeMatrix3X2F nativeTransform = default;
+        ProGpuDirect2DNative.NativeMatrix3X2F* transformPointer = null;
+        if (transform is Matrix3x2 value)
+        {
+            nativeTransform = CreateNativeMatrix(value);
+            transformPointer = &nativeTransform;
+        }
+        bool referenceAdded = false;
+        try
+        {
+            geometry.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                ProGpuDirect2DRect bounds = default;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.GeometryGetBounds(
+                        _nativeSurface,
+                        geometry.DangerousGetHandle(),
+                        transformPointer,
+                        &bounds,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1Geometry::GetBounds",
+                    status,
+                    nativeHResult);
+                return bounds;
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                geometry.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns ID2D1Geometry widened bounds using an optional genuine
+    /// ID2D1StrokeStyle1 from the same resource generation.
+    /// </summary>
+    public ProGpuDirect2DRect GetGeometryWidenedBounds(
+        ProGpuDirect2DComReference geometry,
+        float strokeWidth,
+        ProGpuDirect2DComReference? strokeStyle = null,
+        Matrix3x2? transform = null,
+        float flatteningTolerance = 0.25F)
+    {
+        ValidateGeometry(geometry, nameof(geometry));
+        ValidateOptionalStrokeStyle(strokeStyle, nameof(strokeStyle));
+        ValidateStrokeWidth(strokeWidth, nameof(strokeWidth));
+        ValidateFlatteningTolerance(
+            flatteningTolerance,
+            nameof(flatteningTolerance));
+        ProGpuDirect2DNative.NativeMatrix3X2F nativeTransform = default;
+        ProGpuDirect2DNative.NativeMatrix3X2F* transformPointer = null;
+        if (transform is Matrix3x2 value)
+        {
+            nativeTransform = CreateNativeMatrix(value);
+            transformPointer = &nativeTransform;
+        }
+        bool geometryReferenceAdded = false;
+        bool styleReferenceAdded = false;
+        try
+        {
+            geometry.DangerousAddRef(ref geometryReferenceAdded);
+            strokeStyle?.DangerousAddRef(ref styleReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                ProGpuDirect2DRect bounds = default;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.GeometryGetWidenedBounds(
+                        _nativeSurface,
+                        geometry.DangerousGetHandle(),
+                        strokeWidth,
+                        strokeStyle?.DangerousGetHandle() ?? 0,
+                        transformPointer,
+                        flatteningTolerance,
+                        &bounds,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1Geometry::GetWidenedBounds",
+                    status,
+                    nativeHResult);
+                return bounds;
+            }
+        }
+        finally
+        {
+            if (styleReferenceAdded)
+            {
+                strokeStyle!.DangerousRelease();
+            }
+            if (geometryReferenceAdded)
+            {
+                geometry.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Performs exact native ID2D1Geometry fill hit testing.
+    /// </summary>
+    public bool GeometryFillContainsPoint(
+        ProGpuDirect2DComReference geometry,
+        Vector2 point,
+        Matrix3x2? transform = null,
+        float flatteningTolerance = 0.25F)
+    {
+        ValidateGeometry(geometry, nameof(geometry));
+        ValidatePoint(point, nameof(point));
+        ValidateFlatteningTolerance(
+            flatteningTolerance,
+            nameof(flatteningTolerance));
+        ProGpuDirect2DNative.NativePoint2F nativePoint =
+            CreateNativePoint(point);
+        ProGpuDirect2DNative.NativeMatrix3X2F nativeTransform = default;
+        ProGpuDirect2DNative.NativeMatrix3X2F* transformPointer = null;
+        if (transform is Matrix3x2 value)
+        {
+            nativeTransform = CreateNativeMatrix(value);
+            transformPointer = &nativeTransform;
+        }
+        bool referenceAdded = false;
+        try
+        {
+            geometry.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                uint contains = 0U;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.GeometryFillContainsPoint(
+                        _nativeSurface,
+                        geometry.DangerousGetHandle(),
+                        &nativePoint,
+                        transformPointer,
+                        flatteningTolerance,
+                        &contains,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1Geometry::FillContainsPoint",
+                    status,
+                    nativeHResult);
+                return contains != 0U;
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                geometry.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Performs exact native ID2D1Geometry stroke hit testing using an
+    /// optional genuine ID2D1StrokeStyle1 from the same resource generation.
+    /// </summary>
+    public bool GeometryStrokeContainsPoint(
+        ProGpuDirect2DComReference geometry,
+        Vector2 point,
+        float strokeWidth,
+        ProGpuDirect2DComReference? strokeStyle = null,
+        Matrix3x2? transform = null,
+        float flatteningTolerance = 0.25F)
+    {
+        ValidateGeometry(geometry, nameof(geometry));
+        ValidateOptionalStrokeStyle(strokeStyle, nameof(strokeStyle));
+        ValidatePoint(point, nameof(point));
+        ValidateStrokeWidth(strokeWidth, nameof(strokeWidth));
+        ValidateFlatteningTolerance(
+            flatteningTolerance,
+            nameof(flatteningTolerance));
+        ProGpuDirect2DNative.NativePoint2F nativePoint =
+            CreateNativePoint(point);
+        ProGpuDirect2DNative.NativeMatrix3X2F nativeTransform = default;
+        ProGpuDirect2DNative.NativeMatrix3X2F* transformPointer = null;
+        if (transform is Matrix3x2 value)
+        {
+            nativeTransform = CreateNativeMatrix(value);
+            transformPointer = &nativeTransform;
+        }
+        bool geometryReferenceAdded = false;
+        bool styleReferenceAdded = false;
+        try
+        {
+            geometry.DangerousAddRef(ref geometryReferenceAdded);
+            strokeStyle?.DangerousAddRef(ref styleReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                uint contains = 0U;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.GeometryStrokeContainsPoint(
+                        _nativeSurface,
+                        geometry.DangerousGetHandle(),
+                        &nativePoint,
+                        strokeWidth,
+                        strokeStyle?.DangerousGetHandle() ?? 0,
+                        transformPointer,
+                        flatteningTolerance,
+                        &contains,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1Geometry::StrokeContainsPoint",
+                    status,
+                    nativeHResult);
+                return contains != 0U;
+            }
+        }
+        finally
+        {
+            if (styleReferenceAdded)
+            {
+                strokeStyle!.DangerousRelease();
+            }
+            if (geometryReferenceAdded)
+            {
+                geometry.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Compares two genuine ID2D1Geometry resources in the same native
+    /// factory and resource generation.
+    /// </summary>
+    public ProGpuDirect2DGeometryRelation CompareGeometry(
+        ProGpuDirect2DComReference geometry,
+        ProGpuDirect2DComReference inputGeometry,
+        Matrix3x2? inputTransform = null,
+        float flatteningTolerance = 0.25F)
+    {
+        ValidateGeometry(geometry, nameof(geometry));
+        ValidateGeometry(inputGeometry, nameof(inputGeometry));
+        ValidateFlatteningTolerance(
+            flatteningTolerance,
+            nameof(flatteningTolerance));
+        ProGpuDirect2DNative.NativeMatrix3X2F nativeTransform = default;
+        ProGpuDirect2DNative.NativeMatrix3X2F* transformPointer = null;
+        if (inputTransform is Matrix3x2 value)
+        {
+            nativeTransform = CreateNativeMatrix(value);
+            transformPointer = &nativeTransform;
+        }
+        bool geometryReferenceAdded = false;
+        bool inputReferenceAdded = false;
+        try
+        {
+            geometry.DangerousAddRef(ref geometryReferenceAdded);
+            inputGeometry.DangerousAddRef(ref inputReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                ProGpuDirect2DGeometryRelation relation =
+                    ProGpuDirect2DGeometryRelation.Unknown;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.GeometryCompare(
+                        _nativeSurface,
+                        geometry.DangerousGetHandle(),
+                        inputGeometry.DangerousGetHandle(),
+                        transformPointer,
+                        flatteningTolerance,
+                        &relation,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1Geometry::CompareWithGeometry",
+                    status,
+                    nativeHResult);
+                return relation;
+            }
+        }
+        finally
+        {
+            if (inputReferenceAdded)
+            {
+                inputGeometry.DangerousRelease();
+            }
+            if (geometryReferenceAdded)
+            {
+                geometry.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Computes native ID2D1Geometry area without CPU geometry replay.
+    /// </summary>
+    public float ComputeGeometryArea(
+        ProGpuDirect2DComReference geometry,
+        Matrix3x2? transform = null,
+        float flatteningTolerance = 0.25F) =>
+        ComputeGeometryScalar(
+            geometry,
+            transform,
+            flatteningTolerance,
+            computeLength: false);
+
+    /// <summary>
+    /// Computes native ID2D1Geometry length without CPU geometry replay.
+    /// </summary>
+    public float ComputeGeometryLength(
+        ProGpuDirect2DComReference geometry,
+        Matrix3x2? transform = null,
+        float flatteningTolerance = 0.25F) =>
+        ComputeGeometryScalar(
+            geometry,
+            transform,
+            flatteningTolerance,
+            computeLength: true);
+
+    /// <summary>
+    /// Samples a point and unit tangent from a genuine ID2D1Geometry.
+    /// </summary>
+    public ProGpuDirect2DPointAndTangent ComputeGeometryPointAtLength(
+        ProGpuDirect2DComReference geometry,
+        float length,
+        Matrix3x2? transform = null,
+        float flatteningTolerance = 0.25F)
+    {
+        ValidateGeometry(geometry, nameof(geometry));
+        if (!float.IsFinite(length) || length < 0.0F)
+        {
+            throw new ArgumentOutOfRangeException(nameof(length));
+        }
+        ValidateFlatteningTolerance(
+            flatteningTolerance,
+            nameof(flatteningTolerance));
+        ProGpuDirect2DNative.NativeMatrix3X2F nativeTransform = default;
+        ProGpuDirect2DNative.NativeMatrix3X2F* transformPointer = null;
+        if (transform is Matrix3x2 value)
+        {
+            nativeTransform = CreateNativeMatrix(value);
+            transformPointer = &nativeTransform;
+        }
+        bool referenceAdded = false;
+        try
+        {
+            geometry.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                ProGpuDirect2DNative.NativePoint2F point = default;
+                ProGpuDirect2DNative.NativePoint2F tangent = default;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.GeometryComputePointAtLength(
+                        _nativeSurface,
+                        geometry.DangerousGetHandle(),
+                        length,
+                        transformPointer,
+                        flatteningTolerance,
+                        &point,
+                        &tangent,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1Geometry::ComputePointAtLength",
+                    status,
+                    nativeHResult);
+                return new ProGpuDirect2DPointAndTangent(
+                    new Vector2(point.X, point.Y),
+                    new Vector2(tangent.X, tangent.Y));
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                geometry.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
     /// Creates a genuine factory-domain ID2D1StrokeStyle1. A custom dash
     /// pattern is pinned and submitted as one contiguous span; Direct2D owns
     /// its copied style state after this method returns.
@@ -4043,6 +4433,87 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    private float ComputeGeometryScalar(
+        ProGpuDirect2DComReference geometry,
+        Matrix3x2? transform,
+        float flatteningTolerance,
+        bool computeLength)
+    {
+        ValidateGeometry(geometry, nameof(geometry));
+        ValidateFlatteningTolerance(
+            flatteningTolerance,
+            nameof(flatteningTolerance));
+        ProGpuDirect2DNative.NativeMatrix3X2F nativeTransform = default;
+        ProGpuDirect2DNative.NativeMatrix3X2F* transformPointer = null;
+        if (transform is Matrix3x2 value)
+        {
+            nativeTransform = CreateNativeMatrix(value);
+            transformPointer = &nativeTransform;
+        }
+        bool referenceAdded = false;
+        try
+        {
+            geometry.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                float result = 0.0F;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status = computeLength
+                    ? ProGpuDirect2DNative.GeometryComputeLength(
+                        _nativeSurface,
+                        geometry.DangerousGetHandle(),
+                        transformPointer,
+                        flatteningTolerance,
+                        &result,
+                        &nativeHResult)
+                    : ProGpuDirect2DNative.GeometryComputeArea(
+                        _nativeSurface,
+                        geometry.DangerousGetHandle(),
+                        transformPointer,
+                        flatteningTolerance,
+                        &result,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    computeLength
+                        ? "ID2D1Geometry::ComputeLength"
+                        : "ID2D1Geometry::ComputeArea",
+                    status,
+                    nativeHResult);
+                return result;
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                geometry.DangerousRelease();
+            }
+        }
+    }
+
+    private static void ValidateFlatteningTolerance(
+        float value,
+        string parameterName)
+    {
+        if (!float.IsFinite(value) || value <= 0.0F)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "Direct2D flattening tolerance must be finite and positive.");
+        }
+    }
+
+    private static void ValidateStrokeWidth(float value, string parameterName)
+    {
+        if (!float.IsFinite(value) || value < 0.0F)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "Direct2D stroke width must be finite and nonnegative.");
+        }
+    }
+
     private void ValidateGeometry(
         ProGpuDirect2DComReference geometry,
         string parameterName)
@@ -4053,6 +4524,24 @@ public sealed unsafe class ProGpuDirect2DSurface :
         {
             throw new ArgumentException(
                 "The COM reference must own a Direct2D geometry.",
+                parameterName);
+        }
+    }
+
+    private void ValidateOptionalStrokeStyle(
+        ProGpuDirect2DComReference? strokeStyle,
+        string parameterName)
+    {
+        if (strokeStyle is null)
+        {
+            return;
+        }
+        ValidateResourceDomain(strokeStyle, parameterName);
+        if (strokeStyle.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.D2D1StrokeStyle1)
+        {
+            throw new ArgumentException(
+                "The COM reference must own an ID2D1StrokeStyle1.",
                 parameterName);
         }
     }

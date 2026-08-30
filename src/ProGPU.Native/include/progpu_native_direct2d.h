@@ -153,6 +153,14 @@ typedef enum progpu_native_direct2d_combine_mode {
     PROGPU_NATIVE_DIRECT2D_COMBINE_MODE_EXCLUDE = 3
 } progpu_native_direct2d_combine_mode;
 
+typedef enum progpu_native_direct2d_geometry_relation {
+    PROGPU_NATIVE_DIRECT2D_GEOMETRY_RELATION_UNKNOWN = 0,
+    PROGPU_NATIVE_DIRECT2D_GEOMETRY_RELATION_DISJOINT = 1,
+    PROGPU_NATIVE_DIRECT2D_GEOMETRY_RELATION_IS_CONTAINED = 2,
+    PROGPU_NATIVE_DIRECT2D_GEOMETRY_RELATION_CONTAINS = 3,
+    PROGPU_NATIVE_DIRECT2D_GEOMETRY_RELATION_OVERLAP = 4
+} progpu_native_direct2d_geometry_relation;
+
 typedef enum progpu_native_direct2d_cap_style {
     PROGPU_NATIVE_DIRECT2D_CAP_STYLE_FLAT = 0,
     PROGPU_NATIVE_DIRECT2D_CAP_STYLE_SQUARE = 1,
@@ -570,7 +578,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 23U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 24U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -1063,6 +1071,88 @@ progpu_native_direct2d_surface_combine_geometry(
     const progpu_native_direct2d_matrix_3x2_f* geometry_b_transform,
     float flattening_tolerance,
     void** value,
+    int32_t* native_hresult);
+
+/* Executes ID2D1Geometry analysis in the resource's native factory domain.
+ * Optional transforms/stroke styles are borrowed only for the call. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_geometry_get_bounds(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    progpu_native_direct2d_rect_f* bounds,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_geometry_get_widened_bounds(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    float stroke_width,
+    void* stroke_style,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    progpu_native_direct2d_rect_f* bounds,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_geometry_fill_contains_point(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    const progpu_native_direct2d_point_2f* point,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    uint32_t* contains,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_geometry_stroke_contains_point(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    const progpu_native_direct2d_point_2f* point,
+    float stroke_width,
+    void* stroke_style,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    uint32_t* contains,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_geometry_compare(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    void* input_geometry,
+    const progpu_native_direct2d_matrix_3x2_f* input_transform,
+    float flattening_tolerance,
+    progpu_native_direct2d_geometry_relation* relation,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_geometry_compute_area(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    float* area,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_geometry_compute_length(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    float* length,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_geometry_compute_point_at_length(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    float length,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    progpu_native_direct2d_point_2f* point,
+    progpu_native_direct2d_point_2f* unit_tangent,
     int32_t* native_hresult);
 
 /* Creates a genuine factory-domain ID2D1StrokeStyle1. Custom dash lengths are

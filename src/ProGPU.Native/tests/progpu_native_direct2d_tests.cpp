@@ -10,6 +10,7 @@
 #include <windows.graphics.directx.direct3d11.interop.h>
 #include <wrl/client.h>
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 
@@ -590,6 +591,152 @@ int main()
     require(SUCCEEDED(combined_geometry->GetFigureCount(
                 &combined_figure_count)) && combined_figure_count != 0U,
         "provider combined geometry was unexpectedly empty");
+
+    progpu_native_direct2d_rect_f geometry_bounds{};
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_geometry_get_bounds(
+            surface,
+            rectangle_geometry.Get(),
+            nullptr,
+            &geometry_bounds,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK && geometry_bounds.x == 4.0F &&
+            geometry_bounds.y == 4.0F && geometry_bounds.width == 16.0F &&
+            geometry_bounds.height == 12.0F,
+        "provider ID2D1Geometry bounds changed");
+
+    progpu_native_direct2d_rect_f widened_bounds{};
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_geometry_get_widened_bounds(
+            surface,
+            rectangle_geometry.Get(),
+            2.0F,
+            nullptr,
+            nullptr,
+            0.25F,
+            &widened_bounds,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK && widened_bounds.x == 3.0F &&
+            widened_bounds.y == 3.0F && widened_bounds.width == 18.0F &&
+            widened_bounds.height == 14.0F,
+        "provider ID2D1Geometry widened bounds changed");
+
+    const progpu_native_direct2d_point_2f inside_point{8.0F, 8.0F};
+    uint32_t contains = 0U;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_geometry_fill_contains_point(
+            surface,
+            rectangle_geometry.Get(),
+            &inside_point,
+            nullptr,
+            0.25F,
+            &contains,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK && contains == 1U,
+        "provider ID2D1Geometry fill hit testing changed");
+
+    const progpu_native_direct2d_point_2f stroke_point{4.0F, 8.0F};
+    contains = 0U;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_geometry_stroke_contains_point(
+            surface,
+            rectangle_geometry.Get(),
+            &stroke_point,
+            2.0F,
+            nullptr,
+            nullptr,
+            0.25F,
+            &contains,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK && contains == 1U,
+        "provider ID2D1Geometry stroke hit testing changed");
+
+    progpu_native_direct2d_geometry_relation geometry_relation =
+        PROGPU_NATIVE_DIRECT2D_GEOMETRY_RELATION_UNKNOWN;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_geometry_compare(
+            surface,
+            rectangle_geometry.Get(),
+            ellipse_geometry.Get(),
+            nullptr,
+            0.25F,
+            &geometry_relation,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK &&
+            geometry_relation ==
+                PROGPU_NATIVE_DIRECT2D_GEOMETRY_RELATION_DISJOINT,
+        "provider ID2D1Geometry comparison changed");
+
+    float geometry_area = 0.0F;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_geometry_compute_area(
+            surface,
+            rectangle_geometry.Get(),
+            nullptr,
+            0.25F,
+            &geometry_area,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK && geometry_area == 192.0F,
+        "provider ID2D1Geometry area changed");
+
+    float geometry_length = 0.0F;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_geometry_compute_length(
+            surface,
+            rectangle_geometry.Get(),
+            nullptr,
+            0.25F,
+            &geometry_length,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK && geometry_length == 56.0F,
+        "provider ID2D1Geometry length changed");
+
+    progpu_native_direct2d_point_2f sampled_point{};
+    progpu_native_direct2d_point_2f sampled_tangent{};
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_geometry_compute_point_at_length(
+            surface,
+            rectangle_geometry.Get(),
+            4.0F,
+            nullptr,
+            0.25F,
+            &sampled_point,
+            &sampled_tangent,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK && std::isfinite(sampled_point.x) &&
+            std::isfinite(sampled_point.y) &&
+            std::isfinite(sampled_tangent.x) &&
+            std::isfinite(sampled_tangent.y) &&
+            std::abs(
+                sampled_tangent.x * sampled_tangent.x +
+                sampled_tangent.y * sampled_tangent.y - 1.0F) < 0.001F,
+        "provider ID2D1Geometry point-at-length changed");
+
+    widened_bounds = {1.0F, 1.0F, 1.0F, 1.0F};
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_geometry_get_widened_bounds(
+            surface,
+            rectangle_geometry.Get(),
+            2.0F,
+            nullptr,
+            nullptr,
+            0.0F,
+            &widened_bounds,
+            &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            native_hresult == E_INVALIDARG && widened_bounds.x == 0.0F &&
+            widened_bounds.y == 0.0F && widened_bounds.width == 0.0F &&
+            widened_bounds.height == 0.0F,
+        "invalid geometry-analysis tolerance did not fail closed");
 
     progpu_native_direct2d_stroke_style_properties stroke_properties{};
     stroke_properties.start_cap = PROGPU_NATIVE_DIRECT2D_CAP_STYLE_ROUND;
