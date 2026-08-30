@@ -164,6 +164,17 @@ try {
 
     $Evidence = Get-Content $ResultPath -Raw | ConvertFrom-Json
     $Evidence | ConvertTo-Json -Depth 8
+    $EvidenceArtifactDirectory = Join-Path `
+        $RepoRoot `
+        "artifacts/direct2d-win2d"
+    New-Item `
+        -ItemType Directory `
+        -Path $EvidenceArtifactDirectory `
+        -Force | Out-Null
+    Copy-Item `
+        -LiteralPath $ResultPath `
+        -Destination (Join-Path $EvidenceArtifactDirectory $ResultFileName) `
+        -Force
     if ($Evidence.Status -ne "passed") {
         throw "The genuine Win2D Direct2D/Dawn integration gate failed: $($Evidence.Error)"
     }
