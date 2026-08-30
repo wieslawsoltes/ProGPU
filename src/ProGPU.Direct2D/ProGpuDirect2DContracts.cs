@@ -551,6 +551,20 @@ public readonly record struct ProGpuDirect2DTags(
     ulong Tag1,
     ulong Tag2);
 
+public readonly record struct ProGpuDirect2DBrushProperties(
+    float Opacity,
+    Matrix3x2 Transform);
+
+public readonly record struct ProGpuDirect2DLinearGradientProperties(
+    Vector2 StartPoint,
+    Vector2 EndPoint);
+
+public readonly record struct ProGpuDirect2DRadialGradientProperties(
+    Vector2 Center,
+    Vector2 GradientOriginOffset,
+    float RadiusX,
+    float RadiusY);
+
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct ProGpuDirect2DGradientStop(
     float Position,

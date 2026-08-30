@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 28U;
+    internal const uint AbiVersion = 29U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -327,6 +327,38 @@ internal static unsafe partial class ProGpuDirect2DNative
         NativeColorF* color,
         nint* value,
         int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_brush_set_properties")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus BrushSetProperties(nint surface, nint brush, NativeBrushProperties* properties, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_brush_get_properties")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus BrushGetProperties(nint surface, nint brush, NativeBrushProperties* properties, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_solid_color_brush_set_color")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SolidColorBrushSetColor(nint surface, nint brush, NativeColorF* color, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_solid_color_brush_get_color")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SolidColorBrushGetColor(nint surface, nint brush, NativeColorF* color, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_linear_gradient_brush_set_properties")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus LinearGradientBrushSetProperties(nint surface, nint brush, NativeLinearGradientBrushProperties* properties, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_linear_gradient_brush_get_properties")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus LinearGradientBrushGetProperties(nint surface, nint brush, NativeLinearGradientBrushProperties* properties, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_radial_gradient_brush_set_properties")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus RadialGradientBrushSetProperties(nint surface, nint brush, NativeRadialGradientBrushProperties* properties, int* nativeHResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "progpu_native_direct2d_radial_gradient_brush_get_properties")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus RadialGradientBrushGetProperties(nint surface, nint brush, NativeRadialGradientBrushProperties* properties, int* nativeHResult);
 
     [LibraryImport(
         LibraryName,
