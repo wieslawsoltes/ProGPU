@@ -43,6 +43,8 @@ public sealed class CadSnapshotOptions
     public const int DefaultMaxModelerGeometryPayloadBytes = 256 * 1024 * 1024;
     public const int DefaultMaxMLineStrokes = 5_000_000;
     public const int DefaultMaxMLineFillTriangles = 5_000_000;
+    public const int DefaultMaxLeaderVerticesPerEntity = 65_536;
+    public const int DefaultMaxLeaderControlPoints = 1_000_000;
 
     public double DefaultLineWeightMillimeters { get; init; } = 0.25;
     public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
@@ -86,6 +88,10 @@ public sealed class CadSnapshotOptions
         DefaultMaxModelerGeometryPayloadBytes;
     public int MaxMLineStrokes { get; init; } = DefaultMaxMLineStrokes;
     public int MaxMLineFillTriangles { get; init; } = DefaultMaxMLineFillTriangles;
+    public int MaxLeaderVerticesPerEntity { get; init; } =
+        DefaultMaxLeaderVerticesPerEntity;
+    public int MaxLeaderControlPoints { get; init; } =
+        DefaultMaxLeaderControlPoints;
 
     /// <summary>
     /// Selects whether snapshot entity order represents interactive
@@ -161,6 +167,7 @@ public sealed partial class CadSnapshotCompiler
         var mLineElementPaths = new List<CadMLineElementPath>();
         var mLineStrokes = new List<CadMLineStroke>();
         var mLineFillTriangles = new List<CadMLineFillTriangle>();
+        var leaders = new List<CadLeaderPrimitive>();
         var points = new List<CadPointPrimitive>();
         var constructionLines = new List<CadConstructionLinePrimitive>();
         var wipeouts = new List<CadWipeoutPrimitive>();
@@ -208,6 +215,7 @@ public sealed partial class CadSnapshotCompiler
         var shxMTextGlyphRuns = new List<CadShxMTextGlyphRun>();
         var shxGlyphInstances = new List<CadShxGlyphInstance>();
         var shxShapes = new List<CadShxShapePrimitive>();
+        int retainedLeaderControlPoints = 0;
         var shxDecorationSegments = new List<CadShxDecorationSegment>();
         var polylineVertices = new List<CadPolylineVertex>();
         var polyline3DPoints = new List<CadPoint3D>();
@@ -302,6 +310,7 @@ public sealed partial class CadSnapshotCompiler
             mLineElementPaths.ToArray(),
             mLineStrokes.ToArray(),
             mLineFillTriangles.ToArray(),
+            leaders.ToArray(),
             points.ToArray(),
             constructionLines.ToArray(),
             wipeouts.ToArray(),
@@ -410,6 +419,18 @@ public sealed partial class CadSnapshotCompiler
                 {
                     CompileDimension(
                         dimension,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle,
+                        depth);
+                    return;
+                }
+                if (entity is Leader leader)
+                {
+                    CompileLeaderTree(
+                        leader,
                         transform,
                         hasTransform,
                         rootHandle,
@@ -1000,6 +1021,120 @@ public sealed partial class CadSnapshotCompiler
             finally
             {
                 activeBlocks.Remove(block);
+            }
+        }
+
+        void CompileLeaderTree(
+            Leader leader,
+            CadAffineTransform3D parentTransform,
+            bool parentHasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle entityStyle,
+            int depth)
+        {
+            int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
+            CadResolvedStyle leaderStyle = ResolveLeaderStyle(
+                leader,
+                effectiveLayer,
+                entityStyle,
+                options,
+                out CadLeaderDimensionContract dimensionContract);
+            int styleIndex = InternStyle(
+                leaderStyle,
+                styles,
+                styleIndices,
+                lineTypePatterns,
+                lineTypePatternIndices,
+                lineTypeElements,
+                lineTypeTextResources,
+                lineTypeShapeResources,
+                textGlyphRuns,
+                textGlyphIndices,
+                textGlyphPositions,
+                textFonts,
+                textFontIndices,
+                shxGlyphInstances,
+                shxFontResolver,
+                options,
+                drawingCodePage);
+            CadEntityHeader header = CompileLeader(
+                leader,
+                rootHandle,
+                parentTransform,
+                parentHasTransform,
+                layerIndex,
+                styleIndex,
+                dimensionContract,
+                options,
+                leaders,
+                splines,
+                splineControlPoints,
+                splineKnots,
+                ref retainedLeaderControlPoints,
+                out CadLeaderArrowExpansion? customArrow);
+            entities.Add(header);
+            documentBounds = documentBounds.Union(header.Bounds);
+
+            if (customArrow is not CadLeaderArrowExpansion arrow)
+            {
+                return;
+            }
+            if (depth >= options.MaxBlockNestingDepth)
+            {
+                AddDiagnostic(
+                    diagnostics,
+                    options.DiagnosticLimit,
+                    new CadDiagnostic(
+                        CadDiagnosticSeverity.Information,
+                        "CADSNAP013",
+                        $"LEADER custom arrow block '{arrow.Block.Name}' exceeds the configured nesting depth; the leader path remains retained."));
+                return;
+            }
+            if ((arrow.Block.Flags &
+                    (BlockTypeFlags.XRef | BlockTypeFlags.XRefOverlay | BlockTypeFlags.XRefDependent)) != 0 ||
+                arrow.Block.BlockEntity.IsUnloaded ||
+                arrow.Block.EvaluationGraph is not null ||
+                arrow.Block.Entities.Count == 0)
+            {
+                AddDiagnostic(
+                    diagnostics,
+                    options.DiagnosticLimit,
+                    new CadDiagnostic(
+                        CadDiagnosticSeverity.Information,
+                        "CADSNAP013",
+                        $"LEADER custom arrow block '{arrow.Block.Name}' has no bounded static definition; the leader path remains retained."));
+                return;
+            }
+            if (!activeBlocks.Add(arrow.Block))
+            {
+                AddDiagnostic(
+                    diagnostics,
+                    options.DiagnosticLimit,
+                    new CadDiagnostic(
+                        CadDiagnosticSeverity.Information,
+                        "CADSNAP013",
+                        $"LEADER custom arrow block '{arrow.Block.Name}' forms a recursive cycle; the leader path remains retained."));
+                return;
+            }
+
+            try
+            {
+                foreach (Entity child in GetOrderedEntities(arrow.Block))
+                {
+                    CompileEntityTree(
+                        child,
+                        arrow.Transform,
+                        true,
+                        rootHandle,
+                        effectiveLayer,
+                        leaderStyle,
+                        depth + 1);
+                }
+            }
+            finally
+            {
+                activeBlocks.Remove(arrow.Block);
             }
         }
 
@@ -4795,6 +4930,8 @@ public sealed partial class CadSnapshotCompiler
             options.MaxModelerGeometryPayloadBytesPerEntity);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxMLineStrokes, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxMLineFillTriangles, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxLeaderVerticesPerEntity, 2);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxLeaderControlPoints, 4);
     }
 
     private static void AddDiagnostic(

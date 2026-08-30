@@ -172,7 +172,7 @@ internal static class CadLineTypeLowerer
                 sourceSegmentCount);
         }
 
-        if (entity.Kind == CadEntityKind.Spline &&
+        if (entity.Kind is CadEntityKind.Spline or CadEntityKind.Leader &&
             sourceSegmentCount > maxArcMapsPerEntity)
         {
             return new CadLineTypeLoweringResult(
@@ -234,6 +234,17 @@ internal static class CadLineTypeLowerer
             CadEntityKind.Spline => LowerSpline(
                 snapshot,
                 snapshot.Splines.Span[entity.PrimitiveIndex],
+                elements,
+                pattern.PatternLength,
+                style.LineTypeScale,
+                maxFigures,
+                maxPatternSteps,
+                maxArcMapsPerEntity,
+                maxPlacements),
+            CadEntityKind.Leader => LowerSpline(
+                snapshot,
+                snapshot.Splines.Span[
+                    snapshot.Leaders.Span[entity.PrimitiveIndex].PathSplineIndex],
                 elements,
                 pattern.PatternLength,
                 style.LineTypeScale,
@@ -536,6 +547,10 @@ internal static class CadLineTypeLowerer
             CadEntityKind.Spline => GetSplineSegmentCount(
                 snapshot,
                 snapshot.Splines.Span[entity.PrimitiveIndex]),
+            CadEntityKind.Leader => GetSplineSegmentCount(
+                snapshot,
+                snapshot.Splines.Span[
+                    snapshot.Leaders.Span[entity.PrimitiveIndex].PathSplineIndex]),
             CadEntityKind.Polyline3D =>
                 GetPolylineSegmentCount(snapshot.Polylines3D.Span[entity.PrimitiveIndex]),
             CadEntityKind.Face3D => CountVisibleFaceEdges(

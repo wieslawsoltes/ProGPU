@@ -388,6 +388,14 @@ public sealed class CadPlanSceneCompiler
             if (recordedLineType && entity.Kind is not
                 (CadEntityKind.Wipeout or CadEntityKind.RasterImage))
             {
+                if (entity.Kind == CadEntityKind.Leader)
+                {
+                    RecordLeaderArrow(
+                        context,
+                        pen.Brush,
+                        snapshot,
+                        snapshot.Leaders.Span[entity.PrimitiveIndex]);
+                }
                 recorded++;
                 continue;
             }
@@ -437,6 +445,13 @@ public sealed class CadPlanSceneCompiler
                         ref lineTypePatternSteps,
                         ref lineTypeSourceSegments,
                         ref lineTypePlacementBudgetUsed);
+                    break;
+                case CadEntityKind.Leader:
+                    RecordLeader(
+                        context,
+                        pen,
+                        snapshot,
+                        snapshot.Leaders.Span[entity.PrimitiveIndex]);
                     break;
                 case CadEntityKind.Circle:
                     RecordCircle(context, pen, snapshot.Circles.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
@@ -869,6 +884,43 @@ public sealed class CadPlanSceneCompiler
         CadLinePrimitive line,
         CadPoint3D origin) =>
         context.DrawLine(pen, Project(line.Start, origin), Project(line.End, origin));
+
+    private static void RecordLeader(
+        DrawingContext context,
+        Pen pen,
+        CadDocumentSnapshot snapshot,
+        in CadLeaderPrimitive leader)
+    {
+        RecordSpline(
+            context,
+            pen,
+            snapshot,
+            snapshot.Splines.Span[leader.PathSplineIndex]);
+        RecordLeaderArrow(context, pen.Brush, snapshot, leader);
+    }
+
+    private static void RecordLeaderArrow(
+        DrawingContext context,
+        Brush brush,
+        CadDocumentSnapshot snapshot,
+        in CadLeaderPrimitive leader)
+    {
+        if (!leader.HasDefaultArrow)
+        {
+            return;
+        }
+
+        var path = new PathGeometry { FillRule = FillRule.Nonzero };
+        var figure = new PathFigure(
+            Project(leader.ArrowTip, snapshot.RebaseOrigin),
+            isClosed: true);
+        figure.Segments.Add(new LineSegment(
+            Project(leader.ArrowFirstBase, snapshot.RebaseOrigin)));
+        figure.Segments.Add(new LineSegment(
+            Project(leader.ArrowSecondBase, snapshot.RebaseOrigin)));
+        path.Figures.Add(figure);
+        context.DrawPath(brush, null, path);
+    }
 
     private static void RecordMLine(
         DrawingContext context,
