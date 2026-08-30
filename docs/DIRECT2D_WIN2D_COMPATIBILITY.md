@@ -33,8 +33,8 @@ binary.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` API | Foundation plus bitmap/solid/gradient/bitmap-brush/image-brush/geometry/stroke-style/command-list resources implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine factory, device, context, target and uploaded bitmaps, solid/gradient/bitmap/image brushes, gradient-stop collections, primitive/path/transformed/combined geometries, `ID2D1StrokeStyle1`, recordable `ID2D1CommandList`, and generic later-interface queries over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` |
-| Native Win2D binary interop | Device/target/bitmap/solid/gradient/bitmap-brush/image-brush/geometry/stroke-style/command-list round trips package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, `CanvasStrokeStyle`, and `CanvasCommandList` projections. The packaged Microsoft Win2D 1.4.0 oracle qualifies identities, resource metadata, boolean geometry/styled-stroke/image-brush/command-list drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; effects, text, and full device-loss recreation remain gated work |
+| Direct2D `ID2D1*` API | Foundation plus bitmap/brush/geometry/stroke/command-list/effect resources implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine factory, device, context, target, uploaded bitmaps, solid/gradient/bitmap/image brushes, gradient-stop collections, primitive/path/transformed/combined geometries, `ID2D1StrokeStyle1`, recordable `ID2D1CommandList`, typed `ID2D1Effect` graphs and `ID2D1Image` outputs, and generic later-interface queries over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` |
+| Native Win2D binary interop | Device/target/bitmap/brush/geometry/stroke/command-list/effect-output round trips package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, `CanvasStrokeStyle`, and `CanvasCommandList` projections. The packaged Microsoft Win2D 1.4.0 oracle also wraps an effect-output `ID2D1ImageBrush` as a real `CanvasImageBrush`. It qualifies identities, resource metadata, boolean geometry/styled-stroke/image-brush/command-list/effect drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; the full effect catalog, text, custom effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
 | Arbitrary Win2D native-resource wrapping (`GetOrCreate(IUnknown*)`) off Windows | Unsupported by design | Fail closed; there is no portable COM object identity to preserve |
@@ -520,8 +520,12 @@ ABI v13 adds open-list creation, exclusive record/end/restore/close
 transactions, unchanged shared-surface content version during offscreen
 recording, command-list-backed image-brush drawing, and exact
 `ID2D1CommandList <-> CanvasCommandList` plus command-list
-`ID2D1ImageBrush <-> CanvasImageBrush` identities. The gate enforces an exact
-34-export allowlist.
+`ID2D1ImageBrush <-> CanvasImageBrush` identities.
+ABI v14 adds typed system/custom effect creation by CLSID, fixed-layout
+property values, direct image and effect-to-effect inputs, caller-owned
+`ID2D1Image` outputs, and effect-output image-brush drawing. Pointer-bearing
+property types and malformed fixed values fail closed. The gate enforces an
+exact 39-export allowlist.
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
@@ -710,6 +714,30 @@ command-list recording does not. Persisted JSON evidence SHA-256 is
 `C678B5384632846505C7B864FAACE49476C9EEDD20555FB9210535D697EF5DE5`.
 Post-run cleanup leaves zero integration processes and zero installed test
 packages across all users.
+
+ABI v14 at exact implementation commit `6d01b206` was rebuilt in the same
+Windows 11 ARM64 Parallels guest with MSVC 19.44 and Windows SDK
+10.0.26100.0. Two consecutive `/Brepro` builds produce identical binaries;
+the warning-clean native regression exits zero after creating genuine
+Gaussian-blur and shadow effects, validating exact effect/output interface
+identities, setting fixed-layout properties, rejecting a malformed property
+size and invalid input index, chaining effect-to-effect input, drawing the
+effect output directly, and using that output through a genuine
+`ID2D1ImageBrush`. `dumpbin` matches all 39 allowed exports. SHA-256 is
+`F847584606485E3D2F77A8A8DDA6C62E5D0DE6050548B08D8D78FBE51BE43D8F`
+for `progpu_native_direct2d.dll` and
+`484E6CA6DF930F405D18FC09FBD9DAD346F3B248B22DDC7404A6594EDBB6EF2C`
+for `progpu_native_direct2d_tests.exe` in both builds. The signed ARM64
+Microsoft Win2D 1.4.0 oracle passes on `Dawn D3D12`, projects the provider's
+effect-output image brush as a real
+`Microsoft.Graphics.Canvas.Brushes.CanvasImageBrush`, preserves exact native
+COM identity in both directions, and renders exact ARGB
+`(255,112,40,248)`. All ABI v13 and earlier identities and pixels remain
+green, the shared surface is `76x64`, and content version advances from `0`
+to `1`. Persisted JSON evidence SHA-256 is
+`686675F945CEBAF8E1C4661CAF0D42332C3A0E9EC2F5E33267A6B22B1B7804A6`.
+Post-run cleanup leaves zero integration processes and zero installed test
+packages.
 
 Run this qualification with
 `eng/progpu-run-direct2d-win2d-integration.ps1`, or opt it into the complete
