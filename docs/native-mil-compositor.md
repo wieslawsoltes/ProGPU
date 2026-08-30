@@ -5190,6 +5190,23 @@ zeroed outputs. The exact allowlist is 67 exports. This lets the Windows MIL
 bridge use native Direct2D analysis without reflected WPF geometry shapes or a
 CPU tessellation detour. Simplify/outline/widen/tessellation realization sinks
 remain explicit follow-up work.
+Exact ProGPU implementation `13f6906b` is Windows-qualified by GitHub Actions
+Build run `33330942215`: dedicated MSVC job `99309300180` passes the focused
+Direct2D test in 0.25 seconds and all 11 native suites under warning-as-error,
+while ClangCL x64 job `99309300268` passes it in 0.14 seconds and all 12 native
+suites before the unrelated later Dawn software-adapter loss.
+
+ABI v25 closes that follow-up without publishing arbitrary COM sink pointers.
+The provider materializes simplify, outline, and widen results as genuine
+same-factory `ID2D1PathGeometry1` resources. Its tessellation sink writes
+directly to a managed caller span, counts the full immutable result, and
+returns a typed insufficient-buffer result for deterministic size-query/retry;
+there is no per-triangle allocation or callback into managed code. Filled and
+stroked `ID2D1GeometryRealization` resources are created and drawn through
+`ID2D1DeviceContext1` in both target and command-list producer scopes. Every
+geometry, stroke style, realization, and brush remains generation- and
+kind-checked, while invalid options, transforms, tolerances, widths, buffers,
+and producer state fail closed. The exact allowlist becomes 74 exports.
 
 ## Managed glyph row-reuse SIMD checkpoint
 

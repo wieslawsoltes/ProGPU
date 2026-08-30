@@ -36,7 +36,8 @@ typedef enum progpu_native_direct2d_status {
     PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED = 13,
     PROGPU_NATIVE_DIRECT2D_STATUS_WIN2D_RUNTIME_UNAVAILABLE = 14,
     PROGPU_NATIVE_DIRECT2D_STATUS_WINDOWS_RUNTIME_NOT_INITIALIZED = 15,
-    PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH = 16
+    PROGPU_NATIVE_DIRECT2D_STATUS_DRAWING_STATE_MISMATCH = 16,
+    PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER = 17
 } progpu_native_direct2d_status;
 
 typedef enum progpu_native_direct2d_surface_flags {
@@ -125,7 +126,8 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT7 = 56,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT5 = 57,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_SVG_DOCUMENT = 58,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_SVG_DOCUMENT = 59
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_SVG_DOCUMENT = 59,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_GEOMETRY_REALIZATION = 60
 } progpu_native_direct2d_interface_kind;
 
 typedef enum progpu_native_direct2d_color_glyph_path {
@@ -160,6 +162,11 @@ typedef enum progpu_native_direct2d_geometry_relation {
     PROGPU_NATIVE_DIRECT2D_GEOMETRY_RELATION_CONTAINS = 3,
     PROGPU_NATIVE_DIRECT2D_GEOMETRY_RELATION_OVERLAP = 4
 } progpu_native_direct2d_geometry_relation;
+
+typedef enum progpu_native_direct2d_geometry_simplification_option {
+    PROGPU_NATIVE_DIRECT2D_GEOMETRY_SIMPLIFICATION_CUBICS_AND_LINES = 0,
+    PROGPU_NATIVE_DIRECT2D_GEOMETRY_SIMPLIFICATION_LINES = 1
+} progpu_native_direct2d_geometry_simplification_option;
 
 typedef enum progpu_native_direct2d_cap_style {
     PROGPU_NATIVE_DIRECT2D_CAP_STYLE_FLAT = 0,
@@ -477,6 +484,12 @@ typedef struct progpu_native_direct2d_size_f {
     float height;
 } progpu_native_direct2d_size_f;
 
+typedef struct progpu_native_direct2d_triangle {
+    progpu_native_direct2d_point_2f point1;
+    progpu_native_direct2d_point_2f point2;
+    progpu_native_direct2d_point_2f point3;
+} progpu_native_direct2d_triangle;
+
 /* Pointer-free portion of D2D1_LAYER_PARAMETERS1. The optional geometry mask,
  * opacity brush, and concrete layer are supplied as separately validated COM
  * references to keep the C ABI blittable and AOT-safe. */
@@ -578,7 +591,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 24U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 25U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -1153,6 +1166,77 @@ progpu_native_direct2d_geometry_compute_point_at_length(
     float flattening_tolerance,
     progpu_native_direct2d_point_2f* point,
     progpu_native_direct2d_point_2f* unit_tangent,
+    int32_t* native_hresult);
+
+/* Materializes geometry-sink operations into provider-owned path geometries;
+ * arbitrary caller COM sinks never cross this ABI. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_geometry_simplify(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    progpu_native_direct2d_geometry_simplification_option option,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    void** value,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_geometry_outline(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    void** value,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_geometry_widen(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    float stroke_width,
+    void* stroke_style,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    void** value,
+    int32_t* native_hresult);
+
+/* Writes tessellation directly into caller-owned storage. triangle_count is
+ * always the required count after a successful Direct2D traversal. A short
+ * or null destination returns INSUFFICIENT_BUFFER without retaining it. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_geometry_tessellate(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    progpu_native_direct2d_triangle* triangles,
+    uint32_t triangle_capacity,
+    uint32_t* triangle_count,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_filled_geometry_realization(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    float flattening_tolerance,
+    void** value,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_stroked_geometry_realization(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    float flattening_tolerance,
+    float stroke_width,
+    void* stroke_style,
+    void** value,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_geometry_realization(
+    progpu_native_direct2d_surface* surface,
+    void* realization,
+    void* brush,
     int32_t* native_hresult);
 
 /* Creates a genuine factory-domain ID2D1StrokeStyle1. Custom dash lengths are

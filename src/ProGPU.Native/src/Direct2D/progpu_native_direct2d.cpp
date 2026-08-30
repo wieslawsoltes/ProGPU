@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstring>
 #include <iterator>
+#include <limits>
 #include <mutex>
 #include <new>
 #include <string>
@@ -70,6 +71,9 @@ static_assert(
 static_assert(
     sizeof(progpu_native_direct2d_size_f) == sizeof(D2D1_SIZE_F),
     "Direct2D portable size layout changed");
+static_assert(
+    sizeof(progpu_native_direct2d_triangle) == sizeof(D2D1_TRIANGLE),
+    "Direct2D portable triangle layout changed");
 static_assert(
     sizeof(progpu_native_direct2d_glyph_offset) ==
         sizeof(DWRITE_GLYPH_OFFSET),
@@ -361,6 +365,105 @@ private:
     const uint8_t* data_ = nullptr;
     uint64_t size_ = 0U;
     uint64_t position_ = 0U;
+};
+
+class CallerTessellationSink final : public ID2D1TessellationSink {
+public:
+    CallerTessellationSink(
+        progpu_native_direct2d_triangle* triangles,
+        uint32_t capacity) noexcept
+        : triangles_(triangles), capacity_(capacity)
+    {
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1TessellationSink))) {
+            *value = static_cast<ID2D1TessellationSink*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    void STDMETHODCALLTYPE AddTriangles(
+        const D2D1_TRIANGLE* triangles,
+        UINT triangle_count) override
+    {
+        if ((triangles == nullptr && triangle_count != 0U) || overflow_) {
+            invalid_input_ = triangles == nullptr && triangle_count != 0U;
+            return;
+        }
+        const uint64_t next_count =
+            static_cast<uint64_t>(required_count_) + triangle_count;
+        if (next_count > std::numeric_limits<uint32_t>::max()) {
+            overflow_ = true;
+            return;
+        }
+        const uint32_t available = required_count_ < capacity_
+            ? capacity_ - required_count_
+            : 0U;
+        const uint32_t write_count = triangle_count < available
+            ? triangle_count
+            : available;
+        for (uint32_t index = 0U; index < write_count; ++index) {
+            progpu_native_direct2d_triangle& output =
+                triangles_[required_count_ + index];
+            output.point1.x = triangles[index].point1.x;
+            output.point1.y = triangles[index].point1.y;
+            output.point2.x = triangles[index].point2.x;
+            output.point2.y = triangles[index].point2.y;
+            output.point3.x = triangles[index].point3.x;
+            output.point3.y = triangles[index].point3.y;
+        }
+        required_count_ = static_cast<uint32_t>(next_count);
+    }
+
+    HRESULT STDMETHODCALLTYPE Close() override
+    {
+        if (invalid_input_) {
+            return E_POINTER;
+        }
+        return overflow_
+            ? HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW)
+            : S_OK;
+    }
+
+    uint32_t required_count() const noexcept
+    {
+        return required_count_;
+    }
+
+private:
+    std::atomic<ULONG> reference_count_{1U};
+    progpu_native_direct2d_triangle* triangles_ = nullptr;
+    uint32_t capacity_ = 0U;
+    uint32_t required_count_ = 0U;
+    bool invalid_input_ = false;
+    bool overflow_ = false;
 };
 
 bool luid_is_zero(const progpu_native_direct2d_surface_options& options)
@@ -4129,6 +4232,381 @@ progpu_native_direct2d_geometry_compute_point_at_length(
     unit_tangent->x = native_tangent.x;
     unit_tangent->y = native_tangent.y;
     return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status progpu_native_direct2d_geometry_simplify(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    progpu_native_direct2d_geometry_simplification_option option,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr || value == nullptr ||
+        native_hresult == nullptr ||
+        option < PROGPU_NATIVE_DIRECT2D_GEOMETRY_SIMPLIFICATION_CUBICS_AND_LINES ||
+        option > PROGPU_NATIVE_DIRECT2D_GEOMETRY_SIMPLIFICATION_LINES ||
+        !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        (transform != nullptr && !is_finite(*transform))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_MATRIX_3X2_F native_transform{};
+    const D2D1_MATRIX_3X2_F* transform_pointer = nullptr;
+    if (transform != nullptr) {
+        native_transform = to_native_matrix(*transform);
+        transform_pointer = &native_transform;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Geometry> native_geometry;
+    HRESULT hr = reinterpret_cast<IUnknown*>(geometry)->QueryInterface(
+        IID_PPV_ARGS(&native_geometry));
+    ComPtr<ID2D1PathGeometry1> path;
+    if (SUCCEEDED(hr)) {
+        hr = create_path_geometry(*surface, path);
+    }
+    ComPtr<ID2D1GeometrySink> sink;
+    if (SUCCEEDED(hr)) {
+        hr = path->Open(&sink);
+    }
+    if (SUCCEEDED(hr)) {
+        const HRESULT operation_hr = native_geometry->Simplify(
+            static_cast<D2D1_GEOMETRY_SIMPLIFICATION_OPTION>(option),
+            transform_pointer,
+            flattening_tolerance,
+            sink.Get());
+        const HRESULT close_hr = sink->Close();
+        hr = FAILED(operation_hr) ? operation_hr : close_hr;
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(path, value);
+}
+
+progpu_native_direct2d_status progpu_native_direct2d_geometry_outline(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr || value == nullptr ||
+        native_hresult == nullptr ||
+        !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        (transform != nullptr && !is_finite(*transform))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_MATRIX_3X2_F native_transform{};
+    const D2D1_MATRIX_3X2_F* transform_pointer = nullptr;
+    if (transform != nullptr) {
+        native_transform = to_native_matrix(*transform);
+        transform_pointer = &native_transform;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Geometry> native_geometry;
+    HRESULT hr = reinterpret_cast<IUnknown*>(geometry)->QueryInterface(
+        IID_PPV_ARGS(&native_geometry));
+    ComPtr<ID2D1PathGeometry1> path;
+    if (SUCCEEDED(hr)) {
+        hr = create_path_geometry(*surface, path);
+    }
+    ComPtr<ID2D1GeometrySink> sink;
+    if (SUCCEEDED(hr)) {
+        hr = path->Open(&sink);
+    }
+    if (SUCCEEDED(hr)) {
+        const HRESULT operation_hr = native_geometry->Outline(
+            transform_pointer,
+            flattening_tolerance,
+            sink.Get());
+        const HRESULT close_hr = sink->Close();
+        hr = FAILED(operation_hr) ? operation_hr : close_hr;
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(path, value);
+}
+
+progpu_native_direct2d_status progpu_native_direct2d_geometry_widen(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    float stroke_width,
+    void* stroke_style,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr || value == nullptr ||
+        native_hresult == nullptr || !std::isfinite(stroke_width) ||
+        stroke_width < 0.0F || !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        (transform != nullptr && !is_finite(*transform))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_MATRIX_3X2_F native_transform{};
+    const D2D1_MATRIX_3X2_F* transform_pointer = nullptr;
+    if (transform != nullptr) {
+        native_transform = to_native_matrix(*transform);
+        transform_pointer = &native_transform;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Geometry> native_geometry;
+    HRESULT hr = reinterpret_cast<IUnknown*>(geometry)->QueryInterface(
+        IID_PPV_ARGS(&native_geometry));
+    ComPtr<ID2D1StrokeStyle> native_stroke_style;
+    if (SUCCEEDED(hr) && stroke_style != nullptr) {
+        hr = reinterpret_cast<IUnknown*>(stroke_style)->QueryInterface(
+            IID_PPV_ARGS(&native_stroke_style));
+    }
+    ComPtr<ID2D1PathGeometry1> path;
+    if (SUCCEEDED(hr)) {
+        hr = create_path_geometry(*surface, path);
+    }
+    ComPtr<ID2D1GeometrySink> sink;
+    if (SUCCEEDED(hr)) {
+        hr = path->Open(&sink);
+    }
+    if (SUCCEEDED(hr)) {
+        const HRESULT operation_hr = native_geometry->Widen(
+            stroke_width,
+            native_stroke_style.Get(),
+            transform_pointer,
+            flattening_tolerance,
+            sink.Get());
+        const HRESULT close_hr = sink->Close();
+        hr = FAILED(operation_hr) ? operation_hr : close_hr;
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(path, value);
+}
+
+progpu_native_direct2d_status progpu_native_direct2d_geometry_tessellate(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    float flattening_tolerance,
+    progpu_native_direct2d_triangle* triangles,
+    uint32_t triangle_capacity,
+    uint32_t* triangle_count,
+    int32_t* native_hresult)
+{
+    if (triangle_count != nullptr) {
+        *triangle_count = 0U;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr ||
+        triangle_count == nullptr || native_hresult == nullptr ||
+        (triangle_capacity != 0U && triangles == nullptr) ||
+        !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F ||
+        (transform != nullptr && !is_finite(*transform))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_MATRIX_3X2_F native_transform{};
+    const D2D1_MATRIX_3X2_F* transform_pointer = nullptr;
+    if (transform != nullptr) {
+        native_transform = to_native_matrix(*transform);
+        transform_pointer = &native_transform;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Geometry> native_geometry;
+    HRESULT hr = reinterpret_cast<IUnknown*>(geometry)->QueryInterface(
+        IID_PPV_ARGS(&native_geometry));
+    CallerTessellationSink* sink = nullptr;
+    if (SUCCEEDED(hr)) {
+        sink = new (std::nothrow) CallerTessellationSink(
+            triangles,
+            triangle_capacity);
+        if (sink == nullptr) {
+            hr = E_OUTOFMEMORY;
+        }
+    }
+    if (SUCCEEDED(hr)) {
+        const HRESULT operation_hr = native_geometry->Tessellate(
+            transform_pointer,
+            flattening_tolerance,
+            sink);
+        const HRESULT close_hr = sink->Close();
+        *triangle_count = sink->required_count();
+        hr = FAILED(operation_hr) ? operation_hr : close_hr;
+    }
+    if (sink != nullptr) {
+        static_cast<void>(sink->Release());
+    }
+    if (SUCCEEDED(hr) && *triangle_count > triangle_capacity) {
+        hr = HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
+        surface->last_hresult.store(hr, std::memory_order_release);
+        *native_hresult = hr;
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER;
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return hr == E_OUTOFMEMORY
+            ? PROGPU_NATIVE_DIRECT2D_STATUS_OUT_OF_MEMORY
+            : status_from_win2d_hresult(hr);
+    }
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_filled_geometry_realization(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    float flattening_tolerance,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr || value == nullptr ||
+        native_hresult == nullptr ||
+        !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Geometry> native_geometry;
+    HRESULT hr = reinterpret_cast<IUnknown*>(geometry)->QueryInterface(
+        IID_PPV_ARGS(&native_geometry));
+    ComPtr<ID2D1GeometryRealization> realization;
+    if (SUCCEEDED(hr)) {
+        hr = surface->d2d_context->CreateFilledGeometryRealization(
+            native_geometry.Get(),
+            flattening_tolerance,
+            &realization);
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(realization, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_stroked_geometry_realization(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    float flattening_tolerance,
+    float stroke_width,
+    void* stroke_style,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr || value == nullptr ||
+        native_hresult == nullptr ||
+        !std::isfinite(flattening_tolerance) ||
+        flattening_tolerance <= 0.0F || !std::isfinite(stroke_width) ||
+        stroke_width < 0.0F) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Geometry> native_geometry;
+    HRESULT hr = reinterpret_cast<IUnknown*>(geometry)->QueryInterface(
+        IID_PPV_ARGS(&native_geometry));
+    ComPtr<ID2D1StrokeStyle> native_stroke_style;
+    if (SUCCEEDED(hr) && stroke_style != nullptr) {
+        hr = reinterpret_cast<IUnknown*>(stroke_style)->QueryInterface(
+            IID_PPV_ARGS(&native_stroke_style));
+    }
+    ComPtr<ID2D1GeometryRealization> realization;
+    if (SUCCEEDED(hr)) {
+        hr = surface->d2d_context->CreateStrokedGeometryRealization(
+            native_geometry.Get(),
+            flattening_tolerance,
+            stroke_width,
+            native_stroke_style.Get(),
+            &realization);
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(realization, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_geometry_realization(
+    progpu_native_direct2d_surface* surface,
+    void* realization,
+    void* brush,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || realization == nullptr || brush == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    ComPtr<ID2D1GeometryRealization> native_realization;
+    HRESULT hr = reinterpret_cast<IUnknown*>(realization)->QueryInterface(
+        IID_PPV_ARGS(&native_realization));
+    ComPtr<ID2D1Brush> native_brush;
+    if (SUCCEEDED(hr)) {
+        hr = reinterpret_cast<IUnknown*>(brush)->QueryInterface(
+            IID_PPV_ARGS(&native_brush));
+    }
+    if (SUCCEEDED(hr)) {
+        surface->d2d_context->DrawGeometryRealization(
+            native_realization.Get(),
+            native_brush.Get());
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    return SUCCEEDED(hr)
+        ? PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS
+        : status_from_win2d_hresult(hr);
 }
 
 progpu_native_direct2d_status

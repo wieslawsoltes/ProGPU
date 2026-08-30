@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 24U;
+    internal const uint AbiVersion = 25U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -874,6 +874,96 @@ internal static unsafe partial class ProGpuDirect2DNative
         NativePoint2F* point,
         NativePoint2F* unitTangent,
         int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_geometry_simplify")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus GeometrySimplify(
+        nint surface,
+        nint geometry,
+        ProGpuDirect2DGeometrySimplificationOption option,
+        NativeMatrix3X2F* transform,
+        float flatteningTolerance,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_geometry_outline")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus GeometryOutline(
+        nint surface,
+        nint geometry,
+        NativeMatrix3X2F* transform,
+        float flatteningTolerance,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_geometry_widen")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus GeometryWiden(
+        nint surface,
+        nint geometry,
+        float strokeWidth,
+        nint strokeStyle,
+        NativeMatrix3X2F* transform,
+        float flatteningTolerance,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_geometry_tessellate")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus GeometryTessellate(
+        nint surface,
+        nint geometry,
+        NativeMatrix3X2F* transform,
+        float flatteningTolerance,
+        ProGpuDirect2DTriangle* triangles,
+        uint triangleCapacity,
+        uint* triangleCount,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_filled_geometry_realization")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceCreateFilledGeometryRealization(
+            nint surface,
+            nint geometry,
+            float flatteningTolerance,
+            nint* value,
+            int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_stroked_geometry_realization")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceCreateStrokedGeometryRealization(
+            nint surface,
+            nint geometry,
+            float flatteningTolerance,
+            float strokeWidth,
+            nint strokeStyle,
+            nint* value,
+            int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_draw_geometry_realization")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus
+        SurfaceDrawGeometryRealization(
+            nint surface,
+            nint realization,
+            nint brush,
+            int* nativeHResult);
 
     [LibraryImport(
         LibraryName,

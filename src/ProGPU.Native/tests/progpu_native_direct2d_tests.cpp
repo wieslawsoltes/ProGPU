@@ -738,6 +738,160 @@ int main()
             widened_bounds.height == 0.0F,
         "invalid geometry-analysis tolerance did not fail closed");
 
+    void* simplified_geometry_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_geometry_simplify(
+            surface,
+            rectangle_geometry.Get(),
+            PROGPU_NATIVE_DIRECT2D_GEOMETRY_SIMPLIFICATION_LINES,
+            nullptr,
+            0.25F,
+            &simplified_geometry_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            simplified_geometry_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1Geometry simplification failed");
+    ComPtr<ID2D1PathGeometry1> simplified_geometry;
+    simplified_geometry.Attach(
+        static_cast<ID2D1PathGeometry1*>(simplified_geometry_value));
+    uint32_t simplified_segment_count = 0U;
+    require(SUCCEEDED(simplified_geometry->GetSegmentCount(
+                &simplified_segment_count)) && simplified_segment_count != 0U,
+        "provider simplified geometry was empty");
+
+    void* outlined_geometry_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_geometry_outline(
+            surface,
+            rectangle_geometry.Get(),
+            nullptr,
+            0.25F,
+            &outlined_geometry_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            outlined_geometry_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1Geometry outline failed");
+    ComPtr<ID2D1PathGeometry1> outlined_geometry;
+    outlined_geometry.Attach(
+        static_cast<ID2D1PathGeometry1*>(outlined_geometry_value));
+    uint32_t outlined_figure_count = 0U;
+    require(SUCCEEDED(outlined_geometry->GetFigureCount(
+                &outlined_figure_count)) && outlined_figure_count != 0U,
+        "provider outlined geometry was empty");
+
+    void* widened_geometry_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_geometry_widen(
+            surface,
+            rectangle_geometry.Get(),
+            2.0F,
+            nullptr,
+            nullptr,
+            0.25F,
+            &widened_geometry_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            widened_geometry_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1Geometry widening failed");
+    ComPtr<ID2D1PathGeometry1> widened_geometry;
+    widened_geometry.Attach(
+        static_cast<ID2D1PathGeometry1*>(widened_geometry_value));
+    progpu_native_direct2d_rect_f materialized_widened_bounds{};
+    require(
+        progpu_native_direct2d_geometry_get_bounds(
+            surface,
+            widened_geometry.Get(),
+            nullptr,
+            &materialized_widened_bounds,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            materialized_widened_bounds.x == 3.0F &&
+            materialized_widened_bounds.y == 3.0F &&
+            materialized_widened_bounds.width == 18.0F &&
+            materialized_widened_bounds.height == 14.0F,
+        "provider materialized widened geometry bounds changed");
+
+    uint32_t required_triangle_count = 0U;
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_geometry_tessellate(
+            surface,
+            rectangle_geometry.Get(),
+            nullptr,
+            0.25F,
+            nullptr,
+            0U,
+            &required_triangle_count,
+            &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+            required_triangle_count == 2U &&
+            native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER),
+        "provider tessellation size query changed");
+    progpu_native_direct2d_triangle tessellation[2]{};
+    required_triangle_count = 0U;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_geometry_tessellate(
+            surface,
+            rectangle_geometry.Get(),
+            nullptr,
+            0.25F,
+            tessellation,
+            static_cast<uint32_t>(std::size(tessellation)),
+            &required_triangle_count,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            required_triangle_count == 2U && native_hresult == S_OK,
+        "provider caller-span tessellation failed");
+    float tessellated_area = 0.0F;
+    for (const progpu_native_direct2d_triangle& triangle : tessellation) {
+        tessellated_area += 0.5F * std::abs(
+            triangle.point1.x * (triangle.point2.y - triangle.point3.y) +
+            triangle.point2.x * (triangle.point3.y - triangle.point1.y) +
+            triangle.point3.x * (triangle.point1.y - triangle.point2.y));
+    }
+    require(std::abs(tessellated_area - 192.0F) < 0.001F,
+        "provider tessellation coverage changed");
+
+    void* filled_realization_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_filled_geometry_realization(
+            surface,
+            rectangle_geometry.Get(),
+            0.25F,
+            &filled_realization_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            filled_realization_value != nullptr && native_hresult == S_OK,
+        "provider filled ID2D1GeometryRealization creation failed");
+    ComPtr<ID2D1GeometryRealization> filled_realization;
+    filled_realization.Attach(
+        static_cast<ID2D1GeometryRealization*>(filled_realization_value));
+
+    void* stroked_realization_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_stroked_geometry_realization(
+            surface,
+            rectangle_geometry.Get(),
+            0.25F,
+            2.0F,
+            nullptr,
+            &stroked_realization_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            stroked_realization_value != nullptr && native_hresult == S_OK,
+        "provider stroked ID2D1GeometryRealization creation failed");
+    ComPtr<ID2D1GeometryRealization> stroked_realization;
+    stroked_realization.Attach(
+        static_cast<ID2D1GeometryRealization*>(stroked_realization_value));
+
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_surface_draw_geometry_realization(
+            surface,
+            filled_realization.Get(),
+            solid_brush.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE,
+        "geometry realization draw outside a producer did not fail closed");
+
     progpu_native_direct2d_stroke_style_properties stroke_properties{};
     stroke_properties.start_cap = PROGPU_NATIVE_DIRECT2D_CAP_STYLE_ROUND;
     stroke_properties.end_cap = PROGPU_NATIVE_DIRECT2D_CAP_STYLE_TRIANGLE;
@@ -2708,6 +2862,24 @@ int main()
         solid_brush.Get(),
         2.0F,
         stroke_style.Get());
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_draw_geometry_realization(
+            surface,
+            filled_realization.Get(),
+            solid_brush.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider filled geometry-realization draw failed");
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_draw_geometry_realization(
+            surface,
+            stroked_realization.Get(),
+            solid_brush.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider stroked geometry-realization draw failed");
     D2D1_TAG tag1 = 0U;
     D2D1_TAG tag2 = 0U;
     native_hresult = E_FAIL;

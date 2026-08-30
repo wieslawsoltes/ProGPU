@@ -26,6 +26,13 @@ public sealed unsafe class ProGpuDirect2DSurface :
         CommandList
     }
 
+    private enum GeometryDerivation
+    {
+        Simplify,
+        Outline,
+        Widen
+    }
+
     private const uint DefaultMutexTimeoutMilliseconds = 5_000U;
     private static readonly Guid D2D1Device1InterfaceId =
         new("D21768E1-23A4-4823-A14B-7C3EBA85D658");
@@ -632,6 +639,17 @@ public sealed unsafe class ProGpuDirect2DSurface :
             lock (_gate)
             {
                 ThrowIfUnavailable();
+                string operation = derivation switch
+                {
+                    GeometryDerivation.Simplify =>
+                        "ID2D1Geometry::Simplify",
+                    GeometryDerivation.Outline =>
+                        "ID2D1Geometry::Outline",
+                    GeometryDerivation.Widen =>
+                        "ID2D1Geometry::Widen",
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(derivation))
+                };
                 nint value = 0;
                 int nativeHResult = 0;
                 ProGpuDirect2DStatus status =
@@ -2787,6 +2805,167 @@ public sealed unsafe class ProGpuDirect2DSurface :
     }
 
     /// <summary>
+    /// Materializes ID2D1Geometry::Simplify into a genuine provider-owned
+    /// ID2D1PathGeometry1 without exposing a caller COM sink.
+    /// </summary>
+    public ProGpuDirect2DComReference SimplifyGeometry(
+        ProGpuDirect2DComReference geometry,
+        ProGpuDirect2DGeometrySimplificationOption option =
+            ProGpuDirect2DGeometrySimplificationOption.CubicsAndLines,
+        Matrix3x2? transform = null,
+        float flatteningTolerance = 0.25F)
+    {
+        if (option < ProGpuDirect2DGeometrySimplificationOption.CubicsAndLines ||
+            option > ProGpuDirect2DGeometrySimplificationOption.Lines)
+        {
+            throw new ArgumentOutOfRangeException(nameof(option));
+        }
+        return CreateDerivedGeometry(
+            GeometryDerivation.Simplify,
+            geometry,
+            option,
+            0.0F,
+            null,
+            transform,
+            flatteningTolerance);
+    }
+
+    /// <summary>
+    /// Materializes ID2D1Geometry::Outline into a genuine provider-owned
+    /// ID2D1PathGeometry1 without exposing a caller COM sink.
+    /// </summary>
+    public ProGpuDirect2DComReference OutlineGeometry(
+        ProGpuDirect2DComReference geometry,
+        Matrix3x2? transform = null,
+        float flatteningTolerance = 0.25F) =>
+        CreateDerivedGeometry(
+            GeometryDerivation.Outline,
+            geometry,
+            default,
+            0.0F,
+            null,
+            transform,
+            flatteningTolerance);
+
+    /// <summary>
+    /// Materializes ID2D1Geometry::Widen into a genuine provider-owned
+    /// ID2D1PathGeometry1 without exposing a caller COM sink.
+    /// </summary>
+    public ProGpuDirect2DComReference WidenGeometry(
+        ProGpuDirect2DComReference geometry,
+        float strokeWidth,
+        ProGpuDirect2DComReference? strokeStyle = null,
+        Matrix3x2? transform = null,
+        float flatteningTolerance = 0.25F) =>
+        CreateDerivedGeometry(
+            GeometryDerivation.Widen,
+            geometry,
+            default,
+            strokeWidth,
+            strokeStyle,
+            transform,
+            flatteningTolerance);
+
+    /// <summary>
+    /// Tessellates directly into caller-owned storage. Returns false and the
+    /// required count when the destination is too short; the immutable
+    /// geometry can then be submitted again with an adequately sized span.
+    /// </summary>
+    public bool TryTessellateGeometry(
+        ProGpuDirect2DComReference geometry,
+        Span<ProGpuDirect2DTriangle> triangles,
+        out uint requiredTriangleCount,
+        Matrix3x2? transform = null,
+        float flatteningTolerance = 0.25F)
+    {
+        ValidateGeometry(geometry, nameof(geometry));
+        ValidateFlatteningTolerance(
+            flatteningTolerance,
+            nameof(flatteningTolerance));
+        ProGpuDirect2DNative.NativeMatrix3X2F nativeTransform = default;
+        ProGpuDirect2DNative.NativeMatrix3X2F* transformPointer = null;
+        if (transform is Matrix3x2 value)
+        {
+            nativeTransform = CreateNativeMatrix(value);
+            transformPointer = &nativeTransform;
+        }
+        bool referenceAdded = false;
+        try
+        {
+            geometry.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                fixed (ProGpuDirect2DTriangle* trianglePointer = triangles)
+                {
+                    uint nativeTriangleCount = 0U;
+                    int nativeHResult = 0;
+                    ProGpuDirect2DStatus status =
+                        ProGpuDirect2DNative.GeometryTessellate(
+                            _nativeSurface,
+                            geometry.DangerousGetHandle(),
+                            transformPointer,
+                            flatteningTolerance,
+                            trianglePointer,
+                            checked((uint)triangles.Length),
+                            &nativeTriangleCount,
+                            &nativeHResult);
+                    requiredTriangleCount = nativeTriangleCount;
+                    if (status == ProGpuDirect2DStatus.InsufficientBuffer)
+                    {
+                        return false;
+                    }
+                    ThrowIfFailed(
+                        "ID2D1Geometry::Tessellate",
+                        status,
+                        nativeHResult);
+                    if (nativeTriangleCount > (uint)triangles.Length)
+                    {
+                        throw new InvalidOperationException(
+                            "Direct2D tessellation succeeded beyond the caller span.");
+                    }
+                    return true;
+                }
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                geometry.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Creates a cached filled ID2D1GeometryRealization in this device domain.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateFilledGeometryRealization(
+        ProGpuDirect2DComReference geometry,
+        float flatteningTolerance = 0.25F) =>
+        CreateGeometryRealization(
+            geometry,
+            flatteningTolerance,
+            0.0F,
+            null,
+            stroked: false);
+
+    /// <summary>
+    /// Creates a cached stroked ID2D1GeometryRealization in this device domain.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateStrokedGeometryRealization(
+        ProGpuDirect2DComReference geometry,
+        float strokeWidth,
+        ProGpuDirect2DComReference? strokeStyle = null,
+        float flatteningTolerance = 0.25F) =>
+        CreateGeometryRealization(
+            geometry,
+            flatteningTolerance,
+            strokeWidth,
+            strokeStyle,
+            stroked: true);
+
+    /// <summary>
     /// Creates a genuine factory-domain ID2D1StrokeStyle1. A custom dash
     /// pattern is pinned and submitted as one contiguous span; Direct2D owns
     /// its copied style state after this method returns.
@@ -4492,6 +4671,209 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    private ProGpuDirect2DComReference CreateDerivedGeometry(
+        GeometryDerivation derivation,
+        ProGpuDirect2DComReference geometry,
+        ProGpuDirect2DGeometrySimplificationOption simplificationOption,
+        float strokeWidth,
+        ProGpuDirect2DComReference? strokeStyle,
+        Matrix3x2? transform,
+        float flatteningTolerance)
+    {
+        ValidateGeometry(geometry, nameof(geometry));
+        ValidateFlatteningTolerance(
+            flatteningTolerance,
+            nameof(flatteningTolerance));
+        if (derivation == GeometryDerivation.Widen)
+        {
+            ValidateStrokeWidth(strokeWidth, nameof(strokeWidth));
+            ValidateOptionalStrokeStyle(strokeStyle, nameof(strokeStyle));
+        }
+        ProGpuDirect2DNative.NativeMatrix3X2F nativeTransform = default;
+        ProGpuDirect2DNative.NativeMatrix3X2F* transformPointer = null;
+        if (transform is Matrix3x2 matrix)
+        {
+            nativeTransform = CreateNativeMatrix(matrix);
+            transformPointer = &nativeTransform;
+        }
+        bool geometryReferenceAdded = false;
+        bool styleReferenceAdded = false;
+        try
+        {
+            geometry.DangerousAddRef(ref geometryReferenceAdded);
+            strokeStyle?.DangerousAddRef(ref styleReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status = derivation switch
+                {
+                    GeometryDerivation.Simplify =>
+                        ProGpuDirect2DNative.GeometrySimplify(
+                            _nativeSurface,
+                            geometry.DangerousGetHandle(),
+                            simplificationOption,
+                            transformPointer,
+                            flatteningTolerance,
+                            &value,
+                            &nativeHResult),
+                    GeometryDerivation.Outline =>
+                        ProGpuDirect2DNative.GeometryOutline(
+                            _nativeSurface,
+                            geometry.DangerousGetHandle(),
+                            transformPointer,
+                            flatteningTolerance,
+                            &value,
+                            &nativeHResult),
+                    GeometryDerivation.Widen =>
+                        ProGpuDirect2DNative.GeometryWiden(
+                            _nativeSurface,
+                            geometry.DangerousGetHandle(),
+                            strokeWidth,
+                            strokeStyle?.DangerousGetHandle() ?? 0,
+                            transformPointer,
+                            flatteningTolerance,
+                            &value,
+                            &nativeHResult),
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(derivation))
+                };
+                ThrowIfFailed(operation, status, nativeHResult);
+                return CreateRequiredComReference(
+                    value,
+                    ProGpuDirect2DInterfaceKind.D2D1PathGeometry1,
+                    operation);
+            }
+        }
+        finally
+        {
+            if (styleReferenceAdded)
+            {
+                strokeStyle!.DangerousRelease();
+            }
+            if (geometryReferenceAdded)
+            {
+                geometry.DangerousRelease();
+            }
+        }
+    }
+
+    private ProGpuDirect2DComReference CreateGeometryRealization(
+        ProGpuDirect2DComReference geometry,
+        float flatteningTolerance,
+        float strokeWidth,
+        ProGpuDirect2DComReference? strokeStyle,
+        bool stroked)
+    {
+        ValidateGeometry(geometry, nameof(geometry));
+        ValidateFlatteningTolerance(
+            flatteningTolerance,
+            nameof(flatteningTolerance));
+        if (stroked)
+        {
+            ValidateStrokeWidth(strokeWidth, nameof(strokeWidth));
+            ValidateOptionalStrokeStyle(strokeStyle, nameof(strokeStyle));
+        }
+        bool geometryReferenceAdded = false;
+        bool styleReferenceAdded = false;
+        try
+        {
+            geometry.DangerousAddRef(ref geometryReferenceAdded);
+            strokeStyle?.DangerousAddRef(ref styleReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status = stroked
+                    ? ProGpuDirect2DNative
+                        .SurfaceCreateStrokedGeometryRealization(
+                            _nativeSurface,
+                            geometry.DangerousGetHandle(),
+                            flatteningTolerance,
+                            strokeWidth,
+                            strokeStyle?.DangerousGetHandle() ?? 0,
+                            &value,
+                            &nativeHResult)
+                    : ProGpuDirect2DNative
+                        .SurfaceCreateFilledGeometryRealization(
+                            _nativeSurface,
+                            geometry.DangerousGetHandle(),
+                            flatteningTolerance,
+                            &value,
+                            &nativeHResult);
+                string operation = stroked
+                    ? "stroked ID2D1GeometryRealization creation"
+                    : "filled ID2D1GeometryRealization creation";
+                ThrowIfFailed(operation, status, nativeHResult);
+                return CreateRequiredComReference(
+                    value,
+                    ProGpuDirect2DInterfaceKind.D2D1GeometryRealization,
+                    operation);
+            }
+        }
+        finally
+        {
+            if (styleReferenceAdded)
+            {
+                strokeStyle!.DangerousRelease();
+            }
+            if (geometryReferenceAdded)
+            {
+                geometry.DangerousRelease();
+            }
+        }
+    }
+
+    internal void DrawGeometryRealization(
+        ProGpuDirect2DComReference realization,
+        ProGpuDirect2DComReference brush)
+    {
+        ValidateGeometryRealization(realization);
+        ArgumentNullException.ThrowIfNull(brush);
+        ValidateResourceDomain(brush, nameof(brush));
+        if (!IsBrushKind(brush.InterfaceKind))
+        {
+            throw new ArgumentException(
+                "The COM reference must own a genuine ID2D1Brush.",
+                nameof(brush));
+        }
+        bool realizationReferenceAdded = false;
+        bool brushReferenceAdded = false;
+        try
+        {
+            realization.DangerousAddRef(ref realizationReferenceAdded);
+            brush.DangerousAddRef(ref brushReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.SurfaceDrawGeometryRealization(
+                        _nativeSurface,
+                        realization.DangerousGetHandle(),
+                        brush.DangerousGetHandle(),
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1DeviceContext1::DrawGeometryRealization",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (brushReferenceAdded)
+            {
+                brush.DangerousRelease();
+            }
+            if (realizationReferenceAdded)
+            {
+                realization.DangerousRelease();
+            }
+        }
+    }
+
     private static void ValidateFlatteningTolerance(
         float value,
         string parameterName)
@@ -4543,6 +4925,20 @@ public sealed unsafe class ProGpuDirect2DSurface :
             throw new ArgumentException(
                 "The COM reference must own an ID2D1StrokeStyle1.",
                 parameterName);
+        }
+    }
+
+    private void ValidateGeometryRealization(
+        ProGpuDirect2DComReference realization)
+    {
+        ArgumentNullException.ThrowIfNull(realization);
+        ValidateResourceDomain(realization, nameof(realization));
+        if (realization.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.D2D1GeometryRealization)
+        {
+            throw new ArgumentException(
+                "The COM reference must own an ID2D1GeometryRealization.",
+                nameof(realization));
         }
     }
 
@@ -5364,6 +5760,13 @@ public sealed class ProGpuDirect2DDrawingSession : IDisposable
             nameof(ProGpuDirect2DDrawingSession)))
         .DrawSvgDocument(svgDocument, viewportSize, origin);
 
+    public void DrawGeometryRealization(
+        ProGpuDirect2DComReference realization,
+        ProGpuDirect2DComReference brush) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .DrawGeometryRealization(realization, brush);
+
     public void Dispose()
     {
         ProGpuDirect2DSurface? owner =
@@ -5532,6 +5935,13 @@ public sealed class ProGpuDirect2DCommandListDrawingSession : IDisposable
         (_owner ?? throw new ObjectDisposedException(
             nameof(ProGpuDirect2DCommandListDrawingSession)))
         .DrawSvgDocument(svgDocument, viewportSize, origin);
+
+    public void DrawGeometryRealization(
+        ProGpuDirect2DComReference realization,
+        ProGpuDirect2DComReference brush) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .DrawGeometryRealization(realization, brush);
 
     public void Dispose()
     {
