@@ -621,6 +621,193 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void DirectDistanceRequiresBaseAndCursorAndIgnoresGridQuantization()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        VPort active = document.VPorts[VPort.DefaultName];
+        active.SnapOn = true;
+        active.SnapSpacing = new XY(10.0, 10.0);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(canvas, viewport.WorldToScreen(CadPoint3D.Zero));
+            canvas.ObjectSnapModes = CadObjectSnapModes.None;
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+
+            Assert.False(canvas.CanAcceptSelectionPointTransformInput("10"));
+            Assert.False(canvas.TryAcceptSelectionPointTransformInput(
+                "10",
+                out string? firstError));
+            Assert.Contains("absolute first point", firstError);
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "0,0,7",
+                out string? baseError));
+            Assert.Null(baseError);
+            Assert.False(canvas.CanAcceptSelectionPointTransformInput("10"));
+            Assert.False(canvas.TryAcceptSelectionPointTransformInput(
+                "10",
+                out string? directionError));
+            Assert.Contains("Move the cursor", directionError);
+
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = viewport.WorldToScreen(new CadPoint3D(3, 4, 0)),
+            });
+
+            Assert.Equal(
+                new CadPoint3D(0, 0, 0),
+                canvas.PendingPointTransformGridSnap);
+            Assert.True(canvas.CanAcceptSelectionPointTransformInput("10"));
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "10",
+                out string? distanceError));
+
+            Assert.Null(distanceError);
+            AssertPoint(new XYZ(4, 8, 0), line.StartPoint);
+            AssertPoint(new XYZ(8, 8, 0), line.EndPoint);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal(1, canvas.UndoCount);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void DirectDistanceUsesExactOrthoAndAcquiredPolarDirections()
+    {
+        var document = new CadDocument();
+        document.Header.OrthoMode = true;
+        var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(canvas, viewport.WorldToScreen(CadPoint3D.Zero));
+            canvas.ObjectSnapModes = CadObjectSnapModes.None;
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "0,0",
+                out _));
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = viewport.WorldToScreen(new CadPoint3D(3, 4, 0)),
+            });
+            Assert.Equal(
+                CadPlanOrthoAxis.Y,
+                canvas.PendingPointTransformOrthoConstraint!.Value.Axis);
+
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "5",
+                out string? orthoError));
+
+            Assert.Null(orthoError);
+            AssertPoint(new XYZ(-2, 5, 0), line.StartPoint);
+            AssertPoint(new XYZ(2, 5, 0), line.EndPoint);
+            Assert.True(canvas.TryUndo());
+
+            canvas.IsPlanPolarTrackingEnabled = true;
+            canvas.PlanPolarTrackingIncrementDegrees = 45.0;
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "0,0",
+                out _));
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = viewport.WorldToScreen(new CadPoint3D(4, 4, 0)),
+            });
+            Assert.NotNull(canvas.PendingPointTransformPolarTracking);
+
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "10",
+                out string? polarError));
+
+            double component = 10.0 / Math.Sqrt(2.0);
+            Assert.Null(polarError);
+            AssertPoint(new XYZ(-2 + component, component, 0), line.StartPoint);
+            AssertPoint(new XYZ(2 + component, component, 0), line.EndPoint);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void DirectDistanceUsesRawCursorRayWhenObjectSnapIsAcquired()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(canvas, viewport.WorldToScreen(CadPoint3D.Zero));
+            canvas.ObjectSnapModes = CadObjectSnapModes.Endpoint;
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "0,3",
+                out _));
+            Vector2 pointer =
+                viewport.WorldToScreen(new CadPoint3D(2, 0, 0)) +
+                new Vector2(3, 4);
+            CadPoint3D basePoint = new(0, 3, 0);
+            CadPoint3D rawDirection =
+                viewport.ScreenToWorld(pointer, basePoint.Z) - basePoint;
+            CadPoint3D expectedDisplacement = rawDirection.Normalize() * 10.0;
+
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = pointer,
+            });
+
+            Assert.Equal(
+                new CadPoint3D(2, 0, 0),
+                canvas.PendingPointTransformObjectSnap!.Value.Point);
+            Assert.True(canvas.TryAcceptSelectionPointTransformInput(
+                "10",
+                out string? error));
+
+            Assert.Null(error);
+            AssertPoint(
+                new XYZ(
+                    -2 + expectedDisplacement.X,
+                    expectedDisplacement.Y,
+                    0),
+                line.StartPoint);
+            AssertPoint(
+                new XYZ(
+                    2 + expectedDisplacement.X,
+                    expectedDisplacement.Y,
+                    0),
+                line.EndPoint);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SelectionPropertiesCaptureMixedValuesAndRoundTripRenderedEdits()
     {
         var document = new CadDocument();
@@ -3000,6 +3187,14 @@ public sealed class CadSampleSelectionTests
                 view.Canvas.PendingPointTransformStage);
             Assert.Equal(string.Empty, input.Text);
             Assert.True(input.IsEnabled);
+            input.Text = "5";
+            Assert.False(enterPoint.IsEnabled);
+            view.Canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = view.Canvas.CurrentViewport.WorldToScreen(
+                    new CadPoint3D(2, 0, 0)),
+            });
+            Assert.True(enterPoint.IsEnabled);
             input.Text = "@3,4";
             Assert.True(enterPoint.IsEnabled);
             input.OnKeyDown(new KeyRoutedEventArgs

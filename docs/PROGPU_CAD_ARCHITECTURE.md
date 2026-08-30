@@ -1018,12 +1018,18 @@ axes plus drawing ANGBASE/ANGDIR, projects onto the nearest standard incremental
 path, and activates within a fixed 10-device-pixel aperture. Its application
 profile state defaults off at 90 degrees, exposes all eight standard increments,
 and is mutually exclusive with Ortho. One additional clipped full-view guide is
-transient overlay work. PolarSnap distance increments, additional/relative
-angles, object-snap tracking, isometric directions, 3D UCS Z acquisition,
-direct-distance cursor entry, global-last-point state, arbitrary-camera planes,
-reference-angle, and reference-length input remain later editor tools. The exact
-clean-room behavior and applicability records are in
-`PROGPU_CAD_ORTHO_RESEARCH.md` and `PROGPU_CAD_POLAR_TRACKING_RESEARCH.md`. One
+transient overlay work. A bare positive invariant scalar at the second-point
+prompt applies an exact direct distance along the post-base raw cursor ray, the
+active Ortho axis, or an actually acquired polar path. It preserves the base Z
+plane, ignores object/grid point quantization for length and direction, uses an
+overflow-safe O(1) normalization, and leaves the explicit coordinate grammar
+unchanged. PolarSnap distance increments, additional/relative angles,
+object-snap tracking, isometric directions, 3D UCS Z acquisition,
+global-last-point state, arbitrary-camera planes, reference-angle, and
+reference-length input remain later editor tools. The exact clean-room behavior
+and applicability records are in `PROGPU_CAD_ORTHO_RESEARCH.md`,
+`PROGPU_CAD_POLAR_TRACKING_RESEARCH.md`, and
+`PROGPU_CAD_DIRECT_DISTANCE_RESEARCH.md`. One
 `CadDocumentHistory` belongs to the loaded session, so each Move, Copy, Rotate, Scale,
 Undo, or Redo publishes exactly one generation and then prepares one complete
 replacement snapshot and picture. The prior picture stays drawable until

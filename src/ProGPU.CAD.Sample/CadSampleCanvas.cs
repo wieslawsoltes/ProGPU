@@ -460,6 +460,11 @@ public sealed class CadSampleCanvas : FrameworkElement
     public event EventHandler<CadPointTransformChangedEventArgs>?
         PointTransformChanged;
 
+    /// <summary>
+    /// Raised when cursor-direction availability changes for typed point input.
+    /// </summary>
+    public event EventHandler? PointTransformInputAvailabilityChanged;
+
     /// <summary>Raised after one complete immutable snapshot/picture replacement.</summary>
     public event EventHandler? SnapshotChanged;
 
@@ -960,9 +965,19 @@ public sealed class CadSampleCanvas : FrameworkElement
     /// </summary>
     public bool CanAcceptSelectionPointTransformInput(string? text)
     {
-        if (PendingPointTransformOperation is null ||
-            !CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate) ||
-            (!_hasPointTransformBasePoint && coordinate.IsRelative))
+        if (PendingPointTransformOperation is null)
+        {
+            return false;
+        }
+
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            return CadDirectDistanceInput.TryParse(
+                    text,
+                    out CadDirectDistanceInput distance) &&
+                TryResolvePointTransformDirectDistance(distance, out _);
+        }
+        if (!_hasPointTransformBasePoint && coordinate.IsRelative)
         {
             return false;
         }
@@ -991,9 +1006,10 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
-    /// Accepts an absolute WCS first point or an absolute/relative WCS second
-    /// point through the same bounded transition and edit path as pointer input.
-    /// Rejection leaves the prompt and document unchanged.
+    /// Accepts an absolute WCS first point, an absolute/relative WCS second
+    /// point, or a positive second-point distance along the current raw,
+    /// Ortho, or acquired polar cursor direction. Rejection leaves the prompt
+    /// and document unchanged.
     /// </summary>
     public bool TryAcceptSelectionPointTransformInput(
         string? text,
@@ -1007,8 +1023,37 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
         if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
         {
+            if (CadDirectDistanceInput.TryParse(
+                    text,
+                    out CadDirectDistanceInput directDistance))
+            {
+                if (!_hasPointTransformBasePoint)
+                {
+                    errorMessage =
+                        "Accept an absolute first point before entering a direct distance.";
+                    return false;
+                }
+                if (!_hasPointTransformPointerPosition)
+                {
+                    errorMessage =
+                        "Move the cursor from the base point before entering a direct distance.";
+                    return false;
+                }
+                if (!TryResolvePointTransformDirectDistance(
+                        directDistance,
+                        out CadPoint3D directPoint))
+                {
+                    errorMessage =
+                        "The cursor direction and distance do not resolve to a finite WCS point.";
+                    return false;
+                }
+
+                AcceptPointTransformPoint(directPoint, screenPoint: null);
+                return true;
+            }
+
             errorMessage =
-                "Enter x,y[,z], @dx,dy[,dz], distance<angle, or @distance<angle using invariant numbers.";
+                "Enter x,y[,z], @dx,dy[,dz], distance<angle, @distance<angle, or a positive direct distance using invariant numbers.";
             return false;
         }
         if (!_hasPointTransformBasePoint && coordinate.IsRelative)
@@ -2640,6 +2685,7 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     private void UpdatePointTransformPointer(Vector2 screenPoint)
     {
+        bool notifyInputAvailability = !_hasPointTransformPointerPosition;
         _pointTransformPointerPosition = screenPoint;
         _hasPointTransformPointerPosition = true;
         CadDocumentSnapshot? snapshot = CurrentSnapshot;
@@ -2650,6 +2696,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             _hasPointTransformOrtho = false;
             _hasPointTransformPolarTracking = false;
             _pointTransformCurrent = screenPoint;
+            NotifyPointTransformInputAvailability(notifyInputAvailability);
             return;
         }
 
@@ -2680,6 +2727,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             {
                 _pointTransformCurrent =
                     viewport.WorldToScreen(_pointTransformObjectSnap.Point);
+                NotifyPointTransformInputAvailability(notifyInputAvailability);
                 return;
             }
         }
@@ -2700,6 +2748,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                 _pointTransformGridSnap = _pointTransformOrtho.Point;
                 _hasPointTransformGridSnap = true;
             }
+            NotifyPointTransformInputAvailability(notifyInputAvailability);
             return;
         }
 
@@ -2717,6 +2766,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                 _pointTransformPolarTracking = polarTracking;
                 _hasPointTransformPolarTracking = true;
                 _pointTransformCurrent = trackedScreen;
+                NotifyPointTransformInputAvailability(notifyInputAvailability);
                 return;
             }
         }
@@ -2727,15 +2777,92 @@ public sealed class CadSampleCanvas : FrameworkElement
         _pointTransformCurrent = _hasPointTransformGridSnap
             ? viewport.WorldToScreen(_pointTransformGridSnap)
             : screenPoint;
+        NotifyPointTransformInputAvailability(notifyInputAvailability);
+    }
+
+    private bool TryResolvePointTransformDirectDistance(
+        CadDirectDistanceInput input,
+        out CadPoint3D point)
+    {
+        point = default;
+        if (!_hasPointTransformBasePoint ||
+            !_hasPointTransformPointerPosition)
+        {
+            return false;
+        }
+
+        CadPlanViewport viewport;
+        CadPoint3D pointerPoint;
+        try
+        {
+            viewport = CreateViewport();
+            pointerPoint = viewport.ScreenToWorld(
+                _pointTransformPointerPosition,
+                _pointTransformBasePoint.Z);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
+        CadPoint3D direction = pointerPoint - _pointTransformBasePoint;
+        if (_isPlanOrthoEnabled &&
+            CadPlanOrthoConstraint.TryConstrain(
+                _pointTransformBasePoint,
+                pointerPoint,
+                _planGridSnapSettings.WithEnabled(false),
+                out CadPlanOrthoResult ortho))
+        {
+            direction = ortho.Point - _pointTransformBasePoint;
+        }
+        else if (_planPolarTrackingSettings.IsEnabled &&
+            _planPolarTrackingSettings.TryTrack(
+                _pointTransformBasePoint,
+                pointerPoint,
+                out CadPlanPolarTrackingResult polar))
+        {
+            Vector2 trackedScreen;
+            try
+            {
+                trackedScreen = viewport.WorldToScreen(polar.Point);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+
+            if (Vector2.Distance(
+                    trackedScreen,
+                    _pointTransformPointerPosition) <=
+                PointTransformPolarTrackingAperture)
+            {
+                direction = polar.Point - _pointTransformBasePoint;
+            }
+        }
+
+        return input.TryResolve(
+            _pointTransformBasePoint,
+            direction,
+            out point);
+    }
+
+    private void NotifyPointTransformInputAvailability(bool notify)
+    {
+        if (notify)
+        {
+            PointTransformInputAvailabilityChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     private void ClearPointTransformSnapState()
     {
+        bool notifyInputAvailability = _hasPointTransformPointerPosition;
         _pointTransformObjectSnap = default;
         _hasPointTransformGridSnap = false;
         _hasPointTransformOrtho = false;
         _hasPointTransformPolarTracking = false;
         _hasPointTransformPointerPosition = false;
+        NotifyPointTransformInputAvailability(notifyInputAvailability);
     }
 
     private void DrawPlanPolarTrackingGuide(DrawingContext context)

@@ -1798,6 +1798,8 @@ public sealed class CadSampleView : Grid
             SetStatus(DescribePointTransform(args));
             UpdateEditControls();
         };
+        _canvas.PointTransformInputAvailabilityChanged += (_, _) =>
+            UpdateEditControls();
         _canvas.SnapshotChanged += (_, _) =>
         {
             _planGridSnapCheckBox.IsChecked =
@@ -3952,7 +3954,7 @@ public sealed class CadSampleView : Grid
                 $"{operation}: click (object snap overrides grid/Ortho/polar) or enter absolute WCS x,y[,z] / distance<angle; Escape cancels.",
             CadPointTransformStage.AwaitingSecondPoint =>
                 $"{operation}: base {FormatPoint(args.BasePoint!.Value)}; " +
-                "click (object snap overrides grid/Ortho/polar) or enter an absolute point or relative @dx,dy[,dz] / @distance<angle; Escape cancels.",
+                "click (object snap overrides grid/Ortho/polar), enter an absolute point or relative @dx,dy[,dz] / @distance<angle, or move the cursor and enter a positive distance; Escape cancels.",
             CadPointTransformStage.Completed when args.ErrorMessage is null =>
                 $"{operation} completed with WCS displacement " +
                 $"{FormatPoint(args.Displacement!.Value)}.",

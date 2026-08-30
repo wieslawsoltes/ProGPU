@@ -88,7 +88,10 @@ mixed pointer/relative-polar input, one-generation MOVE/COPY, Undo/Redo,
 selection preservation, input rejection without publication, stage-specific
 enablement, and Enter submission.
 
-Object/grid/intersection snaps, Ortho/polar tracking, direct-distance cursor
-entry, global last-point and UCS state, coordinate filters, arbitrary-camera
+Object/grid/intersection snaps and Ortho/polar tracking are implemented by
+later documented slices. Direct-distance cursor entry is now implemented as a
+separate context-sensitive modifier without changing this grammar; see
+`PROGPU_CAD_DIRECT_DISTANCE_RESEARCH.md`. Global last-point and UCS state,
+coordinate filters, arbitrary-camera
 planes, 3D pointer acquisition, COPY Multiple, COPYBASE clipboard behavior,
 grips, and typed ROTATE/SCALE base/reference prompts remain follow-ups.
