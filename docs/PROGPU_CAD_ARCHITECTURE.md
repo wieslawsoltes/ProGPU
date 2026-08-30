@@ -5036,3 +5036,24 @@ Isometric and polar snap remain explicit, not rectangular approximations. The
 clean-room source record, equations, failure semantics, parity audit, and tests
 are in
 [`PROGPU_CAD_GRID_SNAP_RESEARCH.md`](PROGPU_CAD_GRID_SNAP_RESEARCH.md).
+
+## Adaptive drafting-grid display boundary
+
+Visible grid state is now an independent immutable snapshot contract over the
+active VPORT's GRIDMODE, GRIDUNIT, GRIDDISPLAY, GRIDMAJOR, drawing limits, and
+the same UCS/SNAPBASE/SNAPANG basis. The O(1), allocation-free camera planner
+chooses one major-cadence adaptive level, inverse-projects only the four visible
+clip corners, and emits one local rectangle, rectangular spacing, affine matrix,
+and optional limits clip. No lattice points are enumerated or uploaded.
+
+The shared canvas records one dynamically themed `DrawDeviceDotGrid` command
+before the retained CAD picture. Managed and native compilers each lower it to
+one four-vertex/six-index geometry primitive and consume canonical `Vector.wgsl`.
+Its derivative Jacobian maps a fixed nine-neighbor local lattice to framebuffer
+space, quarter-physical-pixel snaps each candidate center, and applies a fixed
+physical radius under rotation and anisotropic scale. Grid density therefore
+changes fragment coverage but never CPU geometry, native crossings, retained
+resources, or draw count. Singular projections and unsupported isometric mode
+fail closed. Full behavior research, wire provenance, complexity, parity, tests,
+and deferred GRIDSTYLE/major-line/dynamic-UCS work are recorded in
+[`PROGPU_CAD_GRID_DISPLAY_RESEARCH.md`](PROGPU_CAD_GRID_DISPLAY_RESEARCH.md).

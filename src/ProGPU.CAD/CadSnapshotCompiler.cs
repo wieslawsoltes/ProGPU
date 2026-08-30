@@ -345,6 +345,7 @@ public sealed partial class CadSnapshotCompiler
                 !hasDrawOrderOverrides ||
                 (document.Header.EntitySortingFlags & ObjectSortingFlags.Plotting) != 0,
             globalLineTypeScale,
+            CapturePlanGridDisplaySettings(document),
             CapturePlanGridSnapSettings(document),
             CapturePlanPolarTrackingSettings(document),
             document.Header.OrthoMode,
@@ -5819,37 +5820,11 @@ public sealed partial class CadSnapshotCompiler
             return CadPlanGridSnapSettings.Disabled;
         }
 
-        CadPoint3D ucsOrigin = ToPoint(active.Origin);
-        CadPoint3D ucsX;
-        CadPoint3D ucsY;
-        try
-        {
-            ucsX = ToPoint(active.XAxis).Normalize();
-            ucsY = ToPoint(active.YAxis).Normalize();
-        }
-        catch (ArgumentException)
-        {
-            return CadPlanGridSnapSettings.Disabled;
-        }
-
-        double axesDot = CadPoint3D.Dot(ucsX, ucsY);
-        if (!double.IsFinite(axesDot) || Math.Abs(axesDot) > 1e-10)
-        {
-            return CadPlanGridSnapSettings.Disabled;
-        }
-
-        CadPoint3D basePoint = ucsOrigin +
-            (ucsX * active.SnapBasePoint.X) +
-            (ucsY * active.SnapBasePoint.Y);
-        double cosine = Math.Cos(active.SnapRotation);
-        double sine = Math.Sin(active.SnapRotation);
-        CadPoint3D snapX = (ucsX * cosine) + (ucsY * sine);
-        CadPoint3D snapY = (ucsY * cosine) - (ucsX * sine);
-        if (!double.IsFinite(cosine) ||
-            !double.IsFinite(sine) ||
-            !double.IsFinite(basePoint.X) ||
-            !double.IsFinite(basePoint.Y) ||
-            !double.IsFinite(basePoint.Z))
+        if (!TryCapturePlanGridBasis(
+                active,
+                out CadPoint3D basePoint,
+                out CadPoint3D snapX,
+                out CadPoint3D snapY))
         {
             return CadPlanGridSnapSettings.Disabled;
         }
@@ -5864,6 +5839,96 @@ public sealed partial class CadSnapshotCompiler
             snapY,
             spacingX,
             spacingY);
+    }
+
+    private static CadPlanGridDisplaySettings CapturePlanGridDisplaySettings(
+        CadDocument document)
+    {
+        if (!document.VPorts.TryGetValue(VPort.DefaultName, out VPort? active) ||
+            active is null ||
+            !double.IsFinite(active.GridSpacing.X) || active.GridSpacing.X <= 0.0 ||
+            !double.IsFinite(active.GridSpacing.Y) || active.GridSpacing.Y <= 0.0 ||
+            !TryCapturePlanGridBasis(
+                active,
+                out CadPoint3D origin,
+                out CadPoint3D xAxis,
+                out CadPoint3D yAxis))
+        {
+            return CadPlanGridDisplaySettings.Hidden;
+        }
+
+        double minimumX = document.Header.ModelSpaceLimitsMin.X;
+        double minimumY = document.Header.ModelSpaceLimitsMin.Y;
+        double maximumX = document.Header.ModelSpaceLimitsMax.X;
+        double maximumY = document.Header.ModelSpaceLimitsMax.Y;
+        if (!double.IsFinite(minimumX) || !double.IsFinite(minimumY) ||
+            !double.IsFinite(maximumX) || !double.IsFinite(maximumY) ||
+            minimumX > maximumX || minimumY > maximumY)
+        {
+            return CadPlanGridDisplaySettings.Hidden;
+        }
+
+        int gridFlags = (short)active.GridFlags;
+        int majorCadence = active.MinorGridLinesPerMajorGridLine;
+        if (majorCadence is < 1 or > 100)
+        {
+            return CadPlanGridDisplaySettings.Hidden;
+        }
+
+        return new CadPlanGridDisplaySettings(
+            active.ShowGrid,
+            active.IsometricSnap
+                ? CadPlanGridDisplayStyle.Isometric
+                : CadPlanGridDisplayStyle.RectangularDots,
+            origin,
+            xAxis,
+            yAxis,
+            active.GridSpacing.X,
+            active.GridSpacing.Y,
+            (gridFlags & 2) != 0,
+            (gridFlags & 4) != 0,
+            (gridFlags & 1) != 0,
+            (gridFlags & 8) != 0,
+            majorCadence,
+            new CadBounds3D(
+                new CadPoint3D(minimumX, minimumY, 0.0),
+                new CadPoint3D(maximumX, maximumY, 0.0)));
+    }
+
+    private static bool TryCapturePlanGridBasis(
+        VPort active,
+        out CadPoint3D origin,
+        out CadPoint3D xAxis,
+        out CadPoint3D yAxis)
+    {
+        origin = default;
+        xAxis = default;
+        yAxis = default;
+        CadPoint3D ucsOrigin = ToPoint(active.Origin);
+        CadPoint3D ucsX;
+        CadPoint3D ucsY;
+        try
+        {
+            ucsX = ToPoint(active.XAxis).Normalize();
+            ucsY = ToPoint(active.YAxis).Normalize();
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
+        double axesDot = CadPoint3D.Dot(ucsX, ucsY);
+        double cosine = Math.Cos(active.SnapRotation);
+        double sine = Math.Sin(active.SnapRotation);
+        origin = ucsOrigin +
+            (ucsX * active.SnapBasePoint.X) +
+            (ucsY * active.SnapBasePoint.Y);
+        xAxis = (ucsX * cosine) + (ucsY * sine);
+        yAxis = (ucsY * cosine) - (ucsX * sine);
+        return double.IsFinite(axesDot) && Math.Abs(axesDot) <= 1e-10 &&
+            double.IsFinite(cosine) && double.IsFinite(sine) &&
+            double.IsFinite(origin.X) && double.IsFinite(origin.Y) &&
+            double.IsFinite(origin.Z);
     }
 
     private static CadPlanPolarTrackingSettings CapturePlanPolarTrackingSettings(

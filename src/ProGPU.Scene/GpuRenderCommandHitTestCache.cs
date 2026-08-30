@@ -137,6 +137,7 @@ public sealed class GpuRenderCommandHitTestCacheBuilder : IDisposable
                 AddEllipse(command, activeTransform, primitiveId, zIndex);
                 break;
             case RenderCommandType.DrawDotGrid:
+            case RenderCommandType.DrawDeviceDotGrid:
                 AddBounds(command.Rect, activeTransform, primitiveId, zIndex);
                 break;
             case RenderCommandType.DrawCircle:

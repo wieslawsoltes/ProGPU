@@ -50,7 +50,8 @@ public enum RenderCommandType
     DrawGlyphRun,
     DrawVertexMesh,
     DrawPointBatch,
-    DrawDotGrid
+    DrawDotGrid,
+    DrawDeviceDotGrid
 }
 
 public enum VertexMeshTopology
@@ -4379,6 +4380,40 @@ public class DrawingContext :
         });
     }
 
+    /// <summary>
+    /// Records an affine rectangular dot grid as one analytic quad. Grid centers
+    /// use local lattice coordinates while the dot radius remains fixed in physical
+    /// framebuffer pixels under rotation, anisotropic scale, and shear.
+    /// </summary>
+    public void DrawDeviceDotGrid(
+        Brush brush,
+        Rect bounds,
+        Vector2 spacing,
+        float radius,
+        Matrix4x4 transform = default)
+    {
+        ArgumentNullException.ThrowIfNull(brush);
+        if (!float.IsFinite(spacing.X) || spacing.X <= 0f ||
+            !float.IsFinite(spacing.Y) || spacing.Y <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(spacing));
+        }
+        if (!float.IsFinite(radius) || radius <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(radius));
+        }
+
+        Commands.Add(new RenderCommand
+        {
+            Type = RenderCommandType.DrawDeviceDotGrid,
+            Brush = brush,
+            Rect = bounds,
+            Position2 = spacing,
+            RadiusX = radius,
+            Transform = transform
+        });
+    }
+
     public void DrawRoundedRectangle(Brush? brush, Pen? pen, Rect rect, float radius)
     {
         DrawRoundedRectangle(brush, pen, rect, radius, radius);
@@ -5310,6 +5345,7 @@ public class DrawingContext :
             RenderCommandType.DrawVisual or
             RenderCommandType.DrawHatch or
             RenderCommandType.DrawDotGrid or
+            RenderCommandType.DrawDeviceDotGrid or
             RenderCommandType.DrawLine3D or
             RenderCommandType.DrawAcisSolid or
             RenderCommandType.DrawStaticDxf)

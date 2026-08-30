@@ -1606,6 +1606,46 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
+    public void CompilerLowersDeviceDotGridToOneNativeGeometryPrimitive()
+    {
+        var recorder = new GpuPictureRecorder();
+        DrawingContext drawing = recorder.BeginRecording(
+            new Rect(0f, 0f, 80f, 60f));
+        drawing.DrawDeviceDotGrid(
+            new SolidColorBrush(Vector4.One),
+            new Rect(-10f, -20f, 60f, 40f),
+            new Vector2(7f, 11f),
+            0.875f,
+            Matrix4x4.CreateScale(2f, 3f, 1f));
+        using GpuPicture picture = recorder.EndRecording();
+
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            93U,
+            4U,
+            out NativeCompiledPicture? compiled,
+            out NativePictureCompileFailure failure));
+        Assert.Equal(NativePictureCompileFailure.None, failure);
+        Assert.NotNull(compiled);
+        Assert.Equal(1, compiled.SourceCommandCount);
+        Assert.Equal(1, compiled.NativeDrawCount);
+        Assert.Equal(1, compiled.GeometryPrimitiveCount);
+
+        var header = MemoryMarshal.Read<NativeMethods.SceneHeader>(compiled.Stream);
+        var resource = MemoryMarshal.Read<NativeMethods.SceneResource>(
+            compiled.Stream.Slice(checked((int)header.ResourceOffset)));
+        var primitive = MemoryMarshal.Read<NativeGeometryPrimitive>(
+            compiled.Stream.Slice(checked((int)resource.PayloadOffset)));
+        Assert.Equal(NativeGeometryPrimitiveKind.DotGrid, primitive.Kind);
+        Assert.Equal(new Vector2(-10f, -20f), primitive.P0);
+        Assert.Equal(new Vector2(60f, 40f), primitive.P1);
+        Assert.Equal(Vector2.Zero, primitive.P2);
+        Assert.Equal(new Vector2(7f, 11f), primitive.P3);
+        Assert.Equal(0.875f, primitive.StrokeThickness);
+        Assert.Equal(new Matrix3x2(2f, 0f, 0f, 3f, 0f, 0f), primitive.Transform);
+    }
+
+    [Fact]
     public void CompilerCoalescesPointBatchesIntoCompactNativeResource()
     {
         var recorder = new GpuPictureRecorder();

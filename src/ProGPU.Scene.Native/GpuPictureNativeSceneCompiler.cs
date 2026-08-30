@@ -2254,6 +2254,16 @@ public static partial class GpuPictureNativeSceneCompiler
                     operations,
                     materials,
                     out error);
+            case RenderCommandType.DrawDeviceDotGrid:
+                return TryAppendDeviceDotGrid(
+                    command,
+                    transform,
+                    geometry,
+                    geometryBrushIndices,
+                    batches,
+                    operations,
+                    materials,
+                    out error);
             case RenderCommandType.DrawPath:
                 return TryAppendPath(
                     command,
@@ -3044,6 +3054,56 @@ public static partial class GpuPictureNativeSceneCompiler
             transform,
             command.Position2,
             new Vector2(command.RadiusX, command.RadiusY),
+            flags: command.IsEdgeAliased
+                ? NativeGeometryPrimitiveFlags.EdgeAliased
+                : NativeGeometryPrimitiveFlags.None));
+        brushIndices.Add(brushIndex);
+        AppendBatch(
+            batches,
+            operations,
+            BatchKind.Geometry,
+            start,
+            start,
+            1,
+            TransformBounds(command.Rect, transform));
+        return true;
+    }
+
+    private static bool TryAppendDeviceDotGrid(
+        in RenderCommand command,
+        Matrix3x2 transform,
+        List<NativeGeometryPrimitive> primitives,
+        List<uint> brushIndices,
+        List<Batch> batches,
+        List<Operation> operations,
+        NativeBrushTableBuilder materials,
+        out NativePictureCompileError error)
+    {
+        error = NativePictureCompileError.None;
+        if (command.Brush is null ||
+            !IsFiniteRect(command.Rect) || command.Rect.IsEmpty ||
+            !float.IsFinite(command.Position2.X) || command.Position2.X <= 0f ||
+            !float.IsFinite(command.Position2.Y) || command.Position2.Y <= 0f ||
+            !float.IsFinite(command.RadiusX) || command.RadiusX <= 0f)
+        {
+            error = NativePictureCompileError.InvalidGeometry;
+            return false;
+        }
+        if (!materials.TryRegister(command.Brush, out uint brushIndex, out error))
+        {
+            return false;
+        }
+
+        int start = primitives.Count;
+        primitives.Add(new(
+            NativeGeometryPrimitiveKind.DotGrid,
+            new Vector2(command.Rect.X, command.Rect.Y),
+            new Vector2(command.Rect.Width, command.Rect.Height),
+            Vector4.One,
+            transform,
+            p2: Vector2.Zero,
+            p3: command.Position2,
+            strokeThickness: command.RadiusX,
             flags: command.IsEdgeAliased
                 ? NativeGeometryPrimitiveFlags.EdgeAliased
                 : NativeGeometryPrimitiveFlags.None));

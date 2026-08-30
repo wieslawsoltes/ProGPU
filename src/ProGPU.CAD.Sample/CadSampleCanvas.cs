@@ -147,6 +147,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         new ThemeResourceBrush("SystemAccentColor"),
         1,
         strokeTransformMode: PenStrokeTransformMode.Fixed);
+    private readonly Brush _gridBrush = new ThemeResourceBrush("TextSecondary")
+    {
+        Opacity = 0.45f,
+    };
     private readonly CadSnapshotOptions _snapshotOptions;
     private readonly HashSet<ulong> _selectedHandleSet = new();
     private readonly HashSet<ulong> _drawOrderReferenceHandleSet = new();
@@ -170,6 +174,8 @@ public sealed class CadSampleCanvas : FrameworkElement
     private CadObjectSnapResult _pointTransformObjectSnap;
     private CadPlanGridSnapSettings _planGridSnapSettings =
         CadPlanGridSnapSettings.Disabled;
+    private CadPlanGridDisplaySettings _planGridDisplaySettings =
+        CadPlanGridDisplaySettings.Hidden;
     private CadPlanPolarTrackingSettings _planPolarTrackingSettings =
         CadPlanPolarTrackingSettings.Disabled;
     private CadObjectSnapModes _objectSnapModes = CadObjectSnapModes.Standard;
@@ -600,6 +606,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         _picture = picture;
         CurrentSession = session;
         CurrentSnapshot = snapshot;
+        _planGridDisplaySettings = snapshot.PlanGridDisplaySettings;
         _planGridSnapSettings = resetViewSelectionAndHistory
             ? snapshot.PlanGridSnapSettings
             : snapshot.PlanGridSnapSettings.WithEnabled(
@@ -672,6 +679,7 @@ public sealed class CadSampleCanvas : FrameworkElement
 
         CadPlanViewport viewport = CreateViewport();
         context.PushClip(new Rect(0, 0, Size.X, Size.Y));
+        DrawPlanGridDisplay(context, viewport);
         context.DrawPicture(_picture, viewport.CreateCameraMatrix());
         if (_constructionPicture is not null)
         {
@@ -730,6 +738,36 @@ public sealed class CadSampleCanvas : FrameworkElement
                 ToScreenRect(_pointerOrigin, _selectionCurrent));
         }
         context.PopClip();
+    }
+
+    private void DrawPlanGridDisplay(
+        DrawingContext context,
+        CadPlanViewport viewport)
+    {
+        if (!CadPlanGridDisplayPlan.TryCreate(
+                _planGridDisplaySettings,
+                viewport,
+                out CadPlanGridDisplayPlan plan))
+        {
+            return;
+        }
+
+        Rect viewportClip = new(0.0f, 0.0f, Size.X, Size.Y);
+        bool hasNarrowClip = plan.ScreenClip != viewportClip;
+        if (hasNarrowClip)
+        {
+            context.PushClip(plan.ScreenClip);
+        }
+        context.DrawDeviceDotGrid(
+            _gridBrush,
+            plan.LocalBounds,
+            plan.Spacing,
+            0.75f,
+            plan.Transform);
+        if (hasNarrowClip)
+        {
+            context.PopClip();
+        }
     }
 
     public void FitToView()

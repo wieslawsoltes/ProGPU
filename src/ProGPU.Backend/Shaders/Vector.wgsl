@@ -1,5 +1,5 @@
-// Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; reserved negative width encodings select either the Skia one-framebuffer-pixel hairline or an arbitrary positive fixed-device width, both expanded after the late transform, while one fixed quad evaluates each device or affine round cap and device join analytically with hard-owned body seams; evaluate analytic curves, arcs, quarter-pixel-snapped periodic dot grids, and affine pattern-space hatch families with derivative-filtered coverage; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
-// Time complexity: O(F * 6) for a multi-family DXF/PAT hatch with F retained families and the specified six-dash maximum; all other material and primitive paths remain O(1) per vertex or fragment under their fixed limits. Static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, the general material path derives local brush/shape gradients once per fragment, non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic, and a semantic mask chain evaluates at most four analytic rounded masks.
+// Algorithm: Expand and transform batched vector primitives and meshes; direct 2D strokes use a scalar screen-space fast path for conformal transforms and an exact transformed local-outline path with derivative anti-aliasing for anisotropic or sheared transforms; reserved negative width encodings select either the Skia one-framebuffer-pixel hairline or an arbitrary positive fixed-device width, both expanded after the late transform, while one fixed quad evaluates each device or affine round cap and device join analytically with hard-owned body seams; evaluate analytic curves, arcs, quarter-pixel-snapped periodic dot grids, nine-neighbor affine rectangular fixed-device dot grids, and affine pattern-space hatch families with derivative-filtered coverage; use exact single-evaluation box/rounded-box distance gradients; then shade fills, strokes, gradients, vertex-color blends, and edges. Dedicated solid-rectangle and adaptively selected circular-rounded-rectangle entry points avoid the general material/path program for dense UI chrome.
+// Time complexity: O(F * 6) for a multi-family DXF/PAT hatch with F retained families and the specified six-dash maximum; affine rectangular fixed-device dots evaluate exactly nine neighboring lattice centers; all other material and primitive paths remain O(1) per vertex or fragment under their fixed limits. Static draws reuse CPU-cached maximum/minimum singular values, dynamic GPU-transformed direct strokes and fixed-device bounds add fixed 2x2 matrix arithmetic and two square roots per vertex, non-conformal arc quads test four analytic extrema per vertex, fixed-device caps/joins use one fixed quad with bounded line-intersection and at most four signed-edge evaluations, the general material path derives local brush/shape gradients once per fragment, non-conformal or analytic fixed-device stroke fragments add fixed derivative/gradient arithmetic, and a semantic mask chain evaluates at most four analytic rounded masks.
 // Space complexity: O(1) local storage and bounded uniform/storage reads; texture masks add one sample per fragment while analytic rounded and uniform-opacity masks add fixed derivative arithmetic and no texture bandwidth; a nested analytic chain reads one primary 96-byte record and one fixed 288-byte continuation record.
 struct Brush {
     brushType: u32,
@@ -2339,6 +2339,42 @@ fn vector_fs_main(input: VertexOutput, maskAlpha: f32) -> vec4<f32> {
             0.0001);
         shapeAlpha = 1.0 -
             smoothstep(-0.5 * filterWidth, 0.5 * filterWidth, dotDistance);
+    } else if (sType == 25u) {
+        // One affine quad covers a rectangular lattice with independent local
+        // spacing. The local-coordinate derivatives form the physical-pixel
+        // Jacobian. Its inverse maps each candidate center into device space,
+        // where the center is quarter-pixel snapped and the radius stays fixed.
+        // Nine fixed neighbors preserve coverage across ordinary shear while
+        // keeping per-fragment work and private storage strictly bounded.
+        let spacing = max(input.shapeSize, vec2<f32>(0.0001));
+        let determinant = atlasCoordDx.x * atlasCoordDy.y -
+            atlasCoordDx.y * atlasCoordDy.x;
+        var bestDistance = 1.0e20;
+        if (abs(determinant) > 0.00000001) {
+            let baseIndex = round(input.texCoord / spacing);
+            for (var offsetY = -1i; offsetY <= 1i; offsetY++) {
+                for (var offsetX = -1i; offsetX <= 1i; offsetX++) {
+                    let candidateIndex = baseIndex + vec2<f32>(
+                        f32(offsetX), f32(offsetY));
+                    let candidateLocal = candidateIndex * spacing;
+                    let localOffset = input.texCoord - candidateLocal;
+                    let deviceOffset = vec2<f32>(
+                        (localOffset.x * atlasCoordDy.y -
+                            localOffset.y * atlasCoordDy.x) / determinant,
+                        (atlasCoordDx.x * localOffset.y -
+                            atlasCoordDx.y * localOffset.x) / determinant);
+                    let unsnappedCenter = input.position.xy - deviceOffset;
+                    let snappedCenter = round(unsnappedCenter * 4.0) * 0.25;
+                    bestDistance = min(
+                        bestDistance,
+                        length(input.position.xy - snappedCenter) -
+                            input.cornerRadius);
+                }
+            }
+        }
+        let antialiasedAlpha = 1.0 - smoothstep(-0.5, 0.5, bestDistance);
+        let aliasedAlpha = select(0.0, 1.0, bestDistance <= 0.0);
+        shapeAlpha = select(antialiasedAlpha, aliasedAlpha, aliasedEdge);
     } else if (sType == 22u || sType == 24u) {
         // Analytic path cap. Shape 22 is expanded as a fixed-device adornment
         // in the vertex stage; shape 24 arrives as an already affine-expanded

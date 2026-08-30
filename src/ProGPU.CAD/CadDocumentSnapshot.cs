@@ -845,6 +845,7 @@ public sealed class CadDocumentSnapshot
     /// </summary>
     public bool IsPlotOrderCompatible { get; }
     public double GlobalLineTypeScale { get; }
+    public CadPlanGridDisplaySettings PlanGridDisplaySettings { get; }
     public CadPlanGridSnapSettings PlanGridSnapSettings { get; }
     public CadPlanPolarTrackingSettings PlanPolarTrackingSettings { get; }
     public bool IsOrthoModeEnabled { get; }
@@ -934,6 +935,7 @@ public sealed class CadDocumentSnapshot
         bool hasDrawOrderOverrides,
         bool isPlotOrderCompatible,
         double globalLineTypeScale,
+        CadPlanGridDisplaySettings planGridDisplaySettings,
         CadPlanGridSnapSettings planGridSnapSettings,
         CadPlanPolarTrackingSettings planPolarTrackingSettings,
         bool isOrthoModeEnabled,
@@ -1015,6 +1017,7 @@ public sealed class CadDocumentSnapshot
         HasDrawOrderOverrides = hasDrawOrderOverrides;
         IsPlotOrderCompatible = isPlotOrderCompatible;
         GlobalLineTypeScale = globalLineTypeScale;
+        PlanGridDisplaySettings = planGridDisplaySettings;
         PlanGridSnapSettings = planGridSnapSettings;
         PlanPolarTrackingSettings = planPolarTrackingSettings;
         IsOrthoModeEnabled = isOrthoModeEnabled;

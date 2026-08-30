@@ -446,6 +446,7 @@ public unsafe partial class Compositor : IDisposable
     private const float SquarePointHairlineShapeType = 19f;
     private const float RoundPointHairlineShapeType = 20f;
     private const float DotGridShapeType = 21f;
+    private const float DeviceDotGridShapeType = 25f;
     private const float HairlineCapShapeType = 22f;
     private const float HairlineJoinShapeType = 23f;
     private const float AffineRoundCapShapeType = 24f;
@@ -3177,6 +3178,9 @@ public unsafe partial class Compositor : IDisposable
                         case RenderCommandType.DrawDotGrid:
                             CompileDotGridCommand(cmd, activeTransform);
                             break;
+                        case RenderCommandType.DrawDeviceDotGrid:
+                            CompileDeviceDotGridCommand(cmd, activeTransform);
+                            break;
                         case RenderCommandType.DrawCircle:
                             CompileCircleCommand(cmd, activeTransform);
                             break;
@@ -5208,6 +5212,7 @@ SceneStateUploadComplete:
                 RenderCommandType.DrawLine or
                 RenderCommandType.DrawEllipse or
                 RenderCommandType.DrawDotGrid or
+                RenderCommandType.DrawDeviceDotGrid or
                 RenderCommandType.DrawCircle or
                 RenderCommandType.DrawRoundedRect or
                 RenderCommandType.DrawBezier or
@@ -5604,6 +5609,9 @@ SceneStateUploadComplete:
                     break;
                 case RenderCommandType.DrawDotGrid:
                     CompileDotGridCommand(command, activeTransform);
+                    break;
+                case RenderCommandType.DrawDeviceDotGrid:
+                    CompileDeviceDotGridCommand(command, activeTransform);
                     break;
                 case RenderCommandType.DrawCircle:
                     CompileCircleCommand(command, activeTransform);
@@ -6053,6 +6061,9 @@ SceneStateUploadComplete:
                 case RenderCommandType.DrawDotGrid:
                     CompileDotGridCommand(cmd, activeTransform);
                     break;
+                case RenderCommandType.DrawDeviceDotGrid:
+                    CompileDeviceDotGridCommand(cmd, activeTransform);
+                    break;
                 case RenderCommandType.DrawCircle:
                     CompileCircleCommand(cmd, activeTransform);
                     break;
@@ -6290,6 +6301,7 @@ SceneStateUploadComplete:
             RenderCommandType.DrawRect or
             RenderCommandType.DrawEllipse or
             RenderCommandType.DrawDotGrid or
+            RenderCommandType.DrawDeviceDotGrid or
             RenderCommandType.DrawCircle or
             RenderCommandType.DrawRoundedRect or
             RenderCommandType.DrawPath or
@@ -11843,6 +11855,61 @@ SceneStateUploadComplete:
                 vertices[index] = vertex;
             }
         }
+    }
+
+    private void CompileDeviceDotGridCommand(RenderCommand cmd, Matrix4x4 transform)
+    {
+        if (cmd.Brush == null || !IsFiniteRect(cmd.Rect) || cmd.Rect.IsEmpty ||
+            !float.IsFinite(cmd.Position2.X) || cmd.Position2.X <= 0f ||
+            !float.IsFinite(cmd.Position2.Y) || cmd.Position2.Y <= 0f ||
+            !float.IsFinite(cmd.RadiusX) || cmd.RadiusX <= 0f ||
+            !IsFiniteInvertibleAffine2D(transform))
+        {
+            return;
+        }
+
+        SwitchBatch(BatchType.Vector);
+        float brushIndex = RegisterBrush(cmd.Brush);
+        Vector4 brushColor = cmd.Brush is SolidColorBrush solid
+            ? solid.Color
+            : Vector4.One;
+        Vector2 local0 = new(cmd.Rect.X, cmd.Rect.Y);
+        Vector2 local1 = new(cmd.Rect.Right, cmd.Rect.Y);
+        Vector2 local2 = new(cmd.Rect.Right, cmd.Rect.Bottom);
+        Vector2 local3 = new(cmd.Rect.X, cmd.Rect.Bottom);
+        float shapeType = EncodeShapeType(cmd, DeviceDotGridShapeType);
+        uint baseVertex = (uint)_vectorVerticesList.Count;
+
+        int vertexStart = _vectorVerticesList.Count;
+        CollectionsMarshal.SetCount(_vectorVerticesList, vertexStart + 4);
+        Span<VectorVertex> vertices = CollectionsMarshal.AsSpan(
+            _vectorVerticesList).Slice(vertexStart, 4);
+        vertices[0] = new VectorVertex(
+            Vector2.Transform(local0, transform), brushColor, local0,
+            brushIndex, cmd.Position2, cmd.RadiusX, 0f, shapeType);
+        vertices[1] = new VectorVertex(
+            Vector2.Transform(local1, transform), brushColor, local1,
+            brushIndex, cmd.Position2, cmd.RadiusX, 0f, shapeType);
+        vertices[2] = new VectorVertex(
+            Vector2.Transform(local2, transform), brushColor, local2,
+            brushIndex, cmd.Position2, cmd.RadiusX, 0f, shapeType);
+        vertices[3] = new VectorVertex(
+            Vector2.Transform(local3, transform), brushColor, local3,
+            brushIndex, cmd.Position2, cmd.RadiusX, 0f, shapeType);
+
+        int indexStart = _vectorIndicesList.Count;
+        CollectionsMarshal.SetCount(_vectorIndicesList, indexStart + 6);
+        Span<uint> indices = CollectionsMarshal.AsSpan(
+            _vectorIndicesList).Slice(indexStart, 6);
+        indices[0] = baseVertex;
+        indices[1] = baseVertex + 1;
+        indices[2] = baseVertex + 2;
+        indices[3] = baseVertex;
+        indices[4] = baseVertex + 2;
+        indices[5] = baseVertex + 3;
+
+        // Draw-call scissoring owns clipping. Moving affine-quad vertices while
+        // retaining their local coordinates would corrupt the derivative map.
     }
 
     private void CompileEllipseCommand(RenderCommand cmd, Matrix4x4 transform)
@@ -17958,6 +18025,9 @@ SceneStateUploadComplete:
                     case RenderCommandType.DrawDotGrid:
                         CompileDotGridCommand(cmd, activeTransform);
                         break;
+                    case RenderCommandType.DrawDeviceDotGrid:
+                        CompileDeviceDotGridCommand(cmd, activeTransform);
+                        break;
                     case RenderCommandType.DrawCircle:
                         CompileCircleCommand(cmd, activeTransform);
                         break;
@@ -18423,6 +18493,9 @@ SceneStateUploadComplete:
                         break;
                     case RenderCommandType.DrawDotGrid:
                         CompileDotGridCommand(cmd, activeTransform);
+                        break;
+                    case RenderCommandType.DrawDeviceDotGrid:
+                        CompileDeviceDotGridCommand(cmd, activeTransform);
                         break;
                     case RenderCommandType.DrawCircle:
                         CompileCircleCommand(cmd, activeTransform);

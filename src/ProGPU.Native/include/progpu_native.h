@@ -919,9 +919,13 @@ typedef enum progpu_native_geometry_primitive_kind {
     PROGPU_NATIVE_GEOMETRY_QUADRATIC_BEZIER = 3,
     PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER = 4,
     /*
-     * One periodic dot-grid quad. p0 is the local bounds origin, p1 is the
-     * bounds extent, p2 is phase, and p3 is {spacing, radius}. The shared
-     * vector shader performs constant bounded work per covered fragment.
+     * One periodic dot-grid quad. p0 is the local bounds origin and p1 is the
+     * bounds extent. A zero stroke_thickness selects the legacy local-radius
+     * form where p2 is phase and p3 is {scalar spacing, local radius}. A
+     * positive stroke_thickness selects the affine fixed-device form where p2
+     * must be zero, p3 is rectangular local spacing, and stroke_thickness is
+     * the physical-pixel radius. The shared vector shader performs constant
+     * bounded work per covered fragment.
      */
     PROGPU_NATIVE_GEOMETRY_DOT_GRID = 5,
     /*

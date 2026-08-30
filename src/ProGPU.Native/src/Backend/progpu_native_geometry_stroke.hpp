@@ -695,11 +695,16 @@ inline bool is_valid_geometry_primitive(
         return false;
     }
     if (primitive.kind == PROGPU_NATIVE_GEOMETRY_DOT_GRID) {
-        return (primitive.flags &
+        const bool shared_valid = (primitive.flags &
                 ~PROGPU_NATIVE_PRIMITIVE_FLAG_EDGE_ALIASED) == 0U &&
             primitive.p1.x >= 0.0F && primitive.p1.y >= 0.0F &&
             primitive.p3.x > 0.0F && primitive.p3.y > 0.0F &&
-            primitive.stroke_thickness == 0.0F;
+            primitive.stroke_thickness >= 0.0F;
+        if (!shared_valid) {
+            return false;
+        }
+        return primitive.stroke_thickness == 0.0F ||
+            (primitive.p2.x == 0.0F && primitive.p2.y == 0.0F);
     }
     if (primitive.kind == PROGPU_NATIVE_GEOMETRY_TRIANGLE ||
         primitive.kind == PROGPU_NATIVE_GEOMETRY_QUADRILATERAL) {
@@ -944,9 +949,15 @@ inline bool append_geometry_primitive(
             vertex.brush_index = brush_index;
             vertex.shape_size[0] = primitive.p3.x;
             vertex.shape_size[1] = primitive.p3.y;
-            vertex.corner_radius = primitive.p2.x;
-            vertex.stroke_thickness = primitive.p2.y;
-            vertex.shape_type = 21.0F + alias_offset;
+            if (primitive.stroke_thickness > 0.0F) {
+                vertex.corner_radius = primitive.stroke_thickness;
+                vertex.stroke_thickness = 0.0F;
+                vertex.shape_type = 25.0F + alias_offset;
+            } else {
+                vertex.corner_radius = primitive.p2.x;
+                vertex.stroke_thickness = primitive.p2.y;
+                vertex.shape_type = 21.0F + alias_offset;
+            }
             vertices.push_back(vertex);
         };
         for (const auto& point : points) {
