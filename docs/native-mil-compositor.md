@@ -5359,7 +5359,8 @@ under `/W4 /WX`, passes the live regression 1/1 in 3.35 seconds, decodes three
 translated draws from the scene header, verifies fail-closed DirectWrite state,
 and reports exactly 123 exports. Provider SHA-256 is
 `0C552556B68BDB2F34B9B4ADA552B1DBBC2EB25A247483ED27710787CBF787D2`;
-clean-checkout Build run `33341817572` is pending.
+clean-checkout CI qualification for documentation checkpoint `28b4610b` is
+pending.
 
 ## Managed glyph row-reuse SIMD checkpoint
 

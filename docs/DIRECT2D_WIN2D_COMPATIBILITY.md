@@ -889,7 +889,8 @@ the full sink vtable and scene builder, passed the live Direct2D regression
 typed rejection of non-null DirectWrite rendering parameters. `dumpbin`
 reported exactly 123 provider exports. The resulting DLL SHA-256 is
 `0C552556B68BDB2F34B9B4ADA552B1DBBC2EB25A247483ED27710787CBF787D2`.
-Clean-checkout Build run `33341817572` is pending.
+Clean-checkout CI qualification for documentation checkpoint `28b4610b` is
+pending.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
