@@ -5250,8 +5250,11 @@ is introduced, and portable hosts keep using the shared retained vector/image
 pipeline. The exact allowlist becomes 90 exports. The native command-list test
 uses the new clip, bitmap, and image operations, rejects a layer pop while a
 clip is above it, and retains the exact BGRA shared-texture oracle. Managed
-contracts pass 5/5 with zero warnings; Windows execution remains pending the
-pushed checkpoint.
+contracts pass 5/5 with zero warnings. Exact checkpoint `10ef4c1a` is qualified by GitHub Actions
+Build run `33334553038`, dedicated MSVC job `99319045125`: warning-as-error
+compile/link succeeds, the focused Direct2D regression passes in 0.16 seconds,
+all 11 native suites pass in 1.05 seconds, and the exact 90-export gate is
+accepted.
 
 ## Managed glyph row-reuse SIMD checkpoint
 
