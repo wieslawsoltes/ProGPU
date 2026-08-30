@@ -5293,7 +5293,11 @@ identity, null detach semantics, and restored state before later pixel and
 Win2D gates. Managed generation/kind checks and `DangerousAddRef` pair with
 native `QueryInterface` validation for creation and mutation. The exact
 allowlist becomes 118 exports; portable contracts pass 5/5 and the package
-builds with zero warnings. Windows execution remains pending.
+builds with zero warnings. Corrected checkpoint `058f6f1f` is qualified by
+Build run `33336912843`, dedicated MSVC job `99325361848`: warning-as-error
+compile/link succeeds, the focused Direct2D regression passes in 0.18 seconds,
+all 11 native suites pass in 1.33 seconds, and the exact 118-export gate is
+accepted.
 
 ## Managed glyph row-reuse SIMD checkpoint
 
