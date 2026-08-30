@@ -559,6 +559,108 @@ public sealed partial class CadSnapshotCompiler
         return mtext;
     }
 
+    private static Tolerance CreateMultiLeaderTolerance(
+        MultiLeader source,
+        in CadResolvedStyle entityStyle)
+    {
+        MultiLeaderObjectContextData context = source.ContextData;
+        MultiLeaderStyle style = source.Style ?? throw new ArgumentException(
+            "MULTILEADER has no MLEADERSTYLE.");
+        if (string.IsNullOrEmpty(context.TextLabel))
+        {
+            throw new CadUnsupportedEntityException(
+                "MULTILEADER TOLERANCE content is declared but its feature-control-frame payload is absent.");
+        }
+
+        double height = context.TextHeight;
+        if (!double.IsFinite(height) || height <= 0.0)
+        {
+            height = style.TextHeight * style.ScaleFactor;
+        }
+        double scale = source.PropertyOverrideFlags.HasFlag(
+            MultiLeaderPropertyOverrideFlags.ScaleFactor)
+            ? context.ScaleFactor
+            : style.ScaleFactor;
+        double gap = source.PropertyOverrideFlags.HasFlag(
+            MultiLeaderPropertyOverrideFlags.LandingGap)
+            ? context.LandingGap
+            : style.LandingGap * scale;
+        if (!double.IsFinite(height) || height <= 0.0 ||
+            !double.IsFinite(gap))
+        {
+            throw new ArgumentException(
+                "MULTILEADER TOLERANCE text height and frame gap must be finite and valid.");
+        }
+
+        TextStyle textStyle = context.TextStyle ?? style.TextStyle;
+        ACadSharp.Color textColor = source.PropertyOverrideFlags.HasFlag(
+            MultiLeaderPropertyOverrideFlags.TextColor)
+            ? context.TextColor
+            : style.TextColor;
+        if (textColor.IsByBlock)
+        {
+            textColor = entityStyle.Color;
+        }
+        var dimensionStyle = new DimensionStyle("$PROGPU_MLEADER_FCF")
+        {
+            ScaleFactor = 1.0,
+            TextHeight = height,
+            DimensionLineGap = Math.Abs(gap),
+            DimensionLineColor = textColor,
+            TextColor = textColor,
+            Style = textStyle,
+        };
+
+        XYZ direction = context.Direction;
+        if (!double.IsFinite(direction.X) || !double.IsFinite(direction.Y) ||
+            !double.IsFinite(direction.Z) || direction.GetLength() <= LeaderVertexTolerance)
+        {
+            direction = context.BaseDirection.GetLength() > LeaderVertexTolerance
+                ? context.BaseDirection
+                : XYZ.AxisX;
+        }
+        XYZ normal = context.TextNormal;
+        if (!double.IsFinite(normal.X) || !double.IsFinite(normal.Y) ||
+            !double.IsFinite(normal.Z) || normal.GetLength() <= LeaderVertexTolerance)
+        {
+            normal = XYZ.Cross(context.BaseDirection, context.BaseVertical);
+            if (normal.GetLength() <= LeaderVertexTolerance)
+            {
+                normal = XYZ.AxisZ;
+            }
+        }
+        normal = normal.Normalize();
+        direction -= normal * direction.Dot(normal);
+        if (direction.GetLength() <= LeaderVertexTolerance)
+        {
+            direction = context.BaseDirection -
+                (normal * context.BaseDirection.Dot(normal));
+        }
+        if (direction.GetLength() <= LeaderVertexTolerance)
+        {
+            XYZ reference = Math.Abs(normal.Z) < 0.9
+                ? XYZ.AxisZ
+                : XYZ.AxisY;
+            direction = XYZ.Cross(reference, normal);
+        }
+        direction = direction.Normalize();
+
+        return new Tolerance
+        {
+            Layer = source.Layer,
+            Color = source.Color,
+            LineType = source.LineType,
+            LineWeight = source.LineWeight,
+            LineTypeScale = source.LineTypeScale,
+            Transparency = source.Transparency,
+            InsertionPoint = context.TextLocation,
+            Direction = direction,
+            Normal = normal,
+            Style = dimensionStyle,
+            Text = context.TextLabel,
+        };
+    }
+
     private static CadAffineTransform3D CreateMultiLeaderBlockTransform(
         MultiLeader source,
         out BlockRecord block)

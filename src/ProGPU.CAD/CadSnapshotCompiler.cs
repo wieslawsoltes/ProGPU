@@ -48,6 +48,9 @@ public sealed class CadSnapshotOptions
     public const int DefaultMaxMultiLeaderPaths = 1_000_000;
     public const int DefaultMaxMultiLeaderVerticesPerPath = 65_536;
     public const int DefaultMaxMultiLeaderControlPoints = 4_000_000;
+    public const int DefaultMaxToleranceCellsPerEntity = 1_024;
+    public const int DefaultMaxToleranceCells = 1_000_000;
+    public const int DefaultMaxToleranceStrokes = 4_000_000;
 
     public double DefaultLineWeightMillimeters { get; init; } = 0.25;
     public int DiagnosticLimit { get; init; } = DefaultDiagnosticLimit;
@@ -100,6 +103,10 @@ public sealed class CadSnapshotOptions
         DefaultMaxMultiLeaderVerticesPerPath;
     public int MaxMultiLeaderControlPoints { get; init; } =
         DefaultMaxMultiLeaderControlPoints;
+    public int MaxToleranceCellsPerEntity { get; init; } =
+        DefaultMaxToleranceCellsPerEntity;
+    public int MaxToleranceCells { get; init; } = DefaultMaxToleranceCells;
+    public int MaxToleranceStrokes { get; init; } = DefaultMaxToleranceStrokes;
 
     /// <summary>
     /// Selects whether snapshot entity order represents interactive
@@ -130,6 +137,8 @@ public sealed partial class CadSnapshotCompiler
     private readonly record struct DecodedTextContent(
         string Text,
         TextDecorationFlags[]? Decorations);
+
+    private readonly record struct CadCompiledTextMetrics(double Advance);
 
     public CadDocumentSnapshot Compile(
         CadDocumentSession session,
@@ -177,6 +186,8 @@ public sealed partial class CadSnapshotCompiler
         var mLineFillTriangles = new List<CadMLineFillTriangle>();
         var leaders = new List<CadLeaderPrimitive>();
         var multiLeaders = new List<CadMultiLeaderPrimitive>();
+        var tolerances = new List<CadTolerancePrimitive>();
+        var toleranceStrokes = new List<CadToleranceStroke>();
         var points = new List<CadPointPrimitive>();
         var constructionLines = new List<CadConstructionLinePrimitive>();
         var wipeouts = new List<CadWipeoutPrimitive>();
@@ -226,6 +237,7 @@ public sealed partial class CadSnapshotCompiler
         var shxShapes = new List<CadShxShapePrimitive>();
         int retainedLeaderControlPoints = 0;
         int retainedMultiLeaderControlPoints = 0;
+        int retainedToleranceCells = 0;
         var shxDecorationSegments = new List<CadShxDecorationSegment>();
         var polylineVertices = new List<CadPolylineVertex>();
         var polyline3DPoints = new List<CadPoint3D>();
@@ -322,6 +334,8 @@ public sealed partial class CadSnapshotCompiler
             mLineFillTriangles.ToArray(),
             leaders.ToArray(),
             multiLeaders.ToArray(),
+            tolerances.ToArray(),
+            toleranceStrokes.ToArray(),
             points.ToArray(),
             constructionLines.ToArray(),
             wipeouts.ToArray(),
@@ -460,6 +474,17 @@ public sealed partial class CadSnapshotCompiler
                         effectiveLayer,
                         resolvedStyle,
                         depth);
+                    return;
+                }
+                if (entity is Tolerance tolerance)
+                {
+                    CompileToleranceTree(
+                        tolerance,
+                        transform,
+                        hasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        resolvedStyle);
                     return;
                 }
                 if (entity is Mesh mesh)
@@ -1191,11 +1216,6 @@ public sealed partial class CadSnapshotCompiler
                 MultiLeaderPropertyOverrideFlags.ContentType)
                 ? multiLeader.ContentType
                 : multiLeader.Style.ContentType;
-            if (contentType == LeaderContentType.Tolerance)
-            {
-                throw new CadUnsupportedEntityException(
-                    $"MULTILEADER {contentType} content lowering is not yet available.");
-            }
             BlockRecord? contentBlock = null;
             CadAffineTransform3D? contentBlockTransform = null;
             CadResolvedStyle? contentBlockStyle = null;
@@ -1491,6 +1511,19 @@ public sealed partial class CadSnapshotCompiler
                     entities.Add(contentHeader);
                     documentBounds = documentBounds.Union(contentHeader.Bounds);
                 }
+                else if (contentType == LeaderContentType.Tolerance)
+                {
+                    Tolerance content = CreateMultiLeaderTolerance(
+                        multiLeader,
+                        entityStyle);
+                    CompileToleranceTree(
+                        content,
+                        parentTransform,
+                        parentHasTransform,
+                        rootHandle,
+                        effectiveLayer,
+                        entityStyle);
+                }
             }
             catch
             {
@@ -1585,6 +1618,92 @@ public sealed partial class CadSnapshotCompiler
                 {
                     activeBlocks.Remove(block);
                 }
+            }
+        }
+
+        void CompileToleranceTree(
+            Tolerance tolerance,
+            CadAffineTransform3D transform,
+            bool hasTransform,
+            ulong rootHandle,
+            Layer effectiveLayer,
+            CadResolvedStyle entityStyle)
+        {
+            ResolveToleranceStyles(
+                tolerance,
+                effectiveLayer,
+                entityStyle,
+                options,
+                out CadToleranceContract contract,
+                out CadResolvedStyle frameStyle,
+                out CadResolvedStyle textStyle);
+            int layerIndex = InternLayer(effectiveLayer, layers, layerIndices);
+            int frameStyleIndex = InternStyle(
+                frameStyle,
+                styles,
+                styleIndices,
+                lineTypePatterns,
+                lineTypePatternIndices,
+                lineTypeElements,
+                lineTypeTextResources,
+                lineTypeShapeResources,
+                textGlyphRuns,
+                textGlyphIndices,
+                textGlyphPositions,
+                textFonts,
+                textFontIndices,
+                shxGlyphInstances,
+                shxFontResolver,
+                options,
+                drawingCodePage);
+            int textStyleIndex = InternStyle(
+                textStyle,
+                styles,
+                styleIndices,
+                lineTypePatterns,
+                lineTypePatternIndices,
+                lineTypeElements,
+                lineTypeTextResources,
+                lineTypeShapeResources,
+                textGlyphRuns,
+                textGlyphIndices,
+                textGlyphPositions,
+                textFonts,
+                textFontIndices,
+                shxGlyphInstances,
+                shxFontResolver,
+                options,
+                drawingCodePage);
+            CadEntityHeader[] headers = CompileTolerance(
+                tolerance,
+                rootHandle,
+                transform,
+                hasTransform,
+                layerIndex,
+                frameStyleIndex,
+                textStyleIndex,
+                contract,
+                options,
+                diagnostics,
+                tolerances,
+                toleranceStrokes,
+                texts,
+                textGlyphRuns,
+                textDecorations,
+                textGlyphIndices,
+                textGlyphPositions,
+                textFonts,
+                textFontIndices,
+                shxTexts,
+                shxGlyphInstances,
+                shxDecorationSegments,
+                shxFontResolver,
+                drawingCodePage,
+                ref retainedToleranceCells);
+            for (int index = 0; index < headers.Length; index++)
+            {
+                entities.Add(headers[index]);
+                documentBounds = documentBounds.Union(headers[index].Bounds);
             }
         }
 
@@ -3297,6 +3416,54 @@ public sealed partial class CadSnapshotCompiler
         ICadShxFontResolver? shxFontResolver,
         string drawingCodePage)
     {
+        return CompileText(
+            text,
+            handle,
+            transform,
+            hasTransform,
+            layerIndex,
+            styleIndex,
+            options,
+            diagnostics,
+            destination,
+            runs,
+            decorations,
+            glyphIndices,
+            glyphPositions,
+            fonts,
+            fontIndices,
+            shxTexts,
+            shxGlyphInstances,
+            shxDecorationSegments,
+            shxFontResolver,
+            drawingCodePage,
+            out _);
+    }
+
+    private static CadEntityHeader CompileText(
+        TextEntity text,
+        ulong handle,
+        CadAffineTransform3D transform,
+        bool hasTransform,
+        int layerIndex,
+        int styleIndex,
+        CadSnapshotOptions options,
+        List<CadDiagnostic> diagnostics,
+        List<CadTextPrimitive> destination,
+        List<CadTextGlyphRun> runs,
+        List<CadTextDecoration> decorations,
+        List<ushort> glyphIndices,
+        List<Vector2> glyphPositions,
+        List<TtfFont> fonts,
+        Dictionary<TtfFont, int> fontIndices,
+        List<CadShxTextPrimitive> shxTexts,
+        List<CadShxGlyphInstance> shxGlyphInstances,
+        List<CadShxDecorationSegment> shxDecorationSegments,
+        ICadShxFontResolver? shxFontResolver,
+        string drawingCodePage,
+        out CadCompiledTextMetrics metrics)
+    {
+        metrics = default;
         if (text.Thickness != 0.0)
         {
             throw new CadUnsupportedEntityException(
@@ -3344,7 +3511,8 @@ public sealed partial class CadSnapshotCompiler
                 shxDecorationSegments,
                 glyphIndices.Count,
                 shxFontResolver,
-                drawingCodePage);
+                drawingCodePage,
+                out metrics);
         }
 
         if (cadStyle.Flags.HasFlag(StyleFlags.VerticalText))
@@ -3609,6 +3777,8 @@ public sealed partial class CadSnapshotCompiler
                     $"TEXT path {FormatEntityPath(handle, text.Handle)} substitutes '{cadStyle.Filename}' with '{font.FamilyName}'."));
         }
 
+        metrics = new CadCompiledTextMetrics(width * xScale);
+
         return new CadEntityHeader(
             handle,
             CadEntityKind.Text,
@@ -3632,8 +3802,10 @@ public sealed partial class CadSnapshotCompiler
         List<CadShxDecorationSegment> decorationSegments,
         int retainedTrueTypeGlyphCount,
         ICadShxFontResolver? shxFontResolver,
-        string drawingCodePage)
+        string drawingCodePage,
+        out CadCompiledTextMetrics metrics)
     {
+        metrics = default;
         TextStyle cadStyle = text.Style;
         bool isVertical = cadStyle.Flags.HasFlag(StyleFlags.VerticalText);
         if (isVertical &&
@@ -3924,6 +4096,8 @@ public sealed partial class CadSnapshotCompiler
                     "CADSNAP006",
                     $"TEXT path {FormatEntityPath(handle, text.Handle)} substitutes '{requested}' with SHX {resolutionKind} '{resolved}'."));
         }
+
+        metrics = new CadCompiledTextMetrics(flowLength * xScale);
 
         return new CadEntityHeader(
             handle,
@@ -5385,6 +5559,11 @@ public sealed partial class CadSnapshotCompiler
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxMultiLeaderPaths, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxMultiLeaderVerticesPerPath, 2);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxMultiLeaderControlPoints, 4);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxToleranceCellsPerEntity, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            options.MaxToleranceCells,
+            options.MaxToleranceCellsPerEntity);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxToleranceStrokes, 4);
     }
 
     private static void AddDiagnostic(

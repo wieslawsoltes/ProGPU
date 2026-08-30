@@ -163,6 +163,43 @@ public sealed class CadMultiLeaderTests
     }
 
     [Fact]
+    public void EmbeddedToleranceUsesFeatureControlFrameAndSharedSemanticHandle()
+    {
+        MultiLeader source = CreateMultiLeader();
+        source.PropertyOverrideFlags &= ~MultiLeaderPropertyOverrideFlags.ContentType;
+        source.Style.ContentType = LeaderContentType.Tolerance;
+        source.Style.TextHeight = 2.0;
+        source.Style.LandingGap = 0.5;
+        source.ContextData.TextLabel =
+            "{\\Fgdt;j}%%v{\\Fgdt;n}0.1{\\Fgdt;m}%%vA";
+        source.ContextData.TextHeight = 2.0;
+        source.ContextData.TextLocation = new XYZ(6.5, 1, 0);
+        source.ContextData.TextNormal = XYZ.AxisZ;
+        source.ContextData.Direction = XYZ.AxisX;
+        var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+        source.ContextData.TextStyle = textStyle;
+        source.Style.TextStyle = textStyle;
+
+        CadDocumentSnapshot snapshot = Compile(
+            source,
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
+            });
+
+        CadEntityHeader frame = Assert.Single(
+            snapshot.Entities.ToArray(), item => item.Kind == CadEntityKind.Tolerance);
+        Assert.Equal(3, snapshot.Tolerances.Span[frame.PrimitiveIndex].CellCount);
+        Assert.All(snapshot.Entities.ToArray(), item =>
+            Assert.Equal(source.Handle, item.Handle));
+        using CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
+        Assert.Contains(scene.DrawingContext.Commands.ToArray(), command =>
+            command.Type == RenderCommandType.DrawPath);
+        Assert.Contains(scene.DrawingContext.Commands.ToArray(), command =>
+            command.Type == RenderCommandType.DrawGlyphRun);
+    }
+
+    [Fact]
     public void EmbeddedStaticBlockUsesPersistedCompleteAffineTransform()
     {
         MultiLeader source = CreateMultiLeader();

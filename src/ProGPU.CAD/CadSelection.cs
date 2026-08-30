@@ -398,6 +398,11 @@ public static class CadSelectionHitTester
                 snapshot.MultiLeaders.Span[header.PrimitiveIndex],
                 point,
                 tolerance),
+            CadEntityKind.Tolerance => HitTolerancePoint(
+                snapshot,
+                snapshot.Tolerances.Span[header.PrimitiveIndex],
+                point,
+                tolerance),
             CadEntityKind.Ray => HitConstructionLinePoint(
                 snapshot.ConstructionLines.Span[header.PrimitiveIndex],
                 point,
@@ -537,6 +542,11 @@ public static class CadSelectionHitTester
                 snapshot,
                 snapshot.MultiLeaders.Span[header.PrimitiveIndex],
                 header.Bounds,
+                bounds,
+                mode),
+            CadEntityKind.Tolerance => HitToleranceBounds(
+                snapshot,
+                snapshot.Tolerances.Span[header.PrimitiveIndex],
                 bounds,
                 mode),
             CadEntityKind.Ray => HitConstructionLineBounds(
@@ -889,6 +899,64 @@ public static class CadSelectionHitTester
             return path;
         }
         return path.IsHit && arrowHit ? BoundsHit() : BoundsMiss();
+    }
+
+    private static CadPointHitResult HitTolerancePoint(
+        CadDocumentSnapshot snapshot,
+        in CadTolerancePrimitive tolerance,
+        CadPoint3D point,
+        double selectionTolerance)
+    {
+        double minimum = double.PositiveInfinity;
+        ReadOnlySpan<CadToleranceStroke> strokes =
+            snapshot.ToleranceStrokes.Span.Slice(
+                tolerance.StrokeOffset,
+                tolerance.StrokeCount);
+        for (int index = 0; index < strokes.Length; index++)
+        {
+            minimum = Math.Min(
+                minimum,
+                DistanceToSegment(point, strokes[index].Start, strokes[index].End));
+        }
+        return FromDistance(minimum, selectionTolerance);
+    }
+
+    private static CadBoundsHitResult HitToleranceBounds(
+        CadDocumentSnapshot snapshot,
+        in CadTolerancePrimitive tolerance,
+        CadBounds3D bounds,
+        CadBoundsSelectionMode mode)
+    {
+        if (bounds.IsEmpty)
+        {
+            return BoundsMiss();
+        }
+        ReadOnlySpan<CadToleranceStroke> strokes =
+            snapshot.ToleranceStrokes.Span.Slice(
+                tolerance.StrokeOffset,
+                tolerance.StrokeCount);
+        if (strokes.IsEmpty)
+        {
+            return BoundsUnsupportedGeometry();
+        }
+        for (int index = 0; index < strokes.Length; index++)
+        {
+            CadToleranceStroke stroke = strokes[index];
+            bool hit = mode == CadBoundsSelectionMode.Window
+                ? ContainsPoint(bounds, stroke.Start) && ContainsPoint(bounds, stroke.End)
+                : SegmentIntersectsBounds(stroke.Start, stroke.End, bounds);
+            if (mode == CadBoundsSelectionMode.Crossing && hit)
+            {
+                return BoundsHit();
+            }
+            if (mode == CadBoundsSelectionMode.Window && !hit)
+            {
+                return BoundsMiss();
+            }
+        }
+        return mode == CadBoundsSelectionMode.Window
+            ? BoundsHit()
+            : BoundsMiss();
     }
 
     private static CadPointHitResult HitConstructionLinePoint(

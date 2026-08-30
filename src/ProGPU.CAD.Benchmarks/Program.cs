@@ -24,6 +24,7 @@ int shxMTextEntityCount = ReadNonNegativeInt("--shx-mtext-entities", 0);
 int attributeInsertCount = ReadNonNegativeInt("--attribute-inserts", 0);
 AttributeVisibilityMode attributeDisplayMode = ReadAttributeDisplayMode();
 int dimensionEntityCount = ReadNonNegativeInt("--dimension-entities", 0);
+int toleranceEntityCount = ReadNonNegativeInt("--tolerance-entities", 0);
 int thickSolidEntityCount = ReadNonNegativeInt("--thick-solid-entities", 0);
 int meshEntityCount = ReadNonNegativeInt("--mesh-entities", 0);
 int meshSubdivisionLevel = ReadNonNegativeInt("--mesh-subdivision-level", 0);
@@ -60,6 +61,7 @@ string? outputPath = ReadString("--output-json");
 if (entityCount == 0 && blockArrayColumnCount == 0 && textEntityCount == 0 &&
     mtextEntityCount == 0 && shxTextEntityCount == 0 && shxMTextEntityCount == 0 &&
     attributeInsertCount == 0 && dimensionEntityCount == 0 &&
+    toleranceEntityCount == 0 &&
     thickSolidEntityCount == 0 && meshEntityCount == 0 &&
     polygonMeshEntityCount == 0 && polyfaceMeshEntityCount == 0 &&
     pointEntityCount == 0 && constructionLineCount == 0 &&
@@ -73,6 +75,7 @@ if (useWipeouts &&
     (entityCount == 0 || blockArrayColumnCount != 0 || textEntityCount != 0 ||
      mtextEntityCount != 0 || shxTextEntityCount != 0 || shxMTextEntityCount != 0 ||
      attributeInsertCount != 0 || dimensionEntityCount != 0 ||
+     toleranceEntityCount != 0 ||
      thickSolidEntityCount != 0 || meshEntityCount != 0 ||
      polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 ||
      pointEntityCount != 0 || constructionLineCount != 0 ||
@@ -96,6 +99,7 @@ if (freezeAlternatingEntityLayers &&
     (entityCount == 0 || blockArrayColumnCount != 0 || textEntityCount != 0 ||
      mtextEntityCount != 0 || shxTextEntityCount != 0 || shxMTextEntityCount != 0 ||
      attributeInsertCount != 0 || dimensionEntityCount != 0 ||
+     toleranceEntityCount != 0 ||
      thickSolidEntityCount != 0 || meshEntityCount != 0 ||
      polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 ||
      pointEntityCount != 0 || constructionLineCount != 0 ||
@@ -125,7 +129,8 @@ if (measureSplineSelection &&
     (entityCount == 0 || blockArrayColumnCount != 0 ||
      textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
      shxMTextEntityCount != 0 || attributeInsertCount != 0 ||
-     dimensionEntityCount != 0 || thickSolidEntityCount != 0 || meshEntityCount != 0 ||
+     dimensionEntityCount != 0 || toleranceEntityCount != 0 ||
+     thickSolidEntityCount != 0 || meshEntityCount != 0 ||
      polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 || pointEntityCount != 0 ||
      constructionLineCount != 0 ||
      solidHatchCount != 0 || patternHatchCount != 0))
@@ -136,6 +141,7 @@ if (measureSplineSelection &&
 if (measureTextSelection &&
     (entityCount != 0 || blockArrayColumnCount != 0 || solidHatchCount != 0 ||
      patternHatchCount != 0 || dimensionEntityCount != 0 ||
+     toleranceEntityCount != 0 ||
      thickSolidEntityCount != 0 || meshEntityCount != 0 ||
      polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 || pointEntityCount != 0 ||
      constructionLineCount != 0 ||
@@ -157,7 +163,8 @@ if (measureHatchSelection &&
      entityCount != 0 || blockArrayColumnCount != 0 ||
      textEntityCount != 0 || mtextEntityCount != 0 || shxTextEntityCount != 0 ||
      shxMTextEntityCount != 0 || attributeInsertCount != 0 ||
-     dimensionEntityCount != 0 || thickSolidEntityCount != 0 || meshEntityCount != 0 ||
+     dimensionEntityCount != 0 || toleranceEntityCount != 0 ||
+     thickSolidEntityCount != 0 || meshEntityCount != 0 ||
      polygonMeshEntityCount != 0 || polyfaceMeshEntityCount != 0 || pointEntityCount != 0 ||
      constructionLineCount != 0))
 {
@@ -200,6 +207,7 @@ CadDocumentSession session = CreateDocument(
     attributeInsertCount,
     attributeDisplayMode,
     dimensionEntityCount,
+    toleranceEntityCount,
     thickSolidEntityCount,
     meshEntityCount,
     meshSubdivisionLevel,
@@ -265,6 +273,7 @@ CadSnapshotOptions snapshotOptions = new()
 {
     TextFontResolver = textEntityCount == 0 && mtextEntityCount == 0 &&
         attributeInsertCount == 0 && dimensionEntityCount == 0 &&
+        toleranceEntityCount == 0 &&
         !lowerComplexLineTypes
         ? null
         : new BenchmarkTextFontResolver(InterFontFamily.Regular),
@@ -420,6 +429,7 @@ var report = new CadBenchmarkReport(
     attributeInsertCount,
     attributeDisplayMode,
     dimensionEntityCount,
+    toleranceEntityCount,
     thickSolidEntityCount,
     meshEntityCount,
     meshSubdivisionLevel,
@@ -499,6 +509,7 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         shxMTextEntityCount +
         attributeInsertCount +
         dimensionEntityCount +
+        toleranceEntityCount +
         thickSolidEntityCount +
         meshEntityCount +
         polygonMeshEntityCount +
@@ -517,6 +528,7 @@ void ValidateRequestedEntities(CadDocumentSnapshot source)
         (attributeInsertCount *
             (attributeDisplayMode == AttributeVisibilityMode.None ? 1 : 2)) +
         (dimensionEntityCount * 6) +
+        toleranceEntityCount +
         thickSolidEntityCount +
         (meshEntityCount * checked(1 + (6 * Pow4(meshSubdivisionLevel)))) +
         (polygonMeshEntityCount * 13) +
@@ -570,6 +582,7 @@ CadDocumentSession CreateDocument(
     int attributeCount,
     AttributeVisibilityMode attributeVisibility,
     int dimensionCount,
+    int toleranceCount,
     int thickSolidCount,
     int meshCount,
     int meshSubdivision,
@@ -942,6 +955,37 @@ CadDocumentSession CreateDocument(
                 {
                     Block = picture,
                     DefinitionPoint = new XYZ(x + 30, y + 7, 0),
+                });
+            }
+        }
+
+        if (toleranceCount > 0)
+        {
+            var textStyle = new TextStyle("INTER_TOLERANCE")
+            {
+                Filename = "Inter.ttf",
+            };
+            document.TextStyles.Add(textStyle);
+            var dimensionStyle = new DimensionStyle("BENCHMARK_TOLERANCE")
+            {
+                ScaleFactor = 1.0,
+                TextHeight = 2.5,
+                DimensionLineGap = 0.5,
+                Style = textStyle,
+            };
+            document.DimensionStyles.Add(dimensionStyle);
+            for (int i = 0; i < toleranceCount; i++)
+            {
+                document.Entities.Add(new Tolerance
+                {
+                    Style = dimensionStyle,
+                    Text = "{\\Fgdt;j}%%v{\\Fgdt;n}0.10{\\Fgdt;m}%%vA",
+                    InsertionPoint = new XYZ(
+                        (i % 100) * 48.0,
+                        (i / 100) * 6.0,
+                        0.0),
+                    Direction = XYZ.AxisX,
+                    Normal = XYZ.AxisZ,
                 });
             }
         }
@@ -1768,6 +1812,7 @@ internal sealed record CadBenchmarkReport(
     int AttributeInsertCount,
     AttributeVisibilityMode AttributeDisplayMode,
     int DimensionEntityCount,
+    int ToleranceEntityCount,
     int ThickSolidEntityCount,
     int MeshEntityCount,
     int MeshSubdivisionLevel,

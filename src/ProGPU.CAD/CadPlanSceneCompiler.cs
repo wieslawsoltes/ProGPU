@@ -468,6 +468,13 @@ public sealed class CadPlanSceneCompiler
                         snapshot,
                         snapshot.MultiLeaders.Span[entity.PrimitiveIndex]);
                     break;
+                case CadEntityKind.Tolerance:
+                    RecordTolerance(
+                        context,
+                        pen,
+                        snapshot,
+                        snapshot.Tolerances.Span[entity.PrimitiveIndex]);
+                    break;
                 case CadEntityKind.Circle:
                     RecordCircle(context, pen, snapshot.Circles.Span[entity.PrimitiveIndex], snapshot.RebaseOrigin);
                     break;
@@ -972,6 +979,30 @@ public sealed class CadPlanSceneCompiler
             Project(leader.ArrowSecondBase, snapshot.RebaseOrigin)));
         path.Figures.Add(figure);
         context.DrawPath(brush, null, path);
+    }
+
+    private static void RecordTolerance(
+        DrawingContext context,
+        Pen pen,
+        CadDocumentSnapshot snapshot,
+        in CadTolerancePrimitive tolerance)
+    {
+        var path = new PathGeometry();
+        ReadOnlySpan<CadToleranceStroke> strokes =
+            snapshot.ToleranceStrokes.Span.Slice(
+                tolerance.StrokeOffset,
+                tolerance.StrokeCount);
+        for (int index = 0; index < strokes.Length; index++)
+        {
+            CadToleranceStroke stroke = strokes[index];
+            var figure = new PathFigure(
+                Project(stroke.Start, snapshot.RebaseOrigin),
+                isClosed: false);
+            figure.Segments.Add(new LineSegment(
+                Project(stroke.End, snapshot.RebaseOrigin)));
+            path.Figures.Add(figure);
+        }
+        context.DrawPath(null, pen, path);
     }
 
     private static void RecordMLine(

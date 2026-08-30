@@ -8,6 +8,10 @@ doglegs, default and bounded static custom arrow blocks, embedded MTEXT, and
 embedded static block content. It also closes ACadSharp editing and empty-content
 DWG persistence defects needed by the ProGPU contract.
 
+The subsequent TOLERANCE checkpoint also routes embedded tolerance content
+through the complete retained feature-control-frame pipeline documented in
+[`PROGPU_CAD_TOLERANCE_RESEARCH.md`](PROGPU_CAD_TOLERANCE_RESEARCH.md).
+
 The implementation is clean-room. Autodesk's public file/API contracts and the
 observable ACadSharp public object model were used to determine behavior. No
 third-party renderer implementation text or structure was copied. The retained
@@ -131,8 +135,9 @@ empty-content branch/dogleg case.
   active-context selection contract.
 - Authored leader-line and dogleg break pairs fail closed until retained
   segmentation can preserve continuous linetype phase across every gap.
-- Tolerance content fails closed until a complete retained feature-control-frame
-  layout is available.
+- Tolerance content now reuses the complete retained feature-control-frame
+  layout; its annotative and undocumented-token gates are recorded in the
+  TOLERANCE research note.
 - Block attributes fail closed until attribute references, values, and visibility
   can be synchronized with the embedded block expansion.
 - Vertical multileader MTEXT fails closed through the existing vertical-shaping

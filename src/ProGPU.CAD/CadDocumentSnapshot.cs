@@ -31,6 +31,7 @@ public enum CadEntityKind : byte
     MLine = 24,
     Leader = 25,
     MultiLeader = 26,
+    Tolerance = 27,
 }
 
 public readonly record struct CadLayerSnapshot(
@@ -208,6 +209,21 @@ public readonly record struct CadMultiLeaderPrimitive(
     bool IsDogleg,
     int LeaderRootIndex,
     int LeaderLineIndex);
+
+/// <summary>
+/// One retained geometric-tolerance feature-control frame. Text fragments are
+/// retained through the ordinary TrueType/SHX streams with the same semantic
+/// handle, while this primitive owns the exact frame strokes.
+/// </summary>
+public readonly record struct CadTolerancePrimitive(
+    int StrokeOffset,
+    int StrokeCount,
+    int RowCount,
+    int CellCount);
+
+public readonly record struct CadToleranceStroke(
+    CadPoint3D Start,
+    CadPoint3D End);
 
 /// <summary>
 /// One POINT location plus the drawing-wide regenerated marker contract captured
@@ -697,6 +713,8 @@ public sealed class CadDocumentSnapshot
     private readonly CadMLineFillTriangle[] _mLineFillTriangles;
     private readonly CadLeaderPrimitive[] _leaders;
     private readonly CadMultiLeaderPrimitive[] _multiLeaders;
+    private readonly CadTolerancePrimitive[] _tolerances;
+    private readonly CadToleranceStroke[] _toleranceStrokes;
     private readonly CadPointPrimitive[] _points;
     private readonly CadConstructionLinePrimitive[] _constructionLines;
     private readonly CadWipeoutPrimitive[] _wipeouts;
@@ -791,6 +809,8 @@ public sealed class CadDocumentSnapshot
     public ReadOnlyMemory<CadMLineFillTriangle> MLineFillTriangles => _mLineFillTriangles;
     public ReadOnlyMemory<CadLeaderPrimitive> Leaders => _leaders;
     public ReadOnlyMemory<CadMultiLeaderPrimitive> MultiLeaders => _multiLeaders;
+    public ReadOnlyMemory<CadTolerancePrimitive> Tolerances => _tolerances;
+    public ReadOnlyMemory<CadToleranceStroke> ToleranceStrokes => _toleranceStrokes;
     public ReadOnlyMemory<CadPointPrimitive> Points => _points;
     public ReadOnlyMemory<CadConstructionLinePrimitive> ConstructionLines => _constructionLines;
     public ReadOnlyMemory<CadWipeoutPrimitive> Wipeouts => _wipeouts;
@@ -869,6 +889,8 @@ public sealed class CadDocumentSnapshot
         CadMLineFillTriangle[] mLineFillTriangles,
         CadLeaderPrimitive[] leaders,
         CadMultiLeaderPrimitive[] multiLeaders,
+        CadTolerancePrimitive[] tolerances,
+        CadToleranceStroke[] toleranceStrokes,
         CadPointPrimitive[] points,
         CadConstructionLinePrimitive[] constructionLines,
         CadWipeoutPrimitive[] wipeouts,
@@ -944,6 +966,8 @@ public sealed class CadDocumentSnapshot
         _mLineFillTriangles = mLineFillTriangles;
         _leaders = leaders;
         _multiLeaders = multiLeaders;
+        _tolerances = tolerances;
+        _toleranceStrokes = toleranceStrokes;
         _points = points;
         _constructionLines = constructionLines;
         _wipeouts = wipeouts;
