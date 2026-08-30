@@ -86,27 +86,82 @@ public sealed class CadPlanOrthoConstraintTests
     }
 
     [Fact]
-    public void UnsupportedAndNonFiniteInputsFailClosed()
+    public void IsometricOrthoUsesActiveAxisPair()
     {
-        var isometric = new CadPlanGridSnapSettings(
+        CadPlanGridSnapSettings isometric =
+            CadPlanGridSnapSettings.CreateIsometric(
+                false,
+                CadPoint3D.Zero,
+                1.0,
+                CadPlanIsoplane.Right);
+
+        Assert.True(CadPlanOrthoConstraint.TryConstrain(
+            CadPoint3D.Zero,
+            new CadPoint3D(4.0, 2.5, 0.0),
+            isometric,
+            out CadPlanOrthoResult result));
+
+        Assert.Equal(CadPlanOrthoAxis.X, result.Axis);
+        double distance = CadPoint3D.Dot(
+            new CadPoint3D(4.0, 2.5, 0.0),
+            isometric.XAxis);
+        Assert.InRange(
+            (result.Point - (isometric.XAxis * distance)).Length,
+            0.0,
+            1e-10);
+    }
+
+    [Fact]
+    public void IsometricGridCompositionProjectsNearestLatticePointOntoBaseAxis()
+    {
+        CadPlanGridSnapSettings isometric =
+            CadPlanGridSnapSettings.CreateIsometric(
+                true,
+                CadPoint3D.Zero,
+                1.0,
+                CadPlanIsoplane.Top);
+        CadPoint3D basePoint = new(0.2, -0.1, 2.0);
+        CadPoint3D pointer = new(2.1, 1.1, 2.0);
+        Assert.True(isometric.TrySnap(pointer, out CadPoint3D gridPoint));
+
+        Assert.True(CadPlanOrthoConstraint.TryConstrain(
+            basePoint,
+            pointer,
+            isometric,
+            out CadPlanOrthoResult result));
+
+        Assert.Equal(CadPlanOrthoAxis.X, result.Axis);
+        Assert.True(result.IsGridSnapped);
+        double expectedDistance = CadPoint3D.Dot(
+            gridPoint - basePoint,
+            isometric.XAxis);
+        CadPoint3D expected = basePoint + (isometric.XAxis * expectedDistance);
+        Assert.InRange((result.Point - expected).Length, 0.0, 1e-10);
+    }
+
+    [Fact]
+    public void NonFiniteInputsFailClosed()
+    {
+        CadPlanGridSnapSettings isometric =
+            CadPlanGridSnapSettings.CreateIsometric(
+                false,
+                CadPoint3D.Zero,
+                1.0,
+                CadPlanIsoplane.Left);
+
+        Assert.False(CadPlanOrthoConstraint.TryConstrain(
+            CadPoint3D.Zero,
+            new CadPoint3D(double.NaN, 2.0, 0.0),
+            isometric,
+            out _));
+        Assert.Throws<ArgumentException>(() => new CadPlanGridSnapSettings(
             false,
             CadPlanGridSnapStyle.Isometric,
             CadPoint3D.Zero,
             new CadPoint3D(1.0, 0.0, 0.0),
             new CadPoint3D(0.0, 1.0, 0.0),
             1.0,
-            1.0);
-
-        Assert.False(CadPlanOrthoConstraint.TryConstrain(
-            CadPoint3D.Zero,
-            new CadPoint3D(1.0, 2.0, 0.0),
-            isometric,
-            out _));
-        Assert.False(CadPlanOrthoConstraint.TryConstrain(
-            CadPoint3D.Zero,
-            new CadPoint3D(double.NaN, 2.0, 0.0),
-            CadPlanGridSnapSettings.Disabled,
-            out _));
+            1.0));
     }
 
     [Fact]

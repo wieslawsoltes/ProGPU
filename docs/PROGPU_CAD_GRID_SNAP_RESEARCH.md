@@ -1,11 +1,13 @@
-# ProGPU.CAD rectangular grid-snap research record
+# ProGPU.CAD rectangular and isometric grid-snap research record
 
 ## Scope and primary sources
 
-This slice adds exact rectangular drafting-grid acquisition to the shared
-desktop/browser MOVE and COPY point prompts. It does not add a visible drawing
-grid, PolarSnap, isometric snap, tracking, direct-distance input, or
-arbitrary-camera point acquisition.
+The initial slice added exact rectangular drafting-grid acquisition to the
+shared desktop/browser MOVE and COPY point prompts. The isometric continuation
+adds exact Left/Top/Right SNAPISOPAIR lattices, active-pair Ortho directions,
+visible affine dot-grid reuse, persisted SNAPSTYL/SNAPISOPAIR/SNAPUNIT editing,
+and DXF/DWG fidelity. PolarSnap, tracking, and arbitrary-camera point
+acquisition remain separate contracts.
 
 The implementation was designed clean-room from public behavior and format
 contracts:
@@ -24,19 +26,32 @@ contracts:
   confirms radians, the UCS XY plane, and positive counterclockwise rotation.
 - Autodesk's [revised VPORT header-variable reference](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-ED26E626-BC45-4256-9914-87E5FFE934B8.htm)
   establishes that `*ACTIVE` VPORT records override legacy header SNAPMODE,
-  SNAPUNIT, SNAPBASE, SNAPANG, and SNAPSTYLE values.
+  SNAPUNIT, SNAPBASE, SNAPANG, and SNAPSTYLE values and defines SNAPISOPAIR
+  values 0 Left, 1 Top, and 2 Right.
 - Autodesk's [VPORT DXF contract](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-8CE7CC87-27BD-4490-89DA-C21F516415A9.htm)
   identifies the first `*ACTIVE` record as the current viewport and defines the
   persisted group codes. Its storage description calls group 13 DCS, while the
   typed ObjectARX setter defines that same group-13 value in UCS coordinates;
   ProGPU follows the typed API semantics used by the in-repository model.
+- Autodesk's [SNAP command reference](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-F47F4AAF-4859-45D4-846C-3742268834A9.htm)
+  defines the equal-aspect isometric lattice, its initial 30/150-degree axes,
+  the three ISOPLANE pairs, and the fact that a lined grid does not follow the
+  isometric lattice.
+- Autodesk's [ISOPLANE command reference](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-9B1EEA63-BEC1-413E-B69F-541B5865F1A1.htm)
+  defines Left as 90/150 degrees, Top as 30/150 degrees, Right as 90/30
+  degrees, and requires Ortho to use the active pair when SNAPSTYL is
+  isometric.
+- Autodesk's [SNAPSTYL reference](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-E04B7A7B-8232-44C3-BD74-20BCFEC07C2E.htm)
+  defines drawing-persisted rectangular value 0 and isometric value 1.
 
 No third-party implementation source was used. The exact approved source
 provenance is the ProGPU-owned snapshot and plan-point infrastructure plus the
-in-repository ACadSharp `Tables/VPort.cs` contract at submodule commit
-`c5e7b3236ec1bf545c15f0db25d228d9f79ed598`. ProGPU consumes its typed
-`SnapOn`, `SnapSpacing`, `SnapBasePoint`, `SnapRotation`, `IsometricSnap`, and
-UCS origin/axis properties; no source text or control flow was copied.
+in-repository ACadSharp `Tables/VPort.cs` contract and ProGPU-owned DXF writer
+fix at feature commit `592e5f1c`. ProGPU consumes typed `SnapOn`,
+`SnapSpacing`, `SnapBasePoint`, `SnapRotation`, `IsometricSnap`, `SnapIsoPair`,
+and UCS origin/axis properties. The approved fork fix emits already-modeled
+VPORT groups 77/78 and adds an independent three-version round-trip test; no
+third-party implementation text or control flow was copied.
 
 ## Adopted contract
 
@@ -47,34 +62,48 @@ rotated or tilted orthonormal UCS retains its actual grid plane rather than
 being flattened to WCS XY. Invalid spacing, non-finite state, degenerate axes,
 or non-orthogonal axes fail closed to a valid disabled default.
 
-Rectangular snap is supported. The immutable style still records isometric
-state, but `TrySnap` returns false rather than pretending it is rectangular.
-PolarSnap has no equivalent in the consumed VPORT contract and remains
-explicitly deferred. The shared checkbox starts from persisted SNAPMODE and is
-a bounded interaction-session override; changing it does not edit or republish
-the document. Persisted drafting-settings editing remains a later command/UI
-contract.
-
-For a pointer point `P`, grid origin `O`, orthonormal axes `X,Y`, and spacings
-`sx,sy`, the query computes:
+Rectangular and isometric snap are supported. `CadPlanIsoplane` preserves all
+three valid SNAPISOPAIR values. Starting from the rotated orthonormal UCS basis
+`U,V`, the exact unit directions are:
 
 ```text
-D  = P - O
-u  = dot(D, X)
-v  = dot(D, Y)
-u' = round-away-from-zero(u / sx) * sx
-v' = round-away-from-zero(v / sy) * sy
-N  = D - uX - vY
-P' = O + u'X + v'Y + N
+A30  = (sqrt(3)/2) U + (1/2) V
+A90  = V
+A150 = -(sqrt(3)/2) U + (1/2) V
+Left  = (A90, A150)
+Top   = (A30, A150)
+Right = (A30, A90)
 ```
 
-The normal component `N` is preserved exactly apart from floating-point
-roundoff, so grid acquisition does not silently project a point onto a
-different plane. A four-ULP correction recognizes only mathematically exact
-half-spacing ties perturbed by trigonometric basis construction; all ordinary
-values use normal nearest rounding. Invalid or overflowing queries return
-`false`. Work and storage are O(1), and a warm query allocates no managed
-memory.
+Every pair has determinant magnitude `sqrt(3)/2`. With the required equal
+SNAPUNIT aspect, all three pairs span the same triangular point lattice while
+changing Ortho/crosshair directions exactly. Invalid pair values or unequal
+isometric spacing fail closed instead of producing an invented skew lattice.
+PolarSnap remains explicitly deferred. The shared checkbox starts from
+persisted SNAPMODE and remains a bounded interaction-session override.
+
+For a pointer point `P`, grid origin `O`, unit axes `X,Y`, axis dot product `g`,
+and spacings `sx,sy`, the common dual-basis projection computes:
+
+```text
+D   = P - O
+det = 1 - g*g
+u   = (dot(D,X) - g*dot(D,Y)) / det
+v   = (dot(D,Y) - g*dot(D,X)) / det
+N   = D - uX - vY
+```
+
+Rectangular `g=0` retains independent midpoint-away-from-zero rounding. For an
+isometric `g=+/-0.5`, independently rounded axial coordinates identify a base
+cell but are not always the Euclidean-nearest triangular point. ProGPU therefore
+evaluates that point and its fixed eight neighboring index pairs, retaining the
+strictly nearest WCS point; the base wins exact ties. A 3x3 neighborhood is
+complete because both fractional axial coordinates begin in `[-0.5,0.5]`.
+The normal component `N` is restored unchanged. A four-ULP correction
+recognizes only exact half-spacing ties perturbed by trigonometric basis
+construction. Invalid or overflowing queries return `false`. Rectangular work
+is O(1), isometric work is fixed O(9), storage is O(1), and warm replay
+allocates no managed memory.
 
 Point-prompt precedence is exact object snap, then grid snap, then raw pointer
 position. Object snap wins because it identifies authored geometry within its
@@ -112,18 +141,25 @@ native scene compiler, shader, GPU resource, wire field, C ABI crossing, or
 backend-specific algorithm. A second C++ snap implementation is therefore not
 applicable; managed/native committed-scene parity remains unchanged.
 
+Isometric Ortho chooses the active pair direction with the least perpendicular
+distance, projects onto that exact unit axis, and optionally composes the
+nearest triangular grid point while preserving an off-grid accepted base. The
+existing direct-distance path consumes the same Ortho result, so there is no
+second direction implementation or per-frame allocation.
+
 ## Verification and remaining gates
 
-Focused tests cover independent spacing and base, positive/negative half ties,
-90-degree rotation, an arbitrary 3D grid plane with preserved normal component,
-disabled/isometric/non-finite rejection, invalid settings, active-VPORT UCS/base/
-rotation/spacing capture, and 1,024 zero-allocation warm queries. Shared-shell
-tests cover two exact grid-snapped COPY stages, fixed-device marker recording,
-object-over-grid precedence, typed-coordinate bypass, one edit generation, and
-desktop/browser-shared checkbox propagation.
+Focused tests cover independent rectangular spacing/base, half ties, rotation,
+an arbitrary 3D plane with preserved normal component, exact three-isoplane
+axes and shared lattice, Euclidean nearest-cell correction, malformed aspect
+and pair rejection, active-VPORT capture, active-pair Ortho, and 1,024
+zero-allocation warm queries for both styles. Shared-shell tests cover exact
+rectangular and isometric two-stage COPY, marker recording, precedence,
+typed-coordinate bypass, one edit generation, and desktop/browser-shared
+controls. ACadSharp VPORT groups 77/78 pass three DXF versions; ProGPU
+style/pair/spacing edits pass DXF and DWG round trips.
 
-Isometric and polar lattices, visible adaptive grid rendering, persisted
-drafting-settings editing, status-key accelerators, direct-distance/tracking
-composition, arbitrary-camera screen rays, image goldens, large-scene
-p50/p95/p99 interaction evidence, and DXF/DWG grid-setting round-trip fixtures
-remain before the broader drafting-grid feature can be called complete.
+PolarSnap, status-key plane cycling, object-snap tracking, arbitrary-camera
+screen rays, broader image goldens, and large-scene p50/p95/p99 interaction
+evidence remain before the broader drafting-grid feature can be called
+complete.

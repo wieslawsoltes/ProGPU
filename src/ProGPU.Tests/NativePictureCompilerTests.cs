@@ -1606,17 +1606,23 @@ public class NativePictureCompilerTests
     }
 
     [Fact]
-    public void CompilerLowersDeviceDotGridToOneNativeGeometryPrimitive()
+    public void CompilerLowersIsometricDeviceDotGridToOneNativeGeometryPrimitive()
     {
         var recorder = new GpuPictureRecorder();
         DrawingContext drawing = recorder.BeginRecording(
             new Rect(0f, 0f, 80f, 60f));
+        float cosine30 = MathF.Sqrt(3f) * 0.5f;
+        Matrix4x4 transform = new(
+            cosine30, 0.5f, 0f, 0f,
+            -cosine30, 0.5f, 0f, 0f,
+            0f, 0f, 1f, 0f,
+            32f, 32f, 0f, 1f);
         drawing.DrawDeviceDotGrid(
             new SolidColorBrush(Vector4.One),
             new Rect(-10f, -20f, 60f, 40f),
             new Vector2(7f, 11f),
             0.875f,
-            Matrix4x4.CreateScale(2f, 3f, 1f));
+            transform);
         using GpuPicture picture = recorder.EndRecording();
 
         Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
@@ -1642,7 +1648,15 @@ public class NativePictureCompilerTests
         Assert.Equal(Vector2.Zero, primitive.P2);
         Assert.Equal(new Vector2(7f, 11f), primitive.P3);
         Assert.Equal(0.875f, primitive.StrokeThickness);
-        Assert.Equal(new Matrix3x2(2f, 0f, 0f, 3f, 0f, 0f), primitive.Transform);
+        Assert.Equal(
+            new Matrix3x2(
+                cosine30,
+                0.5f,
+                -cosine30,
+                0.5f,
+                32f,
+                32f),
+            primitive.Transform);
     }
 
     [Fact]

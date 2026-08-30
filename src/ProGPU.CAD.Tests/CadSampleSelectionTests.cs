@@ -3892,6 +3892,66 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void PointCopyUsesExactIsometricLatticeForBothPointerStages()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(0, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        VPort active = document.VPorts[VPort.DefaultName];
+        active.SnapOn = true;
+        active.IsometricSnap = true;
+        active.SnapIsoPair = (short)CadPlanIsoplane.Top;
+        active.SnapSpacing = new XY(2.0, 2.0);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(canvas, viewport.WorldToScreen(new CadPoint3D(1, 0, 0)));
+            canvas.ObjectSnapModes = CadObjectSnapModes.None;
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Copy));
+
+            Vector2 basePointer = viewport.WorldToScreen(
+                new CadPoint3D(0.1, 0.1, 0.0));
+            Click(canvas, basePointer);
+            AssertPoint(
+                CadPoint3D.Zero,
+                canvas.PendingPointTransformBasePoint!.Value);
+
+            Vector2 secondPointer = viewport.WorldToScreen(
+                new CadPoint3D(1.6, 0.9, 0.0));
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = secondPointer,
+            });
+            double cosine30 = Math.Sqrt(3.0) / 2.0;
+            CadPoint3D expected = new(2.0 * cosine30, 1.0, 0.0);
+            CadPoint3D pendingSnap =
+                canvas.PendingPointTransformGridSnap!.Value;
+            Assert.InRange(Math.Abs(pendingSnap.X - expected.X), 0.0, 1e-6);
+            Assert.InRange(Math.Abs(pendingSnap.Y - expected.Y), 0.0, 1e-6);
+            Assert.InRange(Math.Abs(pendingSnap.Z - expected.Z), 0.0, 1e-6);
+            Click(canvas, secondPointer);
+
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Contains(
+                document.Entities.OfType<Line>(),
+                candidate =>
+                    Math.Abs(candidate.StartPoint.X - expected.X) < 1e-6 &&
+                    Math.Abs(candidate.StartPoint.Y - expected.Y) < 1e-6 &&
+                    Math.Abs(candidate.EndPoint.X - (expected.X + 2.0)) < 1e-6 &&
+                    Math.Abs(candidate.EndPoint.Y - expected.Y) < 1e-6);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void ObjectSnapOverridesGridAndOrthoAndTypedCoordinatesBypassAll()
     {
         var document = new CadDocument();

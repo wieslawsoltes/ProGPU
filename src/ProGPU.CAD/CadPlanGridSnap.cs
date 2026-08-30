@@ -7,16 +7,26 @@ public enum CadPlanGridSnapStyle : byte
     Isometric = 1,
 }
 
+/// <summary>Persisted SNAPISOPAIR plane for 2D isometric drafting.</summary>
+public enum CadPlanIsoplane : byte
+{
+    Left = 0,
+    Top = 1,
+    Right = 2,
+}
+
 /// <summary>
-/// Immutable rectangular point-snap lattice captured from the active CAD viewport.
+/// Immutable rectangular or isometric point-snap lattice captured from the
+/// active CAD viewport.
 /// </summary>
 /// <remarks>
-/// The origin and orthonormal axes are expressed in WCS. A query projects one point
-/// into that basis, rounds each coordinate to its independently spaced lattice, and
-/// preserves the point's component normal to the grid plane. Each query is O(1),
-/// allocation-free, and uses midpoint-away-from-zero ties for deterministic input.
-/// Isometric settings are retained for fidelity but deliberately do not approximate a
-/// rectangular lattice.
+/// The origin and unit axes are expressed in WCS. Rectangular axes are orthogonal;
+/// isometric axes use the exact active 30/90/150-degree pair. A query solves the
+/// dual basis and preserves the point's component normal to the grid plane.
+/// Rectangular queries independently round both coordinates. Isometric queries
+/// examine the independently rounded cell and its fixed eight neighbors to find
+/// the Euclidean-nearest triangular-lattice point. Work is O(1) for rectangular
+/// and fixed O(9) for isometric input; both are allocation-free and deterministic.
 /// </remarks>
 public readonly record struct CadPlanGridSnapSettings
 {
@@ -25,6 +35,8 @@ public readonly record struct CadPlanGridSnapSettings
     public bool IsEnabled { get; }
 
     public CadPlanGridSnapStyle Style { get; }
+
+    public CadPlanIsoplane Isoplane { get; }
 
     public CadPoint3D Origin { get; }
 
@@ -36,7 +48,7 @@ public readonly record struct CadPlanGridSnapSettings
 
     public double SpacingY { get; }
 
-    public bool IsSupported => Style == CadPlanGridSnapStyle.Rectangular;
+    public bool IsSupported => true;
 
     public static CadPlanGridSnapSettings Disabled { get; } = new(
         false,
@@ -54,11 +66,16 @@ public readonly record struct CadPlanGridSnapSettings
         CadPoint3D xAxis,
         CadPoint3D yAxis,
         double spacingX,
-        double spacingY)
+        double spacingY,
+        CadPlanIsoplane isoplane = CadPlanIsoplane.Left)
     {
         if (!Enum.IsDefined(style))
         {
             throw new ArgumentOutOfRangeException(nameof(style));
+        }
+        if (!Enum.IsDefined(isoplane))
+        {
+            throw new ArgumentOutOfRangeException(nameof(isoplane));
         }
         if (!IsFinite(origin) || !IsFinite(xAxis) || !IsFinite(yAxis))
         {
@@ -72,19 +89,29 @@ public readonly record struct CadPlanGridSnapSettings
         {
             throw new ArgumentOutOfRangeException(nameof(spacingY));
         }
+        if (style == CadPlanGridSnapStyle.Isometric && spacingX != spacingY)
+        {
+            throw new ArgumentException(
+                "Isometric snap requires equal X and Y spacing.");
+        }
 
         double xLengthSquared = CadPoint3D.Dot(xAxis, xAxis);
         double yLengthSquared = CadPoint3D.Dot(yAxis, yAxis);
         double axesDot = CadPoint3D.Dot(xAxis, yAxis);
+        bool hasExpectedAngle = style == CadPlanGridSnapStyle.Rectangular
+            ? Math.Abs(axesDot) <= OrthonormalTolerance
+            : Math.Abs(Math.Abs(axesDot) - 0.5) <= OrthonormalTolerance;
         if (Math.Abs(xLengthSquared - 1.0) > OrthonormalTolerance ||
             Math.Abs(yLengthSquared - 1.0) > OrthonormalTolerance ||
-            Math.Abs(axesDot) > OrthonormalTolerance)
+            !hasExpectedAngle)
         {
-            throw new ArgumentException("Grid axes must form an orthonormal basis.");
+            throw new ArgumentException(
+                "Grid axes must form the exact unit rectangular or isometric basis.");
         }
 
         IsEnabled = isEnabled;
         Style = style;
+        Isoplane = isoplane;
         Origin = origin;
         XAxis = xAxis;
         YAxis = yAxis;
@@ -117,6 +144,40 @@ public readonly record struct CadPlanGridSnapSettings
             spacingY);
     }
 
+    /// <summary>Creates the exact active WCS-XY isometric lattice.</summary>
+    public static CadPlanGridSnapSettings CreateIsometric(
+        bool isEnabled,
+        CadPoint3D origin,
+        double spacing,
+        CadPlanIsoplane isoplane,
+        double rotationRadians = 0.0)
+    {
+        if (!double.IsFinite(rotationRadians))
+        {
+            throw new ArgumentOutOfRangeException(nameof(rotationRadians));
+        }
+
+        double cosine = Math.Cos(rotationRadians);
+        double sine = Math.Sin(rotationRadians);
+        CadPoint3D rectangularX = new(cosine, sine, 0.0);
+        CadPoint3D rectangularY = new(-sine, cosine, 0.0);
+        GetIsometricAxes(
+            rectangularX,
+            rectangularY,
+            isoplane,
+            out CadPoint3D xAxis,
+            out CadPoint3D yAxis);
+        return new CadPlanGridSnapSettings(
+            isEnabled,
+            CadPlanGridSnapStyle.Isometric,
+            origin,
+            xAxis,
+            yAxis,
+            spacing,
+            spacing,
+            isoplane);
+    }
+
     public CadPlanGridSnapSettings WithEnabled(bool isEnabled) => new(
         isEnabled,
         Style,
@@ -124,7 +185,8 @@ public readonly record struct CadPlanGridSnapSettings
         XAxis,
         YAxis,
         SpacingX,
-        SpacingY);
+        SpacingY,
+        Isoplane);
 
     public bool TrySnap(CadPoint3D point, out CadPoint3D snappedPoint)
     {
@@ -135,8 +197,12 @@ public readonly record struct CadPlanGridSnapSettings
         }
 
         CadPoint3D delta = point - Origin;
-        double localX = CadPoint3D.Dot(delta, XAxis);
-        double localY = CadPoint3D.Dot(delta, YAxis);
+        double xDot = CadPoint3D.Dot(delta, XAxis);
+        double yDot = CadPoint3D.Dot(delta, YAxis);
+        double axesDot = CadPoint3D.Dot(XAxis, YAxis);
+        double determinant = 1.0 - (axesDot * axesDot);
+        double localX = (xDot - (axesDot * yDot)) / determinant;
+        double localY = (yDot - (axesDot * xDot)) / determinant;
         double snappedX = SnapCoordinate(localX, SpacingX);
         double snappedY = SnapCoordinate(localY, SpacingY);
         if (!double.IsFinite(localX) ||
@@ -147,8 +213,42 @@ public readonly record struct CadPlanGridSnapSettings
             return false;
         }
 
-        CadPoint3D normalComponent =
-            delta - (XAxis * localX) - (YAxis * localY);
+        CadPoint3D planarComponent =
+            (XAxis * localX) + (YAxis * localY);
+        CadPoint3D normalComponent = delta - planarComponent;
+        if (Style == CadPlanGridSnapStyle.Isometric)
+        {
+            double bestX = snappedX;
+            double bestY = snappedY;
+            double bestDistanceSquared = DistanceSquared(
+                planarComponent,
+                (XAxis * bestX) + (YAxis * bestY));
+            for (int offsetY = -1; offsetY <= 1; offsetY++)
+            {
+                for (int offsetX = -1; offsetX <= 1; offsetX++)
+                {
+                    if (offsetX == 0 && offsetY == 0)
+                    {
+                        continue;
+                    }
+
+                    double candidateX = snappedX + (offsetX * SpacingX);
+                    double candidateY = snappedY + (offsetY * SpacingY);
+                    double candidateDistanceSquared = DistanceSquared(
+                        planarComponent,
+                        (XAxis * candidateX) + (YAxis * candidateY));
+                    if (candidateDistanceSquared < bestDistanceSquared)
+                    {
+                        bestDistanceSquared = candidateDistanceSquared;
+                        bestX = candidateX;
+                        bestY = candidateY;
+                    }
+                }
+            }
+            snappedX = bestX;
+            snappedY = bestY;
+        }
+
         CadPoint3D candidate =
             Origin + (XAxis * snappedX) + (YAxis * snappedY) + normalComponent;
         if (!IsFinite(candidate))
@@ -158,6 +258,39 @@ public readonly record struct CadPlanGridSnapSettings
 
         snappedPoint = candidate;
         return true;
+    }
+
+    private static double DistanceSquared(CadPoint3D left, CadPoint3D right)
+    {
+        CadPoint3D delta = left - right;
+        return CadPoint3D.Dot(delta, delta);
+    }
+
+    internal static void GetIsometricAxes(
+        CadPoint3D rectangularX,
+        CadPoint3D rectangularY,
+        CadPlanIsoplane isoplane,
+        out CadPoint3D xAxis,
+        out CadPoint3D yAxis)
+    {
+        if (!Enum.IsDefined(isoplane))
+        {
+            throw new ArgumentOutOfRangeException(nameof(isoplane));
+        }
+
+        const double cosine30 = 0.86602540378443864676372317075294;
+        CadPoint3D axis30 =
+            (rectangularX * cosine30) + (rectangularY * 0.5);
+        CadPoint3D axis90 = rectangularY;
+        CadPoint3D axis150 =
+            (rectangularX * -cosine30) + (rectangularY * 0.5);
+        (xAxis, yAxis) = isoplane switch
+        {
+            CadPlanIsoplane.Left => (axis90, axis150),
+            CadPlanIsoplane.Top => (axis30, axis150),
+            CadPlanIsoplane.Right => (axis30, axis90),
+            _ => throw new ArgumentOutOfRangeException(nameof(isoplane)),
+        };
     }
 
     private static double SnapCoordinate(double coordinate, double spacing)

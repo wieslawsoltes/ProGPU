@@ -4,6 +4,7 @@ using ACadSharp.Entities;
 using ACadSharp.Tables;
 using CSMath;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using ProGPU.CAD.Sample;
 using ProGPU.Scene;
 using Xunit;
@@ -111,10 +112,11 @@ public sealed class CadPlanGridDisplayTests
     }
 
     [Fact]
-    public void IsometricAndEdgeOnGridPlanesFailClosed()
+    public void IsometricGridCreatesOneExactObliquePlanAndEdgeOnFailsClosed()
     {
         CadPlanGridDisplaySettings isometric = CreateSettings(
-            style: CadPlanGridDisplayStyle.Isometric);
+            style: CadPlanGridDisplayStyle.Isometric,
+            isoplane: CadPlanIsoplane.Top);
         var edgeOn = new CadPlanGridDisplaySettings(
             true,
             CadPlanGridDisplayStyle.RectangularDots,
@@ -135,7 +137,23 @@ public sealed class CadPlanGridDisplayTests
             Vector2.Zero,
             1.0f);
 
-        Assert.False(CadPlanGridDisplayPlan.TryCreate(isometric, viewport, out _));
+        Assert.True(CadPlanGridDisplayPlan.TryCreate(
+            isometric,
+            viewport,
+            out CadPlanGridDisplayPlan plan));
+        Assert.Equal(new Vector2(10.0f, 10.0f), plan.Spacing);
+        Assert.Equal(CadPlanIsoplane.Top, isometric.Isoplane);
+        Vector2 origin = Vector2.Transform(Vector2.Zero, plan.Transform);
+        Vector2 x = Vector2.Transform(Vector2.UnitX, plan.Transform) - origin;
+        Vector2 y = Vector2.Transform(Vector2.UnitY, plan.Transform) - origin;
+        AssertVector(
+            new Vector2((float)(Math.Sqrt(3.0) / 2.0), -0.5f),
+            x,
+            0.0001f);
+        AssertVector(
+            new Vector2((float)(-Math.Sqrt(3.0) / 2.0), -0.5f),
+            y,
+            0.0001f);
         Assert.False(CadPlanGridDisplayPlan.TryCreate(edgeOn, viewport, out _));
     }
 
@@ -210,6 +228,42 @@ public sealed class CadPlanGridDisplayTests
     }
 
     [Fact]
+    public void SharedCanvasForcesIsometricGridThroughOneDottedAffineCommand()
+    {
+        var document = new CadDocument();
+        VPort active = document.VPorts[VPort.DefaultName];
+        active.ShowGrid = true;
+        active.IsometricSnap = true;
+        active.SnapIsoPair = (short)CadPlanIsoplane.Right;
+        active.GridSpacing = new XY(4.0, 4.0);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(new CadDocumentSession(document));
+            canvas.Arrange(new Rect(0.0f, 0.0f, 320.0f, 240.0f));
+            var context = new DrawingContext();
+
+            canvas.OnRender(context);
+
+            RenderCommand grid = Assert.Single(
+                context.Commands,
+                command => command.Type == RenderCommandType.DrawDeviceDotGrid);
+            Assert.Equal(CadPlanGridDisplayStyle.Isometric,
+                canvas.PlanGridDisplaySettings.Style);
+            Assert.Equal(CadPlanIsoplane.Right,
+                canvas.PlanGridDisplaySettings.Isoplane);
+            Assert.Equal(CadPlanGridPresentationStyle.Lines,
+                canvas.PlanGridPresentationStyle);
+            Assert.Equal(0.75f, grid.RadiusX);
+            Assert.Equal(0.0f, grid.RadiusY);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void GridDisplayEditUsesOneGenerationAndExactUndoRedo()
     {
         var document = new CadDocument(ACadVersion.AC1032);
@@ -226,12 +280,16 @@ public sealed class CadPlanGridDisplayTests
         var history = new CadDocumentHistory(session);
         var values = new CadPlanGridDisplayEditValues(
             false,
+            2.5,
+            2.5,
             0.0,
             0.0,
             true,
             true,
             false,
-            17);
+            17,
+            CadPlanGridSnapStyle.Isometric,
+            CadPlanIsoplane.Top);
 
         ulong applied = history.Execute(
             new CadSetPlanGridDisplayCommand(values));
@@ -241,17 +299,20 @@ public sealed class CadPlanGridDisplayTests
         Assert.Equal(
             (GridFlags)(2 | 4 | 8 | 32),
             session.Read(d => d.VPorts[VPort.DefaultName].GridFlags));
-        Assert.Equal(new XY(3.0, 6.0),
+        Assert.Equal(new XY(2.5, 2.5),
             session.Read(d => d.VPorts[VPort.DefaultName].SnapSpacing));
         Assert.Equal(new XY(7.0, 9.0),
             session.Read(d => d.VPorts[VPort.DefaultName].SnapBasePoint));
         Assert.Equal(0.25,
             session.Read(d => d.VPorts[VPort.DefaultName].SnapRotation));
         Assert.True(session.Read(d => d.VPorts[VPort.DefaultName].SnapOn));
+        Assert.True(session.Read(d => d.VPorts[VPort.DefaultName].IsometricSnap));
+        Assert.Equal((short)CadPlanIsoplane.Top,
+            session.Read(d => d.VPorts[VPort.DefaultName].SnapIsoPair));
         CadPlanGridDisplaySettings appliedDisplay =
             new CadSnapshotCompiler().Compile(session).PlanGridDisplaySettings;
-        Assert.Equal(3.0, appliedDisplay.SpacingX);
-        Assert.Equal(6.0, appliedDisplay.SpacingY);
+        Assert.Equal(2.5, appliedDisplay.SpacingX);
+        Assert.Equal(2.5, appliedDisplay.SpacingY);
 
         Assert.True(history.TryUndo(out ulong undone));
         Assert.Equal(2UL, undone);
@@ -263,6 +324,11 @@ public sealed class CadPlanGridDisplayTests
         Assert.Equal(5,
             session.Read(d => d.VPorts[VPort.DefaultName]
                 .MinorGridLinesPerMajorGridLine));
+        Assert.Equal(new XY(3.0, 6.0),
+            session.Read(d => d.VPorts[VPort.DefaultName].SnapSpacing));
+        Assert.False(session.Read(d => d.VPorts[VPort.DefaultName].IsometricSnap));
+        Assert.Equal((short)CadPlanIsoplane.Left,
+            session.Read(d => d.VPorts[VPort.DefaultName].SnapIsoPair));
 
         Assert.True(history.TryRedo(out ulong redone));
         Assert.Equal(3UL, redone);
@@ -277,16 +343,42 @@ public sealed class CadPlanGridDisplayTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new CadPlanGridDisplayEditValues(
-                true, -1.0, 1.0, true, false, true, 5));
+                true, 0.0, 1.0, 1.0, 1.0, true, false, true, 5));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new CadPlanGridDisplayEditValues(
-                true, 1.0, double.NaN, true, false, true, 5));
+                true, 1.0, double.NaN, 1.0, 1.0, true, false, true, 5));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new CadPlanGridDisplayEditValues(
-                true, 1.0, 1.0, true, false, true, 0));
+                true, 1.0, 1.0, -1.0, 1.0, true, false, true, 5));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new CadPlanGridDisplayEditValues(
-                true, 1.0, 1.0, true, false, true, 101));
+                true, 1.0, 1.0, 1.0, double.NaN, true, false, true, 5));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadPlanGridDisplayEditValues(
+                true, 1.0, 1.0, 1.0, 1.0, true, false, true, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadPlanGridDisplayEditValues(
+                true, 1.0, 1.0, 1.0, 1.0, true, false, true, 101));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadPlanGridDisplayEditValues(
+                true, 1.0, 1.0, 1.0, 1.0, true, false, true, 5,
+                (CadPlanGridSnapStyle)2,
+                CadPlanIsoplane.Left));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadPlanGridDisplayEditValues(
+                true, 1.0, 1.0, 1.0, 1.0, true, false, true, 5,
+                CadPlanGridSnapStyle.Isometric,
+                (CadPlanIsoplane)3));
+        Assert.Throws<ArgumentException>(() =>
+            new CadPlanGridDisplayEditValues(
+                true, 1.0, 2.0, 1.0, 1.0, true, false, true, 5,
+                CadPlanGridSnapStyle.Isometric,
+                CadPlanIsoplane.Top));
+        Assert.Throws<ArgumentException>(() =>
+            new CadPlanGridDisplayEditValues(
+                true, 1.0, 1.0, 1.0, 2.0, true, false, true, 5,
+                CadPlanGridSnapStyle.Isometric,
+                CadPlanIsoplane.Top));
     }
 
     [Theory]
@@ -299,12 +391,16 @@ public sealed class CadPlanGridDisplayTests
             ACadVersion.AC1032);
         var expected = new CadPlanGridDisplayEditValues(
             false,
+            4.5,
+            4.5,
             2.5,
-            7.25,
+            2.5,
             true,
             true,
             false,
-            17);
+            17,
+            CadPlanGridSnapStyle.Isometric,
+            CadPlanIsoplane.Right);
         new CadDocumentHistory(session).Execute(
             new CadSetPlanGridDisplayCommand(expected));
         using var stream = new MemoryStream();
@@ -328,16 +424,18 @@ public sealed class CadPlanGridDisplayTests
             new CadSnapshotCompiler().Compile(loaded.Session)
                 .PlanGridDisplaySettings;
         Assert.Equal(2.5, display.SpacingX);
-        Assert.Equal(7.25, display.SpacingY);
+        Assert.Equal(2.5, display.SpacingY);
         Assert.False(display.IsVisible);
         Assert.True(display.IsAdaptive);
         Assert.True(display.AllowsSubdivision);
         Assert.False(display.ShowsBeyondLimits);
         Assert.Equal(17, display.MinorLinesPerMajorLine);
+        Assert.Equal(CadPlanGridDisplayStyle.Isometric, display.Style);
+        Assert.Equal(CadPlanIsoplane.Right, display.Isoplane);
     }
 
     [Fact]
-    public void SharedViewEditsPersistedGridWithoutChangingPointSnap()
+    public void SharedViewEditsPersistedGridAndSnapStyleAsOneHistoryEntry()
     {
         var document = new CadDocument(ACadVersion.AC1032);
         VPort active = document.VPorts[VPort.DefaultName];
@@ -354,6 +452,8 @@ public sealed class CadPlanGridDisplayTests
             view.Canvas.Load(session);
 
             Assert.True(view.PlanGridDisplayCheckBox.IsChecked);
+            Assert.Equal("3", view.PlanSnapUnitXInput.Text);
+            Assert.Equal("6", view.PlanSnapUnitYInput.Text);
             Assert.Equal("2", view.PlanGridUnitXInput.Text);
             Assert.Equal("4", view.PlanGridUnitYInput.Text);
             Assert.True(view.PlanGridAdaptiveCheckBox.IsChecked);
@@ -361,6 +461,11 @@ public sealed class CadPlanGridDisplayTests
             Assert.True(view.PlanGridBeyondLimitsCheckBox.IsChecked);
             Assert.Equal("5", view.PlanGridMajorInput.Text);
             Assert.False(view.PlanGridDotsCheckBox.IsChecked);
+            Assert.False(view.PlanGridIsometricCheckBox.IsChecked);
+            Assert.Equal(CadPlanIsoplane.Left,
+                Assert.IsType<CadPlanIsoplane>(
+                    Assert.IsType<ComboBoxItem>(
+                        view.PlanGridIsoplaneSelector.SelectedItem).Tag));
             Assert.Equal(
                 CadPlanGridPresentationStyle.Lines,
                 view.Canvas.PlanGridPresentationStyle);
@@ -378,12 +483,16 @@ public sealed class CadPlanGridDisplayTests
             Assert.Equal(generationBeforeStyleChange, session.ContentGeneration);
 
             view.PlanGridDisplayCheckBox.IsChecked = false;
+            view.PlanSnapUnitXInput.Text = "3";
+            view.PlanSnapUnitYInput.Text = "3";
             view.PlanGridUnitXInput.Text = "0";
             view.PlanGridUnitYInput.Text = "0";
             view.PlanGridAdaptiveCheckBox.IsChecked = true;
             view.PlanGridSubdivisionCheckBox.IsChecked = true;
             view.PlanGridBeyondLimitsCheckBox.IsChecked = false;
             view.PlanGridMajorInput.Text = "17";
+            view.PlanGridIsometricCheckBox.IsChecked = true;
+            view.PlanGridIsoplaneSelector.SelectedIndex = 2;
 
             Assert.True(view.ApplyPlanGridDisplayButton.IsEnabled);
             view.ApplyPlanGridDisplayButton.OnKeyDown(new KeyRoutedEventArgs
@@ -400,16 +509,25 @@ public sealed class CadPlanGridDisplayTests
             Assert.True(persisted.AllowsSubdivision);
             Assert.False(persisted.ShowsBeyondLimits);
             Assert.Equal(17, persisted.MinorLinesPerMajorLine);
+            Assert.Equal(CadPlanGridSnapStyle.Isometric, persisted.Style);
+            Assert.Equal(CadPlanIsoplane.Right, persisted.Isoplane);
+            Assert.Equal(3.0, persisted.SnapUnitX);
+            Assert.Equal(3.0, persisted.SnapUnitY);
             Assert.True(session.Read(d => d.VPorts[VPort.DefaultName].SnapOn));
-            Assert.Equal(new XY(3.0, 6.0),
+            Assert.Equal(new XY(3.0, 3.0),
                 session.Read(d => d.VPorts[VPort.DefaultName].SnapSpacing));
             Assert.True(view.Canvas.IsPlanGridSnapEnabled);
+            Assert.Equal(CadPlanGridSnapStyle.Isometric,
+                view.Canvas.PlanGridSnapSettings.Style);
             Assert.Equal(3.0, view.Canvas.PlanGridDisplaySettings.SpacingX);
-            Assert.Equal(6.0, view.Canvas.PlanGridDisplaySettings.SpacingY);
+            Assert.Equal(3.0, view.Canvas.PlanGridDisplaySettings.SpacingY);
             Assert.False(view.ApplyPlanGridDisplayButton.IsEnabled);
 
             Assert.True(view.Canvas.TryUndo());
             Assert.True(view.PlanGridDisplayCheckBox.IsChecked);
+            Assert.False(view.PlanGridIsometricCheckBox.IsChecked);
+            Assert.Equal("3", view.PlanSnapUnitXInput.Text);
+            Assert.Equal("6", view.PlanSnapUnitYInput.Text);
             Assert.Equal("2", view.PlanGridUnitXInput.Text);
             Assert.Equal("4", view.PlanGridUnitYInput.Text);
             Assert.True(view.Canvas.IsPlanGridSnapEnabled);
@@ -430,16 +548,31 @@ public sealed class CadPlanGridDisplayTests
         bool showsBeyondLimits = true,
         int cadence = 5,
         CadPlanGridDisplayStyle style = CadPlanGridDisplayStyle.RectangularDots,
-        CadBounds3D? limits = null)
+        CadBounds3D? limits = null,
+        CadPlanIsoplane isoplane = CadPlanIsoplane.Left)
     {
         double cosine = Math.Cos(rotationRadians);
         double sine = Math.Sin(rotationRadians);
+        CadPoint3D xAxis = new(cosine, sine, 0.0);
+        CadPoint3D yAxis = new(-sine, cosine, 0.0);
+        if (style == CadPlanGridDisplayStyle.Isometric)
+        {
+            CadPlanGridSnapSettings basis =
+                CadPlanGridSnapSettings.CreateIsometric(
+                    true,
+                    CadPoint3D.Zero,
+                    1.0,
+                    isoplane,
+                    rotationRadians);
+            xAxis = basis.XAxis;
+            yAxis = basis.YAxis;
+        }
         return new CadPlanGridDisplaySettings(
             true,
             style,
             new CadPoint3D(10.0, -20.0, 0.0),
-            new CadPoint3D(cosine, sine, 0.0),
-            new CadPoint3D(-sine, cosine, 0.0),
+            xAxis,
+            yAxis,
             spacingX,
             spacingY,
             isAdaptive,
@@ -449,7 +582,8 @@ public sealed class CadPlanGridDisplayTests
             cadence,
             limits ?? new CadBounds3D(
                 new CadPoint3D(-100.0, -100.0, 0.0),
-                new CadPoint3D(100.0, 100.0, 0.0)));
+                new CadPoint3D(100.0, 100.0, 0.0)),
+            isoplane);
     }
 
     private static void AssertPoint(

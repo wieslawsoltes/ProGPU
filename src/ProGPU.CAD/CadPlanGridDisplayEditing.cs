@@ -5,32 +5,51 @@ using CSMath;
 namespace ProGPU.CAD;
 
 /// <summary>
-/// Persisted rectangular drafting-grid values editable on the active VPORT.
+/// Persisted drafting-grid values editable on the active VPORT.
 /// </summary>
 /// <remarks>
-/// Zero GRIDUNIT components retain AutoCAD's documented meaning: inherit the
-/// matching SNAPUNIT component. GRIDDISPLAY bit 8 (dynamic-UCS following) and
+/// SNAPUNIT components are positive. Zero GRIDUNIT components retain AutoCAD's
+/// documented meaning: inherit the matching SNAPUNIT component. Isometric mode
+/// requires equal X/Y SNAPUNIT and GRIDUNIT values, as the Aspect commands are
+/// unavailable for that style.
+/// GRIDDISPLAY bit 8 (dynamic-UCS following) and
 /// any unknown bits are deliberately outside this edit and remain unchanged.
 /// </remarks>
 public readonly record struct CadPlanGridDisplayEditValues
 {
     public bool IsVisible { get; }
+    public double SnapUnitX { get; }
+    public double SnapUnitY { get; }
     public double GridUnitX { get; }
     public double GridUnitY { get; }
     public bool IsAdaptive { get; }
     public bool AllowsSubdivision { get; }
     public bool ShowsBeyondLimits { get; }
     public int MinorLinesPerMajorLine { get; }
+    public CadPlanGridSnapStyle Style { get; }
+    public CadPlanIsoplane Isoplane { get; }
 
     public CadPlanGridDisplayEditValues(
         bool isVisible,
+        double snapUnitX,
+        double snapUnitY,
         double gridUnitX,
         double gridUnitY,
         bool isAdaptive,
         bool allowsSubdivision,
         bool showsBeyondLimits,
-        int minorLinesPerMajorLine)
+        int minorLinesPerMajorLine,
+        CadPlanGridSnapStyle style = CadPlanGridSnapStyle.Rectangular,
+        CadPlanIsoplane isoplane = CadPlanIsoplane.Left)
     {
+        if (!double.IsFinite(snapUnitX) || snapUnitX <= 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(snapUnitX));
+        }
+        if (!double.IsFinite(snapUnitY) || snapUnitY <= 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(snapUnitY));
+        }
         if (!double.IsFinite(gridUnitX) || gridUnitX < 0.0)
         {
             throw new ArgumentOutOfRangeException(nameof(gridUnitX));
@@ -43,14 +62,32 @@ public readonly record struct CadPlanGridDisplayEditValues
         {
             throw new ArgumentOutOfRangeException(nameof(minorLinesPerMajorLine));
         }
+        if (!Enum.IsDefined(style))
+        {
+            throw new ArgumentOutOfRangeException(nameof(style));
+        }
+        if (!Enum.IsDefined(isoplane))
+        {
+            throw new ArgumentOutOfRangeException(nameof(isoplane));
+        }
+        if (style == CadPlanGridSnapStyle.Isometric &&
+            (snapUnitX != snapUnitY || gridUnitX != gridUnitY))
+        {
+            throw new ArgumentException(
+                "Isometric drafting requires equal X and Y snap/grid spacing.");
+        }
 
         IsVisible = isVisible;
+        SnapUnitX = snapUnitX;
+        SnapUnitY = snapUnitY;
         GridUnitX = gridUnitX;
         GridUnitY = gridUnitY;
         IsAdaptive = isAdaptive;
         AllowsSubdivision = allowsSubdivision;
         ShowsBeyondLimits = showsBeyondLimits;
         MinorLinesPerMajorLine = minorLinesPerMajorLine;
+        Style = style;
+        Isoplane = isoplane;
     }
 
     public static CadPlanGridDisplayEditValues Capture(CadDocument document)
@@ -62,12 +99,18 @@ public readonly record struct CadPlanGridDisplayEditValues
 
     internal static CadPlanGridDisplayEditValues Capture(VPort active) => new(
         active.ShowGrid,
+        active.SnapSpacing.X,
+        active.SnapSpacing.Y,
         active.GridSpacing.X,
         active.GridSpacing.Y,
         (((short)active.GridFlags) & 2) != 0,
         (((short)active.GridFlags) & 4) != 0,
         (((short)active.GridFlags) & 1) != 0,
-        active.MinorGridLinesPerMajorGridLine);
+        active.MinorGridLinesPerMajorGridLine,
+        active.IsometricSnap
+            ? CadPlanGridSnapStyle.Isometric
+            : CadPlanGridSnapStyle.Rectangular,
+        (CadPlanIsoplane)active.SnapIsoPair);
 
     internal static VPort GetActiveViewport(CadDocument document)
     {
@@ -82,8 +125,8 @@ public readonly record struct CadPlanGridDisplayEditValues
 }
 
 /// <summary>
-/// Replaces the active VPORT's persisted rectangular grid-display values as
-/// one generation-safe reversible edit.
+/// Replaces the active VPORT's persisted drafting-grid display, snap spacing,
+/// style, and isoplane values as one generation-safe reversible edit.
 /// </summary>
 /// <remarks>
 /// Apply, Undo, and Redo are O(1). The command retains the exact VPORT identity
@@ -134,10 +177,14 @@ public sealed class CadSetPlanGridDisplayCommand : CadEditCommand
                 (Values.AllowsSubdivision ? 4 : 0));
             _appliedState = new VPortState(
                 Values.IsVisible,
+                Values.SnapUnitX,
+                Values.SnapUnitY,
                 Values.GridUnitX,
                 Values.GridUnitY,
                 (GridFlags)(preservedFlags | replacementFlags),
-                checked((short)Values.MinorLinesPerMajorLine));
+                checked((short)Values.MinorLinesPerMajorLine),
+                Values.Style == CadPlanGridSnapStyle.Isometric,
+                checked((short)Values.Isoplane));
         }
 
         _appliedState.Apply(active);
@@ -149,13 +196,18 @@ public sealed class CadSetPlanGridDisplayCommand : CadEditCommand
     {
         short flags = (short)active.GridFlags;
         return active.ShowGrid == values.IsVisible &&
+            active.SnapSpacing.X == values.SnapUnitX &&
+            active.SnapSpacing.Y == values.SnapUnitY &&
             active.GridSpacing.X == values.GridUnitX &&
             active.GridSpacing.Y == values.GridUnitY &&
             ((flags & 2) != 0) == values.IsAdaptive &&
             ((flags & 4) != 0) == values.AllowsSubdivision &&
             ((flags & 1) != 0) == values.ShowsBeyondLimits &&
             active.MinorGridLinesPerMajorGridLine ==
-                values.MinorLinesPerMajorLine;
+                values.MinorLinesPerMajorLine &&
+            active.IsometricSnap ==
+                (values.Style == CadPlanGridSnapStyle.Isometric) &&
+            active.SnapIsoPair == (short)values.Isoplane;
     }
 
     internal override void Revert(CadDocument document)
@@ -186,24 +238,35 @@ public sealed class CadSetPlanGridDisplayCommand : CadEditCommand
 
     private readonly record struct VPortState(
         bool IsVisible,
+        double SnapUnitX,
+        double SnapUnitY,
         double GridUnitX,
         double GridUnitY,
         GridFlags GridFlags,
-        short MinorLinesPerMajorLine)
+        short MinorLinesPerMajorLine,
+        bool IsometricSnap,
+        short SnapIsoPair)
     {
         public static VPortState Capture(VPort active) => new(
             active.ShowGrid,
+            active.SnapSpacing.X,
+            active.SnapSpacing.Y,
             active.GridSpacing.X,
             active.GridSpacing.Y,
             active.GridFlags,
-            active.MinorGridLinesPerMajorGridLine);
+            active.MinorGridLinesPerMajorGridLine,
+            active.IsometricSnap,
+            active.SnapIsoPair);
 
         public void Apply(VPort active)
         {
             active.ShowGrid = IsVisible;
+            active.SnapSpacing = new XY(SnapUnitX, SnapUnitY);
             active.GridSpacing = new XY(GridUnitX, GridUnitY);
             active.GridFlags = GridFlags;
             active.MinorGridLinesPerMajorGridLine = MinorLinesPerMajorLine;
+            active.IsometricSnap = IsometricSnap;
+            active.SnapIsoPair = SnapIsoPair;
         }
     }
 }

@@ -1016,11 +1016,12 @@ direction by an invariant degree step around WCS +Z and uniformly enlarges or
 shrinks it by an invariant factor. Both use the center of the complete retained
 bounds for every selected semantic root as their base point, including all
 expanded primitives of a selected INSERT. The shared plan shell now captures
-the active rectangular UCS/SNAPANG basis and persisted ORTHOMODE. Pointer
+the active rectangular or isometric UCS/SNAPANG basis and persisted ORTHOMODE.
+Pointer
 acquisition uses exact object snap first. For a second point with Ortho enabled,
-it selects the nearer basis axis relative to the accepted base; when rectangular
-grid snap is also enabled, only that moving coordinate comes from the grid
-lattice, preserving an exact axis through an off-grid base. Grid then handles
+it selects the active basis axis with the least perpendicular distance relative
+to the accepted base; when grid snap is also enabled, the nearest constrained
+lattice point preserves an exact axis through an off-grid base. Grid then handles
 any unconstrained pointer, followed by raw input. Typed coordinates bypass all
 pointer constraints. The committed result remains double WCS, while the
 existing transient rubber band and grid marker provide O(1) feedback without
@@ -1035,7 +1036,7 @@ active Ortho axis, or an actually acquired polar path. It preserves the base Z
 plane, ignores object/grid point quantization for length and direction, uses an
 overflow-safe O(1) normalization, and leaves the explicit coordinate grammar
 unchanged. PolarSnap distance increments, additional/relative angles,
-object-snap tracking, isometric directions, 3D UCS Z acquisition,
+object-snap tracking, 3D UCS Z acquisition,
 global-last-point state, arbitrary-camera planes, reference-angle, and
 reference-length input remain later editor tools. The exact clean-room behavior
 and applicability records are in `PROGPU_CAD_ORTHO_RESEARCH.md`,
@@ -5033,17 +5034,21 @@ behavior research, clean-room provenance, supported families, complexity,
 parity, tests, and explicit deferred modes are recorded in
 [`PROGPU_CAD_OBJECT_SNAP_RESEARCH.md`](PROGPU_CAD_OBJECT_SNAP_RESEARCH.md).
 
-## Rectangular drafting-grid boundary
+## Rectangular and isometric drafting-grid boundary
 
-The immutable document snapshot now captures SNAPMODE, rectangular/isometric
-style, independent positive X/Y spacing, SNAPBASE, SNAPANG, and the active UCS
-from the authoritative `*ACTIVE` VPORT. Rectangular pointer acquisition is an
+The immutable document snapshot now captures SNAPMODE, SNAPSTYL, SNAPISOPAIR,
+positive X/Y SNAPUNIT, SNAPBASE, SNAPANG, and the active UCS from the
+authoritative `*ACTIVE` VPORT. Rectangular pointer acquisition is an
 allocation-free O(1) projection/round/reconstruction in the exact WCS grid
-basis and preserves the point component normal to that plane. The shared
+basis. Isometric Left/Top/Right acquisition uses the exact 30/90/150-degree
+unit-axis pairs, solves the oblique dual basis, and checks one rounded cell plus
+its fixed eight neighbors for the Euclidean-nearest triangular-lattice point.
+Both preserve the point component normal to the grid plane; malformed pair or
+unequal isometric spacing fails closed. The shared
 desktop/browser shell applies object-snap-over-grid-over-raw precedence to both
 MOVE/COPY point stages, commits the double-WCS result directly, leaves typed
 coordinate entry exact, and records only a fixed-device transient marker.
-Isometric and polar snap remain explicit, not rectangular approximations. The
+PolarSnap remains explicit rather than being approximated by the grid lattice. The
 clean-room source record, equations, failure semantics, parity audit, and tests
 are in
 [`PROGPU_CAD_GRID_SNAP_RESEARCH.md`](PROGPU_CAD_GRID_SNAP_RESEARCH.md).
@@ -5054,7 +5059,7 @@ Visible grid state is now an independent immutable snapshot contract over the
 active VPORT's GRIDMODE, GRIDUNIT, GRIDDISPLAY, GRIDMAJOR, drawing limits, and
 the same UCS/SNAPBASE/SNAPANG basis. The O(1), allocation-free camera planner
 chooses one major-cadence adaptive level, inverse-projects only the four visible
-clip corners, and emits one local rectangle, rectangular spacing, affine matrix,
+clip corners, and emits one local rectangle, lattice spacing, affine matrix,
 and optional limits clip. No lattice points are enumerated or uploaded.
 
 The shared canvas records one dynamically themed affine grid command before the
@@ -5066,26 +5071,29 @@ lattice to framebuffer space and quarter-physical-pixel snaps each center. Line
 mode maps the nearest two local line families through the derivative Jacobian,
 keeps minor lines one physical pixel wide, and doubles every persisted
 GRIDMAJOR line. Grid density therefore changes fragment coverage but never CPU
-geometry, native crossings, retained resources, or draw count. Singular
-projections and unsupported isometric mode fail closed. Full behavior research,
-wire provenance, complexity, parity, tests, and deferred host-profile persistence,
-isometric, and dynamic-UCS work are recorded in
+geometry, native crossings, retained resources, or draw count. Isometric mode
+reuses the dot primitive with the exact active oblique transform because a lined
+grid does not follow isometric snap. Singular projections and malformed
+style/pair/aspect fail closed. Full behavior research, wire provenance,
+complexity, parity, tests, and deferred host-profile persistence and dynamic-UCS
+work are recorded in
 [`PROGPU_CAD_GRID_DISPLAY_RESEARCH.md`](PROGPU_CAD_GRID_DISPLAY_RESEARCH.md).
 
 ## Persisted drafting-grid edit boundary
 
-The shared desktop/browser shell now edits active-VPORT GRIDMODE, rectangular
-GRIDUNIT, GRIDDISPLAY bits 1/2/4, and GRIDMAJOR through one typed reversible
-command. The command retains exact pre/post VPORT identity and raw flags,
-preserves dynamic-UCS/unknown bits, and does not mutate the independently owned
-SNAPMODE, SNAPUNIT, SNAPBASE, SNAPANG, UCS, limits, or style. A valid zero
+The shared desktop/browser shell now edits active-VPORT GRIDMODE, SNAPUNIT,
+GRIDUNIT, GRIDDISPLAY bits 1/2/4, GRIDMAJOR, SNAPSTYL, and SNAPISOPAIR through
+one typed reversible command. The command retains exact pre/post VPORT identity
+and raw flags, preserves dynamic-UCS/unknown bits, and does not mutate SNAPMODE,
+SNAPBASE, SNAPANG, UCS, limits, or the host-only GRIDSTYLE. A valid zero
 GRIDUNIT remains persisted and resolves from the matching SNAPUNIT component
 only while compiling the immutable display snapshot.
 
 Apply, Undo, and Redo each advance one document generation and transactionally
 replace one snapshot/picture; UI refresh is guarded against recursive edits.
-DXF R2007+ group 60/61 emission is supplied by the pinned ACadSharp feature
-commit, with matched ProGPU DXF/DWG persistence coverage. This host-side edit
+DXF R2007+ group 60/61 and VPORT group 77/78 emission is supplied by the pinned
+ACadSharp feature commit, with matched ProGPU DXF/DWG persistence coverage.
+This host-side edit
 does not change the existing paired managed/native grid rendering contract.
 Research, provenance, complexity, validation, and deferred modes remain in
 [`PROGPU_CAD_GRID_DISPLAY_RESEARCH.md`](PROGPU_CAD_GRID_DISPLAY_RESEARCH.md).

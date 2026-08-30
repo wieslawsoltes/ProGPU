@@ -30,6 +30,7 @@ public readonly record struct CadPlanGridDisplaySettings
 
     public bool IsVisible { get; }
     public CadPlanGridDisplayStyle Style { get; }
+    public CadPlanIsoplane Isoplane { get; }
     public CadPoint3D Origin { get; }
     public CadPoint3D XAxis { get; }
     public CadPoint3D YAxis { get; }
@@ -42,7 +43,7 @@ public readonly record struct CadPlanGridDisplaySettings
     public int MinorLinesPerMajorLine { get; }
     public CadBounds3D Limits { get; }
 
-    public bool IsSupported => Style == CadPlanGridDisplayStyle.RectangularDots;
+    public bool IsSupported => true;
 
     public static CadPlanGridDisplaySettings Hidden { get; } = new(
         false,
@@ -74,11 +75,16 @@ public readonly record struct CadPlanGridDisplaySettings
         bool showsBeyondLimits,
         bool followsDynamicUcs,
         int minorLinesPerMajorLine,
-        CadBounds3D limits)
+        CadBounds3D limits,
+        CadPlanIsoplane isoplane = CadPlanIsoplane.Left)
     {
         if (!Enum.IsDefined(style))
         {
             throw new ArgumentOutOfRangeException(nameof(style));
+        }
+        if (!Enum.IsDefined(isoplane))
+        {
+            throw new ArgumentOutOfRangeException(nameof(isoplane));
         }
         if (!IsFinite(origin) || !IsFinite(xAxis) || !IsFinite(yAxis))
         {
@@ -92,6 +98,11 @@ public readonly record struct CadPlanGridDisplaySettings
         {
             throw new ArgumentOutOfRangeException(nameof(spacingY));
         }
+        if (style == CadPlanGridDisplayStyle.Isometric && spacingX != spacingY)
+        {
+            throw new ArgumentException(
+                "Isometric grid display requires equal X and Y spacing.");
+        }
         if (minorLinesPerMajorLine is < 1 or > 100)
         {
             throw new ArgumentOutOfRangeException(nameof(minorLinesPerMajorLine));
@@ -104,15 +115,20 @@ public readonly record struct CadPlanGridDisplaySettings
         double xLengthSquared = CadPoint3D.Dot(xAxis, xAxis);
         double yLengthSquared = CadPoint3D.Dot(yAxis, yAxis);
         double axesDot = CadPoint3D.Dot(xAxis, yAxis);
+        bool hasExpectedAngle = style == CadPlanGridDisplayStyle.RectangularDots
+            ? Math.Abs(axesDot) <= OrthonormalTolerance
+            : Math.Abs(Math.Abs(axesDot) - 0.5) <= OrthonormalTolerance;
         if (Math.Abs(xLengthSquared - 1.0) > OrthonormalTolerance ||
             Math.Abs(yLengthSquared - 1.0) > OrthonormalTolerance ||
-            Math.Abs(axesDot) > OrthonormalTolerance)
+            !hasExpectedAngle)
         {
-            throw new ArgumentException("Grid axes must form an orthonormal basis.");
+            throw new ArgumentException(
+                "Grid axes must form the exact unit rectangular or isometric basis.");
         }
 
         IsVisible = isVisible;
         Style = style;
+        Isoplane = isoplane;
         Origin = origin;
         XAxis = xAxis;
         YAxis = yAxis;

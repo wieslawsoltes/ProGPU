@@ -257,6 +257,24 @@ public sealed class DrawingContextDotGridTests
     }
 
     [Fact]
+    public void DeviceDotGridShaderRendersExactIsometricLatticeThroughOneAffineQuad()
+    {
+        using var window = new HeadlessWindow(64, 64)
+        {
+            Content = new IsometricDeviceDotGridVisual()
+        };
+
+        window.Render();
+
+        byte[] pixels = window.ReadPixels();
+        Assert.True(ReadRed(pixels, window.Width, 32, 32) >= 220);
+        Assert.True(ReadRed(pixels, window.Width, 41, 37) >= 180);
+        Assert.True(ReadRed(pixels, window.Width, 23, 37) >= 180);
+        Assert.True(ReadRed(pixels, window.Width, 32, 42) >= 220);
+        Assert.True(ReadRed(pixels, window.Width, 32, 37) <= 20);
+    }
+
+    [Fact]
     public void DeviceLineGridShaderDrawsMinorAndWiderMajorLines()
     {
         using var window = new HeadlessWindow(64, 64)
@@ -343,6 +361,35 @@ public sealed class DrawingContextDotGridTests
                 new SolidColorBrush(Vector4.One),
                 new Rect(-16f, -28f, 32f, 56f),
                 new Vector2(10f, 14f),
+                1.5f,
+                transform);
+        }
+    }
+
+    private sealed class IsometricDeviceDotGridVisual : FrameworkElement
+    {
+        public IsometricDeviceDotGridVisual()
+        {
+            Width = 64f;
+            Height = 64f;
+        }
+
+        public override void OnRender(DrawingContext context)
+        {
+            context.DrawRectangle(
+                new SolidColorBrush(new Vector4(0f, 0f, 0f, 1f)),
+                null,
+                new Rect(0f, 0f, 64f, 64f));
+            float cosine30 = MathF.Sqrt(3f) * 0.5f;
+            Matrix4x4 transform = new(
+                cosine30, 0.5f, 0f, 0f,
+                -cosine30, 0.5f, 0f, 0f,
+                0f, 0f, 1f, 0f,
+                32f, 32f, 0f, 1f);
+            context.DrawDeviceDotGrid(
+                new SolidColorBrush(Vector4.One),
+                new Rect(-30f, -30f, 60f, 60f),
+                new Vector2(10f),
                 1.5f,
                 transform);
         }

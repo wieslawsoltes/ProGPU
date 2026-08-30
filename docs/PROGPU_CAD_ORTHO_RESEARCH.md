@@ -2,10 +2,11 @@
 
 ## Scope and primary sources
 
-This slice adds exact plan-view Ortho acquisition to the shared desktop/browser
-MOVE and COPY second-point prompts. It does not add 3D Z-axis acquisition,
-isometric directions, polar tracking, direct-distance cursor input, temporary
-keyboard overrides, or arbitrary-camera point acquisition.
+The initial slice adds exact plan-view Ortho acquisition to the shared
+desktop/browser MOVE and COPY second-point prompts. The isometric continuation
+uses the active Left/Top/Right isoplane pair and composes the same grid and
+direct-distance paths. It does not add 3D Z-axis acquisition, temporary keyboard
+overrides, or arbitrary-camera point acquisition.
 
 The implementation was designed clean-room from public behavior contracts:
 
@@ -23,12 +24,15 @@ The implementation was designed clean-room from public behavior contracts:
   independently confirms that Ortho applies to activities requiring a second
   point, follows the nearest axis, and is ignored for typed coordinates,
   object snaps, and perspective views.
+- Autodesk's [ISOPLANE command reference](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-9B1EEA63-BEC1-413E-B69F-541B5865F1A1.htm)
+  defines Left as 90/150 degrees, Top as 30/150 degrees, Right as 90/30
+  degrees, and requires Ortho to use the active pair.
 
 No third-party implementation source was used. The exact approved source
 provenance is the ProGPU-owned point-prompt, object-snap, grid-basis, viewport,
 snapshot, and retained-overlay implementation plus the in-repository ACadSharp
-`Header/CadHeader.cs` `OrthoMode` contract at submodule commit
-`c5e7b3236ec1bf545c15f0db25d228d9f79ed598`. No foreign source text, helper
+`Header/CadHeader.cs` `OrthoMode` and `Tables/VPort.cs` isometric contracts at
+the pinned ProGPU feature commit `592e5f1c`. No foreign source text, helper
 shape, naming, or control flow was copied.
 
 ## Adopted contract and precedence
@@ -39,35 +43,35 @@ the toggle remains a bounded interaction-session override and does not edit or
 republish the document. Ortho is enabled only for a pointer-supplied second
 point after the exact base point has been accepted.
 
-For accepted base `B`, pointer point `P`, and the active rectangular snap basis
-unit axes `X,Y`, the query computes:
+For accepted base `B`, pointer point `P`, and the active rectangular or
+isometric unit axes `X,Y`, the query computes:
 
 ```text
-D  = P - B
-dx = dot(D, X)
-dy = dot(D, Y)
-axis = X when abs(dx) >= abs(dy), otherwise Y
-P' = B + axis * dot(D, axis)
+D   = P - B
+dx  = dot(D, X)
+dy  = dot(D, Y)
+ex2 = max(0, dot(D,D) - dx*dx)
+ey2 = max(0, dot(D,D) - dy*dy)
+axis = X when ex2 <= ey2, otherwise Y
+P'  = B + axis * dot(D, axis)
 ```
 
-The deterministic exact tie chooses X. Because the basis already composes the
-active UCS with SNAPANG, Ortho follows both without duplicating their
-normalization or validation. Non-finite input and unsupported isometric state
-fail closed rather than falling back to a rectangular approximation. Work and
-storage are O(1), and a warm query allocates no managed memory.
+The squared perpendicular distance works for both orthogonal and oblique axis
+pairs; the deterministic exact tie chooses X. Because the basis already
+composes the active UCS with SNAPANG and SNAPISOPAIR, Ortho follows all three
+without duplicating their normalization or validation. Non-finite or malformed
+state fails closed. Work and storage are O(1), and a warm query allocates no
+managed memory.
 
 Pointer precedence is exact object snap, then Ortho, then grid snap, then raw
 pointer position. Object snap returns immediately and therefore ignores Ortho,
 as specified. Typed absolute and relative Cartesian/polar coordinates bypass
-the pointer constraint pipeline. With rectangular grid and Ortho both enabled,
-the selected moving coordinate comes from the snapped lattice point while the
-other coordinate stays exactly on the accepted base axis. An off-grid base
-obtained from object snap therefore cannot be pulled off its orthogonal line.
-The exact double-WCS result is committed without a float screen round trip.
-
-Isometric snap currently disables this plan Ortho toggle because implementing
-its priority requires a dedicated isometric direction model. Polar tracking is
-not yet exposed, so mutual exclusion has no current runtime state to manage.
+the pointer constraint pipeline. With grid and Ortho both enabled, the nearest
+rectangular or Euclidean-nearest triangular grid point is projected onto the
+selected axis through the accepted base. An off-grid base obtained from object
+snap therefore cannot be pulled off its Ortho line. The exact double-WCS result
+is committed without a float screen round trip. Direct-distance entry consumes
+that same axis result. Polar tracking remains mutually exclusive with Ortho.
 
 ## Rendering and managed/native applicability
 
@@ -98,13 +102,12 @@ managed/native committed-scene behavior remains identical.
 ## Verification and remaining gates
 
 Focused tests cover nearest-axis selection and deterministic ties, rotated
-bases, grid composition with an off-grid base, unsupported/non-finite rejection,
-persisted snapshot capture, 1,024 zero-allocation warm queries, second-point-only
+bases, rectangular grid composition with an off-grid base, all active isometric
+pairs, non-finite rejection, persisted snapshot capture, 1,024 zero-allocation warm queries, second-point-only
 shared-shell behavior, exact MOVE commit, object-snap override, and shared
 desktop/browser toggle propagation.
 
-3D UCS Z acquisition, isometric directions, polar tracking and mutual
-exclusion, direct-distance entry, F8 and temporary overrides, persisted-setting
-editing, arbitrary-camera rays, interaction image goldens, large-drawing
+3D UCS Z acquisition, F8 and temporary overrides, persisted ORTHOMODE editing,
+arbitrary-camera rays, interaction image goldens, large-drawing
 p50/p95/p99 evidence, and DXF/DWG ORTHOMODE round-trip fixtures remain before
 the broader Ortho/tracking feature can be called complete.

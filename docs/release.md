@@ -21,6 +21,17 @@ path. This is a SkiaSharp front-end storage change: the managed and native scene
 compilers receive the same expanded commands, so no one-sided renderer change
 is required.
 
+The ProGPU.CAD plan grid now preserves exact active-VPORT isometric drafting
+state. Left, Top, and Right use their documented 90/150, 30/150, and 30/90
+degree pairs; point acquisition chooses the Euclidean-nearest equal-aspect
+triangular-lattice point with fixed O(9), allocation-free work; and Ortho uses
+the active pair. The shared desktop/browser shell edits SNAPUNIT, SNAPSTYL, and
+SNAPISOPAIR in the same generation-safe grid command. Isometric display reuses
+the existing one-quad affine dot primitive because lined GRIDSTYLE does not
+follow the isometric lattice. The pinned ACadSharp.ProGPU fork now emits VPORT
+DXF groups 77/78, with DXF/DWG round-trip coverage and no native ABI or shader
+fork.
+
 The shared ProGPU.CAD plan grid now defaults to AutoCAD's lined model-space
 GRIDSTYLE and exposes a shared desktop/browser Dots toggle. Autodesk documents
 GRIDSTYLE as registry-backed host state, so the toggle intentionally changes no

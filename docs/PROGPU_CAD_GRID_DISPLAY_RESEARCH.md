@@ -1,20 +1,18 @@
 # ProGPU.CAD adaptive drafting-grid display research record
 
-Date: 2026-08-30
+Date: 2026-08-31
 
 ## Scope and primary sources
 
-This slice adds a visible rectangular drafting grid to the shared desktop/browser
-plan canvas. It captures the active VPORT display state independently from point
-snap, adapts density during zoom, honors drawing-limit clipping, and renders all
-visible dots through one retained affine GPU primitive. The follow-up slice adds
-generation-safe persisted editing for rectangular GRIDMODE, GRIDUNIT,
-GRIDDISPLAY bits 1/2/4, and GRIDMAJOR through the shared shell. It does not
-approximate isometric mode, edit dynamic-UCS following, or add arbitrary-camera
-grid-plane projection. The next rendering slice adds the registry-backed
-model-space GRIDSTYLE choice as typed host presentation state, defaults to the
-documented lined grid, and emphasizes every persisted GRIDMAJOR line without
-pretending that the host preference is a DXF/DWG field.
+The initial slice adds a visible rectangular drafting grid to the shared
+desktop/browser plan canvas. It captures the active VPORT display state
+independently from point snap, adapts density during zoom, honors drawing-limit
+clipping, and renders the lattice through one retained affine GPU primitive.
+The follow-ups add generation-safe persisted GRIDMODE, SNAPUNIT, GRIDUNIT,
+GRIDDISPLAY bits 1/2/4, GRIDMAJOR, SNAPSTYL, and SNAPISOPAIR editing; the
+registry-backed host GRIDSTYLE Lines/Dots choice; and exact Left/Top/Right
+isometric dot grids. Dynamic-UCS following/editing and arbitrary-camera
+grid-plane projection remain separate contracts.
 
 The implementation was designed clean-room from public behavior and format
 contracts:
@@ -25,7 +23,14 @@ contracts:
   line/major-line styles, and describes adaptive zoom behavior.
 - Autodesk's [GRID command reference](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-MAC-Core/files/GUID-7EC38AD6-FA34-4115-9E1C-6F13E1BA033D.htm)
   defines adaptive suppression while zooming out, optional subdivision while
-  zooming in, independent aspect spacing, limits behavior, and major cadence.
+  zooming in, independent rectangular aspect spacing, limits behavior, major
+  cadence, and that Aspect is unavailable for isometric snap.
+- Autodesk's [SNAP command reference](https://help.autodesk.com/cloudhelp/2024/ENU/AutoCAD-Core/files/GUID-F47F4AAF-4859-45D4-846C-3742268834A9.htm)
+  defines the equal-aspect isometric lattice and states that a lined grid does
+  not follow the isometric snap grid.
+- Autodesk's [ISOPLANE command reference](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-9B1EEA63-BEC1-413E-B69F-541B5865F1A1.htm)
+  defines Left as 90/150 degrees, Top as 30/150 degrees, and Right as 90/30
+  degrees.
 - Autodesk's [GRIDDISPLAY reference](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-LT-MAC/files/GUID-4D6AC943-FC9C-4CB8-A4E6-AD7313BF9C3A.htm)
   defines bit 1 as beyond-limits display, bit 2 as adaptive density, and bit 4
   as below-base subdivision when adaptive display is active.
@@ -45,13 +50,13 @@ No third-party implementation source was copied, ported, translated, or used as
 an implementation template. Exact approved source provenance is the existing
 ProGPU-owned `DrawDotGrid`, vector shader, retained command compiler, semantic
 native geometry stream, `CadPlanViewport`, and active-VPORT grid-snap capture.
-The in-repository ACadSharp contract at pinned commit
-`0a8c32940d35eb2efb3ada92d21dd4f85c3b07de` supplies typed `VPort.ShowGrid`,
-`GridSpacing`, `GridFlags`, `MinorGridLinesPerMajorGridLine`, UCS, SNAPBASE,
-SNAPANG, and model-limit values. ProGPU's existing ACadSharp feature branch adds
-the missing R2007+ DXF group 60/61 writer emission and its own two-version
-round-trip regression; ACadSharp `master` remains untouched and synchronized
-with upstream.
+The in-repository ACadSharp feature source at commit `592e5f1c` supplies typed
+`VPort.ShowGrid`, `SnapSpacing`, `GridSpacing`, `GridFlags`,
+`MinorGridLinesPerMajorGridLine`, `IsometricSnap`, `SnapIsoPair`, UCS, SNAPBASE,
+SNAPANG, and model-limit values. The approved ProGPU fork changes add missing
+R2007+ DXF group 60/61 writer emission and VPORT group 77/78 isometric writer
+emission, each with independent round-trip regressions. ACadSharp `master`
+remains untouched and synchronized with upstream.
 
 ## Adopted display and GPU contract
 
@@ -59,16 +64,17 @@ with upstream.
 from `CadPlanGridSnapSettings`. GRIDMODE therefore controls pixels and SNAPMODE
 controls pointer acquisition without either silently enabling the other. The
 rectangular display basis composes normalized active-VPORT UCS axes, SNAPBASE,
-and SNAPANG exactly as the existing snap lattice. Invalid spacing, cadence,
-limits, non-finite state, non-orthogonal axes, isometric style, or an edge-on
-WCS-XY projection fails closed.
+and SNAPANG exactly as the snap lattice. Isometric mode derives the exact active
+30/90/150-degree pair from that basis and requires equal effective X/Y spacing.
+Invalid spacing, cadence, limits, style/pair, non-finite state, unexpected axis
+angles, or an edge-on WCS-XY projection fails closed.
 
 For persisted spacings `sx,sy`, projected axis lengths `px,py`, camera zoom `z`,
 minimum device separation `m = 8`, and major cadence `k = max(2, GRIDMAJOR)`, the
 adaptive planner multiplies both spacings by `k` until
 `min(sx*px*z, sy*py*z) >= m`. When GRIDDISPLAY bit 4 permits subdivision, it
 then divides both by `k` while the next level still meets `m`. The shared factor
-preserves the authored rectangular aspect and major proportion. The loops are
+preserves the authored lattice aspect and major proportion. The loops are
 hard-bounded to 32 levels and all overflow/non-finite results fail closed.
 
 The planner inverse-projects the four visible clip corners into the grid basis,
@@ -77,8 +83,8 @@ local-to-screen matrix. GRIDDISPLAY bit 1 selects either the entire plan viewpor
 or the intersection with WCS model limits. Planning is O(1), allocation-free,
 and independent of the number of visible dots.
 
-`DrawingContext.DrawDeviceDotGrid` records one typed command with rectangular
-spacing, physical-pixel radius, local bounds, brush, and affine transform. The
+`DrawingContext.DrawDeviceDotGrid` records one typed command with affine lattice
+spacing, physical-pixel radius, local bounds, brush, and transform. The
 managed compositor and native semantic compiler both lower it to exactly four
 vertices and six indices. The existing stable native geometry record is retained:
 positive `stroke_thickness` selects the fixed-device variant, `p3` carries X/Y
@@ -130,11 +136,15 @@ fonts, variable-font state, and device-loss invalidation do not change.
 
 This is a shared rendering primitive, so managed/native parity is applicable and
 implemented. Both consume the same canonical shader and emit the same four
-vertices, six indices, shape type 25, rectangular spacing, physical radius,
+vertices, six indices, shape type 25, affine spacing, physical radius,
 line width/cadence when applicable, affine transform, brush, alias flag, clip,
 and failure semantics. The stable C
 ABI record layout and generated C# wire declarations are unchanged. The shared
 desktop/browser canvas records the same command with a dynamic theme brush.
+Because Autodesk documents that lined GRIDSTYLE does not follow isometric snap,
+the canvas forces the existing dot primitive while isometric mode is active and
+retains the host Lines preference for a later return to rectangular mode. This
+adds no shader source, native record, crossing, primitive, or per-dot work.
 
 ## Persisted edit and shell contract
 
@@ -143,8 +153,9 @@ VPORT subset. `CadSetPlanGridDisplayCommand` captures the exact retained VPORT
 identity and raw pre/post values, including unedited GRIDDISPLAY bit 8 and
 unknown bits. Apply, Undo, and Redo are O(1), use one document generation each,
 and reject identity replacement, unexpected mutation, invalid finite ranges,
-or a no-op edit. The command mutates no SNAPMODE, SNAPUNIT, SNAPBASE, SNAPANG,
-UCS, limits, GRIDSTYLE, or transient host state.
+invalid style/pair/aspect, or a no-op edit. The command owns SNAPUNIT, SNAPSTYL,
+and SNAPISOPAIR as part of this drafting-grid edit, but mutates no SNAPMODE,
+SNAPBASE, SNAPANG, UCS, limits, GRIDSTYLE, or transient host state.
 
 `CadPlanGridPresentationStyle` owns the separate host-only Lines/Dots choice.
 The shared desktop/browser view exposes one `Dots (GRIDSTYLE)` control and the
@@ -163,8 +174,9 @@ zero is not rewritten to an effective spacing merely because the drawing was
 displayed.
 
 The shared `CadSampleView` supplies dynamically themed controls for visibility,
-X/Y GRIDUNIT, adaptive display, subdivision, beyond-limits display, and
-GRIDMAJOR. One Apply action creates one history entry and one complete immutable
+X/Y SNAPUNIT, X/Y GRIDUNIT, rectangular/isometric style, Left/Top/Right plane,
+adaptive display, subdivision, beyond-limits display, and GRIDMAJOR. One Apply
+action creates one history entry and one complete immutable
 snapshot/picture replacement. Snapshot notifications transactionally refresh
 the controls after Apply, Undo, Redo, or document load; a refresh guard prevents
 control assignment from creating edits. Invalid and unchanged values disable
@@ -186,7 +198,8 @@ compilation outside the per-frame path.
 Focused managed tests cover command recording and invalid parameters, one-quad
 compilation, active-VPORT capture independent of SNAPMODE, rotated origin/basis,
 GRIDDISPLAY flags, GRIDMAJOR cadence, adaptive coarsening, below-base subdivision,
-limits clipping, isometric/edge-on rejection, 1,024 zero-allocation plans, shared
+limits clipping, exact isometric axis pairs, equal-aspect and malformed-pair
+rejection, 1,024 zero-allocation plans, shared
 canvas draw ordering, exact persisted edits, raw flag preservation, zero GRIDUNIT
 inheritance, one-generation Apply/Undo/Redo, shared-shell synchronization,
 snap-state independence, DXF/DWG persistence, and native semantic wire lowering.
@@ -197,24 +210,22 @@ dot transparency, affine dot circularity, and one-pixel minor versus two-pixel
 major line output. Shader-resource coverage verifies the canonical module and
 its required algorithm/complexity contract.
 
-Final macOS arm64 Release validation passed 1,017/1,017 ProGPU.CAD tests. The
-focused grid-display class passed 11/11, including the two ProGPU format cases;
-the focused grid primitive class passed 23/23, shader-resource audit passed
-20/20, managed-to-native dot/line lowering passed 2/2, and the Clang C++ native
-suite passed its focused executable;
-the ACadSharp R2007/R2018 DXF dependency regression passed 2/2 on its net9.0
-target with major-runtime roll-forward. The shared desktop host's net10.0
-warning-as-error build completed with zero warnings and zero errors. Release
-packing produced paired `ACadSharp.ProGPU.0.1.0-preview.62.nupkg` and
+Final macOS arm64 Release validation passed 1,031/1,031 ProGPU.CAD tests. The
+isometric continuation's focused grid/snap/Ortho/COPY set passed 36/36, the
+complete headless dot-grid pixel class passed 24/24, and the isometric native
+semantic-transform regression passed 1/1. The ACadSharp R2007/R2013/R2018 VPORT
+group 77/78 DXF dependency regression passed 3/3 on its net9.0 target with
+major-runtime roll-forward. The shared desktop host's net10.0 warning-as-error
+build completed with zero warnings and zero errors. Release packing produced
+paired `ACadSharp.ProGPU.0.1.0-preview.62.nupkg` and
 `ProGPU.CAD.0.1.0-preview.62.nupkg` artifacts. Package-content validation found
-the fork's `lib/net10.0/ACadSharp.dll` and proved that `ProGPU.CAD` declares the
-exact `ACadSharp.ProGPU 0.1.0-preview.62` dependency with no upstream
-`ACadSharp` dependency. The source/submodule and package graphs therefore use
-the same reviewed feature source; external publication remains a release action.
+the fork's net10.0 assembly and exact same-version package dependency, and the
+isolated consumer created an AC1032 document without resolving upstream
+ACadSharp. External publication remains a release action.
 
-Host-profile persistence beyond the current shared view, exact isometric
-lattices, transient dynamic-UCS following/editing, broader screenshot goldens
-at multiple DPI scales,
+Host-profile persistence beyond the current shared view, transient dynamic-UCS
+following/editing, status-key plane cycling, broader screenshot goldens at
+multiple DPI scales,
 extreme-shear visual differentials, and representative large-drawing GPU
 p50/p95/p99 measurements remain before the broader drafting-grid area is
 complete. This functional slice makes no unmeasured FPS or latency claim.

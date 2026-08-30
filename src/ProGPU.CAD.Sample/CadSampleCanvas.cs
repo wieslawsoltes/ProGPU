@@ -812,7 +812,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             context.PushClip(plan.ScreenClip);
         }
-        if (_planGridPresentationStyle == CadPlanGridPresentationStyle.Dots)
+        // Autodesk's isometric drafting contract uses a dotted oblique lattice;
+        // the lined GRIDSTYLE presentation does not follow isometric snap.
+        if (_planGridDisplaySettings.Style == CadPlanGridDisplayStyle.Isometric ||
+            _planGridPresentationStyle == CadPlanGridPresentationStyle.Dots)
         {
             context.DrawDeviceDotGrid(
                 _gridBrush,

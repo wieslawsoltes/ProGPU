@@ -5824,21 +5824,30 @@ public sealed partial class CadSnapshotCompiler
                 active,
                 out CadPoint3D basePoint,
                 out CadPoint3D snapX,
-                out CadPoint3D snapY))
+                out CadPoint3D snapY) ||
+            !TryCapturePlanGridStyle(
+                active,
+                ref snapX,
+                ref snapY,
+                out CadPlanGridSnapStyle style,
+                out CadPlanIsoplane isoplane))
+        {
+            return CadPlanGridSnapSettings.Disabled;
+        }
+        if (style == CadPlanGridSnapStyle.Isometric && spacingX != spacingY)
         {
             return CadPlanGridSnapSettings.Disabled;
         }
 
         return new CadPlanGridSnapSettings(
             active.SnapOn,
-            active.IsometricSnap
-                ? CadPlanGridSnapStyle.Isometric
-                : CadPlanGridSnapStyle.Rectangular,
+            style,
             basePoint,
             snapX,
             snapY,
             spacingX,
-            spacingY);
+            spacingY,
+            isoplane);
     }
 
     private static CadPlanGridDisplaySettings CapturePlanGridDisplaySettings(
@@ -5858,7 +5867,17 @@ public sealed partial class CadSnapshotCompiler
                 active,
                 out CadPoint3D origin,
                 out CadPoint3D xAxis,
-                out CadPoint3D yAxis))
+                out CadPoint3D yAxis) ||
+            !TryCapturePlanGridStyle(
+                active,
+                ref xAxis,
+                ref yAxis,
+                out CadPlanGridSnapStyle snapStyle,
+                out CadPlanIsoplane isoplane))
+        {
+            return CadPlanGridDisplaySettings.Hidden;
+        }
+        if (snapStyle == CadPlanGridSnapStyle.Isometric && spacingX != spacingY)
         {
             return CadPlanGridDisplaySettings.Hidden;
         }
@@ -5883,7 +5902,7 @@ public sealed partial class CadSnapshotCompiler
 
         return new CadPlanGridDisplaySettings(
             active.ShowGrid,
-            active.IsometricSnap
+            snapStyle == CadPlanGridSnapStyle.Isometric
                 ? CadPlanGridDisplayStyle.Isometric
                 : CadPlanGridDisplayStyle.RectangularDots,
             origin,
@@ -5898,7 +5917,8 @@ public sealed partial class CadSnapshotCompiler
             majorCadence,
             new CadBounds3D(
                 new CadPoint3D(minimumX, minimumY, 0.0),
-                new CadPoint3D(maximumX, maximumY, 0.0)));
+                new CadPoint3D(maximumX, maximumY, 0.0)),
+            isoplane);
     }
 
     private static bool TryResolveGridDisplaySpacing(
@@ -5945,6 +5965,39 @@ public sealed partial class CadSnapshotCompiler
             double.IsFinite(cosine) && double.IsFinite(sine) &&
             double.IsFinite(origin.X) && double.IsFinite(origin.Y) &&
             double.IsFinite(origin.Z);
+    }
+
+    private static bool TryCapturePlanGridStyle(
+        VPort active,
+        ref CadPoint3D xAxis,
+        ref CadPoint3D yAxis,
+        out CadPlanGridSnapStyle style,
+        out CadPlanIsoplane isoplane)
+    {
+        style = active.IsometricSnap
+            ? CadPlanGridSnapStyle.Isometric
+            : CadPlanGridSnapStyle.Rectangular;
+        if (style == CadPlanGridSnapStyle.Rectangular)
+        {
+            isoplane = CadPlanIsoplane.Left;
+            return true;
+        }
+
+        isoplane = (CadPlanIsoplane)active.SnapIsoPair;
+        if (!Enum.IsDefined(isoplane))
+        {
+            return false;
+        }
+
+        CadPlanGridSnapSettings.GetIsometricAxes(
+            xAxis,
+            yAxis,
+            isoplane,
+            out CadPoint3D isometricX,
+            out CadPoint3D isometricY);
+        xAxis = isometricX;
+        yAxis = isometricY;
+        return true;
     }
 
     private static CadPlanPolarTrackingSettings CapturePlanPolarTrackingSettings(

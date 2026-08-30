@@ -64,6 +64,10 @@ public sealed class CadSampleView : Grid
     private readonly CheckBox _planGridSnapCheckBox;
     private readonly CheckBox _planGridDisplayCheckBox;
     private readonly CheckBox _planGridDotsCheckBox;
+    private readonly CheckBox _planGridIsometricCheckBox;
+    private readonly ComboBox _planGridIsoplaneSelector;
+    private readonly TextBox _planSnapUnitXInput;
+    private readonly TextBox _planSnapUnitYInput;
     private readonly TextBox _planGridUnitXInput;
     private readonly TextBox _planGridUnitYInput;
     private readonly CheckBox _planGridAdaptiveCheckBox;
@@ -218,6 +222,14 @@ public sealed class CadSampleView : Grid
     public CheckBox PlanGridDisplayCheckBox => _planGridDisplayCheckBox;
 
     public CheckBox PlanGridDotsCheckBox => _planGridDotsCheckBox;
+
+    public CheckBox PlanGridIsometricCheckBox => _planGridIsometricCheckBox;
+
+    public ComboBox PlanGridIsoplaneSelector => _planGridIsoplaneSelector;
+
+    public TextBox PlanSnapUnitXInput => _planSnapUnitXInput;
+
+    public TextBox PlanSnapUnitYInput => _planSnapUnitYInput;
 
     public TextBox PlanGridUnitXInput => _planGridUnitXInput;
 
@@ -779,6 +791,66 @@ public sealed class CadSampleView : Grid
             "Dots (GRIDSTYLE)",
             font);
         draftingGridActions.AddChild(_planGridDotsCheckBox);
+        _planGridIsometricCheckBox = CreateAttributeModeCheckBox(
+            "Isometric",
+            font);
+        draftingGridActions.AddChild(_planGridIsometricCheckBox);
+        _planGridIsoplaneSelector = new ComboBox
+        {
+            WidthConstraint = 82,
+            HeightConstraint = 30,
+            Font = font,
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        foreach ((CadPlanIsoplane isoplane, string label) in new[]
+        {
+            (CadPlanIsoplane.Left, "Left"),
+            (CadPlanIsoplane.Top, "Top"),
+            (CadPlanIsoplane.Right, "Right"),
+        })
+        {
+            _planGridIsoplaneSelector.Items.Add(new ComboBoxItem(label)
+            {
+                Tag = isoplane,
+            });
+        }
+        _planGridIsoplaneSelector.SelectedIndex = 0;
+        draftingGridActions.AddChild(_planGridIsoplaneSelector);
+        draftingGridActions.AddChild(new TextBlock
+        {
+            Text = "SNAPUNIT X",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(8, 6, 6, 0),
+        });
+        _planSnapUnitXInput = new TextBox
+        {
+            Font = font,
+            WidthConstraint = 76,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        draftingGridActions.AddChild(_planSnapUnitXInput);
+        draftingGridActions.AddChild(new TextBlock
+        {
+            Text = "Y",
+            Font = font,
+            FontSize = 11,
+            Foreground = new ThemeResourceBrush("TextSecondary"),
+            Margin = new Thickness(0, 6, 6, 0),
+        });
+        _planSnapUnitYInput = new TextBox
+        {
+            Font = font,
+            WidthConstraint = 76,
+            HeightConstraint = 30,
+            IsSpellCheckEnabled = false,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        draftingGridActions.AddChild(_planSnapUnitYInput);
         draftingGridActions.AddChild(new TextBlock
         {
             Text = "GRIDUNIT X",
@@ -1862,6 +1934,14 @@ public sealed class CadSampleView : Grid
                 _planGridDotsCheckBox.IsChecked
                     ? CadPlanGridPresentationStyle.Dots
                     : CadPlanGridPresentationStyle.Lines;
+        _planGridIsometricCheckBox.CheckedChanged += (_, _) =>
+            UpdatePlanGridDisplayEditControls();
+        _planGridIsoplaneSelector.SelectionChanged += (_, _) =>
+            UpdatePlanGridDisplayEditControls();
+        _planSnapUnitXInput.TextChanged += (_, _) =>
+            UpdatePlanGridDisplayEditControls();
+        _planSnapUnitYInput.TextChanged += (_, _) =>
+            UpdatePlanGridDisplayEditControls();
         _planGridAdaptiveCheckBox.CheckedChanged += (_, _) =>
             UpdatePlanGridDisplayEditControls();
         _planGridSubdivisionCheckBox.CheckedChanged += (_, _) =>
@@ -2724,6 +2804,12 @@ public sealed class CadSampleView : Grid
             CadPlanGridDisplayEditValues values =
                 _canvas.GetPlanGridDisplayEditValues();
             _planGridDisplayCheckBox.IsChecked = values.IsVisible;
+            _planSnapUnitXInput.Text = values.SnapUnitX.ToString(
+                "G17",
+                CultureInfo.InvariantCulture);
+            _planSnapUnitYInput.Text = values.SnapUnitY.ToString(
+                "G17",
+                CultureInfo.InvariantCulture);
             _planGridUnitXInput.Text = values.GridUnitX.ToString(
                 "G17",
                 CultureInfo.InvariantCulture);
@@ -2738,17 +2824,28 @@ public sealed class CadSampleView : Grid
             _planGridMajorInput.Text =
                 values.MinorLinesPerMajorLine.ToString(
                     CultureInfo.InvariantCulture);
+            _planGridIsometricCheckBox.IsChecked =
+                values.Style == CadPlanGridSnapStyle.Isometric;
+            _planGridIsoplaneSelector.SelectedItem =
+                _planGridIsoplaneSelector.Items
+                    .OfType<ComboBoxItem>()
+                    .First(item => item.Tag is CadPlanIsoplane candidate &&
+                        candidate == values.Isoplane);
         }
         catch (Exception exception) when (
             exception is InvalidOperationException or ArgumentException)
         {
             _planGridDisplayCheckBox.IsChecked = false;
+            _planSnapUnitXInput.Text = string.Empty;
+            _planSnapUnitYInput.Text = string.Empty;
             _planGridUnitXInput.Text = string.Empty;
             _planGridUnitYInput.Text = string.Empty;
             _planGridAdaptiveCheckBox.IsChecked = false;
             _planGridSubdivisionCheckBox.IsChecked = false;
             _planGridBeyondLimitsCheckBox.IsChecked = false;
             _planGridMajorInput.Text = string.Empty;
+            _planGridIsometricCheckBox.IsChecked = false;
+            _planGridIsoplaneSelector.SelectedIndex = -1;
         }
         finally
         {
@@ -2778,6 +2875,10 @@ public sealed class CadSampleView : Grid
             SetStatus(
                 $"Updated active VPORT grid display: " +
                 $"GRIDMODE={(values.IsVisible ? 1 : 0)}, " +
+                $"SNAPSTYL={(values.Style == CadPlanGridSnapStyle.Isometric ? 1 : 0)}, " +
+                $"SNAPISOPAIR={(int)values.Isoplane}, " +
+                $"SNAPUNIT={values.SnapUnitX.ToString("G17", CultureInfo.InvariantCulture)}," +
+                $"{values.SnapUnitY.ToString("G17", CultureInfo.InvariantCulture)}, " +
                 $"GRIDUNIT={values.GridUnitX.ToString("G17", CultureInfo.InvariantCulture)}," +
                 $"{values.GridUnitY.ToString("G17", CultureInfo.InvariantCulture)}, " +
                 $"GRIDMAJOR={values.MinorLinesPerMajorLine}.");
@@ -2797,7 +2898,13 @@ public sealed class CadSampleView : Grid
         out CadPlanGridDisplayEditValues values)
     {
         values = default;
-        if (!TryParseNonNegativeInvariantDouble(
+        if (!TryParsePositiveInvariantDouble(
+                _planSnapUnitXInput.Text,
+                out double snapUnitX) ||
+            !TryParsePositiveInvariantDouble(
+                _planSnapUnitYInput.Text,
+                out double snapUnitY) ||
+            !TryParseNonNegativeInvariantDouble(
                 _planGridUnitXInput.Text,
                 out double gridUnitX) ||
             !TryParseNonNegativeInvariantDouble(
@@ -2812,15 +2919,32 @@ public sealed class CadSampleView : Grid
         {
             return false;
         }
+        if ((_planGridIsoplaneSelector.SelectedItem as ComboBoxItem)?.Tag is not
+            CadPlanIsoplane isoplane)
+        {
+            return false;
+        }
+        bool isIsometric = _planGridIsometricCheckBox.IsChecked;
+        if (isIsometric &&
+            (snapUnitX != snapUnitY || gridUnitX != gridUnitY))
+        {
+            return false;
+        }
 
         values = new CadPlanGridDisplayEditValues(
             _planGridDisplayCheckBox.IsChecked,
+            snapUnitX,
+            snapUnitY,
             gridUnitX,
             gridUnitY,
             _planGridAdaptiveCheckBox.IsChecked,
             _planGridSubdivisionCheckBox.IsChecked,
             _planGridBeyondLimitsCheckBox.IsChecked,
-            cadence);
+            cadence,
+            isIsometric
+                ? CadPlanGridSnapStyle.Isometric
+                : CadPlanGridSnapStyle.Rectangular,
+            isoplane);
         return true;
     }
 
@@ -5213,7 +5337,13 @@ public sealed class CadSampleView : Grid
             _canvas.CurrentSnapshot is not null &&
             _canvas.PlanGridDisplaySettings.IsSupported;
         _planGridDisplayCheckBox.IsEnabled = canEditPlanGridDisplay;
-        _planGridDotsCheckBox.IsEnabled = canEditPlanGridDisplay;
+        _planGridIsometricCheckBox.IsEnabled = canEditPlanGridDisplay;
+        _planGridDotsCheckBox.IsEnabled =
+            canEditPlanGridDisplay && !_planGridIsometricCheckBox.IsChecked;
+        _planGridIsoplaneSelector.IsEnabled =
+            canEditPlanGridDisplay && _planGridIsometricCheckBox.IsChecked;
+        _planSnapUnitXInput.IsEnabled = canEditPlanGridDisplay;
+        _planSnapUnitYInput.IsEnabled = canEditPlanGridDisplay;
         _planGridUnitXInput.IsEnabled = canEditPlanGridDisplay;
         _planGridUnitYInput.IsEnabled = canEditPlanGridDisplay;
         _planGridAdaptiveCheckBox.IsEnabled = canEditPlanGridDisplay;

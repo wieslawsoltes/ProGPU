@@ -13,7 +13,7 @@ public readonly record struct CadPlanOrthoResult(
 
 /// <summary>Exact base-relative orthogonal point constraint.</summary>
 /// <remarks>
-/// A query chooses the nearest of the active rectangular snap basis axes,
+/// A query chooses the nearest of the active rectangular or isometric basis axes,
 /// preserving an exact one-axis displacement from the accepted base. When grid
 /// snap is enabled, only the moving coordinate is taken from the lattice so an
 /// off-grid object-snap base remains exactly orthogonal. Work is O(1) and
@@ -38,12 +38,16 @@ public static class CadPlanOrthoConstraint
         CadPoint3D delta = pointerPoint - basePoint;
         double x = CadPoint3D.Dot(delta, basis.XAxis);
         double y = CadPoint3D.Dot(delta, basis.YAxis);
-        if (!double.IsFinite(x) || !double.IsFinite(y))
+        double deltaLengthSquared = CadPoint3D.Dot(delta, delta);
+        double xDistanceSquared = Math.Max(0.0, deltaLengthSquared - (x * x));
+        double yDistanceSquared = Math.Max(0.0, deltaLengthSquared - (y * y));
+        if (!double.IsFinite(x) || !double.IsFinite(y) ||
+            !double.IsFinite(xDistanceSquared) || !double.IsFinite(yDistanceSquared))
         {
             return false;
         }
 
-        CadPlanOrthoAxis axis = Math.Abs(y) <= Math.Abs(x)
+        CadPlanOrthoAxis axis = xDistanceSquared <= yDistanceSquared
             ? CadPlanOrthoAxis.X
             : CadPlanOrthoAxis.Y;
         CadPoint3D direction = axis == CadPlanOrthoAxis.X
