@@ -41,12 +41,12 @@ internal static partial class Program
             WriteProgress("ro-initialized");
 
             IntegrationEvidence evidence = Run(initializationHResult);
-            WriteEvidence(evidence);
-            return 0;
+            WriteProgress("evidence-write-started");
+            return WriteEvidence(evidence) ? 0 : 2;
         }
         catch (Exception exception)
         {
-            WriteEvidence(
+            _ = WriteEvidence(
                 new IntegrationEvidence(
                     Contract: "ProGPU genuine Win2D over Direct2D/Dawn",
                     Status: "failed",
@@ -853,11 +853,12 @@ internal static partial class Program
             ]
         };
 
-    private static void WriteEvidence(IntegrationEvidence evidence)
+    private static bool WriteEvidence(IntegrationEvidence evidence)
     {
         string json = JsonSerializer.Serialize(
             evidence,
             new JsonSerializerOptions { WriteIndented = true });
+        bool wroteEvidence = false;
         try
         {
             string packageDirectory = ApplicationData.Current.LocalFolder.Path;
@@ -865,7 +866,7 @@ internal static partial class Program
             File.WriteAllText(
                 Path.Combine(packageDirectory, ResultFileName),
                 json);
-            return;
+            wroteEvidence = true;
         }
         catch
         {
@@ -874,14 +875,29 @@ internal static partial class Program
             // let that secondary failure erase the original interop evidence.
         }
 
-        string fallbackDirectory = Path.Combine(
-            Environment.GetFolderPath(
-                Environment.SpecialFolder.LocalApplicationData),
-            FallbackResultDirectoryName);
-        Directory.CreateDirectory(fallbackDirectory);
-        File.WriteAllText(
-            Path.Combine(fallbackDirectory, ResultFileName),
-            json);
+        try
+        {
+            string fallbackDirectory = Path.Combine(
+                Environment.GetFolderPath(
+                    Environment.SpecialFolder.LocalApplicationData),
+                FallbackResultDirectoryName);
+            Directory.CreateDirectory(fallbackDirectory);
+            File.WriteAllText(
+                Path.Combine(fallbackDirectory, ResultFileName),
+                json);
+            wroteEvidence = true;
+        }
+        catch
+        {
+            // The process exit code and last durable progress stage remain
+            // observable even when both package and fallback writes fail.
+        }
+
+        if (!wroteEvidence)
+        {
+            WriteProgress("evidence-write-failed");
+        }
+        return wroteEvidence;
     }
 
     private static void WriteProgress(string stage)
