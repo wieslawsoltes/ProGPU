@@ -33,8 +33,8 @@ binary.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` API | Foundation plus solid/gradient/geometry resources implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine factory, device, context, bitmap, brushes, gradient-stop collections, primitive/path/transformed/combined geometries, and generic later-interface queries over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` |
-| Native Win2D binary interop | Device/target/solid/gradient/geometry round trip package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, brush, and `CanvasGeometry` projections. A packaged Microsoft Win2D 1.4.0 oracle qualifies identities, stop/geometry metadata, boolean geometry drawing and pixels, exclusive producer ownership, and zero-copy Dawn import, while images, text, effects, and full device-loss recreation remain gated work |
+| Direct2D `ID2D1*` API | Foundation plus solid/gradient/geometry/stroke-style resources implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine factory, device, context, bitmap, brushes, gradient-stop collections, primitive/path/transformed/combined geometries, `ID2D1StrokeStyle1`, and generic later-interface queries over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` |
+| Native Win2D binary interop | Device/target/solid/gradient/geometry/stroke-style round trip package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, brush, `CanvasGeometry`, and `CanvasStrokeStyle` projections. A packaged Microsoft Win2D 1.4.0 oracle qualifies identities, resource metadata, boolean geometry/styled-stroke drawing and pixels, exclusive producer ownership, and zero-copy Dawn import, while images, text, effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
 | Arbitrary Win2D native-resource wrapping (`GetOrCreate(IUnknown*)`) off Windows | Unsupported by design | Fail closed; there is no portable COM object identity to preserve |
@@ -98,7 +98,7 @@ is the device argument required by Win2D's
 `CanvasDevice.CreateFromDirect3D11Device`; it avoids a second adapter/resource
 domain and establishes the activation input for the next Canvas factory lane.
 
-ABI v9 includes the managed ownership half as package `ProGPU.Direct2D`.
+ABI v10 includes the managed ownership half as package `ProGPU.Direct2D`.
 `ProGpuDirect2DSurface.Create(...)` validates a live Dawn D3D12 context, exact
 adapter LUID when requested, BGRA8-unorm premultiplied format, dimensions, DPI,
 NT-handle and keyed-mutex flags before importing the allocation through
@@ -198,6 +198,17 @@ and `PortableGeometryPath` contracts shared with LibreWPF retained replay.
 Small paths use stack spans and larger paths rent bounded arrays; there is no
 reflection, per-segment native submission, or CPU tessellation. Kind-checked
 `CanvasGeometry` wrap/reverse methods preserve canonical COM identity.
+
+ABI v10 adds genuine factory-domain `ID2D1StrokeStyle1` creation with typed
+cap, join, dash, miter, offset, and transform-behavior metadata. Custom dash
+patterns cross the managed/native boundary as one pinned blittable span and
+are copied by Direct2D during resource creation, avoiding per-dash COM calls or
+an intermediate managed array. Invalid enum values, non-finite lengths,
+all-zero custom patterns, missing custom spans, and spans supplied to
+predefined dash styles fail closed. The package oracle wraps the exact resource
+as Microsoft Win2D `CanvasStrokeStyle`, reverse-unwraps it to the same canonical
+`ID2D1StrokeStyle1`, validates custom-dash metadata, and uses it for a genuine
+styled geometry draw.
 
 `TryBeginMicrosoftWin2DProducerAccess(...)` ends Dawn ownership, acquires the
 keyed mutex without beginning a second native Direct2D drawing context, and

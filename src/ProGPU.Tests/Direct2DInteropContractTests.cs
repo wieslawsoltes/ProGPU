@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 9U;",
+            "internal const uint AbiVersion = 10U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -105,6 +105,10 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
+            "progpu_native_direct2d_surface_create_stroke_style",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper",
             native,
             StringComparison.Ordinal);
@@ -137,7 +141,7 @@ public sealed class Direct2DInteropContractTests
             exports,
             StringComparison.Ordinal);
         Assert.Equal(
-            27,
+            28,
             exports.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries |
@@ -185,7 +189,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 9U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 10U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -305,11 +309,27 @@ public sealed class Direct2DInteropContractTests
             test,
             StringComparison.Ordinal);
         Assert.Contains(
+            "ID2D1StrokeStyle1",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "factory->CreateStrokeStyle(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "unwrapped_stroke_style.Get())",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "context->FillGeometry(path_geometry.Get(), solid_brush.Get());",
             test,
             StringComparison.Ordinal);
         Assert.Contains(
             "context->DrawGeometry(",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "stroke_style.Get());",
             test,
             StringComparison.Ordinal);
         Assert.Contains(

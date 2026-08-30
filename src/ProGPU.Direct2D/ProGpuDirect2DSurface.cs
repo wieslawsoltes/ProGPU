@@ -37,6 +37,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
         new("2CD906AC-12E2-11DC-9FED-001143A055F9");
     private static readonly Guid D2D1GeometryInterfaceId =
         new("2CD906A1-12E2-11DC-9FED-001143A055F9");
+    private static readonly Guid D2D1StrokeStyle1InterfaceId =
+        new("10A72A66-E91C-43F4-993F-DD5AF37B26E7");
 
     private readonly object _gate = new();
     private readonly DawnGpuContext _dawn;
@@ -658,6 +660,43 @@ public sealed unsafe class ProGpuDirect2DSurface :
     }
 
     /// <summary>
+    /// Creates a genuine factory-domain ID2D1StrokeStyle1. A custom dash
+    /// pattern is pinned and submitted as one contiguous span; Direct2D owns
+    /// its copied style state after this method returns.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateStrokeStyle(
+        ProGpuDirect2DStrokeStyleProperties properties,
+        ReadOnlySpan<float> customDashes = default)
+    {
+        ValidateStrokeStyle(properties, customDashes);
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            fixed (float* dashPointer = customDashes)
+            {
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.SurfaceCreateStrokeStyle(
+                        _nativeSurface,
+                        &properties,
+                        dashPointer,
+                        checked((uint)customDashes.Length),
+                        &value,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1StrokeStyle1 creation",
+                    status,
+                    nativeHResult);
+                return CreateRequiredComReference(
+                    value,
+                    ProGpuDirect2DInterfaceKind.D2D1StrokeStyle1,
+                    "ID2D1StrokeStyle1 creation");
+            }
+        }
+    }
+
+    /// <summary>
     /// Creates a genuine Direct2D geometry from the neutral primitive contract
     /// already published by source-built WPF.
     /// </summary>
@@ -948,6 +987,31 @@ public sealed unsafe class ProGpuDirect2DSurface :
             ProGpuDirect2DInterfaceKind.D2D1Geometry,
             "Microsoft Win2D CanvasGeometry native-resource query",
             out nativeGeometry,
+            out nativeHResult);
+
+    public bool TryAcquireMicrosoftWin2DStrokeStyle(
+        ProGpuDirect2DComReference nativeStrokeStyle,
+        out ProGpuDirect2DComReference? canvasStrokeStyle,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapper(
+            nativeStrokeStyle,
+            ProGpuDirect2DInterfaceKind.D2D1StrokeStyle1,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasStrokeStyle,
+            "Microsoft Win2D CanvasStrokeStyle wrapping",
+            out canvasStrokeStyle,
+            out nativeHResult);
+
+    public bool TryAcquireMicrosoftWin2DNativeStrokeStyle(
+        ProGpuDirect2DComReference canvasStrokeStyle,
+        out ProGpuDirect2DComReference? nativeStrokeStyle,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapperNativeResource(
+            canvasStrokeStyle,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasStrokeStyle,
+            D2D1StrokeStyle1InterfaceId,
+            ProGpuDirect2DInterfaceKind.D2D1StrokeStyle1,
+            "Microsoft Win2D CanvasStrokeStyle native-resource query",
+            out nativeStrokeStyle,
             out nativeHResult);
 
     private ProGpuDirect2DComReference CreateGradientBrush(
@@ -1688,6 +1752,51 @@ public sealed unsafe class ProGpuDirect2DSurface :
             throw new ArgumentException(
                 "The COM reference must own a Direct2D geometry.",
                 parameterName);
+        }
+    }
+
+    private static void ValidateStrokeStyle(
+        ProGpuDirect2DStrokeStyleProperties properties,
+        ReadOnlySpan<float> customDashes)
+    {
+        if (properties.StartCap > ProGpuDirect2DCapStyle.Triangle ||
+            properties.EndCap > ProGpuDirect2DCapStyle.Triangle ||
+            properties.DashCap > ProGpuDirect2DCapStyle.Triangle ||
+            properties.LineJoin > ProGpuDirect2DLineJoin.MiterOrBevel ||
+            !float.IsFinite(properties.MiterLimit) ||
+            properties.MiterLimit <= 0.0F ||
+            properties.DashStyle > ProGpuDirect2DDashStyle.Custom ||
+            !float.IsFinite(properties.DashOffset) ||
+            properties.TransformType >
+                ProGpuDirect2DStrokeTransformType.Hairline)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(properties),
+                "Direct2D stroke-style metadata is invalid.");
+        }
+        if ((properties.DashStyle == ProGpuDirect2DDashStyle.Custom) !=
+            !customDashes.IsEmpty)
+        {
+            throw new ArgumentException(
+                "Custom Direct2D dash styles require a nonempty dash span, and predefined styles reject one.",
+                nameof(customDashes));
+        }
+        bool hasPositiveDash = false;
+        foreach (float dash in customDashes)
+        {
+            if (!float.IsFinite(dash) || dash < 0.0F)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(customDashes),
+                    "Direct2D custom dash lengths must be finite and nonnegative.");
+            }
+            hasPositiveDash |= dash > 0.0F;
+        }
+        if (!customDashes.IsEmpty && !hasPositiveDash)
+        {
+            throw new ArgumentException(
+                "A custom Direct2D dash pattern must contain a positive length.",
+                nameof(customDashes));
         }
     }
 

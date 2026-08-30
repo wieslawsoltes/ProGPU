@@ -88,7 +88,9 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_ELLIPSE_GEOMETRY = 29,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_PATH_GEOMETRY1 = 30,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_TRANSFORMED_GEOMETRY = 31,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_GEOMETRY = 32
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_GEOMETRY = 32,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_STROKE_STYLE1 = 33,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_STROKE_STYLE = 34
 } progpu_native_direct2d_interface_kind;
 
 typedef enum progpu_native_direct2d_fill_mode {
@@ -109,6 +111,35 @@ typedef enum progpu_native_direct2d_combine_mode {
     PROGPU_NATIVE_DIRECT2D_COMBINE_MODE_XOR = 2,
     PROGPU_NATIVE_DIRECT2D_COMBINE_MODE_EXCLUDE = 3
 } progpu_native_direct2d_combine_mode;
+
+typedef enum progpu_native_direct2d_cap_style {
+    PROGPU_NATIVE_DIRECT2D_CAP_STYLE_FLAT = 0,
+    PROGPU_NATIVE_DIRECT2D_CAP_STYLE_SQUARE = 1,
+    PROGPU_NATIVE_DIRECT2D_CAP_STYLE_ROUND = 2,
+    PROGPU_NATIVE_DIRECT2D_CAP_STYLE_TRIANGLE = 3
+} progpu_native_direct2d_cap_style;
+
+typedef enum progpu_native_direct2d_line_join {
+    PROGPU_NATIVE_DIRECT2D_LINE_JOIN_MITER = 0,
+    PROGPU_NATIVE_DIRECT2D_LINE_JOIN_BEVEL = 1,
+    PROGPU_NATIVE_DIRECT2D_LINE_JOIN_ROUND = 2,
+    PROGPU_NATIVE_DIRECT2D_LINE_JOIN_MITER_OR_BEVEL = 3
+} progpu_native_direct2d_line_join;
+
+typedef enum progpu_native_direct2d_dash_style {
+    PROGPU_NATIVE_DIRECT2D_DASH_STYLE_SOLID = 0,
+    PROGPU_NATIVE_DIRECT2D_DASH_STYLE_DASH = 1,
+    PROGPU_NATIVE_DIRECT2D_DASH_STYLE_DOT = 2,
+    PROGPU_NATIVE_DIRECT2D_DASH_STYLE_DASH_DOT = 3,
+    PROGPU_NATIVE_DIRECT2D_DASH_STYLE_DASH_DOT_DOT = 4,
+    PROGPU_NATIVE_DIRECT2D_DASH_STYLE_CUSTOM = 5
+} progpu_native_direct2d_dash_style;
+
+typedef enum progpu_native_direct2d_stroke_transform_type {
+    PROGPU_NATIVE_DIRECT2D_STROKE_TRANSFORM_NORMAL = 0,
+    PROGPU_NATIVE_DIRECT2D_STROKE_TRANSFORM_FIXED = 1,
+    PROGPU_NATIVE_DIRECT2D_STROKE_TRANSFORM_HAIRLINE = 2
+} progpu_native_direct2d_stroke_transform_type;
 
 enum {
     PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_FLAG_NONE = 0U,
@@ -263,8 +294,19 @@ typedef struct progpu_native_direct2d_path_segment {
     uint32_t arc_flags;
 } progpu_native_direct2d_path_segment;
 
+typedef struct progpu_native_direct2d_stroke_style_properties {
+    uint32_t start_cap;
+    uint32_t end_cap;
+    uint32_t dash_cap;
+    uint32_t line_join;
+    float miter_limit;
+    uint32_t dash_style;
+    float dash_offset;
+    uint32_t transform_type;
+} progpu_native_direct2d_stroke_style_properties;
+
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 9U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 10U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -429,6 +471,18 @@ progpu_native_direct2d_surface_combine_geometry(
     progpu_native_direct2d_combine_mode combine_mode,
     const progpu_native_direct2d_matrix_3x2_f* geometry_b_transform,
     float flattening_tolerance,
+    void** value,
+    int32_t* native_hresult);
+
+/* Creates a genuine factory-domain ID2D1StrokeStyle1. Custom dash lengths are
+ * passed as one contiguous caller-owned span and Direct2D copies them during
+ * creation; there is no per-dash COM submission. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_stroke_style(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_stroke_style_properties* properties,
+    const float* dashes,
+    uint32_t dash_count,
     void** value,
     int32_t* native_hresult);
 

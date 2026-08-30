@@ -51,6 +51,10 @@ static_assert(
     sizeof(progpu_native_direct2d_gradient_stop) ==
         sizeof(D2D1_GRADIENT_STOP),
     "Direct2D portable gradient-stop layout changed");
+static_assert(
+    sizeof(progpu_native_direct2d_stroke_style_properties) ==
+        sizeof(D2D1_STROKE_STYLE_PROPERTIES1),
+    "Direct2D portable stroke-style layout changed");
 
 struct progpu_native_direct2d_surface {
     ComPtr<ID3D11Device> d3d_device;
@@ -167,6 +171,26 @@ bool is_valid(progpu_native_direct2d_color_interpolation_mode value)
             PROGPU_NATIVE_DIRECT2D_COLOR_INTERPOLATION_MODE_STRAIGHT ||
         value ==
             PROGPU_NATIVE_DIRECT2D_COLOR_INTERPOLATION_MODE_PREMULTIPLIED;
+}
+
+bool is_valid_cap_style(uint32_t value)
+{
+    return value <= PROGPU_NATIVE_DIRECT2D_CAP_STYLE_TRIANGLE;
+}
+
+bool is_valid_line_join(uint32_t value)
+{
+    return value <= PROGPU_NATIVE_DIRECT2D_LINE_JOIN_MITER_OR_BEVEL;
+}
+
+bool is_valid_dash_style(uint32_t value)
+{
+    return value <= PROGPU_NATIVE_DIRECT2D_DASH_STYLE_CUSTOM;
+}
+
+bool is_valid_stroke_transform_type(uint32_t value)
+{
+    return value <= PROGPU_NATIVE_DIRECT2D_STROKE_TRANSFORM_HAIRLINE;
 }
 
 bool is_geometry_path_segment_valid(
@@ -1572,6 +1596,86 @@ progpu_native_direct2d_surface_combine_geometry(
         return status_from_win2d_hresult(hr);
     }
     return return_interface(path, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_stroke_style(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_stroke_style_properties* properties,
+    const float* dashes,
+    uint32_t dash_count,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || properties == nullptr || value == nullptr ||
+        native_hresult == nullptr ||
+        !is_valid_cap_style(properties->start_cap) ||
+        !is_valid_cap_style(properties->end_cap) ||
+        !is_valid_cap_style(properties->dash_cap) ||
+        !is_valid_line_join(properties->line_join) ||
+        !std::isfinite(properties->miter_limit) ||
+        properties->miter_limit <= 0.0F ||
+        !is_valid_dash_style(properties->dash_style) ||
+        !std::isfinite(properties->dash_offset) ||
+        !is_valid_stroke_transform_type(properties->transform_type) ||
+        ((properties->dash_style ==
+              PROGPU_NATIVE_DIRECT2D_DASH_STYLE_CUSTOM) !=
+            (dashes != nullptr && dash_count != 0U)) ||
+        (properties->dash_style !=
+             PROGPU_NATIVE_DIRECT2D_DASH_STYLE_CUSTOM &&
+         (dashes != nullptr || dash_count != 0U))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    bool has_positive_dash = false;
+    for (uint32_t index = 0U; index < dash_count; ++index) {
+        if (!std::isfinite(dashes[index]) || dashes[index] < 0.0F) {
+            return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+        }
+        has_positive_dash = has_positive_dash || dashes[index] > 0.0F;
+    }
+    if (dash_count != 0U && !has_positive_dash) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    D2D1_STROKE_STYLE_PROPERTIES1 native_properties{};
+    native_properties.startCap =
+        static_cast<D2D1_CAP_STYLE>(properties->start_cap);
+    native_properties.endCap =
+        static_cast<D2D1_CAP_STYLE>(properties->end_cap);
+    native_properties.dashCap =
+        static_cast<D2D1_CAP_STYLE>(properties->dash_cap);
+    native_properties.lineJoin =
+        static_cast<D2D1_LINE_JOIN>(properties->line_join);
+    native_properties.miterLimit = properties->miter_limit;
+    native_properties.dashStyle =
+        static_cast<D2D1_DASH_STYLE>(properties->dash_style);
+    native_properties.dashOffset = properties->dash_offset;
+    native_properties.transformType =
+        static_cast<D2D1_STROKE_TRANSFORM_TYPE>(properties->transform_type);
+
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1Factory1> factory;
+    HRESULT hr = surface->d2d_factory.As(&factory);
+    ComPtr<ID2D1StrokeStyle1> stroke_style;
+    if (SUCCEEDED(hr)) {
+        hr = factory->CreateStrokeStyle(
+            native_properties,
+            dashes,
+            dash_count,
+            stroke_style.GetAddressOf());
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(stroke_style, value);
 }
 
 progpu_native_direct2d_status
