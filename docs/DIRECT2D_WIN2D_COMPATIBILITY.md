@@ -33,8 +33,8 @@ binary.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` API | Foundation plus solid/gradient resources implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine factory, device, context, bitmap, solid brush, `ID2D1GradientStopCollection1`, linear-gradient brush, and radial-gradient brush objects over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` |
-| Native Win2D binary interop | Device/target/solid/gradient round trip package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasSolidColorBrush`, `CanvasLinearGradientBrush`, and `CanvasRadialGradientBrush` projections. A packaged Microsoft Win2D 1.4.0 oracle qualifies identities, stop/geometry metadata, actual brush draws and pixels, exclusive producer ownership, and zero-copy Dawn import, while images, geometry, text, effects, and full device-loss recreation remain gated work |
+| Direct2D `ID2D1*` API | Foundation plus solid/gradient/geometry resources implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine factory, device, context, bitmap, brushes, gradient-stop collections, primitive/path/transformed/combined geometries, and generic later-interface queries over a keyed-mutex BGRA DXGI target; no fake `d2d1.dll` |
+| Native Win2D binary interop | Device/target/solid/gradient/geometry round trip package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, brush, and `CanvasGeometry` projections. A packaged Microsoft Win2D 1.4.0 oracle qualifies identities, stop/geometry metadata, boolean geometry drawing and pixels, exclusive producer ownership, and zero-copy Dawn import, while images, text, effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
 | Arbitrary Win2D native-resource wrapping (`GetOrCreate(IUnknown*)`) off Windows | Unsupported by design | Fail closed; there is no portable COM object identity to preserve |
@@ -98,7 +98,7 @@ is the device argument required by Win2D's
 `CanvasDevice.CreateFromDirect3D11Device`; it avoids a second adapter/resource
 domain and establishes the activation input for the next Canvas factory lane.
 
-ABI v8 includes the managed ownership half as package `ProGPU.Direct2D`.
+ABI v9 includes the managed ownership half as package `ProGPU.Direct2D`.
 `ProGpuDirect2DSurface.Create(...)` validates a live Dawn D3D12 context, exact
 adapter LUID when requested, BGRA8-unorm premultiplied format, dimensions, DPI,
 NT-handle and keyed-mutex flags before importing the allocation through
@@ -186,6 +186,19 @@ call. The resulting real `ID2D1LinearGradientBrush` and
 `ID2D1RadialGradientBrush` use the same v7 generic native Win2D seam; public
 managed wrap/reverse methods remain kind-specific.
 
+ABI v9 adds the device-independent geometry family. The C ABI creates genuine
+`ID2D1RectangleGeometry`, `ID2D1RoundedRectangleGeometry`,
+`ID2D1EllipseGeometry`, `ID2D1PathGeometry1`, and
+`ID2D1TransformedGeometry` objects and lowers union/intersect/XOR/exclude
+combinations through `ID2D1Geometry::CombineWithGeometry`. Path figures carry
+explicit fill/close state; line, quadratic, cubic, and arc segments retain
+stroke/join, sweep, and large-arc flags. The managed surface accepts both the
+low-level blittable spans and the existing neutral `PortablePrimitiveGeometry`
+and `PortableGeometryPath` contracts shared with LibreWPF retained replay.
+Small paths use stack spans and larger paths rent bounded arrays; there is no
+reflection, per-segment native submission, or CPU tessellation. Kind-checked
+`CanvasGeometry` wrap/reverse methods preserve canonical COM identity.
+
 `TryBeginMicrosoftWin2DProducerAccess(...)` ends Dawn ownership, acquires the
 keyed mutex without beginning a second native Direct2D drawing context, and
 returns the CanvasRenderTarget. The caller creates, uses, and disposes its real
@@ -205,7 +218,7 @@ thread that activates or uses the returned WinRT object and must make the Win2D
 package available through their normal package/dependency graph.
 
 This is not yet the complete native Win2D bridge. The next interop boundaries
-are image brushes, geometry, text, command lists, effects, and
+are image brushes, text, command lists, effects, and
 device-loss recreation of the entire cached resource domain. Each family must
 pass the same forward-wrap/reverse-unwrap identity and actual-draw gate before
 it is advertised.
@@ -425,7 +438,7 @@ for `progpu_native_direct2d.dll` and
 `cab7f76311cd5115a0f8f84ee680115eb6481c6842eb45a85eea0633c08292fc`
 for `progpu_native_direct2d_tests.exe`.
 
-The current ABI v8 gate includes transactional `BeginDraw`/`EndDraw`, safe COM
+The current ABI v9 gate includes transactional `BeginDraw`/`EndDraw`, safe COM
 release, nested/unmatched draw rejection, zero-key Dawn ownership, and a
 generic GUID-based `QueryInterface` export. The latter returns a caller-owned
 reference to any later Direct2D interface supported by the installed Windows
@@ -439,7 +452,9 @@ factory-native wrap and resource-wrapper-native unwrap operations. The gate
 also requires exact solid-brush projection and drawing. ABI v8 adds
 `ID2D1GradientStopCollection1`, linear-gradient brush, and radial-gradient
 brush creation while reusing those generic identity operations. The gate
-enforces an exact 21-export allowlist.
+enforces an exact 27-export allowlist. ABI v9 adds primitive/path/transformed/
+combined geometry creation, real `FillGeometry`/`DrawGeometry` execution, and
+exact `ID2D1Geometry <-> CanvasGeometry` identity.
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
@@ -520,6 +535,24 @@ metadata and geometry, and exact solid/linear/radial sample ARGB values
 `(255,224,48,96)`, `(255,32,160,224)`, and `(255,64,192,96)`. The corner
 remains transparent; device, target, and solid identities, content version
 `0 -> 1`, and `Dawn D3D12` also pass.
+
+ABI v9 at exact ProGPU commit `0b96328e` was rebuilt in the same Windows 11
+ARM64 Parallels guest with MSVC 19.44, Windows SDK 10.0.26100.0, and
+`/W4 /WX`. The native regression exits zero and `dumpbin` matches all 27
+allowed exports. SHA-256 is
+`83a67ee9007902ca477bada185ea99d298f879b8798b91aad18d4bf996eda29e`
+for `progpu_native_direct2d.dll` and
+`eb9cdf5346e8f72ae49b2486051298a7bbce44bd83bde36b554dee50d7b8f0fa`
+for `progpu_native_direct2d_tests.exe`; the immutable archive hash is
+`3a3726ee61792a98558a02e2cb6a050340fbadf757b0908c5f1b318514f55f5b`.
+The signed Microsoft Win2D 1.4.0 oracle built from exact app commit `3a058643`
+reports the real `Microsoft.Graphics.Canvas.Geometry.CanvasGeometry` type,
+`NativeGeometryIdentityMatches=true`, and an exact boolean-exclude fill sample
+ARGB `(255,240,208,32)` while the excluded hole preserves the underlying solid
+ARGB `(255,224,48,96)`. Existing solid/linear/radial samples, transparent
+corner, all native identities, content version `0 -> 1`, and `Dawn D3D12`
+remain green. The gate now persists JSON before package cleanup and records a
+best-effort last-stage marker so native termination cannot erase evidence.
 
 Run this qualification with
 `eng/progpu-run-direct2d-win2d-integration.ps1`, or opt it into the complete
