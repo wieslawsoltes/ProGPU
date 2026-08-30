@@ -334,6 +334,36 @@ public sealed class CadPointSnapshotTests
     }
 
     [Fact]
+    public void DeviceHairlinePrintPolicyOverridesPointMarkerLineweight()
+    {
+        CadDocumentSnapshot snapshot = CreateMarkerSnapshot(
+            displayMode: 2,
+            displaySize: -5.0,
+            rotation: 0.0,
+            lineWeight: LineWeightType.W200);
+
+        CadRecordedPointMarkerScene physical =
+            new CadPointMarkerSceneCompiler().Compile(
+                snapshot,
+                new CadPointMarkerView(200.0f, 0.5),
+                new CadPlanSceneOptions { PhysicalDpi = 254 });
+        CadRecordedPointMarkerScene hairline =
+            new CadPointMarkerSceneCompiler().Compile(
+                snapshot,
+                new CadPointMarkerView(200.0f, 0.5),
+                new CadPlanSceneOptions
+                {
+                    PhysicalDpi = 254,
+                    LineWeightMode = CadPrintLineWeightMode.DeviceHairline,
+                });
+
+        Assert.Equal(20.0f, Assert.Single(physical.DrawingContext.Commands).Pen!.Thickness);
+        Pen pen = Assert.Single(hairline.DrawingContext.Commands).Pen!;
+        Assert.Equal(Pen.HairlineThickness, pen.Thickness);
+        Assert.Equal(PenStrokeTransformMode.Fixed, pen.StrokeTransformMode);
+    }
+
+    [Fact]
     public void RelativeAndAbsolutePointSizesResolveAgainstTheExplicitView()
     {
         AssertMarkerHalfExtent(displaySize: 0.0, expected: 2.5f);
@@ -459,7 +489,8 @@ public sealed class CadPointSnapshotTests
     private static CadDocumentSnapshot CreateMarkerSnapshot(
         short displayMode,
         double displaySize,
-        double rotation)
+        double rotation,
+        LineWeightType lineWeight = LineWeightType.ByLayer)
     {
         var document = new CadDocument();
         document.Header.PointDisplayMode = displayMode;
@@ -467,6 +498,7 @@ public sealed class CadPointSnapshotTests
         document.Entities.Add(new Point(new XYZ(10, 20, 0))
         {
             Rotation = rotation,
+            LineWeight = lineWeight,
         });
         return new CadSnapshotCompiler().Compile(new CadDocumentSession(document));
     }

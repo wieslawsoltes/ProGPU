@@ -12,6 +12,8 @@ public sealed class CadLayoutSceneOptions
 
     public float PhysicalDpi { get; init; } = 96.0f;
     public float LineWeightScale { get; init; } = 1.0f;
+    public CadPrintLineWeightMode LineWeightMode { get; init; } =
+        CadPrintLineWeightMode.ObjectLineWeights;
     public bool IncludeViewportFrames { get; init; } = true;
     public bool IncludeNonPlottableLayers { get; init; } = true;
     public bool DrawViewportsFirst { get; init; } = true;
@@ -266,6 +268,7 @@ public sealed class CadLayoutSceneCompiler
         {
             PhysicalDpi = options.PhysicalDpi,
             LineWeightScale = options.LineWeightScale,
+            LineWeightMode = options.LineWeightMode,
             IncludeNonPlottableLayers = options.IncludeNonPlottableLayers,
             IncludeViewportFrames = includeViewportFrames,
             ReportDeferredConstructionGeometry = false,
@@ -808,6 +811,7 @@ public sealed class CadLayoutSceneCompiler
     {
         if (!float.IsFinite(options.PhysicalDpi) || options.PhysicalDpi <= 0.0f ||
             !float.IsFinite(options.LineWeightScale) || options.LineWeightScale <= 0.0f ||
+            !Enum.IsDefined(options.LineWeightMode) ||
             options.MaxCompositedViewports <= 0)
         {
             throw new ArgumentOutOfRangeException(

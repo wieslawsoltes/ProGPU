@@ -112,6 +112,43 @@ public sealed class CadConstructionLineTests
     }
 
     [Fact]
+    public void DeviceHairlinePrintPolicyOverridesConstructionLineweight()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Ray
+        {
+            StartPoint = XYZ.Zero,
+            Direction = XYZ.AxisX,
+            LineWeight = LineWeightType.W200,
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+        var clip = new CadBounds3D(
+            new CadPoint3D(-5, -5, 0),
+            new CadPoint3D(5, 5, 0));
+
+        CadRecordedConstructionScene physical =
+            new CadConstructionSceneCompiler().Compile(
+                snapshot,
+                clip,
+                new CadPlanSceneOptions { PhysicalDpi = 254 });
+        CadRecordedConstructionScene hairline =
+            new CadConstructionSceneCompiler().Compile(
+                snapshot,
+                clip,
+                new CadPlanSceneOptions
+                {
+                    PhysicalDpi = 254,
+                    LineWeightMode = CadPrintLineWeightMode.DeviceHairline,
+                });
+
+        Assert.Equal(20.0f, Assert.Single(physical.DrawingContext.Commands).Pen!.Thickness);
+        Pen pen = Assert.Single(hairline.DrawingContext.Commands).Pen!;
+        Assert.Equal(Pen.HairlineThickness, pen.Thickness);
+        Assert.Equal(PenStrokeTransformMode.Fixed, pen.StrokeTransformMode);
+    }
+
+    [Fact]
     public void VerticalProjectionUsesPointBatchAndPatternedConstructionIsExplicitlyDeferred()
     {
         var document = new CadDocument();

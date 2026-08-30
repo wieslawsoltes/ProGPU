@@ -361,7 +361,9 @@ public sealed class CadPointMarkerSceneCompiler
             style.Green / 255.0f,
             style.Blue / 255.0f,
             style.Alpha / 255.0f));
-        float thickness = style.IsHairline
+        float thickness = options.LineWeightMode ==
+                CadPrintLineWeightMode.DeviceHairline ||
+            style.IsHairline
             ? Pen.HairlineThickness
             : checked((float)(
                 style.LineWeightMillimeters *
@@ -429,6 +431,10 @@ public sealed class CadPointMarkerSceneCompiler
         if (!float.IsFinite(options.LineWeightScale) || options.LineWeightScale <= 0.0f)
         {
             throw new ArgumentOutOfRangeException(nameof(options.LineWeightScale));
+        }
+        if (!Enum.IsDefined(options.LineWeightMode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(options.LineWeightMode));
         }
     }
 }

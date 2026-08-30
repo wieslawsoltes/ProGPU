@@ -3,6 +3,9 @@ using ACadSharp.Entities;
 using ACadSharp.Objects;
 using ACadSharp.Tables;
 using CSMath;
+using ProGPU.Scene;
+using ProGPU.Scene.Native;
+using ProGPU.Vector;
 using Xunit;
 using ACadLayout = ACadSharp.Objects.Layout;
 
@@ -398,6 +401,14 @@ public sealed class CadPageSetupTests
         Assert.Contains("CADPAGE112", codes);
         Assert.Contains("CADPAGE113", codes);
         Assert.Contains("CADPAGE114", codes);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CadPageSetupPrintOptionsCompiler().Compile(
+                setup,
+                new CadPageSetupPrintOptionsCompilerOptions
+                {
+                    DisabledLineWeightPolicy =
+                        (CadDisabledLineWeightPolicy)byte.MaxValue,
+                }));
         Assert.Throws<NotSupportedException>(() =>
             new CadPrintPlanCompiler().CompileFromPageSetup(
                 new CadSnapshotCompiler().Compile(new CadDocumentSession(document)),
@@ -433,6 +444,98 @@ public sealed class CadPageSetupTests
                 transparentSnapshot,
                 transparentSetup));
         Assert.Contains("CADPAGE118", transparencyError.Message);
+    }
+
+    [Theory]
+    [InlineData(CadDocumentFormat.Dxf)]
+    [InlineData(CadDocumentFormat.Dwg)]
+    public async Task DisabledObjectLineweightsUseExplicitDeviceHairlineAfterRoundTrip(
+        CadDocumentFormat format)
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        ACadLayout model = document.Layouts[ACadLayout.ModelLayoutName];
+        ConfigureSupported(model);
+        model.Flags &= ~PlotFlags.PrintLineweights;
+        document.Entities.Add(new Line(XYZ.Zero, new XYZ(10, 0, 0))
+        {
+            LineWeight = LineWeightType.W50,
+        });
+        document.Entities.Add(new Line(
+            new XYZ(0, 5, 0),
+            new XYZ(10, 5, 0))
+        {
+            LineWeight = LineWeightType.W200,
+        });
+        var store = new CadDocumentStore();
+        using var stream = new MemoryStream();
+
+        await store.SaveAsync(
+            new CadDocumentSession(document),
+            stream,
+            format,
+            new CadSaveOptions { AllowUncertifiedWrite = true });
+        stream.Position = 0;
+        CadLoadResult loaded = await store.LoadAsync(
+            stream,
+            format,
+            sourceName: $"device-hairline.{format.ToString().ToLowerInvariant()}");
+        loaded.Session.Edit("publish device-hairline generation", static _ => { });
+        CadPageSetupSnapshot setup = new CadPageSetupCatalogCompiler()
+            .Compile(loaded.Session)
+            .FindLayout(ACadLayout.ModelLayoutName)!;
+
+        Assert.False(setup.PrintLineweights);
+        CadPageSetupPrintOptionsResult rejected =
+            new CadPageSetupPrintOptionsCompiler().Compile(setup);
+        Assert.Contains(
+            rejected.Diagnostics.ToArray(),
+            diagnostic => diagnostic.Code == "CADPAGE112");
+        CadPageSetupPrintOptionsResult lowered =
+            new CadPageSetupPrintOptionsCompiler().Compile(
+                setup,
+                new CadPageSetupPrintOptionsCompilerOptions
+                {
+                    OutputDpi = 254,
+                    DisabledLineWeightPolicy =
+                        CadDisabledLineWeightPolicy.DeviceHairline,
+                });
+
+        Assert.True(lowered.IsSupported);
+        Assert.Equal(
+            CadPrintLineWeightMode.DeviceHairline,
+            lowered.PrintOptions!.LineWeightMode);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            loaded.Session,
+            new CadSnapshotOptions
+            {
+                DrawOrderPurpose = CadDrawOrderPurpose.Plotting,
+            });
+        using CadPrintPlan plan = new CadPrintPlanCompiler().CompileFromPageSetup(
+            snapshot,
+            lowered);
+        Assert.Equal(CadPrintLineWeightMode.DeviceHairline, plan.LineWeightMode);
+        using GpuPicture pagePicture = plan.CreatePagePicture();
+        GpuPicture contentPicture = pagePicture.GetCommand(1).Picture!;
+        RenderCommand[] lines = contentPicture.Commands
+            .Where(command => command.Type == RenderCommandType.DrawLine)
+            .ToArray();
+        Assert.Equal(2, lines.Length);
+        Assert.All(lines, command =>
+        {
+            Assert.Equal(Pen.HairlineThickness, command.Pen!.Thickness);
+            Assert.Equal(
+                PenStrokeTransformMode.Fixed,
+                command.Pen.StrokeTransformMode);
+        });
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            pagePicture,
+            306U,
+            plan.ContentGeneration,
+            out NativeCompiledPicture? nativePicture,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(nativePicture);
+        Assert.Equal(2, nativePicture.GeometryPrimitiveCount);
     }
 
     private static void ConfigureSupported(PlotSettings setup)

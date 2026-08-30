@@ -257,7 +257,9 @@ public sealed class CadConstructionSceneCompiler
                 style.Green / 255.0f,
                 style.Blue / 255.0f,
                 style.Alpha / 255.0f));
-            float thickness = style.IsHairline
+            float thickness = options.LineWeightMode ==
+                    CadPrintLineWeightMode.DeviceHairline ||
+                style.IsHairline
                 ? Pen.HairlineThickness
                 : checked((float)(style.LineWeightMillimeters *
                     options.PhysicalDpi * options.LineWeightScale / 25.4));
@@ -287,7 +289,8 @@ public sealed class CadConstructionSceneCompiler
     private static void ValidateOptions(CadPlanSceneOptions options)
     {
         if (!float.IsFinite(options.PhysicalDpi) || options.PhysicalDpi <= 0.0f ||
-            !float.IsFinite(options.LineWeightScale) || options.LineWeightScale <= 0.0f)
+            !float.IsFinite(options.LineWeightScale) || options.LineWeightScale <= 0.0f ||
+            !Enum.IsDefined(options.LineWeightMode))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(options),

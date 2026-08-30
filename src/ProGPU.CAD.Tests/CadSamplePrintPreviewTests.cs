@@ -681,6 +681,15 @@ public sealed class CadSamplePrintPreviewTests
             Assert.Equal(CadPlotAreaKind.Limits, edited.PlotArea);
             Assert.Equal(!original.CenterPlot, edited.CenterPlot);
             Assert.Equal(!original.PrintLineweights, edited.PrintLineweights);
+            Assert.DoesNotContain(
+                "unsupported CADPAGE112",
+                view.PageSetupSelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Text.StartsWith(
+                        "Layout: Model",
+                        StringComparison.Ordinal))
+                    .Text,
+                StringComparison.Ordinal);
             Assert.False(apply.IsEnabled);
             Assert.Contains(
                 DescendantsAndSelf(view).OfType<TextBlock>(),
@@ -706,6 +715,15 @@ public sealed class CadSamplePrintPreviewTests
             Assert.Equal(500, redone.PaperWidthMillimeters);
             Assert.Equal(300, redone.PaperHeightMillimeters);
             Assert.Equal(CadPlotAreaKind.Limits, redone.PlotArea);
+            Assert.DoesNotContain(
+                "unsupported CADPAGE112",
+                view.PageSetupSelector.Items
+                    .OfType<ComboBoxItem>()
+                    .Single(item => item.Text.StartsWith(
+                        "Layout: Model",
+                        StringComparison.Ordinal))
+                    .Text,
+                StringComparison.Ordinal);
         }
         finally
         {

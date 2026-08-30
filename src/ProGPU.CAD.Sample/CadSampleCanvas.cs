@@ -853,6 +853,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         var compilerOptions = new CadPageSetupPrintOptionsCompilerOptions
         {
             OutputDpi = outputDpi,
+            DisabledLineWeightPolicy =
+                CadDisabledLineWeightPolicy.DeviceHairline,
         };
         if (pageSetup.TargetSpace == CadPageTargetSpace.Paper)
         {

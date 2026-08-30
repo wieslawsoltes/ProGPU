@@ -565,8 +565,21 @@ public sealed class CadPageSetupPrintOptionsCompilerOptions
 
     public float LineWeightScale { get; init; } = 1.0f;
 
+    /// <summary>
+    /// Resolves a page setup that disables assigned object/layer lineweights.
+    /// Reject is the fidelity-safe default because the thinnest printable width
+    /// belongs to the selected output device.
+    /// </summary>
+    public CadDisabledLineWeightPolicy DisabledLineWeightPolicy { get; init; }
+
     public long MaxPagePixelCount { get; init; } =
         CadPrintPlanOptions.DefaultMaxPagePixelCount;
+}
+
+public enum CadDisabledLineWeightPolicy : byte
+{
+    Reject = 0,
+    DeviceHairline = 1,
 }
 
 /// <summary>
@@ -714,12 +727,20 @@ public sealed class CadPageSetupPrintOptionsCompiler
                 "CADPAGE111",
                 "Hidden-line removal requires a depth-aware print compiler.");
         }
-        if (!pageSetup.PrintLineweights)
+        CadPrintLineWeightMode lineWeightMode =
+            CadPrintLineWeightMode.ObjectLineWeights;
+        if (!pageSetup.PrintLineweights &&
+            options.DisabledLineWeightPolicy ==
+                CadDisabledLineWeightPolicy.Reject)
         {
             AddError(
                 diagnostics,
                 "CADPAGE112",
-                "Disabled object lineweights require an explicit output hairline policy.");
+                "Disabled object lineweights require an explicit output-device hairline policy.");
+        }
+        else if (!pageSetup.PrintLineweights)
+        {
+            lineWeightMode = CadPrintLineWeightMode.DeviceHairline;
         }
         if (pageSetup.ScaleLineweights && !isPaperLayout)
         {
@@ -851,6 +872,7 @@ public sealed class CadPageSetupPrintOptionsCompiler
             PlotOffsetXMillimeters = pageSetup.PlotOriginXMillimeters,
             PlotOffsetYMillimeters = pageSetup.PlotOriginYMillimeters,
             LineWeightScale = options.LineWeightScale,
+            LineWeightMode = lineWeightMode,
             MaxPagePixelCount = options.MaxPagePixelCount,
         };
         return new CadPageSetupPrintOptionsResult(
@@ -959,6 +981,7 @@ public sealed class CadPageSetupPrintOptionsCompiler
     {
         if (!float.IsFinite(options.OutputDpi) || options.OutputDpi <= 0.0f ||
             !float.IsFinite(options.LineWeightScale) || options.LineWeightScale <= 0.0f ||
+            !Enum.IsDefined(options.DisabledLineWeightPolicy) ||
             options.MaxPagePixelCount <= 0)
         {
             throw new ArgumentOutOfRangeException(

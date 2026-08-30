@@ -66,6 +66,13 @@ the only implementation sources reused directly.
   The [Page Setup contract](https://help.autodesk.com/cloudhelp/2025/ENU/DWGTrueView/files/GUID-0D72CF75-DA37-4937-9D9A-D93AA9BDF8D3.htm)
   likewise defines plotted units as inches or millimeters on paper and Layout
   output as actual size independent of the stored Scale selection.
+- Autodesk's [Page Setup contract](https://help.autodesk.com/cloudhelp/2025/ENU/DWGTrueView/files/GUID-0D72CF75-DA37-4937-9D9A-D93AA9BDF8D3.htm)
+  defines Plot Object Lineweights as whether assigned object and layer
+  lineweights are plotted. It does not assign a portable replacement width when
+  that option is disabled. Autodesk documents [`LWDEFAULT`](https://help.autodesk.com/cloudhelp/2019/ENU/AutoCAD-Core/files/GUID-969FE4A6-C30D-44DE-AFD4-A81B53F175F6.htm)
+  as separate registry-backed default-lineweight state and describes its
+  [display behavior](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-1BB43E62-DF93-494E-ACF2-55824ACD5130.htm);
+  it is therefore rejected as an inferred print width.
 
 ## Cross-engine architecture audit
 
@@ -91,7 +98,20 @@ The required rendering and text stacks were checked before design:
 - [Parley](https://github.com/linebender/parley) retains CPU text layout, while
   HarfBuzz's [shaping concepts](https://harfbuzz.github.io/shaping-concepts.html)
   keep Unicode/OpenType shaping independent of drawing replay. No viewport
-  operation reshapes paper or model text.
+operation reshapes paper or model text.
+
+For disabled assigned lineweights, Skia's
+[`SkPaint::setStrokeWidth`](https://api.skia.org/classSkPaint.html) defines zero
+as a one-device-pixel hairline, while Direct2D's
+[hairline stroke transform](https://learn.microsoft.com/en-us/windows/win32/direct2d/d1139)
+fixes width to one device-dependent unit. Vello's public
+[`Style::from_stroke`](https://docs.rs/vello_encoding/latest/vello_encoding/struct.Style.html#method.from_stroke)
+rejects zero-width strokes, demonstrating that the final representation is
+backend-specific rather than a portable CAD millimeter value. ProGPU therefore
+adopts its existing typed `Pen.HairlineThickness` plus fixed-transform contract
+as an explicit adapter choice. It rejects silently substituting Autodesk's
+separate `LWDEFAULT`, inventing a physical millimeter width, or changing only
+the managed renderer.
 
 Adopted: immutable display content, explicit affine and clip nodes, reusable
 shaped text, and physical fixed-width strokes. Adapted: each unique
@@ -192,7 +212,7 @@ managed/native boundary call.
 `CadLayoutPrintPlanCompiler` accepts only a generation- and name-matched paper
 layout setup. This slice requires physical inch or millimeter paper units,
 `PlotType Layout`, a defined rotation, explicit wireframe output, enabled
-lineweights, no
+lineweights by default, no
 nonempty CTB/STB sheet, no centered-layout policy, and opaque retained styles.
 The stored standard/custom scale selection is deliberately ignored because
 Layout output is mandated 1:1. `ScaleLineweights` is accepted for paper output
@@ -201,6 +221,19 @@ five fixed device pixels at 254 DPI. Model-space `ScaleLineweights` remains
 `CADPAGE113`. Other page/setup policies return the existing or new `CADPAGE`
 diagnostics. The page picture remains one printable clip and one transformed
 layout replay.
+
+When the setup disables Plot Object Lineweights, default page-setup lowering
+continues to return `CADPAGE112` because the selected output device owns the
+thinnest printable width. A caller may explicitly select
+`CadDisabledLineWeightPolicy.DeviceHairline`; lowering then carries
+`CadPrintLineWeightMode.DeviceHairline` through model or layout print planning,
+main geometry, construction geometry, and POINT markers. Every stroke records
+the shared ProGPU device-hairline sentinel and fixed transform, so nested
+pictures and the native scene compiler preserve the same behavior. Matched DXF
+and DWG round trips cover different authored 0.50 mm and 2.00 mm widths becoming
+the same hairline only under this policy. The sample preview opts in because it
+is explicitly an output adapter; publishing remains fail-closed unless its
+adapter makes the same deliberate device decision.
 
 For inch layouts, lowering records `1 / 25.4` paper-space units per physical
 millimeter and `dpi` pixels per paper unit. Media, margins, and plot origin stay

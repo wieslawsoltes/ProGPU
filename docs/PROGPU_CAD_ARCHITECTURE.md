@@ -2746,7 +2746,11 @@ are implemented by `CadPageSetupCatalogCompiler`,
 - exact model lowering presently requires model space, a defined 0/90/180/270-degree
   page rotation, inch or millimeter paper units, drawing extents or finite
   layout-owned WCS drawing limits, explicit wireframe, enabled and
-  unscaled object lineweights, and no applied nonempty CTB/STB style sheet.
+  unscaled object lineweights by default, and no applied nonempty CTB/STB
+  style sheet. When a printer or preview adapter explicitly selects
+  `CadDisabledLineWeightPolicy.DeviceHairline`, a setup with Plot Object
+  Lineweights disabled instead lowers every stroked object to ProGPU's
+  output-device hairline contract;
   Standard scale code zero selects Fit. Codes 1 through 32 resolve through the
   canonical architectural/engineering scale factor and require the persisted
   code-147 factor to match; malformed pairs fail with `CADPAGE122`. The custom
@@ -2762,8 +2766,9 @@ are implemented by `CadPageSetupCatalogCompiler`,
   Autodesk defines the stored coordinates in display coordinate system (DCS),
   while the current print plan accepts an explicit WCS window. Display, named
   view, named-override Limits, pixel paper units,
-  hidden/shaded/as-displayed output, disabled/model-space scaled lineweights, and applied
-  plot styles likewise return specific diagnostics rather than an approximation;
+  hidden/shaded/as-displayed output, disabled lineweights without that explicit
+  output-device policy, model-space scaled lineweights, and applied plot styles
+  likewise return specific diagnostics rather than an approximation;
 - one session capture now owns model and selected paper snapshots at the same
   generation. Rectangular active orthographic WCS-top VIEWPORTs retain DCS
   center, WCS target/direction, twist, scale, status, render policy, boundary,
@@ -2825,6 +2830,17 @@ are implemented by `CadPageSetupCatalogCompiler`,
   device strokes. Model-space `ScaleLineweights` remains fail-closed because
   Autodesk disables that property there. Paper Layout accepts the property,
   but its required 1:1 output makes the exact page-setup multiplier one;
+- Autodesk defines the unchecked Plot Object Lineweights option as suppressing
+  assigned object/layer widths, but does not define a portable numeric
+  replacement width. `LWDEFAULT` is separate user/registry state and is not a
+  substitute. Page-setup lowering therefore remains fail-closed with
+  `CADPAGE112` unless the caller explicitly selects `DeviceHairline`. That mode
+  records `Pen.HairlineThickness` with `PenStrokeTransformMode.Fixed` for main,
+  construction, and POINT-marker strokes, preserving one output-device
+  hairline through nested layout pictures and managed/native compilation. The
+  shared sample preview knowingly selects this adapter policy and labels such
+  setups supported; direct publishing adapters must make their own device
+  decision;
 - one owned content picture is retained by the plan. `CreatePagePicture` adds
   only one printable clip and one transformed picture replay, and returns an
   independently owned page picture suitable for preview or a later platform

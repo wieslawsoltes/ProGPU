@@ -17,6 +17,13 @@ public enum CadPrintPlacementMode : byte
     PrintableAreaOffset = 1,
 }
 
+/// <summary>Controls how retained CAD stroke widths reach physical output.</summary>
+public enum CadPrintLineWeightMode : byte
+{
+    ObjectLineWeights = 0,
+    DeviceHairline = 1,
+}
+
 public readonly record struct CadPrintPixelSize(int Width, int Height);
 
 public readonly record struct CadPrintPixelRect(int X, int Y, int Width, int Height)
@@ -77,6 +84,13 @@ public sealed class CadPrintPlanOptions
     /// </summary>
     public float LineWeightScale { get; init; } = 1.0f;
 
+    /// <summary>
+    /// Selects authored physical lineweights or one output-device hairline for
+    /// every stroked object. Hairline mode is fixed in device space.
+    /// </summary>
+    public CadPrintLineWeightMode LineWeightMode { get; init; } =
+        CadPrintLineWeightMode.ObjectLineWeights;
+
     public long MaxPagePixelCount { get; init; } = DefaultMaxPagePixelCount;
 
     public ICadRasterImageSourceResolver? RasterImageSourceResolver { get; init; }
@@ -124,6 +138,8 @@ public sealed class CadPrintPlan : IDisposable
 
     public double ModelUnitsPerMillimeter { get; }
 
+    public CadPrintLineWeightMode LineWeightMode { get; }
+
     public Matrix4x4 ContentToPage { get; }
 
     public CadPlanSceneStatistics SceneStatistics { get; }
@@ -159,6 +175,7 @@ public sealed class CadPrintPlan : IDisposable
         PlacementMode = options.PlacementMode;
         PixelsPerModelUnit = pixelsPerModelUnit;
         ModelUnitsPerMillimeter = modelUnitsPerMillimeter;
+        LineWeightMode = options.LineWeightMode;
         ContentToPage = contentToPage;
         SceneStatistics = sceneStatistics;
         _diagnostics = diagnostics;
@@ -296,6 +313,7 @@ public sealed class CadPrintPlanCompiler
             {
                 PhysicalDpi = options.OutputDpi,
                 LineWeightScale = options.LineWeightScale,
+                LineWeightMode = options.LineWeightMode,
                 IncludeNonPlottableLayers = false,
                 ReportDeferredConstructionGeometry = false,
                 ReportDeferredPointMarkers = false,
@@ -308,6 +326,7 @@ public sealed class CadPrintPlanCompiler
         {
             PhysicalDpi = options.OutputDpi,
             LineWeightScale = options.LineWeightScale,
+            LineWeightMode = options.LineWeightMode,
             IncludeNonPlottableLayers = false,
             ReportDeferredConstructionGeometry = false,
             ReportDeferredPointMarkers = false,
@@ -627,11 +646,12 @@ public sealed class CadPrintPlanCompiler
         if (!Enum.IsDefined(options.Rotation) ||
             options.Rotation == CadPageRotation.Unknown ||
             !Enum.IsDefined(options.ScaleMode) ||
-            !Enum.IsDefined(options.PlacementMode))
+            !Enum.IsDefined(options.PlacementMode) ||
+            !Enum.IsDefined(options.LineWeightMode))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(options),
-                "Page rotation, print scale, and placement modes must be defined values.");
+                "Page rotation, print scale, placement, and lineweight modes must be defined values.");
         }
         if (!IsFinitePositive(options.ModelUnitsPerMillimeter))
         {

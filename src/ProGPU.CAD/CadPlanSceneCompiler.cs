@@ -17,6 +17,8 @@ public sealed class CadPlanSceneOptions
 
     public float PhysicalDpi { get; init; } = 96.0f;
     public float LineWeightScale { get; init; } = 1.0f;
+    public CadPrintLineWeightMode LineWeightMode { get; init; } =
+        CadPrintLineWeightMode.ObjectLineWeights;
     public bool IncludeNonPlottableLayers { get; init; } = true;
     public bool IncludeViewportFrames { get; init; } = true;
     public bool ReportDeferredConstructionGeometry { get; init; } = true;
@@ -730,7 +732,9 @@ public sealed class CadPlanSceneCompiler
                 style.Green / 255.0f,
                 style.Blue / 255.0f,
                 style.Alpha / 255.0f));
-            float thickness = style.IsHairline
+            float thickness = options.LineWeightMode ==
+                    CadPrintLineWeightMode.DeviceHairline ||
+                style.IsHairline
                 ? Pen.HairlineThickness
                 : checked((float)(style.LineWeightMillimeters * options.PhysicalDpi * options.LineWeightScale / 25.4));
             pens[i] = new Pen(
@@ -2684,6 +2688,12 @@ public sealed class CadPlanSceneCompiler
         if (!float.IsFinite(options.LineWeightScale) || options.LineWeightScale <= 0.0f)
         {
             throw new ArgumentOutOfRangeException(nameof(options), "Lineweight scale must be finite and positive.");
+        }
+        if (!Enum.IsDefined(options.LineWeightMode))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "Lineweight mode must be defined.");
         }
         ArgumentOutOfRangeException.ThrowIfLessThan(
             options.MaxHatchPatternAuxiliaryRecords,

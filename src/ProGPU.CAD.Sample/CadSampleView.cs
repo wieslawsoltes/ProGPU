@@ -2073,10 +2073,15 @@ public sealed class CadSampleView : Grid
 
             CadPageSetupCatalog catalog = _canvas.CreatePageSetupCatalog();
             var loweringCompiler = new CadPageSetupPrintOptionsCompiler();
+            var loweringOptions = new CadPageSetupPrintOptionsCompilerOptions
+            {
+                DisabledLineWeightPolicy =
+                    CadDisabledLineWeightPolicy.DeviceHairline,
+            };
             foreach (CadPageSetupSnapshot pageSetup in catalog.Setups.Span)
             {
                 CadPageSetupPrintOptionsResult lowering =
-                    loweringCompiler.Compile(pageSetup);
+                    loweringCompiler.Compile(pageSetup, loweringOptions);
                 var choice = PageSetupChoice.Create(pageSetup, lowering);
                 ComboBoxItem item = CreatePageSetupItem(choice);
                 _pageSetupSelector.Items.Add(item);

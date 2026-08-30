@@ -104,6 +104,7 @@ public sealed class CadLayoutPrintPlanCompiler
             {
                 PhysicalDpi = printOptions.OutputDpi,
                 LineWeightScale = printOptions.LineWeightScale,
+                LineWeightMode = printOptions.LineWeightMode,
                 IncludeViewportFrames = pageSetup.PlotViewportBorders,
                 IncludeNonPlottableLayers = false,
                 DrawViewportsFirst = pageSetup.DrawViewportsFirst,
