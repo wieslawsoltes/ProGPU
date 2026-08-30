@@ -455,9 +455,16 @@ int main()
     require(SUCCEEDED(path_geometry->GetFigureCount(
                 &returned_figure_count)) &&
             SUCCEEDED(path_geometry->GetSegmentCount(
-                &returned_segment_count)) &&
-            returned_figure_count == 1U && returned_segment_count == 4U,
-        "provider path geometry changed its topology");
+                &returned_segment_count)),
+        "provider path geometry topology query failed");
+    // Direct2D counts the implicit closing edge in addition to the four
+    // explicitly submitted line/quadratic/cubic/arc segments.
+    if (returned_figure_count != 1U || returned_segment_count != 5U) {
+        std::cerr << "provider path geometry changed its topology: figures="
+                  << returned_figure_count << ", segments="
+                  << returned_segment_count << '\n';
+        return EXIT_FAILURE;
+    }
 
     progpu_native_direct2d_matrix_3x2_f geometry_transform{
         1.0F,
