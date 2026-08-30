@@ -17,6 +17,20 @@ using Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess;
 
 namespace {
 
+constexpr GUID gaussian_blur_effect_id = {
+    0x1feb6d69,
+    0x2fe6,
+    0x4ac9,
+    {0x8c, 0x58, 0x1d, 0x7f, 0x93, 0xe7, 0xa6, 0xa5}
+};
+
+constexpr GUID shadow_effect_id = {
+    0xc67ea361,
+    0x1863,
+    0x4e69,
+    {0x89, 0xdb, 0x69, 0x5d, 0x3e, 0x9a, 0x5b, 0x6b}
+};
+
 [[noreturn]] void fail(const char* message)
 {
     std::cerr << message << '\n';
@@ -815,7 +829,7 @@ int main()
         "command-list image brush changed source COM identity");
 
     progpu_native_direct2d_guid gaussian_blur_id =
-        to_portable_guid(CLSID_D2D1GaussianBlur);
+        to_portable_guid(gaussian_blur_effect_id);
     void* gaussian_effect_value = nullptr;
     native_hresult = E_FAIL;
     require(
@@ -918,7 +932,7 @@ int main()
         "provider effect output changed COM identity");
 
     progpu_native_direct2d_guid shadow_id =
-        to_portable_guid(CLSID_D2D1Shadow);
+        to_portable_guid(shadow_effect_id);
     void* shadow_effect_value = nullptr;
     native_hresult = E_FAIL;
     require(
