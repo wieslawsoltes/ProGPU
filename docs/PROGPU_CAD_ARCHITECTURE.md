@@ -1013,11 +1013,17 @@ lattice, preserving an exact axis through an off-grid base. Grid then handles
 any unconstrained pointer, followed by raw input. Typed coordinates bypass all
 pointer constraints. The committed result remains double WCS, while the
 existing transient rubber band and grid marker provide O(1) feedback without
-scene mutation. Isometric and polar snap/tracking, 3D UCS Z acquisition,
-direct-distance cursor entry, UCS/global-last-point state, arbitrary-camera
-planes, reference-angle, and reference-length input remain later editor tools.
-The exact clean-room behavior and applicability record is in
-`PROGPU_CAD_ORTHO_RESEARCH.md`. One
+scene mutation. Incremental polar tracking separately captures current-UCS
+axes plus drawing ANGBASE/ANGDIR, projects onto the nearest standard incremental
+path, and activates within a fixed 10-device-pixel aperture. Its application
+profile state defaults off at 90 degrees, exposes all eight standard increments,
+and is mutually exclusive with Ortho. One additional clipped full-view guide is
+transient overlay work. PolarSnap distance increments, additional/relative
+angles, object-snap tracking, isometric directions, 3D UCS Z acquisition,
+direct-distance cursor entry, global-last-point state, arbitrary-camera planes,
+reference-angle, and reference-length input remain later editor tools. The exact
+clean-room behavior and applicability records are in
+`PROGPU_CAD_ORTHO_RESEARCH.md` and `PROGPU_CAD_POLAR_TRACKING_RESEARCH.md`. One
 `CadDocumentHistory` belongs to the loaded session, so each Move, Copy, Rotate, Scale,
 Undo, or Redo publishes exactly one generation and then prepares one complete
 replacement snapshot and picture. The prior picture stays drawable until

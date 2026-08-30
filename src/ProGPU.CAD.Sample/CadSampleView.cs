@@ -63,6 +63,8 @@ public sealed class CadSampleView : Grid
     private readonly ComboBox _objectSnapSelector;
     private readonly CheckBox _planGridSnapCheckBox;
     private readonly CheckBox _planOrthoCheckBox;
+    private readonly CheckBox _planPolarTrackingCheckBox;
+    private readonly ComboBox _planPolarTrackingIncrementSelector;
     private readonly TextBox _pointTransformInput;
     private readonly Button _acceptPointTransformInputButton;
     private readonly Button[] _rotateButtons;
@@ -204,6 +206,12 @@ public sealed class CadSampleView : Grid
     public CheckBox PlanGridSnapCheckBox => _planGridSnapCheckBox;
 
     public CheckBox PlanOrthoCheckBox => _planOrthoCheckBox;
+
+    public CheckBox PlanPolarTrackingCheckBox =>
+        _planPolarTrackingCheckBox;
+
+    public ComboBox PlanPolarTrackingIncrementSelector =>
+        _planPolarTrackingIncrementSelector;
 
     public TextBox PointTransformInput => _pointTransformInput;
 
@@ -664,6 +672,38 @@ public sealed class CadSampleView : Grid
         _planOrthoCheckBox = CreateAttributeModeCheckBox("Ortho", font);
         _planOrthoCheckBox.IsChecked = _canvas.IsPlanOrthoEnabled;
         transformActions.AddChild(_planOrthoCheckBox);
+        _planPolarTrackingCheckBox = CreateAttributeModeCheckBox("Polar", font);
+        _planPolarTrackingCheckBox.IsChecked =
+            _canvas.IsPlanPolarTrackingEnabled;
+        transformActions.AddChild(_planPolarTrackingCheckBox);
+        _planPolarTrackingIncrementSelector = new ComboBox
+        {
+            WidthConstraint = 86,
+            HeightConstraint = 30,
+            Font = font,
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+        foreach (double increment in new[]
+        {
+            90.0,
+            45.0,
+            30.0,
+            22.5,
+            18.0,
+            15.0,
+            10.0,
+            5.0,
+        })
+        {
+            _planPolarTrackingIncrementSelector.Items.Add(
+                new ComboBoxItem($"{increment:0.#}°")
+                {
+                    Tag = increment,
+                });
+        }
+        _planPolarTrackingIncrementSelector.SelectedIndex = 0;
+        transformActions.AddChild(_planPolarTrackingIncrementSelector);
         transformActions.AddChild(new TextBlock
         {
             Text = "Point / displacement",
@@ -1698,7 +1738,25 @@ public sealed class CadSampleView : Grid
             _canvas.IsPlanGridSnapEnabled =
                 _planGridSnapCheckBox.IsChecked;
         _planOrthoCheckBox.CheckedChanged += (_, _) =>
+        {
             _canvas.IsPlanOrthoEnabled = _planOrthoCheckBox.IsChecked;
+            _planPolarTrackingCheckBox.IsChecked =
+                _canvas.IsPlanPolarTrackingEnabled;
+        };
+        _planPolarTrackingCheckBox.CheckedChanged += (_, _) =>
+        {
+            _canvas.IsPlanPolarTrackingEnabled =
+                _planPolarTrackingCheckBox.IsChecked;
+            _planOrthoCheckBox.IsChecked = _canvas.IsPlanOrthoEnabled;
+        };
+        _planPolarTrackingIncrementSelector.SelectionChanged += (_, _) =>
+        {
+            if (_planPolarTrackingIncrementSelector.SelectedItem is
+                ComboBoxItem { Tag: double increment })
+            {
+                _canvas.PlanPolarTrackingIncrementDegrees = increment;
+            }
+        };
         _pointTransformInput.TextChanged += (_, _) => UpdateEditControls();
         _pointTransformInput.KeyDown += (_, args) =>
         {
@@ -1745,6 +1803,9 @@ public sealed class CadSampleView : Grid
             _planGridSnapCheckBox.IsChecked =
                 _canvas.IsPlanGridSnapEnabled;
             _planOrthoCheckBox.IsChecked = _canvas.IsPlanOrthoEnabled;
+            _planPolarTrackingCheckBox.IsChecked =
+                _canvas.IsPlanPolarTrackingEnabled;
+            SelectPolarTrackingIncrement();
             EnsureLayerMergeSourcesAreCurrent();
             RebuildMesh3DView();
             if (_isPrintPreview)
@@ -3888,10 +3949,10 @@ public sealed class CadSampleView : Grid
         return args.Stage switch
         {
             CadPointTransformStage.AwaitingBasePoint =>
-                $"{operation}: click (object snap overrides grid/Ortho) or enter absolute WCS x,y[,z] / distance<angle; Escape cancels.",
+                $"{operation}: click (object snap overrides grid/Ortho/polar) or enter absolute WCS x,y[,z] / distance<angle; Escape cancels.",
             CadPointTransformStage.AwaitingSecondPoint =>
                 $"{operation}: base {FormatPoint(args.BasePoint!.Value)}; " +
-                "click (object snap overrides grid/Ortho) or enter an absolute point or relative @dx,dy[,dz] / @distance<angle; Escape cancels.",
+                "click (object snap overrides grid/Ortho/polar) or enter an absolute point or relative @dx,dy[,dz] / @distance<angle; Escape cancels.",
             CadPointTransformStage.Completed when args.ErrorMessage is null =>
                 $"{operation} completed with WCS displacement " +
                 $"{FormatPoint(args.Displacement!.Value)}.",
@@ -3902,6 +3963,21 @@ public sealed class CadSampleView : Grid
                 $"{operation} failed: {args.ErrorMessage}",
             _ => throw new ArgumentOutOfRangeException(nameof(args)),
         };
+    }
+
+    private void SelectPolarTrackingIncrement()
+    {
+        double target = _canvas.PlanPolarTrackingIncrementDegrees;
+        for (int i = 0; i < _planPolarTrackingIncrementSelector.Items.Count; i++)
+        {
+            if (_planPolarTrackingIncrementSelector.Items[i] is
+                    ComboBoxItem { Tag: double increment } &&
+                Math.Abs(increment - target) <= 1e-10)
+            {
+                _planPolarTrackingIncrementSelector.SelectedIndex = i;
+                return;
+            }
+        }
     }
 
     private static string DescribePointTransformOperation(
@@ -4885,6 +4961,12 @@ public sealed class CadSampleView : Grid
             !_isBusy && !_isPrintPreview && !_is3DView &&
             _canvas.CurrentSnapshot is not null &&
             _canvas.PlanGridSnapSettings.IsSupported;
+        _planPolarTrackingCheckBox.IsEnabled =
+            !_isBusy && !_isPrintPreview && !_is3DView &&
+            _canvas.CurrentSnapshot is not null &&
+            _canvas.PlanPolarTrackingSettings.IsSupported;
+        _planPolarTrackingIncrementSelector.IsEnabled =
+            _planPolarTrackingCheckBox.IsEnabled;
         _pointTransformInput.IsEnabled =
             !_isBusy && isPointTransformPicking;
         _acceptPointTransformInputButton.IsEnabled =

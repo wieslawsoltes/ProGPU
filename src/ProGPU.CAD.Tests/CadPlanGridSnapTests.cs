@@ -1,5 +1,6 @@
 using ACadSharp;
 using ACadSharp.Tables;
+using ACadSharp.Types.Units;
 using CSMath;
 using Xunit;
 
@@ -128,6 +129,8 @@ public sealed class CadPlanGridSnapTests
         session.Edit("Configure active snap grid", document =>
         {
             document.Header.OrthoMode = true;
+            document.Header.AngleBase = Math.PI / 6.0;
+            document.Header.AngularDirection = AngularDirection.ClockWise;
             VPort active = document.VPorts[VPort.DefaultName];
             active.SnapOn = true;
             active.IsometricSnap = false;
@@ -141,6 +144,7 @@ public sealed class CadPlanGridSnapTests
 
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
         CadPlanGridSnapSettings settings = snapshot.PlanGridSnapSettings;
+        CadPlanPolarTrackingSettings polar = snapshot.PlanPolarTrackingSettings;
 
         Assert.True(settings.IsEnabled);
         Assert.True(snapshot.IsOrthoModeEnabled);
@@ -151,6 +155,16 @@ public sealed class CadPlanGridSnapTests
         AssertPoint(new CadPoint3D(0.0, -1.0, 0.0), settings.YAxis);
         Assert.Equal(2.0, settings.SpacingX);
         Assert.Equal(4.0, settings.SpacingY);
+        Assert.True(polar.IsSupported);
+        Assert.False(polar.IsEnabled);
+        Assert.True(polar.IsClockwise);
+        Assert.Equal(90.0, polar.IncrementDegrees, 10);
+        AssertPoint(
+            new CadPoint3D(-0.5, Math.Sqrt(3.0) / 2.0, 0.0),
+            polar.XAxis);
+        AssertPoint(
+            new CadPoint3D(-Math.Sqrt(3.0) / 2.0, -0.5, 0.0),
+            polar.YAxis);
         Assert.True(settings.TrySnap(
             new CadPoint3D(94.4, 196.1, 8.0),
             out CadPoint3D snapped));

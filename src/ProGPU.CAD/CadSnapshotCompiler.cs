@@ -5,6 +5,7 @@ using ACadSharp.Extensions;
 using ACadSharp.Header;
 using ACadSharp.Objects;
 using ACadSharp.Tables;
+using ACadSharp.Types.Units;
 using CSMath;
 using ProGPU.Text;
 using System.Numerics;
@@ -345,6 +346,7 @@ public sealed partial class CadSnapshotCompiler
                 (document.Header.EntitySortingFlags & ObjectSortingFlags.Plotting) != 0,
             globalLineTypeScale,
             CapturePlanGridSnapSettings(document),
+            CapturePlanPolarTrackingSettings(document),
             document.Header.OrthoMode,
             documentBounds,
             new CadSnapshotStatistics(
@@ -5862,6 +5864,48 @@ public sealed partial class CadSnapshotCompiler
             snapY,
             spacingX,
             spacingY);
+    }
+
+    private static CadPlanPolarTrackingSettings CapturePlanPolarTrackingSettings(
+        CadDocument document)
+    {
+        if (!document.VPorts.TryGetValue(VPort.DefaultName, out VPort? active) ||
+            active is null ||
+            !double.IsFinite(document.Header.AngleBase) ||
+            !Enum.IsDefined(document.Header.AngularDirection))
+        {
+            return CadPlanPolarTrackingSettings.Unsupported;
+        }
+
+        CadPoint3D ucsX;
+        CadPoint3D ucsY;
+        try
+        {
+            ucsX = ToPoint(active.XAxis).Normalize();
+            ucsY = ToPoint(active.YAxis).Normalize();
+        }
+        catch (ArgumentException)
+        {
+            return CadPlanPolarTrackingSettings.Unsupported;
+        }
+
+        double axesDot = CadPoint3D.Dot(ucsX, ucsY);
+        double cosine = Math.Cos(document.Header.AngleBase);
+        double sine = Math.Sin(document.Header.AngleBase);
+        if (!double.IsFinite(axesDot) ||
+            Math.Abs(axesDot) > 1e-10 ||
+            !double.IsFinite(cosine) ||
+            !double.IsFinite(sine))
+        {
+            return CadPlanPolarTrackingSettings.Unsupported;
+        }
+
+        return new CadPlanPolarTrackingSettings(
+            false,
+            (ucsX * cosine) + (ucsY * sine),
+            (ucsY * cosine) - (ucsX * sine),
+            document.Header.AngularDirection == AngularDirection.ClockWise,
+            Math.PI / 2.0);
     }
 
     private static CadPoint3D ToPoint(XYZ point) => new(point.X, point.Y, point.Z);

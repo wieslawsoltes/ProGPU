@@ -3714,6 +3714,10 @@ public sealed class CadSampleSelectionTests
             canvas.Arrange(new Rect(0, 0, 800, 600));
             CadPlanViewport viewport = canvas.CurrentViewport;
             Click(canvas, viewport.WorldToScreen(CadPoint3D.Zero));
+            Assert.True(canvas.IsPlanOrthoEnabled);
+            canvas.IsPlanPolarTrackingEnabled = true;
+            canvas.PlanPolarTrackingIncrementDegrees = 45.0;
+            Assert.False(canvas.IsPlanOrthoEnabled);
             canvas.ObjectSnapModes = CadObjectSnapModes.Endpoint;
             Assert.True(canvas.BeginSelectionPointTransform(
                 CadPointTransformOperation.Move));
@@ -3815,6 +3819,80 @@ public sealed class CadSampleSelectionTests
     }
 
     [Fact]
+    public void PolarTrackingActivatesOnlyNearPathAndCommitsExactSecondPoint()
+    {
+        var document = new CadDocument();
+        var line = new Line(new XYZ(-2, 0, 0), new XYZ(2, 0, 0));
+        document.Entities.Add(line);
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            CadPlanViewport viewport = canvas.CurrentViewport;
+            Click(canvas, viewport.WorldToScreen(CadPoint3D.Zero));
+            canvas.ObjectSnapModes = CadObjectSnapModes.None;
+            canvas.PlanPolarTrackingIncrementDegrees = 45.0;
+            canvas.IsPlanPolarTrackingEnabled = true;
+            Assert.False(canvas.IsPlanOrthoEnabled);
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+            Click(canvas, viewport.WorldToScreen(new CadPoint3D(0.0, 2.0, 0.0)));
+
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = viewport.WorldToScreen(new CadPoint3D(4.0, 4.0, 0.0)),
+            });
+            Assert.Null(canvas.PendingPointTransformPolarTracking);
+
+            Vector2 tracked = viewport.WorldToScreen(
+                new CadPoint3D(4.0, 6.0, 0.0));
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = tracked,
+            });
+
+            CadPlanPolarTrackingResult polar =
+                canvas.PendingPointTransformPolarTracking!.Value;
+            AssertPoint(new CadPoint3D(4.0, 6.0, 0.0), polar.Point);
+            Assert.InRange(
+                Math.Abs(polar.AngleRadians - (Math.PI / 4.0)),
+                0.0,
+                1e-12);
+            var drawing = new DrawingContext();
+            canvas.OnRender(drawing);
+            Assert.True(drawing.Commands.Count(command =>
+                command.Type == RenderCommandType.DrawLine) >= 2);
+            Click(canvas, tracked);
+
+            AssertPoint(new XYZ(2.0, 4.0, 0.0), line.StartPoint);
+            AssertPoint(new XYZ(6.0, 4.0, 0.0), line.EndPoint);
+
+            Assert.True(canvas.TryUndo());
+            canvas.ObjectSnapModes = CadObjectSnapModes.None;
+            Assert.True(canvas.BeginSelectionPointTransform(
+                CadPointTransformOperation.Move));
+            Click(canvas, viewport.WorldToScreen(new CadPoint3D(0.0, 2.0, 0.0)));
+            canvas.ObjectSnapModes = CadObjectSnapModes.Endpoint;
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = viewport.WorldToScreen(new CadPoint3D(2.0, 0.0, 0.0)),
+            });
+
+            Assert.Equal(
+                new CadPoint3D(2.0, 0.0, 0.0),
+                canvas.PendingPointTransformObjectSnap!.Value.Point);
+            Assert.Null(canvas.PendingPointTransformPolarTracking);
+            Assert.True(canvas.CancelSelectionPointTransform());
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void SharedViewGridToggleMirrorsActiveViewportAndControlsCanvas()
     {
         var document = new CadDocument();
@@ -3832,6 +3910,8 @@ public sealed class CadSampleSelectionTests
             Assert.True(view.Canvas.IsPlanGridSnapEnabled);
             Assert.True(view.PlanOrthoCheckBox.IsChecked);
             Assert.True(view.Canvas.IsPlanOrthoEnabled);
+            Assert.False(view.PlanPolarTrackingCheckBox.IsChecked);
+            Assert.False(view.Canvas.IsPlanPolarTrackingEnabled);
             Assert.Equal(2.0, view.Canvas.PlanGridSnapSettings.SpacingX);
             Assert.Equal(4.0, view.Canvas.PlanGridSnapSettings.SpacingY);
 
@@ -3840,6 +3920,17 @@ public sealed class CadSampleSelectionTests
             Assert.False(view.Canvas.IsPlanGridSnapEnabled);
             view.PlanOrthoCheckBox.IsChecked = false;
             Assert.False(view.Canvas.IsPlanOrthoEnabled);
+            view.PlanPolarTrackingCheckBox.IsChecked = true;
+            Assert.True(view.Canvas.IsPlanPolarTrackingEnabled);
+            Assert.False(view.PlanOrthoCheckBox.IsChecked);
+            view.PlanPolarTrackingIncrementSelector.SelectedIndex = 1;
+            Assert.Equal(
+                45.0,
+                view.Canvas.PlanPolarTrackingIncrementDegrees,
+                10);
+            view.PlanOrthoCheckBox.IsChecked = true;
+            Assert.True(view.Canvas.IsPlanOrthoEnabled);
+            Assert.False(view.PlanPolarTrackingCheckBox.IsChecked);
         }
         finally
         {

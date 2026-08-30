@@ -846,6 +846,7 @@ public sealed class CadDocumentSnapshot
     public bool IsPlotOrderCompatible { get; }
     public double GlobalLineTypeScale { get; }
     public CadPlanGridSnapSettings PlanGridSnapSettings { get; }
+    public CadPlanPolarTrackingSettings PlanPolarTrackingSettings { get; }
     public bool IsOrthoModeEnabled { get; }
     public CadBounds3D Bounds { get; }
     public CadPoint3D RebaseOrigin { get; }
@@ -934,6 +935,7 @@ public sealed class CadDocumentSnapshot
         bool isPlotOrderCompatible,
         double globalLineTypeScale,
         CadPlanGridSnapSettings planGridSnapSettings,
+        CadPlanPolarTrackingSettings planPolarTrackingSettings,
         bool isOrthoModeEnabled,
         CadBounds3D bounds,
         CadSnapshotStatistics statistics,
@@ -1014,6 +1016,7 @@ public sealed class CadDocumentSnapshot
         IsPlotOrderCompatible = isPlotOrderCompatible;
         GlobalLineTypeScale = globalLineTypeScale;
         PlanGridSnapSettings = planGridSnapSettings;
+        PlanPolarTrackingSettings = planPolarTrackingSettings;
         IsOrthoModeEnabled = isOrthoModeEnabled;
         Bounds = bounds;
         RebaseOrigin = bounds.Center;

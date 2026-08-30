@@ -1,0 +1,203 @@
+namespace ProGPU.CAD;
+
+public readonly record struct CadPlanPolarTrackingResult(
+    CadPoint3D Point,
+    CadPoint3D Direction,
+    double AngleRadians,
+    double Distance,
+    double PerpendicularDistance);
+
+/// <summary>Immutable plan polar-tracking basis and increment.</summary>
+/// <remarks>
+/// Axes are the ANGBASE-adjusted current-UCS basis in WCS. A query selects the
+/// nearest incremental alignment path and projects the pointer onto it. The
+/// caller owns the device-space activation aperture. Work is O(1) and
+/// allocation-free.
+/// </remarks>
+public readonly record struct CadPlanPolarTrackingSettings
+{
+    private const double OrthonormalTolerance = 1e-10;
+    private const double TurnCountTolerance = 1e-10;
+
+    public bool IsEnabled { get; }
+
+    public bool IsSupported { get; }
+
+    public CadPoint3D XAxis { get; }
+
+    public CadPoint3D YAxis { get; }
+
+    public bool IsClockwise { get; }
+
+    public double IncrementRadians { get; }
+
+    public double IncrementDegrees => IncrementRadians * (180.0 / Math.PI);
+
+    public static CadPlanPolarTrackingSettings Disabled { get; } = new(
+        false,
+        true,
+        new CadPoint3D(1.0, 0.0, 0.0),
+        new CadPoint3D(0.0, 1.0, 0.0),
+        false,
+        Math.PI / 2.0);
+
+    internal static CadPlanPolarTrackingSettings Unsupported { get; } = new(
+        false,
+        false,
+        new CadPoint3D(1.0, 0.0, 0.0),
+        new CadPoint3D(0.0, 1.0, 0.0),
+        false,
+        Math.PI / 2.0);
+
+    public CadPlanPolarTrackingSettings(
+        bool isEnabled,
+        CadPoint3D xAxis,
+        CadPoint3D yAxis,
+        bool isClockwise,
+        double incrementRadians)
+        : this(
+            isEnabled,
+            true,
+            xAxis,
+            yAxis,
+            isClockwise,
+            incrementRadians)
+    {
+    }
+
+    private CadPlanPolarTrackingSettings(
+        bool isEnabled,
+        bool isSupported,
+        CadPoint3D xAxis,
+        CadPoint3D yAxis,
+        bool isClockwise,
+        double incrementRadians)
+    {
+        if (!IsFinite(xAxis) || !IsFinite(yAxis))
+        {
+            throw new ArgumentException("Polar tracking axes must be finite.");
+        }
+        if (!double.IsFinite(incrementRadians) ||
+            incrementRadians <= 0.0 ||
+            incrementRadians > Math.PI / 2.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(incrementRadians));
+        }
+
+        double xLengthSquared = CadPoint3D.Dot(xAxis, xAxis);
+        double yLengthSquared = CadPoint3D.Dot(yAxis, yAxis);
+        double axesDot = CadPoint3D.Dot(xAxis, yAxis);
+        if (Math.Abs(xLengthSquared - 1.0) > OrthonormalTolerance ||
+            Math.Abs(yLengthSquared - 1.0) > OrthonormalTolerance ||
+            Math.Abs(axesDot) > OrthonormalTolerance)
+        {
+            throw new ArgumentException(
+                "Polar tracking axes must form an orthonormal basis.");
+        }
+
+        double turnCount = Math.Tau / incrementRadians;
+        if (!double.IsFinite(turnCount) ||
+            Math.Abs(turnCount - Math.Round(turnCount)) > TurnCountTolerance)
+        {
+            throw new ArgumentException(
+                "The polar increment must divide one complete turn.",
+                nameof(incrementRadians));
+        }
+
+        IsEnabled = isEnabled && isSupported;
+        IsSupported = isSupported;
+        XAxis = xAxis;
+        YAxis = yAxis;
+        IsClockwise = isClockwise;
+        IncrementRadians = incrementRadians;
+    }
+
+    public CadPlanPolarTrackingSettings WithEnabled(bool isEnabled) => new(
+        isEnabled,
+        IsSupported,
+        XAxis,
+        YAxis,
+        IsClockwise,
+        IncrementRadians);
+
+    public CadPlanPolarTrackingSettings WithIncrementRadians(
+        double incrementRadians) => new(
+            IsEnabled,
+            IsSupported,
+            XAxis,
+            YAxis,
+            IsClockwise,
+            incrementRadians);
+
+    public bool TryTrack(
+        CadPoint3D basePoint,
+        CadPoint3D pointerPoint,
+        out CadPlanPolarTrackingResult result)
+    {
+        result = default;
+        if (!IsEnabled ||
+            !IsSupported ||
+            !IsFinite(basePoint) ||
+            !IsFinite(pointerPoint))
+        {
+            return false;
+        }
+
+        CadPoint3D delta = pointerPoint - basePoint;
+        double localX = CadPoint3D.Dot(delta, XAxis);
+        double localY = CadPoint3D.Dot(delta, YAxis);
+        if (!double.IsFinite(localX) || !double.IsFinite(localY))
+        {
+            return false;
+        }
+
+        double measuredY = IsClockwise ? -localY : localY;
+        double pointerAngle = Math.Atan2(measuredY, localX);
+        double multiple = Math.Round(
+            pointerAngle / IncrementRadians,
+            MidpointRounding.AwayFromZero);
+        double angle = multiple * IncrementRadians;
+        double sine = Math.Sin(angle);
+        if (IsClockwise)
+        {
+            sine = -sine;
+        }
+        CadPoint3D direction =
+            (XAxis * Math.Cos(angle)) + (YAxis * sine);
+        double distance = CadPoint3D.Dot(delta, direction);
+        CadPoint3D perpendicular = delta - (direction * distance);
+        double perpendicularDistanceSquared =
+            CadPoint3D.Dot(perpendicular, perpendicular);
+        if (!double.IsFinite(distance) ||
+            !double.IsFinite(perpendicularDistanceSquared) ||
+            perpendicularDistanceSquared < 0.0)
+        {
+            return false;
+        }
+
+        CadPoint3D point = basePoint + (direction * distance);
+        if (!IsFinite(point) || !IsFinite(direction))
+        {
+            return false;
+        }
+
+        result = new CadPlanPolarTrackingResult(
+            point,
+            direction,
+            NormalizeAngle(angle),
+            distance,
+            Math.Sqrt(perpendicularDistanceSquared));
+        return true;
+    }
+
+    private static double NormalizeAngle(double angle)
+    {
+        double normalized = angle % Math.Tau;
+        return normalized < 0.0 ? normalized + Math.Tau : normalized;
+    }
+
+    private static bool IsFinite(CadPoint3D point) =>
+        double.IsFinite(point.X) &&
+        double.IsFinite(point.Y) &&
+        double.IsFinite(point.Z);
+}

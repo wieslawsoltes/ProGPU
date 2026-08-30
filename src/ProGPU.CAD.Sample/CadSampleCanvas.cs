@@ -166,9 +166,12 @@ public sealed class CadSampleCanvas : FrameworkElement
     private CadPoint3D _pointTransformBasePoint;
     private CadPoint3D _pointTransformGridSnap;
     private CadPlanOrthoResult _pointTransformOrtho;
+    private CadPlanPolarTrackingResult _pointTransformPolarTracking;
     private CadObjectSnapResult _pointTransformObjectSnap;
     private CadPlanGridSnapSettings _planGridSnapSettings =
         CadPlanGridSnapSettings.Disabled;
+    private CadPlanPolarTrackingSettings _planPolarTrackingSettings =
+        CadPlanPolarTrackingSettings.Disabled;
     private CadObjectSnapModes _objectSnapModes = CadObjectSnapModes.Standard;
     private float _zoom = 1;
     private int[] _selectionEntityScratch = [];
@@ -189,6 +192,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     private bool _hasPointTransformBasePoint;
     private bool _hasPointTransformGridSnap;
     private bool _hasPointTransformOrtho;
+    private bool _hasPointTransformPolarTracking;
     private bool _isPlanOrthoEnabled;
     private bool _hasSelectionDrag;
     private bool _needsFit = true;
@@ -196,6 +200,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     private const float SelectionDragThreshold = 4.0f;
     private const float PointSelectionTolerance = 5.0f;
     private const float PointTransformObjectSnapAperture = 10.0f;
+    private const float PointTransformPolarTrackingAperture = 10.0f;
     private const float ObjectSnapMarkerRadius = 5.0f;
 
     public CadDocumentSession? CurrentSession { get; private set; }
@@ -334,6 +339,11 @@ public sealed class CadSampleCanvas : FrameworkElement
             }
 
             _isPlanOrthoEnabled = value;
+            if (value && _planPolarTrackingSettings.IsEnabled)
+            {
+                _planPolarTrackingSettings =
+                    _planPolarTrackingSettings.WithEnabled(false);
+            }
             if (PendingPointTransformOperation is not null &&
                 _hasPointTransformPointerPosition)
             {
@@ -349,6 +359,66 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public CadPlanOrthoResult? PendingPointTransformOrthoConstraint =>
         _hasPointTransformOrtho ? _pointTransformOrtho : null;
+
+    public CadPlanPolarTrackingSettings PlanPolarTrackingSettings =>
+        _planPolarTrackingSettings;
+
+    public bool IsPlanPolarTrackingEnabled
+    {
+        get => _planPolarTrackingSettings.IsEnabled;
+        set
+        {
+            if (_planPolarTrackingSettings.IsEnabled == value)
+            {
+                return;
+            }
+
+            _planPolarTrackingSettings =
+                _planPolarTrackingSettings.WithEnabled(value);
+            if (_planPolarTrackingSettings.IsEnabled)
+            {
+                _isPlanOrthoEnabled = false;
+            }
+            if (PendingPointTransformOperation is not null &&
+                _hasPointTransformPointerPosition)
+            {
+                UpdatePointTransformPointer(_pointTransformPointerPosition);
+            }
+            else
+            {
+                _hasPointTransformPolarTracking = false;
+            }
+            Invalidate();
+        }
+    }
+
+    public double PlanPolarTrackingIncrementDegrees
+    {
+        get => _planPolarTrackingSettings.IncrementDegrees;
+        set
+        {
+            double radians = value * (Math.PI / 180.0);
+            CadPlanPolarTrackingSettings updated =
+                _planPolarTrackingSettings.WithIncrementRadians(radians);
+            if (updated == _planPolarTrackingSettings)
+            {
+                return;
+            }
+
+            _planPolarTrackingSettings = updated;
+            if (PendingPointTransformOperation is not null &&
+                _hasPointTransformPointerPosition)
+            {
+                UpdatePointTransformPointer(_pointTransformPointerPosition);
+            }
+            Invalidate();
+        }
+    }
+
+    public CadPlanPolarTrackingResult? PendingPointTransformPolarTracking =>
+        _hasPointTransformPolarTracking
+            ? _pointTransformPolarTracking
+            : null;
 
     public int LastUnsupportedPrimitiveCount => _lastUnsupportedPrimitiveCount;
 
@@ -529,9 +599,20 @@ public sealed class CadSampleCanvas : FrameworkElement
             ? snapshot.PlanGridSnapSettings
             : snapshot.PlanGridSnapSettings.WithEnabled(
                 _planGridSnapSettings.IsEnabled);
+        _planPolarTrackingSettings = resetViewSelectionAndHistory
+            ? snapshot.PlanPolarTrackingSettings
+            : snapshot.PlanPolarTrackingSettings
+                .WithIncrementRadians(
+                    _planPolarTrackingSettings.IncrementRadians)
+                .WithEnabled(_planPolarTrackingSettings.IsEnabled);
         _isPlanOrthoEnabled = resetViewSelectionAndHistory
             ? snapshot.IsOrthoModeEnabled
             : _isPlanOrthoEnabled;
+        if (_isPlanOrthoEnabled)
+        {
+            _planPolarTrackingSettings =
+                _planPolarTrackingSettings.WithEnabled(false);
+        }
         _bounds = snapshot.Bounds;
         _selectionEntityScratch = selectionEntityScratch;
         _selectionCandidates = selectionCandidates;
@@ -631,6 +712,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                         preview.Height));
             }
         }
+        DrawPlanPolarTrackingGuide(context);
         DrawPlanGridSnapMarker(context);
         DrawObjectSnapMarker(context, _pointTransformObjectSnap);
         if (_isSelecting && _hasSelectionDrag)
@@ -841,6 +923,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         _pointTransformObjectSnap = default;
         _hasPointTransformGridSnap = false;
         _hasPointTransformOrtho = false;
+        _hasPointTransformPolarTracking = false;
         PointTransformChanged?.Invoke(
             this,
             new CadPointTransformChangedEventArgs(
@@ -2565,6 +2648,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             _pointTransformObjectSnap = default;
             _hasPointTransformGridSnap = false;
             _hasPointTransformOrtho = false;
+            _hasPointTransformPolarTracking = false;
             _pointTransformCurrent = screenPoint;
             return;
         }
@@ -2574,6 +2658,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         _pointTransformObjectSnap = default;
         _hasPointTransformGridSnap = false;
         _hasPointTransformOrtho = false;
+        _hasPointTransformPolarTracking = false;
         if (_objectSnapModes != CadObjectSnapModes.None)
         {
             _pointTransformObjectSnap = CadObjectSnapQuery.Query(
@@ -2618,6 +2703,24 @@ public sealed class CadSampleCanvas : FrameworkElement
             return;
         }
 
+        if (_planPolarTrackingSettings.IsEnabled &&
+            _hasPointTransformBasePoint &&
+            _planPolarTrackingSettings.TryTrack(
+                _pointTransformBasePoint,
+                pointerWorld,
+                out CadPlanPolarTrackingResult polarTracking))
+        {
+            Vector2 trackedScreen = viewport.WorldToScreen(polarTracking.Point);
+            if (Vector2.Distance(trackedScreen, screenPoint) <=
+                PointTransformPolarTrackingAperture)
+            {
+                _pointTransformPolarTracking = polarTracking;
+                _hasPointTransformPolarTracking = true;
+                _pointTransformCurrent = trackedScreen;
+                return;
+            }
+        }
+
         _hasPointTransformGridSnap = _planGridSnapSettings.TrySnap(
             pointerWorld,
             out _pointTransformGridSnap);
@@ -2631,7 +2734,30 @@ public sealed class CadSampleCanvas : FrameworkElement
         _pointTransformObjectSnap = default;
         _hasPointTransformGridSnap = false;
         _hasPointTransformOrtho = false;
+        _hasPointTransformPolarTracking = false;
         _hasPointTransformPointerPosition = false;
+    }
+
+    private void DrawPlanPolarTrackingGuide(DrawingContext context)
+    {
+        if (!_hasPointTransformPolarTracking)
+        {
+            return;
+        }
+
+        Vector2 basePoint = CreateViewport().WorldToScreen(_pointTransformBasePoint);
+        Vector2 delta = _pointTransformCurrent - basePoint;
+        float length = delta.Length();
+        if (!float.IsFinite(length) || length <= float.Epsilon)
+        {
+            return;
+        }
+
+        float extension = (Size.X + Size.Y) * 2.0f;
+        context.DrawLine(
+            _drawOrderReferencePen,
+            basePoint,
+            basePoint + ((delta / length) * extension));
     }
 
     private void DrawPlanGridSnapMarker(DrawingContext context)
@@ -2822,6 +2948,14 @@ public sealed class CadSampleCanvas : FrameworkElement
             CadPoint3D point = _pointTransformOrtho.Point;
             Vector2 constrainedScreen = _pointTransformCurrent;
             AcceptPointTransformPoint(point, constrainedScreen);
+            return;
+        }
+
+        if (_hasPointTransformPolarTracking)
+        {
+            CadPoint3D point = _pointTransformPolarTracking.Point;
+            Vector2 trackedScreen = _pointTransformCurrent;
+            AcceptPointTransformPoint(point, trackedScreen);
             return;
         }
 
@@ -3107,6 +3241,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         _hasPointTransformGridSnap = false;
         _pointTransformOrtho = default;
         _hasPointTransformOrtho = false;
+        _pointTransformPolarTracking = default;
+        _hasPointTransformPolarTracking = false;
         _hasPointTransformPointerPosition = false;
         if (notify && operation is CadPointTransformOperation value)
         {
