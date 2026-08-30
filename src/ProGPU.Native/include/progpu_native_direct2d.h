@@ -81,8 +81,44 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_LINEAR_GRADIENT_BRUSH = 22,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_LINEAR_GRADIENT_BRUSH = 23,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_RADIAL_GRADIENT_BRUSH = 24,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_RADIAL_GRADIENT_BRUSH = 25
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_RADIAL_GRADIENT_BRUSH = 25,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_GEOMETRY = 26,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_RECTANGLE_GEOMETRY = 27,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_ROUNDED_RECTANGLE_GEOMETRY = 28,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_ELLIPSE_GEOMETRY = 29,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_PATH_GEOMETRY1 = 30,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_TRANSFORMED_GEOMETRY = 31,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_GEOMETRY = 32
 } progpu_native_direct2d_interface_kind;
+
+typedef enum progpu_native_direct2d_fill_mode {
+    PROGPU_NATIVE_DIRECT2D_FILL_MODE_ALTERNATE = 0,
+    PROGPU_NATIVE_DIRECT2D_FILL_MODE_WINDING = 1
+} progpu_native_direct2d_fill_mode;
+
+typedef enum progpu_native_direct2d_path_segment_kind {
+    PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_LINE = 0,
+    PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_QUADRATIC = 1,
+    PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_CUBIC = 2,
+    PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_ARC = 3
+} progpu_native_direct2d_path_segment_kind;
+
+typedef enum progpu_native_direct2d_combine_mode {
+    PROGPU_NATIVE_DIRECT2D_COMBINE_MODE_UNION = 0,
+    PROGPU_NATIVE_DIRECT2D_COMBINE_MODE_INTERSECT = 1,
+    PROGPU_NATIVE_DIRECT2D_COMBINE_MODE_XOR = 2,
+    PROGPU_NATIVE_DIRECT2D_COMBINE_MODE_EXCLUDE = 3
+} progpu_native_direct2d_combine_mode;
+
+enum {
+    PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_FLAG_NONE = 0U,
+    PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_FLAG_FORCE_UNSTROKED = 1U << 0U,
+    PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_FLAG_FORCE_ROUND_LINE_JOIN = 1U << 1U,
+    PROGPU_NATIVE_DIRECT2D_PATH_FIGURE_FLAG_FILLED = 1U << 0U,
+    PROGPU_NATIVE_DIRECT2D_PATH_FIGURE_FLAG_CLOSED = 1U << 1U,
+    PROGPU_NATIVE_DIRECT2D_ARC_FLAG_CLOCKWISE = 1U << 0U,
+    PROGPU_NATIVE_DIRECT2D_ARC_FLAG_LARGE = 1U << 1U
+};
 
 typedef enum progpu_native_direct2d_color_space {
     PROGPU_NATIVE_DIRECT2D_COLOR_SPACE_CUSTOM = 0,
@@ -201,8 +237,34 @@ typedef struct progpu_native_direct2d_radial_gradient_brush_properties {
     float radius_y;
 } progpu_native_direct2d_radial_gradient_brush_properties;
 
+typedef struct progpu_native_direct2d_rect_f {
+    float x;
+    float y;
+    float width;
+    float height;
+} progpu_native_direct2d_rect_f;
+
+typedef struct progpu_native_direct2d_path_figure {
+    progpu_native_direct2d_point_2f start_point;
+    uint32_t first_segment;
+    uint32_t segment_count;
+    uint32_t flags;
+    uint32_t reserved;
+} progpu_native_direct2d_path_figure;
+
+typedef struct progpu_native_direct2d_path_segment {
+    progpu_native_direct2d_point_2f point1;
+    progpu_native_direct2d_point_2f point2;
+    progpu_native_direct2d_point_2f point3;
+    progpu_native_direct2d_point_2f size;
+    float rotation_angle;
+    uint32_t kind;
+    uint32_t flags;
+    uint32_t arc_flags;
+} progpu_native_direct2d_path_segment;
+
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 8U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 9U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -312,6 +374,61 @@ progpu_native_direct2d_surface_create_radial_gradient_brush(
     const progpu_native_direct2d_radial_gradient_brush_properties* properties,
     const progpu_native_direct2d_brush_properties* brush_properties,
     void* gradient_stop_collection,
+    void** value,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_rectangle_geometry(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_rect_f* rectangle,
+    void** value,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_rounded_rectangle_geometry(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_rect_f* rectangle,
+    float radius_x,
+    float radius_y,
+    void** value,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_ellipse_geometry(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_point_2f* center,
+    float radius_x,
+    float radius_y,
+    void** value,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_path_geometry(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_fill_mode fill_mode,
+    const progpu_native_direct2d_path_figure* figures,
+    uint32_t figure_count,
+    const progpu_native_direct2d_path_segment* segments,
+    uint32_t segment_count,
+    void** value,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_transformed_geometry(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    void** value,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_combine_geometry(
+    progpu_native_direct2d_surface* surface,
+    void* geometry_a,
+    void* geometry_b,
+    progpu_native_direct2d_combine_mode combine_mode,
+    const progpu_native_direct2d_matrix_3x2_f* geometry_b_transform,
+    float flattening_tolerance,
     void** value,
     int32_t* native_hresult);
 

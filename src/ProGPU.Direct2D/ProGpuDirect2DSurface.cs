@@ -1,6 +1,8 @@
 using ProGPU.Backend;
 using ProGPU.Backend.Dawn;
+using ProGPU.Wpf.Interop;
 using Silk.NET.WebGPU;
+using System.Buffers;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 
@@ -33,6 +35,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
         new("2CD906AB-12E2-11DC-9FED-001143A055F9");
     private static readonly Guid D2D1RadialGradientBrushInterfaceId =
         new("2CD906AC-12E2-11DC-9FED-001143A055F9");
+    private static readonly Guid D2D1GeometryInterfaceId =
+        new("2CD906A1-12E2-11DC-9FED-001143A055F9");
 
     private readonly object _gate = new();
     private readonly DawnGpuContext _dawn;
@@ -408,6 +412,434 @@ public sealed unsafe class ProGpuDirect2DSurface :
             radial: true);
     }
 
+    public ProGpuDirect2DComReference CreateRectangleGeometry(
+        ProGpuDirect2DRect rectangle)
+    {
+        ValidateRectangle(rectangle);
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            nint value = 0;
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceCreateRectangleGeometry(
+                    _nativeSurface,
+                    &rectangle,
+                    &value,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1RectangleGeometry creation",
+                status,
+                nativeHResult);
+            return CreateRequiredComReference(
+                value,
+                ProGpuDirect2DInterfaceKind.D2D1RectangleGeometry,
+                "ID2D1RectangleGeometry creation");
+        }
+    }
+
+    public ProGpuDirect2DComReference CreateRoundedRectangleGeometry(
+        ProGpuDirect2DRect rectangle,
+        float radiusX,
+        float radiusY)
+    {
+        ValidateRectangle(rectangle);
+        ValidateRadii(radiusX, radiusY);
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            nint value = 0;
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative
+                    .SurfaceCreateRoundedRectangleGeometry(
+                        _nativeSurface,
+                        &rectangle,
+                        radiusX,
+                        radiusY,
+                        &value,
+                        &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1RoundedRectangleGeometry creation",
+                status,
+                nativeHResult);
+            return CreateRequiredComReference(
+                value,
+                ProGpuDirect2DInterfaceKind.D2D1RoundedRectangleGeometry,
+                "ID2D1RoundedRectangleGeometry creation");
+        }
+    }
+
+    public ProGpuDirect2DComReference CreateEllipseGeometry(
+        Vector2 center,
+        float radiusX,
+        float radiusY)
+    {
+        ValidatePoint(center, nameof(center));
+        ValidateRadii(radiusX, radiusY);
+        ProGpuDirect2DNative.NativePoint2F nativeCenter =
+            CreateNativePoint(center);
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            nint value = 0;
+            int nativeHResult = 0;
+            ProGpuDirect2DStatus status =
+                ProGpuDirect2DNative.SurfaceCreateEllipseGeometry(
+                    _nativeSurface,
+                    &nativeCenter,
+                    radiusX,
+                    radiusY,
+                    &value,
+                    &nativeHResult);
+            ThrowIfFailed(
+                "ID2D1EllipseGeometry creation",
+                status,
+                nativeHResult);
+            return CreateRequiredComReference(
+                value,
+                ProGpuDirect2DInterfaceKind.D2D1EllipseGeometry,
+                "ID2D1EllipseGeometry creation");
+        }
+    }
+
+    public ProGpuDirect2DComReference CreatePathGeometry(
+        ProGpuDirect2DFillMode fillMode,
+        ReadOnlySpan<ProGpuDirect2DPathFigure> figures,
+        ReadOnlySpan<ProGpuDirect2DPathSegment> segments)
+    {
+        if (fillMode is not ProGpuDirect2DFillMode.Alternate and
+            not ProGpuDirect2DFillMode.Winding)
+        {
+            throw new ArgumentOutOfRangeException(nameof(fillMode));
+        }
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            fixed (ProGpuDirect2DPathFigure* figurePointer = figures)
+            fixed (ProGpuDirect2DPathSegment* segmentPointer = segments)
+            {
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.SurfaceCreatePathGeometry(
+                        _nativeSurface,
+                        fillMode,
+                        figurePointer,
+                        checked((uint)figures.Length),
+                        segmentPointer,
+                        checked((uint)segments.Length),
+                        &value,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1PathGeometry1 creation",
+                    status,
+                    nativeHResult);
+                return CreateRequiredComReference(
+                    value,
+                    ProGpuDirect2DInterfaceKind.D2D1PathGeometry1,
+                    "ID2D1PathGeometry1 creation");
+            }
+        }
+    }
+
+    public ProGpuDirect2DComReference CreateTransformedGeometry(
+        ProGpuDirect2DComReference geometry,
+        Matrix3x2 transform)
+    {
+        ValidateGeometry(geometry, nameof(geometry));
+        ProGpuDirect2DNative.NativeMatrix3X2F nativeTransform =
+            CreateNativeMatrix(transform);
+        bool referenceAdded = false;
+        try
+        {
+            geometry.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.SurfaceCreateTransformedGeometry(
+                        _nativeSurface,
+                        geometry.DangerousGetHandle(),
+                        &nativeTransform,
+                        &value,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1TransformedGeometry creation",
+                    status,
+                    nativeHResult);
+                return CreateRequiredComReference(
+                    value,
+                    ProGpuDirect2DInterfaceKind.D2D1TransformedGeometry,
+                    "ID2D1TransformedGeometry creation");
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                geometry.DangerousRelease();
+            }
+        }
+    }
+
+    public ProGpuDirect2DComReference CombineGeometry(
+        ProGpuDirect2DComReference geometryA,
+        ProGpuDirect2DComReference geometryB,
+        ProGpuDirect2DCombineMode combineMode,
+        Matrix3x2? geometryBTransform = null,
+        float flatteningTolerance = 0.25F)
+    {
+        ValidateGeometry(geometryA, nameof(geometryA));
+        ValidateGeometry(geometryB, nameof(geometryB));
+        if (combineMode < ProGpuDirect2DCombineMode.Union ||
+            combineMode > ProGpuDirect2DCombineMode.Exclude)
+        {
+            throw new ArgumentOutOfRangeException(nameof(combineMode));
+        }
+        if (!float.IsFinite(flatteningTolerance) ||
+            flatteningTolerance <= 0.0F)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(flatteningTolerance));
+        }
+        ProGpuDirect2DNative.NativeMatrix3X2F nativeTransform = default;
+        ProGpuDirect2DNative.NativeMatrix3X2F* transformPointer = null;
+        if (geometryBTransform is Matrix3x2 transform)
+        {
+            nativeTransform = CreateNativeMatrix(transform);
+            transformPointer = &nativeTransform;
+        }
+
+        bool firstReferenceAdded = false;
+        bool secondReferenceAdded = false;
+        try
+        {
+            geometryA.DangerousAddRef(ref firstReferenceAdded);
+            geometryB.DangerousAddRef(ref secondReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.SurfaceCombineGeometry(
+                        _nativeSurface,
+                        geometryA.DangerousGetHandle(),
+                        geometryB.DangerousGetHandle(),
+                        combineMode,
+                        transformPointer,
+                        flatteningTolerance,
+                        &value,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "Direct2D geometry combination",
+                    status,
+                    nativeHResult);
+                return CreateRequiredComReference(
+                    value,
+                    ProGpuDirect2DInterfaceKind.D2D1PathGeometry1,
+                    "Direct2D geometry combination");
+            }
+        }
+        finally
+        {
+            if (secondReferenceAdded)
+            {
+                geometryB.DangerousRelease();
+            }
+            if (firstReferenceAdded)
+            {
+                geometryA.DangerousRelease();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Creates a genuine Direct2D geometry from the neutral primitive contract
+    /// already published by source-built WPF.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateGeometry(
+        PortablePrimitiveGeometry geometry)
+    {
+        ProGpuDirect2DComReference result;
+        switch (geometry.Kind)
+        {
+            case PortablePrimitiveGeometryKind.Line:
+            {
+                Span<ProGpuDirect2DPathFigure> figures =
+                    stackalloc ProGpuDirect2DPathFigure[1]
+                    {
+                        new(
+                            ConvertPoint(geometry.Point1),
+                            0U,
+                            1U,
+                            ProGpuDirect2DPathFigureFlags.None)
+                    };
+                Span<ProGpuDirect2DPathSegment> segments =
+                    stackalloc ProGpuDirect2DPathSegment[1]
+                    {
+                        ProGpuDirect2DPathSegment.Line(
+                            ConvertPoint(geometry.Point2))
+                    };
+                result = CreatePathGeometry(
+                    ProGpuDirect2DFillMode.Winding,
+                    figures,
+                    segments);
+                break;
+            }
+            case PortablePrimitiveGeometryKind.Rectangle:
+            {
+                ProGpuDirect2DRect rectangle = ConvertRect(geometry.Rect);
+                float radiusX = ConvertFiniteFloat(
+                    geometry.RadiusX,
+                    nameof(geometry));
+                float radiusY = ConvertFiniteFloat(
+                    geometry.RadiusY,
+                    nameof(geometry));
+                result = radiusX == 0.0F && radiusY == 0.0F
+                    ? CreateRectangleGeometry(rectangle)
+                    : CreateRoundedRectangleGeometry(
+                        rectangle,
+                        radiusX,
+                        radiusY);
+                break;
+            }
+            case PortablePrimitiveGeometryKind.Ellipse:
+                result = CreateEllipseGeometry(
+                    ConvertPoint(geometry.Point1),
+                    ConvertFiniteFloat(geometry.RadiusX, nameof(geometry)),
+                    ConvertFiniteFloat(geometry.RadiusY, nameof(geometry)));
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(geometry),
+                    "The portable primitive geometry kind is unknown.");
+        }
+        return ApplyPortableTransform(result, geometry.Transform);
+    }
+
+    /// <summary>
+    /// Creates path, transformed, and boolean-combined genuine Direct2D
+    /// geometries from the same typed DTO consumed by LibreWPF retained replay.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateGeometry(
+        PortableGeometryPath geometry)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+        if (geometry.Kind == PortableGeometryPathKind.Combined)
+        {
+            if (geometry.PathA is null || geometry.PathB is null ||
+                geometry.CombineOperation < 0 ||
+                geometry.CombineOperation > 3)
+            {
+                throw new ArgumentException(
+                    "A combined portable geometry requires two paths and a valid combine operation.",
+                    nameof(geometry));
+            }
+            using ProGpuDirect2DComReference pathA =
+                CreateGeometry(geometry.PathA);
+            using ProGpuDirect2DComReference pathB =
+                CreateGeometry(geometry.PathB);
+            ProGpuDirect2DComReference combined = CombineGeometry(
+                pathA,
+                pathB,
+                (ProGpuDirect2DCombineMode)geometry.CombineOperation);
+            return ApplyPortableTransform(combined, geometry.Transform);
+        }
+        if (geometry.Kind != PortableGeometryPathKind.Path)
+        {
+            throw new ArgumentOutOfRangeException(nameof(geometry));
+        }
+        if (geometry.FillRule is not PortableFillRule.EvenOdd and
+            not PortableFillRule.Nonzero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(geometry),
+                "The portable geometry fill rule is unknown.");
+        }
+
+        PortablePathFigure[] sourceFigures =
+            geometry.Figures ?? Array.Empty<PortablePathFigure>();
+        int segmentCount = 0;
+        foreach (PortablePathFigure figure in sourceFigures)
+        {
+            ArgumentNullException.ThrowIfNull(figure);
+            checked
+            {
+                segmentCount += figure.Segments?.Length ?? 0;
+            }
+        }
+
+        ProGpuDirect2DPathFigure[]? rentedFigures = null;
+        ProGpuDirect2DPathSegment[]? rentedSegments = null;
+        Span<ProGpuDirect2DPathFigure> figures =
+            sourceFigures.Length <= 32
+                ? stackalloc ProGpuDirect2DPathFigure[sourceFigures.Length]
+                : (rentedFigures = ArrayPool<ProGpuDirect2DPathFigure>
+                    .Shared.Rent(sourceFigures.Length))
+                    .AsSpan(0, sourceFigures.Length);
+        Span<ProGpuDirect2DPathSegment> segments =
+            segmentCount <= 128
+                ? stackalloc ProGpuDirect2DPathSegment[segmentCount]
+                : (rentedSegments = ArrayPool<ProGpuDirect2DPathSegment>
+                    .Shared.Rent(segmentCount))
+                    .AsSpan(0, segmentCount);
+        try
+        {
+            int segmentOffset = 0;
+            for (int figureIndex = 0;
+                 figureIndex < sourceFigures.Length;
+                 ++figureIndex)
+            {
+                PortablePathFigure sourceFigure = sourceFigures[figureIndex];
+                PortablePathSegment[] sourceSegments =
+                    sourceFigure.Segments ?? Array.Empty<PortablePathSegment>();
+                ProGpuDirect2DPathFigureFlags figureFlags =
+                    (sourceFigure.IsFilled
+                        ? ProGpuDirect2DPathFigureFlags.Filled
+                        : ProGpuDirect2DPathFigureFlags.None) |
+                    (sourceFigure.IsClosed
+                        ? ProGpuDirect2DPathFigureFlags.Closed
+                        : ProGpuDirect2DPathFigureFlags.None);
+                figures[figureIndex] = new ProGpuDirect2DPathFigure(
+                    ConvertPoint(sourceFigure.StartPoint),
+                    checked((uint)segmentOffset),
+                    checked((uint)sourceSegments.Length),
+                    figureFlags);
+                for (int index = 0; index < sourceSegments.Length; ++index)
+                {
+                    segments[segmentOffset++] =
+                        ConvertSegment(sourceSegments[index]);
+                }
+            }
+            ProGpuDirect2DComReference path = CreatePathGeometry(
+                geometry.FillRule == PortableFillRule.EvenOdd
+                    ? ProGpuDirect2DFillMode.Alternate
+                    : ProGpuDirect2DFillMode.Winding,
+                figures,
+                segments);
+            return ApplyPortableTransform(path, geometry.Transform);
+        }
+        finally
+        {
+            if (rentedSegments is not null)
+            {
+                ArrayPool<ProGpuDirect2DPathSegment>.Shared.Return(
+                    rentedSegments,
+                    clearArray: false);
+            }
+            if (rentedFigures is not null)
+            {
+                ArrayPool<ProGpuDirect2DPathFigure>.Shared.Return(
+                    rentedFigures,
+                    clearArray: false);
+            }
+        }
+    }
+
     /// <summary>
     /// Wraps a provider-created ID2D1SolidColorBrush as a genuine Microsoft
     /// Win2D CanvasSolidColorBrush through ICanvasFactoryNative. The returned
@@ -493,6 +925,31 @@ public sealed unsafe class ProGpuDirect2DSurface :
             out nativeBrush,
             out nativeHResult);
 
+    public bool TryAcquireMicrosoftWin2DGeometry(
+        ProGpuDirect2DComReference nativeGeometry,
+        out ProGpuDirect2DComReference? canvasGeometry,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapper(
+            nativeGeometry,
+            ProGpuDirect2DInterfaceKind.D2D1Geometry,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasGeometry,
+            "Microsoft Win2D CanvasGeometry wrapping",
+            out canvasGeometry,
+            out nativeHResult);
+
+    public bool TryAcquireMicrosoftWin2DNativeGeometry(
+        ProGpuDirect2DComReference canvasGeometry,
+        out ProGpuDirect2DComReference? nativeGeometry,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapperNativeResource(
+            canvasGeometry,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasGeometry,
+            D2D1GeometryInterfaceId,
+            ProGpuDirect2DInterfaceKind.D2D1Geometry,
+            "Microsoft Win2D CanvasGeometry native-resource query",
+            out nativeGeometry,
+            out nativeHResult);
+
     private ProGpuDirect2DComReference CreateGradientBrush(
         ProGpuDirect2DComReference gradientStopCollection,
         void* properties,
@@ -555,7 +1012,9 @@ public sealed unsafe class ProGpuDirect2DSurface :
         out int nativeHResult)
     {
         ArgumentNullException.ThrowIfNull(nativeResource);
-        if (nativeResource.InterfaceKind != expectedNativeKind)
+        if (!IsCompatibleInterfaceKind(
+                nativeResource.InterfaceKind,
+                expectedNativeKind))
         {
             throw new ArgumentException(
                 $"The COM reference must own {expectedNativeKind}.",
@@ -1192,9 +1651,213 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    private static void ValidateRectangle(ProGpuDirect2DRect rectangle)
+    {
+        if (!float.IsFinite(rectangle.X) ||
+            !float.IsFinite(rectangle.Y) ||
+            !float.IsFinite(rectangle.Width) ||
+            !float.IsFinite(rectangle.Height) ||
+            rectangle.Width < 0.0F || rectangle.Height < 0.0F ||
+            !float.IsFinite(rectangle.X + rectangle.Width) ||
+            !float.IsFinite(rectangle.Y + rectangle.Height))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(rectangle),
+                "Direct2D rectangles must be finite and nonnegative in size.");
+        }
+    }
+
+    private static void ValidateRadii(float radiusX, float radiusY)
+    {
+        if (!float.IsFinite(radiusX) || !float.IsFinite(radiusY) ||
+            radiusX < 0.0F || radiusY < 0.0F)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(radiusX),
+                "Direct2D radii must be finite and nonnegative.");
+        }
+    }
+
+    private static void ValidateGeometry(
+        ProGpuDirect2DComReference geometry,
+        string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(geometry, parameterName);
+        if (!IsGeometryKind(geometry.InterfaceKind))
+        {
+            throw new ArgumentException(
+                "The COM reference must own a Direct2D geometry.",
+                parameterName);
+        }
+    }
+
+    private static bool IsGeometryKind(ProGpuDirect2DInterfaceKind kind) =>
+        kind >= ProGpuDirect2DInterfaceKind.D2D1Geometry &&
+        kind <= ProGpuDirect2DInterfaceKind.D2D1TransformedGeometry;
+
+    private static bool IsCompatibleInterfaceKind(
+        ProGpuDirect2DInterfaceKind actual,
+        ProGpuDirect2DInterfaceKind expected) =>
+        actual == expected ||
+        (expected == ProGpuDirect2DInterfaceKind.D2D1Geometry &&
+         IsGeometryKind(actual));
+
     private static ProGpuDirect2DNative.NativePoint2F CreateNativePoint(
         Vector2 point) =>
         new() { X = point.X, Y = point.Y };
+
+    private static ProGpuDirect2DNative.NativeMatrix3X2F CreateNativeMatrix(
+        Matrix3x2 matrix)
+    {
+        if (!float.IsFinite(matrix.M11) ||
+            !float.IsFinite(matrix.M12) ||
+            !float.IsFinite(matrix.M21) ||
+            !float.IsFinite(matrix.M22) ||
+            !float.IsFinite(matrix.M31) ||
+            !float.IsFinite(matrix.M32))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(matrix),
+                "Direct2D transforms must be finite.");
+        }
+        return new ProGpuDirect2DNative.NativeMatrix3X2F
+        {
+            M11 = matrix.M11,
+            M12 = matrix.M12,
+            M21 = matrix.M21,
+            M22 = matrix.M22,
+            M31 = matrix.M31,
+            M32 = matrix.M32
+        };
+    }
+
+    private static float ConvertFiniteFloat(double value, string parameterName)
+    {
+        float result = (float)value;
+        if (!double.IsFinite(value) || !float.IsFinite(result))
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "Portable geometry values must fit finite Direct2D floats.");
+        }
+        return result;
+    }
+
+    private static Vector2 ConvertPoint(PortablePoint point) =>
+        new(
+            ConvertFiniteFloat(point.X, nameof(point)),
+            ConvertFiniteFloat(point.Y, nameof(point)));
+
+    private static ProGpuDirect2DRect ConvertRect(PortableRect rectangle)
+    {
+        if (rectangle.IsEmpty)
+        {
+            throw new ArgumentException(
+                "An empty portable rectangle cannot create a Direct2D geometry.",
+                nameof(rectangle));
+        }
+        return new ProGpuDirect2DRect(
+            ConvertFiniteFloat(rectangle.X, nameof(rectangle)),
+            ConvertFiniteFloat(rectangle.Y, nameof(rectangle)),
+            ConvertFiniteFloat(rectangle.Width, nameof(rectangle)),
+            ConvertFiniteFloat(rectangle.Height, nameof(rectangle)));
+    }
+
+    private static Matrix3x2 ConvertMatrix(PortableMatrix3x2 matrix) =>
+        new(
+            ConvertFiniteFloat(matrix.M11, nameof(matrix)),
+            ConvertFiniteFloat(matrix.M12, nameof(matrix)),
+            ConvertFiniteFloat(matrix.M21, nameof(matrix)),
+            ConvertFiniteFloat(matrix.M22, nameof(matrix)),
+            ConvertFiniteFloat(matrix.OffsetX, nameof(matrix)),
+            ConvertFiniteFloat(matrix.OffsetY, nameof(matrix)));
+
+    private static ProGpuDirect2DPathSegment ConvertSegment(
+        PortablePathSegment segment)
+    {
+        if (segment.Kind == PortablePathSegmentKind.Arc &&
+            segment.SweepDirection is not PortableSweepDirection.Clockwise and
+            not PortableSweepDirection.Counterclockwise)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(segment),
+                "The portable arc sweep direction is unknown.");
+        }
+        if (segment.Kind == PortablePathSegmentKind.Arc &&
+            (segment.Size.Width < 0.0 || segment.Size.Height < 0.0))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(segment),
+                "Portable arc radii must be nonnegative.");
+        }
+        ProGpuDirect2DPathSegmentFlags flags =
+            (segment.IsStroked
+                ? ProGpuDirect2DPathSegmentFlags.None
+                : ProGpuDirect2DPathSegmentFlags.ForceUnstroked) |
+            (segment.IsSmoothJoin
+                ? ProGpuDirect2DPathSegmentFlags.ForceRoundLineJoin
+                : ProGpuDirect2DPathSegmentFlags.None);
+        return segment.Kind switch
+        {
+            PortablePathSegmentKind.Line =>
+                ProGpuDirect2DPathSegment.Line(
+                    ConvertPoint(segment.Point1),
+                    flags),
+            PortablePathSegmentKind.QuadraticBezier =>
+                ProGpuDirect2DPathSegment.Quadratic(
+                    ConvertPoint(segment.Point1),
+                    ConvertPoint(segment.Point2),
+                    flags),
+            PortablePathSegmentKind.CubicBezier =>
+                ProGpuDirect2DPathSegment.Cubic(
+                    ConvertPoint(segment.Point1),
+                    ConvertPoint(segment.Point2),
+                    ConvertPoint(segment.Point3),
+                    flags),
+            PortablePathSegmentKind.Arc =>
+                ProGpuDirect2DPathSegment.Arc(
+                    ConvertPoint(segment.Point1),
+                    new Vector2(
+                        ConvertFiniteFloat(
+                            segment.Size.Width,
+                            nameof(segment)),
+                        ConvertFiniteFloat(
+                            segment.Size.Height,
+                            nameof(segment))),
+                    ConvertFiniteFloat(
+                        segment.RotationAngle,
+                        nameof(segment)),
+                    (segment.SweepDirection ==
+                        PortableSweepDirection.Clockwise
+                            ? ProGpuDirect2DArcFlags.Clockwise
+                            : ProGpuDirect2DArcFlags.None) |
+                    (segment.IsLargeArc
+                        ? ProGpuDirect2DArcFlags.Large
+                        : ProGpuDirect2DArcFlags.None),
+                    flags),
+            _ => throw new ArgumentOutOfRangeException(nameof(segment))
+        };
+    }
+
+    private ProGpuDirect2DComReference ApplyPortableTransform(
+        ProGpuDirect2DComReference geometry,
+        PortableMatrix3x2 transform)
+    {
+        if (transform.IsIdentity)
+        {
+            return geometry;
+        }
+        try
+        {
+            return CreateTransformedGeometry(
+                geometry,
+                ConvertMatrix(transform));
+        }
+        finally
+        {
+            geometry.Dispose();
+        }
+    }
 
     private static ProGpuDirect2DNative.NativeBrushProperties
         CreateNativeBrushProperties(
@@ -1214,18 +1877,12 @@ public sealed unsafe class ProGpuDirect2DSurface :
                 nameof(opacity),
                 "Direct2D brush opacity and transform values must be finite.");
         }
+        ProGpuDirect2DNative.NativeMatrix3X2F nativeMatrix =
+            CreateNativeMatrix(matrix);
         return new ProGpuDirect2DNative.NativeBrushProperties
         {
             Opacity = opacity,
-            Transform = new ProGpuDirect2DNative.NativeMatrix3X2F
-            {
-                M11 = matrix.M11,
-                M12 = matrix.M12,
-                M21 = matrix.M21,
-                M22 = matrix.M22,
-                M31 = matrix.M31,
-                M32 = matrix.M32
-            }
+            Transform = nativeMatrix
         };
     }
 

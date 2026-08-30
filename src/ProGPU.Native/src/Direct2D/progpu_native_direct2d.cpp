@@ -156,6 +156,50 @@ bool is_valid(progpu_native_direct2d_color_interpolation_mode value)
             PROGPU_NATIVE_DIRECT2D_COLOR_INTERPOLATION_MODE_PREMULTIPLIED;
 }
 
+bool is_geometry_path_segment_valid(
+    const progpu_native_direct2d_path_segment& segment)
+{
+    if (segment.kind > static_cast<uint32_t>(
+            PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_ARC) ||
+        (segment.flags &
+         ~(PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_FLAG_FORCE_UNSTROKED |
+           PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_FLAG_FORCE_ROUND_LINE_JOIN)) !=
+            0U ||
+        (segment.arc_flags &
+         ~(PROGPU_NATIVE_DIRECT2D_ARC_FLAG_CLOCKWISE |
+           PROGPU_NATIVE_DIRECT2D_ARC_FLAG_LARGE)) != 0U ||
+        !is_finite(segment.point1)) {
+        return false;
+    }
+    switch (segment.kind) {
+        case PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_LINE:
+            return segment.arc_flags == 0U;
+        case PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_QUADRATIC:
+            return segment.arc_flags == 0U && is_finite(segment.point2);
+        case PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_CUBIC:
+            return segment.arc_flags == 0U && is_finite(segment.point2) &&
+                is_finite(segment.point3);
+        case PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_ARC:
+            return is_finite(segment.size) &&
+                segment.size.x >= 0.0F && segment.size.y >= 0.0F &&
+                std::isfinite(segment.rotation_angle);
+        default:
+            return false;
+    }
+}
+
+HRESULT create_path_geometry(
+    progpu_native_direct2d_surface& surface,
+    ComPtr<ID2D1PathGeometry1>& path)
+{
+    ComPtr<ID2D1PathGeometry> base_path;
+    HRESULT hr = surface.d2d_factory->CreatePathGeometry(&base_path);
+    if (FAILED(hr)) {
+        return hr;
+    }
+    return base_path.As(&path);
+}
+
 GUID to_native_guid(const progpu_native_direct2d_guid& value)
 {
     GUID result{};
@@ -1174,6 +1218,375 @@ progpu_native_direct2d_surface_create_radial_gradient_brush(
         return status_from_win2d_hresult(hr);
     }
     return return_interface(brush, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_rectangle_geometry(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_rect_f* rectangle,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || rectangle == nullptr || value == nullptr ||
+        native_hresult == nullptr || !std::isfinite(rectangle->x) ||
+        !std::isfinite(rectangle->y) || !std::isfinite(rectangle->width) ||
+        !std::isfinite(rectangle->height) || rectangle->width < 0.0F ||
+        rectangle->height < 0.0F ||
+        !std::isfinite(rectangle->x + rectangle->width) ||
+        !std::isfinite(rectangle->y + rectangle->height)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_RECT_F native_rectangle = {
+        rectangle->x,
+        rectangle->y,
+        rectangle->x + rectangle->width,
+        rectangle->y + rectangle->height
+    };
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1RectangleGeometry> geometry;
+    HRESULT hr = surface->d2d_factory->CreateRectangleGeometry(
+        native_rectangle,
+        geometry.GetAddressOf());
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(geometry, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_rounded_rectangle_geometry(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_rect_f* rectangle,
+    float radius_x,
+    float radius_y,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || rectangle == nullptr || value == nullptr ||
+        native_hresult == nullptr || !std::isfinite(rectangle->x) ||
+        !std::isfinite(rectangle->y) || !std::isfinite(rectangle->width) ||
+        !std::isfinite(rectangle->height) || rectangle->width < 0.0F ||
+        rectangle->height < 0.0F || !std::isfinite(radius_x) ||
+        !std::isfinite(radius_y) || radius_x < 0.0F || radius_y < 0.0F ||
+        !std::isfinite(rectangle->x + rectangle->width) ||
+        !std::isfinite(rectangle->y + rectangle->height)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_ROUNDED_RECT native_rectangle = {
+        {
+            rectangle->x,
+            rectangle->y,
+            rectangle->x + rectangle->width,
+            rectangle->y + rectangle->height
+        },
+        radius_x,
+        radius_y
+    };
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1RoundedRectangleGeometry> geometry;
+    HRESULT hr = surface->d2d_factory->CreateRoundedRectangleGeometry(
+        native_rectangle,
+        geometry.GetAddressOf());
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(geometry, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_ellipse_geometry(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_point_2f* center,
+    float radius_x,
+    float radius_y,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || center == nullptr || value == nullptr ||
+        native_hresult == nullptr || !is_finite(*center) ||
+        !std::isfinite(radius_x) || !std::isfinite(radius_y) ||
+        radius_x < 0.0F || radius_y < 0.0F) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_ELLIPSE native_ellipse = {
+        {center->x, center->y},
+        radius_x,
+        radius_y
+    };
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1EllipseGeometry> geometry;
+    HRESULT hr = surface->d2d_factory->CreateEllipseGeometry(
+        native_ellipse,
+        geometry.GetAddressOf());
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(geometry, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_path_geometry(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_fill_mode fill_mode,
+    const progpu_native_direct2d_path_figure* figures,
+    uint32_t figure_count,
+    const progpu_native_direct2d_path_segment* segments,
+    uint32_t segment_count,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || value == nullptr || native_hresult == nullptr ||
+        (figure_count != 0U && figures == nullptr) ||
+        (segment_count != 0U && segments == nullptr) ||
+        (fill_mode != PROGPU_NATIVE_DIRECT2D_FILL_MODE_ALTERNATE &&
+         fill_mode != PROGPU_NATIVE_DIRECT2D_FILL_MODE_WINDING)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    uint32_t expected_segment = 0U;
+    for (uint32_t index = 0U; index < figure_count; ++index) {
+        const auto& figure = figures[index];
+        if (!is_finite(figure.start_point) || figure.reserved != 0U ||
+            (figure.flags &
+             ~(PROGPU_NATIVE_DIRECT2D_PATH_FIGURE_FLAG_FILLED |
+               PROGPU_NATIVE_DIRECT2D_PATH_FIGURE_FLAG_CLOSED)) != 0U ||
+            figure.first_segment != expected_segment ||
+            figure.segment_count > segment_count - expected_segment) {
+            return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+        }
+        expected_segment += figure.segment_count;
+    }
+    if (expected_segment != segment_count) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    for (uint32_t index = 0U; index < segment_count; ++index) {
+        if (!is_geometry_path_segment_valid(segments[index])) {
+            return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+        }
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1PathGeometry1> path;
+    HRESULT hr = create_path_geometry(*surface, path);
+    ComPtr<ID2D1GeometrySink> sink;
+    if (SUCCEEDED(hr)) {
+        hr = path->Open(&sink);
+    }
+    if (SUCCEEDED(hr)) {
+        sink->SetFillMode(static_cast<D2D1_FILL_MODE>(fill_mode));
+        for (uint32_t figure_index = 0U;
+             figure_index < figure_count;
+             ++figure_index) {
+            const auto& figure = figures[figure_index];
+            sink->BeginFigure(
+                {figure.start_point.x, figure.start_point.y},
+                (figure.flags &
+                 PROGPU_NATIVE_DIRECT2D_PATH_FIGURE_FLAG_FILLED) != 0U
+                    ? D2D1_FIGURE_BEGIN_FILLED
+                    : D2D1_FIGURE_BEGIN_HOLLOW);
+            for (uint32_t offset = 0U;
+                 offset < figure.segment_count;
+                 ++offset) {
+                const auto& segment =
+                    segments[figure.first_segment + offset];
+                sink->SetSegmentFlags(
+                    static_cast<D2D1_PATH_SEGMENT>(segment.flags));
+                switch (segment.kind) {
+                    case PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_LINE:
+                        sink->AddLine({segment.point1.x, segment.point1.y});
+                        break;
+                    case PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_QUADRATIC:
+                        sink->AddQuadraticBezier({
+                            {segment.point1.x, segment.point1.y},
+                            {segment.point2.x, segment.point2.y}
+                        });
+                        break;
+                    case PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_CUBIC:
+                        sink->AddBezier({
+                            {segment.point1.x, segment.point1.y},
+                            {segment.point2.x, segment.point2.y},
+                            {segment.point3.x, segment.point3.y}
+                        });
+                        break;
+                    case PROGPU_NATIVE_DIRECT2D_PATH_SEGMENT_ARC:
+                        sink->AddArc({
+                            {segment.point1.x, segment.point1.y},
+                            {segment.size.x, segment.size.y},
+                            segment.rotation_angle,
+                            (segment.arc_flags &
+                             PROGPU_NATIVE_DIRECT2D_ARC_FLAG_CLOCKWISE) != 0U
+                                ? D2D1_SWEEP_DIRECTION_CLOCKWISE
+                                : D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE,
+                            (segment.arc_flags &
+                             PROGPU_NATIVE_DIRECT2D_ARC_FLAG_LARGE) != 0U
+                                ? D2D1_ARC_SIZE_LARGE
+                                : D2D1_ARC_SIZE_SMALL
+                        });
+                        break;
+                    default:
+                        hr = E_INVALIDARG;
+                        break;
+                }
+                if (FAILED(hr)) {
+                    break;
+                }
+            }
+            sink->EndFigure(
+                (figure.flags &
+                 PROGPU_NATIVE_DIRECT2D_PATH_FIGURE_FLAG_CLOSED) != 0U
+                    ? D2D1_FIGURE_END_CLOSED
+                    : D2D1_FIGURE_END_OPEN);
+            if (FAILED(hr)) {
+                break;
+            }
+        }
+        HRESULT close_hr = sink->Close();
+        if (SUCCEEDED(hr)) {
+            hr = close_hr;
+        }
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(path, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_transformed_geometry(
+    progpu_native_direct2d_surface* surface,
+    void* geometry,
+    const progpu_native_direct2d_matrix_3x2_f* transform,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry == nullptr || transform == nullptr ||
+        value == nullptr || native_hresult == nullptr ||
+        !is_finite(*transform)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_MATRIX_3X2_F native_transform = {
+        transform->m11,
+        transform->m12,
+        transform->m21,
+        transform->m22,
+        transform->m31,
+        transform->m32
+    };
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1TransformedGeometry> result;
+    HRESULT hr = surface->d2d_factory->CreateTransformedGeometry(
+        reinterpret_cast<ID2D1Geometry*>(geometry),
+        native_transform,
+        result.GetAddressOf());
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(result, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_combine_geometry(
+    progpu_native_direct2d_surface* surface,
+    void* geometry_a,
+    void* geometry_b,
+    progpu_native_direct2d_combine_mode combine_mode,
+    const progpu_native_direct2d_matrix_3x2_f* geometry_b_transform,
+    float flattening_tolerance,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || geometry_a == nullptr || geometry_b == nullptr ||
+        value == nullptr || native_hresult == nullptr ||
+        combine_mode < PROGPU_NATIVE_DIRECT2D_COMBINE_MODE_UNION ||
+        combine_mode > PROGPU_NATIVE_DIRECT2D_COMBINE_MODE_EXCLUDE ||
+        !std::isfinite(flattening_tolerance) || flattening_tolerance <= 0.0F ||
+        (geometry_b_transform != nullptr &&
+         !is_finite(*geometry_b_transform))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    D2D1_MATRIX_3X2_F native_transform{};
+    const D2D1_MATRIX_3X2_F* native_transform_pointer = nullptr;
+    if (geometry_b_transform != nullptr) {
+        native_transform = {
+            geometry_b_transform->m11,
+            geometry_b_transform->m12,
+            geometry_b_transform->m21,
+            geometry_b_transform->m22,
+            geometry_b_transform->m31,
+            geometry_b_transform->m32
+        };
+        native_transform_pointer = &native_transform;
+    }
+
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1PathGeometry1> path;
+    HRESULT hr = create_path_geometry(*surface, path);
+    ComPtr<ID2D1GeometrySink> sink;
+    if (SUCCEEDED(hr)) {
+        hr = path->Open(&sink);
+    }
+    if (SUCCEEDED(hr)) {
+        HRESULT combine_hr =
+            reinterpret_cast<ID2D1Geometry*>(geometry_a)->CombineWithGeometry(
+                reinterpret_cast<ID2D1Geometry*>(geometry_b),
+                static_cast<D2D1_COMBINE_MODE>(combine_mode),
+                native_transform_pointer,
+                flattening_tolerance,
+                sink.Get());
+        HRESULT close_hr = sink->Close();
+        hr = FAILED(combine_hr) ? combine_hr : close_hr;
+    }
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(path, value);
 }
 
 progpu_native_direct2d_status
