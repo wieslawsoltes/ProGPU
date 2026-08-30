@@ -222,6 +222,17 @@ canonical COM identity. This is an explicit image upload path, not a fallback
 readback or per-pixel CPU renderer; same-device target sharing remains
 zero-copy.
 
+ABI v12 adds genuine device-context-domain `ID2D1ImageBrush` creation over a
+typed same-domain image with an explicit image-space source rectangle, extend
+modes, interpolation mode, opacity, and transform. Managed and native layers
+reject empty/non-finite rectangles and invalid enum values before calling
+Direct2D. The existing Win2D `CanvasImageBrush` projection now accepts either
+of Win2D's documented native representations while reverse unwrapping requires
+the caller to request `ID2D1BitmapBrush1` or `ID2D1ImageBrush` explicitly. The
+signed oracle uses a two-color bitmap and selects only its second column, so
+the distinct output pixel proves source-rectangle semantics in addition to
+exact forward/reverse COM identity.
+
 `TryBeginMicrosoftWin2DProducerAccess(...)` ends Dawn ownership, acquires the
 keyed mutex without beginning a second native Direct2D drawing context, and
 returns the CanvasRenderTarget. The caller creates, uses, and disposes its real
@@ -241,8 +252,7 @@ thread that activates or uses the returned WinRT object and must make the Win2D
 package available through their normal package/dependency graph.
 
 This is not yet the complete native Win2D bridge. The next interop boundaries
-are general `ID2D1ImageBrush` sources/source rectangles, text, command lists,
-effects, and
+are typed effect and command-list `ID2D1Image` factories, text, effects, and
 device-loss recreation of the entire cached resource domain. Each family must
 pass the same forward-wrap/reverse-unwrap identity and actual-draw gate before
 it is advertised.
@@ -486,7 +496,10 @@ exact `ID2D1Geometry <-> CanvasGeometry` identity. ABI v10 adds typed
 rejection, a real bitmap-brush fill, and exact
 `ID2D1Bitmap1 <-> CanvasBitmap` plus
 `ID2D1BitmapBrush1 <-> CanvasImageBrush` identities. The gate enforces an exact
-30-export allowlist.
+ABI v12 adds strict `ID2D1ImageBrush` source-rectangle creation, malformed
+rectangle rejection, a genuine image-brush fill, and exact
+`ID2D1ImageBrush <-> CanvasImageBrush` identity. The gate enforces an exact
+31-export allowlist.
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
@@ -628,6 +641,29 @@ remain green, the adapter is `Dawn D3D12`, and content version advances from
 The gate now removes stale same-name processes before launch, writes progress
 to package LocalState plus its fallback directory, and reports the last durable
 stage when the current process exits or times out without evidence.
+
+ABI v12 at exact implementation commit `b0cc1b63` was rebuilt in the same
+Windows 11 ARM64 Parallels guest with MSVC 19.44 and Windows SDK
+10.0.26100.0. Two consecutive `/Brepro` builds produce identical binaries;
+the warning-clean focused provider and native regression exit zero after
+validating image source identity, source rectangle, tiling,
+sampling, opacity, transform, empty-rectangle rejection, exact Win2D
+forward/reverse identity, and a real `ID2D1ImageBrush` fill. SHA-256 is
+`A4F8116C63BB93C47EE395DF2E5E81BC936AA58D1A48A03004673CB7835FB176`
+for `progpu_native_direct2d.dll` and
+`420A72C0BB51619B3DEAE02B318F67E4EEAD19236B270A396F758C8598FF7077`
+for `progpu_native_direct2d_tests.exe`. The signed ARM64 Microsoft Win2D 1.4.0
+oracle passes on `Dawn D3D12`: both native brush representations project as
+real `Microsoft.Graphics.Canvas.Brushes.CanvasImageBrush` objects and preserve
+canonical COM identity. Its general image brush reports source rectangle
+`[1,0,1,2]` and selects the expected second-column ARGB pixel
+`(255,48,224,176)` while the existing bitmap-brush probe remains
+`(255,144,64,240)`. All earlier identities and pixels remain green, the shared
+surface is `68x64`, and content version advances from `0` to `1`. Persisted
+JSON evidence SHA-256 is
+`17DFB074969889F4144973366B87A996FA9BF30A42BFEE381194FD234E8A40C6`.
+Post-run cleanup leaves zero integration processes and zero installed test
+packages.
 
 Run this qualification with
 `eng/progpu-run-direct2d-win2d-integration.ps1`, or opt it into the complete
