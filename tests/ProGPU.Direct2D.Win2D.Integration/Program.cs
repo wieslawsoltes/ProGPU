@@ -18,6 +18,8 @@ internal static partial class Program
     private const uint Width = 64U;
     private const uint Height = 64U;
     private const string ResultFileName = "direct2d-win2d-result.json";
+    private const string FallbackResultDirectoryName =
+        "ProGPU.Direct2D.Win2D.Integration";
     private static readonly Guid IUnknownInterfaceId =
         new("00000000-0000-0000-C000-000000000046");
 
@@ -629,13 +631,33 @@ internal static partial class Program
 
     private static void WriteEvidence(IntegrationEvidence evidence)
     {
-        string directory = ApplicationData.Current.LocalFolder.Path;
-        Directory.CreateDirectory(directory);
+        string json = JsonSerializer.Serialize(
+            evidence,
+            new JsonSerializerOptions { WriteIndented = true });
+        try
+        {
+            string packageDirectory = ApplicationData.Current.LocalFolder.Path;
+            Directory.CreateDirectory(packageDirectory);
+            File.WriteAllText(
+                Path.Combine(packageDirectory, ResultFileName),
+                json);
+            return;
+        }
+        catch
+        {
+            // Full-trust package activation failures can make ApplicationData
+            // unavailable while the diagnostic catch path is running. Never
+            // let that secondary failure erase the original interop evidence.
+        }
+
+        string fallbackDirectory = Path.Combine(
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData),
+            FallbackResultDirectoryName);
+        Directory.CreateDirectory(fallbackDirectory);
         File.WriteAllText(
-            Path.Combine(directory, ResultFileName),
-            JsonSerializer.Serialize(
-                evidence,
-                new JsonSerializerOptions { WriteIndented = true }));
+            Path.Combine(fallbackDirectory, ResultFileName),
+            json);
     }
 
     [LibraryImport("combase.dll")]
