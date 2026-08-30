@@ -39,8 +39,12 @@ contracts:
   isometric lattice.
 - Autodesk's [ISOPLANE command reference](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-9B1EEA63-BEC1-413E-B69F-541B5865F1A1.htm)
   defines Left as 90/150 degrees, Top as 30/150 degrees, Right as 90/30
-  degrees, and requires Ortho to use the active pair when SNAPSTYL is
-  isometric.
+  degrees, requires Ortho to use the active pair when SNAPSTYL is isometric,
+  and documents F5 or Ctrl+E cycling.
+- Autodesk's [Function Key Reference](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-Core/files/GUID-ACAA0279-047D-458E-889F-60BBFDD40489.htm)
+  defines F5 as cycling the 2D isoplane setting.
+- Autodesk's [SNAPISOPAIR reference](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-10E95216-5E3C-45F2-A6B9-79E7660A1F60.htm)
+  confirms drawing persistence and the numeric order 0 Left, 1 Top, 2 Right.
 - Autodesk's [SNAPSTYL reference](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-E04B7A7B-8232-44C3-BD74-20BCFEC07C2E.htm)
   defines drawing-persisted rectangular value 0 and isometric value 1.
 
@@ -81,6 +85,17 @@ changing Ortho/crosshair directions exactly. Invalid pair values or unequal
 isometric spacing fail closed instead of producing an invented skew lattice.
 PolarSnap remains explicitly deferred. The shared checkbox starts from
 persisted SNAPMODE and remains a bounded interaction-session override.
+
+The shared shell maps F5 and Ctrl+E to one O(1), generation-safe command that
+cycles Left to Top to Right to Left by the documented persisted numeric order.
+It changes only SNAPISOPAIR, retains the exact active-VPORT identity and
+SNAPSTYL state for Undo/Redo validation, and rejects invalid persisted pairs.
+The command also cycles while SNAPSTYL is rectangular so the dormant drawing
+setting is remembered without changing the rectangular render or snap basis.
+Snapshot notification refreshes the selector and active Ortho basis before the
+next interaction. A staged or invalid drafting-grid panel edit blocks the
+shortcut instead of being discarded. The browser host reserves both shortcuts
+from browser defaults and dispatches them through the same shared key path.
 
 For a pointer point `P`, grid origin `O`, unit axes `X,Y`, axis dot product `g`,
 and spacings `sx,sy`, the common dual-basis projection computes:
@@ -159,7 +174,12 @@ typed-coordinate bypass, one edit generation, and desktop/browser-shared
 controls. ACadSharp VPORT groups 77/78 pass three DXF versions; ProGPU
 style/pair/spacing edits pass DXF and DWG round trips.
 
-PolarSnap, status-key plane cycling, object-snap tracking, arbitrary-camera
+Command and shared-view regressions cover Left/Top/Right wraparound, exact
+Undo/Redo, rectangular dormant-state retention, malformed-pair rejection, F5,
+Ctrl+E, selector/snapshot refresh, and staged-panel preservation. A browser
+asset regression keeps both shortcuts reserved from browser defaults.
+
+PolarSnap, object-snap tracking, arbitrary-camera
 screen rays, broader image goldens, and large-scene p50/p95/p99 interaction
 evidence remain before the broader drafting-grid feature can be called
 complete.

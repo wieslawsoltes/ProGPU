@@ -30,7 +30,11 @@ contracts:
   not follow the isometric snap grid.
 - Autodesk's [ISOPLANE command reference](https://help.autodesk.com/cloudhelp/2020/ENU/AutoCAD-Core/files/GUID-9B1EEA63-BEC1-413E-B69F-541B5865F1A1.htm)
   defines Left as 90/150 degrees, Top as 30/150 degrees, and Right as 90/30
-  degrees.
+  degrees, and documents F5/Ctrl+E cycling.
+- Autodesk's [Function Key Reference](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-Core/files/GUID-ACAA0279-047D-458E-889F-60BBFDD40489.htm)
+  defines F5 as cycling the 2D isoplane setting, while the
+  [SNAPISOPAIR reference](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-10E95216-5E3C-45F2-A6B9-79E7660A1F60.htm)
+  confirms drawing persistence and numeric Left/Top/Right values.
 - Autodesk's [GRIDDISPLAY reference](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-LT-MAC/files/GUID-4D6AC943-FC9C-4CB8-A4E6-AD7313BF9C3A.htm)
   defines bit 1 as beyond-limits display, bit 2 as adaptive density, and bit 4
   as below-base subdivision when adaptive display is active.
@@ -182,6 +186,13 @@ the controls after Apply, Undo, Redo, or document load; a refresh guard prevents
 control assignment from creating edits. Invalid and unchanged values disable
 Apply. Desktop and browser hosts continue consuming the same shared view source.
 
+F5 and Ctrl+E use a dedicated O(1) reversible SNAPISOPAIR command rather than
+round-tripping every grid-panel field. The exact active VPORT and SNAPSTYL/pair
+state are validated across Apply, Undo, and Redo. Rectangular SNAPSTYL retains
+its rendered basis while remembering the newly cycled dormant pair. Staged or
+invalid panel values block cycling, and the browser host suppresses the native
+reload/navigation defaults for the two shortcuts before shared dispatch.
+
 The persisted-edit follow-up does not itself change a shader, renderer, native
 ABI, draw command, GPU resource, cache, or native scene compiler. Managed/native
 rendering parity is therefore not separately applicable to the host-side
@@ -210,7 +221,7 @@ dot transparency, affine dot circularity, and one-pixel minor versus two-pixel
 major line output. Shader-resource coverage verifies the canonical module and
 its required algorithm/complexity contract.
 
-Final macOS arm64 Release validation passed 1,031/1,031 ProGPU.CAD tests. The
+Final macOS arm64 Release validation passed 1,034/1,034 ProGPU.CAD tests. The
 isometric continuation's focused grid/snap/Ortho/COPY set passed 36/36, the
 complete headless dot-grid pixel class passed 24/24, and the isometric native
 semantic-transform regression passed 1/1. The ACadSharp R2007/R2013/R2018 VPORT
@@ -223,8 +234,12 @@ the fork's net10.0 assembly and exact same-version package dependency, and the
 isolated consumer created an AC1032 document without resolving upstream
 ACadSharp. External publication remains a release action.
 
+The keyboard-cycle continuation additionally passed all 15 focused grid/view
+tests plus its browser-host reservation regression. Paired package verification
+and the isolated consumer passed again with the same preview.62 package closure.
+
 Host-profile persistence beyond the current shared view, transient dynamic-UCS
-following/editing, status-key plane cycling, broader screenshot goldens at
+following/editing, broader screenshot goldens at
 multiple DPI scales,
 extreme-shear visual differentials, and representative large-drawing GPU
 p50/p95/p99 measurements remain before the broader drafting-grid area is

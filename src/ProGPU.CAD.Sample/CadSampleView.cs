@@ -2091,6 +2091,21 @@ public sealed class CadSampleView : Grid
             }
         }
 
+        bool isIsoplaneCycleKey =
+            e.Key == Key.F5 ||
+            (e.Key == Key.E && InputSystem.Current.IsControlPressed);
+        if (!e.Handled &&
+            isIsoplaneCycleKey &&
+            !_isBusy &&
+            !_isPrintPreview &&
+            !_is3DView &&
+            _canvas.CurrentSession is not null)
+        {
+            CyclePlanIsoplaneFromKeyboard();
+            e.Handled = true;
+            return;
+        }
+
         if (!e.Handled &&
             !_isPrintPreview &&
             e.Key == Key.Delete &&
@@ -2102,6 +2117,50 @@ public sealed class CadSampleView : Grid
         }
 
         base.OnKeyDown(e);
+    }
+
+    private void CyclePlanIsoplaneFromKeyboard()
+    {
+        if (HasStagedPlanGridDisplayEdit())
+        {
+            SetStatus(
+                "Apply or revert the staged drafting-grid values before cycling SNAPISOPAIR.");
+            return;
+        }
+
+        try
+        {
+            CadPlanIsoplane isoplane = _canvas.CyclePlanIsoplane();
+            SetStatus(
+                $"Cycled SNAPISOPAIR to {(int)isoplane} ({isoplane}) as one edit.");
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Cycle isoplane failed: {exception.Message}");
+            RefreshPlanGridDisplayControls();
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private bool HasStagedPlanGridDisplayEdit()
+    {
+        if (!TryCreatePlanGridDisplayEditValues(out var values))
+        {
+            return true;
+        }
+
+        try
+        {
+            return _canvas.GetPlanGridDisplayEditValues() != values;
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException or ArgumentException)
+        {
+            return true;
+        }
     }
 
     private void ToggleViewMode()

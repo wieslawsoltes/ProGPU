@@ -32,6 +32,15 @@ follow the isometric lattice. The pinned ACadSharp.ProGPU fork now emits VPORT
 DXF groups 77/78, with DXF/DWG round-trip coverage and no native ABI or shader
 fork.
 
+The same desktop/browser CAD shell now cycles drawing-persisted SNAPISOPAIR
+Left to Top to Right with F5 or Ctrl+E. Each cycle changes only the active
+VPORT pair as one generation-safe reversible edit, immediately refreshes the
+isometric grid and Ortho basis, retains a dormant plane under rectangular
+SNAPSTYL, and blocks instead of discarding staged grid-panel values. The browser
+reserves both shortcuts from its reload/navigation defaults. This input/edit
+follow-up reuses the existing paired renderer and changes no shader or native
+ABI.
+
 The shared ProGPU.CAD plan grid now defaults to AutoCAD's lined model-space
 GRIDSTYLE and exposes a shared desktop/browser Dots toggle. Autodesk documents
 GRIDSTYLE as registry-backed host state, so the toggle intentionally changes no

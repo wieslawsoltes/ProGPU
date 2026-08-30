@@ -72,6 +72,9 @@ selected axis through the accepted base. An off-grid base obtained from object
 snap therefore cannot be pulled off its Ortho line. The exact double-WCS result
 is committed without a float screen round trip. Direct-distance entry consumes
 that same axis result. Polar tracking remains mutually exclusive with Ortho.
+F5 or Ctrl+E changes drawing-persisted SNAPISOPAIR through one reversible edit;
+the resulting immutable snapshot supplies the new active pair to the next
+Ortho query without a duplicate direction table or mutable hover state.
 
 ## Rendering and managed/native applicability
 

@@ -330,8 +330,8 @@ public sealed class CadSampleCanvas : FrameworkElement
     }
 
     /// <summary>
-    /// Returns the active VPORT's exact persisted GRIDMODE, GRIDUNIT,
-    /// GRIDDISPLAY, and GRIDMAJOR values.
+    /// Returns the active VPORT's exact persisted GRIDMODE, SNAPUNIT, GRIDUNIT,
+    /// GRIDDISPLAY, GRIDMAJOR, SNAPSTYL, and SNAPISOPAIR values.
     /// </summary>
     public CadPlanGridDisplayEditValues GetPlanGridDisplayEditValues()
     {
@@ -353,6 +353,25 @@ public sealed class CadSampleCanvas : FrameworkElement
             throw new InvalidOperationException("The CAD edit history is not initialized.");
         history.Execute(new CadSetPlanGridDisplayCommand(values));
         RecompileAfterEdit(session);
+    }
+
+    /// <summary>
+    /// Cycles drawing-persisted SNAPISOPAIR Left, Top, and Right as one edit.
+    /// The current snap style is retained; a rectangular drawing therefore
+    /// remembers the selected plane without changing its active grid basis.
+    /// </summary>
+    public CadPlanIsoplane CyclePlanIsoplane()
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException("The CAD edit history is not initialized.");
+        var command = new CadCyclePlanIsoplaneCommand();
+        history.Execute(command);
+        RecompileAfterEdit(session);
+        return command.AppliedIsoplane ?? throw new InvalidOperationException(
+            "The isoplane command did not produce an applied plane.");
     }
 
     /// <summary>

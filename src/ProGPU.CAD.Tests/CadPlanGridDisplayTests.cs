@@ -339,6 +339,78 @@ public sealed class CadPlanGridDisplayTests
     }
 
     [Fact]
+    public void IsoplaneCycleUsesNumericOrderAndExactUndoRedo()
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        VPort active = document.VPorts[VPort.DefaultName];
+        active.IsometricSnap = true;
+        active.SnapIsoPair = (short)CadPlanIsoplane.Left;
+        active.SnapBasePoint = new XY(7.0, 9.0);
+        active.SnapRotation = 0.25;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+        var first = new CadCyclePlanIsoplaneCommand();
+
+        Assert.Equal(1UL, history.Execute(first));
+        Assert.Equal(CadPlanIsoplane.Top, first.AppliedIsoplane);
+        Assert.Equal((short)CadPlanIsoplane.Top, active.SnapIsoPair);
+        Assert.True(active.IsometricSnap);
+        Assert.Equal(new XY(7.0, 9.0), active.SnapBasePoint);
+        Assert.Equal(0.25, active.SnapRotation);
+
+        Assert.True(history.TryUndo(out ulong undone));
+        Assert.Equal(2UL, undone);
+        Assert.Equal((short)CadPlanIsoplane.Left, active.SnapIsoPair);
+        Assert.True(history.TryRedo(out ulong redone));
+        Assert.Equal(3UL, redone);
+        Assert.Equal((short)CadPlanIsoplane.Top, active.SnapIsoPair);
+
+        var second = new CadCyclePlanIsoplaneCommand();
+        Assert.Equal(4UL, history.Execute(second));
+        Assert.Equal(CadPlanIsoplane.Right, second.AppliedIsoplane);
+        Assert.Equal((short)CadPlanIsoplane.Right, active.SnapIsoPair);
+
+        var third = new CadCyclePlanIsoplaneCommand();
+        Assert.Equal(5UL, history.Execute(third));
+        Assert.Equal(CadPlanIsoplane.Left, third.AppliedIsoplane);
+        Assert.Equal((short)CadPlanIsoplane.Left, active.SnapIsoPair);
+    }
+
+    [Fact]
+    public void IsoplaneCycleRetainsRectangularStyleAndRejectsInvalidState()
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        VPort active = document.VPorts[VPort.DefaultName];
+        active.IsometricSnap = false;
+        active.SnapIsoPair = (short)CadPlanIsoplane.Left;
+        var session = new CadDocumentSession(document);
+        var history = new CadDocumentHistory(session);
+
+        Assert.Equal(1UL, history.Execute(new CadCyclePlanIsoplaneCommand()));
+        Assert.False(active.IsometricSnap);
+        Assert.Equal((short)CadPlanIsoplane.Top, active.SnapIsoPair);
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
+        Assert.Equal(
+            CadPlanGridSnapStyle.Rectangular,
+            snapshot.PlanGridSnapSettings.Style);
+        Assert.Equal(
+            CadPlanIsoplane.Left,
+            snapshot.PlanGridSnapSettings.Isoplane);
+
+        var invalidDocument = new CadDocument(ACadVersion.AC1032);
+        invalidDocument.VPorts[VPort.DefaultName].SnapIsoPair = 3;
+        var invalidSession = new CadDocumentSession(invalidDocument);
+        var invalidHistory = new CadDocumentHistory(invalidSession);
+
+        Assert.Throws<InvalidOperationException>(() => invalidHistory.Execute(
+            new CadCyclePlanIsoplaneCommand()));
+        Assert.Equal(0UL, invalidSession.ContentGeneration);
+        Assert.Equal(0, invalidHistory.UndoCount);
+        Assert.Equal((short)3,
+            invalidDocument.VPorts[VPort.DefaultName].SnapIsoPair);
+    }
+
+    [Fact]
     public void GridDisplayEditValuesRejectMalformedPersistedRanges()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
@@ -534,6 +606,69 @@ public sealed class CadPlanGridDisplayTests
         }
         finally
         {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedViewCyclesIsoplaneWithF5AndControlEWithoutLosingStagedEdits()
+    {
+        var document = new CadDocument(ACadVersion.AC1032);
+        VPort active = document.VPorts[VPort.DefaultName];
+        active.ShowGrid = true;
+        active.IsometricSnap = true;
+        active.SnapIsoPair = (short)CadPlanIsoplane.Left;
+        active.SnapSpacing = new XY(2.0, 2.0);
+        active.GridSpacing = new XY(2.0, 2.0);
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        bool previousControlState =
+            Microsoft.UI.Xaml.Input.InputSystem.Current.IsControlPressed;
+        try
+        {
+            view.Canvas.Load(session);
+
+            var f5 = new KeyRoutedEventArgs { Key = Key.F5 };
+            view.OnKeyDown(f5);
+
+            Assert.True(f5.Handled);
+            Assert.Equal(1UL, session.ContentGeneration);
+            Assert.Equal((short)CadPlanIsoplane.Top, active.SnapIsoPair);
+            Assert.Equal(CadPlanIsoplane.Top,
+                Assert.IsType<CadPlanIsoplane>(
+                    Assert.IsType<ComboBoxItem>(
+                        view.PlanGridIsoplaneSelector.SelectedItem).Tag));
+            Assert.Equal(CadPlanIsoplane.Top,
+                view.Canvas.PlanGridSnapSettings.Isoplane);
+
+            Microsoft.UI.Xaml.Input.InputSystem.Current.IsControlPressed = true;
+            var controlE = new KeyRoutedEventArgs { Key = Key.E };
+            view.OnKeyDown(controlE);
+
+            Assert.True(controlE.Handled);
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal((short)CadPlanIsoplane.Right, active.SnapIsoPair);
+            Assert.Equal(CadPlanIsoplane.Right,
+                view.Canvas.PlanGridSnapSettings.Isoplane);
+
+            view.PlanGridMajorInput.Text = "19";
+            var blockedF5 = new KeyRoutedEventArgs { Key = Key.F5 };
+            view.OnKeyDown(blockedF5);
+
+            Assert.True(blockedF5.Handled);
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal((short)CadPlanIsoplane.Right, active.SnapIsoPair);
+            Assert.Equal("19", view.PlanGridMajorInput.Text);
+            Assert.True(view.ApplyPlanGridDisplayButton.IsEnabled);
+
+            Assert.True(view.Canvas.TryUndo());
+            Assert.Equal((short)CadPlanIsoplane.Top, active.SnapIsoPair);
+        }
+        finally
+        {
+            Microsoft.UI.Xaml.Input.InputSystem.Current.IsControlPressed =
+                previousControlState;
             view.PrintPreview.FireUnloaded();
             view.Canvas.FireUnloaded();
         }

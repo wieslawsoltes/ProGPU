@@ -5091,6 +5091,12 @@ only while compiling the immutable display snapshot.
 
 Apply, Undo, and Redo each advance one document generation and transactionally
 replace one snapshot/picture; UI refresh is guarded against recursive edits.
+F5 and Ctrl+E use a smaller O(1) reversible command that changes only
+SNAPISOPAIR in persisted Left/Top/Right order. It validates exact active-VPORT
+identity plus SNAPSTYL/pair state, retains a dormant plane under rectangular
+SNAPSTYL, refreshes the shared selector and next-interaction Ortho basis from
+the replacement snapshot, and refuses to discard staged grid-panel values.
+The browser reserves both shortcuts before dispatching the same shared input.
 DXF R2007+ group 60/61 and VPORT group 77/78 emission is supplied by the pinned
 ACadSharp feature commit, with matched ProGPU DXF/DWG persistence coverage.
 This host-side edit
