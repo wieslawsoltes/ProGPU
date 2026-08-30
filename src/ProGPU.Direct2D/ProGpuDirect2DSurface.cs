@@ -59,6 +59,8 @@ public sealed unsafe class ProGpuDirect2DSurface :
         new("55F1112B-1DC2-4B3C-9541-F46894ED85B6");
     private static readonly Guid DWriteFontFaceReferenceInterfaceId =
         new("5E7FA7CA-DDE3-424C-89F0-9FCD6FED58CD");
+    private static readonly Guid D2D1SvgDocumentInterfaceId =
+        new("86B88E4D-AFA4-4D7B-88E4-68A51C4A0AEC");
 
     private readonly object _gate = new();
     private readonly DawnGpuContext _dawn;
@@ -652,6 +654,50 @@ public sealed unsafe class ProGpuDirect2DSurface :
                 value,
                 ProGpuDirect2DInterfaceKind.D2D1CommandList,
                 "ID2D1CommandList creation");
+        }
+    }
+
+    /// <summary>
+    /// Creates a genuine same-device ID2D1SvgDocument from UTF-8 XML. The
+    /// caller span stays pinned only for the synchronous Direct2D parse and is
+    /// neither retained nor copied into an intermediate managed array.
+    /// </summary>
+    public ProGpuDirect2DComReference CreateSvgDocument(
+        ReadOnlySpan<byte> utf8Xml,
+        Vector2 viewportSize)
+    {
+        if (utf8Xml.Length > 64 * 1024 * 1024)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(utf8Xml),
+                "A Direct2D SVG document is limited to 64 MiB of UTF-8 XML.");
+        }
+        ValidatePositiveSize(viewportSize, nameof(viewportSize));
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            fixed (byte* xmlPointer = utf8Xml)
+            {
+                nint value = 0;
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status = ProGpuDirect2DNative
+                    .SurfaceCreateSvgDocument(
+                        _nativeSurface,
+                        xmlPointer,
+                        checked((uint)utf8Xml.Length),
+                        viewportSize.X,
+                        viewportSize.Y,
+                        &value,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1SvgDocument creation",
+                    status,
+                    nativeHResult);
+                return CreateRequiredComReference(
+                    value,
+                    ProGpuDirect2DInterfaceKind.D2D1SvgDocument,
+                    "ID2D1SvgDocument creation");
+            }
         }
     }
 
@@ -1857,6 +1903,53 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    internal void DrawSvgDocument(
+        ProGpuDirect2DComReference svgDocument,
+        Vector2 viewportSize,
+        Vector2 origin)
+    {
+        ArgumentNullException.ThrowIfNull(svgDocument);
+        if (svgDocument.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.D2D1SvgDocument)
+        {
+            throw new ArgumentException(
+                "The COM reference must own an ID2D1SvgDocument.",
+                nameof(svgDocument));
+        }
+        ValidatePositiveSize(viewportSize, nameof(viewportSize));
+        ValidatePoint(origin, nameof(origin));
+        bool referenceAdded = false;
+        try
+        {
+            svgDocument.DangerousAddRef(ref referenceAdded);
+            lock (_gate)
+            {
+                ValidateTypedDrawingProducer();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status = ProGpuDirect2DNative
+                    .SurfaceDrawSvgDocument(
+                        _nativeSurface,
+                        svgDocument.DangerousGetHandle(),
+                        viewportSize.X,
+                        viewportSize.Y,
+                        origin.X,
+                        origin.Y,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "ID2D1DeviceContext5 DrawSvgDocument",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (referenceAdded)
+            {
+                svgDocument.DangerousRelease();
+            }
+        }
+    }
+
     internal uint PushLayer(
         ProGpuDirect2DComReference layer,
         ProGpuDirect2DLayerParameters parameters,
@@ -2784,6 +2877,39 @@ public sealed unsafe class ProGpuDirect2DSurface :
             out nativeFontFaceReference,
             out nativeHResult);
 
+    /// <summary>
+    /// Wraps a provider-created ID2D1SvgDocument as a genuine Microsoft Win2D
+    /// CanvasSvgDocument in this surface's exact CanvasDevice domain.
+    /// </summary>
+    public bool TryAcquireMicrosoftWin2DSvgDocument(
+        ProGpuDirect2DComReference nativeSvgDocument,
+        out ProGpuDirect2DComReference? canvasSvgDocument,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapper(
+            nativeSvgDocument,
+            ProGpuDirect2DInterfaceKind.D2D1SvgDocument,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasSvgDocument,
+            "Microsoft Win2D CanvasSvgDocument wrapping",
+            out canvasSvgDocument,
+            out nativeHResult);
+
+    /// <summary>
+    /// Reverse-unwraps a genuine Microsoft Win2D CanvasSvgDocument and returns
+    /// its exact ID2D1SvgDocument with one caller-owned COM reference.
+    /// </summary>
+    public bool TryAcquireMicrosoftWin2DNativeSvgDocument(
+        ProGpuDirect2DComReference canvasSvgDocument,
+        out ProGpuDirect2DComReference? nativeSvgDocument,
+        out int nativeHResult) =>
+        TryAcquireMicrosoftWin2DWrapperNativeResource(
+            canvasSvgDocument,
+            ProGpuDirect2DInterfaceKind.Win2DCanvasSvgDocument,
+            D2D1SvgDocumentInterfaceId,
+            ProGpuDirect2DInterfaceKind.D2D1SvgDocument,
+            "Microsoft Win2D CanvasSvgDocument native-resource query",
+            out nativeSvgDocument,
+            out nativeHResult);
+
     private ProGpuDirect2DComReference CreateGradientBrush(
         ProGpuDirect2DComReference gradientStopCollection,
         void* properties,
@@ -3682,6 +3808,19 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    private static void ValidatePositiveSize(
+        Vector2 size,
+        string parameterName)
+    {
+        if (!float.IsFinite(size.X) || !float.IsFinite(size.Y) ||
+            size.X <= 0.0F || size.Y <= 0.0F)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "Direct2D sizes must be finite and positive.");
+        }
+    }
+
     private static void ValidateRectangle(ProGpuDirect2DRect rectangle)
     {
         if (!float.IsFinite(rectangle.X) ||
@@ -4472,6 +4611,14 @@ public sealed class ProGpuDirect2DDrawingSession : IDisposable
             bidiLevel,
             measuringMode);
 
+    public void DrawSvgDocument(
+        ProGpuDirect2DComReference svgDocument,
+        Vector2 viewportSize,
+        Vector2 origin = default) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DDrawingSession)))
+        .DrawSvgDocument(svgDocument, viewportSize, origin);
+
     public void Dispose()
     {
         ProGpuDirect2DSurface? owner =
@@ -4632,6 +4779,14 @@ public sealed class ProGpuDirect2DCommandListDrawingSession : IDisposable
             isSideways,
             bidiLevel,
             measuringMode);
+
+    public void DrawSvgDocument(
+        ProGpuDirect2DComReference svgDocument,
+        Vector2 viewportSize,
+        Vector2 origin = default) =>
+        (_owner ?? throw new ObjectDisposedException(
+            nameof(ProGpuDirect2DCommandListDrawingSession)))
+        .DrawSvgDocument(svgDocument, viewportSize, origin);
 
     public void Dispose()
     {

@@ -178,6 +178,9 @@ int main()
     auto base_context = get_interface<ID2D1DeviceContext>(
         surface,
         PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT);
+    auto context5 = get_interface<ID2D1DeviceContext5>(
+        surface,
+        PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT5);
     auto bitmap = get_interface<ID2D1Bitmap1>(
         surface,
         PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_BITMAP1);
@@ -194,7 +197,7 @@ int main()
         surface,
         PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_FACTORY3);
 
-    require(factory1 && factory2 && device && context && bitmap &&
+    require(factory1 && factory2 && device && context && context5 && bitmap &&
             base_context && d3d_device && texture && winrt_d3d_device &&
             dwrite_factory,
         "one or more genuine COM interfaces were unavailable");
@@ -1352,6 +1355,30 @@ int main()
         {0.5F, 0.0F}
     };
 
+    constexpr char svg_xml[] =
+        "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'>"
+        "<rect width='16' height='16' fill='#20a0e0'/></svg>";
+    void* svg_document_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_svg_document(
+            surface,
+            reinterpret_cast<const uint8_t*>(svg_xml),
+            static_cast<uint32_t>(std::size(svg_xml) - 1U),
+            16.0F,
+            16.0F,
+            &svg_document_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            svg_document_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1SvgDocument creation failed");
+    ComPtr<ID2D1SvgDocument> svg_document;
+    svg_document.Attach(static_cast<ID2D1SvgDocument*>(svg_document_value));
+    const D2D1_SIZE_F initial_svg_viewport =
+        svg_document->GetViewportSize();
+    require(initial_svg_viewport.width == 16.0F &&
+            initial_svg_viewport.height == 16.0F,
+        "provider ID2D1SvgDocument viewport changed");
+
     auto invalid_font_face_properties = font_face_properties;
     invalid_font_face_properties.font_weight = 0U;
     void* invalid_font_face_reference_value =
@@ -1455,6 +1482,17 @@ int main()
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE &&
             static_cast<uint32_t>(color_glyph_path) == 0U,
         "Direct2D color-glyph draw outside a draw did not fail closed");
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_draw_svg_document(
+            surface,
+            svg_document.Get(),
+            20.0F,
+            12.0F,
+            2.0F,
+            3.0F,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE,
+        "ID2D1DeviceContext5 SVG draw outside a draw did not fail closed");
 
     progpu_native_direct2d_layer_parameters layer_parameters{};
     layer_parameters.content_bounds = {0.0F, 0.0F, 24.0F, 24.0F};
@@ -1606,6 +1644,44 @@ int main()
                 font_face_reference.Get(),
                 unwrapped_font_face_reference.Get()),
             "Win2D CanvasFontFace changed native COM identity");
+
+        void* canvas_svg_document_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper(
+                surface,
+                svg_document.Get(),
+                0.0F,
+                &canvas_svg_document_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                canvas_svg_document_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D CanvasSvgDocument wrapping failed");
+        ComPtr<IInspectable> canvas_svg_document;
+        canvas_svg_document.Attach(
+            static_cast<IInspectable*>(canvas_svg_document_value));
+        progpu_native_direct2d_guid svg_document_id =
+            to_portable_guid(__uuidof(ID2D1SvgDocument));
+        void* unwrapped_svg_document_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_win2d_wrapper_native_resource(
+                surface,
+                canvas_svg_document.Get(),
+                0.0F,
+                &svg_document_id,
+                &unwrapped_svg_document_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                unwrapped_svg_document_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D CanvasSvgDocument native-resource query failed");
+        ComPtr<ID2D1SvgDocument> unwrapped_svg_document;
+        unwrapped_svg_document.Attach(
+            static_cast<ID2D1SvgDocument*>(unwrapped_svg_document_value));
+        require(has_same_com_identity(
+                svg_document.Get(),
+                unwrapped_svg_document.Get()),
+            "Win2D CanvasSvgDocument changed native COM identity");
 
         void* canvas_solid_brush_value = nullptr;
         native_hresult = E_FAIL;
@@ -2328,6 +2404,33 @@ int main()
             color_glyph_path <=
                 PROGPU_NATIVE_DIRECT2D_COLOR_GLYPH_PATH_MONOCHROME_NO_COLOR,
         "provider typed Direct2D color-glyph draw failed");
+    D2D1_MATRIX_3X2_F transform_before_svg{};
+    context->GetTransform(&transform_before_svg);
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_draw_svg_document(
+            surface,
+            svg_document.Get(),
+            14.0F,
+            10.0F,
+            46.0F,
+            2.0F,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider typed ID2D1DeviceContext5 SVG draw failed");
+    D2D1_MATRIX_3X2_F transform_after_svg{};
+    context->GetTransform(&transform_after_svg);
+    const D2D1_SIZE_F viewport_after_draw =
+        svg_document->GetViewportSize();
+    require(transform_after_svg._11 == transform_before_svg._11 &&
+            transform_after_svg._12 == transform_before_svg._12 &&
+            transform_after_svg._21 == transform_before_svg._21 &&
+            transform_after_svg._22 == transform_before_svg._22 &&
+            transform_after_svg._31 == transform_before_svg._31 &&
+            transform_after_svg._32 == transform_before_svg._32 &&
+            viewport_after_draw.width == initial_svg_viewport.width &&
+            viewport_after_draw.height == initial_svg_viewport.height,
+        "provider SVG draw did not restore viewport/transform state");
     native_hresult = S_OK;
     require(
         progpu_native_direct2d_surface_draw_text(

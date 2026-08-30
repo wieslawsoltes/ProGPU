@@ -79,7 +79,10 @@ public enum ProGpuDirect2DInterfaceKind
     Win2DCanvasFontFace = 53,
     DWriteFontFace5 = 54,
     D2D1DeviceContext4 = 55,
-    D2D1DeviceContext7 = 56
+    D2D1DeviceContext7 = 56,
+    D2D1DeviceContext5 = 57,
+    D2D1SvgDocument = 58,
+    Win2DCanvasSvgDocument = 59
 }
 
 public enum ProGpuDirect2DColorGlyphPath : uint

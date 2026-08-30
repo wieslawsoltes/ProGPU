@@ -113,7 +113,10 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_FONT_FACE = 53,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_FONT_FACE5 = 54,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT4 = 55,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT7 = 56
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT7 = 56,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_DEVICE_CONTEXT5 = 57,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_SVG_DOCUMENT = 58,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_SVG_DOCUMENT = 59
 } progpu_native_direct2d_interface_kind;
 
 typedef enum progpu_native_direct2d_color_glyph_path {
@@ -546,7 +549,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 21U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 22U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -938,6 +941,32 @@ progpu_native_direct2d_surface_draw_color_glyph_run(
     uint32_t color_palette_index,
     progpu_native_direct2d_measuring_mode measuring_mode,
     progpu_native_direct2d_color_glyph_path* selected_path,
+    int32_t* native_hresult);
+
+/* Creates a genuine same-device ID2D1SvgDocument from a bounded borrowed
+ * UTF-8 byte stream. Direct2D consumes the stream synchronously; the provider
+ * does not retain or duplicate the caller buffer. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_svg_document(
+    progpu_native_direct2d_surface* surface,
+    const uint8_t* utf8_xml,
+    uint32_t utf8_xml_byte_count,
+    float viewport_width,
+    float viewport_height,
+    void** value,
+    int32_t* native_hresult);
+
+/* Draws a same-device SVG document through ID2D1DeviceContext5. The viewport
+ * and origin are temporary and the previous document/context state is
+ * restored before return, matching Win2D CanvasDrawingSession.DrawSvg. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_svg_document(
+    progpu_native_direct2d_surface* surface,
+    void* svg_document,
+    float viewport_width,
+    float viewport_height,
+    float origin_x,
+    float origin_y,
     int32_t* native_hresult);
 
 /* Draws a retained text layout through ID2D1RenderTarget::DrawTextLayout
