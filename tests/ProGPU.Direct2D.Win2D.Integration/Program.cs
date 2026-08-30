@@ -898,8 +898,8 @@ internal static partial class Program
                 surface.CreateTypography(typographyFeatures);
             surface.SetTextLayoutTypography(
                 nativeTextLayout,
-                0U,
-                6U,
+                1U,
+                3U,
                 nativeTypography);
             if (!surface.TryAcquireMicrosoftWin2DTypography(
                     nativeTypography,
