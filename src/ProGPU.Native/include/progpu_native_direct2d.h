@@ -226,6 +226,17 @@ typedef enum progpu_native_direct2d_font_stretch {
     PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_ULTRA_EXPANDED = 9
 } progpu_native_direct2d_font_stretch;
 
+typedef enum progpu_native_direct2d_text_range_format_flags {
+    PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_NONE = 0,
+    PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_SIZE = 1U << 0U,
+    PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_WEIGHT = 1U << 1U,
+    PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_STYLE = 1U << 2U,
+    PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_STRETCH = 1U << 3U,
+    PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_UNDERLINE = 1U << 4U,
+    PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_STRIKETHROUGH = 1U << 5U,
+    PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_DRAWING_EFFECT = 1U << 6U
+} progpu_native_direct2d_text_range_format_flags;
+
 typedef enum progpu_native_direct2d_text_alignment {
     PROGPU_NATIVE_DIRECT2D_TEXT_ALIGNMENT_LEADING = 0,
     PROGPU_NATIVE_DIRECT2D_TEXT_ALIGNMENT_TRAILING = 1,
@@ -449,6 +460,22 @@ typedef struct progpu_native_direct2d_text_format_properties {
     float incremental_tab_stop;
 } progpu_native_direct2d_text_format_properties;
 
+/* Pointer-free mutable IDWriteTextLayout range state. Flags select which
+ * fields are applied. A separately supplied ID2D1Brush is used as the
+ * optional DirectWrite drawing effect; a null brush clears that effect. */
+typedef struct progpu_native_direct2d_text_range_format {
+    uint32_t struct_size;
+    uint32_t flags;
+    uint32_t range_start;
+    uint32_t range_length;
+    uint32_t font_weight;
+    uint32_t font_style;
+    uint32_t font_stretch;
+    float font_size;
+    uint32_t underline;
+    uint32_t strikethrough;
+} progpu_native_direct2d_text_range_format;
+
 typedef struct progpu_native_direct2d_image_brush_properties {
     progpu_native_direct2d_rect_f source_rectangle;
     uint32_t extend_mode_x;
@@ -487,7 +514,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 17U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 18U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -783,6 +810,16 @@ progpu_native_direct2d_surface_create_text_layout(
     float maximum_width,
     float maximum_height,
     void** value,
+    int32_t* native_hresult);
+
+/* Applies selected mutable IDWriteTextLayout formatting to one UTF-16 range.
+ * The optional drawing effect must be a genuine ID2D1Brush when supplied. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_text_layout_set_range_format(
+    progpu_native_direct2d_surface* surface,
+    void* text_layout,
+    const progpu_native_direct2d_text_range_format* formatting,
+    void* drawing_effect_brush,
     int32_t* native_hresult);
 
 /* Draws a retained text layout through ID2D1RenderTarget::DrawTextLayout

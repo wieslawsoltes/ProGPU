@@ -1135,6 +1135,85 @@ public sealed unsafe class ProGpuDirect2DSurface :
         }
     }
 
+    /// <summary>
+    /// Applies selected mutable DirectWrite formatting to one UTF-16 range in
+    /// a retained IDWriteTextLayout4. When <see
+    /// cref="ProGpuDirect2DTextRangeFormatFlags.DrawingEffect"/> is selected,
+    /// a genuine same-domain Direct2D brush sets the range color/brush; a null
+    /// brush clears the drawing effect and restores the draw-call default.
+    /// </summary>
+    public void SetTextLayoutRangeFormat(
+        ProGpuDirect2DComReference textLayout,
+        uint rangeStart,
+        uint rangeLength,
+        ProGpuDirect2DTextRangeFormat formatting,
+        ProGpuDirect2DComReference? drawingEffectBrush = null)
+    {
+        ArgumentNullException.ThrowIfNull(textLayout);
+        if (textLayout.InterfaceKind !=
+            ProGpuDirect2DInterfaceKind.DWriteTextLayout4)
+        {
+            throw new ArgumentException(
+                "The COM reference must own an IDWriteTextLayout4.",
+                nameof(textLayout));
+        }
+        ValidateTextRangeFormat(
+            rangeStart,
+            rangeLength,
+            formatting,
+            drawingEffectBrush);
+
+        ProGpuDirect2DNative.NativeTextRangeFormat nativeFormatting =
+            new()
+            {
+                StructSize = (uint)Unsafe.SizeOf<
+                    ProGpuDirect2DNative.NativeTextRangeFormat>(),
+                Flags = formatting.Flags,
+                RangeStart = rangeStart,
+                RangeLength = rangeLength,
+                FontWeight = formatting.FontWeight,
+                FontStyle = formatting.FontStyle,
+                FontStretch = formatting.FontStretch,
+                FontSize = formatting.FontSize,
+                Underline = formatting.Underline ? 1U : 0U,
+                Strikethrough = formatting.Strikethrough ? 1U : 0U
+            };
+        bool layoutReferenceAdded = false;
+        bool brushReferenceAdded = false;
+        try
+        {
+            textLayout.DangerousAddRef(ref layoutReferenceAdded);
+            drawingEffectBrush?.DangerousAddRef(ref brushReferenceAdded);
+            lock (_gate)
+            {
+                ThrowIfUnavailable();
+                int nativeHResult = 0;
+                ProGpuDirect2DStatus status =
+                    ProGpuDirect2DNative.TextLayoutSetRangeFormat(
+                        _nativeSurface,
+                        textLayout.DangerousGetHandle(),
+                        &nativeFormatting,
+                        drawingEffectBrush?.DangerousGetHandle() ?? 0,
+                        &nativeHResult);
+                ThrowIfFailed(
+                    "IDWriteTextLayout4 range formatting",
+                    status,
+                    nativeHResult);
+            }
+        }
+        finally
+        {
+            if (brushReferenceAdded)
+            {
+                drawingEffectBrush!.DangerousRelease();
+            }
+            if (layoutReferenceAdded)
+            {
+                textLayout.DangerousRelease();
+            }
+        }
+    }
+
     internal void SaveDrawingState(
         ProGpuDirect2DComReference drawingStateBlock) =>
         ApplyDrawingState(drawingStateBlock, restore: false);
@@ -3175,6 +3254,66 @@ public sealed unsafe class ProGpuDirect2DSurface :
             throw new ArgumentOutOfRangeException(
                 nameof(properties),
                 "DirectWrite text-format state contains an invalid value.");
+        }
+    }
+
+    private static void ValidateTextRangeFormat(
+        uint rangeStart,
+        uint rangeLength,
+        ProGpuDirect2DTextRangeFormat formatting,
+        ProGpuDirect2DComReference? drawingEffectBrush)
+    {
+        const ProGpuDirect2DTextRangeFormatFlags knownFlags =
+            ProGpuDirect2DTextRangeFormatFlags.FontSize |
+            ProGpuDirect2DTextRangeFormatFlags.FontWeight |
+            ProGpuDirect2DTextRangeFormatFlags.FontStyle |
+            ProGpuDirect2DTextRangeFormatFlags.FontStretch |
+            ProGpuDirect2DTextRangeFormatFlags.Underline |
+            ProGpuDirect2DTextRangeFormatFlags.Strikethrough |
+            ProGpuDirect2DTextRangeFormatFlags.DrawingEffect;
+        if (formatting.Flags == ProGpuDirect2DTextRangeFormatFlags.None ||
+            (formatting.Flags & ~knownFlags) != 0 ||
+            rangeLength == 0U || rangeStart > uint.MaxValue - rangeLength)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(formatting),
+                "DirectWrite range formatting needs known flags and a nonempty, nonoverflowing range.");
+        }
+        if ((formatting.Flags &
+                ProGpuDirect2DTextRangeFormatFlags.FontSize) != 0 &&
+            (!float.IsFinite(formatting.FontSize) ||
+                formatting.FontSize <= 0.0F) ||
+            (formatting.Flags &
+                ProGpuDirect2DTextRangeFormatFlags.FontWeight) != 0 &&
+            (formatting.FontWeight < 1U || formatting.FontWeight > 999U) ||
+            (formatting.Flags &
+                ProGpuDirect2DTextRangeFormatFlags.FontStyle) != 0 &&
+            formatting.FontStyle > ProGpuDirect2DFontStyle.Italic ||
+            (formatting.Flags &
+                ProGpuDirect2DTextRangeFormatFlags.FontStretch) != 0 &&
+            (formatting.FontStretch <
+                ProGpuDirect2DFontStretch.UltraCondensed ||
+             formatting.FontStretch >
+                ProGpuDirect2DFontStretch.UltraExpanded))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(formatting),
+                "DirectWrite range formatting contains an invalid selected value.");
+        }
+        bool appliesDrawingEffect = (formatting.Flags &
+            ProGpuDirect2DTextRangeFormatFlags.DrawingEffect) != 0;
+        if (!appliesDrawingEffect && drawingEffectBrush is not null)
+        {
+            throw new ArgumentException(
+                "A drawing-effect brush requires the DrawingEffect flag.",
+                nameof(drawingEffectBrush));
+        }
+        if (drawingEffectBrush is not null &&
+            !IsBrushKind(drawingEffectBrush.InterfaceKind))
+        {
+            throw new ArgumentException(
+                "The drawing effect must own a genuine ID2D1Brush.",
+                nameof(drawingEffectBrush));
         }
     }
 

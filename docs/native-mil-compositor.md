@@ -5080,6 +5080,19 @@ using the null-device rule that is correct only for `CanvasTextFormat`.
 Invalid dimensions, origins, options, resource kinds, and draw state fail
 closed. The native export allowlist grows from 47 to exactly 49.
 
+ABI v18 adds mutable typed range formatting to that retained layout. One
+pointer-free descriptor selects font size, numeric weight, style, stretch,
+underline, strikethrough, and an optional separately validated `ID2D1Brush`
+drawing effect for a nonempty UTF-16 range. The managed API pins no strings,
+keeps the layout and optional brush alive across the synchronous native call,
+and rejects unknown flags, overflow, malformed selected values, and non-brush
+effects before interop. The native regression reads every selected value and
+canonical drawing-effect identity back from `IDWriteTextLayout4`; the official
+Win2D gate observes the same state through `CanvasTextLayout`, mutates a second
+range through Win2D, and draws the shared object. The allowlist grows from 49
+to exactly 50 exports without adding reflection, CPU text fallback, readback,
+or per-character native calls.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

@@ -1138,6 +1138,70 @@ int main()
             retained_text_metrics.layoutHeight == text_layout.height,
         "provider IDWriteTextLayout4 properties changed");
 
+    progpu_native_direct2d_text_range_format range_format{};
+    range_format.struct_size = sizeof(range_format);
+    range_format.flags =
+        PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_SIZE |
+        PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_WEIGHT |
+        PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_STYLE |
+        PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_FONT_STRETCH |
+        PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_UNDERLINE |
+        PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_STRIKETHROUGH |
+        PROGPU_NATIVE_DIRECT2D_TEXT_RANGE_FORMAT_DRAWING_EFFECT;
+    range_format.range_start = 1U;
+    range_format.range_length = 3U;
+    range_format.font_weight = DWRITE_FONT_WEIGHT_BOLD;
+    range_format.font_style = PROGPU_NATIVE_DIRECT2D_FONT_STYLE_ITALIC;
+    range_format.font_stretch =
+        PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_SEMI_EXPANDED;
+    range_format.font_size = 18.0F;
+    range_format.underline = 1U;
+    range_format.strikethrough = 1U;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_text_layout_set_range_format(
+            surface,
+            retained_text_layout.Get(),
+            &range_format,
+            solid_brush.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider IDWriteTextLayout4 range formatting failed");
+    DWRITE_TEXT_RANGE actual_range{};
+    ComPtr<IUnknown> actual_drawing_effect;
+    require(retained_text_layout->GetFontSize(2U, &actual_range) == 18.0F &&
+            actual_range.startPosition == 1U &&
+            actual_range.length == 3U &&
+            retained_text_layout->GetFontWeight(2U, nullptr) ==
+                DWRITE_FONT_WEIGHT_BOLD &&
+            retained_text_layout->GetFontStyle(2U, nullptr) ==
+                DWRITE_FONT_STYLE_ITALIC &&
+            retained_text_layout->GetFontStretch(2U, nullptr) ==
+                DWRITE_FONT_STRETCH_SEMI_EXPANDED &&
+            retained_text_layout->GetUnderline(2U, nullptr) != FALSE &&
+            retained_text_layout->GetStrikethrough(2U, nullptr) != FALSE &&
+            SUCCEEDED(retained_text_layout->GetDrawingEffect(
+                2U,
+                &actual_drawing_effect,
+                nullptr)) &&
+            has_same_com_identity(
+                actual_drawing_effect.Get(),
+                solid_brush.Get()),
+        "provider IDWriteTextLayout4 range state changed");
+
+    auto invalid_range_format = range_format;
+    invalid_range_format.range_length = 0U;
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_text_layout_set_range_format(
+            surface,
+            retained_text_layout.Get(),
+            &invalid_range_format,
+            solid_brush.Get(),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            native_hresult == E_INVALIDARG,
+        "invalid IDWriteTextLayout4 range did not fail closed");
+
     void* invalid_text_layout_value =
         reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
     native_hresult = S_OK;
