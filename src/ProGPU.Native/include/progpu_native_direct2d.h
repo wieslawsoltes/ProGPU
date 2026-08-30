@@ -242,6 +242,26 @@ typedef enum progpu_native_direct2d_antialias_mode {
     PROGPU_NATIVE_DIRECT2D_ANTIALIAS_MODE_ALIASED = 1
 } progpu_native_direct2d_antialias_mode;
 
+typedef enum progpu_native_direct2d_text_antialias_mode {
+    PROGPU_NATIVE_DIRECT2D_TEXT_ANTIALIAS_MODE_DEFAULT = 0,
+    PROGPU_NATIVE_DIRECT2D_TEXT_ANTIALIAS_MODE_CLEARTYPE = 1,
+    PROGPU_NATIVE_DIRECT2D_TEXT_ANTIALIAS_MODE_GRAYSCALE = 2,
+    PROGPU_NATIVE_DIRECT2D_TEXT_ANTIALIAS_MODE_ALIASED = 3
+} progpu_native_direct2d_text_antialias_mode;
+
+typedef enum progpu_native_direct2d_primitive_blend {
+    PROGPU_NATIVE_DIRECT2D_PRIMITIVE_BLEND_SOURCE_OVER = 0,
+    PROGPU_NATIVE_DIRECT2D_PRIMITIVE_BLEND_COPY = 1,
+    PROGPU_NATIVE_DIRECT2D_PRIMITIVE_BLEND_MIN = 2,
+    PROGPU_NATIVE_DIRECT2D_PRIMITIVE_BLEND_ADD = 3,
+    PROGPU_NATIVE_DIRECT2D_PRIMITIVE_BLEND_MAX = 4
+} progpu_native_direct2d_primitive_blend;
+
+typedef enum progpu_native_direct2d_unit_mode {
+    PROGPU_NATIVE_DIRECT2D_UNIT_MODE_DIPS = 0,
+    PROGPU_NATIVE_DIRECT2D_UNIT_MODE_PIXELS = 1
+} progpu_native_direct2d_unit_mode;
+
 typedef enum progpu_native_direct2d_composite_mode {
     PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_SOURCE_OVER = 0,
     PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_DESTINATION_OVER = 1,
@@ -626,7 +646,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 27U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 28U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -1294,6 +1314,82 @@ PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_surface_get_transform(
     progpu_native_direct2d_surface* surface,
     progpu_native_direct2d_matrix_3x2_f* transform,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_set_antialias_mode(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_antialias_mode mode,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_antialias_mode(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_antialias_mode* mode,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_set_text_antialias_mode(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_text_antialias_mode mode,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_text_antialias_mode(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_text_antialias_mode* mode,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_set_primitive_blend(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_primitive_blend blend,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_primitive_blend(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_primitive_blend* blend,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_set_unit_mode(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_unit_mode mode,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_unit_mode(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_unit_mode* mode,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_set_tags(
+    progpu_native_direct2d_surface* surface,
+    uint64_t tag1,
+    uint64_t tag2,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_tags(
+    progpu_native_direct2d_surface* surface,
+    uint64_t* tag1,
+    uint64_t* tag2,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_set_dpi(
+    progpu_native_direct2d_surface* surface,
+    float dpi_x,
+    float dpi_y,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_dpi(
+    progpu_native_direct2d_surface* surface,
+    float* dpi_x,
+    float* dpi_y,
     int32_t* native_hresult);
 
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status

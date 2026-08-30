@@ -609,6 +609,24 @@ bool is_valid(progpu_native_direct2d_antialias_mode value)
         value == PROGPU_NATIVE_DIRECT2D_ANTIALIAS_MODE_ALIASED;
 }
 
+bool is_valid(progpu_native_direct2d_text_antialias_mode value)
+{
+    return value >= PROGPU_NATIVE_DIRECT2D_TEXT_ANTIALIAS_MODE_DEFAULT &&
+        value <= PROGPU_NATIVE_DIRECT2D_TEXT_ANTIALIAS_MODE_ALIASED;
+}
+
+bool is_valid(progpu_native_direct2d_primitive_blend value)
+{
+    return value >= PROGPU_NATIVE_DIRECT2D_PRIMITIVE_BLEND_SOURCE_OVER &&
+        value <= PROGPU_NATIVE_DIRECT2D_PRIMITIVE_BLEND_MAX;
+}
+
+bool is_valid(progpu_native_direct2d_unit_mode value)
+{
+    return value == PROGPU_NATIVE_DIRECT2D_UNIT_MODE_DIPS ||
+        value == PROGPU_NATIVE_DIRECT2D_UNIT_MODE_PIXELS;
+}
+
 bool is_valid_layer_options(uint32_t value)
 {
     constexpr uint32_t allowed =
@@ -4828,6 +4846,286 @@ progpu_native_direct2d_surface_get_transform(
     transform->m22 = native_transform._22;
     transform->m31 = native_transform._31;
     transform->m32 = native_transform._32;
+    return finish_draw_command(*surface, S_OK, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_set_antialias_mode(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_antialias_mode mode,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || native_hresult == nullptr || !is_valid(mode)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    surface->d2d_context->SetAntialiasMode(
+        static_cast<D2D1_ANTIALIAS_MODE>(mode));
+    return finish_draw_command(*surface, S_OK, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_antialias_mode(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_antialias_mode* mode,
+    int32_t* native_hresult)
+{
+    if (mode != nullptr) {
+        *mode = PROGPU_NATIVE_DIRECT2D_ANTIALIAS_MODE_PER_PRIMITIVE;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || mode == nullptr || native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    *mode = static_cast<progpu_native_direct2d_antialias_mode>(
+        surface->d2d_context->GetAntialiasMode());
+    return finish_draw_command(*surface, S_OK, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_set_text_antialias_mode(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_text_antialias_mode mode,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || native_hresult == nullptr || !is_valid(mode)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    surface->d2d_context->SetTextAntialiasMode(
+        static_cast<D2D1_TEXT_ANTIALIAS_MODE>(mode));
+    return finish_draw_command(*surface, S_OK, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_text_antialias_mode(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_text_antialias_mode* mode,
+    int32_t* native_hresult)
+{
+    if (mode != nullptr) {
+        *mode = PROGPU_NATIVE_DIRECT2D_TEXT_ANTIALIAS_MODE_DEFAULT;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || mode == nullptr || native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    *mode = static_cast<progpu_native_direct2d_text_antialias_mode>(
+        surface->d2d_context->GetTextAntialiasMode());
+    return finish_draw_command(*surface, S_OK, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_set_primitive_blend(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_primitive_blend blend,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || native_hresult == nullptr || !is_valid(blend)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    surface->d2d_context->SetPrimitiveBlend(
+        static_cast<D2D1_PRIMITIVE_BLEND>(blend));
+    return finish_draw_command(*surface, S_OK, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_primitive_blend(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_primitive_blend* blend,
+    int32_t* native_hresult)
+{
+    if (blend != nullptr) {
+        *blend = PROGPU_NATIVE_DIRECT2D_PRIMITIVE_BLEND_SOURCE_OVER;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || blend == nullptr || native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    *blend = static_cast<progpu_native_direct2d_primitive_blend>(
+        surface->d2d_context->GetPrimitiveBlend());
+    return finish_draw_command(*surface, S_OK, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_set_unit_mode(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_unit_mode mode,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || native_hresult == nullptr || !is_valid(mode)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    surface->d2d_context->SetUnitMode(static_cast<D2D1_UNIT_MODE>(mode));
+    return finish_draw_command(*surface, S_OK, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_unit_mode(
+    progpu_native_direct2d_surface* surface,
+    progpu_native_direct2d_unit_mode* mode,
+    int32_t* native_hresult)
+{
+    if (mode != nullptr) {
+        *mode = PROGPU_NATIVE_DIRECT2D_UNIT_MODE_DIPS;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || mode == nullptr || native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    *mode = static_cast<progpu_native_direct2d_unit_mode>(
+        surface->d2d_context->GetUnitMode());
+    return finish_draw_command(*surface, S_OK, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_set_tags(
+    progpu_native_direct2d_surface* surface,
+    uint64_t tag1,
+    uint64_t tag2,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    surface->d2d_context->SetTags(tag1, tag2);
+    return finish_draw_command(*surface, S_OK, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_tags(
+    progpu_native_direct2d_surface* surface,
+    uint64_t* tag1,
+    uint64_t* tag2,
+    int32_t* native_hresult)
+{
+    if (tag1 != nullptr) {
+        *tag1 = 0U;
+    }
+    if (tag2 != nullptr) {
+        *tag2 = 0U;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || tag1 == nullptr || tag2 == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    surface->d2d_context->GetTags(tag1, tag2);
+    return finish_draw_command(*surface, S_OK, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_set_dpi(
+    progpu_native_direct2d_surface* surface,
+    float dpi_x,
+    float dpi_y,
+    int32_t* native_hresult)
+{
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    const bool reset_to_default = dpi_x == 0.0F && dpi_y == 0.0F;
+    if (surface == nullptr || native_hresult == nullptr ||
+        !std::isfinite(dpi_x) || !std::isfinite(dpi_y) ||
+        (!reset_to_default && (dpi_x <= 0.0F || dpi_y <= 0.0F))) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    surface->d2d_context->SetDpi(dpi_x, dpi_y);
+    return finish_draw_command(*surface, S_OK, *native_hresult);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_get_dpi(
+    progpu_native_direct2d_surface* surface,
+    float* dpi_x,
+    float* dpi_y,
+    int32_t* native_hresult)
+{
+    if (dpi_x != nullptr) {
+        *dpi_x = 0.0F;
+    }
+    if (dpi_y != nullptr) {
+        *dpi_y = 0.0F;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (surface == nullptr || dpi_x == nullptr || dpi_y == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+    std::scoped_lock lock(surface->access_mutex);
+    if (!surface->draw_active) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE;
+    }
+    surface->d2d_context->GetDpi(dpi_x, dpi_y);
     return finish_draw_command(*surface, S_OK, *native_hresult);
 }
 

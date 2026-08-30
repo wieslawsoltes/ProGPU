@@ -1162,6 +1162,139 @@ int main()
             &identity_transform,
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
         "provider Direct2D transform restore failed");
+    require(
+        progpu_native_direct2d_surface_set_antialias_mode(
+            surface,
+            PROGPU_NATIVE_DIRECT2D_ANTIALIAS_MODE_ALIASED,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider Direct2D antialias state set failed");
+    progpu_native_direct2d_antialias_mode returned_antialias_mode =
+        PROGPU_NATIVE_DIRECT2D_ANTIALIAS_MODE_PER_PRIMITIVE;
+    require(
+        progpu_native_direct2d_surface_get_antialias_mode(
+            surface,
+            &returned_antialias_mode,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            returned_antialias_mode ==
+                PROGPU_NATIVE_DIRECT2D_ANTIALIAS_MODE_ALIASED,
+        "provider Direct2D antialias state get failed");
+    require(
+        progpu_native_direct2d_surface_set_text_antialias_mode(
+            surface,
+            PROGPU_NATIVE_DIRECT2D_TEXT_ANTIALIAS_MODE_GRAYSCALE,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider Direct2D text-antialias state set failed");
+    progpu_native_direct2d_text_antialias_mode returned_text_antialias_mode =
+        PROGPU_NATIVE_DIRECT2D_TEXT_ANTIALIAS_MODE_DEFAULT;
+    require(
+        progpu_native_direct2d_surface_get_text_antialias_mode(
+            surface,
+            &returned_text_antialias_mode,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            returned_text_antialias_mode ==
+                PROGPU_NATIVE_DIRECT2D_TEXT_ANTIALIAS_MODE_GRAYSCALE,
+        "provider Direct2D text-antialias state get failed");
+    require(
+        progpu_native_direct2d_surface_set_primitive_blend(
+            surface,
+            PROGPU_NATIVE_DIRECT2D_PRIMITIVE_BLEND_ADD,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider Direct2D primitive-blend state set failed");
+    progpu_native_direct2d_primitive_blend returned_primitive_blend =
+        PROGPU_NATIVE_DIRECT2D_PRIMITIVE_BLEND_SOURCE_OVER;
+    require(
+        progpu_native_direct2d_surface_get_primitive_blend(
+            surface,
+            &returned_primitive_blend,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            returned_primitive_blend ==
+                PROGPU_NATIVE_DIRECT2D_PRIMITIVE_BLEND_ADD,
+        "provider Direct2D primitive-blend state get failed");
+    require(
+        progpu_native_direct2d_surface_set_unit_mode(
+            surface,
+            PROGPU_NATIVE_DIRECT2D_UNIT_MODE_PIXELS,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider Direct2D unit-mode state set failed");
+    progpu_native_direct2d_unit_mode returned_unit_mode =
+        PROGPU_NATIVE_DIRECT2D_UNIT_MODE_DIPS;
+    require(
+        progpu_native_direct2d_surface_get_unit_mode(
+            surface,
+            &returned_unit_mode,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            returned_unit_mode == PROGPU_NATIVE_DIRECT2D_UNIT_MODE_PIXELS,
+        "provider Direct2D unit-mode state get failed");
+    constexpr uint64_t expected_tag1 = UINT64_C(0x1122334455667788);
+    constexpr uint64_t expected_tag2 = UINT64_C(0x8877665544332211);
+    require(
+        progpu_native_direct2d_surface_set_tags(
+            surface,
+            expected_tag1,
+            expected_tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider Direct2D tags set failed");
+    uint64_t returned_tag1 = 0U;
+    uint64_t returned_tag2 = 0U;
+    require(
+        progpu_native_direct2d_surface_get_tags(
+            surface,
+            &returned_tag1,
+            &returned_tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            returned_tag1 == expected_tag1 && returned_tag2 == expected_tag2,
+        "provider Direct2D tags get failed");
+    require(
+        progpu_native_direct2d_surface_set_dpi(
+            surface,
+            144.0F,
+            120.0F,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider Direct2D DPI set failed");
+    float returned_dpi_x = 0.0F;
+    float returned_dpi_y = 0.0F;
+    require(
+        progpu_native_direct2d_surface_get_dpi(
+            surface,
+            &returned_dpi_x,
+            &returned_dpi_y,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            returned_dpi_x == 144.0F && returned_dpi_y == 120.0F,
+        "provider Direct2D DPI get failed");
+    require(
+        progpu_native_direct2d_surface_set_antialias_mode(
+            surface,
+            static_cast<progpu_native_direct2d_antialias_mode>(2U),
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT,
+        "unknown Direct2D antialias state did not fail closed");
+    require(
+        progpu_native_direct2d_surface_set_antialias_mode(
+            surface,
+            PROGPU_NATIVE_DIRECT2D_ANTIALIAS_MODE_PER_PRIMITIVE,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+        progpu_native_direct2d_surface_set_text_antialias_mode(
+            surface,
+            PROGPU_NATIVE_DIRECT2D_TEXT_ANTIALIAS_MODE_DEFAULT,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+        progpu_native_direct2d_surface_set_primitive_blend(
+            surface,
+            PROGPU_NATIVE_DIRECT2D_PRIMITIVE_BLEND_SOURCE_OVER,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+        progpu_native_direct2d_surface_set_unit_mode(
+            surface,
+            PROGPU_NATIVE_DIRECT2D_UNIT_MODE_DIPS,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+        progpu_native_direct2d_surface_set_tags(
+            surface,
+            0U,
+            0U,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+        progpu_native_direct2d_surface_set_dpi(
+            surface,
+            96.0F,
+            96.0F,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "provider Direct2D drawing state restore failed");
     const progpu_native_direct2d_rect_f vector_rectangle = {
         0.0F, 0.0F, 16.0F, 16.0F
     };

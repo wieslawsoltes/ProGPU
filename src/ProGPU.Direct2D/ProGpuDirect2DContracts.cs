@@ -285,6 +285,29 @@ public enum ProGpuDirect2DAntialiasMode : uint
     Aliased = 1
 }
 
+public enum ProGpuDirect2DTextAntialiasMode : uint
+{
+    Default = 0,
+    ClearType = 1,
+    Grayscale = 2,
+    Aliased = 3
+}
+
+public enum ProGpuDirect2DPrimitiveBlend : uint
+{
+    SourceOver = 0,
+    Copy = 1,
+    Minimum = 2,
+    Add = 3,
+    Maximum = 4
+}
+
+public enum ProGpuDirect2DUnitMode : uint
+{
+    Dips = 0,
+    Pixels = 1
+}
+
 public enum ProGpuDirect2DCompositeMode : uint
 {
     SourceOver = 0,
@@ -522,6 +545,11 @@ public readonly record struct ProGpuDirect2DColor(
             blue / 255.0F,
             alpha / 255.0F);
 }
+
+[StructLayout(LayoutKind.Sequential)]
+public readonly record struct ProGpuDirect2DTags(
+    ulong Tag1,
+    ulong Tag2);
 
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct ProGpuDirect2DGradientStop(
