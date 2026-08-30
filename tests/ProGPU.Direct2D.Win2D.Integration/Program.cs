@@ -15,7 +15,7 @@ namespace ProGPU.Direct2D.Win2D.Integration;
 internal static partial class Program
 {
     private const uint RoInitSingleThreaded = 0U;
-    private const uint Width = 64U;
+    private const uint Width = 68U;
     private const uint Height = 64U;
     private const string ResultFileName = "direct2d-win2d-result.json";
     private const string ProgressFileName = "direct2d-win2d-progress.txt";
@@ -64,6 +64,7 @@ internal static partial class Program
                     CanvasRadialGradientBrushType: null,
                     CanvasBitmapType: null,
                     CanvasImageBrushType: null,
+                    CanvasGeneralImageBrushType: null,
                     CanvasGeometryType: null,
                     CanvasStrokeStyleType: null,
                     DrawingSessionType: null,
@@ -74,6 +75,7 @@ internal static partial class Program
                     NativeRadialGradientBrushIdentityMatches: null,
                     NativeSourceBitmapIdentityMatches: null,
                     NativeImageBrushIdentityMatches: null,
+                    NativeGeneralImageBrushIdentityMatches: null,
                     NativeGeometryIdentityMatches: null,
                     NativeStrokeStyleIdentityMatches: null,
                     SolidColorBrushColor: null,
@@ -84,6 +86,7 @@ internal static partial class Program
                     SolidPixel: null,
                     RadialPixel: null,
                     ImageBrushPixel: null,
+                    GeneralImageBrushPixel: null,
                     GeometryPixel: null,
                     Error: exception.ToString()));
             return 1;
@@ -358,6 +361,32 @@ internal static partial class Program
                         ProGpuDirect2DExtendMode.Mirror,
                         ProGpuDirect2DInterpolationMode.NearestNeighbor));
             WriteProgress("bitmap-brush-created");
+            Color generalImageColor = Color.FromArgb(255, 48, 224, 176);
+            Span<byte> generalSourcePixels = stackalloc byte[16];
+            for (int row = 0; row < 2; row++)
+            {
+                int leftOffset = row * 8;
+                generalSourcePixels[leftOffset] = imageColor.B;
+                generalSourcePixels[leftOffset + 1] = imageColor.G;
+                generalSourcePixels[leftOffset + 2] = imageColor.R;
+                generalSourcePixels[leftOffset + 3] = imageColor.A;
+                int rightOffset = leftOffset + 4;
+                generalSourcePixels[rightOffset] = generalImageColor.B;
+                generalSourcePixels[rightOffset + 1] = generalImageColor.G;
+                generalSourcePixels[rightOffset + 2] = generalImageColor.R;
+                generalSourcePixels[rightOffset + 3] = generalImageColor.A;
+            }
+            using ProGpuDirect2DComReference nativeGeneralSourceBitmap =
+                surface.CreateBitmap(generalSourcePixels, 2U, 2U, 8U);
+            using ProGpuDirect2DComReference nativeGeneralImageBrush =
+                surface.CreateImageBrush(
+                    nativeGeneralSourceBitmap,
+                    new ProGpuDirect2DImageBrushProperties(
+                        new ProGpuDirect2DRect(1.0F, 0.0F, 1.0F, 2.0F),
+                        ProGpuDirect2DExtendMode.Clamp,
+                        ProGpuDirect2DExtendMode.Clamp,
+                        ProGpuDirect2DInterpolationMode.NearestNeighbor));
+            WriteProgress("general-image-brush-created");
             WriteProgress("canvas-bitmap-wrap-started");
             if (!surface.TryAcquireMicrosoftWin2DBitmap(
                     nativeSourceBitmap,
@@ -422,6 +451,38 @@ internal static partial class Program
                 }
             }
             WriteProgress("image-brush-roundtrips-complete");
+            if (!surface.TryAcquireMicrosoftWin2DImageBrush(
+                    nativeGeneralImageBrush,
+                    out ProGpuDirect2DComReference? wrappedGeneralImageBrush,
+                    out int wrappedGeneralImageBrushHResult) ||
+                wrappedGeneralImageBrush is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasImageBrush ID2D1ImageBrush wrapping failed (0x{wrappedGeneralImageBrushHResult:X8}).");
+            }
+            using ProGpuDirect2DComReference canvasGeneralImageBrushReference =
+                wrappedGeneralImageBrush;
+            if (!surface.TryAcquireMicrosoftWin2DNativeImageBrush(
+                    canvasGeneralImageBrushReference,
+                    ProGpuDirect2DInterfaceKind.D2D1ImageBrush,
+                    out ProGpuDirect2DComReference? unwrappedGeneralImageBrush,
+                    out int unwrappedGeneralImageBrushHResult) ||
+                unwrappedGeneralImageBrush is null)
+            {
+                throw new InvalidOperationException(
+                    $"Win2D CanvasImageBrush ID2D1ImageBrush native-resource interop failed (0x{unwrappedGeneralImageBrushHResult:X8}).");
+            }
+            using (unwrappedGeneralImageBrush)
+            {
+                if (!HasSameComIdentity(
+                        nativeGeneralImageBrush,
+                        unwrappedGeneralImageBrush))
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasImageBrush did not preserve ProGPU's ID2D1ImageBrush identity.");
+                }
+            }
+            WriteProgress("general-image-brush-roundtrip-complete");
 
             var combinedGeometry = new PortableGeometryPath
             {
@@ -543,6 +604,7 @@ internal static partial class Program
             string canvasRadialGradientBrushType;
             string canvasBitmapType;
             string canvasImageBrushType;
+            string canvasGeneralImageBrushType;
             string canvasGeometryType;
             string canvasStrokeStyleType;
             string drawingSessionType;
@@ -554,6 +616,7 @@ internal static partial class Program
             PixelEvidence solidPixel;
             PixelEvidence radialPixel;
             PixelEvidence imageBrushPixel;
+            PixelEvidence generalImageBrushPixel;
             PixelEvidence geometryPixel;
             using (access)
             {
@@ -584,6 +647,10 @@ internal static partial class Program
                     CanvasImageBrush.FromAbi(
                         canvasImageBrushReference.DangerousGetHandle());
                 WriteProgress("canvas-image-brush-projected");
+                using CanvasImageBrush canvasGeneralImageBrush =
+                    CanvasImageBrush.FromAbi(
+                        canvasGeneralImageBrushReference.DangerousGetHandle());
+                WriteProgress("canvas-general-image-brush-projected");
                 using CanvasGeometry canvasGeometry =
                     CanvasGeometry.FromAbi(
                         canvasGeometryReference.DangerousGetHandle());
@@ -653,6 +720,19 @@ internal static partial class Program
                 canvasImageBrushType =
                     canvasImageBrush.GetType().FullName ??
                     canvasImageBrush.GetType().Name;
+                canvasGeneralImageBrushType =
+                    canvasGeneralImageBrush.GetType().FullName ??
+                    canvasGeneralImageBrush.GetType().Name;
+                Windows.Foundation.Rect? projectedSourceRectangle =
+                    canvasGeneralImageBrush.SourceRectangle;
+                if (projectedSourceRectangle is not Windows.Foundation.Rect sourceRectangle ||
+                    sourceRectangle.X != 1.0 || sourceRectangle.Y != 0.0 ||
+                    sourceRectangle.Width != 1.0 ||
+                    sourceRectangle.Height != 2.0)
+                {
+                    throw new InvalidOperationException(
+                        "Win2D CanvasImageBrush source rectangle changed.");
+                }
                 canvasGeometryType = canvasGeometry.GetType().FullName ??
                     canvasGeometry.GetType().Name;
                 canvasStrokeStyleType =
@@ -700,6 +780,12 @@ internal static partial class Program
                         4.0F,
                         56.0F,
                         canvasImageBrush);
+                    drawingSession.FillRectangle(
+                        64.0F,
+                        4.0F,
+                        4.0F,
+                        56.0F,
+                        canvasGeneralImageBrush);
                     drawingSession.FillGeometry(
                         canvasGeometry,
                         Color.FromArgb(255, 240, 208, 32));
@@ -725,6 +811,8 @@ internal static partial class Program
                 Color radial = pixels[checked((int)(32U * Width + 52U))];
                 Color imageBrush =
                     pixels[checked((int)(32U * Width + 62U))];
+                Color generalImageBrush =
+                    pixels[checked((int)(32U * Width + 66U))];
                 Color geometryColor =
                     pixels[checked((int)(32U * Width + 8U))];
                 cornerPixel = PixelEvidence.FromColor(corner);
@@ -732,18 +820,21 @@ internal static partial class Program
                 solidPixel = PixelEvidence.FromColor(solid);
                 radialPixel = PixelEvidence.FromColor(radial);
                 imageBrushPixel = PixelEvidence.FromColor(imageBrush);
+                generalImageBrushPixel =
+                    PixelEvidence.FromColor(generalImageBrush);
                 geometryPixel = PixelEvidence.FromColor(geometryColor);
                 if (corner.A != 0 ||
                     !MatchesColor(solid, fill) ||
                     !MatchesColor(center, linearColor) ||
                     !MatchesColor(radial, radialColor) ||
                     !MatchesColor(imageBrush, imageColor) ||
+                    !MatchesColor(generalImageBrush, generalImageColor) ||
                     !MatchesColor(
                         geometryColor,
                         Color.FromArgb(255, 240, 208, 32)))
                 {
                     throw new InvalidOperationException(
-                        $"Win2D pixel oracle failed: corner={cornerPixel}, solid={solidPixel}, linear={centerPixel}, radial={radialPixel}, imageBrush={imageBrushPixel}, geometry={geometryPixel}.");
+                        $"Win2D pixel oracle failed: corner={cornerPixel}, solid={solidPixel}, linear={centerPixel}, radial={radialPixel}, bitmapBrush={imageBrushPixel}, imageBrush={generalImageBrushPixel}, geometry={geometryPixel}.");
                 }
             }
 
@@ -771,6 +862,7 @@ internal static partial class Program
                 CanvasRadialGradientBrushType: canvasRadialGradientBrushType,
                 CanvasBitmapType: canvasBitmapType,
                 CanvasImageBrushType: canvasImageBrushType,
+                CanvasGeneralImageBrushType: canvasGeneralImageBrushType,
                 CanvasGeometryType: canvasGeometryType,
                 CanvasStrokeStyleType: canvasStrokeStyleType,
                 DrawingSessionType: drawingSessionType,
@@ -781,6 +873,7 @@ internal static partial class Program
                 NativeRadialGradientBrushIdentityMatches: true,
                 NativeSourceBitmapIdentityMatches: true,
                 NativeImageBrushIdentityMatches: true,
+                NativeGeneralImageBrushIdentityMatches: true,
                 NativeGeometryIdentityMatches: true,
                 NativeStrokeStyleIdentityMatches: true,
                 SolidColorBrushColor: solidColorBrushColor,
@@ -791,6 +884,7 @@ internal static partial class Program
                 SolidPixel: solidPixel,
                 RadialPixel: radialPixel,
                 ImageBrushPixel: imageBrushPixel,
+                GeneralImageBrushPixel: generalImageBrushPixel,
                 GeometryPixel: geometryPixel,
                 Error: null);
         }
@@ -984,6 +1078,7 @@ internal static partial class Program
         string? CanvasRadialGradientBrushType,
         string? CanvasBitmapType,
         string? CanvasImageBrushType,
+        string? CanvasGeneralImageBrushType,
         string? CanvasGeometryType,
         string? CanvasStrokeStyleType,
         string? DrawingSessionType,
@@ -994,6 +1089,7 @@ internal static partial class Program
         bool? NativeRadialGradientBrushIdentityMatches,
         bool? NativeSourceBitmapIdentityMatches,
         bool? NativeImageBrushIdentityMatches,
+        bool? NativeGeneralImageBrushIdentityMatches,
         bool? NativeGeometryIdentityMatches,
         bool? NativeStrokeStyleIdentityMatches,
         PixelEvidence? SolidColorBrushColor,
@@ -1004,6 +1100,7 @@ internal static partial class Program
         PixelEvidence? SolidPixel,
         PixelEvidence? RadialPixel,
         PixelEvidence? ImageBrushPixel,
+        PixelEvidence? GeneralImageBrushPixel,
         PixelEvidence? GeometryPixel,
         string? Error);
 

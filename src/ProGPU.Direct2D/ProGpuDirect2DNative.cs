@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 11U;
+    internal const uint AbiVersion = 12U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -295,6 +295,18 @@ internal static unsafe partial class ProGpuDirect2DNative
         nint surface,
         nint bitmap,
         ProGpuDirect2DBitmapBrushProperties* properties,
+        NativeBrushProperties* brushProperties,
+        nint* value,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_create_image_brush")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceCreateImageBrush(
+        nint surface,
+        nint image,
+        ProGpuDirect2DImageBrushProperties* properties,
         NativeBrushProperties* brushProperties,
         nint* value,
         int* nativeHResult);

@@ -654,6 +654,67 @@ int main()
             has_same_com_identity(source_bitmap.Get(), brush_bitmap.Get()),
         "provider ID2D1BitmapBrush1 metadata changed");
 
+    progpu_native_direct2d_image_brush_properties image_brush_properties{};
+    image_brush_properties.source_rectangle = {0.25F, 0.5F, 1.5F, 1.0F};
+    image_brush_properties.extend_mode_x =
+        PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_MIRROR;
+    image_brush_properties.extend_mode_y =
+        PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_WRAP;
+    image_brush_properties.interpolation_mode =
+        PROGPU_NATIVE_DIRECT2D_INTERPOLATION_MODE_NEAREST_NEIGHBOR;
+    progpu_native_direct2d_brush_properties image_common_properties{};
+    image_common_properties.opacity = 0.75F;
+    image_common_properties.transform.m11 = 1.0F;
+    image_common_properties.transform.m22 = 1.0F;
+    image_common_properties.transform.dx = 2.0F;
+    void* image_brush_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_image_brush(
+            surface,
+            source_bitmap.Get(),
+            &image_brush_properties,
+            &image_common_properties,
+            &image_brush_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            image_brush_value != nullptr && native_hresult == S_OK,
+        "provider ID2D1ImageBrush creation failed");
+    ComPtr<ID2D1ImageBrush> image_brush;
+    image_brush.Attach(static_cast<ID2D1ImageBrush*>(image_brush_value));
+    ComPtr<ID2D1Image> brush_image;
+    image_brush->GetImage(brush_image.GetAddressOf());
+    D2D1_RECT_F image_source_rectangle{};
+    image_brush->GetSourceRectangle(&image_source_rectangle);
+    require(image_brush->GetExtendModeX() == D2D1_EXTEND_MODE_MIRROR &&
+            image_brush->GetExtendModeY() == D2D1_EXTEND_MODE_WRAP &&
+            image_brush->GetInterpolationMode() ==
+                D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR &&
+            image_brush->GetOpacity() == 0.75F &&
+            image_source_rectangle.left == 0.25F &&
+            image_source_rectangle.top == 0.5F &&
+            image_source_rectangle.right == 1.75F &&
+            image_source_rectangle.bottom == 1.5F &&
+            has_same_com_identity(source_bitmap.Get(), brush_image.Get()),
+        "provider ID2D1ImageBrush metadata changed");
+
+    progpu_native_direct2d_image_brush_properties invalid_image_properties =
+        image_brush_properties;
+    invalid_image_properties.source_rectangle.width = 0.0F;
+    void* invalid_image_brush_value =
+        reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_surface_create_image_brush(
+            surface,
+            source_bitmap.Get(),
+            &invalid_image_properties,
+            &image_common_properties,
+            &invalid_image_brush_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            invalid_image_brush_value == nullptr &&
+            native_hresult == E_INVALIDARG,
+        "empty Direct2D image-brush source rectangle did not fail closed");
+
     void* win2d_canvas_device_value = nullptr;
     native_hresult = E_FAIL;
     progpu_native_direct2d_status win2d_status =
@@ -1005,6 +1066,44 @@ int main()
                 unwrapped_bitmap_brush.Get()),
             "Win2D CanvasImageBrush changed native COM identity");
 
+        void* canvas_general_image_brush_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_or_create_win2d_wrapper(
+                surface,
+                image_brush.Get(),
+                0.0F,
+                &canvas_general_image_brush_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                canvas_general_image_brush_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D CanvasImageBrush ID2D1ImageBrush wrapping failed");
+        ComPtr<IInspectable> canvas_general_image_brush;
+        canvas_general_image_brush.Attach(
+            static_cast<IInspectable*>(canvas_general_image_brush_value));
+        progpu_native_direct2d_guid image_brush_id =
+            to_portable_guid(__uuidof(ID2D1ImageBrush));
+        void* unwrapped_image_brush_value = nullptr;
+        native_hresult = E_FAIL;
+        require(
+            progpu_native_direct2d_surface_try_get_win2d_wrapper_native_resource(
+                surface,
+                canvas_general_image_brush.Get(),
+                0.0F,
+                &image_brush_id,
+                &unwrapped_image_brush_value,
+                &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+                unwrapped_image_brush_value != nullptr &&
+                native_hresult == S_OK,
+            "Win2D CanvasImageBrush ID2D1ImageBrush query failed");
+        ComPtr<ID2D1ImageBrush> unwrapped_image_brush;
+        unwrapped_image_brush.Attach(
+            static_cast<ID2D1ImageBrush*>(unwrapped_image_brush_value));
+        require(has_same_com_identity(
+                image_brush.Get(),
+                unwrapped_image_brush.Get()),
+            "Win2D CanvasImageBrush changed ID2D1ImageBrush COM identity");
+
         progpu_native_direct2d_guid no_interface_id =
             to_portable_guid(GUID_NULL);
         void* no_interface_value =
@@ -1180,6 +1279,9 @@ int main()
     context->FillRectangle(
         D2D1::RectF(48.0F, 0.0F, 64.0F, 16.0F),
         bitmap_brush.Get());
+    context->FillRectangle(
+        D2D1::RectF(48.0F, 48.0F, 64.0F, 64.0F),
+        image_brush.Get());
     context->FillGeometry(path_geometry.Get(), solid_brush.Get());
     context->DrawGeometry(
         combined_geometry.Get(),

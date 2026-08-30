@@ -93,7 +93,8 @@ typedef enum progpu_native_direct2d_interface_kind {
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_STROKE_STYLE = 34,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_BITMAP_BRUSH1 = 35,
     PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_BITMAP = 36,
-    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_IMAGE_BRUSH = 37
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_WIN2D_CANVAS_IMAGE_BRUSH = 37,
+    PROGPU_NATIVE_DIRECT2D_INTERFACE_D2D1_IMAGE_BRUSH = 38
 } progpu_native_direct2d_interface_kind;
 
 typedef enum progpu_native_direct2d_fill_mode {
@@ -304,6 +305,13 @@ typedef struct progpu_native_direct2d_rect_f {
     float height;
 } progpu_native_direct2d_rect_f;
 
+typedef struct progpu_native_direct2d_image_brush_properties {
+    progpu_native_direct2d_rect_f source_rectangle;
+    uint32_t extend_mode_x;
+    uint32_t extend_mode_y;
+    uint32_t interpolation_mode;
+} progpu_native_direct2d_image_brush_properties;
+
 typedef struct progpu_native_direct2d_path_figure {
     progpu_native_direct2d_point_2f start_point;
     uint32_t first_segment;
@@ -335,7 +343,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 11U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 12U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -466,6 +474,17 @@ progpu_native_direct2d_surface_create_bitmap_brush(
     progpu_native_direct2d_surface* surface,
     void* bitmap,
     const progpu_native_direct2d_bitmap_brush_properties* properties,
+    const progpu_native_direct2d_brush_properties* brush_properties,
+    void** value,
+    int32_t* native_hresult);
+
+/* Creates a genuine ID2D1ImageBrush over a same-domain ID2D1Image. The
+ * source rectangle is expressed in image-space coordinates. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_image_brush(
+    progpu_native_direct2d_surface* surface,
+    void* image,
+    const progpu_native_direct2d_image_brush_properties* properties,
     const progpu_native_direct2d_brush_properties* brush_properties,
     void** value,
     int32_t* native_hresult);

@@ -59,6 +59,10 @@ static_assert(
     sizeof(progpu_native_direct2d_bitmap_brush_properties) ==
         sizeof(D2D1_BITMAP_BRUSH_PROPERTIES1),
     "Direct2D portable bitmap-brush layout changed");
+static_assert(
+    sizeof(progpu_native_direct2d_image_brush_properties) ==
+        sizeof(D2D1_IMAGE_BRUSH_PROPERTIES),
+    "Direct2D portable image-brush layout changed");
 
 struct progpu_native_direct2d_surface {
     ComPtr<ID3D11Device> d3d_device;
@@ -1356,6 +1360,74 @@ progpu_native_direct2d_surface_create_bitmap_brush(
     ComPtr<ID2D1BitmapBrush1> brush;
     HRESULT hr = surface->d2d_context->CreateBitmapBrush(
         reinterpret_cast<ID2D1Bitmap*>(bitmap),
+        &native_properties,
+        &native_brush_properties,
+        brush.GetAddressOf());
+    surface->last_hresult.store(hr, std::memory_order_release);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_win2d_hresult(hr);
+    }
+    return return_interface(brush, value);
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_surface_create_image_brush(
+    progpu_native_direct2d_surface* surface,
+    void* image,
+    const progpu_native_direct2d_image_brush_properties* properties,
+    const progpu_native_direct2d_brush_properties* brush_properties,
+    void** value,
+    int32_t* native_hresult)
+{
+    if (value != nullptr) {
+        *value = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    const progpu_native_direct2d_rect_f* source_rectangle =
+        properties == nullptr ? nullptr : &properties->source_rectangle;
+    if (surface == nullptr || image == nullptr || properties == nullptr ||
+        brush_properties == nullptr || value == nullptr ||
+        native_hresult == nullptr ||
+        !std::isfinite(source_rectangle->x) ||
+        !std::isfinite(source_rectangle->y) ||
+        !std::isfinite(source_rectangle->width) ||
+        !std::isfinite(source_rectangle->height) ||
+        source_rectangle->width <= 0.0F ||
+        source_rectangle->height <= 0.0F ||
+        !std::isfinite(source_rectangle->x + source_rectangle->width) ||
+        !std::isfinite(source_rectangle->y + source_rectangle->height) ||
+        !is_valid(static_cast<progpu_native_direct2d_extend_mode>(
+            properties->extend_mode_x)) ||
+        !is_valid(static_cast<progpu_native_direct2d_extend_mode>(
+            properties->extend_mode_y)) ||
+        !is_valid_interpolation_mode(properties->interpolation_mode) ||
+        !std::isfinite(brush_properties->opacity) ||
+        !is_finite(brush_properties->transform)) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    D2D1_IMAGE_BRUSH_PROPERTIES native_properties = {
+        D2D1::RectF(
+            source_rectangle->x,
+            source_rectangle->y,
+            source_rectangle->x + source_rectangle->width,
+            source_rectangle->y + source_rectangle->height),
+        static_cast<D2D1_EXTEND_MODE>(properties->extend_mode_x),
+        static_cast<D2D1_EXTEND_MODE>(properties->extend_mode_y),
+        static_cast<D2D1_INTERPOLATION_MODE>(
+            properties->interpolation_mode)
+    };
+    D2D1_BRUSH_PROPERTIES native_brush_properties = {
+        brush_properties->opacity,
+        to_native_matrix(brush_properties->transform)
+    };
+    std::scoped_lock lock(surface->access_mutex);
+    ComPtr<ID2D1ImageBrush> brush;
+    HRESULT hr = surface->d2d_context->CreateImageBrush(
+        reinterpret_cast<ID2D1Image*>(image),
         &native_properties,
         &native_brush_properties,
         brush.GetAddressOf());
