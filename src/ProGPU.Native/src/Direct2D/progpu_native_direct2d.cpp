@@ -2098,8 +2098,10 @@ progpu_native_direct2d_surface_begin_command_list_draw(
         return PROGPU_NATIVE_DIRECT2D_STATUS_ACCESS_ALREADY_ACQUIRED;
     }
 
-    surface->active_command_list.CopyFrom(
-        reinterpret_cast<ID2D1CommandList*>(command_list));
+    ID2D1CommandList* native_command_list =
+        reinterpret_cast<ID2D1CommandList*>(command_list);
+    native_command_list->AddRef();
+    surface->active_command_list.Attach(native_command_list);
     surface->d2d_context->SetTarget(surface->active_command_list.Get());
     surface->d2d_context->BeginDraw();
     surface->draw_active = true;
