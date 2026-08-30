@@ -166,11 +166,12 @@ focused grid-display class passed 11/11, including the two ProGPU format cases;
 the ACadSharp R2007/R2018 DXF dependency regression passed 2/2 on its net9.0
 target with major-runtime roll-forward. The shared desktop host's net10.0
 warning-as-error build completed with zero warnings and zero errors. Release
-packing produced `ProGPU.CAD.0.1.0-preview.62.nupkg` with the new release note.
-That package still declares the repository's pre-existing upstream
-`ACadSharp 3.7.9` dependency rather than distributing the pinned fork binary;
-therefore the source/submodule build is the certified path for group 60/61
-persistence, and fork-package publication remains an explicit packaging gate.
+packing produced paired `ACadSharp.ProGPU.0.1.0-preview.62.nupkg` and
+`ProGPU.CAD.0.1.0-preview.62.nupkg` artifacts. Package-content validation found
+the fork's `lib/net10.0/ACadSharp.dll` and proved that `ProGPU.CAD` declares the
+exact `ACadSharp.ProGPU 0.1.0-preview.62` dependency with no upstream
+`ACadSharp` dependency. The source/submodule and package graphs therefore use
+the same reviewed feature source; external publication remains a release action.
 
 GRIDSTYLE line grids, emphasized major lines, exact isometric lattices, transient
 dynamic-UCS following/editing, screenshot goldens at multiple DPI scales,

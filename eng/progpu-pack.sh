@@ -23,6 +23,10 @@ case "${package_group}" in
     selected_package_ids=("${progpu_portable_package_ids[@]}")
     selected_package_projects=("${progpu_portable_package_projects[@]}")
     ;;
+  cad)
+    selected_package_ids=("${progpu_cad_package_ids[@]}")
+    selected_package_projects=("${progpu_cad_package_projects[@]}")
+    ;;
   avalonia-runtime)
     selected_package_ids=("${progpu_avalonia_runtime_package_ids[@]}")
     selected_package_projects=("${progpu_avalonia_runtime_package_projects[@]}")
@@ -32,7 +36,7 @@ case "${package_group}" in
     selected_package_projects=("${progpu_mobile_package_projects[@]}")
     ;;
   *)
-    echo "Unknown PROGPU_PACKAGE_GROUP '${package_group}'. Expected all, portable, avalonia-runtime, or mobile." >&2
+    echo "Unknown PROGPU_PACKAGE_GROUP '${package_group}'. Expected all, portable, cad, avalonia-runtime, or mobile." >&2
     exit 1
     ;;
 esac
@@ -64,6 +68,9 @@ for index in "${!selected_package_ids[@]}"; do
   else
     pack_arguments+=(-p:IncludeSymbols=true -p:SymbolPackageFormat=snupkg)
   fi
+  if [[ "${package_id}" == "ACadSharp.ProGPU" ]]; then
+    pack_arguments+=(-p:ProGpuForkPackage=true)
+  fi
 
   "${dotnet}" pack "${repo_root}/${project}" "${pack_arguments[@]}"
 
@@ -79,6 +86,13 @@ if [[ "${package_group}" == "portable" || "${package_group}" == "all" ]]; then
   PROGPU_PACKAGE_VERSION="${package_version}" \
   PROGPU_PACKAGE_OUTPUT="${package_output}" \
     "${repo_root}/eng/progpu-verify-xaml-package-consumer.sh"
+fi
+
+if [[ "${package_group}" == "cad" || "${package_group}" == "portable" || "${package_group}" == "all" ]]; then
+  PROGPU_CONFIGURATION="${configuration}" \
+  PROGPU_PACKAGE_VERSION="${package_version}" \
+  PROGPU_PACKAGE_OUTPUT="${package_output}" \
+    "${repo_root}/eng/progpu-verify-cad-package-consumer.sh"
 fi
 
 echo "ProGPU ${package_group} NuGet package build succeeded for ${package_version}."

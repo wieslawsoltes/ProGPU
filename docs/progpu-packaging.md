@@ -47,6 +47,31 @@ backends implement Avalonia platform interfaces that are intentionally private.
 The package dependencies are exact pins, so upgrading Avalonia requires a
 matching integration build.
 
+## ProGPU.CAD dependency package
+
+The portable package lane builds the reviewed ACadSharp submodule feature
+commit as `ACadSharp.ProGPU` before it builds `ProGPU.CAD`. Both artifacts use
+the common ProGPU package version, and the `ProGPU.CAD` nuspec must contain an
+exact dependency on `ACadSharp.ProGPU` with no dependency on upstream
+`ACadSharp`. The distinct identity keeps source and package behavior aligned
+without modifying or impersonating the upstream package. Package verification
+also requires `lib/net10.0/ACadSharp.dll` in the fork artifact.
+
+The ACadSharp fork package is a release artifact, not an ordinary upstream
+replacement. Local validation may pack it into `artifacts/packages`; external
+publication is performed only by the authorized release workflow.
+
+Run the focused paired pack and dependency/content audit with:
+
+```bash
+PROGPU_PACKAGE_GROUP=cad ./eng/progpu-pack.sh
+```
+
+That lane also restores, builds, and runs a clean net10.0 package-only consumer
+in a fresh NuGet cache. The consumer uses both `ProGPU.CAD` and its transitive
+ACadSharp API, and its resolved asset graph must contain `ACadSharp.ProGPU` but
+not upstream `ACadSharp`.
+
 The four integration projects are explicitly packable even though the
 repository defaults new projects to non-packable. Validate the complete
 exact-source replacement stack with:

@@ -23,6 +23,17 @@ ACadSharp is consumed as the reviewed MIT-licensed submodule at
 `external/ACadSharp`. Its public object model and readers/writers are a normal
 dependency, not copied implementation.
 
+Source builds pin the reviewed ACadSharp feature commit through the submodule.
+Package builds produce that same source as the distinct net10.0-only
+`ACadSharp.ProGPU` package at the common ProGPU package version, then pack
+`ProGPU.CAD` with an exact dependency on that identity and version. The fork
+identity prevents NuGet from silently substituting upstream `ACadSharp 3.7.9`;
+ACadSharp `master` remains untouched and synchronized with upstream.
+This is a managed document-front-end packaging boundary. The native renderer
+consumes immutable ProGPU CAD scenes and has no ACadSharp source/package seam;
+its rendering ABI, algorithms, shaders, output, and resource lifetime are
+unchanged and therefore require no paired native implementation change.
+
 Approved ProGPU-owned sources that may be ported directly are:
 
 - `src/ProGPU.Dxf`: the current DXF renderer, retained static-buffer adapter,

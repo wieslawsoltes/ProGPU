@@ -256,6 +256,7 @@ pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 - `ProGPU.Avalonia`
 - `ProGPU.Uno`
 - `ProGPU.Dxf`
+- `ACadSharp.ProGPU`
 - `ProGPU.CAD`
 - `ProGPU.CAD.Native`
 - `ProGPU.SkiaSharp`
@@ -266,6 +267,11 @@ pinned in `docs/WINUI_API_PARITY.md`, `docs/SKIASHARP_API_PARITY.md`, and
 - `ProGPU.iOS`
 - `ProGPU.Android.Media`
 - `ProGPU.Apple.Media`
+
+`ACadSharp.ProGPU` is the net10.0 package built from the reviewed ACadSharp
+feature commit pinned by the ProGPU submodule. It is packed before `ProGPU.CAD`
+at the same ProGPU version; `ProGPU.CAD` has an exact dependency on that distinct
+identity so NuGet cannot substitute upstream `ACadSharp`.
 
 ## Avalonia Integration Packages
 

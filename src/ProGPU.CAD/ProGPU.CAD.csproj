@@ -19,7 +19,7 @@
     <PackageReference Include="StbImageSharp" />
     <ProjectReference Include="..\..\external\ACadSharp\src\ACadSharp\ACadSharp.csproj"
                       SetTargetFramework="TargetFramework=net10.0"
-                      AdditionalProperties="TargetFrameworks=net10.0" />
+                      AdditionalProperties="TargetFrameworks=net10.0;ProGpuForkPackage=true" />
     <ProjectReference Include="..\ProGPU.Backend\ProGPU.Backend.csproj" />
     <ProjectReference Include="..\ProGPU.Scene\ProGPU.Scene.csproj" />
     <ProjectReference Include="..\ProGPU.Text\ProGPU.Text.csproj" />

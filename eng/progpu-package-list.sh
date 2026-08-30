@@ -39,6 +39,7 @@ progpu_portable_package_ids=(
   ProGPU.Avalonia
   ProGPU.Uno
   ProGPU.Dxf
+  ACadSharp.ProGPU
   ProGPU.CAD
   ProGPU.CAD.Native
   ProGPU.SkiaSharp
@@ -84,6 +85,7 @@ progpu_portable_package_projects=(
   src/ProGPU.Avalonia/ProGPU.Avalonia.csproj
   src/ProGPU.Uno/ProGPU.Uno.csproj
   src/ProGPU.Dxf/ProGPU.Dxf.csproj
+  external/ACadSharp/src/ACadSharp/ACadSharp.csproj
   src/ProGPU.CAD/ProGPU.CAD.csproj
   src/ProGPU.CAD.Native/ProGPU.CAD.Native.csproj
   src/SkiaSharp/SkiaSharp.csproj
@@ -129,12 +131,26 @@ progpu_portable_package_purposes=(
   "Avalonia integration and compositor backend adapter."
   "Uno/WinUI integration and compositor backend adapter."
   "DXF import/rendering support for ProGPU vector scenes."
+  "Pinned ProGPU-reviewed ACadSharp fork used by ProGPU.CAD."
   "ACadSharp-backed DXF/DWG document sessions and retained GPU-accelerated CAD engine foundation."
   "Optional native C++ scene adapter for immutable ProGPU CAD content."
   "ProGPU-backed portable SkiaSharp compatibility shim used by drawing and imaging adapters."
   "Opt-in official-identity SkiaSharp and Avalonia.Skia runtime/publish compatibility assets."
   "ProGPU-backed portable System.Drawing.Common compatibility shim for LibreWinForms and GDI-style callers."
   "LibreWPF portable interop contracts consumed by the ProGPU/Silk.NET SDK lane."
+)
+
+# Focused package/source-equivalence probe for the CAD dependency boundary.
+# Keep the reviewed fork first so ProGPU.CAD records the same-version package
+# dependency generated from the pinned submodule source.
+progpu_cad_package_ids=(
+  ACadSharp.ProGPU
+  ProGPU.CAD
+)
+
+progpu_cad_package_projects=(
+  external/ACadSharp/src/ACadSharp/ACadSharp.csproj
+  src/ProGPU.CAD/ProGPU.CAD.csproj
 )
 
 # Exact runtime dependency closure of the Avalonia renderer and Silk.NET host.
