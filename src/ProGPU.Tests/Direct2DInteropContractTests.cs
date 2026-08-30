@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 15U;",
+            "internal const uint AbiVersion = 16U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -149,6 +149,14 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
+            "progpu_native_direct2d_surface_create_text_format",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_draw_text",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "progpu_native_direct2d_surface_create_rectangle_geometry",
             native,
             StringComparison.Ordinal);
@@ -231,6 +239,13 @@ public sealed class Direct2DInteropContractTests
                 "ProGpuDirect2DSurface.cs"),
             StringComparison.Ordinal);
         Assert.Contains(
+            "5F174B49-0D8B-4CFB-8BCA-F1CCE9D06C67",
+            ReadRepoFile(
+                "src",
+                "ProGPU.Direct2D",
+                "ProGpuDirect2DSurface.cs"),
+            StringComparison.Ordinal);
+        Assert.Contains(
             "progpu_native_direct2d_surface_release",
             native,
             StringComparison.Ordinal);
@@ -251,7 +266,7 @@ public sealed class Direct2DInteropContractTests
             exports,
             StringComparison.Ordinal);
         Assert.Equal(
-            45,
+            47,
             exports.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries |
@@ -299,7 +314,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 15U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 16U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -353,6 +368,22 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains(
             "surface.d2d_bitmap.Get()",
             source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "DWriteCreateFactory(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "surface->d2d_context->DrawText(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_TEXT_FORMAT1",
+            header,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_create_text_format(",
+            test,
             StringComparison.Ordinal);
         Assert.Contains(
             "resource_wrapper->GetNativeResource(",

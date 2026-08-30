@@ -3,6 +3,7 @@
 #include <d2d1_2.h>
 #include <d2d1effects.h>
 #include <d3d11_1.h>
+#include <dwrite_3.h>
 #include <dxgi1_2.h>
 #include <roapi.h>
 #include <windows.h>
@@ -189,9 +190,13 @@ int main()
     auto winrt_d3d_device = get_interface<IInspectable>(
         surface,
         PROGPU_NATIVE_DIRECT2D_INTERFACE_WINRT_DIRECT3D11_DEVICE);
+    auto dwrite_factory = get_interface<IDWriteFactory3>(
+        surface,
+        PROGPU_NATIVE_DIRECT2D_INTERFACE_DWRITE_FACTORY3);
 
     require(factory1 && factory2 && device && context && bitmap &&
-            base_context && d3d_device && texture && winrt_d3d_device,
+            base_context && d3d_device && texture && winrt_d3d_device &&
+            dwrite_factory,
         "one or more genuine COM interfaces were unavailable");
 
     ComPtr<IDirect3DDxgiInterfaceAccess> dxgi_interface_access;
@@ -1039,6 +1044,86 @@ int main()
             initial_drawing_state.transform._22 == 1.0F,
         "provider default drawing state changed");
 
+    constexpr uint16_t font_family[] = {
+        'S', 'e', 'g', 'o', 'e', ' ', 'U', 'I'
+    };
+    constexpr uint16_t locale_name[] = {'e', 'n', '-', 'U', 'S'};
+    progpu_native_direct2d_text_format_properties text_properties{};
+    text_properties.struct_size = sizeof(text_properties);
+    text_properties.font_weight = DWRITE_FONT_WEIGHT_SEMI_BOLD;
+    text_properties.font_style = PROGPU_NATIVE_DIRECT2D_FONT_STYLE_NORMAL;
+    text_properties.font_stretch =
+        PROGPU_NATIVE_DIRECT2D_FONT_STRETCH_NORMAL;
+    text_properties.font_size = 13.0F;
+    text_properties.text_alignment =
+        PROGPU_NATIVE_DIRECT2D_TEXT_ALIGNMENT_LEADING;
+    text_properties.paragraph_alignment =
+        PROGPU_NATIVE_DIRECT2D_PARAGRAPH_ALIGNMENT_NEAR;
+    text_properties.word_wrapping =
+        PROGPU_NATIVE_DIRECT2D_WORD_WRAPPING_NO_WRAP;
+    text_properties.reading_direction =
+        PROGPU_NATIVE_DIRECT2D_READING_DIRECTION_LEFT_TO_RIGHT;
+    text_properties.flow_direction =
+        PROGPU_NATIVE_DIRECT2D_FLOW_DIRECTION_TOP_TO_BOTTOM;
+    text_properties.incremental_tab_stop = 24.0F;
+    void* text_format_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_text_format(
+            surface,
+            font_family,
+            static_cast<uint32_t>(std::size(font_family)),
+            locale_name,
+            static_cast<uint32_t>(std::size(locale_name)),
+            &text_properties,
+            &text_format_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            text_format_value != nullptr && native_hresult == S_OK,
+        "provider IDWriteTextFormat1 creation failed");
+    ComPtr<IDWriteTextFormat1> text_format;
+    text_format.Attach(static_cast<IDWriteTextFormat1*>(text_format_value));
+    require(text_format->GetFontWeight() == DWRITE_FONT_WEIGHT_SEMI_BOLD &&
+            text_format->GetFontSize() == text_properties.font_size &&
+            text_format->GetWordWrapping() == DWRITE_WORD_WRAPPING_NO_WRAP &&
+            text_format->GetIncrementalTabStop() ==
+                text_properties.incremental_tab_stop,
+        "provider IDWriteTextFormat1 properties changed");
+
+    auto invalid_text_properties = text_properties;
+    invalid_text_properties.struct_size = sizeof(text_properties) - 1U;
+    void* invalid_text_format_value =
+        reinterpret_cast<void*>(static_cast<uintptr_t>(1U));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_surface_create_text_format(
+            surface,
+            font_family,
+            static_cast<uint32_t>(std::size(font_family)),
+            locale_name,
+            static_cast<uint32_t>(std::size(locale_name)),
+            &invalid_text_properties,
+            &invalid_text_format_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            invalid_text_format_value == nullptr &&
+            native_hresult == E_INVALIDARG,
+        "invalid IDWriteTextFormat1 descriptor did not fail closed");
+
+    constexpr uint16_t text[] = {'A', 'B', 'I', ' ', '1', '6'};
+    progpu_native_direct2d_rect_f text_layout = {2.0F, 27.0F, 30.0F, 17.0F};
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_draw_text(
+            surface,
+            text,
+            static_cast<uint32_t>(std::size(text)),
+            text_format.Get(),
+            &text_layout,
+            solid_brush.Get(),
+            PROGPU_NATIVE_DIRECT2D_DRAW_TEXT_OPTION_CLIP,
+            PROGPU_NATIVE_DIRECT2D_MEASURING_MODE_NATURAL,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_DRAW_NOT_ACTIVE,
+        "ID2D1RenderTarget text draw outside a draw did not fail closed");
+
     progpu_native_direct2d_layer_parameters layer_parameters{};
     layer_parameters.content_bounds = {0.0F, 0.0F, 24.0F, 24.0F};
     layer_parameters.mask_antialias_mode =
@@ -1796,6 +1881,35 @@ int main()
             restored_transform._32 == saved_transform._32,
         "provider drawing-state restore changed the transform");
     context->SetTransform(D2D1::Matrix3x2F::Identity());
+
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_draw_text(
+            surface,
+            text,
+            static_cast<uint32_t>(std::size(text)),
+            text_format.Get(),
+            &text_layout,
+            solid_brush.Get(),
+            PROGPU_NATIVE_DIRECT2D_DRAW_TEXT_OPTION_CLIP,
+            PROGPU_NATIVE_DIRECT2D_MEASURING_MODE_NATURAL,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "provider typed ID2D1RenderTarget text draw failed");
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_surface_draw_text(
+            surface,
+            text,
+            static_cast<uint32_t>(std::size(text)),
+            text_format.Get(),
+            &text_layout,
+            solid_brush.Get(),
+            1U << 31U,
+            PROGPU_NATIVE_DIRECT2D_MEASURING_MODE_NATURAL,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            native_hresult == E_INVALIDARG,
+        "invalid Direct2D text options did not fail closed");
 
     native_hresult = E_FAIL;
     require(
