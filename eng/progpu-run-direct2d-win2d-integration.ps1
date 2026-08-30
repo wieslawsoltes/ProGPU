@@ -131,7 +131,10 @@ try {
     $FallbackResultPath = Join-Path `
         $env:LOCALAPPDATA `
         "$PackageName/$ResultFileName"
-    $ProgressPath = Join-Path `
+    $PackageProgressPath = Join-Path `
+        $env:LOCALAPPDATA `
+        "Packages/$($InstalledPackage.PackageFamilyName)/LocalState/$ProgressFileName"
+    $FallbackProgressPath = Join-Path `
         $env:LOCALAPPDATA `
         "$PackageName/$ProgressFileName"
     foreach ($ExistingResultPath in @($ResultPath, $FallbackResultPath)) {
@@ -139,17 +142,41 @@ try {
             Remove-Item -LiteralPath $ExistingResultPath -Force
         }
     }
-    if (Test-Path $ProgressPath) {
-        Remove-Item -LiteralPath $ProgressPath -Force
+    $ProgressPaths = @($PackageProgressPath, $FallbackProgressPath)
+    foreach ($ExistingProgressPath in $ProgressPaths) {
+        if (Test-Path $ExistingProgressPath) {
+            Remove-Item -LiteralPath $ExistingProgressPath -Force
+        }
     }
 
     Start-Process explorer.exe "shell:AppsFolder\$($InstalledPackage.PackageFamilyName)!App"
     $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $ObservedProcess = $false
     while (-not (Test-Path $ResultPath) -and
            -not (Test-Path $FallbackResultPath)) {
+        $IntegrationProcesses = @(
+            Get-Process -Name $PackageName -ErrorAction SilentlyContinue)
+        if ($IntegrationProcesses.Count -gt 0) {
+            $ObservedProcess = $true
+        } elseif ($ObservedProcess) {
+            $LastProgressPath = $ProgressPaths |
+                Where-Object { Test-Path $_ } |
+                Sort-Object { (Get-Item $_).LastWriteTimeUtc } -Descending |
+                Select-Object -First 1
+            $LastStage = if ($LastProgressPath) {
+                Get-Content $LastProgressPath -Raw
+            } else {
+                "not-started"
+            }
+            throw "The packaged genuine Win2D integration application exited before producing evidence; last stage: $LastStage."
+        }
         if ([DateTime]::UtcNow -ge $Deadline) {
-            $LastStage = if (Test-Path $ProgressPath) {
-                Get-Content $ProgressPath -Raw
+            $LastProgressPath = $ProgressPaths |
+                Where-Object { Test-Path $_ } |
+                Sort-Object { (Get-Item $_).LastWriteTimeUtc } -Descending |
+                Select-Object -First 1
+            $LastStage = if ($LastProgressPath) {
+                Get-Content $LastProgressPath -Raw
             } else {
                 "not-started"
             }
