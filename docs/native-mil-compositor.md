@@ -5134,6 +5134,12 @@ payload crosses into managed or CPU fallback code. A typed diagnostic reports
 the selected context7, translated-context4, or no-color path, and the exact
 allowlist grows from 55 to 56 exports.
 
+Windows MSVC qualification is recorded by GitHub Actions Build run
+`33327156224`, job `99299265980`. The provider and regression compile/link
+under the warning-as-error lane, `progpu_native_direct2d_tests` passes in
+0.14 seconds, all 11 native suites pass, and the exact 56-export allowlist is
+accepted.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

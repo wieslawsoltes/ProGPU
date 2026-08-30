@@ -621,6 +621,11 @@ the explicit monochrome path. It does not decode font images on the CPU or
 read pixels back. The selected context7/translated-context4/no-color path is a
 typed diagnostic returned to the caller. The allowlist grows from 55 to
 exactly 56 exports.
+GitHub Actions Build run `33327156224`, MSVC job `99299265980`, qualifies ABI
+v21 on Windows. The warning-as-error provider and regression both compile and
+link, the focused `progpu_native_direct2d_tests` passes in 0.14 seconds, all 11
+native suites pass, and the same successful job enforces the exact 56-symbol
+Direct2D export allowlist.
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
