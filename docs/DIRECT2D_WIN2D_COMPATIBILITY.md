@@ -786,6 +786,17 @@ qualified by GitHub Actions Build run `33335230522`, dedicated MSVC job
 regression passes in 0.17 seconds, all 11 native suites pass in 1.07 seconds,
 and the successful Windows build accepts the exact 102-symbol allowlist.
 
+ABI v29 adds mutable brush state required by real Win2D resource projections.
+Typed, generation-checked methods atomically set/query common `ID2D1Brush`
+opacity and affine transform, solid color, linear start/end points, and radial
+center/origin/radii. Managed and native boundaries validate finite values,
+opacity range, radius range, and concrete COM interface kind; borrowed safe
+handles remain protected for each call. The native regression round-trips every
+property and restores the solid brush before the exact pixel oracle. The exact
+allowlist grows from 102 to 110 exports. Managed contracts pass 5/5 and the
+package builds with zero warnings; Windows qualification is pending checkpoint
+`2086632e`.
+
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
