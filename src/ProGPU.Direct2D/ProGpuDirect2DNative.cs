@@ -7,7 +7,7 @@ namespace ProGPU.Direct2D;
 internal static unsafe partial class ProGpuDirect2DNative
 {
     internal const string LibraryName = "progpu_native_direct2d";
-    internal const uint AbiVersion = 26U;
+    internal const uint AbiVersion = 27U;
     internal const uint DxgiFormatB8G8R8A8Unorm = 87U;
     internal const uint D2D1AlphaModePremultiplied = 1U;
 
@@ -104,6 +104,27 @@ internal static unsafe partial class ProGpuDirect2DNative
         internal float M22;
         internal float M31;
         internal float M32;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeMatrix4X4F
+    {
+        internal float M11;
+        internal float M12;
+        internal float M13;
+        internal float M14;
+        internal float M21;
+        internal float M22;
+        internal float M23;
+        internal float M24;
+        internal float M31;
+        internal float M32;
+        internal float M33;
+        internal float M34;
+        internal float M41;
+        internal float M42;
+        internal float M43;
+        internal float M44;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -1102,6 +1123,51 @@ internal static unsafe partial class ProGpuDirect2DNative
         nint geometry,
         nint brush,
         nint opacityBrush,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_push_axis_aligned_clip")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfacePushAxisAlignedClip(
+        nint surface,
+        ProGpuDirect2DRect* clipRectangle,
+        ProGpuDirect2DAntialiasMode antialiasMode,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_pop_axis_aligned_clip")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfacePopAxisAlignedClip(
+        nint surface,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_draw_bitmap")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceDrawBitmap(
+        nint surface,
+        nint bitmap,
+        ProGpuDirect2DRect* destinationRectangle,
+        float opacity,
+        ProGpuDirect2DInterpolationMode interpolationMode,
+        ProGpuDirect2DRect* sourceRectangle,
+        NativeMatrix4X4F* perspectiveTransform,
+        int* nativeHResult);
+
+    [LibraryImport(
+        LibraryName,
+        EntryPoint = "progpu_native_direct2d_surface_draw_image")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial ProGpuDirect2DStatus SurfaceDrawImage(
+        nint surface,
+        nint image,
+        NativePoint2F* targetOffset,
+        ProGpuDirect2DRect* imageRectangle,
+        ProGpuDirect2DInterpolationMode interpolationMode,
+        ProGpuDirect2DCompositeMode compositeMode,
         int* nativeHResult);
 
     [LibraryImport(

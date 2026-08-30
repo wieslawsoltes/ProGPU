@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 26U;",
+            "internal const uint AbiVersion = 27U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -94,6 +94,18 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "progpu_native_direct2d_surface_fill_geometry",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_push_axis_aligned_clip",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_draw_bitmap",
+            native,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_surface_draw_image",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -344,7 +356,7 @@ public sealed class Direct2DInteropContractTests
             exports,
             StringComparison.Ordinal);
         Assert.Equal(
-            86,
+            90,
             exports.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries |
@@ -392,7 +404,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 26U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 27U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -846,7 +858,7 @@ public sealed class Direct2DInteropContractTests
             surface,
             StringComparison.Ordinal);
         Assert.Contains(
-            "_typedLayerDepth = 0U;",
+            "_typedDrawScopeDepth = 0U;",
             surface,
             StringComparison.Ordinal);
         Assert.Contains(

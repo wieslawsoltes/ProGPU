@@ -242,6 +242,22 @@ typedef enum progpu_native_direct2d_antialias_mode {
     PROGPU_NATIVE_DIRECT2D_ANTIALIAS_MODE_ALIASED = 1
 } progpu_native_direct2d_antialias_mode;
 
+typedef enum progpu_native_direct2d_composite_mode {
+    PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_SOURCE_OVER = 0,
+    PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_DESTINATION_OVER = 1,
+    PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_SOURCE_IN = 2,
+    PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_DESTINATION_IN = 3,
+    PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_SOURCE_OUT = 4,
+    PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_DESTINATION_OUT = 5,
+    PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_SOURCE_ATOP = 6,
+    PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_DESTINATION_ATOP = 7,
+    PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_XOR = 8,
+    PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_PLUS = 9,
+    PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_SOURCE_COPY = 10,
+    PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_BOUNDED_SOURCE_COPY = 11,
+    PROGPU_NATIVE_DIRECT2D_COMPOSITE_MODE_MASK_INVERT = 12
+} progpu_native_direct2d_composite_mode;
+
 typedef enum progpu_native_direct2d_layer_options {
     PROGPU_NATIVE_DIRECT2D_LAYER_OPTION_NONE = 0,
     PROGPU_NATIVE_DIRECT2D_LAYER_OPTION_INITIALIZE_FROM_BACKGROUND = 1U << 0U,
@@ -438,6 +454,25 @@ typedef struct progpu_native_direct2d_matrix_3x2_f {
     float m32;
 } progpu_native_direct2d_matrix_3x2_f;
 
+typedef struct progpu_native_direct2d_matrix_4x4_f {
+    float m11;
+    float m12;
+    float m13;
+    float m14;
+    float m21;
+    float m22;
+    float m23;
+    float m24;
+    float m31;
+    float m32;
+    float m33;
+    float m34;
+    float m41;
+    float m42;
+    float m43;
+    float m44;
+} progpu_native_direct2d_matrix_4x4_f;
+
 typedef struct progpu_native_direct2d_brush_properties {
     float opacity;
     progpu_native_direct2d_matrix_3x2_f transform;
@@ -591,7 +626,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 26U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 27U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -1342,6 +1377,41 @@ progpu_native_direct2d_surface_fill_geometry(
     void* geometry,
     void* brush,
     void* opacity_brush,
+    int32_t* native_hresult);
+
+/* Clips and layers share one provider-owned allocation-free LIFO stack. A
+ * mismatched pop fails closed without consuming a different scope. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_push_axis_aligned_clip(
+    progpu_native_direct2d_surface* surface,
+    const progpu_native_direct2d_rect_f* clip_rectangle,
+    progpu_native_direct2d_antialias_mode antialias_mode,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_pop_axis_aligned_clip(
+    progpu_native_direct2d_surface* surface,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_bitmap(
+    progpu_native_direct2d_surface* surface,
+    void* bitmap,
+    const progpu_native_direct2d_rect_f* destination_rectangle,
+    float opacity,
+    progpu_native_direct2d_interpolation_mode interpolation_mode,
+    const progpu_native_direct2d_rect_f* source_rectangle,
+    const progpu_native_direct2d_matrix_4x4_f* perspective_transform,
+    int32_t* native_hresult);
+
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_surface_draw_image(
+    progpu_native_direct2d_surface* surface,
+    void* image,
+    const progpu_native_direct2d_point_2f* target_offset,
+    const progpu_native_direct2d_rect_f* image_rectangle,
+    progpu_native_direct2d_interpolation_mode interpolation_mode,
+    progpu_native_direct2d_composite_mode composite_mode,
     int32_t* native_hresult);
 
 /* Creates a genuine factory-domain ID2D1StrokeStyle1. Custom dash lengths are

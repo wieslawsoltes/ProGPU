@@ -733,9 +733,10 @@ repeats the scalar checks, uses `QueryInterface` for every COM argument, and
 reports deferred Direct2D failures through the existing `EndDraw` transaction.
 The operation path allocates no command arrays, performs no CPU pixel copy,
 and works identically while recording an `ID2D1CommandList`. The allowlist
-grows from 74 to exactly 86 exports. Clip-stack operations are intentionally a
-later ABI: clips and layers require one unified LIFO state model so their
-cross-ordering cannot be represented incorrectly by independent depth counts.
+grows from 74 to exactly 86 exports. Clip-stack operations are intentionally
+the following ABI because clips and layers require one unified LIFO state model
+so their cross-ordering cannot be represented incorrectly by independent
+depth counts.
 The native regression also copies the shared command-list result to a D3D11
 staging texture under keyed-mutex consumer ownership and requires the exact
 BGRA pixel produced by the typed vector path. Corrected checkpoint `f1b1ca18`
@@ -746,6 +747,24 @@ the Windows build script accepts the exact 86-symbol allowlist. Portable
 managed contract coverage passes 5/5 with zero build warnings. The broader
 ClangCL/x64 lane remains useful independent coverage when its job completes;
 it is not needed to infer the already observed MSVC result.
+
+ABI v27 implements that unified allocation-free draw-scope model. Each surface
+owns a fixed-capacity stack tagged as layer or axis-aligned clip. Managed layer
+and clip ref scopes share the same depth sequence; native `PopLayer` and
+`PopAxisAlignedClip` verify the top tag before touching Direct2D. A mismatched
+pop therefore reports `DrawingStateMismatch` and leaves the correct scope live,
+while `EndDraw`, command-list completion, and destruction unwind mixed scopes
+in exact reverse order. The same ABI adds typed `DrawBitmap` with optional
+destination/source rectangles and full 4x4 perspective, plus typed `DrawImage`
+with optional target offset/image rectangle and every Direct2D interpolation
+and composite mode. Bitmap/image safe handles remain generation checked and
+borrowed under `DangerousAddRef`; all optional structs are blittable caller
+state with no retained pointer. The export allowlist grows from 86 to exactly
+90 symbols. The deterministic command-list gate draws both a bitmap and an
+image inside a clip, verifies mixed layer/clip pop rejection, and retains the
+exact shared-texture BGRA oracle. Portable managed contracts pass 5/5 with a
+zero-warning package build; Windows qualification is pending the pushed ABI
+v27 checkpoint.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
