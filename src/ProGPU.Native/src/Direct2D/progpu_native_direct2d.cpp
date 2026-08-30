@@ -411,7 +411,7 @@ public:
 
     void STDMETHODCALLTYPE AddTriangles(
         const D2D1_TRIANGLE* triangles,
-        UINT triangle_count) override
+        UINT triangle_count) noexcept override
     {
         if ((triangles == nullptr && triangle_count != 0U) || overflow_) {
             invalid_input_ = triangles == nullptr && triangle_count != 0U;
@@ -442,7 +442,7 @@ public:
         required_count_ = static_cast<uint32_t>(next_count);
     }
 
-    HRESULT STDMETHODCALLTYPE Close() override
+    HRESULT STDMETHODCALLTYPE Close() noexcept override
     {
         if (invalid_input_) {
             return E_POINTER;
