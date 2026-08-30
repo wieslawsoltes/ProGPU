@@ -18,6 +18,7 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Project = Join-Path $RepoRoot "tests/ProGPU.Direct2D.Win2D.Integration/ProGPU.Direct2D.Win2D.Integration.csproj"
 $PackageName = "ProGPU.Direct2D.Win2D.Integration"
+$ResultFileName = "direct2d-win2d-result.json"
 $Platform = if ($Rid -eq "win-arm64") { "ARM64" } else { "x64" }
 
 $RunningOnWindows =
@@ -125,18 +126,28 @@ try {
     $InstalledPackage = Get-AppxPackage -Name $PackageName
     $ResultPath = Join-Path `
         $env:LOCALAPPDATA `
-        "Packages/$($InstalledPackage.PackageFamilyName)/LocalState/direct2d-win2d-result.json"
-    if (Test-Path $ResultPath) {
-        Remove-Item -LiteralPath $ResultPath -Force
+        "Packages/$($InstalledPackage.PackageFamilyName)/LocalState/$ResultFileName"
+    $FallbackResultPath = Join-Path `
+        $env:LOCALAPPDATA `
+        "$PackageName/$ResultFileName"
+    foreach ($ExistingResultPath in @($ResultPath, $FallbackResultPath)) {
+        if (Test-Path $ExistingResultPath) {
+            Remove-Item -LiteralPath $ExistingResultPath -Force
+        }
     }
 
     Start-Process explorer.exe "shell:AppsFolder\$($InstalledPackage.PackageFamilyName)!App"
     $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-    while (-not (Test-Path $ResultPath)) {
+    while (-not (Test-Path $ResultPath) -and
+           -not (Test-Path $FallbackResultPath)) {
         if ([DateTime]::UtcNow -ge $Deadline) {
             throw "The packaged genuine Win2D integration application did not produce evidence within $TimeoutSeconds seconds."
         }
         Start-Sleep -Milliseconds 250
+    }
+
+    if (-not (Test-Path $ResultPath)) {
+        $ResultPath = $FallbackResultPath
     }
 
     $Evidence = Get-Content $ResultPath -Raw | ConvertFrom-Json

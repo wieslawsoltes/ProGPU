@@ -543,6 +543,8 @@ public sealed class Direct2DInteropContractTests
         Assert.Contains("/sha1 $SigningCertificateThumbprint", gate, StringComparison.Ordinal);
         Assert.Contains("Add-AppxPackage -Path $SignedPackagePath", gate, StringComparison.Ordinal);
         Assert.Contains("direct2d-win2d-result.json", gate, StringComparison.Ordinal);
+        Assert.Contains("$FallbackResultPath", gate, StringComparison.Ordinal);
+        Assert.Contains("FallbackResultDirectoryName", program, StringComparison.Ordinal);
         Assert.DoesNotContain("New-SelfSignedCertificate", gate, StringComparison.Ordinal);
         Assert.DoesNotContain("Export-PfxCertificate", gate, StringComparison.Ordinal);
         Assert.DoesNotContain("RootStore.Add", gate, StringComparison.Ordinal);
