@@ -265,6 +265,166 @@ public sealed class CadXLineAuthoringTests
         Assert.NotNull(nativePicture);
     }
 
+    [Fact]
+    public void AngleAndReferenceSolversRespectTheirDeclaredBases()
+    {
+        CadPoint3D point = new(3, 4, 5);
+        Assert.True(CadXLineConstruction.TryCreateAtAngle(
+            point,
+            new CadPoint3D(0, 1, 0),
+            new CadPoint3D(-1, 0, 0),
+            Math.PI / 2.0,
+            isClockwise: false,
+            out CadXLineDefinition absolute));
+        Assert.Equal(point, absolute.FirstPoint);
+        AssertPoint(new CadPoint3D(-1, 0, 0), absolute.Direction);
+
+        Assert.True(CadXLineConstruction.TryCreateAtAngle(
+            point,
+            new CadPoint3D(1, 0, 0),
+            new CadPoint3D(0, 1, 0),
+            Math.PI / 2.0,
+            isClockwise: true,
+            out CadXLineDefinition clockwise));
+        AssertPoint(new CadPoint3D(0, -1, 0), clockwise.Direction);
+
+        Assert.True(CadXLineConstruction.TryCreateAtReferenceAngle(
+            point,
+            new CadPoint3D(0, 2, 0),
+            new CadPoint3D(0, 0, 4),
+            Math.PI / 2.0,
+            out CadXLineDefinition reference));
+        AssertPoint(new CadPoint3D(-1, 0, 0), reference.Direction);
+        Assert.False(CadXLineConstruction.TryCreateAtReferenceAngle(
+            point,
+            new CadPoint3D(1, 0, 1),
+            new CadPoint3D(0, 0, 1),
+            0,
+            out _));
+    }
+
+    [Fact]
+    public void BisectSolverCreatesTheInternalUnitBisector()
+    {
+        CadPoint3D vertex = new(10, 20, 30);
+        Assert.True(CadXLineConstruction.TryCreateBisector(
+            vertex,
+            new CadPoint3D(14, 20, 30),
+            new CadPoint3D(10, 23, 30),
+            out CadXLineDefinition definition));
+
+        double component = 1.0 / Math.Sqrt(2.0);
+        Assert.Equal(vertex, definition.FirstPoint);
+        AssertPoint(
+            new CadPoint3D(component, component, 0),
+            definition.Direction);
+        Assert.False(CadXLineConstruction.TryCreateBisector(
+            vertex,
+            new CadPoint3D(11, 20, 30),
+            new CadPoint3D(9, 20, 30),
+            out _));
+    }
+
+    [Fact]
+    public void OffsetSolversPreserveParallelDirectionAndChooseExactSide()
+    {
+        var source = new CadXLineDefinition(
+            new CadPoint3D(1, 2, 3),
+            new CadPoint3D(4, 0, 0));
+        CadPoint3D normal = new(0, 0, 1);
+
+        Assert.True(CadXLineConstruction.TryCreateOffsetAtDistance(
+            source,
+            new CadPoint3D(1, 10, 3),
+            normal,
+            2.5,
+            out CadXLineDefinition above));
+        AssertPoint(new CadPoint3D(1, 4.5, 3), above.FirstPoint);
+        AssertPoint(new CadPoint3D(1, 0, 0), above.Direction);
+
+        Assert.True(CadXLineConstruction.TryCreateOffsetAtDistance(
+            source,
+            new CadPoint3D(1, -10, 3),
+            normal,
+            2.5,
+            out CadXLineDefinition below));
+        AssertPoint(new CadPoint3D(1, -0.5, 3), below.FirstPoint);
+
+        CadPoint3D throughPoint = new(-50, 7, 3);
+        Assert.True(CadXLineConstruction.TryCreateOffsetThrough(
+            source,
+            throughPoint,
+            normal,
+            out CadXLineDefinition through));
+        Assert.Equal(throughPoint, through.FirstPoint);
+        AssertPoint(source.Direction, through.Direction);
+        Assert.False(CadXLineConstruction.TryCreateOffsetThrough(
+            source,
+            new CadPoint3D(0, 0, 4),
+            normal,
+            out _));
+        Assert.False(CadXLineConstruction.TryCreateOffsetThrough(
+            source,
+            new CadPoint3D(20, 2, 3),
+            normal,
+            out _));
+
+        var hugeSource = new CadXLineDefinition(
+            new CadPoint3D(double.MaxValue, 0, 0),
+            new CadPoint3D(1, 0, 0));
+        CadPoint3D hugeSidePoint = new(
+            -double.MaxValue,
+            double.MaxValue,
+            0);
+        Assert.True(CadXLineConstruction.TryCreateOffsetAtDistance(
+            hugeSource,
+            hugeSidePoint,
+            normal,
+            1,
+            out CadXLineDefinition hugeDistance));
+        AssertPoint(
+            new CadPoint3D(double.MaxValue, 1, 0),
+            hugeDistance.FirstPoint);
+        Assert.True(CadXLineConstruction.TryCreateOffsetThrough(
+            hugeSource,
+            hugeSidePoint,
+            normal,
+            out CadXLineDefinition hugeThrough));
+        Assert.Equal(hugeSidePoint, hugeThrough.FirstPoint);
+    }
+
+    [Fact]
+    public void HeterogeneousDefinitionsPersistAtomicallyWithIdentity()
+    {
+        var document = new CadDocument();
+        var history = new CadDocumentHistory(new CadDocumentSession(document));
+        var definitions = new[]
+        {
+            new CadXLineDefinition(
+                new CadPoint3D(1, 2, 3),
+                new CadPoint3D(1, 0, 0)),
+            new CadXLineDefinition(
+                new CadPoint3D(8, 9, 10),
+                new CadPoint3D(0, -5, 0)),
+        };
+        var command = new CadAddXLineSequenceCommand(definitions);
+
+        history.Execute(command);
+
+        XLine[] lines = command.Lines.ToArray();
+        Assert.Equal(2, lines.Length);
+        Assert.Equal(new XYZ(1, 2, 3), lines[0].FirstPoint);
+        Assert.Equal(new XYZ(8, 9, 10), lines[1].FirstPoint);
+        AssertPoint(new CadPoint3D(1, 0, 0), ToPoint(lines[0].Direction));
+        AssertPoint(new CadPoint3D(0, -1, 0), ToPoint(lines[1].Direction));
+
+        Assert.True(history.TryUndo(out _));
+        Assert.True(history.TryRedo(out _));
+        Assert.Equal(lines, document.Entities.OfType<XLine>().ToArray());
+        Assert.Throws<ArgumentException>(() =>
+            new CadAddXLineSequenceCommand([default(CadXLineDefinition)]));
+    }
+
     private static CadPoint3D ToPoint(XYZ value) =>
         new(value.X, value.Y, value.Z);
 

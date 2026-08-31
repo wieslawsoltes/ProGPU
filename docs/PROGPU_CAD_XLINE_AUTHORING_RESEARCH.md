@@ -85,6 +85,40 @@ authored construction picture with `GpuPictureNativeSceneCompiler`. No C++ CAD
 frontend, C ABI, generated wire record, shader, cache key, resource lease,
 callback, or crossing change is applicable.
 
+## Follow-on mode-completion foundation
+
+The official command prompt also defines Horizontal, Vertical, Angle,
+Bisect, and Offset modes. The first follow-on slice generalizes the immutable
+edit payload from one common point to one independently validated point and
+unit WCS direction per XLINE while retaining the original common-point API.
+`CadXLineConstruction` now provides allocation-free exact solvers for:
+
+- Horizontal/Vertical through-point construction from caller-supplied current
+  UCS unit axes;
+- absolute Angle construction from an orthonormal current basis and explicit
+  ANGDIR sense;
+- counterclockwise Angle/Reference rotation around an explicit plane normal;
+- the internal unit bisector of two vertex rays, rejecting coincident or
+  straight-angle inputs;
+- parallel Offset by a positive distance with side-point arbitration; and
+- parallel Offset/Through in the selected source line's plane, rejecting a
+  point that would reproduce the source line.
+
+The solvers accept no document or UI state and perform O(1) time and storage.
+Heterogeneous definitions persist atomically through the existing command and
+preserve entity identity across Undo/Redo. The remaining work is the bounded
+mode prompt state, exact selectable linear-source contract for Angle/Reference
+and Offset, shared controls, transient previews, and matched interaction and
+persistence tests; the modes are not yet advertised as complete.
+
+This foundation slice passed 13/13 XLINE core tests and the complete
+1,271/1,271 CAD suite in Debug and Release. One first Release-suite run observed
+a 4,784-byte process-noise allocation in the pre-existing warm bounds-query
+test; that test passed immediately in isolation and the complete unchanged
+Release binary then passed 1,271/1,271. The direct two-package preview.62 audit
+also passed, and its isolated package-only consumer built with 0 warnings and
+0 errors, rejected upstream `ACadSharp`, and created an AC1032 document.
+
 ## Complexity, validation, and remaining gates
 
 Acceptance and in-command Undo are amortized O(1). Snapshot creation,
@@ -118,7 +152,7 @@ The grouped package-list scan still reports the separately user-deleted browser
 sample project. The equivalent direct two-package build, audit, and isolated
 consumer gate passed without restoring or staging those deletions.
 
-Horizontal/Vertical/Angle/Bisect/Offset modes, command chaining, temporary
+Horizontal/Vertical/Angle/Bisect/Offset interaction, command chaining, temporary
 overrides, expressions and drawing units, 3D UCS/arbitrary-camera acquisition,
 object-snap tracking, non-continuous unbounded linetype phase origins, visual
 goldens, and dense-sequence p50/p95/p99 measurements remain later gates.

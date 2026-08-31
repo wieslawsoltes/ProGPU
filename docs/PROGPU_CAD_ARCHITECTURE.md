@@ -2420,8 +2420,11 @@ CECOLOR, CELTYPE, CELTSCALE, and CELWEIGHT together, and preserves exact XLine
 instances across global Undo/Redo. Apply, Undo, Redo, persistence input, and
 preview rebuilding are O(L) for L lines. DXF/DWG and shared managed/native
 construction-picture regressions cover the result. Horizontal, Vertical,
-Angle, Bisect, and Offset prompt modes remain later gates. The source record
-and engine applicability audit are in
+Angle, Bisect, and Offset now share allocation-free basis rotation, internal
+bisector, distance-side offset, and through-offset solvers plus an immutable
+heterogeneous point/direction edit payload. Their bounded prompt state,
+selectable reference/source contract, shared controls, and transient previews
+remain later gates. The source record and engine applicability audit are in
 `PROGPU_CAD_XLINE_AUTHORING_RESEARCH.md`.
 
 ## Retained TrueType TEXT lowering

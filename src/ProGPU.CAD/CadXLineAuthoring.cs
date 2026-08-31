@@ -5,6 +5,259 @@ using CSMath;
 
 namespace ProGPU.CAD;
 
+/// <summary>One immutable persisted XLINE point and unit WCS direction.</summary>
+public readonly record struct CadXLineDefinition
+{
+    public CadPoint3D FirstPoint { get; }
+
+    public CadPoint3D Direction { get; }
+
+    public CadXLineDefinition(CadPoint3D firstPoint, CadPoint3D direction)
+    {
+        if (!IsFinite(firstPoint))
+        {
+            throw new ArgumentException(
+                "An XLINE first point must contain finite WCS coordinates.",
+                nameof(firstPoint));
+        }
+        if (!CadRayAuthoringSession.TryNormalizeDirection(
+                direction,
+                out CadPoint3D normalized))
+        {
+            throw new ArgumentException(
+                "An XLINE direction must be a finite nonzero WCS vector.",
+                nameof(direction));
+        }
+
+        FirstPoint = firstPoint;
+        Direction = normalized;
+    }
+
+    private static bool IsFinite(CadPoint3D point) =>
+        double.IsFinite(point.X) &&
+        double.IsFinite(point.Y) &&
+        double.IsFinite(point.Z);
+}
+
+/// <summary>Exact allocation-free construction solvers for XLINE prompt modes.</summary>
+public static class CadXLineConstruction
+{
+    private const double PlaneTolerance = 1e-10;
+
+    public static bool TryCreateThroughPoint(
+        CadPoint3D point,
+        CadPoint3D direction,
+        out CadXLineDefinition definition)
+    {
+        definition = default;
+        try
+        {
+            definition = new CadXLineDefinition(point, direction);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    public static bool TryCreateAtAngle(
+        CadPoint3D point,
+        CadPoint3D xAxis,
+        CadPoint3D yAxis,
+        double angleRadians,
+        bool isClockwise,
+        out CadXLineDefinition definition)
+    {
+        definition = default;
+        if (!double.IsFinite(angleRadians) ||
+            !TryGetPlanBasis(xAxis, yAxis, out xAxis, out yAxis))
+        {
+            return false;
+        }
+
+        double signedAngle = isClockwise ? -angleRadians : angleRadians;
+        double cosine = Math.Cos(signedAngle);
+        double sine = Math.Sin(signedAngle);
+        if (!double.IsFinite(cosine) || !double.IsFinite(sine))
+        {
+            return false;
+        }
+        return TryCreateThroughPoint(
+            point,
+            (xAxis * cosine) + (yAxis * sine),
+            out definition);
+    }
+
+    public static bool TryCreateAtReferenceAngle(
+        CadPoint3D point,
+        CadPoint3D referenceDirection,
+        CadPoint3D planeNormal,
+        double counterclockwiseRadians,
+        out CadXLineDefinition definition)
+    {
+        definition = default;
+        if (!double.IsFinite(counterclockwiseRadians) ||
+            !CadRayAuthoringSession.TryNormalizeDirection(
+                referenceDirection,
+                out CadPoint3D reference) ||
+            !CadRayAuthoringSession.TryNormalizeDirection(
+                planeNormal,
+                out CadPoint3D normal) ||
+            Math.Abs(CadPoint3D.Dot(reference, normal)) > PlaneTolerance)
+        {
+            return false;
+        }
+
+        double cosine = Math.Cos(counterclockwiseRadians);
+        double sine = Math.Sin(counterclockwiseRadians);
+        CadPoint3D perpendicular = CadPoint3D.Cross(normal, reference);
+        return double.IsFinite(cosine) &&
+            double.IsFinite(sine) &&
+            TryCreateThroughPoint(
+                point,
+                (reference * cosine) + (perpendicular * sine),
+                out definition);
+    }
+
+    public static bool TryCreateBisector(
+        CadPoint3D vertex,
+        CadPoint3D firstRayPoint,
+        CadPoint3D secondRayPoint,
+        out CadXLineDefinition definition)
+    {
+        definition = default;
+        if (!CadRayAuthoringSession.TryGetUnitDirection(
+                vertex,
+                firstRayPoint,
+                out CadPoint3D first) ||
+            !CadRayAuthoringSession.TryGetUnitDirection(
+                vertex,
+                secondRayPoint,
+                out CadPoint3D second))
+        {
+            return false;
+        }
+        return TryCreateThroughPoint(vertex, first + second, out definition);
+    }
+
+    public static bool TryCreateOffsetThrough(
+        CadXLineDefinition source,
+        CadPoint3D throughPoint,
+        CadPoint3D planeNormal,
+        out CadXLineDefinition definition)
+    {
+        definition = default;
+        if (!TryGetPlanDirection(
+                source.Direction,
+                planeNormal,
+                out CadPoint3D direction,
+                out CadPoint3D normal) ||
+            !IsFinite(throughPoint))
+        {
+            return false;
+        }
+
+        if (!CadRayAuthoringSession.TryGetUnitDirection(
+                source.FirstPoint,
+                throughPoint,
+                out CadPoint3D normalizedDelta) ||
+            Math.Abs(CadPoint3D.Dot(normalizedDelta, normal)) >
+                PlaneTolerance ||
+            Math.Abs(CadPoint3D.Dot(
+                normalizedDelta,
+                CadPoint3D.Cross(normal, direction))) <= PlaneTolerance)
+        {
+            return false;
+        }
+        return TryCreateThroughPoint(throughPoint, direction, out definition);
+    }
+
+    public static bool TryCreateOffsetAtDistance(
+        CadXLineDefinition source,
+        CadPoint3D sidePoint,
+        CadPoint3D planeNormal,
+        double distance,
+        out CadXLineDefinition definition)
+    {
+        definition = default;
+        if (!double.IsFinite(distance) || distance <= 0.0 ||
+            !IsFinite(sidePoint) ||
+            !TryGetPlanDirection(
+                source.Direction,
+                planeNormal,
+                out CadPoint3D direction,
+                out CadPoint3D normal))
+        {
+            return false;
+        }
+
+        CadPoint3D perpendicular = CadPoint3D.Cross(normal, direction);
+        if (!CadRayAuthoringSession.TryGetUnitDirection(
+                source.FirstPoint,
+                sidePoint,
+                out CadPoint3D sideDirection))
+        {
+            return false;
+        }
+        double side = CadPoint3D.Dot(sideDirection, perpendicular);
+        if (!double.IsFinite(side) || side == 0.0)
+        {
+            return false;
+        }
+        CadPoint3D offset = perpendicular * Math.CopySign(distance, side);
+        CadPoint3D point = source.FirstPoint + offset;
+        return TryCreateThroughPoint(point, direction, out definition);
+    }
+
+    private static bool TryGetPlanBasis(
+        CadPoint3D xAxis,
+        CadPoint3D yAxis,
+        out CadPoint3D normalizedX,
+        out CadPoint3D normalizedY)
+    {
+        normalizedX = default;
+        normalizedY = default;
+        if (!CadRayAuthoringSession.TryNormalizeDirection(
+                xAxis,
+                out normalizedX) ||
+            !CadRayAuthoringSession.TryNormalizeDirection(
+                yAxis,
+                out normalizedY) ||
+            Math.Abs(CadPoint3D.Dot(normalizedX, normalizedY)) > PlaneTolerance)
+        {
+            normalizedX = default;
+            normalizedY = default;
+            return false;
+        }
+        return true;
+    }
+
+    private static bool TryGetPlanDirection(
+        CadPoint3D direction,
+        CadPoint3D planeNormal,
+        out CadPoint3D normalizedDirection,
+        out CadPoint3D normalizedNormal)
+    {
+        normalizedDirection = default;
+        normalizedNormal = default;
+        return CadRayAuthoringSession.TryNormalizeDirection(
+                direction,
+                out normalizedDirection) &&
+            CadRayAuthoringSession.TryNormalizeDirection(
+                planeNormal,
+                out normalizedNormal) &&
+            Math.Abs(CadPoint3D.Dot(
+                normalizedDirection,
+                normalizedNormal)) <= PlaneTolerance;
+    }
+
+    private static bool IsFinite(CadPoint3D point) =>
+        double.IsFinite(point.X) &&
+        double.IsFinite(point.Y) &&
+        double.IsFinite(point.Z);
+}
+
 /// <summary>Bounded host-neutral state for the default two-point XLINE mode.</summary>
 /// <remarks>
 /// One fixed WCS point is shared by every accepted through point. Directions
@@ -114,7 +367,7 @@ public sealed class CadXLineAuthoringSession
         double.IsFinite(point.Z);
 }
 
-/// <summary>Adds separate common-point XLINE entities as one history action.</summary>
+/// <summary>Adds separate XLINE entities as one history action.</summary>
 /// <remarks>
 /// CLAYER, CECOLOR, CELTYPE, CELTSCALE, and CELWEIGHT are captured atomically
 /// on first Apply. Apply/Undo/Redo are O(L) and retained storage is O(L).
@@ -122,11 +375,14 @@ public sealed class CadXLineAuthoringSession
 public sealed class CadAddXLineSequenceCommand : CadEditCommand
 {
     private readonly CadPoint3D _firstPoint;
+    private readonly CadPoint3D[] _firstPoints;
     private readonly CadPoint3D[] _directions;
     private readonly ulong[] _currentHandles;
     private XLine[]? _lines;
 
     public CadPoint3D FirstPoint => _firstPoint;
+
+    public ReadOnlyMemory<CadPoint3D> FirstPoints => _firstPoints;
 
     public ReadOnlyMemory<CadPoint3D> Directions => _directions;
 
@@ -167,9 +423,11 @@ public sealed class CadAddXLineSequenceCommand : CadEditCommand
         }
 
         _firstPoint = firstPoint;
+        _firstPoints = new CadPoint3D[directions.Length];
         _directions = new CadPoint3D[directions.Length];
         for (int i = 0; i < directions.Length; i++)
         {
+            _firstPoints[i] = firstPoint;
             if (!CadRayAuthoringSession.TryNormalizeDirection(
                     directions[i],
                     out _directions[i]))
@@ -178,6 +436,48 @@ public sealed class CadAddXLineSequenceCommand : CadEditCommand
                     "Every XLINE direction must be a finite nonzero WCS vector.",
                     nameof(directions));
             }
+        }
+        MaximumLineCount = maximumLineCount;
+        _currentHandles = new ulong[LineCount];
+    }
+
+    public CadAddXLineSequenceCommand(
+        ReadOnlySpan<CadXLineDefinition> definitions,
+        string description = "XLINE",
+        int maximumLineCount = CadXLineAuthoringSession.DefaultMaximumLineCount)
+        : base(description)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumLineCount);
+        if (definitions.IsEmpty)
+        {
+            throw new ArgumentException(
+                "An XLINE sequence requires at least one definition.",
+                nameof(definitions));
+        }
+        if (definitions.Length > maximumLineCount)
+        {
+            throw new ArgumentException(
+                $"The XLINE sequence exceeds the configured limit of {maximumLineCount} lines.",
+                nameof(definitions));
+        }
+
+        _firstPoint = definitions[0].FirstPoint;
+        _firstPoints = new CadPoint3D[definitions.Length];
+        _directions = new CadPoint3D[definitions.Length];
+        for (int i = 0; i < definitions.Length; i++)
+        {
+            CadXLineDefinition definition = definitions[i];
+            if (!IsFinite(definition.FirstPoint) ||
+                !CadRayAuthoringSession.TryNormalizeDirection(
+                    definition.Direction,
+                    out CadPoint3D normalized))
+            {
+                throw new ArgumentException(
+                    "Every XLINE definition requires a finite point and nonzero finite direction.",
+                    nameof(definitions));
+            }
+            _firstPoints[i] = definition.FirstPoint;
+            _directions[i] = normalized;
         }
         MaximumLineCount = maximumLineCount;
         _currentHandles = new ulong[LineCount];
@@ -239,14 +539,17 @@ public sealed class CadAddXLineSequenceCommand : CadEditCommand
         ACadSharp.Color color = document.Header.CurrentEntityColor;
         LineType lineType = document.Header.CurrentLineType;
         LineWeightType lineWeight = document.Header.CurrentEntityLineWeight;
-        var first = new XYZ(_firstPoint.X, _firstPoint.Y, _firstPoint.Z);
         var lines = new XLine[LineCount];
         for (int i = 0; i < lines.Length; i++)
         {
+            CadPoint3D firstPoint = _firstPoints[i];
             CadPoint3D direction = _directions[i];
             lines[i] = new XLine
             {
-                FirstPoint = first,
+                FirstPoint = new XYZ(
+                    firstPoint.X,
+                    firstPoint.Y,
+                    firstPoint.Z),
                 Direction = new XYZ(direction.X, direction.Y, direction.Z),
                 Layer = layer,
                 Color = color,
