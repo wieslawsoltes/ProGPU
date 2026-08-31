@@ -68,6 +68,7 @@ constexpr std::uint32_t type_drawing_group = 91U;
 constexpr std::uint32_t type_guideline_set = 92U;
 constexpr std::uint32_t type_bitmap_cache = 94U;
 constexpr std::uint32_t type_bitmap_source = 95U;
+constexpr std::uint32_t type_double_buffered_bitmap = 96U;
 constexpr std::uint32_t type_d3d_image = 97U;
 constexpr std::uint32_t type_last = 98U;
 constexpr std::uint32_t maximum_visual_depth = 256U;
@@ -3483,6 +3484,60 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::double_buffered_bitmap: {
+            using layout = command_layouts::double_buffered_bitmap;
+            std::uint64_t bitmap_pointer = 0U;
+            std::uint32_t use_back_buffer = 0U;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::sw_double_buffered_bitmap_offset,
+                    bitmap_pointer) ||
+                !read_at(
+                    view.packet,
+                    layout::use_back_buffer_offset,
+                    use_back_buffer)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_double_buffered_bitmap)) {
+                return status::invalid_handle;
+            }
+            if (bitmap_pointer != 0U) {
+                return status::invalid_argument;
+            }
+            if (use_back_buffer > 1U) {
+                return status::malformed_batch;
+            }
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::double_buffered_bitmap_copy_forward: {
+            using layout =
+                command_layouts::double_buffered_bitmap_copy_forward;
+            std::uint64_t completion_event = 0U;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::copy_completed_event_offset,
+                    completion_event)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_double_buffered_bitmap)) {
+                return status::invalid_handle;
+            }
+            // A Windows HANDLE cannot cross the portable channel. The host
+            // completes its typed producer synchronization before binding the
+            // new front-buffer sideband, so the canonical event stays zero.
+            if (completion_event != 0U) {
+                return status::invalid_argument;
+            }
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         case command::visual_create: {
             using layout = command_layouts::visual_create;
             if (!has_exact_size(view, layout::fixed_size) ||
@@ -6178,6 +6233,8 @@ struct channel::implementation {
                 (drawing.image_source_handle != 0U &&
                  (image_source == resources.end() ||
                   (image_source->second.type != type_bitmap_source &&
+                   image_source->second.type !=
+                       type_double_buffered_bitmap &&
                    image_source->second.type != type_d3d_image &&
                    image_source->second.type != type_drawing_image))) ||
                 (drawing.rect_animation_handle != 0U &&
@@ -15652,6 +15709,76 @@ status channel::set_bitmap_source_external_image(
     std::uint32_t width,
     std::uint32_t height) noexcept {
     if (!implementation_->require_resource(handle, type_bitmap_source)) {
+        return status::invalid_handle;
+    }
+    if (width == 0U || height == 0U || width > 16'384U ||
+        height > 16'384U) {
+        return status::invalid_argument;
+    }
+    try {
+        implementation::bitmap_source_state source{};
+        source.width = width;
+        source.height = height;
+        source.row_bytes = width * 4U;
+        source.external_image = true;
+        implementation_->bitmap_sources.insert_or_assign(
+            handle, std::move(source));
+        implementation_->increment_generation(handle);
+        build_cache_.reset();
+        return status::success;
+    } catch (const std::bad_alloc&) {
+        return status::capacity_exceeded;
+    } catch (...) {
+        return status::invalid_argument;
+    }
+}
+
+status channel::set_double_buffered_bitmap_rgba8(
+    std::uint32_t handle,
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t row_bytes,
+    std::span<const std::byte> pixels) noexcept {
+    if (!implementation_->require_resource(
+            handle, type_double_buffered_bitmap)) {
+        return status::invalid_handle;
+    }
+    const std::uint64_t minimum_row_bytes =
+        static_cast<std::uint64_t>(width) * 4U;
+    const std::uint64_t required_bytes = height == 0U
+        ? 0U
+        : static_cast<std::uint64_t>(row_bytes) * (height - 1U) +
+            minimum_row_bytes;
+    if (width == 0U || height == 0U || width > 16'384U ||
+        height > 16'384U || row_bytes < minimum_row_bytes ||
+        required_bytes != pixels.size()) {
+        return status::invalid_argument;
+    }
+    try {
+        implementation::bitmap_source_state source{};
+        source.width = width;
+        source.height = height;
+        source.row_bytes = row_bytes;
+        source.pixels.assign(pixels.begin(), pixels.end());
+        source.external_image = false;
+        implementation_->bitmap_sources.insert_or_assign(
+            handle, std::move(source));
+        implementation_->increment_generation(handle);
+        build_cache_.reset();
+        return status::success;
+    } catch (const std::bad_alloc&) {
+        return status::capacity_exceeded;
+    } catch (...) {
+        return status::invalid_argument;
+    }
+}
+
+status channel::set_double_buffered_bitmap_external_image(
+    std::uint32_t handle,
+    std::uint32_t width,
+    std::uint32_t height) noexcept {
+    if (!implementation_->require_resource(
+            handle, type_double_buffered_bitmap)) {
         return status::invalid_handle;
     }
     if (width == 0U || height == 0U || width > 16'384U ||

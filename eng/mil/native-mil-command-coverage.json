@@ -13,15 +13,15 @@
     },
     "decoder": {
       "path": "src/ProGPU.Native/src/Mil/progpu_native_mil.cpp",
-      "sha256": "b90830936e2d5efb70f59fbaa1b2082d8fbb4e9937c912d765606f7dbc239b96"
+      "sha256": "323272f78035e0a9bff9a8820ff8a0e5cf33ff2b64124e993786824c7c7a4450"
     }
   },
   "summary": {
     "commandCount": 143,
     "sentinel": 2,
-    "topLevelDecoder": 66,
+    "topLevelDecoder": 68,
     "nestedRenderDataDispatch": 25,
-    "notDispatched": 50
+    "notDispatched": 48
   },
   "commands": [
     {
@@ -440,14 +440,14 @@
       "name": "double_buffered_bitmap",
       "wpfName": "MilCmdDoubleBufferedBitmap",
       "value": 59,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_DOUBLEBUFFEREDBITMAP"
     },
     {
       "name": "double_buffered_bitmap_copy_forward",
       "wpfName": "MilCmdDoubleBufferedBitmapCopyForward",
       "value": 60,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_DOUBLEBUFFEREDBITMAP_COPYFORWARD"
     },
     {

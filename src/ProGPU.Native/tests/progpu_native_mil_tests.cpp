@@ -127,6 +127,11 @@ static_assert(command_layouts::media_player::fixed_size == 20U);
 static_assert(command_layouts::media_player::p_media_offset == 8U);
 static_assert(command_layouts::video_drawing::fixed_size == 48U);
 static_assert(command_layouts::video_drawing::h_player_offset == 40U);
+static_assert(command_layouts::double_buffered_bitmap::fixed_size == 20U);
+static_assert(
+    command_layouts::double_buffered_bitmap::use_back_buffer_offset == 16U);
+static_assert(
+    command_layouts::double_buffered_bitmap_copy_forward::fixed_size == 16U);
 static_assert(command_layouts::visual_create::fixed_size == 8U);
 static_assert(command_layouts::glyph_run_create::fixed_size == 76U);
 static_assert(command_layouts::draw_rectangle::fixed_size == 44U);
@@ -11200,6 +11205,155 @@ bool canonical_bitmap_packets_preserve_pointer_free_sideband() {
     return true;
 }
 
+bool writeable_bitmap_uses_pointer_free_front_buffer_sideband() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t bitmap = 4U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 47U);
+    append_create(batch, bitmap, 96U);
+    append_command(
+        batch,
+        command::double_buffered_bitmap,
+        bitmap,
+        std::uint64_t{0U},
+        0U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_image,
+        2.0,
+        3.0,
+        20.0,
+        10.0,
+        bitmap,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        64U,
+        64U,
+        0U);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    PROGPU_REQUIRE(state.resource_generation(bitmap) == 2U);
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7017U, 1U, stream) ==
+        status::invalid_handle);
+
+    constexpr std::array<std::byte, 16U> pixels{
+        std::byte{255}, std::byte{0}, std::byte{0}, std::byte{255},
+        std::byte{0}, std::byte{255}, std::byte{0}, std::byte{255},
+        std::byte{0}, std::byte{0}, std::byte{255}, std::byte{255},
+        std::byte{255}, std::byte{255}, std::byte{255}, std::byte{255}};
+    PROGPU_REQUIRE(
+        state.set_double_buffered_bitmap_rgba8(
+            bitmap, 2U, 2U, 8U, pixels) == status::success);
+    PROGPU_REQUIRE(state.resource_generation(bitmap) == 3U);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7017U, 2U, stream) == status::success);
+    const auto copied_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    PROGPU_REQUIRE(copied_header.resource_count >= 1U);
+    bool found_copied = false;
+    for (std::uint32_t index = 0U;
+         index < copied_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            copied_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE) {
+            continue;
+        }
+        PROGPU_REQUIRE(resource.payload_size == pixels.size());
+        PROGPU_REQUIRE(
+            (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) == 0U);
+        found_copied = true;
+    }
+    PROGPU_REQUIRE(found_copied);
+
+    std::vector<std::byte> copy_forward;
+    append_command(
+        copy_forward,
+        command::double_buffered_bitmap_copy_forward,
+        bitmap,
+        std::uint64_t{0U});
+    PROGPU_REQUIRE(state.apply(copy_forward) == status::success);
+    PROGPU_REQUIRE(state.resource_generation(bitmap) == 4U);
+
+    PROGPU_REQUIRE(
+        state.set_double_buffered_bitmap_external_image(
+            bitmap, 32U, 16U) == status::success);
+    PROGPU_REQUIRE(state.resource_generation(bitmap) == 5U);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7017U, 3U, stream) == status::success);
+    const auto external_header = read_value<progpu_native_scene_header>(
+        stream, 0U);
+    bool found_external = false;
+    for (std::uint32_t index = 0U;
+         index < external_header.resource_count;
+         ++index) {
+        const auto resource = read_value<progpu_native_scene_resource>(
+            stream,
+            external_header.resource_offset +
+                index * sizeof(progpu_native_scene_resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_IMAGE) {
+            continue;
+        }
+        PROGPU_REQUIRE(
+            (resource.flags & PROGPU_NATIVE_SCENE_EXTERNAL_IMAGE) != 0U);
+        PROGPU_REQUIRE(resource.payload_size == 0U);
+        found_external = true;
+    }
+    PROGPU_REQUIRE(found_external);
+
+    std::vector<std::byte> raw_pointer;
+    append_command(
+        raw_pointer,
+        command::double_buffered_bitmap,
+        bitmap,
+        std::uint64_t{1U},
+        0U);
+    PROGPU_REQUIRE(state.apply(raw_pointer) == status::invalid_argument);
+    std::vector<std::byte> raw_event;
+    append_command(
+        raw_event,
+        command::double_buffered_bitmap_copy_forward,
+        bitmap,
+        std::uint64_t{1U});
+    PROGPU_REQUIRE(state.apply(raw_event) == status::invalid_argument);
+    std::vector<std::byte> invalid_flag;
+    append_command(
+        invalid_flag,
+        command::double_buffered_bitmap,
+        bitmap,
+        std::uint64_t{0U},
+        2U);
+    PROGPU_REQUIRE(state.apply(invalid_flag) == status::malformed_batch);
+    PROGPU_REQUIRE(state.resource_generation(bitmap) == 5U);
+    PROGPU_REQUIRE(
+        state.set_bitmap_source_external_image(bitmap, 1U, 1U) ==
+        status::invalid_handle);
+    PROGPU_REQUIRE(
+        state.set_double_buffered_bitmap_external_image(
+            target, 1U, 1U) == status::invalid_handle);
+    return true;
+}
+
 bool canonical_d3d_image_uses_synchronized_external_image_sideband() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -16681,6 +16835,47 @@ bool c_abi_is_typed_and_size_versioned() {
     PROGPU_REQUIRE(snapshot.offset_x == 2.0);
     PROGPU_REQUIRE(snapshot.offset_y == 4.0);
 
+    std::vector<std::byte> writeable_bitmap;
+    append_create(writeable_bitmap, 19U, 96U);
+    append_command(
+        writeable_bitmap,
+        command::double_buffered_bitmap,
+        19U,
+        std::uint64_t{0U},
+        0U);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_apply(
+            native_channel,
+            writeable_bitmap.data(),
+            writeable_bitmap.size(),
+            nullptr) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    const std::array<std::byte, 4U> writeable_pixel{
+        std::byte{0x20},
+        std::byte{0x40},
+        std::byte{0x80},
+        std::byte{0xFF}};
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_set_double_buffered_bitmap_rgba8(
+            native_channel,
+            19U,
+            1U,
+            1U,
+            4U,
+            writeable_pixel.data(),
+            writeable_pixel.size()) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_set_double_buffered_bitmap_external_image(
+            native_channel,
+            19U,
+            1U,
+            1U) == PROGPU_NATIVE_MIL_STATUS_SUCCESS);
+    PROGPU_REQUIRE(
+        progpu_native_mil_channel_set_double_buffered_bitmap_external_image(
+            native_channel,
+            17U,
+            1U,
+            1U) == PROGPU_NATIVE_MIL_STATUS_INVALID_HANDLE);
+
     progpu_native_mil_scene_build_request request{};
     request.struct_size = sizeof(request);
     request.target_handle = 18U;
@@ -16904,6 +17099,8 @@ int main() {
     PROGPU_REQUIRE(render_data_opacity_mask_scope_uses_gpu_brush_layer());
     PROGPU_REQUIRE(
         canonical_bitmap_packets_preserve_pointer_free_sideband());
+    PROGPU_REQUIRE(
+        writeable_bitmap_uses_pointer_free_front_buffer_sideband());
     PROGPU_REQUIRE(
         retained_image_drawing_uses_pointer_free_bitmap_sideband());
     PROGPU_REQUIRE(

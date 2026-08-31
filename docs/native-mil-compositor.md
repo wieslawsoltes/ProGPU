@@ -132,9 +132,9 @@ Decoder-coverage checkpoint adds a second generated authority beside the wire
 layout manifest. `eng/progpu-generate-mil-coverage.py` reads the canonical
 command table and bounded regions of the actual C++ channel decoder and nested
 render-data compiler, then emits
-`eng/mil/native-mil-command-coverage.json`. The current implementation has 66
+`eng/mil/native-mil-command-coverage.json`. The current implementation has 68
 explicit top-level decoder cases, explicit framing/dispatch for all 25
-canonical nested render-data opcodes, two non-retail sentinels, and 50 commands
+canonical nested render-data opcodes, two non-retail sentinels, and 48 commands
 with no native top-level dispatch. Nested dispatch does not claim every value
 or resource combination is supported; obsolete effects and other unsupported
 forms continue to fail closed after exact framing.
@@ -177,6 +177,22 @@ external resource identity, and no payload/readback. Non-null media pointers,
 invalid notification flags, missing frame bindings, wrong resources, and
 invalid graph deletion all fail transactionally. The live ledger is therefore
 66 top-level dispatches and 50 undispatched commands.
+
+WriteableBitmap checkpoint closes the canonical
+`MilCmdDoubleBufferedBitmap` and `MilCmdDoubleBufferedBitmapCopyForward`
+entries. Both packets retain exact WPF framing, require their process-local
+`CSwDoubleBufferedBitmap*` and completion `HANDLE` fields to be zero, validate
+the back-buffer BOOL, and advance the resource generation transactionally.
+New copied-RGBA8 and same-device external-image sidebands bind the current
+front buffer to canonical `TYPE_DOUBLEBUFFEREDBITMAP` without reusing or
+weakening the existing BitmapSource contract. ImageDrawing/DrawImage now
+accept that canonical image type and use the ordinary retained image shader,
+sampling, clipping, transform, damage, and external-resource paths. The
+managed native package exposes the packet builders and both sidebands for
+wgpu-native and Dawn. Native tests cover copied and zero-payload external
+front buffers, copy-forward, type separation, pointer/event rejection,
+generation, rendering, and rollback. The live ledger is now 68 top-level
+dispatches and 48 undispatched commands.
 
 Brush-layout checkpoint `1b4ef706` migrates SolidColorBrush,
 LinearGradientBrush, RadialGradientBrush, DashStyle, and Pen packet readers to

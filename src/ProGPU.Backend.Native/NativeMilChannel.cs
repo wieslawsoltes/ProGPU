@@ -154,6 +154,72 @@ public sealed unsafe class NativeMilChannel : IDisposable
     }
 
     /// <summary>
+    /// Copies straight-alpha RGBA8 front-buffer pixels for a canonical WPF
+    /// <see cref="NativeMilResourceType.DoubleBufferedBitmap"/> handle.
+    /// </summary>
+    public void SetDoubleBufferedBitmapRgba8(
+        uint handle,
+        uint width,
+        uint height,
+        uint rowBytes,
+        ReadOnlySpan<byte> pixels)
+    {
+        nint channel = GetChannel();
+        fixed (byte* pixelPointer = pixels)
+        {
+            NativeMilStatus status = _backend == NativeMilBackend.Dawn
+                ? NativeMilDawnMethods.SetDoubleBufferedBitmapRgba8(
+                    channel,
+                    handle,
+                    width,
+                    height,
+                    rowBytes,
+                    pixelPointer,
+                    (nuint)pixels.Length)
+                : NativeMilMethods.SetDoubleBufferedBitmapRgba8(
+                    channel,
+                    handle,
+                    width,
+                    height,
+                    rowBytes,
+                    pixelPointer,
+                    (nuint)pixels.Length);
+            if (status != NativeMilStatus.Success)
+            {
+                throw new NativeMilException(
+                    status,
+                    $"The RGBA8 DoubleBufferedBitmap binding for MIL handle {handle} was rejected with {status}.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Binds a live same-device front-buffer texture to canonical WPF
+    /// DoubleBufferedBitmap state without a process-local bitmap pointer.
+    /// </summary>
+    public void SetDoubleBufferedBitmapExternalImage(
+        uint handle,
+        uint width,
+        uint height)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(handle);
+        ArgumentOutOfRangeException.ThrowIfZero(width);
+        ArgumentOutOfRangeException.ThrowIfZero(height);
+        nint channel = GetChannel();
+        NativeMilStatus status = _backend == NativeMilBackend.Dawn
+            ? NativeMilDawnMethods.SetDoubleBufferedBitmapExternalImage(
+                channel, handle, width, height)
+            : NativeMilMethods.SetDoubleBufferedBitmapExternalImage(
+                channel, handle, width, height);
+        if (status != NativeMilStatus.Success)
+        {
+            throw new NativeMilException(
+                status,
+                $"The external image descriptor for MIL DoubleBufferedBitmap handle {handle} was rejected with {status}.");
+        }
+    }
+
+    /// <summary>
     /// Binds the dimensions of a live same-device video texture to a canonical
     /// WPF MediaPlayer resource. The scene remains pointer-free; callers bind
     /// the texture view through <see cref="NativeCompositor.BindSceneExternalImages"/>
