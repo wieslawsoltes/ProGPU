@@ -92,20 +92,37 @@ world-transform set/modify, polygon fill mode, move/line, rectangle, ellipse,
 polygon/polyline/poly-polygon/poly-polyline, intersect-clip rectangles,
 transparent/opaque background state, `R2_COPYPEN`, solid or null cosmetic pen
 creation, solid or null brush creation, stock/dynamic selection, and safe
-deletion. Saved DC state includes the retained clip and restores it through the
-typed `GraphicsState` path. EMF/EMF+ structural and comment records are
+deletion. The typed text slice adds text/background colors, alignment,
+justification, Unicode `EMR_EXTCREATEFONTINDIRECTW` object-table fonts, and
+`EMR_EXTTEXTOUTW` with opaque/clipped rectangles, RTL layout without explicit
+advances, and 32-bit character-cell advances. Saved DC state includes the
+retained clip and text state and restores both through the typed `GraphicsState`
+path. EMF/EMF+ structural and comment records are
 nonvisual. The byte layouts and playback state follow the
 official [EMR_RECTANGLE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/3c471238-0a02-4992-90a2-bfd2afd98f2a),
 [EMR_CREATEBRUSHINDIRECT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/b9a8ef5d-0089-4e42-b317-e6ebc0ff098f),
 [EMR_CREATEPEN](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/2374647f-df67-48e3-86aa-384715c28e71),
 [EMR_SELECTOBJECT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/145b063d-5f96-41fe-b7ae-1e615b2bc2bf),
 [EMR_SETMAPMODE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/aa4ad35d-fa42-4a4f-959a-8b41304e1b05),
-[EMR_SETWORLDTRANSFORM](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/985724c0-4db1-48f0-b346-67288b3288cb), and
-[EMR_POLYGON](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/eb916781-58b6-4e92-b606-68071aa65733)
+[EMR_SETWORLDTRANSFORM](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/985724c0-4db1-48f0-b346-67288b3288cb),
+[EMR_POLYGON](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/eb916781-58b6-4e92-b606-68071aa65733),
+[EMR_EXTCREATEFONTINDIRECTW](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/7e266b6d-32e5-4201-b687-8ec40c24cd73),
+[EMR_EXTTEXTOUTW](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/a59a79ac-328e-492d-a34d-e02727af6edf), and
+[EmrText](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/dd585d0a-5d7c-4034-963a-1141af836972)
 contracts. Each supported record lowers to existing typed `Graphics`, brush,
 and pen operations. Playback records into a temporary `DrawingContext`; an
 unsupported or malformed record reports its type and byte offset and prevents
 the entire temporary command stream from being appended.
+
+The Unicode text parser treats offsets as record-relative, requires aligned
+in-bounds non-overlapping string/advance ranges, rejects invalid UTF-16, and
+bounds `LOGFONTEXDV` to its protocol maximum. `ETO_IGNORELANGUAGE` is accepted
+only for ASCII text carrying explicit cell advances, matching the common print-
+spool form without pretending to implement an unshaped complex-script path.
+Glyph-index, numeric substitution, small-character encoding, two-dimensional
+advances, the `ETO_NO_RECT` optional layout, bidi plus explicit advances,
+vertical fonts, and independent
+escapement/orientation remain explicit typed boundaries.
 
 The initial WMF family follows the official 16-bit record layouts and keeps its
 state/object path separate from EMF. It implements background mode/color,
@@ -467,6 +484,17 @@ timing samples span 5.197 to 111.522 milliseconds, invalidating any throughput
 comparison; no timing baseline is claimed from that run. The complete drawing
 suite passes 433/433 and ApiCompat remains 0 missing types, 0 missing members,
 and 13 reviewed platform-annotation differences.
+
+`Playback256EmfExtTextOutWWithAdvances` guards one selected Unicode EMF font and
+256 three-character `EMR_EXTTEXTOUTW` records with record-relative UTF-16 and
+32-bit advance arrays plus the common ASCII `ETO_IGNORELANGUAGE` flag. The
+2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun allocated 1.1 MB per complete
+playback (1,152,936 bytes from the diagnostic count). Its three timing samples
+spanned 22.188 to 49.840 milliseconds with a 14.505 millisecond standard
+deviation, so no throughput baseline is claimed. Exact Unicode glyph identity,
+advance origins, colors, current-position updates, justification remainder,
+saved state, opaque clipping, malformed offsets, and transactional rollback are
+covered by the authoritative 438/438 drawing suite.
 
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication

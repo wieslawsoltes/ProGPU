@@ -3,6 +3,7 @@ using ProGPU.SystemDrawing;
 using ProGPU.Scene;
 using System.Buffers.Binary;
 using System.Drawing.Imaging;
+using System.Text;
 
 namespace System.Drawing.Benchmarks;
 
@@ -17,6 +18,7 @@ public class MetafileBenchmarks
     private DrawingContext _playbackContext = null!;
     private Graphics _playbackGraphics = null!;
     private Metafile _playbackMetafile = null!;
+    private Metafile _emfExtendedTextPlaybackMetafile = null!;
     private Metafile _wmfPlaybackMetafile = null!;
     private Metafile _wmfRectanglePlaybackMetafile = null!;
     private Metafile _wmfClippedRectanglePlaybackMetafile = null!;
@@ -49,6 +51,8 @@ public class MetafileBenchmarks
         _playbackGraphics = Graphics.FromProGpuDrawingContext(_playbackContext);
         _playbackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackEmf(256), writable: false));
+        _emfExtendedTextPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackEmfExtendedText(256), writable: false));
         _wmfPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmf(256), writable: false));
         _wmfRectanglePlaybackMetafile = new Metafile(
@@ -101,6 +105,7 @@ public class MetafileBenchmarks
     {
         _metafile.Dispose();
         _playbackMetafile.Dispose();
+        _emfExtendedTextPlaybackMetafile.Dispose();
         _wmfPlaybackMetafile.Dispose();
         _wmfRectanglePlaybackMetafile.Dispose();
         _wmfClippedRectanglePlaybackMetafile.Dispose();
@@ -157,6 +162,18 @@ public class MetafileBenchmarks
     {
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(_playbackMetafile, new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256EmfExtTextOutWWithAdvances()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _emfExtendedTextPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
         return commandCount;
@@ -420,6 +437,81 @@ public class MetafileBenchmarks
             WriteInt32(bytes, cursor + 16, x + 32);
             WriteInt32(bytes, cursor + 20, y + 22);
             cursor += 24;
+        }
+
+        WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfEof);
+        WriteUInt32(bytes, cursor + 4, 20);
+        WriteUInt32(bytes, cursor + 16, 20);
+        return bytes;
+    }
+
+    private static byte[] CreatePlaybackEmfExtendedText(int recordCount)
+    {
+        const int fontRecordSize = 104;
+        const int textRecordSize = 96;
+        int totalBytes = checked(
+            88 + fontRecordSize + 12 + 12 + 12 + recordCount * textRecordSize + 20);
+        byte[] bytes = new byte[totalBytes];
+        WriteUInt32(bytes, 0, (uint)EmfPlusRecordType.EmfHeader);
+        WriteUInt32(bytes, 4, 88);
+        WriteInt32(bytes, 16, 640);
+        WriteInt32(bytes, 20, 480);
+        WriteInt32(bytes, 32, 16_933);
+        WriteInt32(bytes, 36, 12_700);
+        WriteUInt32(bytes, 40, 0x464D_4520);
+        WriteUInt32(bytes, 44, 0x0001_0000);
+        WriteUInt32(bytes, 48, (uint)totalBytes);
+        WriteUInt32(bytes, 52, checked((uint)recordCount + 6));
+        WriteUInt16(bytes, 56, 2);
+        WriteInt32(bytes, 72, 640);
+        WriteInt32(bytes, 76, 480);
+        WriteInt32(bytes, 80, 169);
+        WriteInt32(bytes, 84, 127);
+
+        int cursor = 88;
+        WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfExtCreateFontIndirect);
+        WriteUInt32(bytes, cursor + 4, fontRecordSize);
+        WriteUInt32(bytes, cursor + 8, 1);
+        WriteInt32(bytes, cursor + 12, -14);
+        WriteInt32(bytes, cursor + 28, 400);
+        bytes[cursor + 35] = 1;
+        byte[] faceName = Encoding.Unicode.GetBytes(SystemFonts.DefaultFont.Name);
+        faceName.AsSpan(0, Math.Min(faceName.Length, 62)).CopyTo(bytes.AsSpan(cursor + 40, 62));
+        cursor += fontRecordSize;
+
+        WriteSelectObject(bytes, cursor, 1);
+        cursor += 12;
+        WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfSetBkMode);
+        WriteUInt32(bytes, cursor + 4, 12);
+        WriteInt32(bytes, cursor + 8, 1);
+        cursor += 12;
+        WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfSetTextColor);
+        WriteUInt32(bytes, cursor + 4, 12);
+        WriteUInt32(bytes, cursor + 8, 0x0044_4444);
+        cursor += 12;
+
+        for (int index = 0; index < recordCount; index++)
+        {
+            int x = (index % 16) * 40;
+            int y = (index / 16) * 30;
+            WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfExtTextOutW);
+            WriteUInt32(bytes, cursor + 4, textRecordSize);
+            WriteUInt32(bytes, cursor + 24, 1);
+            WriteSingle(bytes, cursor + 28, 1f);
+            WriteSingle(bytes, cursor + 32, 1f);
+            WriteInt32(bytes, cursor + 36, x);
+            WriteInt32(bytes, cursor + 40, y);
+            WriteUInt32(bytes, cursor + 44, 3);
+            WriteUInt32(bytes, cursor + 48, 76);
+            WriteUInt32(bytes, cursor + 52, 0x0000_1000);
+            WriteUInt32(bytes, cursor + 72, 84);
+            bytes[cursor + 76] = (byte)'W';
+            bytes[cursor + 78] = (byte)'M';
+            bytes[cursor + 80] = (byte)'F';
+            WriteUInt32(bytes, cursor + 84, 10);
+            WriteUInt32(bytes, cursor + 88, 10);
+            WriteUInt32(bytes, cursor + 92, 10);
+            cursor += textRecordSize;
         }
 
         WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfEof);
@@ -1158,4 +1250,7 @@ public class MetafileBenchmarks
 
     private static void WriteInt32(byte[] target, int offset, int value) =>
         BinaryPrimitives.WriteInt32LittleEndian(target.AsSpan(offset, 4), value);
+
+    private static void WriteSingle(byte[] target, int offset, float value) =>
+        WriteInt32(target, offset, BitConverter.SingleToInt32Bits(value));
 }

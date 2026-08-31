@@ -104,7 +104,8 @@ internal static class MetafilePlaybackRenderer
                 RequireSize(record, payload, 4);
                 state.SetTextJustification(
                     ReadUInt16(payload, 2),
-                    ReadUInt16(payload, 0));
+                    ReadUInt16(payload, 0),
+                    record);
                 return;
 
             case EmfPlusRecordType.WmfSetBkColor:
@@ -355,6 +356,21 @@ internal static class MetafilePlaybackRenderer
                 state.SetBackgroundMode(ReadInt32(payload, 0), record);
                 return;
 
+            case EmfPlusRecordType.EmfSetTextAlign:
+                RequireSize(record, payload, 4);
+                state.TextAlignment = ReadInt32(payload, 0);
+                return;
+
+            case EmfPlusRecordType.EmfSetTextColor:
+                RequireSize(record, payload, 4);
+                state.TextColor = ReadColor(payload, 0);
+                return;
+
+            case EmfPlusRecordType.EmfSetBkColor:
+                RequireSize(record, payload, 4);
+                state.BackgroundColor = ReadColor(payload, 0);
+                return;
+
             case EmfPlusRecordType.EmfSetROP2:
                 RequireSize(record, payload, 4);
                 state.SetRasterOperation(ReadInt32(payload, 0), record);
@@ -443,6 +459,22 @@ internal static class MetafilePlaybackRenderer
             case EmfPlusRecordType.EmfCreateBrushIndirect:
                 RequireSize(record, payload, 16);
                 state.CreateBrush(payload, record);
+                return;
+
+            case EmfPlusRecordType.EmfExtCreateFontIndirect:
+                state.CreateEmfFont(payload, record);
+                return;
+
+            case EmfPlusRecordType.EmfExtTextOutW:
+                DrawEmfExtTextOutW(state, record, payload);
+                return;
+
+            case EmfPlusRecordType.EmfSetTextJustification:
+                RequireSize(record, payload, 8);
+                state.SetTextJustification(
+                    ReadInt32(payload, 0),
+                    ReadInt32(payload, 4),
+                    record);
                 return;
 
             case EmfPlusRecordType.EmfDeleteObject:
@@ -964,14 +996,24 @@ internal static class MetafilePlaybackRenderer
             record,
             payload.Slice(stringOffset, stringLength),
             out Encoding encoding);
-        ReadOnlySpan<byte> dx = payload.Length == baseSize
+        ReadOnlySpan<byte> encodedDx = payload.Length == baseSize
             ? default
             : payload.Slice(baseSize, dxSize);
-        if (!dx.IsEmpty && (!encoding.IsSingleByte || text.Length != stringLength))
+        if (!encodedDx.IsEmpty && (!encoding.IsSingleByte || text.Length != stringLength))
         {
             throw Unsupported(
                 record,
                 "Per-character WMF advances currently require a one-byte charset with one UTF-16 code unit per input byte.");
+        }
+
+        scoped Span<int> advances = encodedDx.IsEmpty
+            ? default
+            : stringLength <= 256
+                ? stackalloc int[stringLength]
+                : new int[stringLength];
+        for (int index = 0; index < advances.Length; index++)
+        {
+            advances[index] = ReadInt16(encodedDx, index * 2);
         }
 
         state.DrawExtendedText(
@@ -982,7 +1024,177 @@ internal static class MetafilePlaybackRenderer
             opaque: (options & EtoOpaque) != 0,
             clipped: (options & EtoClipped) != 0,
             rightToLeft: (options & EtoRtlReading) != 0,
-            dx);
+            advances);
+    }
+
+    private static void DrawEmfExtTextOutW(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        const uint EtoOpaque = 0x0000_0002;
+        const uint EtoClipped = 0x0000_0004;
+        const uint EtoRtlReading = 0x0000_0080;
+        const uint EtoIgnoreLanguage = 0x0000_1000;
+        const uint SupportedOptions =
+            EtoOpaque | EtoClipped | EtoRtlReading | EtoIgnoreLanguage;
+        const int EmrTextOffset = 28;
+        const int EmrTextSize = 40;
+        const int RecordHeaderSize = 8;
+
+        if (payload.Length < EmrTextOffset + EmrTextSize)
+        {
+            throw Invalid(record);
+        }
+
+        uint graphicsMode = ReadUInt32(payload, 16);
+        float xScale = ReadSingle(payload, 20);
+        float yScale = ReadSingle(payload, 24);
+        if (graphicsMode is not 1 and not 2 ||
+            (graphicsMode == 1 &&
+             (!float.IsFinite(xScale) || !float.IsFinite(yScale) ||
+              xScale <= 0f || yScale <= 0f)))
+        {
+            throw Invalid(record);
+        }
+
+        int referenceX = ReadInt32(payload, EmrTextOffset);
+        int referenceY = ReadInt32(payload, EmrTextOffset + 4);
+        uint characterCountValue = ReadUInt32(payload, EmrTextOffset + 8);
+        uint stringOffsetValue = ReadUInt32(payload, EmrTextOffset + 12);
+        uint options = ReadUInt32(payload, EmrTextOffset + 16);
+        uint advancesOffsetValue = ReadUInt32(payload, EmrTextOffset + 36);
+        if (characterCountValue > 1_000_000 || (options & ~SupportedOptions) != 0)
+        {
+            if ((options & ~SupportedOptions) != 0)
+            {
+                throw Unsupported(
+                    record,
+                    $"EXTTEXTOUTW options 0x{options:X8} require glyph-index, numeric-substitution, small-character, or two-dimensional advance support.");
+            }
+            throw Invalid(record);
+        }
+
+        int characterCount;
+        int stringOffset;
+        int stringSize;
+        try
+        {
+            characterCount = checked((int)characterCountValue);
+            stringOffset = characterCount == 0 && stringOffsetValue == 0
+                ? EmrTextOffset + EmrTextSize
+                : checked((int)stringOffsetValue - RecordHeaderSize);
+            stringSize = checked(characterCount * 2);
+        }
+        catch (OverflowException exception)
+        {
+            throw Invalid(record, exception);
+        }
+        if ((stringOffsetValue & 1) != 0 ||
+            stringOffset < EmrTextOffset + EmrTextSize ||
+            stringOffset > payload.Length - stringSize)
+        {
+            throw Invalid(record);
+        }
+
+        string text;
+        try
+        {
+            text = Encoding.GetEncoding(
+                1200,
+                EncoderFallback.ExceptionFallback,
+                DecoderFallback.ExceptionFallback).GetString(
+                    payload.Slice(stringOffset, stringSize));
+        }
+        catch (DecoderFallbackException exception)
+        {
+            throw Invalid(record, exception);
+        }
+
+        scoped Span<int> advances = default;
+        if (advancesOffsetValue != 0)
+        {
+            int advancesOffset;
+            int advancesSize;
+            try
+            {
+                advancesOffset = checked((int)advancesOffsetValue - RecordHeaderSize);
+                advancesSize = checked(characterCount * 4);
+            }
+            catch (OverflowException exception)
+            {
+                throw Invalid(record, exception);
+            }
+            if ((advancesOffsetValue & 3) != 0 ||
+                advancesOffset < EmrTextOffset + EmrTextSize ||
+                advancesOffset > payload.Length - advancesSize)
+            {
+                throw Invalid(record);
+            }
+
+            advances = characterCount <= 256
+                ? stackalloc int[characterCount]
+                : new int[characterCount];
+            for (int index = 0; index < advances.Length; index++)
+            {
+                uint advance = ReadUInt32(payload, advancesOffset + index * 4);
+                if (advance > int.MaxValue)
+                {
+                    throw Invalid(record);
+                }
+                advances[index] = (int)advance;
+            }
+
+            int stringEnd = checked(stringOffset + stringSize);
+            int advancesEnd = checked(advancesOffset + advancesSize);
+            if (stringOffset < advancesEnd && advancesOffset < stringEnd)
+            {
+                throw Invalid(record);
+            }
+        }
+
+        if ((options & EtoIgnoreLanguage) != 0)
+        {
+            bool hasNonAsciiText = false;
+            foreach (char character in text)
+            {
+                if (character > 0x7F)
+                {
+                    hasNonAsciiText = true;
+                    break;
+                }
+            }
+            if (advances.IsEmpty || hasNonAsciiText)
+            {
+                throw Unsupported(
+                    record,
+                    "ETO_IGNORELANGUAGE requires explicit advances and currently supports ASCII text only.");
+            }
+        }
+
+        Rectangle rectangle = Rectangle.Empty;
+        if ((options & (EtoOpaque | EtoClipped)) != 0)
+        {
+            int left = ReadInt32(payload, EmrTextOffset + 20);
+            int top = ReadInt32(payload, EmrTextOffset + 24);
+            int right = ReadInt32(payload, EmrTextOffset + 28);
+            int bottom = ReadInt32(payload, EmrTextOffset + 32);
+            if (right < left || bottom < top)
+            {
+                throw Invalid(record);
+            }
+            rectangle = Rectangle.FromLTRB(left, top, right, bottom);
+        }
+
+        state.DrawExtendedText(
+            record,
+            text,
+            new Point(referenceX, referenceY),
+            rectangle,
+            opaque: (options & EtoOpaque) != 0,
+            clipped: (options & EtoClipped) != 0,
+            rightToLeft: (options & EtoRtlReading) != 0,
+            advances);
     }
 
     private static string DecodeWmfText(
@@ -1684,6 +1896,99 @@ internal static class MetafilePlaybackRenderer
             AddWmfObject(new WmfFontObject(font, escapement), record);
         }
 
+        internal void CreateEmfFont(ReadOnlySpan<byte> payload, in MetafileRecord record)
+        {
+            const int ObjectIndexSize = 4;
+            const int LogFontSize = 92;
+            const int LogFontPanoseSize = 320;
+            const int LogFontExMinimumSize = 356;
+            const int LogFontExMaximumSize = 420;
+            int logicalFontSize = payload.Length - ObjectIndexSize;
+            if (logicalFontSize != LogFontSize &&
+                logicalFontSize != LogFontPanoseSize &&
+                (logicalFontSize < LogFontExMinimumSize ||
+                 logicalFontSize > LogFontExMaximumSize))
+            {
+                throw Invalid(record);
+            }
+
+            uint index = ReadUInt32(payload, 0);
+            ReadOnlySpan<byte> logicalFont = payload[ObjectIndexSize..];
+            int height = ReadInt32(logicalFont, 0);
+            int width = ReadInt32(logicalFont, 4);
+            int escapement = ReadInt32(logicalFont, 8);
+            int orientation = ReadInt32(logicalFont, 12);
+            int weight = ReadInt32(logicalFont, 16);
+            bool italic = logicalFont[20] != 0;
+            bool underline = logicalFont[21] != 0;
+            bool strikeout = logicalFont[22] != 0;
+            byte charSet = logicalFont[23];
+            if (height is 0 or int.MinValue || Math.Abs((long)height) > 1_000_000 || width != 0 ||
+                escapement != orientation || weight is < 0 or > 1000)
+            {
+                throw Unsupported(
+                    record,
+                    "The typed EMF text path supports nonzero logical fonts with computed width whose escapement and orientation match.");
+            }
+
+            ReadOnlySpan<byte> faceBytes = logicalFont.Slice(28, 64);
+            int terminator = -1;
+            for (int offset = 0; offset < faceBytes.Length; offset += 2)
+            {
+                if (ReadUInt16(faceBytes, offset) == 0)
+                {
+                    terminator = offset;
+                    break;
+                }
+            }
+            if (terminator >= 0)
+            {
+                faceBytes = faceBytes[..terminator];
+            }
+
+            string faceName;
+            try
+            {
+                faceName = Encoding.GetEncoding(
+                    1200,
+                    EncoderFallback.ExceptionFallback,
+                    DecoderFallback.ExceptionFallback).GetString(faceBytes);
+            }
+            catch (DecoderFallbackException exception)
+            {
+                throw Invalid(record, exception);
+            }
+            if (faceName.StartsWith('@'))
+            {
+                throw Unsupported(record, "Vertical EMF fonts require a typed vertical-layout path.");
+            }
+            if (faceName.Length == 0)
+            {
+                faceName = SystemFonts.DefaultFont.Name;
+            }
+
+            FontStyle style = (weight >= 700 ? FontStyle.Bold : FontStyle.Regular) |
+                (italic ? FontStyle.Italic : FontStyle.Regular) |
+                (underline ? FontStyle.Underline : FontStyle.Regular) |
+                (strikeout ? FontStyle.Strikeout : FontStyle.Regular);
+            float rawSize = Math.Abs((float)height);
+            Font font = new(faceName, rawSize, style, GraphicsUnit.Pixel, charSet, false);
+            if (height > 0)
+            {
+                int lineUnits = font.TtfFont.Ascender - font.TtfFont.Descender + font.TtfFont.LineGap;
+                if (font.TtfFont.UnitsPerEm <= 0 || lineUnits <= 0)
+                {
+                    font.Dispose();
+                    throw Unsupported(record, "The selected font does not expose cell-height metrics.");
+                }
+
+                float emSize = rawSize * font.TtfFont.UnitsPerEm / lineUnits;
+                font.Dispose();
+                font = new Font(faceName, emSize, style, GraphicsUnit.Pixel, charSet, false);
+            }
+            AddObject(index, new WmfFontObject(font, escapement), record);
+        }
+
         internal void DrawText(in MetafileRecord record, string text, Point recordPoint) =>
             DrawTextCore(
                 record,
@@ -1695,8 +2000,15 @@ internal static class MetafilePlaybackRenderer
                 rightToLeft: false,
                 default);
 
-        internal void SetTextJustification(int extra, int breakCount)
+        internal void SetTextJustification(
+            int extra,
+            int breakCount,
+            in MetafileRecord record)
         {
+            if (breakCount < 0)
+            {
+                throw Invalid(record);
+            }
             TextJustificationExtra = extra;
             TextJustificationBreakCount = breakCount;
             TextJustificationError = 0;
@@ -1710,8 +2022,8 @@ internal static class MetafilePlaybackRenderer
             bool opaque,
             bool clipped,
             bool rightToLeft,
-            ReadOnlySpan<byte> dx) =>
-            DrawTextCore(record, text, recordPoint, rectangle, opaque, clipped, rightToLeft, dx);
+            ReadOnlySpan<int> advances) =>
+            DrawTextCore(record, text, recordPoint, rectangle, opaque, clipped, rightToLeft, advances);
 
         private void DrawTextCore(
             in MetafileRecord record,
@@ -1721,7 +2033,7 @@ internal static class MetafilePlaybackRenderer
             bool opaque,
             bool clipped,
             bool rightToLeft,
-            ReadOnlySpan<byte> dx)
+            ReadOnlySpan<int> advances)
         {
             const int SupportedAlignmentMask = 0x011F;
             if ((TextAlignment & ~SupportedAlignmentMask) != 0 ||
@@ -1732,13 +2044,13 @@ internal static class MetafilePlaybackRenderer
             }
 
             bool effectiveRightToLeft = rightToLeft || (TextAlignment & 0x0100) != 0;
-            if (!dx.IsEmpty && effectiveRightToLeft)
+            if (!advances.IsEmpty && effectiveRightToLeft)
             {
                 throw Unsupported(
                     record,
                     "Per-character advances combined with right-to-left layout require a bidi glyph-positioning path.");
             }
-            if (dx.IsEmpty &&
+            if (advances.IsEmpty &&
                 (TextCharacterExtra != 0 || TextJustificationExtra != 0) &&
                 effectiveRightToLeft)
             {
@@ -1750,9 +2062,9 @@ internal static class MetafilePlaybackRenderer
             long totalAdvance = 0;
             long minimumAdvance = 0;
             long maximumAdvance = 0;
-            for (int offset = 0; offset < dx.Length; offset += 2)
+            for (int index = 0; index < advances.Length; index++)
             {
-                totalAdvance += ReadInt16(dx, offset);
+                totalAdvance += advances[index];
                 minimumAdvance = Math.Min(minimumAdvance, totalAdvance);
                 maximumAdvance = Math.Max(maximumAdvance, totalAdvance);
             }
@@ -1762,13 +2074,13 @@ internal static class MetafilePlaybackRenderer
                 ? CurrentPoint
                 : recordPoint;
             Matrix3x2 baseTransform = ApplyTransform(record);
-            float characterExtra = dx.IsEmpty
+            float characterExtra = advances.IsEmpty
                 ? GetEffectiveTextCharacterExtra(baseTransform, record)
                 : 0f;
             scoped Span<float> characterSpacing = default;
             float spacingAdvance = 0f;
             bool hasCharacterSpacing = false;
-            if (dx.IsEmpty &&
+            if (advances.IsEmpty &&
                 (characterExtra != 0f ||
                  (TextJustificationExtra != 0 &&
                   TextJustificationBreakCount != 0 &&
@@ -1789,7 +2101,7 @@ internal static class MetafilePlaybackRenderer
                     hasCharacterSpacing |= spacing != 0f;
                 }
             }
-            float horizontalAdvance = dx.IsEmpty
+            float horizontalAdvance = advances.IsEmpty
                 ? measuredSize.Width + spacingAdvance
                 : totalAdvance;
             if (!float.IsFinite(horizontalAdvance))
@@ -1832,8 +2144,8 @@ internal static class MetafilePlaybackRenderer
                 Graphics.TransformElements = textTransform;
                 try
                 {
-                    float backgroundX = dx.IsEmpty ? x : x + minimumAdvance;
-                    float backgroundWidth = dx.IsEmpty
+                    float backgroundX = advances.IsEmpty ? x : x + minimumAdvance;
+                    float backgroundWidth = advances.IsEmpty
                         ? horizontalAdvance
                         : maximumAdvance - minimumAdvance;
                     if (!opaque && BackgroundMode == 2 &&
@@ -1848,7 +2160,7 @@ internal static class MetafilePlaybackRenderer
                     }
 
                     SolidBrush foreground = GetTextBrush();
-                    if (dx.IsEmpty)
+                    if (advances.IsEmpty)
                     {
                         if (hasCharacterSpacing)
                         {
@@ -1875,13 +2187,6 @@ internal static class MetafilePlaybackRenderer
                     }
                     else
                     {
-                        Span<int> advances = text.Length <= 256
-                            ? stackalloc int[text.Length]
-                            : new int[text.Length];
-                        for (int index = 0; index < text.Length; index++)
-                        {
-                            advances[index] = ReadInt16(dx, index * 2);
-                        }
                         Graphics.DrawStringWithCharacterAdvances(
                             text,
                             _selectedFont,
@@ -1974,13 +2279,14 @@ internal static class MetafilePlaybackRenderer
                 totalExtra,
                 TextJustificationBreakCount,
                 out int remainder);
-            TextJustificationError += remainder;
-            if (Math.Abs(TextJustificationError) >= TextJustificationBreakCount)
+            long accumulatedError = (long)TextJustificationError + remainder;
+            if (Math.Abs(accumulatedError) >= TextJustificationBreakCount)
             {
-                int correction = Math.Sign(TextJustificationError);
+                int correction = Math.Sign(accumulatedError);
                 spacing += correction;
-                TextJustificationError -= correction * TextJustificationBreakCount;
+                accumulatedError -= (long)correction * TextJustificationBreakCount;
             }
+            TextJustificationError = checked((int)accumulatedError);
 
             return MapMode == 1
                 ? spacing

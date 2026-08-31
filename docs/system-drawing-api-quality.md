@@ -381,6 +381,18 @@ anisotropic total rounding, combined rotated current-position progression, and
 the complete 433/433 drawing suite are the correctness authority. ApiCompat
 remains 0/0/13.
 
+`MetafileBenchmarks.Playback256EmfExtTextOutWWithAdvances` guards the typed EMF
+Unicode text path: one object-table `LOGFONTW` and 256 three-character
+`EMR_EXTTEXTOUTW` records with record-relative UTF-16, 32-bit advances, and the
+common ASCII `ETO_IGNORELANGUAGE` form. The 2026-08-31 ARM64/.NET 10.0.11
+in-process ShortRun allocated 1.1 MB per playback (1,152,936 diagnostic bytes).
+Its three timing samples ranged from 22.188 to 49.840 ms with 14.505 ms standard
+deviation under severe host contention, so no latency baseline is claimed.
+Unicode glyph identity, cell origins, colors, `TA_UPDATECP`, saved/restored
+justification and remainder, opaque clipping, bounded/aligned offsets, invalid
+UTF-16, and transactional rollback are covered by the complete 438/438 drawing
+suite. ApiCompat remains 0/0/13.
+
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the
 same parser used by consumers, and final stream publication. The 2026-08-27
