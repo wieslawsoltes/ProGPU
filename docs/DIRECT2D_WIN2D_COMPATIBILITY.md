@@ -867,10 +867,10 @@ brushes, `FillRectangle`, default-style `DrawRectangle`, default flat-cap
 `DrawLine`, aliased/per-primitive edges, and one optional leading `Clear`—into
 the same pointer-free semantic stream consumed by ProGPU's C++ renderer. The
 clear is explicit frame metadata rather than a fabricated retained draw.
-Gradient/image brushes, geometry, text, images, clips, layers, non-default
-stroke styles, blend modes other than source-over, pixel units, and mid-stream
-or repeated clears currently return `E_NOTIMPL` with a typed failure class and
-one-based callback index; no partial stream is returned.
+At that checkpoint gradient/image brushes, geometry, text, images, clips,
+layers, non-default stroke styles, blend modes other than source-over, pixel
+units, and mid-stream or repeated clears returned `E_NOTIMPL` with a typed
+failure class and one-based callback index; no partial stream was returned.
 
 The ABI is a two-pass caller-buffer contract: the first call reports the exact
 stream size and the second serializes directly into the supplied span. No COM
@@ -917,6 +917,50 @@ qualification passes compile/link under `/W4 /WX` and the live Direct2D
 regression 1/1. The provider SHA-256 is
 `9C38D9BFFC95D7453EDCA5F3D63B53C973C1E24F9DDA2EB3214477BF497464AE`.
 Clean-checkout ABI v34 CI qualification is pending.
+
+ABI v35 at implementation `226085da` adds linear and radial gradient brushes
+to the command-list translator without adding a Windows-only renderer. The
+sink queries genuine `ID2D1LinearGradientBrush`, `ID2D1RadialGradientBrush`,
+and `ID2D1GradientStopCollection1` interfaces synchronously, snapshots bounded
+stops into the canonical ProGPU brush table, and releases every COM reference
+before returning. Linear endpoints, radial center/radii, and the radial origin
+(`center + GradientOriginOffset`) remain exact typed values. Clamp, wrap, and
+mirror map to the shared pad, repeat, and reflect shader modes.
+
+Brush coordinates are evaluated in Direct2D render-target space. The
+translator therefore composes the inverse active draw transform with the
+inverse brush transform and stores that affine mapping in the existing ProGPU
+gradient record. A per-translation COM-identity cache is also keyed by the
+active draw transform, so reuse avoids duplicate stop capture without
+incorrectly sharing a transform-dependent material. The Windows regression
+uses the same linear brush under two different draw transforms and decodes two
+distinct coordinate mappings (`[0.8, 1.333..., -6.4, -4.666...]` and identity
+scale with `[-4,2]` translation) from the resulting pointer-free scene.
+
+The admitted color subset is explicit. Pre- and post-interpolation spaces must
+both be sRGB. Straight-alpha interpolation is accepted; Direct2D premultiplied
+interpolation is accepted only when every stop has the same alpha, where it is
+mathematically equivalent to straight interpolation. A varying-alpha
+premultiplied collection returns typed unsupported state and no partial
+stream. Custom/scRGB conversion and non-invertible brush or draw transforms
+also fail closed. Direct2D buffer precision remains a source rasterization
+quality choice; ProGPU retains the original finite float stops and the
+cross-backend pixel gate, rather than quantizing them on the CPU.
+
+The positive oracle contains six draws, two nested clips, four brushes, and
+six gradient stops; it decodes linear/radial parameters, stop offsets, spread,
+opacity, and transform-dependent cache separation. The negative oracle proves
+the varying-alpha premultiplied boundary. The managed AOT contracts pass 5/5
+and `ProGPU.Direct2D` builds with zero warnings. An incremental three-file
+Windows payload with SHA-256
+`B545679CDCC7C81A826A333D3975C8BB7E8ED977A58FFBFC0601D4431DAAA368`
+was applied to the existing qualification tree. Windows 11 ARM64 Parallels,
+MSVC 19.44, and SDK 10.0.26100.0 compile provider and test under `/W4 /WX`;
+the live COM regression passes 1/1 in 1.70 seconds (2.01 seconds total under
+concurrent VM load). The export allowlist remains exactly 123. Provider
+SHA-256 is
+`E5651DF33F23EB909FF2AB42F2A4E3592CDE81E21B57B3ADABFF38F493FDC2ED`.
+Clean-checkout ABI v35 CI qualification is pending.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
