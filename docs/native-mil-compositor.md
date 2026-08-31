@@ -5652,6 +5652,37 @@ Windows 11 ARM64 Parallels rebuilds it cleanly with MSVC 19.44/SDK
 the 113,664-byte test executable SHA-256 is
 `5B6EC4E52D17BB185A3E513A22628CC9BF93AE98AF28AFFD90F2FC448DFEB45C`.
 
+ABI v46 adds ProGPU-owned `ID2D1PathGeometry1` and `ID2D1GeometrySink` COM
+objects behind both standard factory path-creation vtables. The one-shot sink
+records lines, cubics, quadratics, arcs, segment flags, fill mode, and figure
+state, publishes an immutable snapshot only on successful `Close`, and counts
+implicit closing edges in the same public segment index space as Direct2D.
+Canonical `IUnknown`/resource/geometry/path/path1 and
+`IUnknown`/simplified-sink/geometry-sink identities retain their factory and
+shared path storage according to COM lifetime rules.
+
+The supported analysis slice includes exact vocabulary streaming, transformed
+line/cubic/arc bounds, cubics-and-lines or flattened-line simplification,
+ordinary non-overlapping fill containment/area, length, point-at-length, and
+point-plus-segment queries. Complex overlapping/self-intersecting area,
+strokes, widened bounds, tessellation, outlines, geometry compare, and boolean
+combination remain explicitly gated and fail closed. The direct recorder now
+consumes this ProGPU path through standard COM vtables and lowers it to the
+same pointer-free vector scene rendered on D3D12, Metal, Vulkan, and WebGPU;
+there is no system-Direct2D resource dependency, CPU pixel fallback, or second
+scene implementation. The Windows oracle differentially compares counts,
+bounds, and flattened length with a genuine system `ID2D1PathGeometry1`.
+Focused managed contracts pass 5/5. The exact implementation checkpoint is
+`3f42538c`; its committed source archive SHA-256 is
+`32A3ECA03C6C721B505D40A6638A7D55E139C6132E65C296DFFFBD4D2A633EC3`.
+Windows 11 ARM64 Parallels rebuilds it cleanly with MSVC 19.44/SDK
+10.0.26100.0 `/W4 /WX`, and the native differential oracle exits zero.
+`dumpbin` matches all 129 allowlisted exports exactly. The 225,280-byte
+provider SHA-256 is
+`681EC3239D4B235BDD0E024A9D3C1DCD5D0444F8F1ACD3CB6FE31F0DC8A6940B`;
+the 118,272-byte test executable SHA-256 is
+`1845C2C96B3B8AA0DA46D909384AB3D417AB607205EAB921C84AC626FB084586`.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
