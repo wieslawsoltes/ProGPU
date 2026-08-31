@@ -223,6 +223,10 @@ internal static class MetafilePlaybackRenderer
                 DrawWmfTextOut(state, record, payload);
                 return;
 
+            case EmfPlusRecordType.WmfExtTextOut:
+                DrawWmfExtTextOut(state, record, payload);
+                return;
+
             case EmfPlusRecordType.WmfPolygon:
                 DrawWmfPolygon(state, record, payload, close: true);
                 return;
@@ -870,21 +874,120 @@ internal static class MetafilePlaybackRenderer
         }
         RequireSize(record, payload, expectedSize);
 
-        string text;
-        try
-        {
-            text = GetWmfEncoding(state.SelectedFont.GdiCharSet, record)
-                .GetString(payload.Slice(2, stringLength));
-        }
-        catch (DecoderFallbackException exception)
-        {
-            throw Invalid(record, exception);
-        }
+        string text = DecodeWmfText(
+            state.SelectedFont.GdiCharSet,
+            record,
+            payload.Slice(2, stringLength),
+            out _);
 
         var referencePoint = new Point(
             ReadInt16(payload, 2 + paddedLength + 2),
             ReadInt16(payload, 2 + paddedLength));
         state.DrawText(record, text, referencePoint);
+    }
+
+    private static void DrawWmfExtTextOut(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        const ushort EtoOpaque = 0x0002;
+        const ushort EtoClipped = 0x0004;
+        const ushort EtoRtlReading = 0x0080;
+        const ushort SupportedOptions = EtoOpaque | EtoClipped | EtoRtlReading;
+        if (payload.Length < 8)
+        {
+            throw Invalid(record);
+        }
+
+        int stringLength = ReadInt16(payload, 4);
+        ushort options = ReadUInt16(payload, 6);
+        if (stringLength < 0)
+        {
+            throw Invalid(record);
+        }
+        if ((options & ~SupportedOptions) != 0)
+        {
+            throw Unsupported(
+                record,
+                $"EXTTEXTOUT options 0x{options:X4} require glyph-index, numeric-substitution, or two-dimensional advance support.");
+        }
+
+        bool hasRectangle = (options & (EtoOpaque | EtoClipped)) != 0;
+        int stringOffset = hasRectangle ? 16 : 8;
+        int paddedLength;
+        int baseSize;
+        int dxSize;
+        try
+        {
+            paddedLength = checked((stringLength + 1) & ~1);
+            baseSize = checked(stringOffset + paddedLength);
+            dxSize = checked(stringLength * 2);
+        }
+        catch (OverflowException exception)
+        {
+            throw Invalid(record, exception);
+        }
+        if (payload.Length != baseSize && payload.Length != checked(baseSize + dxSize))
+        {
+            throw Invalid(record);
+        }
+
+        Rectangle rectangle = Rectangle.Empty;
+        if (hasRectangle)
+        {
+            int left = ReadInt16(payload, 8);
+            int top = ReadInt16(payload, 10);
+            int right = ReadInt16(payload, 12);
+            int bottom = ReadInt16(payload, 14);
+            if (right < left || bottom < top)
+            {
+                throw Invalid(record);
+            }
+            rectangle = Rectangle.FromLTRB(left, top, right, bottom);
+        }
+
+        string text = DecodeWmfText(
+            state.SelectedFont.GdiCharSet,
+            record,
+            payload.Slice(stringOffset, stringLength),
+            out Encoding encoding);
+        ReadOnlySpan<byte> dx = payload.Length == baseSize
+            ? default
+            : payload.Slice(baseSize, dxSize);
+        if (!dx.IsEmpty && (!encoding.IsSingleByte || text.Length != stringLength))
+        {
+            throw Unsupported(
+                record,
+                "Per-character WMF advances currently require a one-byte charset with one UTF-16 code unit per input byte.");
+        }
+
+        state.DrawExtendedText(
+            record,
+            text,
+            new Point(ReadInt16(payload, 2), ReadInt16(payload, 0)),
+            rectangle,
+            opaque: (options & EtoOpaque) != 0,
+            clipped: (options & EtoClipped) != 0,
+            rightToLeft: (options & EtoRtlReading) != 0,
+            dx);
+    }
+
+    private static string DecodeWmfText(
+        byte charSet,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> bytes,
+        out Encoding encoding)
+    {
+        encoding = GetWmfEncoding(charSet, record);
+        try
+        {
+            return encoding.GetString(bytes);
+        }
+        catch (DecoderFallbackException exception)
+        {
+            throw Invalid(record, exception);
+        }
     }
 
     private static Encoding GetWmfEncoding(byte charSet, in MetafileRecord record)
@@ -1549,7 +1652,37 @@ internal static class MetafilePlaybackRenderer
             AddWmfObject(font, record);
         }
 
-        internal void DrawText(in MetafileRecord record, string text, Point recordPoint)
+        internal void DrawText(in MetafileRecord record, string text, Point recordPoint) =>
+            DrawTextCore(
+                record,
+                text,
+                recordPoint,
+                Rectangle.Empty,
+                opaque: false,
+                clipped: false,
+                rightToLeft: false,
+                default);
+
+        internal void DrawExtendedText(
+            in MetafileRecord record,
+            string text,
+            Point recordPoint,
+            Rectangle rectangle,
+            bool opaque,
+            bool clipped,
+            bool rightToLeft,
+            ReadOnlySpan<byte> dx) =>
+            DrawTextCore(record, text, recordPoint, rectangle, opaque, clipped, rightToLeft, dx);
+
+        private void DrawTextCore(
+            in MetafileRecord record,
+            string text,
+            Point recordPoint,
+            Rectangle rectangle,
+            bool opaque,
+            bool clipped,
+            bool rightToLeft,
+            ReadOnlySpan<byte> dx)
         {
             const int SupportedAlignmentMask = 0x011F;
             if ((TextAlignment & ~SupportedAlignmentMask) != 0 ||
@@ -1559,8 +1692,33 @@ internal static class MetafilePlaybackRenderer
                 throw Unsupported(record, $"Text alignment 0x{TextAlignment:X4} is not valid.");
             }
 
-            ApplyTransform(record);
-            SizeF size = Graphics.MeasureString(text, _selectedFont);
+            bool effectiveRightToLeft = rightToLeft || (TextAlignment & 0x0100) != 0;
+            if (!dx.IsEmpty && effectiveRightToLeft)
+            {
+                throw Unsupported(
+                    record,
+                    "Per-character advances combined with right-to-left layout require a bidi glyph-positioning path.");
+            }
+
+            long totalAdvance = 0;
+            long minimumAdvance = 0;
+            long maximumAdvance = 0;
+            for (int offset = 0; offset < dx.Length; offset += 2)
+            {
+                totalAdvance += ReadInt16(dx, offset);
+                minimumAdvance = Math.Min(minimumAdvance, totalAdvance);
+                maximumAdvance = Math.Max(maximumAdvance, totalAdvance);
+            }
+            long updatedX = (long)((TextAlignment & 0x0001) != 0
+                ? CurrentPoint.X
+                : recordPoint.X) + totalAdvance;
+            if (!dx.IsEmpty && (updatedX < int.MinValue || updatedX > int.MaxValue))
+            {
+                throw Invalid(record);
+            }
+
+            SizeF measuredSize = Graphics.MeasureString(text, _selectedFont);
+            float horizontalAdvance = dx.IsEmpty ? measuredSize.Width : totalAdvance;
             PointF reference = (TextAlignment & 0x0001) != 0
                 ? CurrentPoint
                 : recordPoint;
@@ -1568,13 +1726,13 @@ internal static class MetafilePlaybackRenderer
             float y = reference.Y;
             x -= (TextAlignment & 0x0006) switch
             {
-                0x0002 => size.Width,
-                0x0006 => size.Width / 2f,
+                0x0002 => horizontalAdvance,
+                0x0006 => horizontalAdvance / 2f,
                 _ => 0f
             };
             y -= (TextAlignment & 0x0018) switch
             {
-                0x0008 => size.Height,
+                0x0008 => measuredSize.Height,
                 0x0018 => Graphics.ConvertFontSizeToPixels(
                     _selectedFont.Size,
                     _selectedFont.Unit,
@@ -1583,27 +1741,76 @@ internal static class MetafilePlaybackRenderer
                 _ => 0f
             };
 
-            if (BackgroundMode == 2 && size.Width > 0f && size.Height > 0f)
+            ApplyTransform(record);
+            GraphicsState? clippingState = null;
+            if (clipped)
             {
-                Graphics.FillRectangle(GetBackgroundBrush(), x, y, size.Width, size.Height);
+                clippingState = Graphics.Save();
+                Graphics.IntersectClip(rectangle);
             }
-            SolidBrush foreground = GetTextBrush();
-            if ((TextAlignment & 0x0100) != 0)
+            try
             {
-                using var format = new StringFormat(StringFormat.GenericTypographic)
+                if (opaque && rectangle.Width > 0 && rectangle.Height > 0)
                 {
-                    FormatFlags = StringFormatFlags.DirectionRightToLeft
-                };
-                Graphics.DrawString(text, _selectedFont, foreground, x, y, format);
+                    Graphics.FillRectangle(GetBackgroundBrush(), rectangle);
+                }
+
+                float backgroundX = dx.IsEmpty ? x : x + minimumAdvance;
+                float backgroundWidth = dx.IsEmpty
+                    ? measuredSize.Width
+                    : maximumAdvance - minimumAdvance;
+                if (!opaque && BackgroundMode == 2 &&
+                    backgroundWidth > 0f && measuredSize.Height > 0f)
+                {
+                    Graphics.FillRectangle(
+                        GetBackgroundBrush(),
+                        backgroundX,
+                        y,
+                        backgroundWidth,
+                        measuredSize.Height);
+                }
+
+                SolidBrush foreground = GetTextBrush();
+                if (dx.IsEmpty)
+                {
+                    if (effectiveRightToLeft)
+                    {
+                        using var format = new StringFormat(StringFormat.GenericTypographic)
+                        {
+                            FormatFlags = StringFormatFlags.DirectionRightToLeft
+                        };
+                        Graphics.DrawString(text, _selectedFont, foreground, x, y, format);
+                    }
+                    else
+                    {
+                        Graphics.DrawString(text, _selectedFont, foreground, x, y);
+                    }
+                }
+                else
+                {
+                    int advance = 0;
+                    for (int index = 0; index < text.Length; index++)
+                    {
+                        Graphics.DrawString(text.AsSpan(index, 1), _selectedFont, foreground, x + advance, y);
+                        advance = checked(advance + ReadInt16(dx, index * 2));
+                    }
+                }
             }
-            else
+            finally
             {
-                Graphics.DrawString(text, _selectedFont, foreground, x, y);
+                if (clippingState is not null)
+                {
+                    Graphics.Restore(clippingState);
+                }
             }
 
             if ((TextAlignment & 0x0001) != 0)
             {
-                CurrentPoint = Point.Round(new PointF(reference.X + size.Width, reference.Y));
+                CurrentPoint = new Point(
+                    dx.IsEmpty
+                        ? Point.Round(new PointF(reference.X + horizontalAdvance, reference.Y)).X
+                        : checked((int)updatedX),
+                    Point.Round(reference).Y);
             }
         }
 

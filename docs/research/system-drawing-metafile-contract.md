@@ -111,7 +111,8 @@ The initial WMF family follows the official 16-bit record layouts and keeps its
 state/object path separate from EMF. It implements background mode/color,
 `R2_COPYPEN`, `META_SETRELABS` no-op semantics, polygon fill mode, text-alignment
 state, text color, `CREATEFONTINDIRECT` object-table fonts, charset-decoded
-`TEXTOUT`, text/anisotropic map modes, set/offset/scale window and viewport state,
+`TEXTOUT`, and `EXTTEXTOUT` opaque/clipped rectangles and signed character
+advances, text/anisotropic map modes, set/offset/scale window and viewport state,
 move, lowest-free object-table allocation and slot
 reuse, selection/deletion, solid/null pens and brushes, polygons, polylines,
 poly-polygons, current-position lines, explicit-color device pixels, counterclockwise
@@ -144,13 +145,17 @@ implementation is based on the official
 [Font Object](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/dabb1ed6-e5e8-4243-80ed-e63443e5484f),
 [META_SETTEXTCOLOR](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/2bdfee2b-3016-4a6a-b4cd-c725ce9cb2a0),
 [META_TEXTOUT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/96531e1a-1875-49e5-b797-b4c4c50fa789),
+[META_EXTTEXTOUT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/7d07c44a-a828-4b82-9af0-e0a81cced5a8),
+[ExtTextOutOptions Flags](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/830cec14-2f3c-46f3-8f20-82b3da370573),
+[Rect Object](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/3ccb757b-5eaa-460c-9269-6b638484640f),
 [TextAlignmentMode Flags](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/2cf0d802-5db7-42f6-bb75-50ff195a6c7c),
 [META_PIE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/b3f3e55f-6f69-4678-87ea-e6feb6af6eeb),
 [META_CHORD](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/44aa3feb-ab01-47ca-9386-62acf7df5263),
 [META_ROUNDRECT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/9c262e3b-e631-4343-8b90-0441872f1e9a), and
 [state record](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/54e4a2e0-5ca9-4c69-b6a8-dc8f938c68ae)
-contracts. Paths, other clipping records, `EXTTEXTOUT` spacing/clipping,
-decorated or transformed fonts, SYMBOL glyph-index mapping, DIB images, richer GDI objects,
+contracts. Paths, other clipping records, `EXTTEXTOUT` glyph-index, numeric-
+substitution, two-dimensional, DBCS-advance, and bidi-advance modes, decorated
+or transformed fonts, SYMBOL glyph-index mapping, DIB images, richer GDI objects,
 other WMF drawing families, and nonstructural EMF+ drawing records remain
 explicit later tranches.
 
@@ -251,7 +256,7 @@ the saved scope, the outer intersection survives restoration, and a following
 unsupported record still rolls back the complete temporary stream. Restoring
 an unavailable relative level also fails before publishing commands.
 
-`Playback256WmfEllipsesToRetainedCommands` guards the WMF 16-bit bottom/right/top/left parameter order, selected brush and pen lowering, transactional append, and retained curve commands. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 millisecond median (1.109 millisecond mean, 0.115 millisecond standard deviation) and 622.14 KB managed allocation for 256 filled and stroked ellipses. One launch and three measured iterations make this a coarse first baseline. Focused gates verify selected fill/outline pixels, reject unordered bounds without publication, and prove that a following unsupported `EXTTEXTOUT` record does not publish a partially lowered ellipse stream. The complete drawing suite passes 414/414, and ApiCompat remains at 0 missing types, 0 missing members, and 13 reviewed platform-annotation differences.
+`Playback256WmfEllipsesToRetainedCommands` guards the WMF 16-bit bottom/right/top/left parameter order, selected brush and pen lowering, transactional append, and retained curve commands. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 millisecond median (1.109 millisecond mean, 0.115 millisecond standard deviation) and 622.14 KB managed allocation for 256 filled and stroked ellipses. One launch and three measured iterations make this a coarse first baseline. Focused gates verify selected fill/outline pixels, reject unordered bounds without publication, and prove that a following unsupported `STRETCHBLT` record does not publish a partially lowered ellipse stream. The complete drawing suite passes 418/418, and ApiCompat remains at 0 missing types, 0 missing members, and 13 reviewed platform-annotation differences.
 
 `Playback256WmfRoundRectanglesToRetainedCommands` guards the official height,
 width, bottom, right, top, left `META_ROUNDRECT` payload and typed selected
@@ -345,6 +350,17 @@ same five-iteration local ShortRun reduced managed allocation from 562.05 KB to
 550.25 KB per operation (11.80 KB, 2.1%). Its 1.140 millisecond median and 1.494
 millisecond mean were substantially noisier than the initial run, so this is an
 allocation result only; it does not establish a throughput improvement.
+
+`Playback256WmfExtTextOutWithClipAndAdvances` guards the official signed Y/X,
+length, flags, optional Rect, padded charset bytes, and optional signed `Dx`
+layout. Its 256 records each apply an opaque/clipped rectangle and three explicit
+character advances. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun
+measured a 5.874 millisecond median (5.929 millisecond mean, 0.970 millisecond
+standard deviation) with 3.28 MB allocated across five iterations. Exact clip,
+background, spaced glyph, current-position, malformed-array, unsupported-option,
+and rollback gates are authoritative. The coarse result exposes per-character
+shaping, glyph-command fragmentation, and clip-state ownership as explicit
+optimization targets rather than concealing them behind an API-only record.
 
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication

@@ -92,7 +92,9 @@ member suppression, leaving zero missing types, zero missing members, and 13
     rectangle blits, plus intersect/exclude/offset rectangle clip
     state. Typed `CREATEFONTINDIRECT`, `SETTEXTCOLOR`, and charset-decoded
     `TEXTOUT` add selected font/color output, alignment/current-position state,
-    and transparent or measured opaque backgrounds. WMF SaveDC and relative RestoreDC
+    and transparent or measured opaque backgrounds. `EXTTEXTOUT` adds explicit
+    opaque/clipped rectangles, RTL layout without explicit advances, and signed
+    one-byte-character advances. WMF SaveDC and relative RestoreDC
     snapshot window/viewport origins and extents, current point, world
     transform, fill/map/background/raster/text/background-color settings,
     selected pen, brush, and font, text color, and the typed `GraphicsState` clip; restoration
@@ -100,7 +102,8 @@ member suppression, leaving zero missing types, zero missing members, and 13
     `MM_TEXT`/`MM_ANISOTROPIC` state now includes set/offset origins and y-first
     ratio scaling for both window and viewport extents. Four-point
     perspective, image attributes, paths,
-    `EXTTEXTOUT` spacing/clipping, transformed or decorated fonts, SYMBOL
+    `EXTTEXTOUT` glyph-index, numeric-substitution, two-dimensional, DBCS-
+    advance, and bidi-advance modes, transformed or decorated fonts, SYMBOL
     glyph-index mapping, DIBs, other WMF drawing families, and nonstructural EMF+ drawing remain
     explicit follow-up work. Contract, security bounds, and benchmark evidence are recorded
 in
@@ -225,10 +228,10 @@ measured a 561.572 µs median (599.013 µs mean, 103.320 µs standard deviation)
 with 628.33 KB allocated. Three iterations make this coarse state-lowering
 evidence; independent inside, excluded-hole, restored-clip, intersection-edge,
 invalid-relative-level, and transactional-rollback gates remain authoritative.
-The complete drawing suite passes 414/414, and ApiCompat remains at zero
+The complete drawing suite passes 418/418, and ApiCompat remains at zero
 missing types, zero missing members, and 13 reviewed platform annotations.
 
-`MetafileBenchmarks.Playback256WmfEllipsesToRetainedCommands` guards typed WMF ellipse playback through the selected fill and outline objects. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 ms median (1.109 ms mean, 0.115 ms standard deviation) with 622.14 KB allocated for 256 ellipses. The three-iteration result is coarse retained-command evidence; exact pixels and rollback after a later unsupported `EXTTEXTOUT` record remain the independent correctness gates.
+`MetafileBenchmarks.Playback256WmfEllipsesToRetainedCommands` guards typed WMF ellipse playback through the selected fill and outline objects. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 ms median (1.109 ms mean, 0.115 ms standard deviation) with 622.14 KB allocated for 256 ellipses. The three-iteration result is coarse retained-command evidence; exact pixels and rollback after a later unsupported `STRETCHBLT` record remain the independent correctness gates.
 
 `MetafileBenchmarks.Playback256WmfRoundRectanglesToRetainedCommands` guards the
 official height/width plus bottom/right/top/left parameter order and typed
@@ -312,6 +315,15 @@ ShortRun reduced allocation from 562.05 KB to 550.25 KB per operation (11.80
 KB, 2.1%). The rerun's 1.140 ms median and 1.494 ms mean were much noisier, so
 only the allocation reduction is claimed; per-record measurement remains the
 larger explicit text-playback optimization target.
+
+`MetafileBenchmarks.Playback256WmfExtTextOutWithClipAndAdvances` guards 256
+official `EXTTEXTOUT` layouts with opaque/clipped Rect objects and three signed
+character advances each. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun
+measured a 5.874 ms median (5.929 ms mean, 0.970 ms standard deviation) with
+3.28 MB allocated across five iterations. Exact clip/background/spaced-glyph
+pixels, current-position progression, malformed arrays, unsupported options,
+and rollback remain the correctness gates. Per-character shaping, fragmented
+glyph commands, and clip-state ownership are explicit optimization debt.
 
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the
