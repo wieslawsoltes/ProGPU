@@ -343,9 +343,9 @@ evidence. Ten focused cases independently cover all four layouts, bottom-up
 padding, top-down and bottom-up partial bands, packed color tables, retained
 sampling, malformed usage/ROP/scan/buffer inputs, transactional rollback,
 playback-DC-only source boundaries, and a warmed allocation ceiling.
-RLE/JPEG/PNG/CMYK compression, logical palettes, playback-device-context sources, and
+JPEG/PNG/CMYK compression, logical palettes, playback-device-context sources, and
 device-dependent bitmaps remain explicit. ApiCompat remains 0/0/13.
-Both complete Debug and Release drawing suites pass 532/532.
+Both complete Debug and Release drawing suites pass 538/538.
 
 `MetafileBenchmarks.Playback256BitFieldDibImagesToRetainedCommands` extends the
 same shared decoder to 16/32-bit `BI_BITFIELDS`. Forty-byte headers supply three
@@ -360,6 +360,23 @@ ARM64/.NET 10.0.11 ShortRun measured a 17.411 ms median (16.561 ms mean,
 9.096 ms standard deviation) and 501.79 KB allocated for 256 packed RGB565
 images. Three iterations, denied priority elevation, and high timing variance
 make this allocation and ownership evidence, not a throughput comparison.
+
+`MetafileBenchmarks.Playback256RleDibImagesToRetainedCommands` extends the
+shared DIB path to bottom-up 8-bit `BI_RLE8` and 4-bit `BI_RLE4`. The bounded
+state machine validates encoded and absolute runs, RLE4 nibble alternation,
+word padding, end-of-line/end-of-bitmap escapes, deltas, exact `biSizeImage`,
+cursor/run bounds, and palette indexes before retained pixels publish. Skipped
+pixels use palette index zero, and partial `SetDIBitsToDevice` bands decode only
+their supplied rows. Six focused cases cover RLE8/RLE4 pixels, EMF/WMF scan
+bands, malformed-stream transactional rollback in both formats, and warmed
+allocation. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun measured a 30.944 ms
+median (25.515 ms mean, 16.116 ms standard deviation) and 509.73 KB allocated
+for 256 packed two-by-two RLE8 images. Three iterations and high timing variance
+make this allocation and command-ownership evidence rather than a throughput
+claim. The official contracts are
+[`Bitmap Compression`](https://learn.microsoft.com/en-us/windows/win32/gdi/bitmap-compression),
+[`Compression`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/4e588f70-bd92-4a6f-b77f-35d0feaf7a57), and the
+[`RLE4 bitmap example`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/73b57f24-6d78-4eeb-9c06-8f892d88f1ab).
 
 `MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
 Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11

@@ -46,6 +46,7 @@ public class MetafileBenchmarks
     private Metafile _wmfOffsetClipPatBltPlaybackMetafile = null!;
     private Metafile _wmfDibPlaybackMetafile = null!;
     private Metafile _bitFieldDibPlaybackMetafile = null!;
+    private Metafile _rleDibPlaybackMetafile = null!;
     private Metafile _wmfTextPlaybackMetafile = null!;
     private Metafile _wmfSpacedRotatedTextPlaybackMetafile = null!;
     private Metafile _wmfJustifiedRotatedTextPlaybackMetafile = null!;
@@ -132,6 +133,8 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackWmfDibImages(256), writable: false));
         _bitFieldDibPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfDibImages(256, bitFields: true), writable: false));
+        _rleDibPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackWmfRleImages(256), writable: false));
         _wmfTextPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfText(256), writable: false));
         _wmfSpacedRotatedTextPlaybackMetafile = new Metafile(
@@ -186,6 +189,7 @@ public class MetafileBenchmarks
         _wmfOffsetClipPatBltPlaybackMetafile.Dispose();
         _wmfDibPlaybackMetafile.Dispose();
         _bitFieldDibPlaybackMetafile.Dispose();
+        _rleDibPlaybackMetafile.Dispose();
         _wmfTextPlaybackMetafile.Dispose();
         _wmfSpacedRotatedTextPlaybackMetafile.Dispose();
         _wmfJustifiedRotatedTextPlaybackMetafile.Dispose();
@@ -312,6 +316,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _bitFieldDibPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256RleDibImagesToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _rleDibPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -1467,6 +1483,73 @@ public class MetafileBenchmarks
                 WriteUInt32(bytes, bits + 8, 0x00FF_0000);
                 WriteUInt32(bytes, bits + 12, 0x00FF_FFFF);
             }
+            cursor += recordBytes;
+        }
+
+        WriteUInt32(bytes, cursor, 3);
+        return bytes;
+    }
+
+    private static byte[] CreatePlaybackWmfRleImages(int recordCount)
+    {
+        const int recordWords = 44;
+        const int recordBytes = recordWords * 2;
+        int declaredWords = checked(9 + recordCount * recordWords + 3);
+        byte[] bytes = new byte[checked(22 + declaredWords * 2)];
+        WriteUInt32(bytes, 0, 0x9AC6_CDD7);
+        WriteInt16(bytes, 10, 640);
+        WriteInt16(bytes, 12, 480);
+        WriteUInt16(bytes, 14, 96);
+        ushort checksum = 0;
+        for (int offset = 0; offset < 20; offset += 2)
+        {
+            checksum ^= BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset, 2));
+        }
+        WriteUInt16(bytes, 20, checksum);
+
+        WriteUInt16(bytes, 22, 1);
+        WriteUInt16(bytes, 24, 9);
+        WriteUInt16(bytes, 26, 0x0300);
+        WriteUInt32(bytes, 28, (uint)declaredWords);
+        WriteUInt16(bytes, 32, 0);
+        WriteUInt32(bytes, 34, recordWords);
+
+        int cursor = 40;
+        for (int index = 0; index < recordCount; index++)
+        {
+            short x = checked((short)((index % 16) * 40));
+            short y = checked((short)((index / 16) * 30));
+            WriteUInt32(bytes, cursor, recordWords);
+            WriteUInt16(bytes, cursor + 4, 0x0F43);
+            WriteUInt32(bytes, cursor + 6, 0x00CC_0020);
+            WriteInt16(bytes, cursor + 12, 2);
+            WriteInt16(bytes, cursor + 14, 2);
+            WriteInt16(bytes, cursor + 20, 22);
+            WriteInt16(bytes, cursor + 22, 32);
+            WriteInt16(bytes, cursor + 24, y);
+            WriteInt16(bytes, cursor + 26, x);
+
+            int info = cursor + 28;
+            WriteUInt32(bytes, info, 40);
+            WriteInt32(bytes, info + 4, 2);
+            WriteInt32(bytes, info + 8, 2);
+            WriteUInt16(bytes, info + 12, 1);
+            WriteUInt16(bytes, info + 14, 8);
+            WriteUInt32(bytes, info + 16, 1);
+            WriteUInt32(bytes, info + 20, 8);
+            WriteUInt32(bytes, info + 32, 3);
+            WriteUInt32(bytes, info + 44, 0x0000_00FF);
+            WriteUInt32(bytes, info + 48, 0x00FF_0000);
+
+            int bits = cursor + 80;
+            bytes[bits] = 2;
+            bytes[bits + 1] = 1;
+            bytes[bits + 2] = 0;
+            bytes[bits + 3] = 0;
+            bytes[bits + 4] = 2;
+            bytes[bits + 5] = 2;
+            bytes[bits + 6] = 0;
+            bytes[bits + 7] = 1;
             cursor += recordBytes;
         }
 

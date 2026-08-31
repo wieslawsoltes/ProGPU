@@ -3403,7 +3403,7 @@ public sealed class MetafileParserTests
                 (EmfPlusRecordType.EmfStretchDIBits,
                     EmfStretchDibits(dib, new Rectangle(0, 0, 1, 1), new Rectangle(0, 0, 8, 8)))
             ]);
-            AssertBitFieldPlaybackRollsBack(emfFixture);
+            AssertDibPlaybackRollsBack(emfFixture);
 
             byte[] wmfFixture = CreatePlaybackWmf(
             [
@@ -3414,7 +3414,7 @@ public sealed class MetafileParserTests
                     new Rectangle(0, 0, 8, 8))),
                 (0, [])
             ]);
-            AssertBitFieldPlaybackRollsBack(wmfFixture);
+            AssertDibPlaybackRollsBack(wmfFixture);
         }
     }
 
@@ -3437,6 +3437,205 @@ public sealed class MetafileParserTests
                 WmfStretchDib(
                     dib,
                     new Rectangle(0, 0, 1, 1),
+                    new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8))));
+        }
+        records.Add((0, []));
+        using var metafile = new Metafile(new MemoryStream(
+            CreatePlaybackWmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 64 * 1024, 16 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void EmfStretchDibitsDecodesRle8EncodedAndAbsoluteRows()
+    {
+        TestDib dib = CreateRleDib(
+            4,
+            2,
+            8,
+            [2, 1, 2, 2, 0, 0, 0, 4, 3, 4, 3, 4, 0, 0, 0, 1],
+            [Color.Black, Color.Red, Color.Lime, Color.Blue, Color.White]);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfStretchDIBits,
+                EmfStretchDibits(dib, new Rectangle(0, 0, 4, 2), new Rectangle(8, 8, 16, 8)))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(32, 24);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(9, 9).ToArgb());
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(13, 9).ToArgb());
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(9, 13).ToArgb());
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(21, 13).ToArgb());
+    }
+
+    [Fact]
+    public void WmfStretchDibDecodesRle4EncodedAbsoluteDeltaAndDefaultPixels()
+    {
+        TestDib dib = CreateRleDib(
+            6,
+            3,
+            4,
+            [
+                6, 0x12, 0, 0,
+                0, 2, 2, 0, 2, 0x34, 0, 0,
+                0, 5, 0x12, 0x34, 0x50, 0, 0, 1
+            ],
+            [Color.Black, Color.Red, Color.Lime, Color.Blue, Color.White, Color.Yellow]);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x0F43, WmfStretchDib(
+                dib,
+                new Rectangle(0, 0, 6, 3),
+                new Rectangle(4, 4, 12, 6))),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(24, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(5, 5).ToArgb());
+        Assert.Equal(Color.Yellow.ToArgb(), target.GetPixel(13, 5).ToArgb());
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(15, 5).ToArgb());
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(5, 7).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(9, 7).ToArgb());
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(11, 7).ToArgb());
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(5, 9).ToArgb());
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(7, 9).ToArgb());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SetDibToDeviceDecodesOnlyTheSuppliedRleScanBand(bool wmf)
+    {
+        TestDib dib = CreateRleDib(
+            2,
+            4,
+            8,
+            [2, 2, 0, 0, 2, 1, 0, 1],
+            [Color.Black, Color.Red, Color.Blue]);
+        byte[] fixture = wmf
+            ? CreatePlaybackWmf(
+            [
+                (0x0D33, WmfSetDibToDevice(
+                    dib,
+                    new Rectangle(0, 0, 2, 4),
+                    new Point(8, 8),
+                    1,
+                    2)),
+                (0, [])
+            ])
+            : CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfSetDIBitsToDevice,
+                    EmfSetDibitsToDevice(
+                        dib,
+                        new Rectangle(0, 0, 2, 4),
+                        new Point(8, 8),
+                        1,
+                        2))
+            ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(16, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(0, target.GetPixel(8, 8).A);
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(8, 9).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(8, 10).ToArgb());
+        Assert.Equal(0, target.GetPixel(8, 11).A);
+    }
+
+    [Fact]
+    public void MalformedRleDibsRollBackEmfAndWmfPlayback()
+    {
+        Color[] palette = [Color.Black, Color.Red, Color.Lime, Color.Blue];
+        TestDib[] malformed =
+        [
+            CreateRleDib(4, 1, 8, [0, 2], palette),
+            CreateRleDib(4, 1, 8, [2, 1], palette),
+            CreateRleDib(4, 1, 8, [0, 1, 0, 0], palette),
+            CreateRleDib(4, 1, 8, [5, 1, 0, 1], palette),
+            CreateRleDib(4, 1, 8, [0, 2, 5, 0, 0, 1], palette),
+            CreateRleDib(4, 1, 8, [0, 3, 1, 2, 3, 9, 0, 1], palette),
+            CreateRleDib(4, 1, 8, [1, 7, 0, 1], palette),
+            CreateRleDib(4, -1, 8, [4, 1, 0, 1], palette),
+            CreateRleDib(4, 1, 4, [4, 0x12, 0, 1], palette, compression: 1),
+            WithRleImageSize(
+                CreateRleDib(4, 1, 8, [4, 1, 0, 1], palette),
+                2)
+        ];
+
+        foreach (TestDib dib in malformed)
+        {
+            byte[] emfFixture = CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfSetPixelV, EmfSetPixel(new Point(1, 1), Color.Red)),
+                (EmfPlusRecordType.EmfStretchDIBits,
+                    EmfStretchDibits(dib, new Rectangle(0, 0, 4, 1), new Rectangle(0, 0, 8, 8)))
+            ]);
+            AssertDibPlaybackRollsBack(emfFixture);
+
+            byte[] wmfFixture = CreatePlaybackWmf(
+            [
+                (0x041F, WmfSetPixel(Color.Red, new Point(1, 1))),
+                (0x0F43, WmfStretchDib(
+                    dib,
+                    new Rectangle(0, 0, 4, 1),
+                    new Rectangle(0, 0, 8, 8))),
+                (0, [])
+            ]);
+            AssertDibPlaybackRollsBack(wmfFixture);
+        }
+    }
+
+    [Fact]
+    public void RleDibPlaybackHasBoundedWarmedAllocation()
+    {
+        TestDib dib = CreateRleDib(
+            2,
+            2,
+            8,
+            [2, 1, 0, 0, 2, 2, 0, 1],
+            [Color.Black, Color.Red, Color.Blue]);
+        var records = new List<(ushort Function, byte[] Payload)>();
+        for (int index = 0; index < 64; index++)
+        {
+            records.Add((
+                0x0F43,
+                WmfStretchDib(
+                    dib,
+                    new Rectangle(0, 0, 2, 2),
                     new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8))));
         }
         records.Add((0, []));
@@ -5196,7 +5395,42 @@ public sealed class MetafileParserTests
         return new TestDib(info, dib.Bits);
     }
 
-    private static void AssertBitFieldPlaybackRollsBack(byte[] fixture)
+    private static TestDib CreateRleDib(
+        int width,
+        int signedHeight,
+        ushort bitCount,
+        byte[] bits,
+        Color[] palette,
+        uint? compression = null)
+    {
+        byte[] info = new byte[checked(40 + palette.Length * 4)];
+        WriteUInt32(info, 0, 40);
+        WriteInt32(info, 4, width);
+        WriteInt32(info, 8, signedHeight);
+        WriteUInt16(info, 12, 1);
+        WriteUInt16(info, 14, bitCount);
+        WriteUInt32(info, 16, compression ?? (bitCount == 8 ? 1u : 2u));
+        WriteUInt32(info, 20, checked((uint)bits.Length));
+        WriteUInt32(info, 32, checked((uint)palette.Length));
+        for (int index = 0; index < palette.Length; index++)
+        {
+            Color color = palette[index];
+            int offset = 40 + index * 4;
+            info[offset] = color.B;
+            info[offset + 1] = color.G;
+            info[offset + 2] = color.R;
+        }
+        return new TestDib(info, bits);
+    }
+
+    private static TestDib WithRleImageSize(in TestDib dib, uint imageSize)
+    {
+        byte[] info = dib.Info.ToArray();
+        WriteUInt32(info, 20, imageSize);
+        return new TestDib(info, dib.Bits);
+    }
+
+    private static void AssertDibPlaybackRollsBack(byte[] fixture)
     {
         using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
         var context = new DrawingContext();
@@ -5218,7 +5452,8 @@ public sealed class MetafileParserTests
     {
         const int fixedPayloadSize = 72;
         const int recordHeaderSize = 8;
-        byte[] payload = new byte[checked(fixedPayloadSize + dib.Info.Length + dib.Bits.Length)];
+        int unalignedPayloadSize = checked(fixedPayloadSize + dib.Info.Length + dib.Bits.Length);
+        byte[] payload = new byte[checked((unalignedPayloadSize + 3) & ~3)];
         WriteInt32(payload, 16, destination.X);
         WriteInt32(payload, 20, destination.Y);
         WriteInt32(payload, 24, source.X);
@@ -5248,7 +5483,8 @@ public sealed class MetafileParserTests
     {
         const int fixedPayloadSize = 68;
         const int recordHeaderSize = 8;
-        byte[] payload = new byte[checked(fixedPayloadSize + dib.Info.Length + dib.Bits.Length)];
+        int unalignedPayloadSize = checked(fixedPayloadSize + dib.Info.Length + dib.Bits.Length);
+        byte[] payload = new byte[checked((unalignedPayloadSize + 3) & ~3)];
         WriteInt32(payload, 16, destination.X);
         WriteInt32(payload, 20, destination.Y);
         WriteInt32(payload, 24, source.X);

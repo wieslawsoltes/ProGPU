@@ -19,6 +19,8 @@ internal static class MetafilePlaybackRenderer
     private const uint NullPen = 8;
     private const uint DibRgbColors = 0;
     private const uint BiRgb = 0;
+    private const uint BiRle8 = 1;
+    private const uint BiRle4 = 2;
     private const uint BiBitFields = 3;
     private const uint SrcCopy = 0x00CC_0020;
 
@@ -1259,12 +1261,25 @@ internal static class MetafilePlaybackRenderer
             throw Unsupported(record, $"DIB bit depth {bitCount} is not supported.");
         }
         uint compression = ReadUInt32(bitmapInfo, 16);
-        if (compression is not BiRgb and not BiBitFields)
+        if (compression is not BiRgb and not BiRle8 and not BiRle4 and not BiBitFields)
         {
-            throw Unsupported(record, "Only uncompressed BI_RGB and BI_BITFIELDS DIBs are supported.");
+            throw Unsupported(record, "Only BI_RGB, BI_RLE8, BI_RLE4, and BI_BITFIELDS DIBs are supported.");
         }
         bool usesBitFields = compression == BiBitFields;
         if (usesBitFields && bitCount is not 16 and not 32)
+        {
+            throw Invalid(record);
+        }
+        bool usesRle = compression is BiRle8 or BiRle4;
+        if (usesRle &&
+            (signedHeight < 0 ||
+             compression == BiRle8 && bitCount != 8 ||
+             compression == BiRle4 && bitCount != 4))
+        {
+            throw Invalid(record);
+        }
+        uint imageSize = ReadUInt32(bitmapInfo, 20);
+        if (usesRle && (imageSize == 0 || imageSize > int.MaxValue))
         {
             throw Invalid(record);
         }
@@ -1336,7 +1351,9 @@ internal static class MetafilePlaybackRenderer
             redMask,
             greenMask,
             blueMask,
-            alphaMask);
+            alphaMask,
+            compression,
+            usesRle ? (int)imageSize : 0);
     }
 
     private static void ValidateDibMasks(
@@ -1379,8 +1396,15 @@ internal static class MetafilePlaybackRenderer
         ReadOnlySpan<byte> bitmapBits,
         int rowCount)
     {
-        if (rowCount <= 0 || rowCount > dib.Height ||
-            bitmapBits.Length != checked(dib.RowStride * rowCount))
+        if (rowCount <= 0 || rowCount > dib.Height)
+        {
+            throw Invalid(record);
+        }
+        if (dib.Compression is BiRle8 or BiRle4)
+        {
+            return DecodeRleDib(record, dib, bitmapInfo, bitmapBits, rowCount);
+        }
+        if (bitmapBits.Length != checked(dib.RowStride * rowCount))
         {
             throw Invalid(record);
         }
@@ -1394,6 +1418,148 @@ internal static class MetafilePlaybackRenderer
             DecodeDibRow(record, dib, bitmapInfo, source, destination);
         }
         return Bitmap.CreateOwnedRgba(dib.Width, rowCount, rgba);
+    }
+
+    private static Bitmap DecodeRleDib(
+        in MetafileRecord record,
+        in DibInfo dib,
+        ReadOnlySpan<byte> bitmapInfo,
+        ReadOnlySpan<byte> bitmapBits,
+        int rowCount)
+    {
+        if (bitmapBits.Length != dib.CompressedSize)
+        {
+            throw Invalid(record);
+        }
+
+        byte[] indices = new byte[checked(dib.Width * rowCount)];
+        int cursor = 0;
+        int x = 0;
+        int y = 0;
+        bool ended = false;
+        while (cursor < bitmapBits.Length)
+        {
+            if (bitmapBits.Length - cursor < 2)
+            {
+                throw Invalid(record);
+            }
+            int count = bitmapBits[cursor++];
+            byte value = bitmapBits[cursor++];
+            if (count != 0)
+            {
+                EnsureRleRunFits(record, dib, rowCount, x, y, count);
+                for (int index = 0; index < count; index++)
+                {
+                    indices[y * dib.Width + x + index] = dib.Compression == BiRle8
+                        ? value
+                        : (byte)((index & 1) == 0 ? value >> 4 : value & 0x0F);
+                }
+                x += count;
+                continue;
+            }
+
+            switch (value)
+            {
+                case 0:
+                    if (y >= rowCount)
+                    {
+                        throw Invalid(record);
+                    }
+                    x = 0;
+                    y++;
+                    break;
+                case 1:
+                    ended = true;
+                    break;
+                case 2:
+                    if (bitmapBits.Length - cursor < 2 || y >= rowCount)
+                    {
+                        throw Invalid(record);
+                    }
+                    int deltaX = bitmapBits[cursor++];
+                    int deltaY = bitmapBits[cursor++];
+                    if (deltaX > dib.Width - x || deltaY >= rowCount - y)
+                    {
+                        throw Invalid(record);
+                    }
+                    x += deltaX;
+                    y += deltaY;
+                    break;
+                default:
+                    int absoluteCount = value;
+                    EnsureRleRunFits(record, dib, rowCount, x, y, absoluteCount);
+                    int dataBytes = dib.Compression == BiRle8
+                        ? absoluteCount
+                        : (absoluteCount + 1) / 2;
+                    int alignedBytes = (dataBytes + 1) & ~1;
+                    if (alignedBytes > bitmapBits.Length - cursor)
+                    {
+                        throw Invalid(record);
+                    }
+                    for (int index = 0; index < absoluteCount; index++)
+                    {
+                        byte packed = bitmapBits[cursor + (dib.Compression == BiRle8 ? index : index / 2)];
+                        indices[y * dib.Width + x + index] = dib.Compression == BiRle8
+                            ? packed
+                            : (byte)((index & 1) == 0 ? packed >> 4 : packed & 0x0F);
+                    }
+                    for (int padding = dataBytes; padding < alignedBytes; padding++)
+                    {
+                        if (bitmapBits[cursor + padding] != 0)
+                        {
+                            throw Invalid(record);
+                        }
+                    }
+                    cursor += alignedBytes;
+                    x += absoluteCount;
+                    break;
+            }
+            if (ended)
+            {
+                break;
+            }
+        }
+        if (!ended || cursor != bitmapBits.Length)
+        {
+            throw Invalid(record);
+        }
+
+        byte[] rgba = new byte[checked(dib.Width * rowCount * 4)];
+        for (int storedY = 0; storedY < rowCount; storedY++)
+        {
+            int outputY = rowCount - storedY - 1;
+            for (int pixelX = 0; pixelX < dib.Width; pixelX++)
+            {
+                ReadPaletteColor(
+                    record,
+                    dib,
+                    bitmapInfo,
+                    indices[storedY * dib.Width + pixelX],
+                    out byte red,
+                    out byte green,
+                    out byte blue);
+                int destination = (outputY * dib.Width + pixelX) * 4;
+                rgba[destination] = red;
+                rgba[destination + 1] = green;
+                rgba[destination + 2] = blue;
+                rgba[destination + 3] = byte.MaxValue;
+            }
+        }
+        return Bitmap.CreateOwnedRgba(dib.Width, rowCount, rgba);
+    }
+
+    private static void EnsureRleRunFits(
+        in MetafileRecord record,
+        in DibInfo dib,
+        int rowCount,
+        int x,
+        int y,
+        int count)
+    {
+        if (y >= rowCount || count > dib.Width - x)
+        {
+            throw Invalid(record);
+        }
     }
 
     private static void DecodeDibRow(
@@ -1524,7 +1690,9 @@ internal static class MetafilePlaybackRenderer
         uint RedMask,
         uint GreenMask,
         uint BlueMask,
-        uint AlphaMask);
+        uint AlphaMask,
+        uint Compression,
+        int CompressedSize);
 
     private static void DrawRectangle(
         PlaybackState state,
