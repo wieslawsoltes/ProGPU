@@ -1003,6 +1003,14 @@ int main()
             compat_rounded_rectangle_area,
             0.05F),
         "ProGPU rounded-rectangle area diverged from system Direct2D");
+    if (!approximately_equal(
+            system_rounded_rectangle_length,
+            compat_rounded_rectangle_length,
+            0.05F)) {
+        std::cerr << "Direct2D rounded-rectangle length diagnostic: system="
+                  << system_rounded_rectangle_length
+                  << ", ProGPU=" << compat_rounded_rectangle_length << '\n';
+    }
     require(
         approximately_equal(
             system_rounded_rectangle_length,
