@@ -2101,6 +2101,233 @@ int main()
             translated_gradient_stops[5].color.r ==
                 gradient_stops[1].color.red,
         "Direct2D linear/radial gradient scene translation changed");
+
+    ComPtr<ID2D1PathGeometry> scene_path_geometry;
+    require(SUCCEEDED(factory1->CreatePathGeometry(
+                scene_path_geometry.GetAddressOf())),
+        "Direct2D scene path geometry creation failed");
+    ComPtr<ID2D1GeometrySink> scene_path_geometry_sink;
+    require(SUCCEEDED(scene_path_geometry->Open(
+                scene_path_geometry_sink.GetAddressOf())),
+        "Direct2D scene path geometry did not open");
+    scene_path_geometry_sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+    scene_path_geometry_sink->BeginFigure(
+        D2D1::Point2F(5.0F, 6.0F),
+        D2D1_FIGURE_BEGIN_FILLED);
+    scene_path_geometry_sink->AddLine(D2D1::Point2F(20.0F, 6.0F));
+    scene_path_geometry_sink->AddBezier({
+        D2D1::Point2F(25.0F, 10.0F),
+        D2D1::Point2F(18.0F, 24.0F),
+        D2D1::Point2F(5.0F, 18.0F)});
+    scene_path_geometry_sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    scene_path_geometry_sink->BeginFigure(
+        D2D1::Point2F(30.0F, 30.0F),
+        D2D1_FIGURE_BEGIN_HOLLOW);
+    scene_path_geometry_sink->AddLine(D2D1::Point2F(34.0F, 30.0F));
+    scene_path_geometry_sink->AddLine(D2D1::Point2F(34.0F, 34.0F));
+    scene_path_geometry_sink->EndFigure(D2D1_FIGURE_END_OPEN);
+    require(SUCCEEDED(scene_path_geometry_sink->Close()),
+        "Direct2D scene path geometry did not close");
+
+    void* path_list_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_command_list(
+            surface,
+            &path_list_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            path_list_value != nullptr && native_hresult == S_OK,
+        "path command-list creation failed");
+    ComPtr<ID2D1CommandList> path_list;
+    path_list.Attach(static_cast<ID2D1CommandList*>(path_list_value));
+    require(
+        progpu_native_direct2d_surface_begin_command_list_draw(
+            surface,
+            path_list.Get()) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "path command-list recording did not begin");
+    context->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+    context->SetUnitMode(D2D1_UNIT_MODE_DIPS);
+    context->SetTextRenderingParams(nullptr);
+    context->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    const D2D1_MATRIX_3X2_F path_transform = D2D1::Matrix3x2F(
+        1.5F, 0.0F, 0.0F, 0.5F, 7.0F, 9.0F);
+    context->SetTransform(path_transform);
+    context->FillGeometry(
+        scene_path_geometry.Get(),
+        solid_brush.Get());
+    command_tag1 = 0U;
+    command_tag2 = 0U;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_end_command_list_draw(
+            surface,
+            &command_tag1,
+            &command_tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "path command-list recording did not close");
+    progpu_native_direct2d_scene_stream_result path_measure{};
+    path_measure.struct_size = static_cast<uint32_t>(sizeof(path_measure));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            path_list.Get(),
+            7005U,
+            1U,
+            nullptr,
+            0U,
+            &path_measure,
+            &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+            native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
+            path_measure.translated_draw_count == 1U &&
+            path_measure.failure_reason ==
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
+            (path_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_PATH_GEOMETRY) !=
+                0U,
+        "Direct2D filled-path scene size pass changed");
+    std::vector<uint8_t> path_stream(
+        static_cast<size_t>(path_measure.required_bytes));
+    progpu_native_direct2d_scene_stream_result path_write{};
+    path_write.struct_size = static_cast<uint32_t>(sizeof(path_write));
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            path_list.Get(),
+            7005U,
+            1U,
+            path_stream.data(),
+            path_stream.size(),
+            &path_write,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK && path_write.command_count == 1U &&
+            path_write.resource_count == 2U && path_write.brush_count == 1U &&
+            path_write.translated_draw_count == 1U,
+        "Direct2D filled-path scene write pass changed");
+    progpu_native_scene_header path_header{};
+    std::memcpy(&path_header, path_stream.data(), sizeof(path_header));
+    bool path_resource_found = false;
+    for (uint32_t index = 0U; index < path_header.resource_count; ++index) {
+        progpu_native_scene_resource resource{};
+        std::memcpy(
+            &resource,
+            path_stream.data() + path_header.resource_offset +
+                static_cast<size_t>(index) * path_header.resource_stride,
+            sizeof(resource));
+        if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_PATH_BATCH) {
+            continue;
+        }
+        require(
+            !path_resource_found &&
+                resource.payload_size == sizeof(progpu_native_scene_path_fill) &&
+                resource.auxiliary_size ==
+                    3U * sizeof(progpu_native_path_segment) &&
+                static_cast<uint64_t>(resource.payload_offset) +
+                    resource.payload_size <= path_stream.size() &&
+                static_cast<uint64_t>(resource.auxiliary_offset) +
+                    resource.auxiliary_size <= path_stream.size(),
+            "translated Direct2D path resource layout changed");
+        progpu_native_scene_path_fill translated_path{};
+        std::array<progpu_native_path_segment, 3U> translated_segments{};
+        std::memcpy(
+            &translated_path,
+            path_stream.data() + resource.payload_offset,
+            sizeof(translated_path));
+        std::memcpy(
+            translated_segments.data(),
+            path_stream.data() + resource.auxiliary_offset,
+            sizeof(translated_segments));
+        require(
+            translated_path.segment_offset == 0U &&
+                translated_path.segment_count == translated_segments.size() &&
+                translated_path.fill_rule == PROGPU_NATIVE_FILL_RULE_NON_ZERO &&
+                translated_path.sample_grid == 8U &&
+                translated_path.transform.m11 == path_transform._11 &&
+                translated_path.transform.m22 == path_transform._22 &&
+                translated_path.transform.m31 == path_transform._31 &&
+                translated_path.transform.m32 == path_transform._32 &&
+                translated_segments[0].kind ==
+                    PROGPU_NATIVE_PATH_SEGMENT_LINE &&
+                translated_segments[0].p0.x == 5.0F &&
+                translated_segments[0].p0.y == 6.0F &&
+                translated_segments[0].p1.x == 20.0F &&
+                translated_segments[0].p1.y == 6.0F &&
+                translated_segments[1].kind ==
+                    PROGPU_NATIVE_PATH_SEGMENT_CUBIC &&
+                translated_segments[1].p3.x == 5.0F &&
+                translated_segments[1].p3.y == 18.0F &&
+                translated_segments[2].kind ==
+                    PROGPU_NATIVE_PATH_SEGMENT_LINE &&
+                translated_segments[2].p0.x == 5.0F &&
+                translated_segments[2].p0.y == 18.0F &&
+                translated_segments[2].p1.x == 5.0F &&
+                translated_segments[2].p1.y == 6.0F,
+            "Direct2D filled-path contour translation changed");
+        path_resource_found = true;
+    }
+    require(path_resource_found,
+        "translated Direct2D scene omitted its path resource");
+
+    void* aliased_path_list_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_command_list(
+            surface,
+            &aliased_path_list_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            aliased_path_list_value != nullptr && native_hresult == S_OK,
+        "aliased-path command-list creation failed");
+    ComPtr<ID2D1CommandList> aliased_path_list;
+    aliased_path_list.Attach(
+        static_cast<ID2D1CommandList*>(aliased_path_list_value));
+    require(
+        progpu_native_direct2d_surface_begin_command_list_draw(
+            surface,
+            aliased_path_list.Get()) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "aliased-path command-list recording did not begin");
+    context->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+    context->SetUnitMode(D2D1_UNIT_MODE_DIPS);
+    context->SetTextRenderingParams(nullptr);
+    context->SetTransform(D2D1::Matrix3x2F::Identity());
+    context->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
+    context->FillGeometry(scene_path_geometry.Get(), solid_brush.Get());
+    command_tag1 = 0U;
+    command_tag2 = 0U;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_end_command_list_draw(
+            surface,
+            &command_tag1,
+            &command_tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "aliased-path command-list recording did not close");
+    progpu_native_direct2d_scene_stream_result aliased_path_scene{};
+    aliased_path_scene.struct_size =
+        static_cast<uint32_t>(sizeof(aliased_path_scene));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            aliased_path_list.Get(),
+            7006U,
+            1U,
+            nullptr,
+            0U,
+            &aliased_path_scene,
+            &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED &&
+            native_hresult == E_NOTIMPL &&
+            aliased_path_scene.failure_reason ==
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_STATE &&
+            aliased_path_scene.failure_callback_index != 0U &&
+            aliased_path_scene.written_bytes == 0U,
+        "aliased Direct2D filled path did not fail closed");
+
     progpu_native_direct2d_scene_stream_result scene_short{};
     scene_short.struct_size = static_cast<uint32_t>(sizeof(scene_short));
     native_hresult = S_OK;
