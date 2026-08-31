@@ -94,6 +94,19 @@ inline float distance(
     return std::hypot(second.x - first.x, second.y - first.y);
 }
 
+inline progpu_native_point metric_point(
+    progpu_native_point point,
+    const progpu_native_affine_2d* transform) noexcept {
+    if (transform == nullptr) {
+        return point;
+    }
+    // Translation cannot change arc length. Excluding it also avoids losing
+    // dash precision when a small curve is drawn at a very large world offset.
+    return {
+        point.x * transform->m11 + point.y * transform->m21,
+        point.x * transform->m12 + point.y * transform->m22};
+}
+
 inline bool near(
     progpu_native_point first,
     progpu_native_point second) noexcept {
@@ -231,6 +244,7 @@ struct length_table {
 
 inline bool build_length_table(
     const progpu_native_path_segment& segment,
+    const progpu_native_affine_2d* metric_transform,
     length_table& table) noexcept {
     table = {};
     if (!finite(segment.p0) || !finite(segment_end(segment))) {
@@ -239,7 +253,9 @@ inline bool build_length_table(
     switch (segment.kind) {
     case PROGPU_NATIVE_PATH_SEGMENT_LINE:
         table.segment_count = 1U;
-        table.total = distance(segment.p0, segment.p1);
+        table.total = distance(
+            metric_point(segment.p0, metric_transform),
+            metric_point(segment.p1, metric_transform));
         table.cumulative[1U] = table.total;
         break;
     case PROGPU_NATIVE_PATH_SEGMENT_QUADRATIC: {
@@ -247,11 +263,13 @@ inline bool build_length_table(
             return false;
         }
         table.segment_count = bezier_length_segment_count;
-        auto previous = segment.p0;
+        auto previous = metric_point(segment.p0, metric_transform);
         for (std::size_t index = 1U; index <= table.segment_count; ++index) {
-            const auto current = evaluate_quadratic(segment,
-                static_cast<float>(index) /
-                    static_cast<float>(table.segment_count));
+            const auto current = metric_point(
+                evaluate_quadratic(segment,
+                    static_cast<float>(index) /
+                        static_cast<float>(table.segment_count)),
+                metric_transform);
             table.total += distance(previous, current);
             table.cumulative[index] = table.total;
             previous = current;
@@ -263,11 +281,13 @@ inline bool build_length_table(
             return false;
         }
         table.segment_count = bezier_length_segment_count;
-        auto previous = segment.p0;
+        auto previous = metric_point(segment.p0, metric_transform);
         for (std::size_t index = 1U; index <= table.segment_count; ++index) {
-            const auto current = evaluate_cubic(segment,
-                static_cast<float>(index) /
-                    static_cast<float>(table.segment_count));
+            const auto current = metric_point(
+                evaluate_cubic(segment,
+                    static_cast<float>(index) /
+                        static_cast<float>(table.segment_count)),
+                metric_transform);
             table.total += distance(previous, current);
             table.cumulative[index] = table.total;
             previous = current;
@@ -293,14 +313,15 @@ inline bool build_length_table(
             static_cast<std::size_t>(std::clamp(requested_segment_count,
                 1.0F,
                 static_cast<float>(maximum_arc_length_segment_count)));
-        auto previous = segment.p0;
+        auto previous = metric_point(segment.p0, metric_transform);
         for (std::size_t index = 1U; index <= table.segment_count; ++index) {
-            const auto current =
+            const auto local_current =
                 index == table.segment_count
                     ? segment.p1
                     : evaluate_arc(segment,
                           static_cast<float>(index) /
                               static_cast<float>(table.segment_count));
+            const auto current = metric_point(local_current, metric_transform);
             table.total += distance(previous, current);
             table.cumulative[index] = table.total;
             previous = current;
@@ -590,7 +611,8 @@ inline result try_create_runs(
     std::span<const double> source_intervals,
     double offset,
     float thickness,
-    run_buffer& output) {
+    run_buffer& output,
+    const progpu_native_affine_2d* metric_transform = nullptr) {
     output.clear();
     if (segments.empty() || smooth_joins.size() != segments.size()) {
         return result::invalid;
@@ -606,7 +628,7 @@ inline result try_create_runs(
         ++segment_index) {
         const auto& source = segments[segment_index];
         detail::length_table table{};
-        if (!detail::build_length_table(source, table)) {
+        if (!detail::build_length_table(source, metric_transform, table)) {
             return result::invalid;
         }
         if (table.total <= epsilon) {

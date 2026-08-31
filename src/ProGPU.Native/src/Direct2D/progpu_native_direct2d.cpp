@@ -5884,10 +5884,6 @@ private:
         float stroke_width,
         ID2D1StrokeStyle* stroke_style) noexcept
     {
-        if (stroke_width == 0.0F) {
-            record_draw();
-            return S_OK;
-        }
         command_scene_stroke_style style{};
         HRESULT hr = translate_stroke_style(stroke_style, style);
         if (FAILED(hr)) {
@@ -5896,6 +5892,11 @@ private:
                     PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_BUILDER,
                     hr)
                 : fail_invalid_value();
+        }
+        if (stroke_width == 0.0F && style.transform_type !=
+            D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE) {
+            record_draw();
+            return S_OK;
         }
 
         auto* raw_sink = new (std::nothrow) CommandSceneStrokeSink();
@@ -6108,11 +6109,6 @@ private:
                             smooth_joins.end(),
                             [](uint8_t smooth) { return smooth != 0U; }));
             }
-            if (!use_polyline_batch && style.transform_type !=
-                D2D1_STROKE_TRANSFORM_TYPE_NORMAL) {
-                return E_NOINTERFACE;
-            }
-
             D2D1_RECT_F geometry_bounds{};
             progpu_native_image_rect bounds{};
             const float miter_extent = std::max(1.0F, style.miter_limit);
@@ -6196,7 +6192,10 @@ private:
                     stroke.dash_interval_count = style.dash_intervals.size();
                     stroke.color = {1.0F, 1.0F, 1.0F, 1.0F};
                     stroke.transform = native_transform();
-                    stroke.stroke_thickness = stroke_width;
+                    stroke.stroke_thickness = style.transform_type ==
+                            D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE
+                        ? 0.0F
+                        : stroke_width;
                     stroke.miter_limit = std::max(1.0F, style.miter_limit);
                     stroke.dash_offset = style.dash_offset;
                     stroke.start_cap = run.start_uses_dash_cap
@@ -6242,7 +6241,10 @@ private:
             } else {
                 semantic_path_stroke::style semantic_style{};
                 semantic_style.transform = native_transform();
-                semantic_style.thickness = stroke_width;
+                semantic_style.thickness = style.transform_type ==
+                        D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE
+                    ? 0.0F
+                    : stroke_width;
                 semantic_style.miter_limit =
                     std::max(1.0F, style.miter_limit);
                 semantic_style.dash_offset = style.dash_offset;
@@ -6253,6 +6255,15 @@ private:
                     ? PROGPU_NATIVE_STROKE_JOIN_MITER
                     : static_cast<uint32_t>(style.line_join);
                 semantic_style.primitive_flags = primitive_flags();
+                if (style.transform_type ==
+                    D2D1_STROKE_TRANSFORM_TYPE_FIXED) {
+                    semantic_style.primitive_flags |=
+                        PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE;
+                } else if (style.transform_type ==
+                    D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE) {
+                    semantic_style.primitive_flags |=
+                        PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE;
+                }
                 progpu::native::mil::curve_dash::run_buffer dash_scratch;
                 std::vector<progpu_native_geometry_primitive> primitives;
                 std::vector<uint32_t> brush_indices;

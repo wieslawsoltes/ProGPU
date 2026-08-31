@@ -1091,6 +1091,87 @@ bool semantic_path_strokes_preserve_curves_and_forced_joins() {
         std::ranges::all_of(
             brushes,
             [](std::uint32_t brush) { return brush == 7U; }));
+
+    progpu_native_path_segment device_curve{};
+    device_curve.kind = PROGPU_NATIVE_PATH_SEGMENT_CUBIC;
+    device_curve.p0 = {0.0F, 0.0F};
+    device_curve.p1 = {10.0F / 3.0F, 0.0F};
+    device_curve.p2 = {20.0F / 3.0F, 0.0F};
+    device_curve.p3 = {10.0F, 0.0F};
+    const std::array<std::uint8_t, 1U> device_join{};
+    const std::array device_pattern{2.0, 100.0};
+    style = {};
+    style.transform = {2.0F, 0.0F, 0.0F, 0.5F, 3.0F, -2.0F};
+    style.thickness = 2.0F;
+    style.miter_limit = 4.0F;
+
+    primitives.clear();
+    brushes.clear();
+    PROGPU_REQUIRE(
+        semantic_path_stroke::compile(
+            std::span<const progpu_native_path_segment>(&device_curve, 1U),
+            device_join,
+            false,
+            device_pattern,
+            style,
+            11U,
+            dash_scratch,
+            primitives,
+            brushes) == semantic_path_stroke::result::success);
+    PROGPU_REQUIRE(primitives.size() == 1U && brushes.size() == 1U);
+    PROGPU_REQUIRE(
+        primitives.front().kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER &&
+        std::abs(primitives.front().p3.x - 4.0F) < 0.001F &&
+        primitives.front().stroke_thickness == 2.0F &&
+        primitives.front().flags == 0U);
+
+    style.primitive_flags =
+        PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE;
+    primitives.clear();
+    brushes.clear();
+    PROGPU_REQUIRE(
+        semantic_path_stroke::compile(
+            std::span<const progpu_native_path_segment>(&device_curve, 1U),
+            device_join,
+            false,
+            device_pattern,
+            style,
+            12U,
+            dash_scratch,
+            primitives,
+            brushes) == semantic_path_stroke::result::success);
+    PROGPU_REQUIRE(primitives.size() == 1U && brushes.size() == 1U);
+    PROGPU_REQUIRE(
+        primitives.front().kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER &&
+        std::abs(primitives.front().p3.x - 2.0F) < 0.001F &&
+        primitives.front().stroke_thickness == 2.0F &&
+        (primitives.front().flags &
+            PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE) != 0U);
+
+    style.thickness = 0.0F;
+    style.primitive_flags = PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE;
+    primitives.clear();
+    brushes.clear();
+    PROGPU_REQUIRE(
+        semantic_path_stroke::compile(
+            std::span<const progpu_native_path_segment>(&device_curve, 1U),
+            device_join,
+            false,
+            device_pattern,
+            style,
+            13U,
+            dash_scratch,
+            primitives,
+            brushes) == semantic_path_stroke::result::success);
+    PROGPU_REQUIRE(primitives.size() == 1U && brushes.size() == 1U);
+    PROGPU_REQUIRE(
+        primitives.front().kind == PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER &&
+        std::abs(primitives.front().p3.x - 1.0F) < 0.001F &&
+        primitives.front().stroke_thickness == 0.0F &&
+        (primitives.front().flags &
+            PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE) != 0U);
+
+    style.thickness = 2.0F;
     style.primitive_flags =
         PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE |
         PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE;
@@ -1101,11 +1182,11 @@ bool semantic_path_strokes_preserve_curves_and_forced_joins() {
             false,
             {},
             style,
-            9U,
+            14U,
             dash_scratch,
             primitives,
             brushes) == semantic_path_stroke::result::invalid &&
-        primitives.size() == 3U && brushes.size() == 3U);
+        primitives.size() == 1U && brushes.size() == 1U);
     return true;
 }
 

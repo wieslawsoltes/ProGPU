@@ -185,8 +185,14 @@ inline result compile(
         std::isfinite(stroke.transform.m22) &&
         std::isfinite(stroke.transform.m31) &&
         std::isfinite(stroke.transform.m32);
+    const bool hairline = (stroke.primitive_flags &
+        PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE) != 0U;
+    const bool fixed_device = (stroke.primitive_flags &
+        PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE) != 0U;
     if (segments.empty() || smooth_joins.size() != segments.size() ||
-        !std::isfinite(stroke.thickness) || stroke.thickness <= 0.0F ||
+        !std::isfinite(stroke.thickness) ||
+        (hairline && stroke.thickness != 0.0F) ||
+        (!hairline && stroke.thickness <= 0.0F) ||
         !std::isfinite(stroke.miter_limit) || stroke.miter_limit < 1.0F ||
         !std::isfinite(stroke.dash_offset) || !finite_transform ||
         stroke.start_cap > PROGPU_NATIVE_STROKE_CAP_TRIANGLE ||
@@ -194,11 +200,7 @@ inline result compile(
         stroke.dash_cap > PROGPU_NATIVE_STROKE_CAP_TRIANGLE ||
         stroke.line_join > PROGPU_NATIVE_STROKE_JOIN_ROUND ||
         (stroke.primitive_flags & ~allowed_primitive_flags) != 0U ||
-        (stroke.primitive_flags &
-            (PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE |
-                PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE)) ==
-            (PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE |
-                PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE)) {
+        (hairline && fixed_device)) {
         return result::invalid;
     }
     const std::size_t primitive_start = primitives.size();
@@ -316,8 +318,9 @@ inline result compile(
                 closed,
                 dash_intervals,
                 stroke.dash_offset,
-                stroke.thickness,
-                dash_scratch);
+                hairline ? 1.0F : stroke.thickness,
+                dash_scratch,
+                hairline || fixed_device ? &stroke.transform : nullptr);
             if (dash_result ==
                 mil::curve_dash::result::capacity_exceeded) {
                 return rollback(result::capacity_exceeded);

@@ -235,6 +235,21 @@ int main()
             compat_returned_dashes[0] == 2.0F &&
             compat_returned_dashes[3] == 1.0F,
         "ProGPU stroke style metadata changed");
+    D2D1_STROKE_STYLE_PROPERTIES1 compat_hairline_properties =
+        compat_stroke_properties;
+    compat_hairline_properties.transformType =
+        D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE;
+    ComPtr<ID2D1StrokeStyle1> compat_hairline_stroke_style;
+    require(
+        compat_factory->CreateStrokeStyle(
+            &compat_hairline_properties,
+            compat_custom_dashes,
+            static_cast<UINT32>(std::size(compat_custom_dashes)),
+            &compat_hairline_stroke_style) == S_OK &&
+            compat_hairline_stroke_style != nullptr &&
+            compat_hairline_stroke_style->GetStrokeTransformType() ==
+                D2D1_STROKE_TRANSFORM_TYPE_HAIRLINE,
+        "ProGPU hairline stroke style creation failed");
     ComPtr<ID2D1StrokeStyle1> invalid_compat_stroke_style;
     require(
         compat_factory->CreateStrokeStyle(
@@ -2485,9 +2500,9 @@ int main()
     progpu_native_direct2d_command_stream_summary recorder_hint{};
     recorder_hint.struct_size = static_cast<uint32_t>(sizeof(recorder_hint));
     recorder_hint.clear_count = 1U;
-    recorder_hint.draw_count = 2U;
+    recorder_hint.draw_count = 4U;
     recorder_hint.fill_count = 2U;
-    recorder_hint.total_command_count = 5U;
+    recorder_hint.total_command_count = 7U;
     progpu_native_direct2d_scene_recorder* direct_recorder = nullptr;
     native_hresult = E_FAIL;
     require(
@@ -2571,6 +2586,22 @@ int main()
             3.0F,
             nullptr) == S_OK,
         "ProGPU Direct2D COM curved DrawGeometry callback failed");
+    const D2D1_MATRIX_3X2_F direct_device_stroke_transform =
+        D2D1::Matrix3x2F(2.0F, 0.0F, 0.0F, 0.5F, 3.0F, -2.0F);
+    require(
+        direct_sink->SetTransform(&direct_device_stroke_transform) == S_OK &&
+            direct_sink->DrawGeometry(
+                compat_path.Get(),
+                compat_solid_brush.Get(),
+                2.0F,
+                compat_stroke_style.Get()) == S_OK &&
+            direct_sink->DrawGeometry(
+                compat_path.Get(),
+                compat_solid_brush.Get(),
+                7.0F,
+                compat_hairline_stroke_style.Get()) == S_OK &&
+            direct_sink->SetTransform(&direct_transform) == S_OK,
+        "ProGPU Direct2D COM fixed/hairline curved DrawGeometry callback failed");
     require(
         direct_sink->EndDraw() == S_OK,
         "ProGPU Direct2D COM EndDraw callback failed");
@@ -2588,7 +2619,7 @@ int main()
             native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
             direct_measure.scene_id == 7002U &&
             direct_measure.generation == 10U &&
-            direct_measure.translated_draw_count == 4U &&
+            direct_measure.translated_draw_count == 6U &&
             direct_measure.failure_reason ==
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
             (direct_measure.flags &
@@ -2616,18 +2647,20 @@ int main()
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK &&
             direct_write.written_bytes == direct_scene_stream.size() &&
-            direct_write.command_count == 4U &&
-            direct_write.brush_count == 1U,
+            direct_write.command_count == 6U &&
+            direct_write.brush_count == 2U,
         "ProGPU Direct2D COM recorder write pass changed");
     const progpu_native_scene_header direct_scene_header =
         read_value<progpu_native_scene_header>(direct_scene_stream, 0U);
     require(
             direct_scene_header.scene_id == 7002U &&
             direct_scene_header.generation == 10U &&
-            direct_scene_header.command_count == 4U,
+            direct_scene_header.command_count == 6U,
         "ProGPU Direct2D COM recorder scene identity changed");
     bool direct_stroke_found = false;
-    bool direct_curved_stroke_found = false;
+    bool direct_normal_curved_stroke_found = false;
+    bool direct_fixed_curved_stroke_found = false;
+    bool direct_hairline_curved_stroke_found = false;
     for (uint32_t index = 0U;
          index < direct_scene_header.resource_count;
          ++index) {
@@ -2639,14 +2672,16 @@ int main()
                         direct_scene_header.resource_stride);
         if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_GEOMETRY_BATCH) {
             require(
-                !direct_curved_stroke_found &&
-                    resource.payload_size >=
-                        2U * sizeof(progpu_native_geometry_primitive) &&
+                resource.payload_size >=
+                        sizeof(progpu_native_geometry_primitive) &&
                     resource.payload_size %
                         sizeof(progpu_native_geometry_primitive) == 0U,
                 "ProGPU Direct2D curved stroke resource layout changed");
             bool cubic_found = false;
             bool forced_round_join_found = false;
+            bool fixed_device = false;
+            bool hairline = false;
+            bool classification_initialized = false;
             const size_t primitive_count = resource.payload_size /
                 sizeof(progpu_native_geometry_primitive);
             for (size_t primitive_index = 0U;
@@ -2657,9 +2692,38 @@ int main()
                         direct_scene_stream,
                         resource.payload_offset + primitive_index *
                             sizeof(progpu_native_geometry_primitive));
+                const bool primitive_fixed = (primitive.flags &
+                    PROGPU_NATIVE_PRIMITIVE_FLAG_FIXED_DEVICE_STROKE) != 0U;
+                const bool primitive_hairline = (primitive.flags &
+                    PROGPU_NATIVE_PRIMITIVE_FLAG_HAIRLINE) != 0U;
                 require(
-                    primitive.stroke_thickness == 3.0F,
+                    !(primitive_fixed && primitive_hairline),
+                    "ProGPU Direct2D curved stroke combined device-width modes");
+                if (!classification_initialized) {
+                    fixed_device = primitive_fixed;
+                    hairline = primitive_hairline;
+                    classification_initialized = true;
+                }
+                require(
+                    primitive_fixed == fixed_device &&
+                        primitive_hairline == hairline,
+                    "ProGPU Direct2D curved stroke mixed transform policies");
+                const float expected_thickness = hairline
+                    ? 0.0F
+                    : fixed_device ? 2.0F : 3.0F;
+                require(
+                    primitive.stroke_thickness == expected_thickness,
                     "ProGPU Direct2D curved stroke width changed");
+                if (fixed_device || hairline) {
+                    require(
+                        primitive.transform.m11 == 2.0F &&
+                            primitive.transform.m12 == 0.0F &&
+                            primitive.transform.m21 == 0.0F &&
+                            primitive.transform.m22 == 0.5F &&
+                            primitive.transform.m31 == 3.0F &&
+                            primitive.transform.m32 == -2.0F,
+                        "ProGPU Direct2D device-space curve transform changed");
+                }
                 cubic_found = cubic_found || primitive.kind ==
                     PROGPU_NATIVE_GEOMETRY_CUBIC_BEZIER;
                 forced_round_join_found = forced_round_join_found ||
@@ -2669,9 +2733,25 @@ int main()
                             PROGPU_NATIVE_STROKE_JOIN_ROUND);
             }
             require(
-                cubic_found && forced_round_join_found,
+                cubic_found &&
+                    ((fixed_device || hairline) || forced_round_join_found),
                 "ProGPU Direct2D curved stroke lost cubic or forced-round semantics");
-            direct_curved_stroke_found = true;
+            if (hairline) {
+                require(
+                    !direct_hairline_curved_stroke_found,
+                    "ProGPU Direct2D recorder duplicated the hairline curve");
+                direct_hairline_curved_stroke_found = true;
+            } else if (fixed_device) {
+                require(
+                    !direct_fixed_curved_stroke_found,
+                    "ProGPU Direct2D recorder duplicated the fixed curve");
+                direct_fixed_curved_stroke_found = true;
+            } else {
+                require(
+                    !direct_normal_curved_stroke_found,
+                    "ProGPU Direct2D recorder duplicated the normal curve");
+                direct_normal_curved_stroke_found = true;
+            }
             continue;
         }
         if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STROKE_BATCH) {
@@ -2720,8 +2800,11 @@ int main()
     }
     require(direct_stroke_found,
         "ProGPU Direct2D COM recorder omitted the retained stroke batch");
-    require(direct_curved_stroke_found,
-        "ProGPU Direct2D COM recorder omitted the analytic curved stroke");
+    require(
+        direct_normal_curved_stroke_found &&
+            direct_fixed_curved_stroke_found &&
+            direct_hairline_curved_stroke_found,
+        "ProGPU Direct2D COM recorder omitted a curved stroke transform policy");
     direct_base_sink.Reset();
     direct_sink.Reset();
     progpu_native_direct2d_scene_recorder_destroy(direct_recorder);
