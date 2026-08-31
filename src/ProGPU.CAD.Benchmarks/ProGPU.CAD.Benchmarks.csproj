@@ -10,5 +10,9 @@
   <ItemGroup>
     <ProjectReference Include="..\ProGPU.CAD\ProGPU.CAD.csproj" />
     <ProjectReference Include="..\ProGPU.Fonts.Inter\ProGPU.Fonts.Inter.csproj" />
+    <ProjectReference Include="..\ProGPU.Layout\ProGPU.Layout.csproj" />
+    <ProjectReference Include="..\ProGPU.Scene\ProGPU.Scene.csproj" />
+    <ProjectReference Include="..\ProGPU.Tests.Headless\ProGPU.Tests.Headless.csproj" />
+    <ProjectReference Include="..\ProGPU.WinUI\ProGPU.WinUI.csproj" />
   </ItemGroup>
 </Project>

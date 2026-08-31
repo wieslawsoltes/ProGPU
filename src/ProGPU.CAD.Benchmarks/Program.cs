@@ -1,5 +1,8 @@
 using System.Diagnostics;
 using System.Numerics;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using ACadSharp;
@@ -8,9 +11,29 @@ using ACadSharp.Header;
 using ACadSharp.Objects;
 using ACadSharp.Tables;
 using CSMath;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Media3D;
+using ProGPU.Backend;
 using ProGPU.CAD;
 using ProGPU.Fonts.Inter;
+using ProGPU.Scene;
+using ProGPU.Scene.Extensions;
 using ProGPU.Text;
+using ProGPU.Tests.Headless;
+
+int mesh3DReplayBatchCount = ReadNonNegativeInt(
+    "--mesh3d-replay-batches",
+    0);
+if (mesh3DReplayBatchCount != 0)
+{
+    RunMesh3DReplayBenchmark(
+        mesh3DReplayBatchCount,
+        ReadNonNegativeInt("--warmup", 12),
+        ReadPositiveInt("--iterations", 120),
+        ReadString("--output-json"));
+    return;
+}
 
 int polylineAuthoringSegmentCount = ReadNonNegativeInt(
     "--polyline-authoring-segments",
@@ -1121,6 +1144,242 @@ void RunCameraUpdateBenchmark(
     if (reportPath is not null)
     {
         File.WriteAllText(reportPath, reportJson);
+    }
+}
+
+void RunMesh3DReplayBenchmark(
+    int batchCount,
+    int warmupCount,
+    int iterationCount,
+    string? reportPath)
+{
+    using var window = new HeadlessWindow(
+        1280,
+        720,
+        CompositorOptions.Default with
+        {
+            EnableGpuHitTesting = false,
+        });
+    Viewport3D viewport = CreateMesh3DReplayViewport(batchCount);
+    window.Content = viewport;
+    window.Render();
+    Mesh3DFrameMetrics initial = viewport.LastMesh3DFrameMetrics;
+    if (initial.SceneCompilationCount != 1 ||
+        initial.GeometryVertexUploadBytes == 0 ||
+        initial.RecordUploadBytes == 0 ||
+        initial.RecordIndexUploadBytes == 0 ||
+        initial.GeometryResidentCount != 1 ||
+        initial.GeometryBufferResidentBytes == 0 ||
+        initial.ViewportResourceCount != 1 ||
+        initial.ViewportBufferResidentBytes == 0 ||
+        initial.LogicalTargetTextureBytes == 0 ||
+        initial.DrawCallCount != batchCount)
+    {
+        throw new InvalidOperationException(
+            $"Mesh3D first-frame contract failed: {initial}.");
+    }
+
+    var camera = (OrthographicCamera)viewport.Camera;
+    for (int i = 0; i < warmupCount; i++)
+    {
+        UpdateMesh3DReplayCamera(camera, i);
+        window.Render();
+        ValidateStableMesh3DReplay(
+            viewport.LastMesh3DFrameMetrics,
+            batchCount);
+    }
+
+    var elapsed = new double[iterationCount];
+    long allocatedStart =
+        GC.GetAllocatedBytesForCurrentThread();
+    long cameraAllocatedBytes = 0;
+    long renderAllocatedBytes = 0;
+    long validationAllocatedBytes = 0;
+    HeadlessRenderAllocationMetrics renderAllocationBreakdown = default;
+    ulong uniformUploadBytes = 0;
+    for (int i = 0; i < iterationCount; i++)
+    {
+        long cameraAllocationStart =
+            GC.GetAllocatedBytesForCurrentThread();
+        UpdateMesh3DReplayCamera(camera, warmupCount + i);
+        cameraAllocatedBytes +=
+            GC.GetAllocatedBytesForCurrentThread() -
+            cameraAllocationStart;
+        long started = Stopwatch.GetTimestamp();
+        long renderAllocationStart =
+            GC.GetAllocatedBytesForCurrentThread();
+        HeadlessRenderAllocationMetrics frameAllocations =
+            window.RenderWithAllocationMetrics();
+        renderAllocationBreakdown = new HeadlessRenderAllocationMetrics(
+            renderAllocationBreakdown.AnimationBytes +
+                frameAllocations.AnimationBytes,
+            renderAllocationBreakdown.MeasureBytes +
+                frameAllocations.MeasureBytes,
+            renderAllocationBreakdown.ArrangeBytes +
+                frameAllocations.ArrangeBytes,
+            renderAllocationBreakdown.CompositorBytes +
+                frameAllocations.CompositorBytes);
+        renderAllocatedBytes +=
+            GC.GetAllocatedBytesForCurrentThread() -
+            renderAllocationStart;
+        elapsed[i] = Stopwatch.GetElapsedTime(started)
+            .TotalMilliseconds;
+        Mesh3DFrameMetrics metrics =
+            viewport.LastMesh3DFrameMetrics;
+        long validationAllocationStart =
+            GC.GetAllocatedBytesForCurrentThread();
+        ValidateStableMesh3DReplay(metrics, batchCount);
+        uniformUploadBytes += metrics.UniformUploadBytes;
+        validationAllocatedBytes +=
+            GC.GetAllocatedBytesForCurrentThread() -
+            validationAllocationStart;
+    }
+    long allocatedBytes =
+        GC.GetAllocatedBytesForCurrentThread() - allocatedStart;
+    Mesh3DFrameMetrics stable =
+        viewport.LastMesh3DFrameMetrics;
+    CadMesh3DReplayBinaryHashes binarySha256 =
+        CaptureMesh3DReplayBinaryHashes();
+    var report = new CadMesh3DReplayBenchmarkReport(
+        DateTimeOffset.UtcNow,
+        Environment.OSVersion.ToString(),
+        Environment.Version.ToString(),
+        binarySha256.Benchmark,
+        binarySha256,
+        batchCount,
+        warmupCount,
+        iterationCount,
+        Summarize(
+            "managed-mesh3d-camera-frame-ms",
+            elapsed,
+            allocatedBytes / iterationCount),
+        allocatedBytes,
+        cameraAllocatedBytes,
+        renderAllocatedBytes,
+        validationAllocatedBytes,
+        renderAllocationBreakdown,
+        uniformUploadBytes,
+        initial,
+        stable);
+    string json = JsonSerializer.Serialize(
+        report,
+        new JsonSerializerOptions
+        {
+            WriteIndented = true,
+        });
+    Console.WriteLine(json);
+    if (reportPath is not null)
+    {
+        File.WriteAllText(reportPath, json);
+    }
+    window.Content = null;
+}
+
+CadMesh3DReplayBinaryHashes CaptureMesh3DReplayBinaryHashes() =>
+    new(
+        HashAssembly(Assembly.GetExecutingAssembly()),
+        HashAssembly(typeof(GpuTexture).Assembly),
+        HashAssembly(typeof(CadMesh3DViewCoordinator).Assembly),
+        HashAssembly(typeof(Compositor).Assembly),
+        HashAssembly(typeof(HeadlessWindow).Assembly),
+        HashAssembly(typeof(Viewport3D).Assembly));
+
+string HashAssembly(Assembly assembly) =>
+    Convert.ToHexString(
+        SHA256.HashData(File.ReadAllBytes(assembly.Location)))
+        .ToLowerInvariant();
+
+Viewport3D CreateMesh3DReplayViewport(int batchCount)
+{
+    var mesh = new MeshGeometry3D
+    {
+        Positions =
+        [
+            new Vector3(-0.45f, -0.35f, 0f),
+            new Vector3(0.45f, -0.35f, 0f),
+            new Vector3(0f, 0.45f, 0f),
+        ],
+        Normals =
+        [
+            -Vector3.UnitZ,
+            -Vector3.UnitZ,
+            -Vector3.UnitZ,
+        ],
+        TriangleIndices = [0, 1, 2],
+    };
+    var material = new DiffuseMaterial
+    {
+        Color = new Vector4(0.25f, 0.72f, 0.92f, 1f),
+        AmbientColor = new Vector3(0.2f),
+        SpecularColor = new Vector3(0.15f),
+        Shininess = 16f,
+    };
+    var viewport = new Viewport3D
+    {
+        EnableRetainedSceneCache = true,
+        Camera = new OrthographicCamera
+        {
+            Position = new Vector3(0f, 0f, -8f),
+            LookDirection = Vector3.UnitZ,
+            Width = 80f,
+        },
+        ShadingMode = ShadingMode3D.Flat,
+    };
+    int columns = (int)Math.Ceiling(Math.Sqrt(batchCount));
+    for (int i = 0; i < batchCount; i++)
+    {
+        float x = (i % columns) - columns * 0.5f;
+        float y = (i / columns) - columns * 0.5f;
+        viewport.Children.Add(new ModelVisual3D
+        {
+            Content = new GeometryModel3D
+            {
+                Geometry = mesh,
+                Material = material,
+                Transform = Matrix4x4.CreateTranslation(x, y, 0f),
+            },
+        });
+    }
+    viewport.InvalidateScene();
+    return viewport;
+}
+
+void UpdateMesh3DReplayCamera(
+    OrthographicCamera camera,
+    int frame)
+{
+    float phase = frame * 0.0075f;
+    Vector3 position = new(
+        MathF.Sin(phase) * 0.75f,
+        MathF.Cos(phase) * 0.5f,
+        -8f);
+    camera.SetView(position, -position);
+}
+
+void ValidateStableMesh3DReplay(
+    Mesh3DFrameMetrics metrics,
+    int batchCount)
+{
+    ulong expectedUniformBytes =
+        (ulong)Marshal.SizeOf<GpuMesh3DUniforms>();
+    if (!metrics.SceneReused ||
+        metrics.SceneCompilationCount != 0 ||
+        metrics.ModelVisualVisitCount != 0 ||
+        metrics.GeometryVertexUploadBytes != 0 ||
+        metrics.RecordUploadBytes != 0 ||
+        metrics.RecordIndexUploadBytes != 0 ||
+        metrics.UniformUploadBytes != expectedUniformBytes ||
+        metrics.GeometryResidentCount != 1 ||
+        metrics.GeometryBufferResidentBytes == 0 ||
+        metrics.ViewportResourceCount != 1 ||
+        metrics.ViewportBufferResidentBytes == 0 ||
+        metrics.LogicalTargetTextureBytes == 0 ||
+        metrics.DrawCallCount != batchCount ||
+        metrics.CommandBufferCount != 1 ||
+        metrics.QueueSubmissionCount != 1)
+    {
+        throw new InvalidOperationException(
+            $"Stable Mesh3D replay contract failed: {metrics}.");
     }
 }
 
@@ -2828,6 +3087,33 @@ internal sealed record CadCameraUpdateBenchmarkReport(
     double LargeToOneEntityP95Ratio,
     CadMesh3DViewStatistics OneEntityStatistics,
     CadMesh3DViewStatistics LargeSceneStatistics);
+
+internal sealed record CadMesh3DReplayBenchmarkReport(
+    DateTimeOffset CapturedAt,
+    string OperatingSystem,
+    string Runtime,
+    string BinarySha256,
+    CadMesh3DReplayBinaryHashes RelevantBinarySha256,
+    int BatchCount,
+    int WarmupCount,
+    int IterationCount,
+    Measurement FrameMilliseconds,
+    long TotalManagedAllocatedBytes,
+    long CameraManagedAllocatedBytes,
+    long RenderManagedAllocatedBytes,
+    long ValidationManagedAllocatedBytes,
+    HeadlessRenderAllocationMetrics RenderAllocationBreakdown,
+    ulong TotalUniformUploadBytes,
+    Mesh3DFrameMetrics InitialFrame,
+    Mesh3DFrameMetrics StableFrame);
+
+internal sealed record CadMesh3DReplayBinaryHashes(
+    string Benchmark,
+    string Backend,
+    string Cad,
+    string Scene,
+    string TestsHeadless,
+    string WinUI);
 
 internal sealed record CadBenchmarkReport(
     DateTimeOffset CapturedAt,

@@ -499,6 +499,29 @@ namespace Microsoft.UI.Xaml.Controls
             _retainedPayload = new();
         private readonly Mesh3DFrameMetricsTarget
             _metricsTarget = new();
+        private readonly Brush _compassBackgroundBrush =
+            new ThemeResourceBrush("CardBackground")
+            {
+                Opacity = 0.45f
+            };
+        private readonly Brush _compassOriginBrush =
+            new ThemeResourceBrush("TextPrimary")
+            {
+                Opacity = 0.85f
+            };
+        private readonly Brush _compassLabelBrush =
+            new ThemeResourceBrush("TextPrimary");
+        private readonly Brush _compassXBrush =
+            new ThemeResourceBrush("Viewport3DXAxis");
+        private readonly Brush _compassYBrush =
+            new ThemeResourceBrush("Viewport3DYAxis");
+        private readonly Brush _compassZBrush =
+            new ThemeResourceBrush("Viewport3DZAxis");
+        private readonly Pen _compassBorderPen;
+        private readonly Pen _compassTipBorderPen;
+        private readonly Pen _compassXPen;
+        private readonly Pen _compassYPen;
+        private readonly Pen _compassZPen;
 
         /// <summary>
         /// Enables generation-retained model compilation. Call
@@ -727,6 +750,18 @@ namespace Microsoft.UI.Xaml.Controls
 
         public Viewport3D()
         {
+            _compassBorderPen = new Pen(
+                new ThemeResourceBrush("ControlBorder"),
+                1f);
+            _compassTipBorderPen = new Pen(
+                new ThemeResourceBrush("TextPrimary")
+                {
+                    Opacity = 0.9f
+                },
+                1f);
+            _compassXPen = new Pen(_compassXBrush, 2f);
+            _compassYPen = new Pen(_compassYBrush, 2f);
+            _compassZPen = new Pen(_compassZBrush, 2f);
             _camera.Changed += OnCameraChanged;
             HorizontalAlignment = HorizontalAlignment.Stretch;
             VerticalAlignment = VerticalAlignment.Stretch;
@@ -849,6 +884,12 @@ namespace Microsoft.UI.Xaml.Controls
             payload.MsaaColorTexture = _msaaColorTexture;
             payload.DepthTexture = _depthTexture;
             payload.SampleCount = sampleCount;
+            ulong targetPixelCount = (ulong)width * height;
+            ulong targetSampleLayers =
+                1UL + sampleCount +
+                (sampleCount > 1 ? sampleCount : 0UL);
+            payload.LogicalTargetTextureBytes = checked(
+                targetPixelCount * 4UL * targetSampleLayers);
             payload.RenderMode = RenderMode;
             payload.ShadingMode = ShadingMode;
             payload.SceneGeneration = EnableRetainedSceneCache
@@ -1453,7 +1494,8 @@ namespace Microsoft.UI.Xaml.Controls
 
         private struct ProjectedAxis
         {
-            public Vector4 Color;
+            public Brush Brush;
+            public Pen Pen;
             public string Label;
             public Vector3 VCam;
             public Vector2 ProjPos;
@@ -1471,23 +1513,24 @@ namespace Microsoft.UI.Xaml.Controls
 
             Vector2 center = new Vector2(Size.X - padding, padding);
 
-            // Dynamic glass backdrop background and border
-            var bgBrush = new SolidColorBrush(new Vector4(0.08f, 0.08f, 0.1f, 0.45f));
-            var borderBrush = ThemeManager.GetBrush("ControlBorder", ActualTheme, ActualThemeFamily) 
-                              ?? new SolidColorBrush(new Vector4(0.25f, 0.25f, 0.3f, 0.4f));
-            var bgPen = new Pen(borderBrush, 1f);
-
-            context.FillCircle(bgBrush, center, bgRadius);
-            context.DrawCircle(null, bgPen, center, bgRadius);
+            context.FillCircle(
+                _compassBackgroundBrush,
+                center,
+                bgRadius);
+            context.DrawCircle(
+                null,
+                _compassBorderPen,
+                center,
+                bgRadius);
 
             // Project axes directions in camera space
-            var axisX = new ProjectedAxis { Color = new Vector4(0.92f, 0.25f, 0.25f, 1f), Label = "X", VCam = Vector3.TransformNormal(Vector3.UnitX, view) };
+            var axisX = new ProjectedAxis { Brush = _compassXBrush, Pen = _compassXPen, Label = "X", VCam = Vector3.TransformNormal(Vector3.UnitX, view) };
             axisX.ProjPos = new Vector2(center.X + axisX.VCam.X * axisLength, center.Y - axisX.VCam.Y * axisLength);
 
-            var axisY = new ProjectedAxis { Color = new Vector4(0.20f, 0.80f, 0.30f, 1f), Label = "Y", VCam = Vector3.TransformNormal(Vector3.UnitY, view) };
+            var axisY = new ProjectedAxis { Brush = _compassYBrush, Pen = _compassYPen, Label = "Y", VCam = Vector3.TransformNormal(Vector3.UnitY, view) };
             axisY.ProjPos = new Vector2(center.X + axisY.VCam.X * axisLength, center.Y - axisY.VCam.Y * axisLength);
 
-            var axisZ = new ProjectedAxis { Color = new Vector4(0.18f, 0.50f, 0.95f, 1f), Label = "Z", VCam = Vector3.TransformNormal(Vector3.UnitZ, view) };
+            var axisZ = new ProjectedAxis { Brush = _compassZBrush, Pen = _compassZPen, Label = "Z", VCam = Vector3.TransformNormal(Vector3.UnitZ, view) };
             axisZ.ProjPos = new Vector2(center.X + axisZ.VCam.X * axisLength, center.Y - axisZ.VCam.Y * axisLength);
 
             // Zero-allocation bubble sort of three elements by depth
@@ -1515,28 +1558,52 @@ namespace Microsoft.UI.Xaml.Controls
             }
 
             // Draw center origin dot
-            var originBrush = new SolidColorBrush(new Vector4(0.85f, 0.85f, 0.85f, 1f));
-            context.FillCircle(originBrush, center, 3.5f);
+            context.FillCircle(
+                _compassOriginBrush,
+                center,
+                3.5f);
 
-            var labelBrush = new SolidColorBrush(new Vector4(1f, 1f, 1f, 1f));
-            var tipBorderPen = new Pen(new SolidColorBrush(new Vector4(1f, 1f, 1f, 0.9f)), 1f);
+            DrawCompassAxis(
+                context,
+                first,
+                center,
+                tipRadius,
+                font);
+            DrawCompassAxis(
+                context,
+                second,
+                center,
+                tipRadius,
+                font);
+            DrawCompassAxis(
+                context,
+                third,
+                center,
+                tipRadius,
+                font);
+        }
 
-            // Draw axes in depth order
-            void DrawAxis(ProjectedAxis axis)
-            {
-                var linePen = new Pen(new SolidColorBrush(axis.Color), 2f);
-                context.DrawLine(linePen, center, axis.ProjPos);
-
-                var tipBrush = new SolidColorBrush(axis.Color);
-                context.FillCircle(tipBrush, axis.ProjPos, tipRadius);
-                context.DrawCircle(null, tipBorderPen, axis.ProjPos, tipRadius);
-
-                context.DrawText(axis.Label, font, 10f, labelBrush, axis.ProjPos + new Vector2(-3.5f, -5.5f), isBold: true);
-            }
-
-            DrawAxis(first);
-            DrawAxis(second);
-            DrawAxis(third);
+        private void DrawCompassAxis(
+            DrawingContext context,
+            ProjectedAxis axis,
+            Vector2 center,
+            float tipRadius,
+            TtfFont font)
+        {
+            context.DrawLine(axis.Pen, center, axis.ProjPos);
+            context.FillCircle(axis.Brush, axis.ProjPos, tipRadius);
+            context.DrawCircle(
+                null,
+                _compassTipBorderPen,
+                axis.ProjPos,
+                tipRadius);
+            context.DrawText(
+                axis.Label,
+                font,
+                10f,
+                _compassLabelBrush,
+                axis.ProjPos + new Vector2(-3.5f, -5.5f),
+                isBold: true);
         }
     }
 }

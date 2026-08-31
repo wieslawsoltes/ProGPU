@@ -21,9 +21,18 @@ public static class DisplayScaleResolver
 
     public static double ResolveWindowDisplayScale(IWindow? window, double monitorDpiScale)
     {
-        return ResolveDisplayScaleWithPlatformFallback(
-            monitorDpiScale,
-            () => TryResolveNativeWindowDisplayScale(window));
+        double normalizedMonitorScale =
+            NormalizeDisplayScale(monitorDpiScale);
+        if (normalizedMonitorScale > 1.0)
+        {
+            return normalizedMonitorScale;
+        }
+
+        double? platformDpiScale =
+            TryResolveNativeWindowDisplayScale(window);
+        return platformDpiScale.HasValue
+            ? NormalizeDisplayScale(platformDpiScale.Value)
+            : normalizedMonitorScale;
     }
 
     public static double ResolveDisplayScaleWithPlatformFallback(

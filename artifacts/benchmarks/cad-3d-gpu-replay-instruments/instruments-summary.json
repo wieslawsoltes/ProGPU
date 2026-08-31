@@ -1,0 +1,507 @@
+{
+  "SchemaVersion": 2,
+  "GeneratedUtc": "2026-08-31T22:08:28.254679+00:00",
+  "Resources": {
+    "Count": 74,
+    "TotalBytes": 9699328,
+    "LiveAtCaptureEndCount": 2,
+    "LiveAtCaptureEndBytes": 262144,
+    "Groups": [
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Count": 53,
+        "TotalBytes": 6946816,
+        "LiveAtCaptureEndCount": 2,
+        "LiveAtCaptureEndBytes": 262144
+      },
+      {
+        "Owner": "other",
+        "ResourceType": "Buffer",
+        "Count": 21,
+        "TotalBytes": 2752512,
+        "LiveAtCaptureEndCount": 0,
+        "LiveAtCaptureEndBytes": 0
+      }
+    ],
+    "LargestResources": [
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3903680833,
+        "LifetimeNanoseconds": 4065042,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3904927833,
+        "LifetimeNanoseconds": 2824333,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      },
+      {
+        "Owner": "other",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3905366000,
+        "LifetimeNanoseconds": 2389458,
+        "RelevantFrame": "0x10d483beb"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3906316500,
+        "LifetimeNanoseconds": 3169916,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3909698625,
+        "LifetimeNanoseconds": 7676125,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3911520416,
+        "LifetimeNanoseconds": 5901750,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3912006791,
+        "LifetimeNanoseconds": 5423625,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      },
+      {
+        "Owner": "other",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3912768125,
+        "LifetimeNanoseconds": 4665250,
+        "RelevantFrame": "0x10d483beb"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3912951375,
+        "LifetimeNanoseconds": 4487083,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      },
+      {
+        "Owner": "other",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3913526083,
+        "LifetimeNanoseconds": 3915583,
+        "RelevantFrame": "0x10d483beb"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3914103500,
+        "LifetimeNanoseconds": 4090333,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      },
+      {
+        "Owner": "other",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3914588916,
+        "LifetimeNanoseconds": 3611084,
+        "RelevantFrame": "0x10d483beb"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3916262541,
+        "LifetimeNanoseconds": 2901667,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3918294791,
+        "LifetimeNanoseconds": 5654084,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3919537833,
+        "LifetimeNanoseconds": 4558542,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3920837750,
+        "LifetimeNanoseconds": 3280583,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      },
+      {
+        "Owner": "other",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3921518333,
+        "LifetimeNanoseconds": 2603625,
+        "RelevantFrame": "0x10d483beb"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3921893708,
+        "LifetimeNanoseconds": 3046917,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      },
+      {
+        "Owner": "other",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3922158416,
+        "LifetimeNanoseconds": 2801209,
+        "RelevantFrame": "0x10d483beb"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3922311250,
+        "LifetimeNanoseconds": 2662375,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      },
+      {
+        "Owner": "other",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3922535541,
+        "LifetimeNanoseconds": 2464542,
+        "RelevantFrame": "0x10d483beb"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3922680458,
+        "LifetimeNanoseconds": 2333917,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      },
+      {
+        "Owner": "other",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3923601000,
+        "LifetimeNanoseconds": 1419375,
+        "RelevantFrame": "0x10d483beb"
+      },
+      {
+        "Owner": "wgpu-native",
+        "ResourceType": "Buffer",
+        "Label": "(wgpu internal) Staging",
+        "SizeBytes": 131072,
+        "LiveAtCaptureEnd": false,
+        "CreationNanoseconds": 3924154541,
+        "LifetimeNanoseconds": 2027709,
+        "RelevantFrame": "wgpu_hal::metal::device::_$LT$impl$u20$wgpu_hal..Device$LT$wgpu_hal..metal..Api$GT$$u20$for$u20$wgpu_hal..metal..Device$GT$::create_buffer::h9af284e0431d6175"
+      }
+    ]
+  },
+  "NativeAllocations": {
+    "HeapAndAnonymousVmPersistentBytes": 88533920,
+    "HeapPersistentBytes": 23260064,
+    "AnonymousVmPersistentBytes": 65273856,
+    "AllVmRegionsPersistentBytes": 885555200,
+    "HeapAndAnonymousVmTotalBytes": 1229502160,
+    "HeapAndAnonymousVmTransientBytes": 1140878928,
+    "LargestPersistentCategories": [
+      {
+        "Category": "VM: Memory Tag 255",
+        "PersistentBytes": 546062336,
+        "TotalBytes": 1603239936,
+        "TransientBytes": 1057177600,
+        "PersistentCount": 5,
+        "TotalCount": 8
+      },
+      {
+        "Category": "VM: Mapped File",
+        "PersistentBytes": 232275968,
+        "TotalBytes": 249741312,
+        "TransientBytes": 17465344,
+        "PersistentCount": 90,
+        "TotalCount": 108
+      },
+      {
+        "Category": "VM: IOAccelerator",
+        "PersistentBytes": 56328192,
+        "TotalBytes": 56688640,
+        "TransientBytes": 360448,
+        "PersistentCount": 672,
+        "TotalCount": 674
+      },
+      {
+        "Category": "VM: MALLOC_SMALL",
+        "PersistentBytes": 41943040,
+        "TotalBytes": 41943040,
+        "TransientBytes": 0,
+        "PersistentCount": 10,
+        "TotalCount": 10
+      },
+      {
+        "Category": "Malloc 64,00 KiB",
+        "PersistentBytes": 12124160,
+        "TotalBytes": 16777216,
+        "TransientBytes": 4653056,
+        "PersistentCount": 185,
+        "TotalCount": 256
+      },
+      {
+        "Category": "VM: Stack",
+        "PersistentBytes": 8683520,
+        "TotalBytes": 17367040,
+        "TransientBytes": 8683520,
+        "PersistentCount": 6,
+        "TotalCount": 12
+      },
+      {
+        "Category": "MTLResourceList",
+        "PersistentBytes": 3096576,
+        "TotalBytes": 3096576,
+        "TransientBytes": 0,
+        "PersistentCount": 63,
+        "TotalCount": 63
+      },
+      {
+        "Category": "Malloc 800,00 KiB",
+        "PersistentBytes": 819200,
+        "TotalBytes": 819200,
+        "TransientBytes": 0,
+        "PersistentCount": 1,
+        "TotalCount": 1
+      },
+      {
+        "Category": "Malloc 48 Bytes",
+        "PersistentBytes": 659376,
+        "TotalBytes": 5966688,
+        "TransientBytes": 5307312,
+        "PersistentCount": 13737,
+        "TotalCount": 124306
+      },
+      {
+        "Category": "Malloc 2,50 KiB",
+        "PersistentBytes": 401920,
+        "TotalBytes": 7434240,
+        "TransientBytes": 7029760,
+        "PersistentCount": 157,
+        "TotalCount": 2904
+      },
+      {
+        "Category": "Malloc 64 Bytes",
+        "PersistentBytes": 354304,
+        "TotalBytes": 2121152,
+        "TransientBytes": 1766848,
+        "PersistentCount": 5536,
+        "TotalCount": 33143
+      },
+      {
+        "Category": "Malloc 16,00 KiB",
+        "PersistentBytes": 327680,
+        "TotalBytes": 120143872,
+        "TransientBytes": 119816192,
+        "PersistentCount": 20,
+        "TotalCount": 7333
+      },
+      {
+        "Category": "Malloc 320,00 KiB",
+        "PersistentBytes": 327680,
+        "TotalBytes": 1966080,
+        "TransientBytes": 1638400,
+        "PersistentCount": 1,
+        "TotalCount": 6
+      },
+      {
+        "Category": "Malloc 48,00 KiB",
+        "PersistentBytes": 294912,
+        "TotalBytes": 353943552,
+        "TransientBytes": 353599488,
+        "PersistentCount": 6,
+        "TotalCount": 7201
+      },
+      {
+        "Category": "Malloc 272,00 KiB",
+        "PersistentBytes": 278528,
+        "TotalBytes": 10584064,
+        "TransientBytes": 10305536,
+        "PersistentCount": 1,
+        "TotalCount": 38
+      },
+      {
+        "Category": "Malloc 32 Bytes",
+        "PersistentBytes": 271584,
+        "TotalBytes": 4031392,
+        "TransientBytes": 3759808,
+        "PersistentCount": 8487,
+        "TotalCount": 125981
+      },
+      {
+        "Category": "Malloc 5,00 KiB",
+        "PersistentBytes": 271360,
+        "TotalBytes": 13020160,
+        "TransientBytes": 12743680,
+        "PersistentCount": 53,
+        "TotalCount": 2543
+      },
+      {
+        "Category": "Malloc 128,00 KiB",
+        "PersistentBytes": 262144,
+        "TotalBytes": 8650752,
+        "TransientBytes": 8388608,
+        "PersistentCount": 2,
+        "TotalCount": 66
+      },
+      {
+        "Category": "VM: Activity Tracing",
+        "PersistentBytes": 262144,
+        "TotalBytes": 262144,
+        "TransientBytes": 0,
+        "PersistentCount": 1,
+        "TotalCount": 1
+      },
+      {
+        "Category": "Malloc 8,00 KiB",
+        "PersistentBytes": 212992,
+        "TotalBytes": 60055552,
+        "TransientBytes": 59842560,
+        "PersistentCount": 26,
+        "TotalCount": 7331
+      },
+      {
+        "Category": "IOGPUMetalPooledResource",
+        "PersistentBytes": 206208,
+        "TotalBytes": 206208,
+        "TransientBytes": 0,
+        "PersistentCount": 537,
+        "TotalCount": 537
+      },
+      {
+        "Category": "Malloc 96,00 KiB",
+        "PersistentBytes": 196608,
+        "TotalBytes": 6586368,
+        "TransientBytes": 6389760,
+        "PersistentCount": 2,
+        "TotalCount": 67
+      },
+      {
+        "Category": "Malloc 3,50 KiB",
+        "PersistentBytes": 182784,
+        "TotalBytes": 530432,
+        "TransientBytes": 347648,
+        "PersistentCount": 51,
+        "TotalCount": 148
+      },
+      {
+        "Category": "Malloc 20,00 KiB",
+        "PersistentBytes": 163840,
+        "TotalBytes": 49418240,
+        "TransientBytes": 49233920,
+        "PersistentCount": 8,
+        "TotalCount": 2413
+      }
+    ],
+    "Details": {
+      "LiveCount": 0,
+      "LiveBytes": 0,
+      "LargestLiveGroups": []
+    }
+  },
+  "CurrentAllocatedSize": {
+    "Count": 149,
+    "Total": 10399580160,
+    "Maximum": 69795840,
+    "Last": 69795840
+  },
+  "DrawableWaits": {
+    "Count": 0,
+    "Total": 0,
+    "Maximum": 0,
+    "Last": 0
+  },
+  "CompilerSpills": {
+    "Count": 0,
+    "Total": 0,
+    "Maximum": 0,
+    "Last": 0
+  },
+  "CompilerSpillGroups": [],
+  "PotentialHangs": {
+    "Count": 0,
+    "TotalDurationNanoseconds": 0,
+    "MaximumDurationNanoseconds": 0,
+    "Groups": [],
+    "Intervals": []
+  },
+  "HangRiskCount": 0,
+  "CommandBufferErrorCount": 0,
+  "CommandBufferSubmissionCount": 417,
+  "CommandBufferCompletionCount": 548
+}

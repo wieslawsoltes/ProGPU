@@ -137,6 +137,9 @@ public static class ThemeManager
         { "SystemAccentColor", new Vector4(0.0f, 0.47f, 0.83f, 1.0f) }, // Segoe Blue: #0078D4
         { "SystemAccentColorLight1", new Vector4(0.17f, 0.53f, 0.85f, 1.0f) }, // Hover
         { "SystemAccentColorDark1", new Vector4(0.0f, 0.35f, 0.62f, 1.0f) }, // Pressed
+        { "Viewport3DXAxis", new Vector4(0.92f, 0.25f, 0.25f, 1f) },
+        { "Viewport3DYAxis", new Vector4(0.20f, 0.80f, 0.30f, 1f) },
+        { "Viewport3DZAxis", new Vector4(0.18f, 0.50f, 0.95f, 1f) },
         { "SelectionHighlight", new Vector4(0.0f, 0.47f, 0.83f, 0.25f) }, // Translucent Segoe Blue
         { "HeaderBackground", new Vector4(0.05f, 0.05f, 0.07f, 1.0f) }, // Deep Dark
         { "ScrollbarThumb", new Vector4(1f, 1f, 1f, 0.25f) }, // White 25%
@@ -174,6 +177,9 @@ public static class ThemeManager
         { "SystemAccentColor", new Vector4(0.0f, 0.47f, 0.83f, 1.0f) }, // Segoe Blue: #0078D4
         { "SystemAccentColorLight1", new Vector4(0.17f, 0.53f, 0.85f, 1.0f) }, // Hover
         { "SystemAccentColorDark1", new Vector4(0.0f, 0.35f, 0.62f, 1.0f) }, // Pressed
+        { "Viewport3DXAxis", new Vector4(0.82f, 0.12f, 0.12f, 1f) },
+        { "Viewport3DYAxis", new Vector4(0.08f, 0.62f, 0.18f, 1f) },
+        { "Viewport3DZAxis", new Vector4(0.05f, 0.38f, 0.82f, 1f) },
         { "SelectionHighlight", new Vector4(0.0f, 0.47f, 0.83f, 0.25f) }, // Translucent Segoe Blue
         { "HeaderBackground", new Vector4(0.92f, 0.92f, 0.94f, 1.0f) }, // Lighter header
         { "ScrollbarThumb", new Vector4(0f, 0f, 0f, 0.18f) }, // Black 18%
@@ -211,6 +217,9 @@ public static class ThemeManager
         { "SystemAccentColor", new Vector4(0.039f, 0.518f, 1.0f, 1.0f) }, // macOS Vibrant Accent Blue: #0A84FF
         { "SystemAccentColorLight1", new Vector4(0.2f, 0.6f, 1.0f, 1.0f) }, // Hover
         { "SystemAccentColorDark1", new Vector4(0.0f, 0.4f, 0.8f, 1.0f) }, // Pressed
+        { "Viewport3DXAxis", new Vector4(0.92f, 0.25f, 0.25f, 1f) },
+        { "Viewport3DYAxis", new Vector4(0.20f, 0.80f, 0.30f, 1f) },
+        { "Viewport3DZAxis", new Vector4(0.18f, 0.50f, 0.95f, 1f) },
         { "InactiveAccentColor", new Vector4(0.243f, 0.243f, 0.243f, 1f) },
         { "SystemGreenAccent", new Vector4(0.188f, 0.82f, 0.345f, 1f) },
         { "SelectionHighlight", new Vector4(0.039f, 0.518f, 1.0f, 0.3f) },
@@ -276,6 +285,9 @@ public static class ThemeManager
         { "SystemAccentColor", new Vector4(0.0f, 0.478f, 1.0f, 1.0f) }, // macOS System Blue: #007AFF
         { "SystemAccentColorLight1", new Vector4(0.15f, 0.55f, 1.0f, 1.0f) },
         { "SystemAccentColorDark1", new Vector4(0.0f, 0.39f, 0.84f, 1.0f) },
+        { "Viewport3DXAxis", new Vector4(0.82f, 0.12f, 0.12f, 1f) },
+        { "Viewport3DYAxis", new Vector4(0.08f, 0.62f, 0.18f, 1f) },
+        { "Viewport3DZAxis", new Vector4(0.05f, 0.38f, 0.82f, 1f) },
         { "InactiveAccentColor", new Vector4(0.863f, 0.863f, 0.863f, 1f) },
         { "SystemGreenAccent", new Vector4(0.203f, 0.78f, 0.349f, 1f) },
         { "SelectionHighlight", new Vector4(0.0f, 0.478f, 1.0f, 0.2f) },

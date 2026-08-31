@@ -2260,6 +2260,29 @@ work separately; it does not mislabel GPU draw submission as entity-independent.
 The clean-room research, two-part arithmetic, parity audit, and evidence are in
 [`PROGPU_CAD_3D_CAMERA_RESEARCH.md`](PROGPU_CAD_3D_CAMERA_RESEARCH.md).
 
+The shared CAD host enables the managed `Viewport3D` generation-retained scene
+contract after replacing its immutable batch generation. A camera-only frame
+reuses the compiled payload without recursively visiting `ModelVisual3D`
+nodes, retains device-local geometry and record/index buffers, writes exactly
+one 144-byte camera/lighting uniform, encodes one draw per retained batch, and
+contributes one Mesh3D command buffer to one extension submission. A typed
+record-only generation separates lighting/render-style changes from geometry
+recompilation. Generic mutable Media3D callers must explicitly call
+`InvalidateScene`; generation zero preserves the prior always-dynamic behavior.
+
+`Mesh3DFrameMetrics` distinguishes CPU scene compilation, model visits, cache
+hits/misses, actual geometry/record/index/uniform upload bytes, draw and command
+buffer counts, queue submissions, persistent geometry/viewport-buffer bytes,
+and logical target-texture bytes. Target accounting includes one single-sample
+resolved color layer, sample-count depth layers, and sample-count MSAA color
+layers when multisampling is active. It is deliberately logical accounting,
+not driver-reported physical residency. A context replacement disposes the old
+offscreen targets, creates a fresh extension pipeline, and rehydrates every
+device-owned buffer from the retained CPU generation without recompiling the
+CAD scene. The complete research, provenance, benchmark identity, native
+applicability, and macOS profiling record is in
+[`PROGPU_CAD_3D_GPU_REPLAY_RESEARCH.md`](PROGPU_CAD_3D_GPU_REPLAY_RESEARCH.md).
+
 The optional `ProGPU.CAD.Native` adapter writes all style batches into one
 existing native Mesh3D resource and one draw command. The stream is fixed-width,
 little-endian, pointer-free, and uses the existing native C ABI and canonical

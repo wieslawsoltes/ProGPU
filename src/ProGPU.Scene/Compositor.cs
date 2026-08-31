@@ -2906,8 +2906,9 @@ public unsafe partial class Compositor : IDisposable
             _currentDpiScale = (float)DisplayScaleResolver.ResolveWindowDisplayScale(_context.Window);
         }
 
-        var totalSw = System.Diagnostics.Stopwatch.StartNew();
-        var compileSw = System.Diagnostics.Stopwatch.StartNew();
+        long totalStarted =
+            System.Diagnostics.Stopwatch.GetTimestamp();
+        long compileStarted = totalStarted;
         _pathAtlas.CleanupFrame(
             _explicitRenderTargetWidth ?? width,
             _explicitRenderTargetHeight ?? height);
@@ -2999,8 +3000,10 @@ public unsafe partial class Compositor : IDisposable
         CommandEncoder* encoder = null;
         int preparedExtensionDrawCallRestoreStart = -1;
         bool renderBundleRecorded = false;
-        System.Diagnostics.Stopwatch uploadSw = null!;
-        System.Diagnostics.Stopwatch passSw = null!;
+        double compileTimeMs;
+        double uploadTimeMs;
+        long uploadStarted;
+        long passStarted;
         try
         {
 
@@ -3295,8 +3298,12 @@ SceneCompilationComplete:
             PrepareWavefrontComposite(width, height, renderWidth, renderHeight);
         }
 
-        compileSw.Stop();
-        uploadSw = System.Diagnostics.Stopwatch.StartNew();
+        long compileStopped =
+            System.Diagnostics.Stopwatch.GetTimestamp();
+        compileTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(
+            compileStarted,
+            compileStopped).TotalMilliseconds;
+        uploadStarted = compileStopped;
 
         // Dynamic buffer writing will happen after uploads to keep logic clear
 
@@ -3441,8 +3448,12 @@ SceneStateUploadComplete:
             _compiledRenderBundleDrawCallCount = _drawCalls.Count;
             renderBundleRecorded = true;
         }
-        uploadSw.Stop();
-        passSw = System.Diagnostics.Stopwatch.StartNew();
+        long uploadStopped =
+            System.Diagnostics.Stopwatch.GetTimestamp();
+        uploadTimeMs = System.Diagnostics.Stopwatch.GetElapsedTime(
+            uploadStarted,
+            uploadStopped).TotalMilliseconds;
+        passStarted = uploadStopped;
 
         // Recreate MSAA resources if needed (handles initialization and window resizing).
         // Single-sample compositors render directly into the acquired target and retain no
@@ -3830,15 +3841,23 @@ SceneStateUploadComplete:
         SweepUnusedLayerTextures(root, externalLayers, activeToolTip);
         _activeLayerTextureOwners.Clear();
 
-        passSw.Stop();
-        totalSw.Stop();
+        long passStopped =
+            System.Diagnostics.Stopwatch.GetTimestamp();
+        double passTimeMs =
+            System.Diagnostics.Stopwatch.GetElapsedTime(
+                passStarted,
+                passStopped).TotalMilliseconds;
+        double totalTimeMs =
+            System.Diagnostics.Stopwatch.GetElapsedTime(
+                totalStarted,
+                passStopped).TotalMilliseconds;
 
         Metrics = new CompositorMetrics
         {
-            FrameTimeMs = totalSw.Elapsed.TotalMilliseconds,
-            VisualTreeCompileTimeMs = compileSw.Elapsed.TotalMilliseconds,
-            GpuUploadTimeMs = uploadSw.Elapsed.TotalMilliseconds,
-            RenderPassTimeMs = passSw.Elapsed.TotalMilliseconds,
+            FrameTimeMs = totalTimeMs,
+            VisualTreeCompileTimeMs = compileTimeMs,
+            GpuUploadTimeMs = uploadTimeMs,
+            RenderPassTimeMs = passTimeMs,
             RenderTargetWidth = _explicitRenderTargetWidth ?? width,
             RenderTargetHeight = _explicitRenderTargetHeight ?? height,
             DpiScale = _currentDpiScale,

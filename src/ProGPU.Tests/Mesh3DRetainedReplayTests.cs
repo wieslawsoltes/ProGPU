@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Media3D;
@@ -11,6 +12,44 @@ namespace ProGPU.Tests;
 
 public sealed class Mesh3DRetainedReplayTests
 {
+    [Fact]
+    public void ViewportCompassAxesResolveDistinctThemeResources()
+    {
+        foreach (VisualThemeFamily family in new[]
+                 {
+                     VisualThemeFamily.WinUI,
+                     VisualThemeFamily.macOS
+                 })
+        {
+            foreach (ElementTheme theme in new[]
+                     {
+                         ElementTheme.Light,
+                         ElementTheme.Dark
+                     })
+            {
+                Vector4 x = ThemeManager.GetColor(
+                    "Viewport3DXAxis",
+                    theme,
+                    family);
+                Vector4 y = ThemeManager.GetColor(
+                    "Viewport3DYAxis",
+                    theme,
+                    family);
+                Vector4 z = ThemeManager.GetColor(
+                    "Viewport3DZAxis",
+                    theme,
+                    family);
+
+                Assert.Equal(1f, x.W);
+                Assert.Equal(1f, y.W);
+                Assert.Equal(1f, z.W);
+                Assert.NotEqual(x, y);
+                Assert.NotEqual(x, z);
+                Assert.NotEqual(y, z);
+            }
+        }
+    }
+
     [Fact]
     public void CameraReplayRetainsSceneUploadsAndRehydratesOnNewContext()
     {
@@ -34,6 +73,11 @@ public sealed class Mesh3DRetainedReplayTests
         Assert.Equal(
             (ulong)Marshal.SizeOf<GpuMesh3DUniforms>(),
             first.UniformUploadBytes);
+        Assert.Equal(1, first.GeometryResidentCount);
+        Assert.True(first.GeometryBufferResidentBytes > 0);
+        Assert.Equal(1, first.ViewportResourceCount);
+        Assert.True(first.ViewportBufferResidentBytes > 0);
+        Assert.True(first.LogicalTargetTextureBytes > 0);
         Assert.Equal(1, first.CommandBufferCount);
         Assert.Equal(1, first.QueueSubmissionCount);
 
@@ -57,7 +101,45 @@ public sealed class Mesh3DRetainedReplayTests
         Assert.Equal(
             (ulong)Marshal.SizeOf<GpuMesh3DUniforms>(),
             replay.UniformUploadBytes);
+        Assert.Equal(
+            first.GeometryResidentCount,
+            replay.GeometryResidentCount);
+        Assert.Equal(
+            first.GeometryBufferResidentBytes,
+            replay.GeometryBufferResidentBytes);
+        Assert.Equal(
+            first.ViewportResourceCount,
+            replay.ViewportResourceCount);
+        Assert.Equal(
+            first.ViewportBufferResidentBytes,
+            replay.ViewportBufferResidentBytes);
+        Assert.Equal(
+            first.LogicalTargetTextureBytes,
+            replay.LogicalTargetTextureBytes);
         Assert.Equal(1, replay.QueueSubmissionCount);
+
+        viewport.LightIntensity = 0.75f;
+        firstWindow.Render();
+        Mesh3DFrameMetrics recordsChanged =
+            viewport.LastMesh3DFrameMetrics;
+
+        Assert.True(recordsChanged.SceneReused);
+        Assert.Equal(replay.SceneGeneration, recordsChanged.SceneGeneration);
+        Assert.NotEqual(
+            replay.RecordGeneration,
+            recordsChanged.RecordGeneration);
+        Assert.Equal(0, recordsChanged.SceneCompilationCount);
+        Assert.Equal(0, recordsChanged.ModelVisualVisitCount);
+        Assert.Equal(0UL, recordsChanged.GeometryVertexUploadBytes);
+        Assert.True(recordsChanged.RecordUploadBytes > 0);
+        Assert.True(recordsChanged.RecordIndexUploadBytes > 0);
+        Assert.Equal(
+            replay.GeometryBufferResidentBytes,
+            recordsChanged.GeometryBufferResidentBytes);
+        Assert.Equal(
+            replay.ViewportBufferResidentBytes,
+            recordsChanged.ViewportBufferResidentBytes);
+        Assert.Equal(1, recordsChanged.QueueSubmissionCount);
 
         mesh.Positions =
         [
@@ -72,10 +154,16 @@ public sealed class Mesh3DRetainedReplayTests
         Assert.False(changed.SceneReused);
         Assert.Equal(1, changed.SceneCompilationCount);
         Assert.Equal(1, changed.ModelVisualVisitCount);
-        Assert.NotEqual(replay.SceneGeneration, changed.SceneGeneration);
+        Assert.NotEqual(
+            recordsChanged.SceneGeneration,
+            changed.SceneGeneration);
         Assert.True(changed.GeometryVertexUploadBytes > 0);
         Assert.True(changed.RecordUploadBytes > 0);
         Assert.True(changed.RecordIndexUploadBytes > 0);
+        Assert.Equal(1, changed.GeometryResidentCount);
+        Assert.True(changed.GeometryBufferResidentBytes > 0);
+        Assert.Equal(1, changed.ViewportResourceCount);
+        Assert.True(changed.ViewportBufferResidentBytes > 0);
 
         firstWindow.Content = null;
         using var replacementWindow = new HeadlessWindow(128, 96);
@@ -91,6 +179,17 @@ public sealed class Mesh3DRetainedReplayTests
         Assert.True(rehydrated.GeometryVertexUploadBytes > 0);
         Assert.True(rehydrated.RecordUploadBytes > 0);
         Assert.True(rehydrated.RecordIndexUploadBytes > 0);
+        Assert.Equal(1, rehydrated.GeometryResidentCount);
+        Assert.Equal(
+            changed.GeometryBufferResidentBytes,
+            rehydrated.GeometryBufferResidentBytes);
+        Assert.Equal(1, rehydrated.ViewportResourceCount);
+        Assert.Equal(
+            changed.ViewportBufferResidentBytes,
+            rehydrated.ViewportBufferResidentBytes);
+        Assert.Equal(
+            changed.LogicalTargetTextureBytes,
+            rehydrated.LogicalTargetTextureBytes);
         Assert.Equal(1, rehydrated.QueueSubmissionCount);
 
         replacementWindow.Content = null;

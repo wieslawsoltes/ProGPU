@@ -49,6 +49,11 @@ namespace ProGPU.Scene.Extensions
         ulong RecordUploadBytes,
         ulong RecordIndexUploadBytes,
         ulong UniformUploadBytes,
+        int GeometryResidentCount,
+        ulong GeometryBufferResidentBytes,
+        int ViewportResourceCount,
+        ulong ViewportBufferResidentBytes,
+        ulong LogicalTargetTextureBytes,
         int CommandBufferCount,
         int QueueSubmissionCount);
 
@@ -397,7 +402,10 @@ namespace ProGPU.Scene.Extensions
         private ulong _frameRecordUploadBytes;
         private ulong _frameRecordIndexUploadBytes;
         private ulong _frameUniformUploadBytes;
+        private ulong _frameLogicalTargetTextureBytes;
         private int _frameCommandBufferCount;
+        private ulong _geometryBufferResidentBytes;
+        private ulong _viewportBufferResidentBytes;
         private unsafe BindGroupLayout* _solidBindGroupLayout;
         private unsafe BindGroupLayout* _textureBindGroupLayout;
         private unsafe BindGroupLayout*
@@ -682,6 +690,7 @@ namespace ProGPU.Scene.Extensions
             _frameRecordUploadBytes = 0;
             _frameRecordIndexUploadBytes = 0;
             _frameUniformUploadBytes = 0;
+            _frameLogicalTargetTextureBytes = 0;
             _frameCommandBufferCount = 0;
             _pendingMetricsTargets.Clear();
             if (_pendingCommandBuffers.Count > 0)
@@ -703,6 +712,7 @@ namespace ProGPU.Scene.Extensions
                 cache.VertexBuffer.Dispose();
             }
             _geometryCache.Clear();
+            _geometryBufferResidentBytes = 0;
 
             if (_context != null)
             {
@@ -710,6 +720,7 @@ namespace ProGPU.Scene.Extensions
                 {
                     res.Dispose(_context);
                 }
+                _viewportBufferResidentBytes = 0;
                 ReleasePendingTextureResources(_context);
                 var wgpu = _context.Api;
                 if (_whiteLinearBindGroup != null)
@@ -1240,6 +1251,8 @@ namespace ProGPU.Scene.Extensions
             _frameMeshCount += payload.Meshes.Count;
             _frameSceneCompilationCount += payload.SceneCompilationCount;
             _frameModelVisualVisitCount += payload.ModelVisualVisitCount;
+            _frameLogicalTargetTextureBytes +=
+                payload.LogicalTargetTextureBytes;
             if (payload.MetricsTarget is { } metricsTarget &&
                 !_pendingMetricsTargets.Contains(metricsTarget))
             {
@@ -1251,7 +1264,12 @@ namespace ProGPU.Scene.Extensions
             // Ensure pooled resource exists for current viewport compile index
             while (_viewportResources.Count <= _currentCompileIndex)
             {
-                _viewportResources.Add(new ViewportResource(compositor.Context, uniformsSize));
+                var viewportResource = new ViewportResource(
+                    compositor.Context,
+                    uniformsSize);
+                _viewportResources.Add(viewportResource);
+                _viewportBufferResidentBytes +=
+                    viewportResource.UniformsBuffer.AllocatedSize;
             }
             var res = _viewportResources[_currentCompileIndex];
 
@@ -1262,8 +1280,15 @@ namespace ProGPU.Scene.Extensions
             bool recordBufferChanged = false;
             if (res.DynamicRecordsBuffer == null || res.DynamicRecordsBuffer.Size < reqRecordsSize)
             {
+                if (res.DynamicRecordsBuffer is { } oldRecordsBuffer)
+                {
+                    _viewportBufferResidentBytes -=
+                        oldRecordsBuffer.AllocatedSize;
+                }
                 res.DynamicRecordsBuffer?.Dispose();
                 res.DynamicRecordsBuffer = new GpuBuffer(compositor.Context, reqRecordsSize * 2, BufferUsage.Storage | BufferUsage.CopyDst, "Dynamic Mesh3D Records Buffer");
+                _viewportBufferResidentBytes +=
+                    res.DynamicRecordsBuffer.AllocatedSize;
                 res.RecordGen = -1; // Force bind group recreation
                 recordBufferChanged = true;
             }
@@ -1272,12 +1297,19 @@ namespace ProGPU.Scene.Extensions
             if (res.RecordIndexBuffer == null ||
                 res.RecordIndexBuffer.Size < reqRecordIndicesSize)
             {
+                if (res.RecordIndexBuffer is { } oldIndexBuffer)
+                {
+                    _viewportBufferResidentBytes -=
+                        oldIndexBuffer.AllocatedSize;
+                }
                 res.RecordIndexBuffer?.Dispose();
                 res.RecordIndexBuffer = new GpuBuffer(
                     compositor.Context,
                     reqRecordIndicesSize * 2,
                     BufferUsage.Vertex | BufferUsage.CopyDst,
                     "Dynamic Mesh3D Record Indices Buffer");
+                _viewportBufferResidentBytes +=
+                    res.RecordIndexBuffer.AllocatedSize;
                 recordIndexBufferChanged = true;
             }
 
@@ -1624,9 +1656,19 @@ namespace ProGPU.Scene.Extensions
             }
 
             // 6. Begin offscreen WebGPU Render Pass targeting the custom color and depth textures!
-            var encoderDesc = new CommandEncoderDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Mesh3D Offscreen Encoder") };
-            var encoder = wgpu.DeviceCreateCommandEncoder(device, &encoderDesc);
-            SilkMarshal.Free((nint)encoderDesc.Label);
+            CommandEncoder* encoder;
+            ReadOnlySpan<byte> encoderLabel =
+                "Mesh3D Offscreen Encoder\0"u8;
+            fixed (byte* encoderLabelPointer = encoderLabel)
+            {
+                var encoderDesc = new CommandEncoderDescriptor
+                {
+                    Label = encoderLabelPointer
+                };
+                encoder = wgpu.DeviceCreateCommandEncoder(
+                    device,
+                    &encoderDesc);
+            }
 
             var colorAttachment = new RenderPassColorAttachment
             {
@@ -1670,6 +1712,8 @@ namespace ProGPU.Scene.Extensions
                 {
                     if (cache.Version != entry.GeometryVersion)
                     {
+                        _geometryBufferResidentBytes -=
+                            cache.VertexBuffer.AllocatedSize;
                         cache.VertexBuffer.Dispose();
                         needsRebuild = true;
                         _frameGeometryCacheMissCount++;
@@ -1708,6 +1752,8 @@ namespace ProGPU.Scene.Extensions
                     var vBuffer = new GpuBuffer(compositor.Context, vSize, BufferUsage.Vertex | BufferUsage.CopyDst, "3D Mesh Vertex Buffer");
                     vBuffer.Write(cpuVertices);
                     _frameGeometryVertexUploadBytes += vSize;
+                    _geometryBufferResidentBytes +=
+                        vBuffer.AllocatedSize;
 
                     cache = new CachedGeometry
                     {
@@ -1810,9 +1856,20 @@ namespace ProGPU.Scene.Extensions
             wgpu.RenderPassEncoderRelease(pass);
 
             // 8. Add offscreen command buffer to the deferred submission queue
-            var cmdDesc = new CommandBufferDescriptor { Label = (byte*)SilkMarshal.StringToPtr("Mesh3D Offscreen Command Buffer") };
-            var cmdBuffer = wgpu.CommandEncoderFinish(encoder, &cmdDesc);
-            SilkMarshal.Free((nint)cmdDesc.Label);
+            CommandBuffer* cmdBuffer;
+            ReadOnlySpan<byte> commandBufferLabel =
+                "Mesh3D Offscreen Command Buffer\0"u8;
+            fixed (byte* commandBufferLabelPointer =
+                       commandBufferLabel)
+            {
+                var cmdDesc = new CommandBufferDescriptor
+                {
+                    Label = commandBufferLabelPointer
+                };
+                cmdBuffer = wgpu.CommandEncoderFinish(
+                    encoder,
+                    &cmdDesc);
+            }
 
             _pendingCommandBuffers.Add((nint)cmdBuffer);
             _frameCommandBufferCount++;
@@ -1892,6 +1949,11 @@ namespace ProGPU.Scene.Extensions
                 _frameRecordUploadBytes,
                 _frameRecordIndexUploadBytes,
                 _frameUniformUploadBytes,
+                _geometryCache.Count,
+                _geometryBufferResidentBytes,
+                _viewportResources.Count,
+                _viewportBufferResidentBytes,
+                _frameLogicalTargetTextureBytes,
                 _frameCommandBufferCount,
                 queueSubmissionCount);
             for (int i = 0; i < _pendingMetricsTargets.Count; i++)
@@ -1923,6 +1985,7 @@ namespace ProGPU.Scene.Extensions
         public int SceneCompilationCount { get; set; }
         public int ModelVisualVisitCount { get; set; }
         public Mesh3DFrameMetricsTarget? MetricsTarget { get; set; }
+        public ulong LogicalTargetTextureBytes { get; set; }
         public Vector2 ViewportSize { get; set; } = new Vector2(400f, 300f);
         public Vector3 LightDirection { get; set; } = new Vector3(0.5f, 1f, -0.5f);
         public float LightIntensity { get; set; } = 1.0f;

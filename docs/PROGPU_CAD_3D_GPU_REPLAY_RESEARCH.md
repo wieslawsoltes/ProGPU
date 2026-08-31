@@ -1,6 +1,6 @@
 # ProGPU.CAD retained managed Mesh3D replay research and contract
 
-Status: design gate, 2026-08-31
+Status: implemented and verified, 2026-08-31
 
 ## Scope and clean-room provenance
 
@@ -58,10 +58,11 @@ traversal and geometry/record/index uploads from stable camera replay.
 object model currently exposes mutable lists and materials without a complete
 typed change-notification graph. With the option enabled, the caller must use
 `InvalidateScene` after changing children, model transforms, geometry arrays,
-materials, lighting, render mode, or shading mode. The method advances a
-nonzero scene/record generation and invalidates the visual. Camera mutation,
-target size, DPI, and offscreen texture replacement do not advance that
-generation.
+or materials. The method advances a nonzero scene/record generation and
+invalidates the visual. Typed lighting, render-mode, and shading-mode setters
+advance only the record generation because they do not change model traversal
+or geometry. Camera mutation, target size, DPI, and offscreen texture
+replacement advance neither generation.
 
 One retained payload and its mesh-entry list are rebuilt only when the scene
 generation changes. A stable camera frame updates target references and camera
@@ -99,30 +100,67 @@ not claimed to be entity-independent.
 Managed frame metrics report the immutable generation and whether it was
 reused; viewport, mesh, and draw counts; scene compilations/model visits;
 geometry cache hits/misses; geometry, record, index, and uniform upload bytes;
-command buffers; and the shared queue submission count. The submission count
-is a pipeline-frame total and must not be summed across viewport snapshots.
-Matched native applicability uses the existing `NativeSceneUpdateMetrics` and
-`NativeSceneFrameMetrics`: stable native replay likewise performs no scene
-update and reports its actual bounded frame uploads/submission. No native code,
-C ABI, generated wire declaration, or canonical shader changes in this
-checkpoint.
+resident geometry/resource counts and buffer bytes; logical color/MSAA/depth
+target bytes; command buffers; and the shared queue submission count. Logical
+target bytes are format/sample accounting, not a claim about driver allocation
+or physical GPU residency. The submission count is a pipeline-frame total and
+must not be summed across viewport snapshots. Matched native applicability uses
+the existing `NativeSceneUpdateMetrics` and `NativeSceneFrameMetrics`: stable
+native replay likewise performs no scene update and reports its actual bounded
+frame uploads/submission. No native code, C ABI, generated wire declaration,
+or canonical shader changes in this checkpoint.
 
-## Required verification
+## Verification evidence
 
-The implementation is incomplete until focused real-WebGPU regressions prove:
+The focused real-WebGPU regression
+`Mesh3DRetainedReplayTests.CameraReplayRetainsSceneUploadsAndRehydratesOnNewContext`
+proves:
 
 - first retained render uploads records, indices, and geometry;
 - camera-only replay reuses the scene with zero geometry/record/index upload,
   one bounded uniform upload, and one shared submission;
+- a lighting-only record generation reuses compiled model geometry while
+  reuploading records and indices;
 - explicit scene invalidation rebuilds and reuploads the correct generation;
 - a replacement WebGPU context rehydrates targets, records, and geometry from
   retained CPU data without retaining old-device resources;
-- the CAD sample enables the contract and advances it exactly once per mesh
-  generation;
-- equivalent native stable replay counters remain valid.
+- persistent geometry, viewport buffers, and logical target accounting remain
+  stable across camera replay and are rebuilt in the replacement context.
 
-Release p50/p95/p99, managed allocations, upload bytes, submissions, and GPU
-resource residency must be measured with the same final binaries. On macOS the
-representative GPU workload additionally requires matched Time Profiler,
-Allocations/VM Tracker, and Metal System Trace captures before a performance
-claim is made.
+`CadMesh3DViewportTests.SharedSamplePreservesOrbitCameraUntilExplicitResetOrFit`
+proves that the shared CAD sample enables retention, preserves camera state,
+and advances one mesh generation exactly once. Native applicability is covered
+by `progpu_native_webscene_provider_tests.cpp`: its semantic-scene lanes assert
+zero vertex/index/texture upload on stable replay, rebuild after Dawn engine
+replacement, and zero-upload replay after recovery. The native C++ renderer
+already owned this retained semantic-scene contract, so duplicating the new
+managed `Viewport3D` frontend there is not applicable.
+
+The Release `--mesh3d-replay-batches` lane records SHA-256 identities for the
+benchmark, backend, CAD, scene, headless host, and WinUI assemblies. Checked-in
+one- and 512-batch reports use 24 warmups and 480 sequentially measured camera
+frames. Both report zero managed allocation, zero model visits, zero
+geometry/record/index
+upload, one 144-byte uniform upload, one command buffer, and one submission per
+stable frame. The one-batch p50/p95/p99 is
+0.3733/1.3845/6.3927 milliseconds; the 512-batch result is
+0.4060/1.5921/5.7145 milliseconds. The 512-batch lane retains one 96-byte
+shared geometry buffer, 462,992 viewport-buffer bytes, and 33,177,600 logical
+target bytes; draw encoding remains intentionally `O(B)`.
+
+Matched macOS Allocations, Time Profiler, and Metal System Trace exports are
+retained under `artifacts/benchmarks/cad-3d-gpu-replay-instruments`. Instruments
+reports 88,533,920 bytes of persistent heap/anonymous VM during the extended
+instrumented process, 1,229,502,160 aggregate allocated bytes, and
+1,140,878,928 transient bytes; none of these values is managed-object residency.
+The Time Profiler samples confirm repeated wgpu Metal render-pass validation,
+resource tracking, the bounded queue write, and queue submission, with no
+repeated CAD scene compilation in the profiled stack. Metal System Trace
+observed 417 submissions, 548 completions, a 69,795,840-byte maximum
+`currentAllocatedSize`, and 74 buffer allocations totaling 9,699,328 bytes.
+Only two observed buffers totaling 262,144 bytes lacked a recorded deallocation
+before the short capture ended. It observed no drawable waits, compiler spills,
+potential hangs, hang risks, or command-buffer errors. The capture is a short
+diagnostic window rather than a steady-state physical-residency ceiling;
+uninstrumented p50/p95/p99 and typed upload/residency counters remain the
+performance source of truth.
