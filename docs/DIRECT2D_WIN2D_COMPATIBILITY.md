@@ -1603,10 +1603,12 @@ and exposes the original alternate or winding fill mode. Null entries,
 invalid fill modes, and cross-factory sources fail closed.
 
 The factory simplifies every immutable source once into one retained
-multi-figure path and restores the group fill mode after each child. A
-transformed child therefore contributes its already qualified composed path,
-while later analysis and `FillGeometry` recording reuse one pointer-free scene
-resource without per-frame child traversal, CPU readback, or pixel repacking.
+multi-figure path. A typed forwarding sink filters each child's attempted
+`SetFillMode` call, because Direct2D geometry sinks accept the authoritative
+mode only before the first figure. A transformed child therefore contributes
+its already qualified composed path, while later analysis and `FillGeometry`
+recording reuse one pointer-free scene resource without per-frame child
+traversal, CPU readback, or pixel repacking.
 Nested groups return `E_NOTIMPL` until the Direct2D compatibility scene carries
 an explicit nested predicate tree. An inner predicate is never silently
 replaced with the outer rule, including when both metadata values happen to
@@ -1616,8 +1618,18 @@ The native oracle covers ordered source identity, factory/COM identity,
 metadata, two independently positioned children, bounds, containment, area,
 length, simplified topology, malformed and incompatible creation, semantic
 fill lowering, and a system-Direct2D world-transform differential. Focused
-managed ABI contracts pass 5/5. Windows MSVC/native qualification is pending
-for exact implementation checkpoint `501136d3`.
+managed ABI contracts pass 5/5.
+
+The first Windows attempt at `0e93f94e` compiled and linked but failed the
+Direct2D CTest at group creation. It proved that child `Simplify` calls were
+trying to change the underlying sink fill mode after its first figure. The
+typed forwarding sink in `ada83ef7` makes the group mode authoritative without
+changing child geometry or adding a renderer fallback. That exact corrected
+checkpoint passes the hosted
+[`Native C++20 compiler compatibility (MSVC)` job](https://github.com/wieslawsoltes/ProGPU/actions/runs/33422845973/job/99589327621):
+the provider and oracle compile, the geometry-group system differential and
+semantic recorder pass, and all 11 native CTests pass. This qualifies ABI v54
+on Windows x64.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages

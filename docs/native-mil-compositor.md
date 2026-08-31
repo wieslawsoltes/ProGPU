@@ -5877,6 +5877,8 @@ passes, and all 11 native CTests pass. This qualifies ABI v53 on Windows x64.
 Direct2D compatibility ABI v54 adds a ProGPU-owned `ID2D1GeometryGroup`.
 The immutable resource retains ordered child and factory COM identities,
 alternate/winding metadata, and one multi-figure path built from its sources.
+A typed forwarding sink preserves the one group fill mode while suppressing
+the source simplifiers' child-local mode publication after the first figure.
 Transformed children enter that path through their composed simplification;
 bounds, containment, metrics, topology, and semantic fills then reuse the same
 pointer-free scene path without per-frame child expansion, CPU readback, or a
@@ -5886,8 +5888,15 @@ Nested groups, null children, invalid modes, and cross-factory resources fail
 closed rather than losing an inner fill predicate. The native oracle compares
 identity, ordered sources, two independently positioned members, analysis,
 simplified topology, failure behavior, and world-transformed output with
-system Direct2D. Focused managed ABI contracts pass 5/5; Windows qualification
-remains pending for exact implementation `501136d3`.
+system Direct2D. Focused managed ABI contracts pass 5/5.
+
+The first `0e93f94e` Windows run compiled and linked but failed group creation
+because child simplifiers attempted to republish their fill mode after the
+target sink's first figure. Corrected `ada83ef7` uses the typed forwarding sink
+described above and passes the hosted
+[`Native C++20 compiler compatibility (MSVC)` job](https://github.com/wieslawsoltes/ProGPU/actions/runs/33422845973/job/99589327621):
+the system Direct2D group differential, semantic recorder, and all 11 native
+CTests pass. ABI v54 is qualified on Windows x64.
 
 ## Managed glyph row-reuse SIMD checkpoint
 
