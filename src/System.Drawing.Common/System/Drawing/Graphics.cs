@@ -1375,6 +1375,27 @@ public partial class Graphics :
 
     public Color GetNearestColor(Color color) => color;
 
+    internal void SetTransformedPixel(Color color, Point point)
+    {
+        ThrowIfDisposed();
+        Vector2 transformed = Vector2.Transform(new Vector2(point.X, point.Y), CombinedTransform);
+        if (!float.IsFinite(transformed.X) || !float.IsFinite(transformed.Y))
+        {
+            throw new ArgumentException("Parameter is not valid.");
+        }
+
+        Point devicePixel = Point.Round(new PointF(transformed.X, transformed.Y));
+        var brush = new ProGPU.Vector.SolidColorBrush(new Vector4(
+            color.R / 255f,
+            color.G / 255f,
+            color.B / 255f,
+            color.A / 255f));
+        _context.DrawRectangle(
+            brush,
+            null,
+            new Rect(devicePixel.X, devicePixel.Y, 1f, 1f));
+    }
+
     public void DrawLine(Pen pen, PointF p1, PointF p2) => DrawLine(pen, p1.X, p1.Y, p2.X, p2.Y);
     public void DrawLine(Pen pen, Point p1, Point p2) => DrawLine(pen, p1.X, p1.Y, p2.X, p2.Y);
     public void DrawLine(Pen pen, int x1, int y1, int x2, int y2) => DrawLine(pen, (float)x1, y1, x2, y2);

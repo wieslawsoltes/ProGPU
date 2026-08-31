@@ -106,6 +106,23 @@ internal static class MetafilePlaybackRenderer
                 state.CurrentPoint = ReadWmfYxPoint(payload);
                 return;
 
+            case EmfPlusRecordType.WmfLineTo:
+                RequireSize(record, payload, 4);
+                Point next = ReadWmfYxPoint(payload);
+                state.ApplyTransform(record);
+                if (state.SelectedPen is Pen linePen)
+                {
+                    state.Graphics.DrawLine(linePen, state.CurrentPoint, next);
+                }
+                state.CurrentPoint = next;
+                return;
+
+            case EmfPlusRecordType.WmfSetPixel:
+                RequireSize(record, payload, 8);
+                state.ApplyTransform(record);
+                state.Graphics.SetTransformedPixel(ReadColor(payload, 0), ReadWmfYxPoint(payload[4..]));
+                return;
+
             case EmfPlusRecordType.WmfIntersectClipRect:
                 state.IntersectClip(record, ReadWmfRectangle(record, payload));
                 return;

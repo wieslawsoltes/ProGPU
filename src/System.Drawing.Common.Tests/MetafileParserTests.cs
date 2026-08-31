@@ -455,6 +455,45 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void WmfLineToTracksAndRestoresCurrentPointAndSetPixelUsesDeviceSize()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreateLinePixelPlaybackWmf()));
+        using var target = new Bitmap(128, 128);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 128, 128));
+        }
+
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(16, 8).ToArgb());
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(24, 16).ToArgb());
+        Color restoredCurrentPointPixel = target.GetPixel(16, 16);
+        Assert.True(restoredCurrentPointPixel.A > 0);
+        Assert.Equal((0, 0, 0),
+            (restoredCurrentPointPixel.R, restoredCurrentPointPixel.G, restoredCurrentPointPixel.B));
+        Assert.Equal(Color.Magenta.ToArgb(), target.GetPixel(40, 40).ToArgb());
+        Assert.Equal(0, target.GetPixel(41, 40).A);
+    }
+
+    [Fact]
+    public void WmfUnsupportedRecordAfterLineAndPixelRollsBackBothCommands()
+    {
+        using var metafile = new Metafile(new MemoryStream(
+            CreateLinePixelPlaybackWmf(includeUnsupportedRecord: true)));
+        using var target = new Bitmap(128, 128);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 128, 128)));
+            Assert.Contains(nameof(EmfPlusRecordType.WmfTextOut), exception.Message, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(16, 8).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(40, 40).ToArgb());
+    }
+
+    [Fact]
     public void WmfEllipseRejectsUnorderedBoundsWithoutPublishingCommands()
     {
         byte[] bytes = CreatePlaybackWmf();
@@ -908,6 +947,28 @@ public sealed class MetafileParserTests
         return CreatePlaybackWmf(records);
     }
 
+    private static byte[] CreateLinePixelPlaybackWmf(bool includeUnsupportedRecord = false)
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x02FA, WmfPen(Color.Black, 1)),
+            (0x012D, WmfWords(0)),
+            (0x0214, WmfWords(4, 4)),
+            (0x0213, WmfWords(4, 12)),
+            (0x001E, []),
+            (0x0213, WmfWords(12, 12)),
+            (0x0127, WmfWords(-1)),
+            (0x0213, WmfWords(12, 4)),
+            (0x041F, WmfSetPixel(Color.Magenta, new Point(20, 20)))
+        };
+        if (includeUnsupportedRecord)
+        {
+            records.Add((0x0521, WmfWords(0)));
+        }
+        records.Add((0, []));
+        return CreatePlaybackWmf(records);
+    }
+
     private static byte[] CreatePlaybackWmf(List<(ushort Function, byte[] Payload)> records)
     {
         int maximumRecordWords = records.Max(record => (record.Payload.Length + 6) / 2);
@@ -959,6 +1020,15 @@ public sealed class MetafileParserTests
     {
         byte[] bytes = new byte[4];
         WriteUInt32(bytes, 0, (uint)(color.R | color.G << 8 | color.B << 16));
+        return bytes;
+    }
+
+    private static byte[] WmfSetPixel(Color color, Point point)
+    {
+        byte[] bytes = new byte[8];
+        WmfColor(color).CopyTo(bytes, 0);
+        WriteInt16(bytes, 4, checked((short)point.Y));
+        WriteInt16(bytes, 6, checked((short)point.X));
         return bytes;
     }
 
