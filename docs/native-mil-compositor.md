@@ -5625,8 +5625,15 @@ same portable vector-path scene used by the native MIL renderer on D3D12,
 Metal, Vulkan, and WebGPU. No system Direct2D geometry, pointer serialization,
 CPU pixel fallback, or second renderer is introduced. The entry point remains
 an explicit ProGPU API and does not shadow `D2D1CreateFactory` or `d2d1.dll`.
-The committed-source Windows ARM64 `/W4 /WX`, runtime, and exact-export
-qualification is recorded after the ABI v44 archive is rebuilt in Parallels.
+Focused managed contracts pass 5/5. The exact implementation checkpoint is
+`123d2371`; its committed source archive SHA-256 is
+`7F903F5B62FBA969359F8363E4E7C11495F9F76730CDBCADEAE4EA3AE021071A`.
+Windows 11 ARM64 Parallels rebuilds it cleanly with MSVC 19.44/SDK
+10.0.26100.0 `/W4 /WX`, and the native oracle exits zero. `dumpbin` matches all
+128 allowlisted exports exactly. The 191,488-byte provider SHA-256 is
+`3D90668C81E5113EF5A3C1B86EC13CC5B4B6E09B2C070F753CF5276AE8BCB033`;
+the 111,104-byte test executable SHA-256 is
+`7910843D99080398B21DDD8F383FBEBBCB99E662B76338800C97034844B4C722`.
 
 ## Managed glyph row-reuse SIMD checkpoint
 
