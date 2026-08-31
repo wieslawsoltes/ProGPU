@@ -313,6 +313,23 @@ correctness authority.
 The complete drawing suite passes 503/503 and ApiCompat remains at zero missing
 types, zero missing members, and 13 reviewed differences.
 
+`MetafileBenchmarks.Playback256EmfDibImagesToRetainedCommands` guards the
+shared bounded BI_RGB decoder and typed retained-texture lowering used by
+`EMR_STRETCHDIBITS` and `EMR_SETDIBITSTODEVICE`. The 2026-08-31
+ARM64/.NET 10.0.11 ShortRun measured a 69.391 ms median (64.169 ms mean,
+18.101 ms standard deviation) and 501.73 KB allocated for 256 two-by-two
+embedded images. Three measured iterations, denied priority elevation, and
+high timing variance make this coarse local allocation/command-ownership
+evidence rather than a throughput claim. Twelve focused cases independently
+cover exact bottom-up/top-down pixels and stride, source clipping/crop,
+mirroring, transforms, all six BI_RGB bit depths, partial scan bands in both
+orientations, saved stretch sampling, buffer/range/ROP failures, transactional
+rollback, and a warmed 64-image allocation ceiling. Unsupported compression,
+bitfields, logical-palette color usage, JPEG/PNG transport, and WMF DIB records
+fail at named boundaries. ApiCompat is unaffected because this closes managed
+behavior behind the existing public surface. Both complete Debug and Release
+drawing suites pass 515/515; ApiCompat remains 0/0/13.
+
 `MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
 Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11
 ShortRun measured a 1.520 millisecond median (1.477 millisecond mean, 0.381

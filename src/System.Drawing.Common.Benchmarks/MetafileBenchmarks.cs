@@ -22,6 +22,7 @@ public class MetafileBenchmarks
     private Metafile _emfPolyDrawPlaybackMetafile = null!;
     private Metafile _emfClipPlaybackMetafile = null!;
     private Metafile _emfRegionClipPlaybackMetafile = null!;
+    private Metafile _emfDibPlaybackMetafile = null!;
     private Metafile _emfPathPlaybackMetafile = null!;
     private Metafile _emfExtendedTextPlaybackMetafile = null!;
     private Metafile _emfPdyExtendedTextPlaybackMetafile = null!;
@@ -70,6 +71,8 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackEmfClipSequences(256), writable: false));
         _emfRegionClipPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackEmfRegionClips(256), writable: false));
+        _emfDibPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackEmfDibImages(256), writable: false));
         _emfPathPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackEmfPathBrackets(256), writable: false));
         _emfExtendedTextPlaybackMetafile = new Metafile(
@@ -153,6 +156,7 @@ public class MetafileBenchmarks
         _emfPolyDrawPlaybackMetafile.Dispose();
         _emfClipPlaybackMetafile.Dispose();
         _emfRegionClipPlaybackMetafile.Dispose();
+        _emfDibPlaybackMetafile.Dispose();
         _emfPathPlaybackMetafile.Dispose();
         _emfExtendedTextPlaybackMetafile.Dispose();
         _emfPdyExtendedTextPlaybackMetafile.Dispose();
@@ -264,6 +268,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _emfRegionClipPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256EmfDibImagesToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _emfDibPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -624,6 +640,73 @@ public class MetafileBenchmarks
             WriteInt32(bytes, cursor + 16, x + 32);
             WriteInt32(bytes, cursor + 20, y + 22);
             cursor += 24;
+        }
+
+        WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfEof);
+        WriteUInt32(bytes, cursor + 4, 20);
+        WriteUInt32(bytes, cursor + 16, 20);
+        return bytes;
+    }
+
+    private static byte[] CreatePlaybackEmfDibImages(int recordCount)
+    {
+        const int recordSize = 136;
+        const int bitmapInfoOffset = 80;
+        const int bitmapBitsOffset = 120;
+        int totalBytes = checked(88 + recordCount * recordSize + 20);
+        byte[] bytes = new byte[totalBytes];
+        WriteUInt32(bytes, 0, (uint)EmfPlusRecordType.EmfHeader);
+        WriteUInt32(bytes, 4, 88);
+        WriteInt32(bytes, 16, 640);
+        WriteInt32(bytes, 20, 480);
+        WriteInt32(bytes, 32, 16_933);
+        WriteInt32(bytes, 36, 12_700);
+        WriteUInt32(bytes, 40, 0x464D_4520);
+        WriteUInt32(bytes, 44, 0x0001_0000);
+        WriteUInt32(bytes, 48, (uint)totalBytes);
+        WriteUInt32(bytes, 52, checked((uint)(recordCount + 2)));
+        WriteUInt16(bytes, 56, 1);
+        WriteInt32(bytes, 72, 640);
+        WriteInt32(bytes, 76, 480);
+        WriteInt32(bytes, 80, 169);
+        WriteInt32(bytes, 84, 127);
+
+        int cursor = 88;
+        for (int index = 0; index < recordCount; index++)
+        {
+            int x = (index % 16) * 40;
+            int y = (index / 16) * 30;
+            WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfStretchDIBits);
+            WriteUInt32(bytes, cursor + 4, recordSize);
+            WriteInt32(bytes, cursor + 24, x);
+            WriteInt32(bytes, cursor + 28, y);
+            WriteInt32(bytes, cursor + 32, 0);
+            WriteInt32(bytes, cursor + 36, 0);
+            WriteInt32(bytes, cursor + 40, 2);
+            WriteInt32(bytes, cursor + 44, 2);
+            WriteUInt32(bytes, cursor + 48, bitmapInfoOffset);
+            WriteUInt32(bytes, cursor + 52, 40);
+            WriteUInt32(bytes, cursor + 56, bitmapBitsOffset);
+            WriteUInt32(bytes, cursor + 60, 16);
+            WriteUInt32(bytes, cursor + 64, 0);
+            WriteUInt32(bytes, cursor + 68, 0x00CC_0020);
+            WriteInt32(bytes, cursor + 72, 32);
+            WriteInt32(bytes, cursor + 76, 22);
+
+            int info = cursor + bitmapInfoOffset;
+            WriteUInt32(bytes, info, 40);
+            WriteInt32(bytes, info + 4, 2);
+            WriteInt32(bytes, info + 8, -2);
+            WriteUInt16(bytes, info + 12, 1);
+            WriteUInt16(bytes, info + 14, 32);
+            WriteUInt32(bytes, info + 20, 16);
+
+            int bits = cursor + bitmapBitsOffset;
+            WriteUInt32(bytes, bits, 0x0000_00FF);
+            WriteUInt32(bytes, bits + 4, 0x0000_FF00);
+            WriteUInt32(bytes, bits + 8, 0x00FF_0000);
+            WriteUInt32(bytes, bits + 12, 0x00FF_FFFF);
+            cursor += recordSize;
         }
 
         WriteUInt32(bytes, cursor, (uint)EmfPlusRecordType.EmfEof);

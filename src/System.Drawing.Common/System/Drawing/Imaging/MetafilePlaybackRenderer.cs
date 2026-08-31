@@ -17,6 +17,9 @@ internal static class MetafilePlaybackRenderer
     private const uint WhitePen = 6;
     private const uint BlackPen = 7;
     private const uint NullPen = 8;
+    private const uint DibRgbColors = 0;
+    private const uint BiRgb = 0;
+    private const uint SrcCopy = 0x00CC_0020;
 
     static MetafilePlaybackRenderer() =>
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -74,6 +77,11 @@ internal static class MetafilePlaybackRenderer
             case EmfPlusRecordType.WmfSetROP2:
                 RequireSize(record, payload, 2);
                 state.SetRasterOperation(ReadUInt16(payload, 0), record);
+                return;
+
+            case EmfPlusRecordType.WmfSetStretchBltMode:
+                RequireSize(record, payload, 2);
+                state.SetStretchMode(ReadUInt16(payload, 0), record);
                 return;
 
             case EmfPlusRecordType.WmfSetRelAbs:
@@ -385,6 +393,11 @@ internal static class MetafilePlaybackRenderer
                 state.SetRasterOperation(ReadInt32(payload, 0), record);
                 return;
 
+            case EmfPlusRecordType.EmfSetStretchBltMode:
+                RequireSize(record, payload, 4);
+                state.SetStretchMode(ReadInt32(payload, 0), record);
+                return;
+
             case EmfPlusRecordType.EmfMoveToEx:
                 RequireSize(record, payload, 8);
                 state.MoveTo(ReadPoint(payload), record);
@@ -536,6 +549,14 @@ internal static class MetafilePlaybackRenderer
                 SelectEmfClipRegion(state, record, payload);
                 return;
 
+            case EmfPlusRecordType.EmfSetDIBitsToDevice:
+                DrawEmfSetDibitsToDevice(state, record, payload);
+                return;
+
+            case EmfPlusRecordType.EmfStretchDIBits:
+                DrawEmfStretchDibits(state, record, payload);
+                return;
+
             case EmfPlusRecordType.EmfSaveDC:
                 RequireSize(record, payload, 0);
                 state.Save();
@@ -675,6 +696,511 @@ internal static class MetafilePlaybackRenderer
                 throw Unsupported(record);
         }
     }
+
+    private static void DrawEmfStretchDibits(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        const int fixedPayloadSize = 72;
+        if (payload.Length < fixedPayloadSize)
+        {
+            throw Invalid(record);
+        }
+
+        state.EnsurePathCaptureSupported(record, "StretchDIBits");
+        uint usage = ReadUInt32(payload, 56);
+        if (usage != DibRgbColors)
+        {
+            throw Unsupported(record, "Only DIB_RGB_COLORS is supported.");
+        }
+        if (ReadUInt32(payload, 60) != SrcCopy)
+        {
+            throw Unsupported(record, "Only the SRCCOPY raster operation is supported.");
+        }
+
+        ReadOnlySpan<byte> bitmapInfo = ReadEmfBuffer(
+            record,
+            payload,
+            ReadUInt32(payload, 40),
+            ReadUInt32(payload, 44),
+            fixedPayloadSize);
+        ReadOnlySpan<byte> bitmapBits = ReadEmfBuffer(
+            record,
+            payload,
+            ReadUInt32(payload, 48),
+            ReadUInt32(payload, 52),
+            fixedPayloadSize);
+        EnsureDisjointEmfBuffers(
+            record,
+            ReadUInt32(payload, 40),
+            ReadUInt32(payload, 44),
+            ReadUInt32(payload, 48),
+            ReadUInt32(payload, 52));
+
+        DibInfo dib = ReadDibInfo(record, bitmapInfo, usage);
+        using Bitmap bitmap = DecodeDibRows(record, dib, bitmapInfo, bitmapBits, dib.Height);
+        DrawMappedDib(
+            state,
+            record,
+            bitmap,
+            dib,
+            ReadInt32(payload, 24),
+            ReadInt32(payload, 28),
+            ReadInt32(payload, 32),
+            ReadInt32(payload, 36),
+            ReadInt32(payload, 16),
+            ReadInt32(payload, 20),
+            ReadInt32(payload, 64),
+            ReadInt32(payload, 68));
+    }
+
+    private static void DrawEmfSetDibitsToDevice(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        const int fixedPayloadSize = 68;
+        if (payload.Length < fixedPayloadSize)
+        {
+            throw Invalid(record);
+        }
+
+        state.EnsurePathCaptureSupported(record, "SetDIBitsToDevice");
+        uint usage = ReadUInt32(payload, 56);
+        if (usage != DibRgbColors)
+        {
+            throw Unsupported(record, "Only DIB_RGB_COLORS is supported.");
+        }
+
+        ReadOnlySpan<byte> bitmapInfo = ReadEmfBuffer(
+            record,
+            payload,
+            ReadUInt32(payload, 40),
+            ReadUInt32(payload, 44),
+            fixedPayloadSize);
+        ReadOnlySpan<byte> bitmapBits = ReadEmfBuffer(
+            record,
+            payload,
+            ReadUInt32(payload, 48),
+            ReadUInt32(payload, 52),
+            fixedPayloadSize);
+        EnsureDisjointEmfBuffers(
+            record,
+            ReadUInt32(payload, 40),
+            ReadUInt32(payload, 44),
+            ReadUInt32(payload, 48),
+            ReadUInt32(payload, 52));
+
+        DibInfo dib = ReadDibInfo(record, bitmapInfo, usage);
+        uint startScan = ReadUInt32(payload, 60);
+        uint scanCount = ReadUInt32(payload, 64);
+        if (startScan > (uint)dib.Height || scanCount > (uint)dib.Height - startScan)
+        {
+            throw Invalid(record);
+        }
+        if (scanCount == 0)
+        {
+            if (bitmapBits.Length != 0)
+            {
+                throw Invalid(record);
+            }
+            return;
+        }
+
+        int sourceWidth = ReadInt32(payload, 32);
+        int sourceHeight = ReadInt32(payload, 36);
+        if (sourceWidth <= 0 || sourceHeight <= 0)
+        {
+            throw Invalid(record);
+        }
+
+        using Bitmap band = DecodeDibRows(
+            record,
+            dib,
+            bitmapInfo,
+            bitmapBits,
+            checked((int)scanCount));
+        int bandTop = dib.TopDown
+            ? checked((int)startScan)
+            : checked(dib.Height - (int)(startScan + scanCount));
+        Rectangle requestedSource = GetSetDibSourceRectangle(
+            record,
+            dib,
+            ReadInt32(payload, 24),
+            ReadInt32(payload, 28),
+            sourceWidth,
+            sourceHeight);
+        Rectangle availableSource = Rectangle.Intersect(
+            requestedSource,
+            new Rectangle(0, bandTop, dib.Width, checked((int)scanCount)));
+        if (availableSource.IsEmpty)
+        {
+            return;
+        }
+
+        Rectangle bandSource = new(
+            availableSource.X,
+            availableSource.Y - bandTop,
+            availableSource.Width,
+            availableSource.Height);
+        Rectangle destination = new(
+            AddCoordinate(
+                record,
+                ReadInt32(payload, 16),
+                availableSource.X - requestedSource.X),
+            AddCoordinate(
+                record,
+                ReadInt32(payload, 20),
+                availableSource.Y - requestedSource.Y),
+            availableSource.Width,
+            availableSource.Height);
+        state.ApplyTransform(record);
+        state.Graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
+        state.Graphics.DrawImage(band, destination, bandSource, GraphicsUnit.Pixel);
+    }
+
+    private static Rectangle GetSetDibSourceRectangle(
+        in MetafileRecord record,
+        in DibInfo dib,
+        int sourceX,
+        int sourceY,
+        int sourceWidth,
+        int sourceHeight)
+    {
+        long top = dib.TopDown
+            ? sourceY
+            : (long)dib.Height - sourceY - sourceHeight;
+        long right = (long)sourceX + sourceWidth;
+        long bottom = top + sourceHeight;
+        if (right is < int.MinValue or > int.MaxValue ||
+            top is < int.MinValue or > int.MaxValue ||
+            bottom is < int.MinValue or > int.MaxValue)
+        {
+            throw Invalid(record);
+        }
+        return new Rectangle(sourceX, (int)top, sourceWidth, sourceHeight);
+    }
+
+    private static void DrawMappedDib(
+        PlaybackState state,
+        in MetafileRecord record,
+        Bitmap bitmap,
+        in DibInfo dib,
+        int sourceX,
+        int sourceY,
+        int sourceWidth,
+        int sourceHeight,
+        int destinationX,
+        int destinationY,
+        int destinationWidth,
+        int destinationHeight)
+    {
+        if (sourceWidth == 0 || sourceHeight == 0 ||
+            destinationWidth == 0 || destinationHeight == 0)
+        {
+            return;
+        }
+
+        long sourceXEnd = (long)sourceX + sourceWidth;
+        long sourceVisualY0 = dib.TopDown ? sourceY : (long)dib.Height - sourceY;
+        long sourceVisualY1 = dib.TopDown
+            ? (long)sourceY + sourceHeight
+            : (long)dib.Height - sourceY - sourceHeight;
+        long left = Math.Min(sourceX, sourceXEnd);
+        long right = Math.Max(sourceX, sourceXEnd);
+        long top = Math.Min(sourceVisualY0, sourceVisualY1);
+        long bottom = Math.Max(sourceVisualY0, sourceVisualY1);
+        if (right == left || bottom == top)
+        {
+            throw Invalid(record);
+        }
+
+        PointF topLeft = new(
+            sourceWidth > 0 ? destinationX : AddCoordinate(record, destinationX, destinationWidth),
+            sourceHeight > 0 ? destinationY : AddCoordinate(record, destinationY, destinationHeight));
+        PointF topRight = new(
+            sourceWidth > 0 ? AddCoordinate(record, destinationX, destinationWidth) : destinationX,
+            topLeft.Y);
+        PointF bottomLeft = new(
+            topLeft.X,
+            sourceHeight > 0 ? AddCoordinate(record, destinationY, destinationHeight) : destinationY);
+
+        long clippedLeft = Math.Max(0, left);
+        long clippedTop = Math.Max(0, top);
+        long clippedRight = Math.Min(dib.Width, right);
+        long clippedBottom = Math.Min(dib.Height, bottom);
+        if (clippedRight <= clippedLeft || clippedBottom <= clippedTop)
+        {
+            return;
+        }
+
+        float u0 = (float)((double)(clippedLeft - left) / (right - left));
+        float u1 = (float)((double)(clippedRight - left) / (right - left));
+        float v0 = (float)((double)(clippedTop - top) / (bottom - top));
+        float v1 = (float)((double)(clippedBottom - top) / (bottom - top));
+        PointF horizontal = new(topRight.X - topLeft.X, topRight.Y - topLeft.Y);
+        PointF vertical = new(bottomLeft.X - topLeft.X, bottomLeft.Y - topLeft.Y);
+        PointF clippedDestinationTopLeft = InterpolateDestination(topLeft, horizontal, vertical, u0, v0);
+        PointF clippedDestinationTopRight = InterpolateDestination(topLeft, horizontal, vertical, u1, v0);
+        PointF clippedDestinationBottomLeft = InterpolateDestination(topLeft, horizontal, vertical, u0, v1);
+
+        state.ApplyTransform(record);
+        state.Graphics.InterpolationMode = state.DibInterpolationMode;
+        state.Graphics.DrawImage(
+            bitmap,
+            [clippedDestinationTopLeft, clippedDestinationTopRight, clippedDestinationBottomLeft],
+            new RectangleF(
+                clippedLeft,
+                clippedTop,
+                clippedRight - clippedLeft,
+                clippedBottom - clippedTop),
+            GraphicsUnit.Pixel);
+    }
+
+    private static PointF InterpolateDestination(
+        PointF origin,
+        PointF horizontal,
+        PointF vertical,
+        float u,
+        float v) =>
+        new(
+            origin.X + horizontal.X * u + vertical.X * v,
+            origin.Y + horizontal.Y * u + vertical.Y * v);
+
+    private static int AddCoordinate(
+        in MetafileRecord record,
+        int coordinate,
+        int extent)
+    {
+        long result = (long)coordinate + extent;
+        if (result is < int.MinValue or > int.MaxValue)
+        {
+            throw Invalid(record);
+        }
+        return (int)result;
+    }
+
+    private static ReadOnlySpan<byte> ReadEmfBuffer(
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload,
+        uint recordOffset,
+        uint size,
+        int fixedPayloadSize)
+    {
+        const int recordHeaderSize = 8;
+        if (recordOffset < recordHeaderSize + fixedPayloadSize ||
+            recordOffset > int.MaxValue || size > int.MaxValue)
+        {
+            throw Invalid(record);
+        }
+
+        int payloadOffset = (int)recordOffset - recordHeaderSize;
+        int length = (int)size;
+        if (payloadOffset > payload.Length || length > payload.Length - payloadOffset)
+        {
+            throw Invalid(record);
+        }
+        return payload.Slice(payloadOffset, length);
+    }
+
+    private static void EnsureDisjointEmfBuffers(
+        in MetafileRecord record,
+        uint firstOffset,
+        uint firstSize,
+        uint secondOffset,
+        uint secondSize)
+    {
+        ulong firstEnd = (ulong)firstOffset + firstSize;
+        ulong secondEnd = (ulong)secondOffset + secondSize;
+        if (firstSize != 0 && secondSize != 0 &&
+            firstOffset < secondEnd && secondOffset < firstEnd)
+        {
+            throw Invalid(record);
+        }
+    }
+
+    private static DibInfo ReadDibInfo(
+        in MetafileRecord record,
+        ReadOnlySpan<byte> bitmapInfo,
+        uint usage)
+    {
+        const int bitmapInfoHeaderSize = 40;
+        if (usage != DibRgbColors || bitmapInfo.Length < bitmapInfoHeaderSize)
+        {
+            throw Invalid(record);
+        }
+
+        uint headerSize = ReadUInt32(bitmapInfo, 0);
+        if (headerSize is not 40 and not 108 and not 124 || headerSize > (uint)bitmapInfo.Length)
+        {
+            throw Unsupported(record, "Only BITMAPINFOHEADER, BITMAPV4HEADER, and BITMAPV5HEADER DIBs are supported.");
+        }
+
+        int width = ReadInt32(bitmapInfo, 4);
+        int signedHeight = ReadInt32(bitmapInfo, 8);
+        if (width <= 0 || signedHeight == 0 || signedHeight == int.MinValue ||
+            ReadUInt16(bitmapInfo, 12) != 1)
+        {
+            throw Invalid(record);
+        }
+        int height = Math.Abs(signedHeight);
+        ushort bitCount = ReadUInt16(bitmapInfo, 14);
+        if (bitCount is not 1 and not 4 and not 8 and not 16 and not 24 and not 32)
+        {
+            throw Unsupported(record, $"BI_RGB bit depth {bitCount} is not supported.");
+        }
+        if (ReadUInt32(bitmapInfo, 16) != BiRgb)
+        {
+            throw Unsupported(record, "Only uncompressed BI_RGB DIBs are supported.");
+        }
+
+        long rowBits = (long)width * bitCount;
+        long rowStride = ((rowBits + 31) / 32) * 4;
+        if (rowStride > int.MaxValue || (long)width * height * 4 > int.MaxValue)
+        {
+            throw Invalid(record);
+        }
+
+        int paletteCount = 0;
+        if (bitCount <= 8)
+        {
+            int maximumPaletteCount = 1 << bitCount;
+            uint colorsUsed = ReadUInt32(bitmapInfo, 32);
+            paletteCount = colorsUsed == 0
+                ? maximumPaletteCount
+                : (int)Math.Min(colorsUsed, (uint)maximumPaletteCount);
+            long requiredInfoSize = (long)headerSize + paletteCount * 4L;
+            if (requiredInfoSize > bitmapInfo.Length)
+            {
+                throw Invalid(record);
+            }
+        }
+
+        return new DibInfo(
+            width,
+            height,
+            signedHeight < 0,
+            bitCount,
+            (int)rowStride,
+            (int)headerSize,
+            paletteCount);
+    }
+
+    private static Bitmap DecodeDibRows(
+        in MetafileRecord record,
+        in DibInfo dib,
+        ReadOnlySpan<byte> bitmapInfo,
+        ReadOnlySpan<byte> bitmapBits,
+        int rowCount)
+    {
+        if (rowCount <= 0 || rowCount > dib.Height ||
+            bitmapBits.Length != checked(dib.RowStride * rowCount))
+        {
+            throw Invalid(record);
+        }
+
+        byte[] rgba = new byte[checked(dib.Width * rowCount * 4)];
+        for (int storedRow = 0; storedRow < rowCount; storedRow++)
+        {
+            int outputRow = dib.TopDown ? storedRow : rowCount - storedRow - 1;
+            ReadOnlySpan<byte> source = bitmapBits.Slice(storedRow * dib.RowStride, dib.RowStride);
+            Span<byte> destination = rgba.AsSpan(outputRow * dib.Width * 4, dib.Width * 4);
+            DecodeDibRow(record, dib, bitmapInfo, source, destination);
+        }
+        return Bitmap.CreateOwnedRgba(dib.Width, rowCount, rgba);
+    }
+
+    private static void DecodeDibRow(
+        in MetafileRecord record,
+        in DibInfo dib,
+        ReadOnlySpan<byte> bitmapInfo,
+        ReadOnlySpan<byte> source,
+        Span<byte> destination)
+    {
+        for (int x = 0; x < dib.Width; x++)
+        {
+            int destinationOffset = x * 4;
+            byte red;
+            byte green;
+            byte blue;
+            switch (dib.BitCount)
+            {
+                case 1:
+                    ReadPaletteColor(
+                        record,
+                        dib,
+                        bitmapInfo,
+                        (source[x >> 3] >> (7 - (x & 7))) & 1,
+                        out red,
+                        out green,
+                        out blue);
+                    break;
+                case 4:
+                    byte packed = source[x >> 1];
+                    int index = (x & 1) == 0 ? packed >> 4 : packed & 0x0F;
+                    ReadPaletteColor(record, dib, bitmapInfo, index, out red, out green, out blue);
+                    break;
+                case 8:
+                    ReadPaletteColor(record, dib, bitmapInfo, source[x], out red, out green, out blue);
+                    break;
+                case 16:
+                    ushort pixel16 = ReadUInt16(source, x * 2);
+                    red = ExpandFiveBits((pixel16 >> 10) & 0x1F);
+                    green = ExpandFiveBits((pixel16 >> 5) & 0x1F);
+                    blue = ExpandFiveBits(pixel16 & 0x1F);
+                    break;
+                case 24:
+                    blue = source[x * 3];
+                    green = source[x * 3 + 1];
+                    red = source[x * 3 + 2];
+                    break;
+                case 32:
+                    blue = source[x * 4];
+                    green = source[x * 4 + 1];
+                    red = source[x * 4 + 2];
+                    break;
+                default:
+                    throw Unsupported(record);
+            }
+
+            destination[destinationOffset] = red;
+            destination[destinationOffset + 1] = green;
+            destination[destinationOffset + 2] = blue;
+            destination[destinationOffset + 3] = byte.MaxValue;
+        }
+    }
+
+    private static void ReadPaletteColor(
+        in MetafileRecord record,
+        in DibInfo dib,
+        ReadOnlySpan<byte> bitmapInfo,
+        int index,
+        out byte red,
+        out byte green,
+        out byte blue)
+    {
+        if ((uint)index >= (uint)dib.PaletteCount)
+        {
+            throw Invalid(record);
+        }
+        int offset = checked(dib.HeaderSize + index * 4);
+        blue = bitmapInfo[offset];
+        green = bitmapInfo[offset + 1];
+        red = bitmapInfo[offset + 2];
+    }
+
+    private static byte ExpandFiveBits(int value) =>
+        (byte)((value * 255 + 15) / 31);
+
+    private readonly record struct DibInfo(
+        int Width,
+        int Height,
+        bool TopDown,
+        ushort BitCount,
+        int RowStride,
+        int HeaderSize,
+        int PaletteCount);
 
     private static void DrawRectangle(
         PlaybackState state,
@@ -2704,6 +3230,8 @@ internal static class MetafilePlaybackRenderer
         internal int MapMode { get; set; } = 1;
         internal int BackgroundMode { get; set; } = 2;
         internal int RasterOperation { get; set; } = 13;
+        internal InterpolationMode DibInterpolationMode { get; private set; } =
+            InterpolationMode.NearestNeighbor;
         internal int ArcDirection { get; private set; } = 1;
         internal float MiterLimit { get; private set; } = 10f;
         internal int TextAlignment { get; set; }
@@ -2889,6 +3417,16 @@ internal static class MetafilePlaybackRenderer
                 throw Unsupported(record, "The initial vector player supports R2_COPYPEN only.");
             }
             RasterOperation = operation;
+        }
+
+        internal void SetStretchMode(int mode, in MetafileRecord record)
+        {
+            DibInterpolationMode = mode switch
+            {
+                1 or 2 or 3 => InterpolationMode.NearestNeighbor,
+                4 => InterpolationMode.HighQualityBilinear,
+                _ => throw Invalid(record)
+            };
         }
 
         internal void SetArcDirection(int direction, in MetafileRecord record)
@@ -3343,6 +3881,7 @@ internal static class MetafilePlaybackRenderer
                 MapMode,
                 BackgroundMode,
                 RasterOperation,
+                DibInterpolationMode,
                 ArcDirection,
                 MiterLimit,
                 TextAlignment,
@@ -3398,6 +3937,7 @@ internal static class MetafilePlaybackRenderer
             MapMode = saved.MapMode;
             BackgroundMode = saved.BackgroundMode;
             RasterOperation = saved.RasterOperation;
+            DibInterpolationMode = saved.DibInterpolationMode;
             ArcDirection = saved.ArcDirection;
             MiterLimit = saved.MiterLimit;
             TextAlignment = saved.TextAlignment;
@@ -4425,6 +4965,7 @@ internal static class MetafilePlaybackRenderer
             int MapMode,
             int BackgroundMode,
             int RasterOperation,
+            InterpolationMode DibInterpolationMode,
             int ArcDirection,
             float MiterLimit,
             int TextAlignment,

@@ -1332,7 +1332,7 @@ public sealed class MetafileParserTests
     public void EmfPlaybackFailureDoesNotPublishPartialCommands()
     {
         byte[] bytes = CreatePlaybackEmf();
-        WriteUInt32(bytes, 204, (uint)EmfPlusRecordType.EmfSetStretchBltMode);
+        WriteUInt32(bytes, 204, (uint)EmfPlusRecordType.EmfSetLayout);
         using var metafile = new Metafile(new MemoryStream(bytes));
         using var target = new Bitmap(16, 16);
         using (Graphics graphics = Graphics.FromImage(target))
@@ -1340,7 +1340,7 @@ public sealed class MetafileParserTests
             graphics.Clear(Color.Blue);
             NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
                 graphics.DrawImage(metafile, new Rectangle(0, 0, 16, 16)));
-            Assert.Contains(nameof(EmfPlusRecordType.EmfSetStretchBltMode), exception.Message, StringComparison.Ordinal);
+            Assert.Contains(nameof(EmfPlusRecordType.EmfSetLayout), exception.Message, StringComparison.Ordinal);
             Assert.Contains("byte offset 204", exception.Message, StringComparison.Ordinal);
         }
 
@@ -2866,6 +2866,273 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfStretchDibitsDecodesBottomUp24BitRowsAndPadding()
+    {
+        TestDib dib = CreateRgbDib(
+            2,
+            2,
+            24,
+            [
+                255, 0, 0, 255, 255, 255, 0, 0,
+                0, 0, 255, 0, 255, 0, 0, 0
+            ]);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfStretchDIBits,
+                EmfStretchDibits(dib, new Rectangle(0, 0, 2, 2), new Rectangle(8, 8, 32, 32)))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(48, 48);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.InterpolationMode = Drawing2D.InterpolationMode.NearestNeighbor;
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(12, 12).ToArgb());
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(36, 12).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(12, 36).ToArgb());
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(36, 36).ToArgb());
+    }
+
+    [Fact]
+    public void EmfStretchDibitsCropsTopDown32BitAndMirrorsNegativeSourceWidth()
+    {
+        TestDib dib = CreateRgbDib(
+            4,
+            -2,
+            32,
+            [
+                0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0,
+                0, 255, 255, 0, 255, 0, 255, 0, 255, 255, 0, 0, 0, 0, 0, 0
+            ]);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetWorldTransform, EmfTransform(8f, 8f)),
+            (EmfPlusRecordType.EmfStretchDIBits,
+                EmfStretchDibits(dib, new Rectangle(3, 0, -2, 2), new Rectangle(0, 0, 32, 32)))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(48, 48);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.InterpolationMode = Drawing2D.InterpolationMode.NearestNeighbor;
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(12, 12).ToArgb());
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(36, 12).ToArgb());
+        Assert.Equal(Color.Aqua.ToArgb(), target.GetPixel(12, 36).ToArgb());
+        Assert.Equal(Color.Magenta.ToArgb(), target.GetPixel(36, 36).ToArgb());
+        Assert.Equal(0, target.GetPixel(4, 4).A);
+    }
+
+    [Fact]
+    public void EmfStretchDibitsClipsSourceBoundsAndAdjustsDestination()
+    {
+        TestDib dib = CreateRgbDib(
+            2,
+            -1,
+            24,
+            [0, 0, 255, 0, 255, 0, 0, 0]);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfStretchDIBits,
+                EmfStretchDibits(dib, new Rectangle(-1, 0, 3, 1), new Rectangle(0, 0, 30, 10)))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(40, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(0, target.GetPixel(5, 5).A);
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(12, 5).ToArgb());
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(25, 5).ToArgb());
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    [InlineData(8)]
+    [InlineData(16)]
+    public void EmfStretchDibitsDecodesIndexedAndRgb555Pixels(int bitCount)
+    {
+        TestDib dib = bitCount switch
+        {
+            1 => CreateRgbDib(1, -1, 1, [0x80, 0, 0, 0], [Color.Black, Color.Red]),
+            4 => CreateRgbDib(1, -1, 4, [0x10, 0, 0, 0], [Color.Black, Color.Red]),
+            8 => CreateRgbDib(1, -1, 8, [1, 0, 0, 0], [Color.Black, Color.Red]),
+            16 => CreateRgbDib(1, -1, 16, [0, 0x7C, 0, 0]),
+            _ => throw new InvalidOperationException()
+        };
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfStretchDIBits,
+                EmfStretchDibits(dib, new Rectangle(0, 0, 1, 1), new Rectangle(8, 8, 16, 16)))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(32, 32);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(12, 12).ToArgb());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EmfSetDibitsToDevicePlacesOnlyTheSuppliedScanBand(bool topDown)
+    {
+        TestDib dib = CreateRgbDib(
+            2,
+            topDown ? -4 : 4,
+            24,
+            topDown
+                ? [0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 0, 0]
+                : [255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 255, 0, 0, 255, 0, 0]);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetDIBitsToDevice,
+                EmfSetDibitsToDevice(dib, new Rectangle(0, 0, 2, 4), new Point(8, 8), 1, 2))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(16, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(0, target.GetPixel(8, 8).A);
+        if (topDown)
+        {
+            Assert.Equal(Color.Red.ToArgb(), target.GetPixel(8, 9).ToArgb());
+            Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(8, 10).ToArgb());
+        }
+        else
+        {
+            Assert.Equal(Color.Red.ToArgb(), target.GetPixel(8, 9).ToArgb());
+            Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(8, 10).ToArgb());
+        }
+        Assert.Equal(0, target.GetPixel(8, 11).A);
+    }
+
+    [Fact]
+    public void EmfStretchModeIsTypedAndRestoredWithSavedDeviceContext()
+    {
+        TestDib dib = CreateRgbDib(1, -1, 24, [0, 0, 255, 0]);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSaveDC, []),
+            (EmfPlusRecordType.EmfSetStretchBltMode, EmfInt32(4)),
+            (EmfPlusRecordType.EmfStretchDIBits,
+                EmfStretchDibits(dib, new Rectangle(0, 0, 1, 1), new Rectangle(0, 0, 8, 8))),
+            (EmfPlusRecordType.EmfRestoreDC, EmfInt32(-1)),
+            (EmfPlusRecordType.EmfStretchDIBits,
+                EmfStretchDibits(dib, new Rectangle(0, 0, 1, 1), new Rectangle(8, 0, 8, 8)))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand[] images = context.Commands
+            .Where(static command => command.Type == RenderCommandType.DrawTexture)
+            .ToArray();
+        Assert.Equal(2, images.Length);
+        Assert.Equal(TextureSamplingMode.Linear, images[0].TextureSamplingMode);
+        Assert.Equal(TextureSamplingMode.Nearest, images[1].TextureSamplingMode);
+    }
+
+    [Fact]
+    public void EmfMalformedAndUnsupportedDibRecordsRollBackEarlierGeometry()
+    {
+        TestDib valid = CreateRgbDib(1, -1, 24, [0, 0, 255, 0]);
+        byte[][] malformedPayloads =
+        [
+            EmfStretchDibits(valid, new Rectangle(0, 0, 1, 1), new Rectangle(0, 0, 8, 8)),
+            EmfStretchDibits(valid, new Rectangle(0, 0, 1, 1), new Rectangle(0, 0, 8, 8)),
+            EmfStretchDibits(valid, new Rectangle(0, 0, 1, 1), new Rectangle(0, 0, 8, 8)),
+            EmfSetDibitsToDevice(valid, new Rectangle(0, 0, 1, 1), Point.Empty, 0, 1)
+        ];
+        WriteUInt32(malformedPayloads[0], 40, 76);
+        WriteUInt32(malformedPayloads[1], 52, 8);
+        WriteUInt32(malformedPayloads[2], 60, 0x0066_0046);
+        WriteUInt32(malformedPayloads[3], 64, 2);
+
+        foreach (byte[] payload in malformedPayloads)
+        {
+            EmfPlusRecordType type = payload.Length == malformedPayloads[3].Length
+                ? EmfPlusRecordType.EmfSetDIBitsToDevice
+                : EmfPlusRecordType.EmfStretchDIBits;
+            byte[] fixture = CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfRectangle, EmfRectangle(0, 0, 64, 64)),
+                (type, payload)
+            ]);
+            using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+            var context = new DrawingContext();
+            using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+            Exception exception = Assert.ThrowsAny<Exception>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.True(exception is ArgumentException or NotSupportedException);
+            Assert.Contains(type.ToString(), exception.Message, StringComparison.Ordinal);
+            Assert.Empty(context.Commands);
+        }
+    }
+
+    [Fact]
+    public void EmfDibPlaybackHasBoundedWarmedAllocation()
+    {
+        TestDib dib = CreateRgbDib(
+            2,
+            -2,
+            32,
+            [0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0]);
+        var records = new List<(EmfPlusRecordType Type, byte[] Payload)>();
+        for (int index = 0; index < 64; index++)
+        {
+            records.Add((
+                EmfPlusRecordType.EmfStretchDIBits,
+                EmfStretchDibits(
+                    dib,
+                    new Rectangle(0, 0, 2, 2),
+                    new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8))));
+        }
+        using var metafile = new Metafile(new MemoryStream(
+            CreateTextPlaybackEmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 64 * 1024, 16 * 1024 * 1024);
+    }
+
+    [Fact]
     public void EmfPathBracketStoresGeometryInDeviceCoordinatesBeforeFill()
     {
         byte[] fixture = CreateTextPlaybackEmf(
@@ -4333,6 +4600,94 @@ public sealed class MetafileParserTests
         WriteSingle(payload, 20, offsetY);
         return payload;
     }
+
+    private static TestDib CreateRgbDib(
+        int width,
+        int signedHeight,
+        ushort bitCount,
+        byte[] bits,
+        Color[]? palette = null)
+    {
+        int paletteCount = palette?.Length ?? 0;
+        byte[] info = new byte[checked(40 + paletteCount * 4)];
+        WriteUInt32(info, 0, 40);
+        WriteInt32(info, 4, width);
+        WriteInt32(info, 8, signedHeight);
+        WriteUInt16(info, 12, 1);
+        WriteUInt16(info, 14, bitCount);
+        WriteUInt32(info, 16, 0);
+        WriteUInt32(info, 20, checked((uint)bits.Length));
+        WriteUInt32(info, 32, checked((uint)paletteCount));
+        for (int index = 0; index < paletteCount; index++)
+        {
+            Color color = palette![index];
+            int offset = 40 + index * 4;
+            info[offset] = color.B;
+            info[offset + 1] = color.G;
+            info[offset + 2] = color.R;
+        }
+        return new TestDib(info, bits);
+    }
+
+    private static byte[] EmfStretchDibits(
+        in TestDib dib,
+        Rectangle source,
+        Rectangle destination,
+        uint usage = 0,
+        uint rasterOperation = 0x00CC_0020)
+    {
+        const int fixedPayloadSize = 72;
+        const int recordHeaderSize = 8;
+        byte[] payload = new byte[checked(fixedPayloadSize + dib.Info.Length + dib.Bits.Length)];
+        WriteInt32(payload, 16, destination.X);
+        WriteInt32(payload, 20, destination.Y);
+        WriteInt32(payload, 24, source.X);
+        WriteInt32(payload, 28, source.Y);
+        WriteInt32(payload, 32, source.Width);
+        WriteInt32(payload, 36, source.Height);
+        WriteUInt32(payload, 40, recordHeaderSize + fixedPayloadSize);
+        WriteUInt32(payload, 44, checked((uint)dib.Info.Length));
+        WriteUInt32(payload, 48, checked((uint)(recordHeaderSize + fixedPayloadSize + dib.Info.Length)));
+        WriteUInt32(payload, 52, checked((uint)dib.Bits.Length));
+        WriteUInt32(payload, 56, usage);
+        WriteUInt32(payload, 60, rasterOperation);
+        WriteInt32(payload, 64, destination.Width);
+        WriteInt32(payload, 68, destination.Height);
+        dib.Info.CopyTo(payload, fixedPayloadSize);
+        dib.Bits.CopyTo(payload, fixedPayloadSize + dib.Info.Length);
+        return payload;
+    }
+
+    private static byte[] EmfSetDibitsToDevice(
+        in TestDib dib,
+        Rectangle source,
+        Point destination,
+        uint startScan,
+        uint scanCount,
+        uint usage = 0)
+    {
+        const int fixedPayloadSize = 68;
+        const int recordHeaderSize = 8;
+        byte[] payload = new byte[checked(fixedPayloadSize + dib.Info.Length + dib.Bits.Length)];
+        WriteInt32(payload, 16, destination.X);
+        WriteInt32(payload, 20, destination.Y);
+        WriteInt32(payload, 24, source.X);
+        WriteInt32(payload, 28, source.Y);
+        WriteInt32(payload, 32, source.Width);
+        WriteInt32(payload, 36, source.Height);
+        WriteUInt32(payload, 40, recordHeaderSize + fixedPayloadSize);
+        WriteUInt32(payload, 44, checked((uint)dib.Info.Length));
+        WriteUInt32(payload, 48, checked((uint)(recordHeaderSize + fixedPayloadSize + dib.Info.Length)));
+        WriteUInt32(payload, 52, checked((uint)dib.Bits.Length));
+        WriteUInt32(payload, 56, usage);
+        WriteUInt32(payload, 60, startScan);
+        WriteUInt32(payload, 64, scanCount);
+        dib.Info.CopyTo(payload, fixedPayloadSize);
+        dib.Bits.CopyTo(payload, fixedPayloadSize + dib.Info.Length);
+        return payload;
+    }
+
+    private readonly record struct TestDib(byte[] Info, byte[] Bits);
 
     private static byte[] EmfPen(uint index, int width, Color color)
     {
