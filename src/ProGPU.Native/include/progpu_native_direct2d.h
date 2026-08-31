@@ -85,7 +85,8 @@ typedef enum progpu_native_direct2d_scene_stream_flags {
     PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_NONE = 0,
     PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_LEADING_CLEAR = 1U << 0U,
     PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_ALIASED_PRIMITIVES = 1U << 1U,
-    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_AXIS_ALIGNED_CLIPS = 1U << 2U
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_AXIS_ALIGNED_CLIPS = 1U << 2U,
+    PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_GRADIENT_BRUSHES = 1U << 3U
 } progpu_native_direct2d_scene_stream_flags;
 
 typedef enum progpu_native_direct2d_scene_stream_failure_reason {
@@ -762,7 +763,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 34U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 35U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t

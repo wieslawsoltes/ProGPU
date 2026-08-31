@@ -23,6 +23,7 @@
 #include <span>
 #include <string>
 #include <utility>
+#include <vector>
 
 using Microsoft::WRL::ComPtr;
 
@@ -804,6 +805,8 @@ public:
                 static_cast<uint32_t>(resource_count),
                 arena_bytes)) {
             builder_ready_ = false;
+        } else {
+            brush_cache_.reserve(static_cast<size_t>(draw_count));
         }
     }
 
@@ -1013,7 +1016,7 @@ public:
             return fail_invalid_value();
         }
         uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        HRESULT hr = add_solid_brush(brush, brush_index);
+        HRESULT hr = add_brush(brush, brush_index);
         if (FAILED(hr)) {
             return hr;
         }
@@ -1248,12 +1251,23 @@ public:
         return has_axis_aligned_clips_;
     }
 
+    bool has_gradient_brushes() const noexcept
+    {
+        return has_gradient_brushes_;
+    }
+
     D2D1_COLOR_F clear_color() const noexcept
     {
         return clear_color_;
     }
 
 private:
+    struct brush_cache_entry {
+        ComPtr<IUnknown> identity;
+        D2D1_MATRIX_3X2_F draw_transform{};
+        uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    };
+
     static bool finite_point(D2D1_POINT_2F point) noexcept
     {
         return std::isfinite(point.x) && std::isfinite(point.y);
@@ -1270,6 +1284,15 @@ private:
         return std::isfinite(value._11) && std::isfinite(value._12) &&
             std::isfinite(value._21) && std::isfinite(value._22) &&
             std::isfinite(value._31) && std::isfinite(value._32);
+    }
+
+    static bool same_transform(
+        const D2D1_MATRIX_3X2_F& left,
+        const D2D1_MATRIX_3X2_F& right) noexcept
+    {
+        return left._11 == right._11 && left._12 == right._12 &&
+            left._21 == right._21 && left._22 == right._22 &&
+            left._31 == right._31 && left._32 == right._32;
     }
 
     static bool finite_rectangle(const D2D1_RECT_F* value) noexcept
@@ -1454,6 +1477,300 @@ private:
         return {min_x, min_y, max_x - min_x, max_y - min_y};
     }
 
+    static bool try_invert_transform(
+        const D2D1_MATRIX_3X2_F& source,
+        D2D1_MATRIX_3X2_F& inverse) noexcept
+    {
+        const double determinant =
+            static_cast<double>(source._11) * source._22 -
+            static_cast<double>(source._12) * source._21;
+        if (!std::isfinite(determinant) || determinant == 0.0) {
+            return false;
+        }
+        const double reciprocal = 1.0 / determinant;
+        const std::array<double, 6U> values{
+            static_cast<double>(source._22) * reciprocal,
+            -static_cast<double>(source._12) * reciprocal,
+            -static_cast<double>(source._21) * reciprocal,
+            static_cast<double>(source._11) * reciprocal,
+            (static_cast<double>(source._21) * source._32 -
+                static_cast<double>(source._31) * source._22) * reciprocal,
+            (static_cast<double>(source._31) * source._12 -
+                static_cast<double>(source._11) * source._32) * reciprocal};
+        inverse = {
+            static_cast<float>(values[0]),
+            static_cast<float>(values[1]),
+            static_cast<float>(values[2]),
+            static_cast<float>(values[3]),
+            static_cast<float>(values[4]),
+            static_cast<float>(values[5])};
+        return std::all_of(
+            values.begin(),
+            values.end(),
+            [](double value) {
+                return std::isfinite(value) &&
+                    value >= -std::numeric_limits<float>::max() &&
+                    value <= std::numeric_limits<float>::max();
+            }) && finite_transform(inverse);
+    }
+
+    static D2D1_MATRIX_3X2_F compose_transform(
+        const D2D1_MATRIX_3X2_F& first,
+        const D2D1_MATRIX_3X2_F& second) noexcept
+    {
+        return {
+            first._11 * second._11 + first._12 * second._21,
+            first._11 * second._12 + first._12 * second._22,
+            first._21 * second._11 + first._22 * second._21,
+            first._21 * second._12 + first._22 * second._22,
+            first._31 * second._11 + first._32 * second._21 + second._31,
+            first._31 * second._12 + first._32 * second._22 + second._32};
+    }
+
+    bool try_set_gradient_coordinate_transform(
+        ID2D1Brush* source,
+        progpu_native_scene_brush& destination) const noexcept
+    {
+        D2D1_MATRIX_3X2_F brush_transform{};
+        source->GetTransform(&brush_transform);
+        if (!finite_transform(brush_transform)) {
+            return false;
+        }
+        D2D1_MATRIX_3X2_F inverse_draw{};
+        D2D1_MATRIX_3X2_F inverse_brush{};
+        if (!try_invert_transform(transform_, inverse_draw) ||
+            !try_invert_transform(brush_transform, inverse_brush)) {
+            return false;
+        }
+        const D2D1_MATRIX_3X2_F coordinate =
+            compose_transform(inverse_draw, inverse_brush);
+        if (!finite_transform(coordinate)) {
+            return false;
+        }
+        destination.coordinate_transform0[0] = coordinate._11;
+        destination.coordinate_transform0[1] = coordinate._21;
+        destination.coordinate_transform0[2] = coordinate._31;
+        destination.coordinate_transform1[0] = coordinate._12;
+        destination.coordinate_transform1[1] = coordinate._22;
+        destination.coordinate_transform1[2] = coordinate._32;
+        return true;
+    }
+
+    static bool try_map_gradient_spread(
+        D2D1_EXTEND_MODE source,
+        uint32_t& destination) noexcept
+    {
+        switch (source) {
+        case D2D1_EXTEND_MODE_CLAMP:
+            destination = PROGPU_NATIVE_SCENE_GRADIENT_PAD;
+            return true;
+        case D2D1_EXTEND_MODE_WRAP:
+            destination = PROGPU_NATIVE_SCENE_GRADIENT_REPEAT;
+            return true;
+        case D2D1_EXTEND_MODE_MIRROR:
+            destination = PROGPU_NATIVE_SCENE_GRADIENT_REFLECT;
+            return true;
+        default:
+            destination = PROGPU_NATIVE_SCENE_GRADIENT_PAD;
+            return false;
+        }
+    }
+
+    HRESULT add_gradient_brush(
+        ID2D1Brush* source,
+        ID2D1GradientStopCollection* source_collection,
+        progpu_native_scene_brush& brush,
+        uint32_t& brush_index) noexcept
+    {
+        if (source_collection == nullptr) {
+            return fail_invalid_value();
+        }
+        ComPtr<ID2D1GradientStopCollection1> collection;
+        if (FAILED(source_collection->QueryInterface(
+                IID_PPV_ARGS(&collection)))) {
+            return fail_unsupported_resource();
+        }
+        if (collection->GetPreInterpolationSpace() != D2D1_COLOR_SPACE_SRGB ||
+            collection->GetPostInterpolationSpace() != D2D1_COLOR_SPACE_SRGB ||
+            !try_map_gradient_spread(
+                collection->GetExtendMode(), brush.spread_method)) {
+            return fail_unsupported_state();
+        }
+        const UINT32 stop_count = collection->GetGradientStopCount();
+        if (stop_count == 0U) {
+            return fail_invalid_value();
+        }
+        if (stop_count > PROGPU_NATIVE_SCENE_MAX_GRADIENT_STOPS) {
+            return fail_capacity_exceeded();
+        }
+
+        try {
+            std::vector<D2D1_GRADIENT_STOP> direct_stops(stop_count);
+            collection->GetGradientStops1(direct_stops.data(), stop_count);
+            std::vector<progpu_native_scene_gradient_stop> native_stops;
+            native_stops.reserve(stop_count);
+            float previous_offset =
+                -std::numeric_limits<float>::infinity();
+            float common_alpha = direct_stops.front().color.a;
+            bool uniform_alpha = true;
+            for (const auto& stop : direct_stops) {
+                if (!std::isfinite(stop.position) ||
+                    stop.position < previous_offset ||
+                    !finite_color(stop.color)) {
+                    return fail_invalid_value();
+                }
+                uniform_alpha = uniform_alpha &&
+                    stop.color.a == common_alpha;
+                native_stops.push_back({
+                    {stop.color.r, stop.color.g, stop.color.b, stop.color.a},
+                    stop.position,
+                    0U,
+                    0U,
+                    0U});
+                previous_offset = stop.position;
+            }
+            const D2D1_COLOR_INTERPOLATION_MODE interpolation =
+                collection->GetColorInterpolationMode();
+            if (interpolation != D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT &&
+                (interpolation !=
+                        D2D1_COLOR_INTERPOLATION_MODE_PREMULTIPLIED ||
+                    !uniform_alpha)) {
+                return fail_unsupported_state();
+            }
+            if (!try_set_gradient_coordinate_transform(source, brush)) {
+                return fail_unsupported_state();
+            }
+            brush.stop_count = stop_count;
+            brush.color_interpolation_mode =
+                PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB;
+            const size_t inline_count = std::min<size_t>(
+                native_stops.size(), std::size(brush.colors));
+            for (size_t index = 0U; index < inline_count; ++index) {
+                brush.colors[index] = native_stops[index].color;
+                if (index < std::size(brush.offsets0)) {
+                    brush.offsets0[index] = native_stops[index].offset;
+                } else {
+                    brush.offsets1[index - std::size(brush.offsets0)] =
+                        native_stops[index].offset;
+                }
+            }
+            if (!builder_.add_brush(brush, native_stops, brush_index)) {
+                return fail_builder();
+            }
+        } catch (const std::bad_alloc&) {
+            return fail(
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_CAPACITY_EXCEEDED,
+                E_OUTOFMEMORY);
+        } catch (...) {
+            return fail_invalid_value();
+        }
+        has_gradient_brushes_ = true;
+        return S_OK;
+    }
+
+    HRESULT add_linear_gradient_brush(
+        ID2D1LinearGradientBrush* source,
+        uint32_t& brush_index) noexcept
+    {
+        const D2D1_POINT_2F start = source->GetStartPoint();
+        const D2D1_POINT_2F end = source->GetEndPoint();
+        const float opacity = source->GetOpacity();
+        if (!finite_point(start) || !finite_point(end) ||
+            !std::isfinite(opacity) || opacity < 0.0F || opacity > 1.0F) {
+            return fail_invalid_value();
+        }
+        ComPtr<ID2D1GradientStopCollection> collection;
+        source->GetGradientStopCollection(collection.GetAddressOf());
+        progpu_native_scene_brush brush{};
+        brush.type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+        brush.opacity = opacity;
+        brush.start_point = {start.x, start.y};
+        brush.end_point = {end.x, end.y};
+        return add_gradient_brush(
+            source, collection.Get(), brush, brush_index);
+    }
+
+    HRESULT add_radial_gradient_brush(
+        ID2D1RadialGradientBrush* source,
+        uint32_t& brush_index) noexcept
+    {
+        const D2D1_POINT_2F center = source->GetCenter();
+        const D2D1_POINT_2F offset = source->GetGradientOriginOffset();
+        const float radius_x = source->GetRadiusX();
+        const float radius_y = source->GetRadiusY();
+        const float opacity = source->GetOpacity();
+        const D2D1_POINT_2F origin = {
+            center.x + offset.x,
+            center.y + offset.y};
+        if (!finite_point(center) || !finite_point(offset) ||
+            !finite_point(origin) || !std::isfinite(radius_x) ||
+            !std::isfinite(radius_y) || radius_x < 0.0F ||
+            radius_y < 0.0F || (radius_x == 0.0F && radius_y == 0.0F) ||
+            !std::isfinite(opacity) || opacity < 0.0F || opacity > 1.0F) {
+            return fail_invalid_value();
+        }
+        ComPtr<ID2D1GradientStopCollection> collection;
+        source->GetGradientStopCollection(collection.GetAddressOf());
+        progpu_native_scene_brush brush{};
+        brush.type = PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT;
+        brush.opacity = opacity;
+        brush.start_point = {origin.x, origin.y};
+        brush.center = {center.x, center.y};
+        brush.radius = radius_x;
+        brush.radius_y = radius_y;
+        return add_gradient_brush(
+            source, collection.Get(), brush, brush_index);
+    }
+
+    HRESULT add_brush(
+        ID2D1Brush* brush,
+        uint32_t& brush_index) noexcept
+    {
+        brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        if (brush == nullptr) {
+            return fail_invalid_value();
+        }
+        ComPtr<IUnknown> identity;
+        if (FAILED(brush->QueryInterface(IID_PPV_ARGS(&identity)))) {
+            return fail_unsupported_resource();
+        }
+        for (const auto& cached : brush_cache_) {
+            if (cached.identity.Get() == identity.Get() &&
+                same_transform(cached.draw_transform, transform_)) {
+                brush_index = cached.brush_index;
+                return S_OK;
+            }
+        }
+
+        HRESULT result = E_NOTIMPL;
+        ComPtr<ID2D1SolidColorBrush> solid;
+        if (SUCCEEDED(brush->QueryInterface(IID_PPV_ARGS(&solid)))) {
+            result = add_solid_brush(solid.Get(), brush_index);
+        } else {
+            ComPtr<ID2D1LinearGradientBrush> linear;
+            if (SUCCEEDED(brush->QueryInterface(IID_PPV_ARGS(&linear)))) {
+                result = add_linear_gradient_brush(linear.Get(), brush_index);
+            } else {
+                ComPtr<ID2D1RadialGradientBrush> radial;
+                result = SUCCEEDED(
+                        brush->QueryInterface(IID_PPV_ARGS(&radial)))
+                    ? add_radial_gradient_brush(radial.Get(), brush_index)
+                    : fail_unsupported_resource();
+            }
+        }
+        if (FAILED(result)) {
+            return result;
+        }
+        try {
+            brush_cache_.push_back(
+                {std::move(identity), transform_, brush_index});
+        } catch (...) {
+            // Caching is an optimization only; the semantic brush is already
+            // retained by the scene builder and remains correct without it.
+        }
+        return S_OK;
+    }
+
     HRESULT add_solid_brush(
         ID2D1Brush* brush,
         uint32_t& brush_index) noexcept
@@ -1488,7 +1805,7 @@ private:
         float stroke_width) noexcept
     {
         uint32_t brush_index = PROGPU_NATIVE_SCENE_NO_INDEX;
-        HRESULT hr = add_solid_brush(brush, brush_index);
+        HRESULT hr = add_brush(brush, brush_index);
         if (FAILED(hr)) {
             return hr;
         }
@@ -1534,6 +1851,7 @@ private:
     std::array<
         progpu_native_image_rect,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> clip_stack_{};
+    std::vector<brush_cache_entry> brush_cache_;
     D2D1_ANTIALIAS_MODE antialias_mode_ =
         D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;
     uint32_t callback_index_ = 0U;
@@ -1548,6 +1866,7 @@ private:
     bool has_clear_ = false;
     bool has_aliased_primitives_ = false;
     bool has_axis_aligned_clips_ = false;
+    bool has_gradient_brushes_ = false;
 };
 
 class CallerTessellationSink final : public ID2D1TessellationSink {
@@ -4401,6 +4720,10 @@ progpu_native_direct2d_command_list_build_scene_stream(
         if (scene_sink->has_axis_aligned_clips()) {
             result->flags |=
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_AXIS_ALIGNED_CLIPS;
+        }
+        if (scene_sink->has_gradient_brushes()) {
+            result->flags |=
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_GRADIENT_BRUSHES;
         }
     }
 

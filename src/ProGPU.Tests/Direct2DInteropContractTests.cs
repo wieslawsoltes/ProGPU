@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 34U;",
+            "internal const uint AbiVersion = 35U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -480,7 +480,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 34U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 35U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -745,6 +745,18 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "native_command_list->Stream(sink)",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "class CommandSceneStreamSink final : public ID2D1CommandSink1",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "collection->GetGradientStops1(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_GRADIENT_BRUSHES",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -1047,6 +1059,12 @@ public sealed class Direct2DInteropContractTests
         Assert.Equal(ProGpuDirect2DStatus.DrawFailed, (ProGpuDirect2DStatus)12);
         Assert.Equal(ProGpuDirect2DStatus.DrawingStateMismatch, (ProGpuDirect2DStatus)16);
         Assert.Equal(ProGpuDirect2DLayerOptions.IgnoreAlpha, (ProGpuDirect2DLayerOptions)2);
+        Assert.Equal(
+            ProGpuDirect2DSceneStreamFlags.HasGradientBrushes,
+            (ProGpuDirect2DSceneStreamFlags)(1U << 3));
+        Assert.Equal(
+            ProGpuDirect2DSceneStreamFailureReason.CapacityExceeded,
+            (ProGpuDirect2DSceneStreamFailureReason)7U);
         Assert.Equal(
             16,
             System.Runtime.InteropServices.Marshal.SizeOf<
