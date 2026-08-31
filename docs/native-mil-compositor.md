@@ -132,9 +132,9 @@ Decoder-coverage checkpoint adds a second generated authority beside the wire
 layout manifest. `eng/progpu-generate-mil-coverage.py` reads the canonical
 command table and bounded regions of the actual C++ channel decoder and nested
 render-data compiler, then emits
-`eng/mil/native-mil-command-coverage.json`. The current implementation has 62
+`eng/mil/native-mil-command-coverage.json`. The current implementation has 64
 explicit top-level decoder cases, explicit framing/dispatch for all 25
-canonical nested render-data opcodes, two non-retail sentinels, and 54 commands
+canonical nested render-data opcodes, two non-retail sentinels, and 52 commands
 with no native top-level dispatch. Nested dispatch does not claim every value
 or resource combination is supported; obsolete effects and other unsupported
 forms continue to fail closed after exact framing.
@@ -150,6 +150,20 @@ opcode as a top-level channel packet. Both native build and source-contract
 gates reject a stale ledger whenever the protocol or decoder source changes.
 This closes the earlier reporting hole where “141 layouts generated” could be
 misread as “141 packets implemented.”
+
+Bitmap packet checkpoint closes two of the initial 54 undispatched entries, so
+the live ledger now reports 52. `MilCmdBitmapSource` accepts the exact 16-byte
+canonical packet only when its process-local `IWICBitmapSource*` field is null;
+copied RGBA8 pixels and same-device external textures remain exclusively owned
+by the existing typed channel sidebands. A non-null pointer fails
+transactionally instead of entering the portable resource graph.
+`MilCmdBitmapInvalidate` accepts the exact 28-byte packet, validates the BOOL
+and an enabled signed `RECT` against the bound bitmap dimensions, and advances
+the retained generation without pixel readback or copying. When the dirty flag
+is false, its rectangle bytes are deliberately ignored because WPF's producer
+leaves that field uninitialized. Tests cover full and partial invalidation,
+pointer rejection, malformed flags/rectangles, generation changes, metrics,
+and rollback.
 
 Brush-layout checkpoint `1b4ef706` migrates SolidColorBrush,
 LinearGradientBrush, RadialGradientBrush, DashStyle, and Pen packet readers to
