@@ -308,6 +308,7 @@ internal static class MetafilePlaybackRenderer
 
             case EmfPlusRecordType.EmfSetPixelV:
                 RequireSize(record, payload, 12);
+                state.EnsurePathCaptureSupported(record, "SetPixelV");
                 state.ApplyTransform(record);
                 state.Graphics.SetTransformedPixel(
                     ReadColor(payload, 8),
@@ -386,16 +387,29 @@ internal static class MetafilePlaybackRenderer
 
             case EmfPlusRecordType.EmfMoveToEx:
                 RequireSize(record, payload, 8);
-                state.MoveTo(ReadPoint(payload));
+                state.MoveTo(ReadPoint(payload), record);
                 return;
 
             case EmfPlusRecordType.EmfLineTo:
                 RequireSize(record, payload, 8);
                 Point next = ReadPoint(payload);
-                state.ApplyTransform(record);
-                if (state.SelectedPen is Pen linePen)
+                if (state.IsPathBracketOpen)
                 {
-                    state.Graphics.DrawLine(linePen, state.CurrentPoint, next);
+                    using var path = new GraphicsPath();
+                    path.AddLine(state.CurrentPoint, next);
+                    state.CapturePath(
+                        record,
+                        path,
+                        connect: true,
+                        continueFigure: true);
+                }
+                else
+                {
+                    state.ApplyTransform(record);
+                    if (state.SelectedPen is Pen linePen)
+                    {
+                        state.Graphics.DrawLine(linePen, state.CurrentPoint, next);
+                    }
                 }
                 state.CurrentPoint = next;
                 return;
@@ -528,6 +542,61 @@ internal static class MetafilePlaybackRenderer
                 state.SetArcDirection(ReadInt32(payload, 0), record);
                 return;
 
+            case EmfPlusRecordType.EmfSetMiterLimit:
+                RequireSize(record, payload, 4);
+                state.SetMiterLimit(ReadSingle(payload, 0), record);
+                return;
+
+            case EmfPlusRecordType.EmfBeginPath:
+                RequireSize(record, payload, 0);
+                state.BeginPath(record);
+                return;
+
+            case EmfPlusRecordType.EmfEndPath:
+                RequireSize(record, payload, 0);
+                state.EndPath(record);
+                return;
+
+            case EmfPlusRecordType.EmfCloseFigure:
+                RequireSize(record, payload, 0);
+                state.CloseFigure(record);
+                return;
+
+            case EmfPlusRecordType.EmfFillPath:
+                RequireSize(record, payload, 16);
+                state.RenderPath(record, fill: true, stroke: false);
+                return;
+
+            case EmfPlusRecordType.EmfStrokeAndFillPath:
+                RequireSize(record, payload, 16);
+                state.RenderPath(record, fill: true, stroke: true);
+                return;
+
+            case EmfPlusRecordType.EmfStrokePath:
+                RequireSize(record, payload, 16);
+                state.RenderPath(record, fill: false, stroke: true);
+                return;
+
+            case EmfPlusRecordType.EmfFlattenPath:
+                RequireSize(record, payload, 0);
+                state.FlattenPath(record);
+                return;
+
+            case EmfPlusRecordType.EmfWidenPath:
+                RequireSize(record, payload, 0);
+                state.WidenPath(record);
+                return;
+
+            case EmfPlusRecordType.EmfSelectClipPath:
+                RequireSize(record, payload, 4);
+                state.SelectClipPath(ReadInt32(payload, 0), record);
+                return;
+
+            case EmfPlusRecordType.EmfAbortPath:
+                RequireSize(record, payload, 0);
+                state.AbortPath();
+                return;
+
             case EmfPlusRecordType.EmfSetWorldTransform:
                 RequireSize(record, payload, 24);
                 state.WorldTransform = ReadTransform(record, payload);
@@ -603,6 +672,18 @@ internal static class MetafilePlaybackRenderer
         in MetafileRecord record,
         Rectangle rectangle)
     {
+        if (state.IsPathBracketOpen)
+        {
+            using var path = new GraphicsPath();
+            path.AddRectangle(rectangle);
+            state.CapturePath(
+                record,
+                path,
+                connect: false,
+                continueFigure: false);
+            return;
+        }
+
         state.ApplyTransform(record);
         if (state.SelectedBrush is Brush brush)
         {
@@ -636,6 +717,18 @@ internal static class MetafilePlaybackRenderer
         in MetafileRecord record,
         Rectangle rectangle)
     {
+        if (state.IsPathBracketOpen)
+        {
+            using var path = new GraphicsPath();
+            path.AddEllipse(rectangle);
+            state.CapturePath(
+                record,
+                path,
+                connect: false,
+                continueFigure: false);
+            return;
+        }
+
         state.ApplyTransform(record);
         if (state.SelectedBrush is Brush brush)
         {
@@ -666,6 +759,18 @@ internal static class MetafilePlaybackRenderer
 
         var rectangle = Rectangle.FromLTRB(left, top, right, bottom);
         var cornerEllipse = new Size(width, height);
+        if (state.IsPathBracketOpen)
+        {
+            using var path = new GraphicsPath();
+            path.AddRoundedRectangle(rectangle, cornerEllipse);
+            state.CapturePath(
+                record,
+                path,
+                connect: false,
+                continueFigure: false);
+            return;
+        }
+
         state.ApplyTransform(record);
         if (state.SelectedBrush is Brush brush)
         {
@@ -687,6 +792,18 @@ internal static class MetafilePlaybackRenderer
         Size cornerEllipse = new(
             ReadInt32(payload, 16),
             ReadInt32(payload, 20));
+        if (state.IsPathBracketOpen)
+        {
+            using var path = new GraphicsPath();
+            path.AddRoundedRectangle(rectangle, cornerEllipse);
+            state.CapturePath(
+                record,
+                path,
+                connect: false,
+                continueFigure: false);
+            return;
+        }
+
         state.ApplyTransform(record);
         if (state.SelectedBrush is Brush brush)
         {
@@ -731,6 +848,25 @@ internal static class MetafilePlaybackRenderer
         {
             points[index] = ReadEmfPoint(payload[cursor..], points16);
             cursor += pointSize;
+        }
+
+        if (state.IsPathBracketOpen)
+        {
+            using var path = new GraphicsPath();
+            if (close)
+            {
+                path.AddPolygon(points);
+            }
+            else
+            {
+                path.AddLines(points);
+            }
+            state.CapturePath(
+                record,
+                path,
+                connect: false,
+                continueFigure: false);
+            return;
         }
 
         state.ApplyTransform(record);
@@ -812,36 +948,70 @@ internal static class MetafilePlaybackRenderer
             throw Invalid(record);
         }
 
-        state.ApplyTransform(record);
+        GraphicsPath? capturedPath = state.IsPathBracketOpen ? new GraphicsPath() : null;
+        if (capturedPath is null)
+        {
+            state.ApplyTransform(record);
+        }
         int pointSize = points16 ? 4 : 8;
         int pointIndex = 0;
-        for (int polygonIndex = 0; polygonIndex < polygonCount; polygonIndex++)
+        try
         {
-            int currentCount = checked((int)ReadUInt32(payload, 24 + polygonIndex * 4));
-            var points = new Point[currentCount];
-            for (int index = 0; index < currentCount; index++)
+            for (int polygonIndex = 0; polygonIndex < polygonCount; polygonIndex++)
             {
-                points[index] = ReadEmfPoint(
-                    payload[(pointsOffset + pointIndex * pointSize)..],
-                    points16);
-                pointIndex++;
+                int currentCount = checked((int)ReadUInt32(payload, 24 + polygonIndex * 4));
+                var points = new Point[currentCount];
+                for (int index = 0; index < currentCount; index++)
+                {
+                    points[index] = ReadEmfPoint(
+                        payload[(pointsOffset + pointIndex * pointSize)..],
+                        points16);
+                    pointIndex++;
+                }
+
+                if (capturedPath is not null)
+                {
+                    if (close)
+                    {
+                        capturedPath.AddPolygon(points);
+                    }
+                    else
+                    {
+                        capturedPath.StartFigure();
+                        capturedPath.AddLines(points);
+                    }
+                    continue;
+                }
+
+                if (close && state.SelectedBrush is Brush brush)
+                {
+                    state.Graphics.FillPolygon(brush, points, state.FillMode);
+                }
+                if (state.SelectedPen is Pen pen)
+                {
+                    if (close)
+                    {
+                        state.Graphics.DrawPolygon(pen, points);
+                    }
+                    else
+                    {
+                        state.Graphics.DrawLines(pen, points);
+                    }
+                }
             }
 
-            if (close && state.SelectedBrush is Brush brush)
+            if (capturedPath is not null)
             {
-                state.Graphics.FillPolygon(brush, points, state.FillMode);
+                state.CapturePath(
+                    record,
+                    capturedPath,
+                    connect: false,
+                    continueFigure: false);
             }
-            if (state.SelectedPen is Pen pen)
-            {
-                if (close)
-                {
-                    state.Graphics.DrawPolygon(pen, points);
-                }
-                else
-                {
-                    state.Graphics.DrawLines(pen, points);
-                }
-            }
+        }
+        finally
+        {
+            capturedPath?.Dispose();
         }
     }
 
@@ -886,10 +1056,19 @@ internal static class MetafilePlaybackRenderer
                 points16);
         }
 
-        state.ApplyTransform(record);
-        if (state.SelectedPen is Pen pen)
+        using var path = new GraphicsPath();
+        path.AddBeziers(points);
+        if (!state.CapturePath(
+                record,
+                path,
+                connect: fromCurrentPosition,
+                continueFigure: fromCurrentPosition))
         {
-            state.Graphics.DrawBeziers(pen, points);
+            state.ApplyTransform(record);
+            if (state.SelectedPen is Pen pen)
+            {
+                state.Graphics.DrawBeziers(pen, points);
+            }
         }
         if (fromCurrentPosition)
         {
@@ -926,10 +1105,19 @@ internal static class MetafilePlaybackRenderer
                 points16);
         }
 
-        state.ApplyTransform(record);
-        if (state.SelectedPen is Pen pen)
+        using var path = new GraphicsPath();
+        path.AddLines(points);
+        if (!state.CapturePath(
+                record,
+                path,
+                connect: true,
+                continueFigure: true))
         {
-            state.Graphics.DrawLines(pen, points);
+            state.ApplyTransform(record);
+            if (state.SelectedPen is Pen pen)
+            {
+                state.Graphics.DrawLines(pen, points);
+            }
         }
         state.CurrentPoint = points[^1];
     }
@@ -969,6 +1157,7 @@ internal static class MetafilePlaybackRenderer
         Point figureStart = state.FigureStart;
         Point pathFigureStart = current;
         bool hasDrawnSegment = false;
+        bool figureClosedAtEnd = false;
         using var path = new GraphicsPath();
         for (int index = 0; index < count; index++)
         {
@@ -985,6 +1174,7 @@ internal static class MetafilePlaybackRenderer
                     current = points[index];
                     figureStart = current;
                     pathFigureStart = current;
+                    figureClosedAtEnd = false;
                     break;
 
                 case 0x02:
@@ -996,6 +1186,11 @@ internal static class MetafilePlaybackRenderer
                         ClosePolyDrawFigure(path, current, figureStart, pathFigureStart);
                         current = figureStart;
                         pathFigureStart = current;
+                        figureClosedAtEnd = true;
+                    }
+                    else
+                    {
+                        figureClosedAtEnd = false;
                     }
                     break;
 
@@ -1019,6 +1214,11 @@ internal static class MetafilePlaybackRenderer
                         ClosePolyDrawFigure(path, current, figureStart, pathFigureStart);
                         current = figureStart;
                         pathFigureStart = current;
+                        figureClosedAtEnd = true;
+                    }
+                    else
+                    {
+                        figureClosedAtEnd = false;
                     }
                     index += 2;
                     break;
@@ -1028,10 +1228,18 @@ internal static class MetafilePlaybackRenderer
             }
         }
 
-        state.ApplyTransform(record);
-        if (hasDrawnSegment && state.SelectedPen is Pen pen)
+        bool captured = state.CapturePath(
+            record,
+            path,
+            connect: (payload[typesOffset] & 0xFE) != 0x06,
+            continueFigure: hasDrawnSegment && !figureClosedAtEnd);
+        if (!captured)
         {
-            state.Graphics.DrawPath(pen, path);
+            state.ApplyTransform(record);
+            if (hasDrawnSegment && state.SelectedPen is Pen pen)
+            {
+                state.Graphics.DrawPath(pen, path);
+            }
         }
         state.CompletePolyDraw(current, figureStart);
     }
@@ -1907,17 +2115,26 @@ internal static class MetafilePlaybackRenderer
             ReadPoint(payload[24..]),
             state.ArcDirection);
         Point next = RoundLogicalPoint(record, geometry.EndPoint);
-        state.ApplyTransform(record);
-        if (state.SelectedPen is Pen pen)
+        using (var path = new GraphicsPath())
         {
-            using var path = new GraphicsPath();
             path.AddLine(
                 state.CurrentPoint.X,
                 state.CurrentPoint.Y,
                 geometry.StartPoint.X,
                 geometry.StartPoint.Y);
             path.AddArc(rectangle, geometry.StartAngle, geometry.SweepAngle);
-            state.Graphics.DrawPath(pen, path);
+            if (!state.CapturePath(
+                    record,
+                    path,
+                    connect: true,
+                    continueFigure: true))
+            {
+                state.ApplyTransform(record);
+                if (state.SelectedPen is Pen pen)
+                {
+                    state.Graphics.DrawPath(pen, path);
+                }
+            }
         }
         state.CurrentPoint = next;
     }
@@ -1963,16 +2180,25 @@ internal static class MetafilePlaybackRenderer
         PointF arcEnd = PointOnEllipse(rectangle, (float)endAngle);
         Point next = RoundLogicalPoint(record, arcEnd);
 
-        state.ApplyTransform(record);
-        if (state.SelectedPen is Pen pen)
+        using (var path = new GraphicsPath())
         {
-            using var path = new GraphicsPath();
             path.AddLine(state.CurrentPoint.X, state.CurrentPoint.Y, arcStart.X, arcStart.Y);
             if (renderSweep != 0f)
             {
                 path.AddArc(rectangle, managedStart, renderSweep);
             }
-            state.Graphics.DrawPath(pen, path);
+            if (!state.CapturePath(
+                    record,
+                    path,
+                    connect: true,
+                    continueFigure: true))
+            {
+                state.ApplyTransform(record);
+                if (state.SelectedPen is Pen pen)
+                {
+                    state.Graphics.DrawPath(pen, path);
+                }
+            }
         }
         state.CurrentPoint = next;
     }
@@ -1990,18 +2216,25 @@ internal static class MetafilePlaybackRenderer
         float startAngle = geometry.StartAngle;
         float sweepAngle = geometry.SweepAngle;
 
-        state.ApplyTransform(record);
         if (closure == ArcClosure.Open)
         {
+            if (state.IsPathBracketOpen)
+            {
+                using var openPath = new GraphicsPath();
+                openPath.AddArc(rectangle, startAngle, sweepAngle);
+                state.CapturePath(
+                    record,
+                    openPath,
+                    connect: false,
+                    continueFigure: false);
+                return;
+            }
+
+            state.ApplyTransform(record);
             if (state.SelectedPen is Pen openPen)
             {
                 state.Graphics.DrawArc(openPen, rectangle, startAngle, sweepAngle);
             }
-            return;
-        }
-
-        if (state.SelectedBrush is null && state.SelectedPen is null)
-        {
             return;
         }
 
@@ -2014,6 +2247,21 @@ internal static class MetafilePlaybackRenderer
         {
             path.AddArc(rectangle, startAngle, sweepAngle);
             path.CloseFigure();
+        }
+
+        if (state.CapturePath(
+                record,
+                path,
+                connect: false,
+                continueFigure: false))
+        {
+            return;
+        }
+
+        state.ApplyTransform(record);
+        if (state.SelectedBrush is null && state.SelectedPen is null)
+        {
+            return;
         }
 
         if (state.SelectedBrush is Brush brush)
@@ -2269,6 +2517,11 @@ internal static class MetafilePlaybackRenderer
         private int _selectedFontEscapement;
         private SolidBrush? _textBrush;
         private SolidBrush? _backgroundBrush;
+        private GraphicsPath? _buildingPath;
+        private GraphicsPath? _selectedPath;
+        private PointF? _pathMoveDevicePoint;
+        private bool _pathBracketOpen;
+        private bool _pathConnectNext;
 
         internal PlaybackState(Graphics graphics, int wmfObjectCapacity)
         {
@@ -2289,6 +2542,7 @@ internal static class MetafilePlaybackRenderer
         internal int BackgroundMode { get; set; } = 2;
         internal int RasterOperation { get; set; } = 13;
         internal int ArcDirection { get; private set; } = 1;
+        internal float MiterLimit { get; private set; } = 10f;
         internal int TextAlignment { get; set; }
         internal int TextCharacterExtra { get; set; }
         internal int TextJustificationExtra { get; private set; }
@@ -2299,6 +2553,7 @@ internal static class MetafilePlaybackRenderer
         internal Pen? SelectedPen => _selectedPen;
         internal Brush? SelectedBrush => _selectedBrush;
         internal Font SelectedFont => _selectedFont;
+        internal bool IsPathBracketOpen => _pathBracketOpen;
 
         internal Matrix3x2 ApplyTransform(in MetafileRecord record)
         {
@@ -2326,6 +2581,23 @@ internal static class MetafilePlaybackRenderer
         {
             CurrentPoint = point;
             FigureStart = point;
+            if (_pathBracketOpen)
+            {
+                _buildingPath!.StartFigure();
+                _pathConnectNext = false;
+            }
+        }
+
+        internal void MoveTo(Point point, in MetafileRecord record)
+        {
+            MoveTo(point);
+            if (_pathBracketOpen)
+            {
+                Vector2 devicePoint = Vector2.Transform(
+                    new Vector2(point.X, point.Y),
+                    ApplyTransform(record));
+                _pathMoveDevicePoint = new PointF(devicePoint.X, devicePoint.Y);
+            }
         }
 
         internal void CompletePolyDraw(Point currentPoint, Point figureStart)
@@ -2465,6 +2737,225 @@ internal static class MetafilePlaybackRenderer
             ArcDirection = direction;
         }
 
+        internal void SetMiterLimit(float limit, in MetafileRecord record)
+        {
+            if (!float.IsFinite(limit) || limit < 1f)
+            {
+                throw Invalid(record);
+            }
+            MiterLimit = limit;
+        }
+
+        internal void BeginPath(in MetafileRecord record)
+        {
+            if (_pathBracketOpen)
+            {
+                throw Invalid(record);
+            }
+
+            _selectedPath?.Dispose();
+            _selectedPath = null;
+            _buildingPath?.Dispose();
+            _buildingPath = new GraphicsPath();
+            _pathBracketOpen = true;
+            _pathMoveDevicePoint = null;
+            _pathConnectNext = false;
+        }
+
+        internal void EndPath(in MetafileRecord record)
+        {
+            if (!_pathBracketOpen || _buildingPath is null)
+            {
+                throw Invalid(record);
+            }
+
+            _selectedPath?.Dispose();
+            _selectedPath = _buildingPath;
+            _buildingPath = null;
+            _pathBracketOpen = false;
+            _pathMoveDevicePoint = null;
+            _pathConnectNext = false;
+        }
+
+        internal void CloseFigure(in MetafileRecord record)
+        {
+            if (!_pathBracketOpen || _buildingPath is null)
+            {
+                throw Invalid(record);
+            }
+
+            _buildingPath.CloseFigure();
+            _pathConnectNext = false;
+        }
+
+        internal bool CapturePath(
+            in MetafileRecord record,
+            GraphicsPath path,
+            bool connect,
+            bool continueFigure)
+        {
+            if (!_pathBracketOpen)
+            {
+                return false;
+            }
+
+            Matrix3x2 transform = ApplyTransform(record);
+            using (var matrix = new Matrix(transform))
+            {
+                path.Transform(matrix);
+            }
+
+            if (path.PointCount != 0)
+            {
+                GraphicsPath? adjustedPath = null;
+                try
+                {
+                    PointF? deviceStart = connect
+                        ? _pathConnectNext && _buildingPath!.PointCount != 0
+                            ? _buildingPath.GetLastPoint()
+                            : _pathMoveDevicePoint
+                        : null;
+                    if (deviceStart is PointF start)
+                    {
+                        PointF[] points = path.PathPoints;
+                        byte[] types = path.PathTypes;
+                        points[0] = start;
+                        adjustedPath = new GraphicsPath(points, types, path.FillMode);
+                    }
+
+                    _buildingPath!.AddPath(
+                        adjustedPath ?? path,
+                        connect && _pathConnectNext);
+                }
+                finally
+                {
+                    adjustedPath?.Dispose();
+                }
+                _pathMoveDevicePoint = null;
+                _pathConnectNext = continueFigure;
+            }
+            return true;
+        }
+
+        internal void EnsurePathCaptureSupported(
+            in MetafileRecord record,
+            string operation)
+        {
+            if (_pathBracketOpen)
+            {
+                throw Unsupported(
+                    record,
+                    $"{operation} inside an EMF path bracket requires typed outline capture.");
+            }
+        }
+
+        internal void RenderPath(in MetafileRecord record, bool fill, bool stroke)
+        {
+            GraphicsPath path = TakeSelectedPath(record);
+            try
+            {
+                path.FillMode = FillMode;
+                if (fill)
+                {
+                    path.CloseAllFigures();
+                }
+
+                Graphics.TransformElements = Matrix3x2.Identity;
+                if (fill && _selectedBrush is Brush brush)
+                {
+                    Graphics.FillPath(brush, path);
+                }
+                if (stroke && _selectedPen is Pen pen)
+                {
+                    using Pen effectivePen = CreateEffectivePathPen(pen);
+                    Graphics.DrawPath(effectivePen, path);
+                }
+            }
+            finally
+            {
+                path.Dispose();
+            }
+        }
+
+        internal void FlattenPath(in MetafileRecord record)
+        {
+            GraphicsPath path = GetSelectedPath(record);
+            path.Flatten();
+        }
+
+        internal void WidenPath(in MetafileRecord record)
+        {
+            GraphicsPath path = GetSelectedPath(record);
+            if (_selectedPen is not Pen pen || pen.Width <= 1f)
+            {
+                throw Unsupported(
+                    record,
+                    "WidenPath requires a selected pen wider than one device unit.");
+            }
+
+            using Pen effectivePen = CreateEffectivePathPen(pen);
+            path.Widen(effectivePen);
+        }
+
+        internal void SelectClipPath(int mode, in MetafileRecord record)
+        {
+            CombineMode combineMode = mode switch
+            {
+                1 => CombineMode.Intersect,
+                2 => CombineMode.Union,
+                3 => CombineMode.Xor,
+                4 => CombineMode.Exclude,
+                5 => CombineMode.Replace,
+                _ => throw Invalid(record)
+            };
+            GraphicsPath path = TakeSelectedPath(record);
+            try
+            {
+                path.FillMode = FillMode;
+                path.CloseAllFigures();
+                Graphics.TransformElements = Matrix3x2.Identity;
+                Graphics.SetClip(path, combineMode);
+            }
+            finally
+            {
+                path.Dispose();
+            }
+        }
+
+        internal void AbortPath()
+        {
+            _buildingPath?.Dispose();
+            _buildingPath = null;
+            _selectedPath?.Dispose();
+            _selectedPath = null;
+            _pathBracketOpen = false;
+            _pathMoveDevicePoint = null;
+            _pathConnectNext = false;
+        }
+
+        private GraphicsPath GetSelectedPath(in MetafileRecord record)
+        {
+            if (_pathBracketOpen || _selectedPath is null)
+            {
+                throw Invalid(record);
+            }
+            return _selectedPath;
+        }
+
+        private GraphicsPath TakeSelectedPath(in MetafileRecord record)
+        {
+            GraphicsPath path = GetSelectedPath(record);
+            _selectedPath = null;
+            return path;
+        }
+
+        private Pen CreateEffectivePathPen(Pen pen)
+        {
+            var clone = (Pen)pen.Clone();
+            clone.MiterLimit = MiterLimit;
+            return clone;
+        }
+
         internal void IntersectClip(in MetafileRecord record, Rectangle rectangle)
         {
             ApplyTransform(record);
@@ -2518,6 +3009,7 @@ internal static class MetafilePlaybackRenderer
                 BackgroundMode,
                 RasterOperation,
                 ArcDirection,
+                MiterLimit,
                 TextAlignment,
                 TextCharacterExtra,
                 TextJustificationExtra,
@@ -2561,6 +3053,7 @@ internal static class MetafilePlaybackRenderer
             BackgroundMode = saved.BackgroundMode;
             RasterOperation = saved.RasterOperation;
             ArcDirection = saved.ArcDirection;
+            MiterLimit = saved.MiterLimit;
             TextAlignment = saved.TextAlignment;
             TextCharacterExtra = saved.TextCharacterExtra;
             TextJustificationExtra = saved.TextJustificationExtra;
@@ -2856,6 +3349,7 @@ internal static class MetafilePlaybackRenderer
             ReadOnlySpan<int> advances,
             ReadOnlySpan<int> verticalAdvances)
         {
+            EnsurePathCaptureSupported(record, "Glyph-index text");
             const int SupportedAlignmentMask = 0x011F;
             if ((TextAlignment & ~SupportedAlignmentMask) != 0 ||
                 (TextAlignment & 0x0006) == 0x0004 ||
@@ -3022,6 +3516,7 @@ internal static class MetafilePlaybackRenderer
             ReadOnlySpan<int> advances,
             ReadOnlySpan<int> verticalAdvances = default)
         {
+            EnsurePathCaptureSupported(record, "Text output");
             const int SupportedAlignmentMask = 0x011F;
             if ((TextAlignment & ~SupportedAlignmentMask) != 0 ||
                 (TextAlignment & 0x0006) == 0x0004 ||
@@ -3548,6 +4043,8 @@ internal static class MetafilePlaybackRenderer
         {
             _textBrush?.Dispose();
             _backgroundBrush?.Dispose();
+            _buildingPath?.Dispose();
+            _selectedPath?.Dispose();
             foreach (object product in _objects.Values)
             {
                 (product as IDisposable)?.Dispose();
@@ -3568,6 +4065,7 @@ internal static class MetafilePlaybackRenderer
             int BackgroundMode,
             int RasterOperation,
             int ArcDirection,
+            float MiterLimit,
             int TextAlignment,
             int TextCharacterExtra,
             int TextJustificationExtra,

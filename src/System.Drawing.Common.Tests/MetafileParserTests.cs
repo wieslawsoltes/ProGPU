@@ -2649,6 +2649,293 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfPathBracketStoresGeometryInDeviceCoordinatesBeforeFill()
+    {
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0000)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0008)),
+            (EmfPlusRecordType.EmfBeginPath, []),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(4, 4, 20, 20)),
+            (EmfPlusRecordType.EmfSetWorldTransform, EmfTransform(24f, 0f)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(4, 4, 20, 20)),
+            (EmfPlusRecordType.EmfEndPath, []),
+            (EmfPlusRecordType.EmfSetWorldTransform, EmfTransform(0f, 0f)),
+            (EmfPlusRecordType.EmfFillPath, EmfRectangle(4, 4, 44, 20))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(12, 12).ToArgb());
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(36, 12).ToArgb());
+        Assert.Equal(0, target.GetPixel(52, 12).A);
+    }
+
+    [Fact]
+    public void EmfMoveToInsidePathRetainsItsOriginalDevicePosition()
+    {
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0005)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0007)),
+            (EmfPlusRecordType.EmfBeginPath, []),
+            (EmfPlusRecordType.EmfSetWorldTransform, EmfTransform(24f, 0f)),
+            (EmfPlusRecordType.EmfMoveToEx, EmfPoint(4, 12)),
+            (EmfPlusRecordType.EmfSetWorldTransform, EmfTransform(0f, 0f)),
+            (EmfPlusRecordType.EmfLineTo, EmfPoint(20, 12)),
+            (EmfPlusRecordType.EmfEndPath, []),
+            (EmfPlusRecordType.EmfStrokePath, EmfRectangle(20, 12, 28, 12))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.True(target.GetPixel(24, 12).A > 0);
+        Assert.Equal(0, target.GetPixel(8, 12).A);
+    }
+
+    [Fact]
+    public void EmfCloseFigureAndStrokePathCloseTheCurrentSubpath()
+    {
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0005)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0007)),
+            (EmfPlusRecordType.EmfBeginPath, []),
+            (EmfPlusRecordType.EmfMoveToEx, EmfPoint(8, 8)),
+            (EmfPlusRecordType.EmfLineTo, EmfPoint(24, 8)),
+            (EmfPlusRecordType.EmfLineTo, EmfPoint(16, 24)),
+            (EmfPlusRecordType.EmfCloseFigure, []),
+            (EmfPlusRecordType.EmfEndPath, []),
+            (EmfPlusRecordType.EmfStrokePath, EmfRectangle(8, 8, 24, 24))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.True(target.GetPixel(12, 16).A > 0);
+        Assert.Equal(0, target.GetPixel(4, 16).A);
+    }
+
+    [Fact]
+    public void EmfFlattenAndWidenPathCreateFillableStrokeGeometry()
+    {
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfCreatePen, EmfPen(1, 4, Color.Black)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfBeginPath, []),
+            (EmfPlusRecordType.EmfMoveToEx, EmfPoint(8, 16)),
+            (EmfPlusRecordType.EmfLineTo, EmfPoint(56, 16)),
+            (EmfPlusRecordType.EmfEndPath, []),
+            (EmfPlusRecordType.EmfFlattenPath, []),
+            (EmfPlusRecordType.EmfSetMiterLimit, EmfSingle(4f)),
+            (EmfPlusRecordType.EmfWidenPath, []),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0004)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0008)),
+            (EmfPlusRecordType.EmfFillPath, EmfRectangle(6, 12, 58, 20))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(32, 16).ToArgb());
+        Assert.Equal(0, target.GetPixel(32, 24).A);
+    }
+
+    [Fact]
+    public void EmfSelectClipPathConsumesTheCurrentPath()
+    {
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfBeginPath, []),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(8, 8, 32, 32)),
+            (EmfPlusRecordType.EmfEndPath, []),
+            (EmfPlusRecordType.EmfSelectClipPath, EmfInt32(5)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0004)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0008)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(0, 0, 64, 64))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(16, 16).ToArgb());
+        Assert.Equal(0, target.GetPixel(40, 16).A);
+    }
+
+    [Fact]
+    public void EmfAbortPathDiscardsOnlyTheBuildingPath()
+    {
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0000)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0008)),
+            (EmfPlusRecordType.EmfBeginPath, []),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(4, 4, 20, 20)),
+            (EmfPlusRecordType.EmfAbortPath, []),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(28, 4, 44, 20))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(0, target.GetPixel(12, 12).A);
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(36, 12).ToArgb());
+    }
+
+    [Fact]
+    public void EmfInvalidPathStateRollsBackEarlierGeometry()
+    {
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0004)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0008)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(0, 0, 64, 64)),
+            (EmfPlusRecordType.EmfEndPath, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Contains(nameof(EmfPlusRecordType.EmfEndPath), exception.Message, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(12, 12).ToArgb());
+    }
+
+    [Fact]
+    public void EmfNonPathPixelInsideBracketFailsWithoutPublishing()
+    {
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0004)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0008)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(0, 0, 64, 64)),
+            (EmfPlusRecordType.EmfBeginPath, []),
+            (EmfPlusRecordType.EmfSetPixelV, EmfSetPixel(new Point(4, 4), Color.Red))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Contains(nameof(EmfPlusRecordType.EmfSetPixelV), exception.Message, StringComparison.Ordinal);
+            Assert.Contains("path bracket", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(12, 12).ToArgb());
+    }
+
+    [Fact]
+    public void EmfTextInsidePathFailsWithoutPublishing()
+    {
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0004)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0008)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(0, 0, 64, 64)),
+            (EmfPlusRecordType.EmfBeginPath, []),
+            (EmfPlusRecordType.EmfExtTextOutW,
+                EmfExtTextOutW("M", new Point(4, 4), 0, Rectangle.Empty, null))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Contains(nameof(EmfPlusRecordType.EmfExtTextOutW), exception.Message, StringComparison.Ordinal);
+            Assert.Contains("outline capture", exception.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(12, 12).ToArgb());
+    }
+
+    public static IEnumerable<object[]> EmfPathVectorRecords()
+    {
+        Point[] triangle = [new(8, 8), new(32, 8), new(20, 32)];
+        Point[] line = [new(8, 12), new(24, 20), new(40, 12)];
+        Point[] bezier = [new(8, 24), new(16, 4), new(32, 4), new(40, 24)];
+        Rectangle arcBounds = new(8, 8, 32, 32);
+        Point arcStart = new(40, 24);
+        Point arcEnd = new(24, 40);
+        yield return [EmfPlusRecordType.EmfRectangle, EmfRectangle(8, 8, 40, 32)];
+        yield return [EmfPlusRecordType.EmfEllipse, EmfRectangle(8, 8, 40, 32)];
+        yield return [EmfPlusRecordType.EmfRoundRect, EmfRoundRectangle(new Rectangle(8, 8, 32, 24), new Size(8, 8))];
+        yield return [EmfPlusRecordType.EmfPolygon, EmfPointArray(triangle, points16: false)];
+        yield return [EmfPlusRecordType.EmfPolyline16, EmfPointArray(line, points16: true)];
+        yield return [EmfPlusRecordType.EmfPolyPolygon16, EmfPolyPoly([3], triangle, points16: true)];
+        yield return [EmfPlusRecordType.EmfPolyPolyline, EmfPolyPoly([3], line, points16: false)];
+        yield return [EmfPlusRecordType.EmfPolyBezier, EmfPointArray(bezier, points16: false)];
+        yield return [EmfPlusRecordType.EmfPolyBezierTo16, EmfPointArray(bezier[1..], points16: true)];
+        yield return [EmfPlusRecordType.EmfPolylineTo16, EmfPointArray(line, points16: true)];
+        yield return [EmfPlusRecordType.EmfPolyDraw16, EmfPolyDraw(line, [0x06, 0x02, 0x03], points16: true)];
+        yield return [EmfPlusRecordType.EmfRoundArc, EmfArc(arcBounds, arcStart, arcEnd)];
+        yield return [EmfPlusRecordType.EmfPie, EmfArc(arcBounds, arcStart, arcEnd)];
+        yield return [EmfPlusRecordType.EmfChord, EmfArc(arcBounds, arcStart, arcEnd)];
+        yield return [EmfPlusRecordType.EmfArcTo, EmfArc(arcBounds, arcStart, arcEnd)];
+        yield return [EmfPlusRecordType.EmfAngleArc, EmfAngleArc(new Point(24, 24), 16, 0f, 90f)];
+    }
+
+    [Theory]
+    [MemberData(nameof(EmfPathVectorRecords))]
+    public void EmfPathBracketCapturesEverySupportedVectorBeforeAbort(
+        EmfPlusRecordType type,
+        byte[] payload)
+    {
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0004)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0007)),
+            (EmfPlusRecordType.EmfMoveToEx, EmfPoint(8, 24)),
+            (EmfPlusRecordType.EmfBeginPath, []),
+            (type, payload),
+            (EmfPlusRecordType.EmfAbortPath, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(0, target.GetPixel(24, 24).A);
+    }
+
+    [Fact]
     public void LargeRecordTableParsingHasBoundedAllocation()
     {
         byte[] fixture = CreateLargeEmf(4_096);
@@ -3810,6 +4097,33 @@ public sealed class MetafileParserTests
     {
         byte[] payload = new byte[4];
         WriteUInt32(payload, 0, value);
+        return payload;
+    }
+
+    private static byte[] EmfSingle(float value)
+    {
+        byte[] payload = new byte[4];
+        WriteSingle(payload, 0, value);
+        return payload;
+    }
+
+    private static byte[] EmfTransform(float offsetX, float offsetY)
+    {
+        byte[] payload = new byte[24];
+        WriteSingle(payload, 0, 1f);
+        WriteSingle(payload, 12, 1f);
+        WriteSingle(payload, 16, offsetX);
+        WriteSingle(payload, 20, offsetY);
+        return payload;
+    }
+
+    private static byte[] EmfPen(uint index, int width, Color color)
+    {
+        byte[] payload = new byte[20];
+        WriteUInt32(payload, 0, index);
+        WriteUInt32(payload, 4, 0);
+        WriteInt32(payload, 8, width);
+        WriteUInt32(payload, 16, (uint)(color.R | color.G << 8 | color.B << 16));
         return payload;
     }
 

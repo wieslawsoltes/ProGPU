@@ -150,6 +150,17 @@ inner moved/excluded scope without losing the outer intersection. Exact point
 and ordered-rectangle layouts are validated before drawing, and a malformed
 record rolls back earlier temporary geometry.
 
+The EMF path-bracket follow-up adds typed Begin/End/Close/Abort lifecycle,
+fill/stroke, flatten/widen, five-mode clip selection, and saved miter-limit
+state. Every implemented vector family captures managed `GraphicsPath`
+geometry while a bracket is open, applying each record's transform immediately
+so later DC changes cannot relocate earlier points. Selected paths are consumed
+by fill, stroke, combined stroke/fill, or clip operations; malformed lifecycle,
+payload, mode, or unsupported text-outline capture aborts transactional
+publication. Raster, retained-command, per-vector-family, transform-change,
+selected-path consumption, widening, abort, and rollback gates cover the slice
+without native handles, reflection, or compatibility-shaped objects.
+
 The type-scoped bitmap-resource slice restores `Bitmap(Type, string)` as a
 functional managed path for designer and control artwork embedded beside its
 owning type. It performs the exact case-sensitive namespace-scoped manifest
@@ -286,6 +297,16 @@ millisecond standard deviation) and 2.41 MB allocated. Three iterations and
 denied priority elevation make this coarse state-heavy evidence; exact moved,
 excluded, restored, and transactional-rollback pixels are authoritative. The
 complete drawing suite passes 472/472 and ApiCompat remains at zero missing
+types, zero missing members, and 13 reviewed differences.
+
+`MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
+Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11
+ShortRun measured a 1.520 millisecond median (1.477 millisecond mean, 0.381
+millisecond standard deviation) with 713.5 KB allocated. Three iterations,
+denied priority elevation, and visible timing variance make this coarse local
+evidence; the focused path lifecycle, device-coordinate, pixel, retained-
+command, and rollback gates are the correctness authority.
+The complete drawing suite passes 497/497 and ApiCompat remains at zero missing
 types, zero missing members, and 13 reviewed differences.
 
 `MetafileBenchmarks.Playback256WmfRectanglesToRetainedCommands` guards the shared ordered-box decoder and typed selected brush/pen lowering. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 757.639 µs median (753.507 µs mean, 139.549 µs standard deviation) with 622.08 KB allocated for 256 rectangles. The three-iteration result is coarse transactional retained-command evidence; exact selected-fill pixels and shared malformed-bound rollback remain the correctness gates.

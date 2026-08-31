@@ -97,7 +97,9 @@ justification, Unicode `EMR_EXTCREATEFONTINDIRECTW` object-table fonts, and
 `EMR_EXTTEXTOUTA/W` with opaque/clipped rectangles, RTL layout without explicit
 advances, and 32-bit character-cell advances. Saved DC state includes the
 retained clip and text state and restores both through the typed `GraphicsState`
-path. EMF/EMF+ structural and comment records are
+path. Typed path playback adds bracket creation, closure, selection, abort,
+fill/stroke, flatten, widen, clip selection, and miter-limit state over every
+implemented EMF vector family. EMF/EMF+ structural and comment records are
 nonvisual. The byte layouts and playback state follow the
 official [EMR_RECTANGLE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/3c471238-0a02-4992-90a2-bfd2afd98f2a),
 [EMR_CREATEBRUSHINDIRECT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/b9a8ef5d-0089-4e42-b317-e6ebc0ff098f),
@@ -692,6 +694,43 @@ with an offset, exclusion, retained rectangle, and relative restore. The
 allocated. Three measured iterations and denied priority elevation make this
 coarse state-heavy command-shape evidence; the focused raster and rollback
 gates remain the correctness authority.
+
+The EMF path-bracket follow-up adds `EMR_BEGINPATH`, `EMR_ENDPATH`,
+`EMR_CLOSEFIGURE`, `EMR_ABORTPATH`, `EMR_FILLPATH`, `EMR_STROKEPATH`,
+`EMR_STROKEANDFILLPATH`, `EMR_FLATTENPATH`, `EMR_WIDENPATH`,
+`EMR_SELECTCLIPPATH`, and `EMR_SETMITERLIMIT`. Vector calls inside a bracket
+append typed `GraphicsPath` geometry instead of publishing drawing commands.
+Each call's active map/world transform is applied at capture time, so the
+selected path owns device-coordinate points; a `MoveTo` remains at its
+original device position even if the transform changes before the connecting
+record. `BeginPath` discards a previously selected path, `EndPath` selects the
+completed path, consuming fill/stroke/clip operations remove that selected
+path, and `AbortPath` clears either lifecycle state. Fill and clip close open
+figures and use the active alternate/winding mode. Clip selection maps the five
+official RGN combine values to the existing typed Region clip path.
+`FlattenPath` and `WidenPath` reuse managed path geometry; widening requires a
+supported selected pen wider than one device unit and applies the saved DC
+miter limit. The exact 16-byte bounds metadata on fill/stroke records and exact
+scalar/mode payloads are validated before execution. These rules follow the
+official [path creation](https://learn.microsoft.com/en-us/windows/win32/gdi/path-creation),
+[device-coordinate path storage](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-getpath),
+[outlined and filled path](https://learn.microsoft.com/en-us/windows/win32/gdi/outlined-and-filled-paths),
+[WidenPath](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-widenpath),
+and [clip path](https://learn.microsoft.com/en-us/windows/win32/gdi/clip-paths)
+contracts. Text/glyph outline capture inside a bracket remains an explicit typed
+boundary; it fails transactionally instead of emitting ordinary text outside
+the path. Twenty-five focused cases cover lifecycle, raster output, every
+supported vector-record family, device-coordinate transform changes, widening,
+clip selection, abort, text-boundary enforcement, retained-command suppression,
+and rollback. The complete drawing suite passes 497/497.
+
+`Playback256EmfPathBracketsToRetainedCommands` guards 256 independent
+Begin/rectangle/End/StrokeAndFill sequences. The 2026-08-31 ARM64/.NET 10.0.11
+ShortRun measured a 1.520 millisecond median (1.477 millisecond mean, 0.381
+millisecond standard deviation) and 713.5 KB allocated. Three measured
+iterations, denied priority elevation, and timing variance make this coarse
+transactional path-lowering evidence; the focused lifecycle, raster,
+device-coordinate, retained-command, and rollback gates remain authoritative.
 
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication
