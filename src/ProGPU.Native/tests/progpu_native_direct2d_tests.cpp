@@ -2409,7 +2409,8 @@ int main()
     context->SetTransform(D2D1::Matrix3x2F::Identity());
     context->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
     D2D1_LAYER_PARAMETERS1 opacity_layer_parameters{};
-    opacity_layer_parameters.contentBounds = D2D1::InfiniteRect();
+    opacity_layer_parameters.contentBounds =
+        D2D1::RectF(1.0F, 2.0F, 21.0F, 22.0F);
     opacity_layer_parameters.maskAntialiasMode =
         D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;
     opacity_layer_parameters.maskTransform =
@@ -2421,6 +2422,9 @@ int main()
     context->PushAxisAlignedClip(
         &opacity_layer_clip,
         D2D1_ANTIALIAS_MODE_ALIASED);
+    const D2D1_MATRIX_3X2_F opacity_layer_transform =
+        D2D1::Matrix3x2F(2.0F, 0.0F, 0.0F, 0.5F, 7.0F, 9.0F);
+    context->SetTransform(opacity_layer_transform);
     context->PushLayer(&opacity_layer_parameters, nullptr);
     const D2D1_RECT_F opacity_layer_fill0 =
         D2D1::RectF(4.0F, 5.0F, 24.0F, 25.0F);
@@ -2521,11 +2525,11 @@ int main()
                 opacity_layer_stream.data() + command.payload_offset,
                 sizeof(translated_layer));
             require(
-                translated_layer.flags == 0U &&
-                    translated_layer.bounds.x == 0.0F &&
-                    translated_layer.bounds.y == 0.0F &&
-                    translated_layer.bounds.width == 0.0F &&
-                    translated_layer.bounds.height == 0.0F &&
+                translated_layer.flags == PROGPU_NATIVE_SCENE_LAYER_BOUNDS &&
+                    translated_layer.bounds.x == 9.0F &&
+                    translated_layer.bounds.y == 10.0F &&
+                    translated_layer.bounds.width == 40.0F &&
+                    translated_layer.bounds.height == 10.0F &&
                     translated_layer.opacity == 0.375F &&
                     translated_layer.blend_mode ==
                         PROGPU_NATIVE_BLEND_SRC_OVER &&
@@ -2570,6 +2574,7 @@ int main()
             background_layer_list.Get()) ==
             PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
         "background-layer command-list recording did not begin");
+    context->SetTransform(opacity_layer_transform);
     D2D1_LAYER_PARAMETERS1 background_layer_parameters =
         opacity_layer_parameters;
     background_layer_parameters.layerOptions =
