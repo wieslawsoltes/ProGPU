@@ -88,13 +88,14 @@ process:
 
 | Application call shape | macOS/Linux behavior | Required application change |
 | --- | --- | --- |
-| `IUnknown`, `QueryInterface`, `AddRef`/`Release`, and supported ProGPU-owned `ID2D1*` resources | Runs in-process through the portable C++ compatibility objects and records the same pointer-free scene used on Windows | Rebuild against the ProGPU compatibility SDK; preserve COM ownership rules |
+| `IUnknown`, `QueryInterface`, `AddRef`/`Release`, and supported ProGPU-owned `ID2D1*` resources | Target: run in-process through portable C++ compatibility objects and record the same pointer-free scene used on Windows. Current ABI v54: the COM object library and compatibility header are still `WIN32`-only; macOS/Linux consume the resulting scene/vector contracts through typed ProGPU APIs | Today, rebuild against `ProGPU.DirectX`, `ProGPU.Win2D`, or the scene API on portable targets. Once the portable COM header/object target lands, rebuild against that SDK and preserve COM ownership rules |
 | Supported Direct3D-style buffers, textures, pipelines, descriptors, and command recording | Lowers to WebGPU and selects Metal on macOS or Vulkan on Linux | Rebuild against `ProGPU.DirectX`; replace raw native handles with typed ProGPU resource leases |
 | Win2D drawing expressed through the portable `ProGPU.Win2D` Canvas API | Runs in-process and lowers to the shared scene/vector/text/effect implementation | Rebuild source against the portable Canvas projection |
 | System `ID2D1*`, DXGI shared handles, D3D11 keyed mutexes, HWND/HDC targets, or native Win2D resource wrapping | No native in-process equivalent; the call fails closed at the typed platform boundary | Select a ProGPU-owned resource on portable targets, or keep a Windows implementation behind a platform service |
 | Arbitrary registered COM servers, ActiveX, shell automation, Media Foundation/DirectShow components, or an unchanged PE/WinRT binary | Not provided by ProGPU | Use a Windows VM/Wine or a Windows helper process/plugin and exchange neutral data |
 
-A supported Direct2D call therefore follows one batched translation path:
+The target portable Direct2D call follows one batched translation path (the
+Windows ABI v54 endpoint already implements its first half):
 
 ```text
 application ID2D1*/Canvas call
