@@ -5546,6 +5546,30 @@ The 170,496-byte provider SHA-256 is
 `21CB1B6F5DD483A6E6F1F3546D76C1EC158A22F042120AA8A503247CF58B4789`,
 with all 123 exports matching the allowlist.
 
+ABI v41 implementation `b84845fb` maps finite Direct2D opacity-brush layers
+onto ProGPU's existing GPU brush-mask resource. Genuine solid, linear, and
+radial `ID2D1Brush` instances are translated into pointer-free material and
+gradient-stop data. Local content bounds plus the active draw transform define
+coverage, while the retained inverse draw/brush coordinate mapping preserves
+Direct2D target-space brush evaluation. The brush alpha is multiplied with the
+isolated layer during composition, after the layer's uniform opacity.
+
+The shared brush-mask rasterizer produces R8 coverage on D3D12, Metal, Vulkan,
+and WebGPU without CPU pixel fallback, readback, repacking, per-stop GPU
+submission, or retained COM identity. Full-target opacity-brush layers remain
+typed unsupported until content-derived layer bounds can feed the resource.
+Geometric-mask plus opacity-brush composition remains typed unsupported until
+the scene builder exposes its already executable composite-mask serializer.
+
+The Windows oracle decodes a real transformed two-stop Direct2D linear brush,
+including exact target bounds, local mask bounds, active transform, stops,
+brush opacity, and inverse draw/brush coordinates. Managed AOT contracts pass
+5/5 and build warning-free. Windows 11 ARM64 Parallels rebuilds provider/test
+from deleted objects under MSVC 19.44/SDK 10.0.26100.0 `/W4 /WX`; the fresh
+native executable exits zero. The 176,640-byte provider SHA-256 is
+`50FD9745C40EE045B53F06D1CD089B48F20BABC502D48DB014BAD795A3466C7F`,
+with all 123 exports matching the allowlist.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

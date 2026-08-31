@@ -1135,6 +1135,36 @@ test exits zero. The 170,496-byte provider SHA-256 is
 `21CB1B6F5DD483A6E6F1F3546D76C1EC158A22F042120AA8A503247CF58B4789`,
 and all 123 exports match the allowlist.
 
+ABI v41 at implementation `b84845fb` adds the first typed Direct2D
+`opacityBrush` layer path. For finite content bounds, genuine solid, linear-
+gradient, and radial-gradient brushes are converted through the same validated
+color, opacity, interpolation, spread, stop, and coordinate-transform rules as
+draw brushes. The result is ProGPU's existing pointer-free brush-mask resource:
+the local content rectangle and active draw transform define its coverage, and
+the inverse draw/brush mapping evaluates the brush in Direct2D target space.
+Only the mapped brush alpha participates, matching Microsoft's definition that
+each mapped brush pixel's alpha multiplies the corresponding layer pixel.
+
+Brush-mask generation and group composition stay entirely on the shared GPU
+path. ProGPU rasterizes the solid/gradient rectangle into retained R8 coverage
+and consumes it through the same layer-mask binding on D3D12, Metal, Vulkan,
+and WebGPU. No CPU pixels, readback, repack, per-stop submission, retained COM
+pointer, or second 2D renderer is introduced. Full-target opacity-brush layers
+remain fail-closed because their natural content-derived bounds are not yet
+available to the mask resource at push time. A geometric mask plus opacity
+brush also remains fail-closed pending direct scene-builder exposure of the
+existing composite-mask resource.
+
+The Windows oracle records a finite transformed layer with the provider's real
+two-stop `ID2D1LinearGradientBrush`. It decodes exact target layer bounds,
+local brush-mask bounds, active mask transform, two retained stops, 75% brush
+opacity, and the inverse draw/brush coordinate matrix. Managed AOT contracts
+pass 5/5 and build with zero warnings. Windows 11 ARM64 Parallels rebuilds the
+provider and test from deleted objects under MSVC 19.44/SDK 10.0.26100.0
+`/W4 /WX`; the fresh executable exits zero. The 176,640-byte provider SHA-256
+is `50FD9745C40EE045B53F06D1CD089B48F20BABC502D48DB014BAD795A3466C7F`,
+and all 123 exports match the allowlist.
+
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
