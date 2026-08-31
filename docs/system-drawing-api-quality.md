@@ -446,6 +446,19 @@ median (4.449 ms mean, 0.850 ms standard deviation) and 1.08 MB allocated for
 256 records. Three measured iterations and denied priority elevation make this
 coarse local allocation/command-shape evidence.
 
+Unicode `ETO_GLYPH_INDEX` with explicit cells now records the supplied 16-bit
+IDs directly against the selected font, without Unicode lookup, fallback, or
+OpenType substitution. The typed path preserves scalar/PDY cells, alignment,
+background and clip state, escapement, and current-position updates. ANSI
+storage, absent cells, bidi visual order, and decorated glyph-index text remain
+explicit boundaries. Exact IDs, cell origins, `TA_UPDATECP`, and rollback are
+covered by the complete 453/453 suite. ApiCompat remains 0/0/13.
+
+`MetafileBenchmarks.Playback256EmfExtTextOutWGlyphIndices` measured a 3.818 ms
+median (4.194 ms mean, 1.187 ms standard deviation) and 528.25 KB allocated for
+256 direct three-glyph records. The 3.241-5.524 ms spread makes this coarse
+local allocation evidence, not a portable latency baseline.
+
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the
 same parser used by consumers, and final stream publication. The 2026-08-27

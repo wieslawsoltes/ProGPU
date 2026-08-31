@@ -20,6 +20,7 @@ public class MetafileBenchmarks
     private Metafile _playbackMetafile = null!;
     private Metafile _emfExtendedTextPlaybackMetafile = null!;
     private Metafile _emfPdyExtendedTextPlaybackMetafile = null!;
+    private Metafile _emfGlyphIndexExtendedTextPlaybackMetafile = null!;
     private Metafile _emfAnsiExtendedTextPlaybackMetafile = null!;
     private Metafile _emfPolyTextPlaybackMetafile = null!;
     private Metafile _emfSmallTextPlaybackMetafile = null!;
@@ -60,6 +61,10 @@ public class MetafileBenchmarks
         _emfPdyExtendedTextPlaybackMetafile = new Metafile(
             new MemoryStream(
                 CreatePlaybackEmfExtendedText(256, pdy: true),
+                writable: false));
+        _emfGlyphIndexExtendedTextPlaybackMetafile = new Metafile(
+            new MemoryStream(
+                CreatePlaybackEmfExtendedText(256, glyphIndices: true),
                 writable: false));
         _emfAnsiExtendedTextPlaybackMetafile = new Metafile(
             new MemoryStream(
@@ -123,6 +128,7 @@ public class MetafileBenchmarks
         _playbackMetafile.Dispose();
         _emfExtendedTextPlaybackMetafile.Dispose();
         _emfPdyExtendedTextPlaybackMetafile.Dispose();
+        _emfGlyphIndexExtendedTextPlaybackMetafile.Dispose();
         _emfAnsiExtendedTextPlaybackMetafile.Dispose();
         _emfPolyTextPlaybackMetafile.Dispose();
         _emfSmallTextPlaybackMetafile.Dispose();
@@ -205,6 +211,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _emfPdyExtendedTextPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256EmfExtTextOutWGlyphIndices()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _emfGlyphIndexExtendedTextPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -516,12 +534,17 @@ public class MetafileBenchmarks
     private static byte[] CreatePlaybackEmfExtendedText(
         int recordCount,
         bool unicode = true,
-        bool pdy = false)
+        bool pdy = false,
+        bool glyphIndices = false)
     {
         const int fontRecordSize = 104;
         if (pdy && !unicode)
         {
             throw new ArgumentException("The PDY benchmark fixture requires Unicode text.", nameof(unicode));
+        }
+        if (glyphIndices && !unicode)
+        {
+            throw new ArgumentException("The glyph-index benchmark fixture requires Unicode storage.", nameof(unicode));
         }
         int textRecordSize = pdy ? 108 : unicode ? 96 : 92;
         int totalBytes = checked(
@@ -583,12 +606,24 @@ public class MetafileBenchmarks
             WriteInt32(bytes, cursor + 40, y);
             WriteUInt32(bytes, cursor + 44, 3);
             WriteUInt32(bytes, cursor + 48, 76);
-            WriteUInt32(bytes, cursor + 52, pdy ? 0x0000_3000u : 0x0000_1000u);
+            WriteUInt32(
+                bytes,
+                cursor + 52,
+                glyphIndices ? 0x0000_0010u : pdy ? 0x0000_3000u : 0x0000_1000u);
             int advancesOffset = unicode ? 84 : 80;
             WriteUInt32(bytes, cursor + 72, checked((uint)advancesOffset));
-            bytes[cursor + 76] = (byte)'W';
-            bytes[cursor + (unicode ? 78 : 77)] = (byte)'M';
-            bytes[cursor + (unicode ? 80 : 78)] = (byte)'F';
+            if (glyphIndices)
+            {
+                WriteUInt16(bytes, cursor + 76, 1);
+                WriteUInt16(bytes, cursor + 78, 2);
+                WriteUInt16(bytes, cursor + 80, 3);
+            }
+            else
+            {
+                bytes[cursor + 76] = (byte)'W';
+                bytes[cursor + (unicode ? 78 : 77)] = (byte)'M';
+                bytes[cursor + (unicode ? 80 : 78)] = (byte)'F';
+            }
             if (pdy)
             {
                 WriteUInt32(bytes, cursor + advancesOffset, 10);

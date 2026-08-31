@@ -2598,6 +2598,54 @@ public partial class Graphics :
             CurrentTransform4x4());
     }
 
+    internal void DrawGlyphIndicesWithCharacterAdvances(
+        ReadOnlySpan<ushort> glyphIndices,
+        Font font,
+        Brush brush,
+        float x,
+        float y,
+        ReadOnlySpan<Point> advances)
+    {
+        ArgumentNullException.ThrowIfNull(font);
+        ArgumentNullException.ThrowIfNull(brush);
+        if (glyphIndices.Length != advances.Length)
+        {
+            throw new ArgumentException(
+                "The advance count must match the glyph count.",
+                nameof(advances));
+        }
+        if (glyphIndices.IsEmpty)
+        {
+            return;
+        }
+
+        float fontSize = GetFontPixelSize(font);
+        float baseline = font.TtfFont.UnitsPerEm == 0
+            ? 0f
+            : fontSize * font.TtfFont.Ascender / font.TtfFont.UnitsPerEm;
+        Vector2[] positions = new Vector2[glyphIndices.Length];
+        int originX = 0;
+        int originY = 0;
+        for (int index = 0; index < advances.Length; index++)
+        {
+            positions[index] = new Vector2(originX, baseline + originY);
+            originX = checked(originX + advances[index].X);
+            originY = checked(originY + advances[index].Y);
+        }
+
+        _context.DrawGlyphRun(
+            glyphIndices.ToArray(),
+            positions,
+            font.TtfFont,
+            fontSize,
+            TransformBrush(brush),
+            new Vector2(x, y),
+            CurrentTransform4x4(),
+            isBold: (font.Style & FontStyle.Bold) != 0,
+            isItalic: (font.Style & FontStyle.Italic) != 0,
+            preferGlyphAtlas: true);
+    }
+
     internal void DrawStringWithCharacterSpacing(
         string text,
         Font font,

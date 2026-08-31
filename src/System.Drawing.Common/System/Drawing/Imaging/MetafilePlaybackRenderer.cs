@@ -1237,11 +1237,13 @@ internal static class MetafilePlaybackRenderer
     {
         const uint EtoOpaque = 0x0000_0002;
         const uint EtoClipped = 0x0000_0004;
+        const uint EtoGlyphIndex = 0x0000_0010;
         const uint EtoRtlReading = 0x0000_0080;
         const uint EtoIgnoreLanguage = 0x0000_1000;
         const uint EtoPdy = 0x0000_2000;
         const uint SupportedOptions =
-            EtoOpaque | EtoClipped | EtoRtlReading | EtoIgnoreLanguage | EtoPdy;
+            EtoOpaque | EtoClipped | EtoGlyphIndex | EtoRtlReading |
+            EtoIgnoreLanguage | EtoPdy;
         const int RecordHeaderSize = 8;
 
         int referenceX = ReadInt32(payload, emrTextOffset);
@@ -1256,7 +1258,7 @@ internal static class MetafilePlaybackRenderer
             {
                 throw Unsupported(
                     record,
-                    $"EXTTEXTOUT options 0x{options:X8} require glyph-index, numeric-substitution, small-character, or two-dimensional advance support.");
+                    $"EXTTEXTOUT options 0x{options:X8} require numeric-substitution, small-character, reverse-index-map, or other unsupported text semantics.");
             }
             throw Invalid(record);
         }
@@ -1283,9 +1285,26 @@ internal static class MetafilePlaybackRenderer
             throw Invalid(record);
         }
 
-        string text;
+        string text = string.Empty;
         Encoding? ansiEncoding = null;
-        if (unicode)
+        scoped Span<ushort> glyphIndices = default;
+        if ((options & EtoGlyphIndex) != 0)
+        {
+            if (!unicode)
+            {
+                throw Unsupported(
+                    record,
+                    "ANSI EMF glyph-index records require a separately specified 16-bit storage contract.");
+            }
+            glyphIndices = characterCount <= 256
+                ? stackalloc ushort[characterCount]
+                : new ushort[characterCount];
+            for (int index = 0; index < glyphIndices.Length; index++)
+            {
+                glyphIndices[index] = ReadUInt16(payload, stringOffset + index * 2);
+            }
+        }
+        else if (unicode)
         {
             try
             {
@@ -1381,6 +1400,12 @@ internal static class MetafilePlaybackRenderer
 
         if ((options & EtoIgnoreLanguage) != 0)
         {
+            if (!glyphIndices.IsEmpty)
+            {
+                throw Unsupported(
+                    record,
+                    "ETO_IGNORELANGUAGE combined with glyph-index input has no text-language stage to suppress.");
+            }
             bool hasNonAsciiText = false;
             foreach (char character in text)
             {
@@ -1412,16 +1437,38 @@ internal static class MetafilePlaybackRenderer
             rectangle = Rectangle.FromLTRB(left, top, right, bottom);
         }
 
-        state.DrawExtendedText(
-            record,
-            text,
-            new Point(referenceX, referenceY),
-            rectangle,
-            opaque: (options & EtoOpaque) != 0,
-            clipped: (options & EtoClipped) != 0,
-            rightToLeft: (options & EtoRtlReading) != 0,
-            advances,
-            verticalAdvances);
+        if (!glyphIndices.IsEmpty)
+        {
+            if (advances.IsEmpty)
+            {
+                throw Unsupported(
+                    record,
+                    "Glyph-index EMF text currently requires explicit character-cell advances.");
+            }
+            state.DrawGlyphIndexText(
+                record,
+                glyphIndices,
+                new Point(referenceX, referenceY),
+                rectangle,
+                opaque: (options & EtoOpaque) != 0,
+                clipped: (options & EtoClipped) != 0,
+                rightToLeft: (options & EtoRtlReading) != 0,
+                advances,
+                verticalAdvances);
+        }
+        else
+        {
+            state.DrawExtendedText(
+                record,
+                text,
+                new Point(referenceX, referenceY),
+                rectangle,
+                opaque: (options & EtoOpaque) != 0,
+                clipped: (options & EtoClipped) != 0,
+                rightToLeft: (options & EtoRtlReading) != 0,
+                advances,
+                verticalAdvances);
+        }
     }
 
     private static string DecodeWmfText(
@@ -2261,6 +2308,156 @@ internal static class MetafilePlaybackRenderer
                 rightToLeft,
                 advances,
                 verticalAdvances);
+
+        internal void DrawGlyphIndexText(
+            in MetafileRecord record,
+            ReadOnlySpan<ushort> glyphIndices,
+            Point recordPoint,
+            Rectangle rectangle,
+            bool opaque,
+            bool clipped,
+            bool rightToLeft,
+            ReadOnlySpan<int> advances,
+            ReadOnlySpan<int> verticalAdvances)
+        {
+            const int SupportedAlignmentMask = 0x011F;
+            if ((TextAlignment & ~SupportedAlignmentMask) != 0 ||
+                (TextAlignment & 0x0006) == 0x0004 ||
+                (TextAlignment & 0x0018) == 0x0010 ||
+                advances.Length != glyphIndices.Length ||
+                (!verticalAdvances.IsEmpty && verticalAdvances.Length != glyphIndices.Length))
+            {
+                throw Invalid(record);
+            }
+            if (rightToLeft || (TextAlignment & 0x0100) != 0)
+            {
+                throw Unsupported(
+                    record,
+                    "Glyph-index text combined with right-to-left layout requires explicit visual-order semantics.");
+            }
+            if ((_selectedFont.Style & (FontStyle.Underline | FontStyle.Strikeout)) != 0)
+            {
+                throw Unsupported(
+                    record,
+                    "Glyph-index text with font decorations requires decoration geometry independent of Unicode clusters.");
+            }
+
+            long totalX = 0;
+            long totalY = 0;
+            long minimumX = 0;
+            long maximumX = 0;
+            long minimumY = 0;
+            long maximumY = 0;
+            scoped Span<Point> vectorAdvances = advances.Length <= 256
+                ? stackalloc Point[advances.Length]
+                : new Point[advances.Length];
+            for (int index = 0; index < advances.Length; index++)
+            {
+                int advanceY = verticalAdvances.IsEmpty ? 0 : verticalAdvances[index];
+                vectorAdvances[index] = new Point(advances[index], advanceY);
+                totalX += advances[index];
+                totalY += advanceY;
+                minimumX = Math.Min(minimumX, totalX);
+                maximumX = Math.Max(maximumX, totalX);
+                minimumY = Math.Min(minimumY, totalY);
+                maximumY = Math.Max(maximumY, totalY);
+            }
+            if (totalX < int.MinValue || totalX > int.MaxValue ||
+                totalY < int.MinValue || totalY > int.MaxValue)
+            {
+                throw Invalid(record);
+            }
+
+            SizeF measuredSize = Graphics.MeasureString("M", _selectedFont);
+            PointF reference = (TextAlignment & 0x0001) != 0
+                ? CurrentPoint
+                : recordPoint;
+            Matrix3x2 baseTransform = ApplyTransform(record);
+            float x = reference.X - ((TextAlignment & 0x0006) switch
+            {
+                0x0002 => totalX,
+                0x0006 => totalX / 2f,
+                _ => 0f
+            });
+            float y = reference.Y - ((TextAlignment & 0x0018) switch
+            {
+                0x0008 => measuredSize.Height,
+                0x0018 => _selectedFont.TtfFont.UnitsPerEm == 0
+                    ? 0f
+                    : Graphics.ConvertFontSizeToPixels(
+                        _selectedFont.Size,
+                        _selectedFont.Unit,
+                        Graphics.DpiY) * _selectedFont.TtfFont.Ascender /
+                        _selectedFont.TtfFont.UnitsPerEm,
+                _ => 0f
+            });
+
+            Matrix3x2 textTransform = CreateTextTransform(baseTransform, reference);
+            GraphicsState? clippingState = null;
+            if (clipped)
+            {
+                clippingState = Graphics.Save();
+                Graphics.IntersectClip(rectangle);
+            }
+            try
+            {
+                if (opaque && rectangle.Width > 0 && rectangle.Height > 0)
+                {
+                    Graphics.FillRectangle(GetBackgroundBrush(), rectangle);
+                }
+                Graphics.TransformElements = textTransform;
+                try
+                {
+                    if (!opaque && BackgroundMode == 2 &&
+                        maximumX > minimumX && measuredSize.Height + maximumY - minimumY > 0)
+                    {
+                        Graphics.FillRectangle(
+                            GetBackgroundBrush(),
+                            x + minimumX,
+                            y + minimumY,
+                            maximumX - minimumX,
+                            measuredSize.Height + maximumY - minimumY);
+                    }
+                    Graphics.DrawGlyphIndicesWithCharacterAdvances(
+                        glyphIndices,
+                        _selectedFont,
+                        GetTextBrush(),
+                        x,
+                        y,
+                        vectorAdvances);
+                }
+                finally
+                {
+                    Graphics.TransformElements = baseTransform;
+                }
+            }
+            finally
+            {
+                if (clippingState is not null)
+                {
+                    Graphics.Restore(clippingState);
+                }
+            }
+
+            if ((TextAlignment & 0x0001) != 0)
+            {
+                Vector2 deviceEnd = Vector2.Transform(
+                    new Vector2(reference.X + totalX, reference.Y + totalY),
+                    textTransform);
+                if (!Matrix3x2.Invert(baseTransform, out Matrix3x2 inverseBase))
+                {
+                    throw Invalid(record);
+                }
+                Vector2 logicalEnd = Vector2.Transform(deviceEnd, inverseBase);
+                if (!float.IsFinite(logicalEnd.X) || !float.IsFinite(logicalEnd.Y) ||
+                    logicalEnd.X < int.MinValue || logicalEnd.X > int.MaxValue ||
+                    logicalEnd.Y < int.MinValue || logicalEnd.Y > int.MaxValue)
+                {
+                    throw Invalid(record);
+                }
+                CurrentPoint = Point.Round(new PointF(logicalEnd.X, logicalEnd.Y));
+            }
+        }
 
         private void DrawTextCore(
             in MetafileRecord record,

@@ -1494,6 +1494,79 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfExtTextOutWGlyphIndexPreservesSelectedFontIdsAndCells()
+    {
+        ushort firstGlyph = SystemFonts.DefaultFont.TtfFont.GetGlyphIndex('M');
+        ushort secondGlyph = SystemFonts.DefaultFont.TtfFont.GetGlyphIndex('\u03A9');
+        Assert.NotEqual((ushort)0, firstGlyph);
+        Assert.NotEqual((ushort)0, secondGlyph);
+        string encodedGlyphs = new([(char)firstGlyph, (char)secondGlyph]);
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetBkMode, EmfInt32(1)),
+            (EmfPlusRecordType.EmfExtCreateFontIndirect,
+                EmfFont(1, -14, SystemFonts.DefaultFont.Name)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfSetTextAlign, EmfInt32(1)),
+            (EmfPlusRecordType.EmfMoveToEx, EmfPoint(4, 4)),
+            (EmfPlusRecordType.EmfExtTextOutW,
+                EmfExtTextOutW(
+                    encodedGlyphs,
+                    Point.Empty,
+                    0x0000_0010,
+                    Rectangle.Empty,
+                    [20, 24])),
+            (EmfPlusRecordType.EmfExtTextOutW,
+                EmfExtTextOutW("M", Point.Empty, 0, Rectangle.Empty, null))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand[] textCommands = context.Commands
+            .Where(static command => command.Type is
+                RenderCommandType.DrawGlyphRun or RenderCommandType.DrawText)
+            .ToArray();
+        Assert.Equal(2, textCommands.Length);
+        Assert.Equal(
+            new[] { firstGlyph, secondGlyph },
+            Assert.IsType<ushort[]>(textCommands[0].GlyphIndices));
+        Vector2[] positions = Assert.IsType<Vector2[]>(textCommands[0].GlyphPositions);
+        Assert.Equal(20f, positions[1].X - positions[0].X, 3);
+        Assert.Equal(48f, textCommands[1].Position.X, 3);
+        Assert.Equal(4f, textCommands[1].Position.Y, 3);
+    }
+
+    [Fact]
+    public void EmfExtTextOutWGlyphIndexRequiresCellsWithoutPublishing()
+    {
+        ushort glyph = SystemFonts.DefaultFont.TtfFont.GetGlyphIndex('M');
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(1, 1, 4, 4)),
+            (EmfPlusRecordType.EmfExtTextOutW,
+                EmfExtTextOutW(
+                    new string((char)glyph, 1),
+                    new Point(4, 4),
+                    0x0000_0010,
+                    Rectangle.Empty,
+                    null))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+        Assert.Contains(nameof(EmfPlusRecordType.EmfExtTextOutW), exception.Message);
+        Assert.Contains("requires explicit", exception.Message);
+        Assert.Empty(context.Commands);
+    }
+
+    [Fact]
     public void EmfTextStateRestoresAndAppliesOpaqueClipRectangle()
     {
         byte[] emf = CreateTextPlaybackEmf(
