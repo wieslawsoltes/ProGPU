@@ -363,6 +363,12 @@ public sealed class CadXLineAuthoringTests
             new CadPoint3D(0, 0, 4),
             normal,
             out _));
+        Assert.False(CadXLineConstruction.TryCreateOffsetAtDistance(
+            source,
+            new CadPoint3D(1, 10, 4),
+            normal,
+            2.5,
+            out _));
         Assert.False(CadXLineConstruction.TryCreateOffsetThrough(
             source,
             new CadPoint3D(20, 2, 3),

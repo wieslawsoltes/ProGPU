@@ -2422,9 +2422,14 @@ preview rebuilding are O(L) for L lines. DXF/DWG and shared managed/native
 construction-picture regressions cover the result. Horizontal, Vertical,
 Angle, Bisect, and Offset now share allocation-free basis rotation, internal
 bisector, distance-side offset, and through-offset solvers plus an immutable
-heterogeneous point/direction edit payload. Their bounded prompt state,
-selectable reference/source contract, shared controls, and transient previews
-remain later gates. The source record and engine applicability audit are in
+heterogeneous point/direction edit payload. A bounded host-neutral mode session
+now retains their recoverable point/scalar/source prompt state, while an exact
+generation-tagged resolver accepts only matching immutable LINE, RAY, or XLINE
+selection candidates. The snapshot carries raw active-UCS axes independently
+from its ANGBASE/ANGDIR angle basis so Horizontal/Vertical never inherit
+SNAPANG. Shared desktop/browser controls, pointer source picking, keyboard
+keywords, transient mode guides/previews, and matched end-to-end persistence
+tests remain later gates. The source record and engine applicability audit are in
 `PROGPU_CAD_XLINE_AUTHORING_RESEARCH.md`.
 
 ## Retained TrueType TEXT lowering

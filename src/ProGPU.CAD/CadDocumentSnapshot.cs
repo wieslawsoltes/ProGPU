@@ -848,6 +848,7 @@ public sealed class CadDocumentSnapshot
     public CadPlanGridDisplaySettings PlanGridDisplaySettings { get; }
     public CadPlanGridSnapSettings PlanGridSnapSettings { get; }
     public CadPlanPolarTrackingSettings PlanPolarTrackingSettings { get; }
+    public CadPlanAuthoringContext PlanAuthoringContext { get; }
     public bool IsOrthoModeEnabled { get; }
     public CadBounds3D Bounds { get; }
     public CadPoint3D RebaseOrigin { get; }
@@ -938,6 +939,7 @@ public sealed class CadDocumentSnapshot
         CadPlanGridDisplaySettings planGridDisplaySettings,
         CadPlanGridSnapSettings planGridSnapSettings,
         CadPlanPolarTrackingSettings planPolarTrackingSettings,
+        CadPlanAuthoringContext planAuthoringContext,
         bool isOrthoModeEnabled,
         CadBounds3D bounds,
         CadSnapshotStatistics statistics,
@@ -1020,6 +1022,7 @@ public sealed class CadDocumentSnapshot
         PlanGridDisplaySettings = planGridDisplaySettings;
         PlanGridSnapSettings = planGridSnapSettings;
         PlanPolarTrackingSettings = planPolarTrackingSettings;
+        PlanAuthoringContext = planAuthoringContext;
         IsOrthoModeEnabled = isOrthoModeEnabled;
         Bounds = bounds;
         RebaseOrigin = bounds.Center;

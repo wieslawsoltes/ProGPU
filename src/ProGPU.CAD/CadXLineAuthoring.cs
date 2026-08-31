@@ -201,7 +201,10 @@ public static class CadXLineConstruction
             return false;
         }
         double side = CadPoint3D.Dot(sideDirection, perpendicular);
-        if (!double.IsFinite(side) || side == 0.0)
+        if (!double.IsFinite(side) ||
+            Math.Abs(CadPoint3D.Dot(sideDirection, normal)) >
+                PlaneTolerance ||
+            Math.Abs(side) <= PlaneTolerance)
         {
             return false;
         }
@@ -251,6 +254,631 @@ public static class CadXLineConstruction
                 normalizedDirection,
                 normalizedNormal)) <= PlaneTolerance;
     }
+
+    private static bool IsFinite(CadPoint3D point) =>
+        double.IsFinite(point.X) &&
+        double.IsFinite(point.Y) &&
+        double.IsFinite(point.Z);
+}
+
+/// <summary>Selectable immutable linear geometry accepted by XLINE modes.</summary>
+public readonly record struct CadXLineLinearSource
+{
+    public ulong ContentGeneration { get; }
+
+    public int EntityIndex { get; }
+
+    public ulong Handle { get; }
+
+    public CadEntityKind Kind { get; }
+
+    public CadPoint3D BasePoint { get; }
+
+    public CadPoint3D Direction { get; }
+
+    internal CadXLineLinearSource(
+        ulong contentGeneration,
+        int entityIndex,
+        ulong handle,
+        CadEntityKind kind,
+        CadPoint3D basePoint,
+        CadPoint3D direction)
+    {
+        ContentGeneration = contentGeneration;
+        EntityIndex = entityIndex;
+        Handle = handle;
+        Kind = kind;
+        BasePoint = basePoint;
+        Direction = direction;
+    }
+}
+
+public enum CadXLineLinearSourceStatus : byte
+{
+    Success = 0,
+    StaleGeneration = 1,
+    InvalidCandidate = 2,
+    CandidateMismatch = 3,
+    HiddenPrimitive = 4,
+    UnsupportedKind = 5,
+    DegenerateGeometry = 6,
+}
+
+public readonly record struct CadXLineLinearSourceResult(
+    CadXLineLinearSourceStatus Status,
+    CadXLineLinearSource Source)
+{
+    public bool IsSuccess => Status == CadXLineLinearSourceStatus.Success;
+}
+
+/// <summary>
+/// Resolves one exact snapshot LINE, RAY, or XLINE selection without consulting
+/// the mutable ACadSharp graph.
+/// </summary>
+public static class CadXLineLinearSourceResolver
+{
+    public static CadXLineLinearSourceResult Resolve(
+        CadDocumentSnapshot snapshot,
+        CadSelectionCandidate candidate)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (candidate.ContentGeneration != snapshot.ContentGeneration)
+        {
+            return Failure(CadXLineLinearSourceStatus.StaleGeneration);
+        }
+
+        ReadOnlySpan<CadEntityHeader> entities = snapshot.Entities.Span;
+        if ((uint)candidate.EntityIndex >= (uint)entities.Length)
+        {
+            return Failure(CadXLineLinearSourceStatus.InvalidCandidate);
+        }
+
+        CadEntityHeader header = entities[candidate.EntityIndex];
+        if (candidate.Handle != header.Handle ||
+            candidate.Kind != header.Kind ||
+            candidate.Bounds != header.Bounds)
+        {
+            return Failure(CadXLineLinearSourceStatus.CandidateMismatch);
+        }
+        if (!header.IsVisible)
+        {
+            return Failure(CadXLineLinearSourceStatus.HiddenPrimitive);
+        }
+
+        CadPoint3D basePoint;
+        CadPoint3D direction;
+        switch (header.Kind)
+        {
+            case CadEntityKind.Line:
+                if ((uint)header.PrimitiveIndex >= (uint)snapshot.Lines.Length)
+                {
+                    return Failure(CadXLineLinearSourceStatus.InvalidCandidate);
+                }
+                CadLinePrimitive line = snapshot.Lines.Span[header.PrimitiveIndex];
+                basePoint = line.Start;
+                if (!CadRayAuthoringSession.TryGetUnitDirection(
+                        line.Start,
+                        line.End,
+                        out direction))
+                {
+                    return Failure(
+                        CadXLineLinearSourceStatus.DegenerateGeometry);
+                }
+                break;
+            case CadEntityKind.Ray:
+            case CadEntityKind.XLine:
+                if ((uint)header.PrimitiveIndex >=
+                    (uint)snapshot.ConstructionLines.Length)
+                {
+                    return Failure(CadXLineLinearSourceStatus.InvalidCandidate);
+                }
+                CadConstructionLinePrimitive construction =
+                    snapshot.ConstructionLines.Span[header.PrimitiveIndex];
+                basePoint = construction.BasePoint;
+                if (!CadRayAuthoringSession.TryNormalizeDirection(
+                        construction.Direction,
+                        out direction))
+                {
+                    return Failure(
+                        CadXLineLinearSourceStatus.DegenerateGeometry);
+                }
+                break;
+            default:
+                return Failure(CadXLineLinearSourceStatus.UnsupportedKind);
+        }
+
+        return new CadXLineLinearSourceResult(
+            CadXLineLinearSourceStatus.Success,
+            new CadXLineLinearSource(
+                snapshot.ContentGeneration,
+                candidate.EntityIndex,
+                header.Handle,
+                header.Kind,
+                basePoint,
+                direction));
+    }
+
+    private static CadXLineLinearSourceResult Failure(
+        CadXLineLinearSourceStatus status) => new(status, default);
+}
+
+public enum CadXLineAuthoringMode : byte
+{
+    TwoPoint = 0,
+    Horizontal = 1,
+    Vertical = 2,
+    Angle = 3,
+    Bisect = 4,
+    Offset = 5,
+}
+
+public enum CadXLinePromptKind : byte
+{
+    FirstPoint = 0,
+    ThroughPoint = 1,
+    PlacementPoint = 2,
+    AngleValue = 3,
+    AngleReferenceSource = 4,
+    BisectorVertex = 5,
+    BisectorFirstRayPoint = 6,
+    BisectorSecondRayPoint = 7,
+    OffsetDistance = 8,
+    OffsetSource = 9,
+    OffsetSidePoint = 10,
+    OffsetThroughPoint = 11,
+}
+
+/// <summary>Bounded host-neutral state for every documented XLINE mode.</summary>
+/// <remarks>
+/// Point, scalar, and source transitions are O(1). Accepted definitions use a
+/// geometrically growing array capped by MaximumLineCount; snapshot capture is
+/// O(L) for L accepted construction lines. No mutable document object is retained.
+/// </remarks>
+public sealed class CadXLineModeAuthoringSession
+{
+    private readonly CadPlanAuthoringContext _context;
+    private readonly ulong _sourceContentGeneration;
+    private CadXLineDefinition[] _definitions;
+    private int _definitionCount;
+    private CadPoint3D _firstPoint;
+    private bool _hasFirstPoint;
+    private CadPoint3D _fixedDirection;
+    private CadPoint3D _bisectorVertex;
+    private CadPoint3D _bisectorFirstRayPoint;
+    private CadXLineLinearSource _linearSource;
+    private bool _hasLinearSource;
+    private bool _usesReferenceAngle;
+    private bool _usesThroughOffset;
+    private double _offsetDistance;
+
+    public CadXLineAuthoringMode Mode { get; }
+
+    public CadXLinePromptKind Prompt { get; private set; }
+
+    public CadPlanAuthoringContext Context => _context;
+
+    public ulong SourceContentGeneration => _sourceContentGeneration;
+
+    public int MaximumLineCount { get; }
+
+    public int LineCount => _definitionCount;
+
+    public bool HasFirstPoint => _hasFirstPoint;
+
+    public CadPoint3D? FirstPoint => _hasFirstPoint ? _firstPoint : null;
+
+    public bool UsesReferenceAngle => _usesReferenceAngle;
+
+    public bool UsesThroughOffset => _usesThroughOffset;
+
+    public ReadOnlyMemory<CadXLineDefinition> Definitions =>
+        _definitions.AsMemory(0, _definitionCount);
+
+    public CadXLineModeAuthoringSession(
+        CadXLineAuthoringMode mode,
+        CadPlanAuthoringContext context,
+        ulong sourceContentGeneration,
+        int maximumLineCount = CadXLineAuthoringSession.DefaultMaximumLineCount)
+    {
+        if (!Enum.IsDefined(mode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode));
+        }
+        if (!context.IsSupported)
+        {
+            throw new ArgumentException(
+                "XLINE mode authoring requires a supported plan-UCS context.",
+                nameof(context));
+        }
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumLineCount);
+
+        Mode = mode;
+        _context = context;
+        _sourceContentGeneration = sourceContentGeneration;
+        MaximumLineCount = maximumLineCount;
+        _definitions = new CadXLineDefinition[Math.Min(maximumLineCount, 16)];
+        Prompt = mode switch
+        {
+            CadXLineAuthoringMode.TwoPoint => CadXLinePromptKind.FirstPoint,
+            CadXLineAuthoringMode.Horizontal or
+                CadXLineAuthoringMode.Vertical =>
+                CadXLinePromptKind.PlacementPoint,
+            CadXLineAuthoringMode.Angle => CadXLinePromptKind.AngleValue,
+            CadXLineAuthoringMode.Bisect => CadXLinePromptKind.BisectorVertex,
+            CadXLineAuthoringMode.Offset => CadXLinePromptKind.OffsetDistance,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+        };
+        _fixedDirection = mode switch
+        {
+            CadXLineAuthoringMode.Horizontal => context.HorizontalAxis,
+            CadXLineAuthoringMode.Vertical => context.VerticalAxis,
+            _ => default,
+        };
+    }
+
+    public bool TryChooseAngleReference(out string? errorMessage)
+    {
+        errorMessage = null;
+        if (Mode != CadXLineAuthoringMode.Angle ||
+            Prompt != CadXLinePromptKind.AngleValue ||
+            _usesReferenceAngle)
+        {
+            errorMessage =
+                "Angle/Reference is not available at the current XLINE prompt.";
+            return false;
+        }
+
+        _usesReferenceAngle = true;
+        Prompt = CadXLinePromptKind.AngleReferenceSource;
+        return true;
+    }
+
+    public bool TryChooseOffsetThrough(out string? errorMessage)
+    {
+        errorMessage = null;
+        if (Mode != CadXLineAuthoringMode.Offset ||
+            Prompt != CadXLinePromptKind.OffsetDistance)
+        {
+            errorMessage =
+                "Offset/Through is not available at the current XLINE prompt.";
+            return false;
+        }
+
+        _usesThroughOffset = true;
+        Prompt = CadXLinePromptKind.OffsetSource;
+        return true;
+    }
+
+    public bool TryAcceptValue(double value, out string? errorMessage)
+    {
+        errorMessage = null;
+        if (!double.IsFinite(value))
+        {
+            errorMessage = "An XLINE scalar input must be finite.";
+            return false;
+        }
+
+        if (Prompt == CadXLinePromptKind.AngleValue)
+        {
+            CadXLineDefinition directionDefinition = default;
+            bool created;
+            if (_usesReferenceAngle)
+            {
+                created = _hasLinearSource &&
+                    CadXLineConstruction.TryCreateAtReferenceAngle(
+                        _context.Origin,
+                        _linearSource.Direction,
+                        _context.Normal,
+                        value,
+                        out directionDefinition);
+            }
+            else
+            {
+                created = CadXLineConstruction.TryCreateAtAngle(
+                    _context.Origin,
+                    _context.AngleXAxis,
+                    _context.AngleYAxis,
+                    value,
+                    _context.IsClockwise,
+                    out directionDefinition);
+            }
+            if (!created)
+            {
+                errorMessage = _usesReferenceAngle
+                    ? "Select a valid coplanar linear reference before entering its counterclockwise angle."
+                    : "The XLINE angle cannot be resolved in the active plan basis.";
+                return false;
+            }
+
+            _fixedDirection = directionDefinition.Direction;
+            Prompt = CadXLinePromptKind.PlacementPoint;
+            return true;
+        }
+
+        if (Prompt == CadXLinePromptKind.OffsetDistance)
+        {
+            if (value <= 0.0)
+            {
+                errorMessage = "An XLINE offset distance must be positive.";
+                return false;
+            }
+            _offsetDistance = value;
+            _usesThroughOffset = false;
+            Prompt = CadXLinePromptKind.OffsetSource;
+            return true;
+        }
+
+        errorMessage = "The current XLINE prompt does not accept a scalar value.";
+        return false;
+    }
+
+    public bool TryAcceptLinearSource(
+        CadXLineLinearSource source,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (source.ContentGeneration != _sourceContentGeneration)
+        {
+            errorMessage =
+                "The selected XLINE source belongs to a stale document generation.";
+            return false;
+        }
+        if (source.Kind is not (CadEntityKind.Line or
+                CadEntityKind.Ray or CadEntityKind.XLine) ||
+            !IsFinite(source.BasePoint) ||
+            !CadRayAuthoringSession.TryNormalizeDirection(
+                source.Direction,
+                out CadPoint3D direction))
+        {
+            errorMessage = "XLINE source selection requires valid linear geometry.";
+            return false;
+        }
+        if (_definitionCount == MaximumLineCount)
+        {
+            errorMessage = LimitMessage();
+            return false;
+        }
+
+        source = new CadXLineLinearSource(
+            source.ContentGeneration,
+            source.EntityIndex,
+            source.Handle,
+            source.Kind,
+            source.BasePoint,
+            direction);
+        if (Prompt == CadXLinePromptKind.AngleReferenceSource &&
+            _usesReferenceAngle)
+        {
+            _linearSource = source;
+            _hasLinearSource = true;
+            Prompt = CadXLinePromptKind.AngleValue;
+            return true;
+        }
+        if (Prompt == CadXLinePromptKind.OffsetSource)
+        {
+            _linearSource = source;
+            _hasLinearSource = true;
+            Prompt = _usesThroughOffset
+                ? CadXLinePromptKind.OffsetThroughPoint
+                : CadXLinePromptKind.OffsetSidePoint;
+            return true;
+        }
+
+        errorMessage = "The current XLINE prompt does not accept a linear source.";
+        return false;
+    }
+
+    public bool TryAcceptPoint(CadPoint3D point, out string? errorMessage)
+    {
+        errorMessage = null;
+        if (!IsFinite(point))
+        {
+            errorMessage = "An XLINE point must contain finite WCS coordinates.";
+            return false;
+        }
+
+        switch (Prompt)
+        {
+            case CadXLinePromptKind.FirstPoint:
+                _firstPoint = point;
+                _hasFirstPoint = true;
+                Prompt = CadXLinePromptKind.ThroughPoint;
+                return true;
+            case CadXLinePromptKind.ThroughPoint:
+                if (!_hasFirstPoint ||
+                    !CadRayAuthoringSession.TryGetUnitDirection(
+                        _firstPoint,
+                        point,
+                        out CadPoint3D twoPointDirection))
+                {
+                    errorMessage =
+                        "An XLINE first point and through point must be distinct.";
+                    return false;
+                }
+                var twoPoint = new CadXLineDefinition(
+                    _firstPoint,
+                    twoPointDirection);
+                return TryAddDefinition(twoPoint, out errorMessage);
+            case CadXLinePromptKind.PlacementPoint:
+                if (!CadXLineConstruction.TryCreateThroughPoint(
+                        point,
+                        _fixedDirection,
+                        out CadXLineDefinition placed))
+                {
+                    errorMessage =
+                        "The current XLINE direction cannot be placed at this point.";
+                    return false;
+                }
+                return TryAddDefinition(placed, out errorMessage);
+            case CadXLinePromptKind.BisectorVertex:
+                if (_definitionCount == MaximumLineCount)
+                {
+                    errorMessage = LimitMessage();
+                    return false;
+                }
+                _bisectorVertex = point;
+                Prompt = CadXLinePromptKind.BisectorFirstRayPoint;
+                return true;
+            case CadXLinePromptKind.BisectorFirstRayPoint:
+                if (!CadRayAuthoringSession.TryGetUnitDirection(
+                        _bisectorVertex,
+                        point,
+                        out _))
+                {
+                    errorMessage =
+                        "The bisector vertex and first ray point must be distinct.";
+                    return false;
+                }
+                _bisectorFirstRayPoint = point;
+                Prompt = CadXLinePromptKind.BisectorSecondRayPoint;
+                return true;
+            case CadXLinePromptKind.BisectorSecondRayPoint:
+                if (!CadXLineConstruction.TryCreateBisector(
+                        _bisectorVertex,
+                        _bisectorFirstRayPoint,
+                        point,
+                        out CadXLineDefinition bisector))
+                {
+                    errorMessage =
+                        "The bisector rays must be distinct and cannot point in exactly opposite directions.";
+                    return false;
+                }
+                if (!TryAddDefinition(bisector, out errorMessage))
+                {
+                    return false;
+                }
+                Prompt = CadXLinePromptKind.BisectorVertex;
+                return true;
+            case CadXLinePromptKind.OffsetSidePoint:
+                if (!_hasLinearSource ||
+                    !CadXLineConstruction.TryCreateOffsetAtDistance(
+                        ToDefinition(_linearSource),
+                        point,
+                        _context.Normal,
+                        _offsetDistance,
+                        out CadXLineDefinition offset))
+                {
+                    errorMessage =
+                        "The offset side point must resolve to one side of a coplanar source.";
+                    return false;
+                }
+                if (!TryAddDefinition(offset, out errorMessage))
+                {
+                    return false;
+                }
+                ResetOffsetSource();
+                return true;
+            case CadXLinePromptKind.OffsetThroughPoint:
+                if (!_hasLinearSource ||
+                    !CadXLineConstruction.TryCreateOffsetThrough(
+                        ToDefinition(_linearSource),
+                        point,
+                        _context.Normal,
+                        out CadXLineDefinition through))
+                {
+                    errorMessage =
+                        "The through point must be coplanar and cannot reproduce the selected source line.";
+                    return false;
+                }
+                if (!TryAddDefinition(through, out errorMessage))
+                {
+                    return false;
+                }
+                ResetOffsetSource();
+                return true;
+            default:
+                errorMessage = "The current XLINE prompt does not accept a point.";
+                return false;
+        }
+    }
+
+    public bool TryUndoLastLine()
+    {
+        if (_definitionCount == 0)
+        {
+            return false;
+        }
+
+        _definitions[--_definitionCount] = default;
+        ResetPartialPrompt();
+        return true;
+    }
+
+    public CadXLineDefinition[] CreateDefinitionSnapshot()
+    {
+        if (_definitionCount == 0)
+        {
+            throw new InvalidOperationException(
+                "At least one XLINE definition is required before completion.");
+        }
+        return _definitions.AsSpan(0, _definitionCount).ToArray();
+    }
+
+    private bool TryAddDefinition(
+        CadXLineDefinition definition,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (_definitionCount == MaximumLineCount)
+        {
+            errorMessage = LimitMessage();
+            return false;
+        }
+        EnsureCapacity(_definitionCount + 1);
+        _definitions[_definitionCount++] = definition;
+        return true;
+    }
+
+    private void EnsureCapacity(int required)
+    {
+        if (required <= _definitions.Length)
+        {
+            return;
+        }
+        int capacity = Math.Min(
+            MaximumLineCount,
+            Math.Max(required, checked(_definitions.Length * 2)));
+        Array.Resize(ref _definitions, capacity);
+    }
+
+    private void ResetOffsetSource()
+    {
+        _linearSource = default;
+        _hasLinearSource = false;
+        Prompt = CadXLinePromptKind.OffsetSource;
+    }
+
+    private void ResetPartialPrompt()
+    {
+        switch (Mode)
+        {
+            case CadXLineAuthoringMode.TwoPoint:
+                Prompt = CadXLinePromptKind.ThroughPoint;
+                break;
+            case CadXLineAuthoringMode.Horizontal:
+            case CadXLineAuthoringMode.Vertical:
+            case CadXLineAuthoringMode.Angle:
+                Prompt = CadXLinePromptKind.PlacementPoint;
+                break;
+            case CadXLineAuthoringMode.Bisect:
+                Prompt = CadXLinePromptKind.BisectorVertex;
+                break;
+            case CadXLineAuthoringMode.Offset:
+                _linearSource = default;
+                _hasLinearSource = false;
+                Prompt = CadXLinePromptKind.OffsetSource;
+                break;
+            default:
+                throw new InvalidOperationException("Unknown XLINE authoring mode.");
+        }
+    }
+
+    private static CadXLineDefinition ToDefinition(
+        CadXLineLinearSource source) =>
+        new(source.BasePoint, source.Direction);
+
+    private string LimitMessage() =>
+        $"The XLINE sequence reached its configured limit of {MaximumLineCount} lines.";
 
     private static bool IsFinite(CadPoint3D point) =>
         double.IsFinite(point.X) &&

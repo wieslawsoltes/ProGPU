@@ -348,6 +348,7 @@ public sealed partial class CadSnapshotCompiler
             CapturePlanGridDisplaySettings(document),
             CapturePlanGridSnapSettings(document),
             CapturePlanPolarTrackingSettings(document),
+            CapturePlanAuthoringContext(document),
             document.Header.OrthoMode,
             documentBounds,
             new CadSnapshotStatistics(
@@ -6040,6 +6041,32 @@ public sealed partial class CadSnapshotCompiler
             (ucsY * cosine) - (ucsX * sine),
             document.Header.AngularDirection == AngularDirection.ClockWise,
             Math.PI / 2.0);
+    }
+
+    private static CadPlanAuthoringContext CapturePlanAuthoringContext(
+        CadDocument document)
+    {
+        if (!document.VPorts.TryGetValue(VPort.DefaultName, out VPort? active) ||
+            active is null ||
+            !double.IsFinite(document.Header.AngleBase) ||
+            !Enum.IsDefined(document.Header.AngularDirection))
+        {
+            return CadPlanAuthoringContext.Unsupported;
+        }
+
+        try
+        {
+            return new CadPlanAuthoringContext(
+                ToPoint(active.Origin),
+                ToPoint(active.XAxis),
+                ToPoint(active.YAxis),
+                document.Header.AngleBase,
+                document.Header.AngularDirection == AngularDirection.ClockWise);
+        }
+        catch (ArgumentException)
+        {
+            return CadPlanAuthoringContext.Unsupported;
+        }
     }
 
     private static CadPoint3D ToPoint(XYZ point) => new(point.X, point.Y, point.Z);

@@ -111,13 +111,43 @@ mode prompt state, exact selectable linear-source contract for Angle/Reference
 and Offset, shared controls, transient previews, and matched interaction and
 persistence tests; the modes are not yet advertised as complete.
 
-This foundation slice passed 13/13 XLINE core tests and the complete
+The next slice adds that bounded host-neutral prompt state. A generation-tagged
+`CadXLineLinearSourceResolver` validates the complete immutable selection
+candidate identity and resolves visible LINE, RAY, or XLINE snapshot geometry;
+stale, fabricated, non-linear, and degenerate candidates fail closed without
+consulting or retaining the mutable ACadSharp graph. The snapshot now separately
+captures raw active-UCS Horizontal/Vertical axes and the ANGBASE-adjusted angle
+basis plus ANGDIR, avoiding SNAPANG or polar-tracking state as a substitute for
+command geometry. `CadXLineModeAuthoringSession` models exact point, scalar, and
+source prompts for default TwoPoint, Horizontal, Vertical, absolute or reference
+Angle, Bisect, and distance or Through Offset modes. It bounds retained output,
+keeps invalid final inputs recoverable, resets partial mode input on local Undo,
+and emits heterogeneous immutable definitions accepted directly by the existing
+atomic edit command. Source resolution and every prompt transition are O(1) and
+allocation-free after bounded storage warmup; definition snapshot creation is
+O(L) time/storage for L accepted lines.
+
+Shared desktop/browser controls, exact pointer source picking, mode-specific
+transient guides/previews, keyboard keywords, and end-to-end mode persistence
+coverage remain. The host-neutral state is therefore a completed foundation,
+not a claim that the interactive modes are complete.
+
+The solver foundation slice passed 13/13 XLINE core tests and the complete
 1,271/1,271 CAD suite in Debug and Release. One first Release-suite run observed
 a 4,784-byte process-noise allocation in the pre-existing warm bounds-query
 test; that test passed immediately in isolation and the complete unchanged
 Release binary then passed 1,271/1,271. The direct two-package preview.62 audit
 also passed, and its isolated package-only consumer built with 0 warnings and
 0 errors, rejected upstream `ACadSharp`, and created an AC1032 document.
+
+The prompt/source foundation passes the combined 26/26 XLINE core and current
+interaction suite in Debug and Release, including raw-UCS/ANGBASE/ANGDIR capture,
+all mode transitions, stale selection rejection, opposite-maximum-coordinate
+normalization, and a zero-managed-allocation warm linear-source resolver test.
+The complete unchanged test binaries pass 1,279/1,279 in both configurations.
+The direct preview.62 ACadSharp.ProGPU/ProGPU.CAD content audit and isolated
+package-only consumer also pass; the consumer builds with 0 warnings and 0
+errors, rejects upstream `ACadSharp`, and creates an AC1032 document.
 
 ## Complexity, validation, and remaining gates
 
