@@ -744,6 +744,146 @@ int main()
             invalid_transformed_geometry == nullptr,
         "invalid ProGPU transformed geometry did not fail closed");
 
+    const D2D1_RECT_F compat_group_first_rect =
+        D2D1::RectF(0.0F, 0.0F, 10.0F, 8.0F);
+    const D2D1_RECT_F compat_group_second_rect =
+        D2D1::RectF(0.0F, 0.0F, 6.0F, 4.0F);
+    ComPtr<ID2D1RectangleGeometry> compat_group_first_geometry;
+    ComPtr<ID2D1RectangleGeometry> compat_group_second_geometry;
+    require(
+        compat_factory->CreateRectangleGeometry(
+            &compat_group_first_rect,
+            &compat_group_first_geometry) == S_OK &&
+        compat_factory->CreateRectangleGeometry(
+            &compat_group_second_rect,
+            &compat_group_second_geometry) == S_OK,
+        "ProGPU geometry-group source creation failed");
+    const D2D1_MATRIX_3X2_F compat_group_child_transform =
+        D2D1::Matrix3x2F::Translation(12.0F, 2.0F);
+    ComPtr<ID2D1TransformedGeometry> compat_group_second_transformed;
+    require(
+        compat_factory->CreateTransformedGeometry(
+            compat_group_second_geometry.Get(),
+            &compat_group_child_transform,
+            &compat_group_second_transformed) == S_OK,
+        "ProGPU geometry-group transformed source creation failed");
+    std::array<ID2D1Geometry*, 2U> compat_group_sources = {{
+        compat_group_first_geometry.Get(),
+        compat_group_second_transformed.Get()}};
+    ComPtr<ID2D1GeometryGroup> compat_geometry_group;
+    require(
+        compat_factory->CreateGeometryGroup(
+            D2D1_FILL_MODE_ALTERNATE,
+            compat_group_sources.data(),
+            static_cast<UINT32>(compat_group_sources.size()),
+            &compat_geometry_group) == S_OK &&
+            compat_geometry_group != nullptr,
+        "ProGPU ID2D1GeometryGroup creation failed");
+    ComPtr<ID2D1Geometry> compat_geometry_group_base;
+    ComPtr<ID2D1Factory> compat_geometry_group_factory;
+    compat_geometry_group->GetFactory(&compat_geometry_group_factory);
+    std::array<ID2D1Geometry*, 2U> returned_group_sources{};
+    compat_geometry_group->GetSourceGeometries(
+        returned_group_sources.data(),
+        static_cast<UINT32>(returned_group_sources.size()));
+    ComPtr<ID2D1Geometry> returned_group_first_source;
+    ComPtr<ID2D1Geometry> returned_group_second_source;
+    returned_group_first_source.Attach(returned_group_sources[0U]);
+    returned_group_second_source.Attach(returned_group_sources[1U]);
+    require(
+        SUCCEEDED(compat_geometry_group.As(&compat_geometry_group_base)) &&
+            has_same_com_identity(
+                compat_geometry_group.Get(),
+                compat_geometry_group_base.Get()) &&
+            has_same_com_identity(
+                compat_geometry_group_factory.Get(),
+                compat_factory.Get()) &&
+            compat_geometry_group->GetFillMode() ==
+                D2D1_FILL_MODE_ALTERNATE &&
+            compat_geometry_group->GetSourceGeometryCount() == 2U &&
+            has_same_com_identity(
+                returned_group_first_source.Get(),
+                compat_group_first_geometry.Get()) &&
+            has_same_com_identity(
+                returned_group_second_source.Get(),
+                compat_group_second_transformed.Get()),
+        "ProGPU geometry-group metadata, sources, factory, or COM identity changed");
+    D2D1_RECT_F compat_geometry_group_bounds{};
+    BOOL compat_geometry_group_contains = FALSE;
+    FLOAT compat_geometry_group_area = 0.0F;
+    FLOAT compat_geometry_group_length = 0.0F;
+    require(
+        compat_geometry_group->GetBounds(
+            nullptr, &compat_geometry_group_bounds) == S_OK &&
+            compat_geometry_group_bounds.left == 0.0F &&
+            compat_geometry_group_bounds.top == 0.0F &&
+            compat_geometry_group_bounds.right == 18.0F &&
+            compat_geometry_group_bounds.bottom == 8.0F &&
+        compat_geometry_group->FillContainsPoint(
+            D2D1::Point2F(5.0F, 4.0F),
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_geometry_group_contains) == S_OK &&
+            compat_geometry_group_contains == TRUE &&
+        compat_geometry_group->FillContainsPoint(
+            D2D1::Point2F(13.0F, 3.0F),
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_geometry_group_contains) == S_OK &&
+            compat_geometry_group_contains == TRUE &&
+        compat_geometry_group->FillContainsPoint(
+            D2D1::Point2F(11.0F, 4.0F),
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_geometry_group_contains) == S_OK &&
+            compat_geometry_group_contains == FALSE &&
+        compat_geometry_group->ComputeArea(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_geometry_group_area) == S_OK &&
+            compat_geometry_group_area == 104.0F &&
+        compat_geometry_group->ComputeLength(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_geometry_group_length) == S_OK &&
+            compat_geometry_group_length == 56.0F,
+        "ProGPU geometry-group analysis changed");
+    ComPtr<ID2D1PathGeometry1> compat_geometry_group_path;
+    ComPtr<ID2D1GeometrySink> compat_geometry_group_path_sink;
+    UINT32 compat_geometry_group_segment_count = 0U;
+    require(
+        compat_factory->CreatePathGeometry(
+            &compat_geometry_group_path) == S_OK &&
+            compat_geometry_group_path->Open(
+                &compat_geometry_group_path_sink) == S_OK &&
+            compat_geometry_group->Simplify(
+                D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                compat_geometry_group_path_sink.Get()) == S_OK &&
+            compat_geometry_group_path_sink->Close() == S_OK &&
+            compat_geometry_group_path->GetSegmentCount(
+                &compat_geometry_group_segment_count) == S_OK &&
+            compat_geometry_group_segment_count == 8U,
+        "ProGPU geometry group did not stream both retained children");
+    ComPtr<ID2D1GeometryGroup> invalid_geometry_group;
+    std::array<ID2D1Geometry*, 1U> nested_group_source = {{
+        compat_geometry_group.Get()}};
+    require(
+        compat_factory->CreateGeometryGroup(
+            static_cast<D2D1_FILL_MODE>(99U),
+            compat_group_sources.data(),
+            static_cast<UINT32>(compat_group_sources.size()),
+            &invalid_geometry_group) == E_INVALIDARG &&
+            invalid_geometry_group == nullptr &&
+        compat_factory->CreateGeometryGroup(
+            D2D1_FILL_MODE_WINDING,
+            nested_group_source.data(),
+            static_cast<UINT32>(nested_group_source.size()),
+            &invalid_geometry_group) == E_NOTIMPL &&
+            invalid_geometry_group == nullptr,
+        "invalid or fill-incompatible ProGPU geometry group did not fail closed");
+
     const progpu_native_direct2d_color_f compat_brush_color = {
         0.25F, 0.5F, 0.75F, 1.0F};
     const progpu_native_direct2d_brush_properties compat_brush_properties = {
@@ -1282,6 +1422,110 @@ int main()
             compat_composed_geometry_length,
             0.01F),
         "ProGPU transformed geometry diverged from system Direct2D");
+
+    ComPtr<ID2D1RectangleGeometry> system_group_first_geometry;
+    ComPtr<ID2D1RectangleGeometry> system_group_second_geometry;
+    ComPtr<ID2D1TransformedGeometry> system_group_second_transformed;
+    require(
+        factory1->CreateRectangleGeometry(
+            &compat_group_first_rect,
+            &system_group_first_geometry) == S_OK &&
+        factory1->CreateRectangleGeometry(
+            &compat_group_second_rect,
+            &system_group_second_geometry) == S_OK &&
+        factory1->CreateTransformedGeometry(
+            system_group_second_geometry.Get(),
+            &compat_group_child_transform,
+            &system_group_second_transformed) == S_OK,
+        "system Direct2D geometry-group source creation failed");
+    std::array<ID2D1Geometry*, 2U> system_group_sources = {{
+        system_group_first_geometry.Get(),
+        system_group_second_transformed.Get()}};
+    ComPtr<ID2D1GeometryGroup> system_geometry_group;
+    require(
+        factory1->CreateGeometryGroup(
+            D2D1_FILL_MODE_ALTERNATE,
+            system_group_sources.data(),
+            static_cast<UINT32>(system_group_sources.size()),
+            &system_geometry_group) == S_OK &&
+            system_geometry_group != nullptr &&
+            system_geometry_group->GetFillMode() ==
+                compat_geometry_group->GetFillMode() &&
+            system_geometry_group->GetSourceGeometryCount() ==
+                compat_geometry_group->GetSourceGeometryCount(),
+        "system Direct2D geometry-group creation or metadata query failed");
+    D2D1_RECT_F system_geometry_group_bounds{};
+    D2D1_RECT_F compat_composed_group_bounds{};
+    FLOAT system_geometry_group_area = 0.0F;
+    FLOAT system_geometry_group_length = 0.0F;
+    FLOAT compat_composed_group_area = 0.0F;
+    FLOAT compat_composed_group_length = 0.0F;
+    BOOL system_geometry_group_contains = FALSE;
+    compat_geometry_group_contains = FALSE;
+    const D2D1_POINT_2F composed_group_interior_point =
+        D2D1::Point2F(11.0F, 17.5F);
+    require(
+        system_geometry_group->GetBounds(
+            &compat_geometry_world_transform,
+            &system_geometry_group_bounds) == S_OK &&
+        compat_geometry_group->GetBounds(
+            &compat_geometry_world_transform,
+            &compat_composed_group_bounds) == S_OK &&
+        system_geometry_group->ComputeArea(
+            &compat_geometry_world_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &system_geometry_group_area) == S_OK &&
+        compat_geometry_group->ComputeArea(
+            &compat_geometry_world_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_composed_group_area) == S_OK &&
+        system_geometry_group->ComputeLength(
+            &compat_geometry_world_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &system_geometry_group_length) == S_OK &&
+        compat_geometry_group->ComputeLength(
+            &compat_geometry_world_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_composed_group_length) == S_OK &&
+        system_geometry_group->FillContainsPoint(
+            composed_group_interior_point,
+            &compat_geometry_world_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &system_geometry_group_contains) == S_OK &&
+            system_geometry_group_contains == TRUE &&
+        compat_geometry_group->FillContainsPoint(
+            composed_group_interior_point,
+            &compat_geometry_world_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_geometry_group_contains) == S_OK &&
+            compat_geometry_group_contains == TRUE,
+        "Direct2D geometry-group differential queries failed");
+    require(
+        approximately_equal(
+            system_geometry_group_bounds.left,
+            compat_composed_group_bounds.left,
+            0.01F) &&
+        approximately_equal(
+            system_geometry_group_bounds.top,
+            compat_composed_group_bounds.top,
+            0.01F) &&
+        approximately_equal(
+            system_geometry_group_bounds.right,
+            compat_composed_group_bounds.right,
+            0.01F) &&
+        approximately_equal(
+            system_geometry_group_bounds.bottom,
+            compat_composed_group_bounds.bottom,
+            0.01F) &&
+        approximately_equal(
+            system_geometry_group_area,
+            compat_composed_group_area,
+            0.01F) &&
+        approximately_equal(
+            system_geometry_group_length,
+            compat_composed_group_length,
+            0.01F),
+        "ProGPU geometry group diverged from system Direct2D");
 
     ComPtr<IDirect3DDxgiInterfaceAccess> dxgi_interface_access;
     require(SUCCEEDED(winrt_d3d_device.As(&dxgi_interface_access)),
@@ -2998,8 +3242,8 @@ int main()
     recorder_hint.struct_size = static_cast<uint32_t>(sizeof(recorder_hint));
     recorder_hint.clear_count = 1U;
     recorder_hint.draw_count = 4U;
-    recorder_hint.fill_count = 3U;
-    recorder_hint.total_command_count = 8U;
+    recorder_hint.fill_count = 4U;
+    recorder_hint.total_command_count = 9U;
     progpu_native_direct2d_scene_recorder* direct_recorder = nullptr;
     native_hresult = E_FAIL;
     require(
@@ -3082,6 +3326,12 @@ int main()
             nullptr) == S_OK,
         "ProGPU Direct2D COM rounded-rectangle FillGeometry callback failed");
     require(
+        direct_sink->FillGeometry(
+            compat_geometry_group.Get(),
+            compat_solid_brush.Get(),
+            nullptr) == S_OK,
+        "ProGPU Direct2D COM geometry-group FillGeometry callback failed");
+    require(
         direct_sink->DrawGeometry(
             compat_rectangle_path.Get(),
             compat_solid_brush.Get(),
@@ -3128,7 +3378,7 @@ int main()
             native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
             direct_measure.scene_id == 7002U &&
             direct_measure.generation == 10U &&
-            direct_measure.translated_draw_count == 8U &&
+            direct_measure.translated_draw_count == 9U &&
             direct_measure.failure_reason ==
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
             (direct_measure.flags &
@@ -3157,7 +3407,7 @@ int main()
     if (direct_write_status != PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS ||
         native_hresult != S_OK ||
         direct_write.written_bytes != direct_scene_stream.size() ||
-        direct_write.command_count != 8U ||
+        direct_write.command_count != 9U ||
         direct_write.brush_count != 1U) {
         std::cerr << "Direct2D recorder write diagnostic: status="
                   << static_cast<uint32_t>(direct_write_status)
@@ -3171,7 +3421,7 @@ int main()
         direct_write_status == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK &&
             direct_write.written_bytes == direct_scene_stream.size() &&
-            direct_write.command_count == 8U &&
+            direct_write.command_count == 9U &&
             direct_write.brush_count == 1U,
         "ProGPU Direct2D COM recorder write pass changed");
     const progpu_native_scene_header direct_scene_header =
@@ -3179,7 +3429,7 @@ int main()
     require(
             direct_scene_header.scene_id == 7002U &&
             direct_scene_header.generation == 10U &&
-            direct_scene_header.command_count == 8U,
+            direct_scene_header.command_count == 9U,
         "ProGPU Direct2D COM recorder scene identity changed");
     bool direct_stroke_found = false;
     bool direct_normal_curved_stroke_found = false;
