@@ -13,15 +13,15 @@
     },
     "decoder": {
       "path": "src/ProGPU.Native/src/Mil/progpu_native_mil.cpp",
-      "sha256": "e497fff96a783cb02e5cfc42af7b837ac5b42e5df1a1157ebbcbc9c8015ca985"
+      "sha256": "699a000fe0f6630f2d12e468422959b7e1de736282c9640d7a028b8aae79d0b2"
     }
   },
   "summary": {
     "commandCount": 143,
     "sentinel": 2,
-    "topLevelDecoder": 62,
+    "topLevelDecoder": 64,
     "nestedRenderDataDispatch": 25,
-    "notDispatched": 54
+    "notDispatched": 52
   },
   "commands": [
     {
@@ -111,14 +111,14 @@
       "name": "bitmap_source",
       "wpfName": "MilCmdBitmapSource",
       "value": 12,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_BITMAP_SOURCE"
     },
     {
       "name": "bitmap_invalidate",
       "wpfName": "MilCmdBitmapInvalidate",
       "value": 13,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_BITMAP_INVALIDATE"
     },
     {

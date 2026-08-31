@@ -3364,6 +3364,74 @@ struct channel::implementation {
             ++metrics.updated_resource_count;
             return status::success;
         }
+        case command::bitmap_source: {
+            using layout = command_layouts::bitmap_source;
+            std::uint64_t bitmap_pointer = 0U;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::p_i_bitmap_offset,
+                    bitmap_pointer)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_bitmap_source)) {
+                return status::invalid_handle;
+            }
+            // Desktop WPF carries an in-process IWICBitmapSource pointer.
+            // Portable producers must bind copied pixels or a same-device
+            // external image through the typed channel sideband instead.
+            if (bitmap_pointer != 0U) {
+                return status::invalid_argument;
+            }
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::bitmap_invalidate: {
+            using layout = command_layouts::bitmap_invalidate;
+            std::uint32_t use_dirty_rect = 0U;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::use_dirty_rect_offset,
+                    use_dirty_rect)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_bitmap_source)) {
+                return status::invalid_handle;
+            }
+            if (use_dirty_rect > 1U) {
+                return status::malformed_batch;
+            }
+            if (use_dirty_rect != 0U) {
+                std::array<std::int32_t, 4U> dirty_rect{};
+                if (!read_at(
+                        view.packet,
+                        layout::dirty_rect_offset,
+                        dirty_rect) ||
+                    dirty_rect[0U] < 0 || dirty_rect[1U] < 0 ||
+                    dirty_rect[2U] <= dirty_rect[0U] ||
+                    dirty_rect[3U] <= dirty_rect[1U]) {
+                    return status::malformed_batch;
+                }
+                const auto bitmap = bitmap_sources.find(handle);
+                if (bitmap != bitmap_sources.end() &&
+                    (static_cast<std::uint64_t>(dirty_rect[2U]) >
+                            bitmap->second.width ||
+                     static_cast<std::uint64_t>(dirty_rect[3U]) >
+                            bitmap->second.height)) {
+                    return status::malformed_batch;
+                }
+            }
+            // The sideband owns the new pixels or live texture. This packet
+            // only invalidates retained consumers, matching WPF's change
+            // notification without copying or reading image data here.
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
         case command::visual_create: {
             using layout = command_layouts::visual_create;
             if (!has_exact_size(view, layout::fixed_size) ||

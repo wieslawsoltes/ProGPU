@@ -119,6 +119,10 @@ static_assert(
 static_assert(
     command_layouts::fixed_header_size(command::transport_sync_flush) == 4U);
 static_assert(command_layouts::channel_create_resource::fixed_size == 12U);
+static_assert(command_layouts::bitmap_source::fixed_size == 16U);
+static_assert(command_layouts::bitmap_source::p_i_bitmap_offset == 8U);
+static_assert(command_layouts::bitmap_invalidate::fixed_size == 28U);
+static_assert(command_layouts::bitmap_invalidate::dirty_rect_offset == 12U);
 static_assert(command_layouts::visual_create::fixed_size == 8U);
 static_assert(command_layouts::glyph_run_create::fixed_size == 76U);
 static_assert(command_layouts::draw_rectangle::fixed_size == 44U);
@@ -11098,6 +11102,100 @@ bool retained_image_drawing_uses_pointer_free_bitmap_sideband() {
     return true;
 }
 
+bool canonical_bitmap_packets_preserve_pointer_free_sideband() {
+    constexpr std::uint32_t bitmap = 1U;
+    std::vector<std::byte> create;
+    append_create(create, bitmap, 95U);
+    channel state;
+    PROGPU_REQUIRE(state.apply(create) == status::success);
+    PROGPU_REQUIRE(state.resource_generation(bitmap) == 1U);
+
+    std::vector<std::byte> source;
+    append_command(
+        source,
+        command::bitmap_source,
+        bitmap,
+        std::uint64_t{0U});
+    batch_metrics metrics{};
+    PROGPU_REQUIRE(state.apply(source, &metrics) == status::success);
+    PROGPU_REQUIRE(metrics.command_count == 1U);
+    PROGPU_REQUIRE(metrics.supported_command_count == 1U);
+    PROGPU_REQUIRE(metrics.updated_resource_count == 1U);
+    PROGPU_REQUIRE(state.resource_generation(bitmap) == 2U);
+
+    constexpr std::array<std::byte, 64U> pixels{};
+    PROGPU_REQUIRE(
+        state.set_bitmap_source_rgba8(bitmap, 4U, 4U, 16U, pixels) ==
+        status::success);
+    PROGPU_REQUIRE(state.resource_generation(bitmap) == 3U);
+
+    std::vector<std::byte> dirty;
+    append_command(
+        dirty,
+        command::bitmap_invalidate,
+        bitmap,
+        1U,
+        std::int32_t{1},
+        std::int32_t{1},
+        std::int32_t{4},
+        std::int32_t{3});
+    PROGPU_REQUIRE(state.apply(dirty) == status::success);
+    PROGPU_REQUIRE(state.resource_generation(bitmap) == 4U);
+
+    // WPF leaves DirtyRect uninitialized when UseDirtyRect is false. The
+    // portable decoder must ignore those bytes instead of validating them.
+    std::vector<std::byte> full;
+    append_command(
+        full,
+        command::bitmap_invalidate,
+        bitmap,
+        0U,
+        std::numeric_limits<std::int32_t>::min(),
+        std::numeric_limits<std::int32_t>::max(),
+        std::int32_t{-1},
+        std::int32_t{0});
+    PROGPU_REQUIRE(state.apply(full) == status::success);
+    PROGPU_REQUIRE(state.resource_generation(bitmap) == 5U);
+
+    std::vector<std::byte> invalid_pointer;
+    append_command(
+        invalid_pointer,
+        command::bitmap_source,
+        bitmap,
+        std::uint64_t{0x1234U});
+    PROGPU_REQUIRE(
+        state.apply(invalid_pointer) == status::invalid_argument);
+    PROGPU_REQUIRE(state.resource_generation(bitmap) == 5U);
+
+    std::vector<std::byte> invalid_flag;
+    append_command(
+        invalid_flag,
+        command::bitmap_invalidate,
+        bitmap,
+        2U,
+        std::int32_t{0},
+        std::int32_t{0},
+        std::int32_t{1},
+        std::int32_t{1});
+    PROGPU_REQUIRE(state.apply(invalid_flag) == status::malformed_batch);
+    PROGPU_REQUIRE(state.resource_generation(bitmap) == 5U);
+
+    std::vector<std::byte> invalid_dirty_rect;
+    append_command(
+        invalid_dirty_rect,
+        command::bitmap_invalidate,
+        bitmap,
+        1U,
+        std::int32_t{0},
+        std::int32_t{0},
+        std::int32_t{5},
+        std::int32_t{4});
+    PROGPU_REQUIRE(
+        state.apply(invalid_dirty_rect) == status::malformed_batch);
+    PROGPU_REQUIRE(state.resource_generation(bitmap) == 5U);
+    return true;
+}
+
 bool canonical_d3d_image_uses_synchronized_external_image_sideband() {
     constexpr std::uint32_t visual = 1U;
     constexpr std::uint32_t content = 2U;
@@ -16643,6 +16741,8 @@ int main() {
     PROGPU_REQUIRE(
         compact_dynamic_guidelines_retain_and_reset_phase_state());
     PROGPU_REQUIRE(render_data_opacity_mask_scope_uses_gpu_brush_layer());
+    PROGPU_REQUIRE(
+        canonical_bitmap_packets_preserve_pointer_free_sideband());
     PROGPU_REQUIRE(
         retained_image_drawing_uses_pointer_free_bitmap_sideband());
     PROGPU_REQUIRE(
