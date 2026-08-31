@@ -1497,13 +1497,13 @@ private:
                 static_cast<double>(source._31) * source._22) * reciprocal,
             (static_cast<double>(source._31) * source._12 -
                 static_cast<double>(source._11) * source._32) * reciprocal};
-        inverse = {
+        inverse = {{
             static_cast<float>(values[0]),
             static_cast<float>(values[1]),
             static_cast<float>(values[2]),
             static_cast<float>(values[3]),
             static_cast<float>(values[4]),
-            static_cast<float>(values[5])};
+            static_cast<float>(values[5])}};
         return std::all_of(
             values.begin(),
             values.end(),
@@ -1518,13 +1518,13 @@ private:
         const D2D1_MATRIX_3X2_F& first,
         const D2D1_MATRIX_3X2_F& second) noexcept
     {
-        return {
+        return {{
             first._11 * second._11 + first._12 * second._21,
             first._11 * second._12 + first._12 * second._22,
             first._21 * second._11 + first._22 * second._21,
             first._21 * second._12 + first._22 * second._22,
             first._31 * second._11 + first._32 * second._21 + second._31,
-            first._31 * second._12 + first._32 * second._22 + second._32};
+            first._31 * second._12 + first._32 * second._22 + second._32}};
     }
 
     bool try_set_gradient_coordinate_transform(
