@@ -26,6 +26,10 @@ does not approximate those cases as a cosmetic centerline.
   documented exceptions; Width/Halfwidth values persist into later segments.
 - Autodesk [`FILLMODE`](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-Core/files/GUID-FC385D70-45AA-4B9A-848A-CA3906C36124.htm):
   wide polylines participate in the drawing-level filled/unfilled policy.
+- Autodesk [object-selection guidance](https://help.autodesk.com/cloudhelp/2026/ENU/AutoCAD-OnBoarding/files/ACD_FOUNDATIONS_MAIN7.html):
+  crossing selection includes objects within or touching the region, while
+  window selection requires complete containment. The visible filled strip,
+  rather than its zero-width centerline, is therefore the selection geometry.
 - Skia [`SkCanvas::drawPath`](https://api.skia.org/classSkCanvas.html) and
   [`SkPaint`](https://api.skia.org/classSkPaint.html): a retained contour is
   stroked once with explicit width, cap, and join rather than expanded into
@@ -36,6 +40,14 @@ does not approximate those cases as a cosmetic centerline.
   geometry and stroke style are separate retained inputs; stroke width is
   centered on the path; explicit widening is available when an outline is
   required.
+- Direct2D
+  [`StrokeContainsPoint`](https://learn.microsoft.com/en-us/windows/win32/direct2d/id2d1geometry-strokecontainspoint)
+  and Win2D
+  [`CanvasGeometry`](https://microsoft.github.io/Win2D/WinUI2/html/Methods_T_Microsoft_Graphics_Canvas_Geometry_CanvasGeometry.htm):
+  point containment is a property of the complete transformed stroked area and
+  its width/style. ProGPU adopts that semantic contract but rejects their
+  caller-selected flattening tolerance because CAD selection must not depend on
+  zoom or tessellation density.
 - Linebender [Vello scene stroking](https://github.com/linebender/vello/blob/main/vello/src/scene.rs),
   [stroke-style encoding](https://github.com/linebender/vello/blob/main/vello_encoding/src/path.rs),
   and [GPU-friendly stroke expansion paper](https://arxiv.org/abs/2405.00127):
@@ -94,6 +106,32 @@ compile. Recording one path instead of one draw per segment prevents repeated
 alpha application at joins and keeps analytic bulges available to the existing
 managed/native GPU stroke compiler.
 
+## Exact selection contract
+
+Point and Crossing selection consume the same source-space butt-cap/bevel-join
+stroke topology as rendering. A straight segment is one affine quadrilateral;
+its two triangles and every bevel join are tested directly in WCS. A bulge
+segment is the ruled strip between signed radii `r - w/2` and `r + w/2`, closed
+by its two radial endpoint sections. Each circular boundary is split into at
+most four exact positive-weight rational quadratic spans and transformed into
+WCS before using ProGPU's existing rational stationary-point and box-plane root
+solvers. No arc is flattened.
+
+For point queries, a Gram-system inverse maps the orthogonal WCS plane
+projection back through an arbitrary affine OCS basis. Membership in the
+signed-radius interval covers widths equal to or greater than the bulge
+diameter; the reported distance remains the exact 3D distance to the filled
+strip. For Crossing queries, rational boundary/box intersections and endpoint
+sections handle boundary contact. A bounded 12-edge plane/AABB slice test
+covers the complementary case where the selection box lies wholly inside the
+strip without touching its boundary. Window selection remains the inclusive
+containment test against the snapshot's exact expanded WCS bounds.
+
+Selection is O(S) time for S segments. Each bulge uses at most eight rational
+quadratic boundary tests plus two endpoint sections; all temporary controls,
+box corners, and roots use bounded stack storage. Warm point and box queries
+allocate zero managed memory and do not initialize a GPU backend.
+
 ## Deliberate fail-closed behavior
 
 - Any nonzero per-vertex start/end width remains unsupported. Exact tapered
@@ -105,10 +143,6 @@ managed/native GPU stroke compiler.
   one continuous wide path. Autodesk documents cap/join exceptions for
   dot-dash patterns; the existing zero-width linetype lowerer cannot preserve
   them.
-- Exact point and crossing selection return `UnsupportedGeometry` for wide
-  polylines instead of testing the centerline. Exact window containment remains
-  valid through the expanded world bounds. Filled-stroke point/crossing
-  selection is a follow-up checkpoint.
 - Legacy `Polyline2D` width remains unsupported. Its entity-level and
   per-vertex width rules need a separate persistence and differential audit.
 
@@ -123,17 +157,22 @@ no per-frame managed/native crossing, upload, or CAD allocation.
 The managed and native renderers consume the same `GpuPicture` path and the
 same existing ProGPU stroke compiler. No C ABI record, generated C# wire type,
 C++ CAD frontend, shader, atlas, device-loss contract, or GPU resource owner
-changes. A matched native compilation regression verifies the normal-transform
-stroke lowers to native geometry. Print retains the model-space pen inside one
-page transform, and DXF/DWG tests verify width persistence.
+changes. Exact CAD selection is a host-side immutable-snapshot query; there is
+no native CAD selection frontend or managed/native crossing to update. A
+matched native compilation regression continues to verify that the same
+normal-transform stroke lowers to native geometry. Print retains the
+model-space pen inside one page transform, and DXF/DWG tests verify width
+persistence.
 
 Focused regressions cover straight and bulged bounds, analytic arc retention,
-bevel/butt model-space style, nonuniform block transforms, bounded shared pen
-identity, print replay, managed/native compilation, authoring and Undo/Redo,
-DXF/DWG round trips, recoverable FILLMODE failure, variable-width rejection,
-patterned fallback diagnostics, and explicit selection status. The focused
-suite passes 24/24 in Debug and Release. The complete CAD suite passes
-1,327/1,327 in Debug and Release. Fresh `ACadSharp.ProGPU` and `ProGPU.CAD`
+bevel/butt model-space style, nonuniform and sheared nested block transforms,
+signed-radius bulge selection, bevel and flat-cap selection, whole-box strip
+containment, zero warm-query allocation, bounded shared pen identity, print
+replay, managed/native compilation, authoring and Undo/Redo, DXF/DWG round
+trips, recoverable FILLMODE failure, variable-width rejection, and patterned
+fallback diagnostics. The focused wide-polyline suite passes 15/15 and the
+complete CAD suite passes 1,336/1,336 in both Debug and Release. Fresh
+`ACadSharp.ProGPU` and `ProGPU.CAD`
 packages at `0.1.0-preview.62` pass the two-package content/dependency audit;
 an isolated package-only consumer resolves the fork identity, rejects upstream
 ACadSharp, builds with 0 warnings and 0 errors, and creates an AC1032 document.

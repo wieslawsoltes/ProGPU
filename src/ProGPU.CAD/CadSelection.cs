@@ -1319,7 +1319,10 @@ public static class CadSelectionHitTester
         CadPolylinePrimitive polyline = snapshot.Polylines.Span[header.PrimitiveIndex];
         if (polyline.IsWide)
         {
-            return BoundsUnsupportedGeometry();
+            return CadWidePolylineSelection.HitTestBounds(
+                snapshot,
+                polyline,
+                bounds);
         }
         ReadOnlySpan<CadPolylineVertex> vertices = snapshot.PolylineVertices.Span.Slice(
             polyline.VertexOffset,
@@ -1519,7 +1522,11 @@ public static class CadSelectionHitTester
         CadPolylinePrimitive polyline = snapshot.Polylines.Span[header.PrimitiveIndex];
         if (polyline.IsWide)
         {
-            return UnsupportedGeometry();
+            return CadWidePolylineSelection.HitTestPoint(
+                snapshot,
+                polyline,
+                point,
+                tolerance);
         }
         ReadOnlySpan<CadPolylineVertex> vertices = snapshot.PolylineVertices.Span.Slice(
             polyline.VertexOffset,
@@ -1984,7 +1991,7 @@ public static class CadSelectionHitTester
         return true;
     }
 
-    private static bool TriangleIntersectsBounds(
+    internal static bool TriangleIntersectsBounds(
         CadPoint3D first,
         CadPoint3D second,
         CadPoint3D third,
@@ -2140,7 +2147,7 @@ public static class CadSelectionHitTester
         (basis.XAxis * (basis.Radius * Math.Cos(angle))) +
         (basis.YAxis * (basis.Radius * Math.Sin(angle)));
 
-    private static double DistanceToSegment(
+    internal static double DistanceToSegment(
         CadPoint3D point,
         CadPoint3D start,
         CadPoint3D end)
@@ -2164,7 +2171,7 @@ public static class CadSelectionHitTester
         return (point - (start + (direction * projection))).Length;
     }
 
-    private static double DistanceToTriangle(
+    internal static double DistanceToTriangle(
         CadPoint3D point,
         CadPoint3D first,
         CadPoint3D second,

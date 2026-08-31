@@ -91,7 +91,7 @@ public sealed class CadWidePolylineTests
     }
 
     [Fact]
-    public void ExactSelectionDoesNotMisclassifyWideStrokeAsCenterline()
+    public void ExactSelectionTestsVisibleStraightStripRatherThanCenterline()
     {
         var document = new CadDocument();
         document.Entities.Add(CreateStraight(width: 2.0));
@@ -123,10 +123,342 @@ public sealed class CadWidePolylineTests
                 new CadPoint3D(-1, -2, -1),
                 new CadPoint3D(11, 2, 1)),
             CadBoundsSelectionMode.Window);
+        CadBoundsHitResult partialWindow = CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            candidate,
+            new CadBounds3D(
+                new CadPoint3D(0, -1, 0),
+                new CadPoint3D(10, 0.99, 0)),
+            CadBoundsSelectionMode.Window);
 
-        Assert.Equal(CadPointHitStatus.UnsupportedGeometry, point.Status);
-        Assert.Equal(CadBoundsHitStatus.UnsupportedGeometry, crossing.Status);
+        Assert.Equal(CadPointHitStatus.Hit, point.Status);
+        Assert.Equal(0.0, point.Distance, 10);
+        Assert.Equal(CadBoundsHitStatus.Hit, crossing.Status);
         Assert.Equal(CadBoundsHitStatus.Hit, window.Status);
+        Assert.Equal(CadBoundsHitStatus.Miss, partialWindow.Status);
+
+        CadPointHitResult beyondFlatCap = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(10.25, 0, 0),
+            0.01);
+        CadPointHitResult outsideWidth = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(5, 1.25, 0),
+            0.01);
+
+        Assert.Equal(CadPointHitStatus.Miss, beyondFlatCap.Status);
+        Assert.Equal(0.25, beyondFlatCap.Distance, 10);
+        Assert.Equal(CadPointHitStatus.Miss, outsideWidth.Status);
+        Assert.Equal(0.25, outsideWidth.Distance, 10);
+    }
+
+    [Fact]
+    public void ExactSelectionIncludesBevelJoinOutsideBothSegmentStrips()
+    {
+        var document = new CadDocument();
+        var polyline = new LwPolyline { ConstantWidth = 2.0 };
+        polyline.Vertices.Add(new LwPolyline.Vertex(0, 0));
+        polyline.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        polyline.Vertices.Add(new LwPolyline.Vertex(10, 10));
+        document.Entities.Add(polyline);
+
+        (CadDocumentSnapshot snapshot, CadSelectionCandidate candidate) =
+            CompileSelection(document);
+        CadPointHitResult point = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(10.75, -0.20, 0),
+            0.0);
+        CadBoundsHitResult crossing = CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            candidate,
+            new CadBounds3D(
+                new CadPoint3D(10.70, -0.25, -0.1),
+                new CadPoint3D(10.80, -0.15, 0.1)),
+            CadBoundsSelectionMode.Crossing);
+
+        Assert.Equal(CadPointHitStatus.Hit, point.Status);
+        Assert.Equal(0.0, point.Distance, 10);
+        Assert.Equal(CadBoundsHitStatus.Hit, crossing.Status);
+    }
+
+    [Fact]
+    public void ExactBulgeSelectionRetainsAnnularStripAndInteriorCrossing()
+    {
+        var document = new CadDocument();
+        var polyline = new LwPolyline { ConstantWidth = 2.0 };
+        polyline.Vertices.Add(new LwPolyline.Vertex(0, 0) { Bulge = 1.0 });
+        polyline.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        document.Entities.Add(polyline);
+
+        (CadDocumentSnapshot snapshot, CadSelectionCandidate candidate) =
+            CompileSelection(document);
+        CadPointHitResult inStrip = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(5, -5.5, 0),
+            0.0);
+        CadPointHitResult inHole = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(5, -2, 0),
+            0.0);
+        CadBoundsHitResult interiorCrossing = CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            candidate,
+            new CadBounds3D(
+                new CadPoint3D(4.9, -5.6, -0.1),
+                new CadPoint3D(5.1, -5.4, 0.1)),
+            CadBoundsSelectionMode.Crossing);
+        CadBoundsHitResult holeCrossing = CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            candidate,
+            new CadBounds3D(
+                new CadPoint3D(4.9, -2.1, -0.1),
+                new CadPoint3D(5.1, -1.9, 0.1)),
+            CadBoundsSelectionMode.Crossing);
+
+        Assert.Equal(CadPointHitStatus.Hit, inStrip.Status);
+        Assert.Equal(0.0, inStrip.Distance, 10);
+        Assert.Equal(CadPointHitStatus.Miss, inHole.Status);
+        Assert.Equal(2.0, inHole.Distance, 9);
+        Assert.Equal(CadBoundsHitStatus.Hit, interiorCrossing.Status);
+        Assert.Equal(CadBoundsHitStatus.Miss, holeCrossing.Status);
+    }
+
+    [Fact]
+    public void NegativeBulgeSelectionUsesTheOppositeAnalyticSweep()
+    {
+        var document = new CadDocument();
+        var polyline = new LwPolyline { ConstantWidth = 2.0 };
+        polyline.Vertices.Add(new LwPolyline.Vertex(0, 0) { Bulge = -1.0 });
+        polyline.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        document.Entities.Add(polyline);
+
+        (CadDocumentSnapshot snapshot, CadSelectionCandidate candidate) =
+            CompileSelection(document);
+        CadPointHitResult upperStrip = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(5, 5.5, 0),
+            0.0);
+        CadPointHitResult mirroredMiss = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(5, -5.5, 0),
+            0.0);
+
+        Assert.Equal(CadPointHitStatus.Hit, upperStrip.Status);
+        Assert.Equal(CadPointHitStatus.Miss, mirroredMiss.Status);
+    }
+
+    [Fact]
+    public void ClosedPolylineSelectionIncludesTheFirstVertexBevel()
+    {
+        var document = new CadDocument();
+        var polyline = new LwPolyline { ConstantWidth = 2.0, IsClosed = true };
+        polyline.Vertices.Add(new LwPolyline.Vertex(0, 0));
+        polyline.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        polyline.Vertices.Add(new LwPolyline.Vertex(10, 10));
+        polyline.Vertices.Add(new LwPolyline.Vertex(0, 10));
+        document.Entities.Add(polyline);
+
+        (CadDocumentSnapshot snapshot, CadSelectionCandidate candidate) =
+            CompileSelection(document);
+        CadPointHitResult firstJoin = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(-0.2, -0.2, 0),
+            0.0);
+
+        Assert.Equal(CadPointHitStatus.Hit, firstJoin.Status);
+        Assert.Equal(0.0, firstJoin.Distance, 10);
+    }
+
+    [Fact]
+    public void WidthGreaterThanBulgeDiameterUsesSignedInnerRadius()
+    {
+        var document = new CadDocument();
+        var polyline = new LwPolyline { ConstantWidth = 12.0 };
+        polyline.Vertices.Add(new LwPolyline.Vertex(0, 0) { Bulge = 1.0 });
+        polyline.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        document.Entities.Add(polyline);
+
+        (CadDocumentSnapshot snapshot, CadSelectionCandidate candidate) =
+            CompileSelection(document);
+        CadPointHitResult center = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(5, 0, 0),
+            0.0);
+        CadPointHitResult oppositeSignedLobe = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(5, 0.5, 0),
+            0.0);
+
+        Assert.Equal(CadPointHitStatus.Hit, center.Status);
+        Assert.Equal(CadPointHitStatus.Hit, oppositeSignedLobe.Status);
+    }
+
+    [Fact]
+    public void WidthEqualToBulgeDiameterRetainsCollapsedInnerBoundary()
+    {
+        var document = new CadDocument();
+        var polyline = new LwPolyline { ConstantWidth = 10.0 };
+        polyline.Vertices.Add(new LwPolyline.Vertex(0, 0) { Bulge = 1.0 });
+        polyline.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        document.Entities.Add(polyline);
+
+        (CadDocumentSnapshot snapshot, CadSelectionCandidate candidate) =
+            CompileSelection(document);
+        CadPointHitResult center = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(5, 0, 0),
+            0.0);
+        CadBoundsHitResult centerCrossing = CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            candidate,
+            new CadBounds3D(
+                new CadPoint3D(4.9, -0.1, -0.1),
+                new CadPoint3D(5.1, 0.1, 0.1)),
+            CadBoundsSelectionMode.Crossing);
+
+        Assert.Equal(CadPointHitStatus.Hit, center.Status);
+        Assert.Equal(0.0, center.Distance, 10);
+        Assert.Equal(CadBoundsHitStatus.Hit, centerCrossing.Status);
+    }
+
+    [Fact]
+    public void NonuniformAffineSelectionUsesTransformedSourceWidthAndPlaneDistance()
+    {
+        var document = new CadDocument();
+        var block = new BlockRecord("WIDE_SELECTION_AFFINE");
+        block.Entities.Add(CreateStraight(width: 2.0));
+        document.Entities.Add(new Insert(block)
+        {
+            XScale = 2.0,
+            YScale = 3.0,
+            ZScale = 1.0,
+        });
+
+        (CadDocumentSnapshot snapshot, CadSelectionCandidate candidate) =
+            CompileSelection(document);
+        CadPointHitResult inside = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(10, 2.5, 0.25),
+            0.3);
+        CadPointHitResult outside = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            new CadPoint3D(10, 3.5, 0),
+            0.0);
+        CadBoundsHitResult crossing = CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            candidate,
+            new CadBounds3D(
+                new CadPoint3D(9.9, 2.4, -0.1),
+                new CadPoint3D(10.1, 2.6, 0.1)),
+            CadBoundsSelectionMode.Crossing);
+
+        Assert.Equal(CadPointHitStatus.Hit, inside.Status);
+        Assert.Equal(0.25, inside.Distance, 10);
+        Assert.Equal(CadPointHitStatus.Miss, outside.Status);
+        Assert.Equal(0.5, outside.Distance, 10);
+        Assert.Equal(CadBoundsHitStatus.Hit, crossing.Status);
+    }
+
+    [Fact]
+    public void NestedNonuniformRotationSelectionSupportsShearedBulgeBasis()
+    {
+        var document = new CadDocument();
+        var leaf = new BlockRecord("WIDE_SELECTION_SHEAR_LEAF");
+        var polyline = new LwPolyline { ConstantWidth = 2.0 };
+        polyline.Vertices.Add(new LwPolyline.Vertex(0, 0) { Bulge = 1.0 });
+        polyline.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        leaf.Entities.Add(polyline);
+        var assembly = new BlockRecord("WIDE_SELECTION_SHEAR_ASSEMBLY");
+        assembly.Entities.Add(new Insert(leaf) { Rotation = Math.PI / 4.0 });
+        document.Entities.Add(new Insert(assembly) { XScale = 2.0, YScale = 1.0 });
+
+        (CadDocumentSnapshot snapshot, CadSelectionCandidate candidate) =
+            CompileSelection(document);
+        CadPolylinePrimitive primitive = Assert.Single(snapshot.Polylines.ToArray());
+        CadPoint3D onStrip = primitive.WorldOrigin +
+            (primitive.CoordinateSystem.XAxis * 5.0) +
+            (primitive.CoordinateSystem.YAxis * -5.5);
+        CadPoint3D normal = CadPoint3D.Cross(
+            primitive.CoordinateSystem.XAxis,
+            primitive.CoordinateSystem.YAxis).Normalize();
+        CadPointHitResult point = CadSelectionHitTester.HitTestPoint(
+            snapshot,
+            candidate,
+            onStrip + (normal * 0.25),
+            0.3);
+        CadBoundsHitResult crossing = CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            candidate,
+            new CadBounds3D(
+                onStrip - new CadPoint3D(0.05, 0.05, 0.05),
+                onStrip + new CadPoint3D(0.05, 0.05, 0.05)),
+            CadBoundsSelectionMode.Crossing);
+
+        Assert.NotEqual(
+            0.0,
+            CadPoint3D.Dot(
+                primitive.CoordinateSystem.XAxis,
+                primitive.CoordinateSystem.YAxis));
+        Assert.Equal(CadPointHitStatus.Hit, point.Status);
+        Assert.Equal(0.25, point.Distance, 9);
+        Assert.Equal(CadBoundsHitStatus.Hit, crossing.Status);
+    }
+
+    [Fact]
+    public void ExactWideSelectionMakesNoWarmQueryAllocation()
+    {
+        var document = new CadDocument();
+        var polyline = new LwPolyline { ConstantWidth = 2.0 };
+        polyline.Vertices.Add(new LwPolyline.Vertex(0, 0) { Bulge = 1.0 });
+        polyline.Vertices.Add(new LwPolyline.Vertex(10, 0));
+        document.Entities.Add(polyline);
+        (CadDocumentSnapshot snapshot, CadSelectionCandidate candidate) =
+            CompileSelection(document);
+        var point = new CadPoint3D(5, -5.5, 0);
+        var bounds = new CadBounds3D(
+            new CadPoint3D(4.9, -5.6, -0.1),
+            new CadPoint3D(5.1, -5.4, 0.1));
+        _ = CadSelectionHitTester.HitTestPoint(snapshot, candidate, point, 0.0);
+        _ = CadSelectionHitTester.HitTestBounds(
+            snapshot,
+            candidate,
+            bounds,
+            CadBoundsSelectionMode.Crossing);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        CadPointHitResult result = default;
+        CadBoundsHitResult boundsResult = default;
+        for (int i = 0; i < 128; i++)
+        {
+            result = CadSelectionHitTester.HitTestPoint(
+                snapshot,
+                candidate,
+                point,
+                0.0);
+            boundsResult = CadSelectionHitTester.HitTestBounds(
+                snapshot,
+                candidate,
+                bounds,
+                CadBoundsSelectionMode.Crossing);
+        }
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Equal(CadPointHitStatus.Hit, result.Status);
+        Assert.Equal(CadBoundsHitStatus.Hit, boundsResult.Status);
+        Assert.Equal(0, allocated);
     }
 
     [Fact]
@@ -173,6 +505,21 @@ public sealed class CadWidePolylineTests
 
     private static CadDocumentSnapshot Compile(CadDocument document) =>
         new CadSnapshotCompiler().Compile(new CadDocumentSession(document));
+
+    private static (CadDocumentSnapshot Snapshot, CadSelectionCandidate Candidate)
+        CompileSelection(CadDocument document)
+    {
+        CadDocumentSnapshot snapshot = Compile(document);
+        CadEntityHeader entity = Assert.Single(snapshot.Entities.ToArray());
+        return (
+            snapshot,
+            new CadSelectionCandidate(
+                snapshot.ContentGeneration,
+                0,
+                entity.Handle,
+                entity.Kind,
+                entity.Bounds));
+    }
 
     private static LwPolyline CreateStraight(double width, double y = 0.0)
     {

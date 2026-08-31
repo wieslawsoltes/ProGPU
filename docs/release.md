@@ -96,8 +96,11 @@ captures current entity properties plus PLINEGEN and publishes one entity as
 one generation-safe Undo/Redo action with DXF/DWG round trips. Fill-on constant
 PLINEWID is retained as an absolute model-space bevel/butt stroke through
 affine blocks, camera replay, managed/native compilation, and printing.
-Variable widths, FILLMODE-off outlines, patterned-wide caps, and exact
-point/crossing selection fail explicitly rather than reducing to a cosmetic
+Point and Window/Crossing selection now tests that exact filled stroke,
+including affine line strips, bevels, signed-radius rational bulges, widths at
+or above a bulge diameter, and boxes wholly inside a curved strip, with zero
+warm-query allocation. Variable widths, FILLMODE-off outlines, and
+patterned-wide caps fail explicitly rather than reducing to a cosmetic
 centerline. No shader or ABI fork is introduced.
 
 Shared desktop/browser ProGPU.CAD now also authors exact plan-view CIRCLEs by

@@ -113,9 +113,12 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   print plan is created.
 - Lightweight polylines retain their whole path as one command. Straight and
   positive/negative bulge segments remain analytic in the entity OCS, with a
-  checked affine OCS-to-WCS projection. Wide polylines are deliberately reported
-  as unsupported until filled-outline lowering lands; they are not confused with
-  cosmetic lineweight.
+  checked affine OCS-to-WCS projection. Fill-on constant-width polylines retain
+  one source-space bevel/butt stroke through affine replay. Exact point and
+  Window/Crossing selection uses affine line/join triangles plus signed-radius
+  rational-quadratic bulge boundaries and never substitutes the centerline.
+  Variable width and FILLMODE-off outline semantics remain explicit unsupported
+  geometry; model width is not confused with cosmetic lineweight.
 - Legacy 2D POLYLINE uses the owning polyline elevation and OCS normal, ignores
   the historically unused vertex Z value, and shares the same one-path analytic
   bulge representation. Legacy 3D POLYLINE retains an independent packed WCS
