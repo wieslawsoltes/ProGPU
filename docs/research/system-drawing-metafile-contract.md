@@ -231,7 +231,7 @@ implementation is based on the official
 contracts. WMF paths and select-clip-region records, `EXTTEXTOUT` glyph-index, numeric-
 substitution, two-dimensional, DBCS-advance, and bidi-advance modes, independent
 escapement/orientation, vertical fonts, SYMBOL glyph-index mapping, compressed,
-bitfield, palette-indexed, and WMF DIB records, richer GDI objects,
+bitfield, logical-palette, and WMF DIB records, richer GDI objects,
 other WMF drawing families, and nonstructural EMF+ drawing records remain
 explicit later tranches. The Win32 contract identifies character extra as
 incompatible with complex shaping; playback consequently rejects explicit RTL
