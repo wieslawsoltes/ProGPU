@@ -2928,13 +2928,28 @@ int main()
     progpu_native_direct2d_scene_stream_result direct_write{};
     direct_write.struct_size = static_cast<uint32_t>(sizeof(direct_write));
     native_hresult = E_FAIL;
-    require(
+    const progpu_native_direct2d_status direct_write_status =
         progpu_native_direct2d_scene_recorder_build_stream(
             direct_recorder,
             direct_scene_stream.data(),
             direct_scene_stream.size(),
             &direct_write,
-            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            &native_hresult);
+    if (direct_write_status != PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS ||
+        native_hresult != S_OK ||
+        direct_write.written_bytes != direct_scene_stream.size() ||
+        direct_write.command_count != 8U ||
+        direct_write.brush_count != 2U) {
+        std::cerr << "Direct2D recorder write diagnostic: status="
+                  << static_cast<uint32_t>(direct_write_status)
+                  << ", hr=" << native_hresult
+                  << ", written=" << direct_write.written_bytes
+                  << ", capacity=" << direct_scene_stream.size()
+                  << ", commands=" << direct_write.command_count
+                  << ", brushes=" << direct_write.brush_count << '\n';
+    }
+    require(
+        direct_write_status == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK &&
             direct_write.written_bytes == direct_scene_stream.size() &&
             direct_write.command_count == 8U &&
