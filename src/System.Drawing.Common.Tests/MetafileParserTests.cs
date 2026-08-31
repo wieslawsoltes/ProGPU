@@ -4146,6 +4146,192 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfStretchDibitsDecodesBottomUpCmykPixels()
+    {
+        TestDib dib = CreateCmykDib(
+            2,
+            2,
+            [
+                255, 255, 0, 0, 0, 0, 0, 0,
+                0, 255, 255, 0, 255, 0, 255, 0
+            ]);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfStretchDIBits,
+                EmfStretchDibits(dib, new Rectangle(0, 0, 2, 2), new Rectangle(8, 8, 8, 8)))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(24, 20);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(9, 9).ToArgb());
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(13, 9).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(9, 13).ToArgb());
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(13, 13).ToArgb());
+    }
+
+    [Fact]
+    public void WmfStretchDibDecodesTopDownCmykAndBlackInk()
+    {
+        TestDib dib = CreateCmykDib(
+            2,
+            -1,
+            [64, 128, 192, 32, 0, 0, 0, 255]);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x0F43, WmfStretchDib(
+                dib,
+                new Rectangle(0, 0, 2, 1),
+                new Rectangle(8, 8, 8, 4))),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(24, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.FromArgb(167, 111, 55).ToArgb(), target.GetPixel(9, 9).ToArgb());
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(13, 9).ToArgb());
+    }
+
+    [Fact]
+    public void EmfCmykRle8UsesBoundedIndexedColorTable()
+    {
+        TestDib dib = CreateRleDib(
+            4,
+            1,
+            8,
+            [2, 1, 2, 2, 0, 1],
+            [Color.Black, Color.Red, Color.Blue],
+            compression: 12);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfStretchDIBits,
+                EmfStretchDibits(dib, new Rectangle(0, 0, 4, 1), new Rectangle(8, 8, 8, 4)))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(24, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(9, 9).ToArgb());
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(11, 9).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(13, 9).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(15, 9).ToArgb());
+    }
+
+    [Fact]
+    public void WmfCmykRle4UsesBoundedIndexedColorTable()
+    {
+        TestDib dib = CreateRleDib(
+            4,
+            1,
+            4,
+            [4, 0x12, 0, 1],
+            [Color.Black, Color.Red, Color.Lime],
+            compression: 13);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x0F43, WmfStretchDib(
+                dib,
+                new Rectangle(0, 0, 4, 1),
+                new Rectangle(8, 8, 8, 4))),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(24, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(9, 9).ToArgb());
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(11, 9).ToArgb());
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(13, 9).ToArgb());
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(15, 9).ToArgb());
+    }
+
+    [Fact]
+    public void CmykDibRecordsRejectInvalidDepthOrientationAndSizeTransactionally()
+    {
+        TestDib invalidDepth = CreateCmykDib(1, 1, [0, 0, 0, 0]);
+        WriteUInt16(invalidDepth.Info, 14, 24);
+        TestDib wrongRleDepth = CreateRleDib(
+            1, 1, 4, [1, 1, 0, 1], [Color.Black, Color.Red], compression: 12);
+        TestDib topDownRle = CreateRleDib(
+            1, -1, 8, [1, 1, 0, 1], [Color.Black, Color.Red], compression: 12);
+        TestDib missingSize = WithRleImageSize(CreateRleDib(
+            1, 1, 4, [1, 0x10, 0, 1], [Color.Black, Color.Red], compression: 13), 0);
+        TestDib[] invalid = [invalidDepth, wrongRleDepth, topDownRle, missingSize];
+
+        foreach (TestDib dib in invalid)
+        {
+            byte[] fixture = CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfSetPixelV, EmfSetPixel(new Point(1, 1), Color.Red)),
+                (EmfPlusRecordType.EmfStretchDIBits,
+                    EmfStretchDibits(dib, new Rectangle(0, 0, 1, 1), new Rectangle(0, 0, 4, 4)))
+            ]);
+            using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+            var context = new DrawingContext();
+            using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+            Assert.Throws<ArgumentException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Empty(context.Commands);
+        }
+    }
+
+    [Fact]
+    public void CmykDibPlaybackHasBoundedWarmedAllocation()
+    {
+        TestDib dib = CreateCmykDib(1, -1, [0, 255, 255, 0]);
+        var records = new List<(ushort Function, byte[] Payload)>();
+        for (int index = 0; index < 64; index++)
+        {
+            records.Add((
+                0x0F43,
+                WmfStretchDib(
+                    dib,
+                    new Rectangle(0, 0, 1, 1),
+                    new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8))));
+        }
+        records.Add((0, []));
+        using var metafile = new Metafile(new MemoryStream(
+            CreatePlaybackWmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 64 * 1024, 16 * 1024 * 1024);
+    }
+
+    [Fact]
     public void WmfDibPlaybackHasBoundedWarmedAllocation()
     {
         TestDib dib = CreateRgbDib(1, -1, 32, [0, 0, 255, 0]);
@@ -5904,6 +6090,19 @@ public sealed class MetafileParserTests
                 WriteUInt16(info, 40 + index * 2, paletteIndices[index]);
             }
         }
+        return new TestDib(info, bits);
+    }
+
+    private static TestDib CreateCmykDib(int width, int signedHeight, byte[] bits)
+    {
+        byte[] info = new byte[40];
+        WriteUInt32(info, 0, 40);
+        WriteInt32(info, 4, width);
+        WriteInt32(info, 8, signedHeight);
+        WriteUInt16(info, 12, 1);
+        WriteUInt16(info, 14, 32);
+        WriteUInt32(info, 16, 11);
+        WriteUInt32(info, 20, checked((uint)bits.Length));
         return new TestDib(info, bits);
     }
 

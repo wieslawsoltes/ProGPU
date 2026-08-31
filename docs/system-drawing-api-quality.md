@@ -343,9 +343,9 @@ evidence. Ten focused cases independently cover all four layouts, bottom-up
 padding, top-down and bottom-up partial bands, packed color tables, retained
 sampling, malformed usage/ROP/scan/buffer inputs, transactional rollback,
 playback-DC-only source boundaries, and a warmed allocation ceiling.
-CMYK compression, playback-device-context sources, and
-device-dependent bitmaps remain explicit. ApiCompat remains 0/0/13.
-Both complete Debug and Release drawing suites pass 552/552.
+Playback-device-context sources and device-dependent bitmaps remain explicit.
+ApiCompat remains 0/0/13.
+Both complete Debug and Release drawing suites pass 558/558.
 
 `MetafileBenchmarks.Playback256BitFieldDibImagesToRetainedCommands` extends the
 same shared decoder to 16/32-bit `BI_BITFIELDS`. Forty-byte headers supply three
@@ -414,6 +414,23 @@ authoritative evidence. The official contracts are
 [`DIBColors`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/a5e722e3-891a-4a67-be1a-ed5a48a7fda1),
 [`EMR_CREATEPALETTE`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/07e1492b-e4bb-4394-934f-4eaee67ab8ff), and
 [`META_ANIMATEPALETTE`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/abac3df4-c19a-4102-9344-b5bf68fcfa99).
+
+`MetafileBenchmarks.Playback256CmykDibImagesToRetainedCommands` completes the
+official `BI_CMYK`, `BI_CMYKRLE8`, and `BI_CMYKRLE4` compression family.
+Uncompressed input requires 32-bit C/M/Y/K pixels and uses the same
+multiplicative black/colorant conversion as ProGPU's typed `Cmyk32` backend
+path. The indexed CMYK variants require bottom-up 8-bit or 4-bit input and
+reuse the exact-size bounded RLE and RGBQUAD/logical-palette machinery. Six
+focused metafile cases cover direct pixels in both orientations, mixed
+colorant/black conversion, both RLE variants, malformed transactional rollback,
+and warmed allocation. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun measured a
+41.660 ms median (40.847 ms mean, 19.178 ms standard deviation) and 501.71 KB
+allocated for 256 packed two-by-two images. Three iterations, denied priority
+elevation, and high variance make allocation and ownership authoritative. The
+official contracts are the
+[`Compression enumeration`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/4e588f70-bd92-4a6f-b77f-35d0feaf7a57),
+[`DeviceIndependentBitmap object`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/7376542a-cce9-4625-8ead-585e9538f9f1), and
+[`CMY and CMYK color spaces`](https://learn.microsoft.com/en-us/windows/win32/wcs/cmy-and-cmyk-color-spaces).
 
 `MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
 Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11

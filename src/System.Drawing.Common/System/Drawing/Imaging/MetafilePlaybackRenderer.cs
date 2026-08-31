@@ -27,6 +27,9 @@ internal static class MetafilePlaybackRenderer
     private const uint BiBitFields = 3;
     private const uint BiJpeg = 4;
     private const uint BiPng = 5;
+    private const uint BiCmyk = 11;
+    private const uint BiCmykRle8 = 12;
+    private const uint BiCmykRle4 = 13;
     private const uint SrcCopy = 0x00CC_0020;
 
     static MetafilePlaybackRenderer() =>
@@ -1020,7 +1023,8 @@ internal static class MetafilePlaybackRenderer
         ReadOnlySpan<byte> packedDib)
     {
         ReadOnlySpan<byte> bitmapBits = packedDib[dib.BitmapInfoSize..];
-        if (dib.Compression is not BiRle8 and not BiRle4 and not BiJpeg and not BiPng)
+        if (!IsRleCompression(dib.Compression) &&
+            dib.Compression is not BiJpeg and not BiPng)
         {
             return bitmapBits;
         }
@@ -1327,11 +1331,12 @@ internal static class MetafilePlaybackRenderer
         ushort bitCount = ReadUInt16(bitmapInfo, 14);
         uint compression = ReadUInt32(bitmapInfo, 16);
         if (compression is not BiRgb and not BiRle8 and not BiRle4 and
-            not BiBitFields and not BiJpeg and not BiPng)
+            not BiBitFields and not BiJpeg and not BiPng and not BiCmyk and
+            not BiCmykRle8 and not BiCmykRle4)
         {
             throw Unsupported(
                 record,
-                "Only BI_RGB, BI_RLE8, BI_RLE4, BI_BITFIELDS, BI_JPEG, and BI_PNG DIBs are supported.");
+                "Only BI_RGB, BI_RLE8, BI_RLE4, BI_BITFIELDS, BI_JPEG, BI_PNG, BI_CMYK, BI_CMYKRLE8, and BI_CMYKRLE4 DIBs are supported.");
         }
         bool usesEncodedFile = compression is BiJpeg or BiPng;
         if (usesEncodedFile)
@@ -1345,16 +1350,23 @@ internal static class MetafilePlaybackRenderer
         {
             throw Unsupported(record, $"DIB bit depth {bitCount} is not supported.");
         }
+        bool usesCmyk = compression == BiCmyk;
+        if (usesCmyk && bitCount != 32)
+        {
+            throw Invalid(record);
+        }
         bool usesBitFields = compression == BiBitFields;
         if (usesBitFields && bitCount is not 16 and not 32)
         {
             throw Invalid(record);
         }
-        bool usesRle = compression is BiRle8 or BiRle4;
+        bool usesRle8 = IsRle8Compression(compression);
+        bool usesRle4 = IsRle4Compression(compression);
+        bool usesRle = usesRle8 || usesRle4;
         if (usesRle &&
             (signedHeight < 0 ||
-             compression == BiRle8 && bitCount != 8 ||
-             compression == BiRle4 && bitCount != 4))
+             usesRle8 && bitCount != 8 ||
+             usesRle4 && bitCount != 4))
         {
             throw Invalid(record);
         }
@@ -1517,7 +1529,7 @@ internal static class MetafilePlaybackRenderer
         {
             throw Invalid(record);
         }
-        if (dib.Compression is BiRle8 or BiRle4)
+        if (IsRleCompression(dib.Compression))
         {
             return DecodeRleDib(record, dib, bitmapInfo, bitmapBits, rowCount);
         }
@@ -1594,6 +1606,7 @@ internal static class MetafilePlaybackRenderer
         }
 
         byte[] indices = new byte[checked(dib.Width * rowCount)];
+        bool rle8 = IsRle8Compression(dib.Compression);
         int cursor = 0;
         int x = 0;
         int y = 0;
@@ -1611,7 +1624,7 @@ internal static class MetafilePlaybackRenderer
                 EnsureRleRunFits(record, dib, rowCount, x, y, count);
                 for (int index = 0; index < count; index++)
                 {
-                    indices[y * dib.Width + x + index] = dib.Compression == BiRle8
+                    indices[y * dib.Width + x + index] = rle8
                         ? value
                         : (byte)((index & 1) == 0 ? value >> 4 : value & 0x0F);
                 }
@@ -1649,7 +1662,7 @@ internal static class MetafilePlaybackRenderer
                 default:
                     int absoluteCount = value;
                     EnsureRleRunFits(record, dib, rowCount, x, y, absoluteCount);
-                    int dataBytes = dib.Compression == BiRle8
+                    int dataBytes = rle8
                         ? absoluteCount
                         : (absoluteCount + 1) / 2;
                     int alignedBytes = (dataBytes + 1) & ~1;
@@ -1659,8 +1672,8 @@ internal static class MetafilePlaybackRenderer
                     }
                     for (int index = 0; index < absoluteCount; index++)
                     {
-                        byte packed = bitmapBits[cursor + (dib.Compression == BiRle8 ? index : index / 2)];
-                        indices[y * dib.Width + x + index] = dib.Compression == BiRle8
+                        byte packed = bitmapBits[cursor + (rle8 ? index : index / 2)];
+                        indices[y * dib.Width + x + index] = rle8
                             ? packed
                             : (byte)((index & 1) == 0 ? packed >> 4 : packed & 0x0F);
                     }
@@ -1780,7 +1793,17 @@ internal static class MetafilePlaybackRenderer
                     break;
                 case 32:
                     uint pixel32 = ReadUInt32(source, x * 4);
-                    if (dib.UsesBitFields)
+                    if (dib.Compression == BiCmyk)
+                    {
+                        byte cyan = (byte)pixel32;
+                        byte magenta = (byte)(pixel32 >> 8);
+                        byte yellow = (byte)(pixel32 >> 16);
+                        byte black = (byte)(pixel32 >> 24);
+                        red = ConvertCmykChannel(cyan, black);
+                        green = ConvertCmykChannel(magenta, black);
+                        blue = ConvertCmykChannel(yellow, black);
+                    }
+                    else if (dib.UsesBitFields)
                     {
                         red = ReadMaskedColor(pixel32, dib.RedMask);
                         green = ReadMaskedColor(pixel32, dib.GreenMask);
@@ -1815,6 +1838,19 @@ internal static class MetafilePlaybackRenderer
 
     private static byte ReadMaskedAlpha(uint pixel, uint mask) =>
         mask == 0 ? byte.MaxValue : ReadMaskedColor(pixel, mask);
+
+    private static byte ConvertCmykChannel(byte colorant, byte black) =>
+        (byte)(((byte.MaxValue - colorant) * (byte.MaxValue - black) + 127) /
+            byte.MaxValue);
+
+    private static bool IsRleCompression(uint compression) =>
+        IsRle8Compression(compression) || IsRle4Compression(compression);
+
+    private static bool IsRle8Compression(uint compression) =>
+        compression is BiRle8 or BiCmykRle8;
+
+    private static bool IsRle4Compression(uint compression) =>
+        compression is BiRle4 or BiCmykRle4;
 
     private static void ReadPaletteColor(
         in MetafileRecord record,

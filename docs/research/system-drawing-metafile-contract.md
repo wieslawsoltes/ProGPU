@@ -119,6 +119,10 @@ with uncompressed `BI_RGB` 1-, 4-, 8-, 16-,
 `BITMAPINFOHEADER`, `BITMAPV4HEADER`, or `BITMAPV5HEADER` envelopes. It handles
 RGBQUAD palettes, RGB555, RGB565 and arbitrary valid contiguous bit masks,
 optional V4/V5 alpha masks, and bottom-up `BI_RLE8`/`BI_RLE4` indexed streams.
+The same path accepts uncompressed 32-bit `BI_CMYK` in C/M/Y/K byte order and
+the indexed `BI_CMYKRLE8`/`BI_CMYKRLE4` variants. CMYK channels use the existing
+typed ProGPU conversion, including multiplicative black ink, while the RLE
+variants retain the bounded RGBQUAD/logical-palette index path.
 Logical palettes are typed EMF/WMF objects with create, select, set, resize,
 realize, WMF animate, deletion, and SaveDC/RestoreDC selection behavior.
 Sixteen-bit DIB color-table indexes and direct pixel indexes resolve against
@@ -268,7 +272,7 @@ implementation is based on the official
 contracts. WMF paths and select-clip-region records, `EXTTEXTOUT` glyph-index, numeric-
 substitution, two-dimensional, DBCS-advance, and bidi-advance modes, independent
 escapement/orientation, vertical fonts, SYMBOL glyph-index mapping,
-CMYK DIBs, playback-device-context-only
+Playback-device-context-only
 `META_DIBBITBLT`/`META_DIBSTRETCHBLT` variants, device-dependent bitmap blits,
 richer GDI objects,
 other WMF drawing families, and nonstructural EMF+ drawing records remain
@@ -781,7 +785,7 @@ operations, transactional rollback, and warmed allocation. The WMF follow-up
 adds all four source-bearing packed-DIB layouts, exact packed header/color-table
 splitting, direct-color optimization tables, both scan orientations, retained
 command shape, and explicit rollback for the two playback-DC-only source forms.
-CMYK compression, playback-device-context sources, and device-dependent bitmaps remain named typed
+Playback-device-context sources and device-dependent bitmaps remain named typed
 boundaries. ApiCompat remains at zero missing types, zero missing members, and
 13 reviewed shape differences.
 
@@ -832,6 +836,16 @@ indexes directly. Six focused gates cover exact EMF and WMF pixels, palette
 selection restoration, set/resize/animation semantics, malformed transactional
 rollback, and warmed allocation.
 
+The CMYK follow-up completes the remaining official DIB compression values.
+`BI_CMYK` requires 32 bits per pixel and consumes C/M/Y/K bytes through the
+same multiplicative device-independent conversion already used by ProGPU's
+typed `Cmyk32` pixel path. `BI_CMYKRLE8` and `BI_CMYKRLE4` require bottom-up
+8-bit and 4-bit indexed images, respectively, and reuse the exact-size bounded
+RLE state machine and RGBQUAD/logical-palette resolution. Six focused metafile
+gates cover top-down and bottom-up direct pixels, mixed black/colorant math,
+both CMYK RLE forms, invalid depth/orientation/size rollback, and warmed
+allocation.
+
 `Playback256EmfDibImagesToRetainedCommands` measures bounded header/row decode,
 256 owned two-by-two RGBA snapshots, typed retained-texture recording,
 transactional append, and cleanup. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun
@@ -852,7 +866,7 @@ throughput. Ten focused WMF cases independently cover all four record families,
 bottom-up padding, top-down and bottom-up partial bands, packed color-table
 splitting, retained sampling, playback-DC boundaries, malformed input,
 transactional rollback, and the warmed 64-image allocation ceiling.
-Both complete Debug and Release drawing suites pass 552/552; ApiCompat remains
+Both complete Debug and Release drawing suites pass 558/558; ApiCompat remains
 at zero missing types, zero missing members, and 13 reviewed shape differences.
 
 `Playback256BitFieldDibImagesToRetainedCommands` measures 256 packed RGB565
@@ -888,6 +902,14 @@ median (19.553 millisecond mean, 8.962 millisecond standard deviation) with
 502.08 KB allocated. Three iterations, denied priority elevation, and high
 timing variance make allocation and command ownership authoritative rather than
 throughput.
+
+`Playback256CmykDibImagesToRetainedCommands` measures 256 packed two-by-two
+32-bit `BI_CMYK` images through channel conversion, row orientation, retained
+ownership, and cleanup. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun measured a
+41.660 millisecond median (40.847 millisecond mean, 19.178 millisecond standard
+deviation) with 501.71 KB allocated. Three iterations, denied priority
+elevation, and high timing variance make allocation and command ownership
+authoritative rather than throughput.
 
 The EMF path-bracket follow-up adds `EMR_BEGINPATH`, `EMR_ENDPATH`,
 `EMR_CLOSEFIGURE`, `EMR_ABORTPATH`, `EMR_FILLPATH`, `EMR_STROKEPATH`,
