@@ -45,6 +45,88 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuildersWritePointerFreeBitmapAndMediaPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.SetBitmapSource(7);
+        batch.InvalidateBitmapSource(7);
+        batch.InvalidateBitmapSource(7, 1, 2, 3, 4);
+        batch.SetMediaPlayer(8, notifyDirect: true);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(108, encoded.Length);
+        Assert.Equal(20U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x0cU, ReadUInt32(encoded, 4));
+        Assert.Equal(7U, ReadUInt32(encoded, 8));
+        Assert.Equal(0UL, ReadUInt64(encoded, 12));
+
+        Assert.Equal(32U, ReadUInt32(encoded, 20));
+        Assert.Equal(0x0dU, ReadUInt32(encoded, 24));
+        Assert.Equal(7U, ReadUInt32(encoded, 28));
+        Assert.Equal(0U, ReadUInt32(encoded, 32));
+
+        Assert.Equal(32U, ReadUInt32(encoded, 52));
+        Assert.Equal(0x0dU, ReadUInt32(encoded, 56));
+        Assert.Equal(1U, ReadUInt32(encoded, 64));
+        Assert.Equal(1U, ReadUInt32(encoded, 68));
+        Assert.Equal(2U, ReadUInt32(encoded, 72));
+        Assert.Equal(4U, ReadUInt32(encoded, 76));
+        Assert.Equal(6U, ReadUInt32(encoded, 80));
+
+        Assert.Equal(24U, ReadUInt32(encoded, 84));
+        Assert.Equal(0x17U, ReadUInt32(encoded, 88));
+        Assert.Equal(8U, ReadUInt32(encoded, 92));
+        Assert.Equal(0UL, ReadUInt64(encoded, 96));
+        Assert.Equal(1U, ReadUInt32(encoded, 104));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.InvalidateBitmapSource(7, 0, 0, 0, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetMediaPlayer(0));
+    }
+
+    [Fact]
+    public void NativeMilBuildersWritePointerFreeWriteableBitmapPackets()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateResource(
+            9, NativeMilResourceType.DoubleBufferedBitmap);
+        batch.SetDoubleBufferedBitmap(9, useBackBuffer: true);
+        batch.CopyForwardDoubleBufferedBitmap(9);
+        batch.CreateResource(10, NativeMilResourceType.VideoDrawing);
+        batch.SetVideoDrawing(10, 1, 2, 30, 40, 8, 11);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(128, encoded.Length);
+        Assert.Equal(16U, ReadUInt32(encoded, 0));
+        Assert.Equal(96U, ReadUInt32(encoded, 12));
+        Assert.Equal(24U, ReadUInt32(encoded, 16));
+        Assert.Equal(0x3bU, ReadUInt32(encoded, 20));
+        Assert.Equal(9U, ReadUInt32(encoded, 24));
+        Assert.Equal(0UL, ReadUInt64(encoded, 28));
+        Assert.Equal(1U, ReadUInt32(encoded, 36));
+        Assert.Equal(20U, ReadUInt32(encoded, 40));
+        Assert.Equal(0x3cU, ReadUInt32(encoded, 44));
+        Assert.Equal(9U, ReadUInt32(encoded, 48));
+        Assert.Equal(0UL, ReadUInt64(encoded, 52));
+        Assert.Equal(90U, ReadUInt32(encoded, 72));
+        Assert.Equal(52U, ReadUInt32(encoded, 76));
+        Assert.Equal(0x8aU, ReadUInt32(encoded, 80));
+        Assert.Equal(10U, ReadUInt32(encoded, 84));
+        Assert.Equal(1.0, ReadDouble(encoded, 88));
+        Assert.Equal(2.0, ReadDouble(encoded, 96));
+        Assert.Equal(30.0, ReadDouble(encoded, 104));
+        Assert.Equal(40.0, ReadDouble(encoded, 112));
+        Assert.Equal(8U, ReadUInt32(encoded, 120));
+        Assert.Equal(11U, ReadUInt32(encoded, 124));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.CopyForwardDoubleBufferedBitmap(0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetVideoDrawing(10, 0, 0, -1, 1, 8));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalBitmapCachePackets()
     {
         var batch = new NativeMilBatchBuilder();

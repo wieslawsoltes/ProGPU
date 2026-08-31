@@ -148,6 +148,22 @@ public:
         std::uint32_t width,
         std::uint32_t height) noexcept;
 
+    // Portable front-buffer binding for canonical TYPE_DOUBLEBUFFEREDBITMAP.
+    // The canonical update/copy-forward packets keep their process pointer
+    // and event fields zero; copied pixels or a same-device texture carry the
+    // current front-buffer content through these typed sidebands.
+    status set_double_buffered_bitmap_rgba8(
+        std::uint32_t handle,
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t row_bytes,
+        std::span<const std::byte> pixels) noexcept;
+
+    status set_double_buffered_bitmap_external_image(
+        std::uint32_t handle,
+        std::uint32_t width,
+        std::uint32_t height) noexcept;
+
     // Declares a canonical TYPE_MEDIAPLAYER as a live external image. The
     // semantic scene carries only dimensions and a stable resource identity;
     // the compositor receives the same-device texture view out of band.

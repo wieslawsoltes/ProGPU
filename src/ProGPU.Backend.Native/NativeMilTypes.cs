@@ -44,10 +44,12 @@ public enum NativeMilResourceType : uint
     GeometryDrawing = 87,
     GlyphRunDrawing = 88,
     ImageDrawing = 89,
+    VideoDrawing = 90,
     DrawingGroup = 91,
     GuidelineSet = 92,
     BitmapCache = 94,
     BitmapSource = 95,
+    DoubleBufferedBitmap = 96,
     D3DImage = 97
 }
 

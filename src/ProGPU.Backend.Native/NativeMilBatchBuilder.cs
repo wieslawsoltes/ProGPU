@@ -68,6 +68,88 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 4, handle);
     }
 
+    /// <summary>
+    /// Writes canonical MilCmdBitmapSource with a null process-local WIC
+    /// pointer. Bind pixels or a texture through the typed channel sideband.
+    /// </summary>
+    public void SetBitmapSource(uint handle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.BitmapSource, 16);
+        WriteUInt32(packet, 4, handle);
+    }
+
+    public void InvalidateBitmapSource(uint handle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.BitmapInvalidate, 28);
+        WriteUInt32(packet, 4, handle);
+    }
+
+    public void InvalidateBitmapSource(
+        uint handle,
+        int x,
+        int y,
+        int width,
+        int height)
+    {
+        ValidateHandle(handle);
+        if (x < 0 || y < 0 || width <= 0 || height <= 0 ||
+            x > int.MaxValue - width || y > int.MaxValue - height)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.BitmapInvalidate, 28);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, 1);
+        WriteUInt32(packet, 12, unchecked((uint)x));
+        WriteUInt32(packet, 16, unchecked((uint)y));
+        WriteUInt32(packet, 20, unchecked((uint)(x + width)));
+        WriteUInt32(packet, 24, unchecked((uint)(y + height)));
+    }
+
+    /// <summary>
+    /// Writes canonical MilCmdMediaPlayer with a null process-local pointer.
+    /// </summary>
+    public void SetMediaPlayer(uint handle, bool notifyDirect = false)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.MediaPlayer, 20);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 16, notifyDirect ? 1U : 0U);
+    }
+
+    /// <summary>
+    /// Writes canonical WriteableBitmap state with a null process-local
+    /// CSwDoubleBufferedBitmap pointer.
+    /// </summary>
+    public void SetDoubleBufferedBitmap(
+        uint handle,
+        bool useBackBuffer = false)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DoubleBufferedBitmap, 20);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 16, useBackBuffer ? 1U : 0U);
+    }
+
+    /// <summary>
+    /// Writes pointer-free copy-forward notification. Typed producer
+    /// synchronization completes before the front-buffer sideband is bound.
+    /// </summary>
+    public void CopyForwardDoubleBufferedBitmap(uint handle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DoubleBufferedBitmapCopyForward, 16);
+        WriteUInt32(packet, 4, handle);
+    }
+
     public void CreateVisual(uint handle)
     {
         WriteHandleCommand(NativeMilCommand.VisualCreate, handle);
@@ -1261,6 +1343,33 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 44, rectAnimationHandle);
     }
 
+    public void SetVideoDrawing(
+        uint handle,
+        double x,
+        double y,
+        double width,
+        double height,
+        uint mediaPlayerHandle,
+        uint rectAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(x) || !double.IsFinite(y) ||
+            !double.IsFinite(width) || width < 0.0 ||
+            !double.IsFinite(height) || height < 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.VideoDrawing, 48);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, x);
+        WriteDouble(packet, 16, y);
+        WriteDouble(packet, 24, width);
+        WriteDouble(packet, 32, height);
+        WriteUInt32(packet, 40, mediaPlayerHandle);
+        WriteUInt32(packet, 44, rectAnimationHandle);
+    }
+
     /// <summary>Writes canonical MilCmdDrawingImage state.</summary>
     public void SetDrawingImage(uint handle, uint drawingHandle)
     {
@@ -2024,6 +2133,8 @@ internal static class NativeMilCommand
 {
     internal const uint D3DImage = 0x0a;
     internal const uint D3DImagePresent = 0x0b;
+    internal const uint BitmapSource = 0x0c;
+    internal const uint BitmapInvalidate = 0x0d;
     internal const uint CreateResource = 0x07;
     internal const uint DeleteResource = 0x08;
     internal const uint DoubleResource = 0x0e;
@@ -2031,6 +2142,7 @@ internal static class NativeMilCommand
     internal const uint PointResource = 0x10;
     internal const uint RectResource = 0x11;
     internal const uint MatrixResource = 0x13;
+    internal const uint MediaPlayer = 0x17;
     internal const uint RenderData = 0x18;
     internal const uint VisualCreate = 0x1a;
     internal const uint VisualSetOffset = 0x1b;
@@ -2049,6 +2161,8 @@ internal static class NativeMilCommand
     internal const uint TargetSetRoot = 0x35;
     internal const uint TargetSetClearColor = 0x36;
     internal const uint GlyphRunCreate = 0x3a;
+    internal const uint DoubleBufferedBitmap = 0x3b;
+    internal const uint DoubleBufferedBitmapCopyForward = 0x3c;
     internal const uint DrawLine = 0x3e;
     internal const uint DrawLineAnimate = 0x3f;
     internal const uint DrawRectangle = 0x40;
@@ -2096,6 +2210,7 @@ internal static class NativeMilCommand
     internal const uint GeometryDrawing = 0x87;
     internal const uint GlyphRunDrawing = 0x88;
     internal const uint ImageDrawing = 0x89;
+    internal const uint VideoDrawing = 0x8a;
     internal const uint DrawingGroup = 0x8b;
     internal const uint GuidelineSet = 0x8c;
     internal const uint BitmapCache = 0x8d;
