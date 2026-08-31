@@ -625,6 +625,7 @@ void RunPolylineAuthoringBenchmark(
         _ = CreatePolylineAuthoringSnapshot(segmentCount, changeEverySegment: false);
         _ = CreatePolylineAuthoringSnapshot(segmentCount, changeEverySegment: true);
         _ = CreateExplicitArcPolylineAuthoringSnapshot(segmentCount);
+        _ = CreateNestedCenterAnglePolylineAuthoringSnapshot(segmentCount);
     }
 
     Measurement inherited = Measure(
@@ -639,6 +640,10 @@ void RunPolylineAuthoringBenchmark(
         "polyline-authoring-explicit-angle-arcs",
         iterations,
         () => CreateExplicitArcPolylineAuthoringSnapshot(segmentCount));
+    Measurement nestedCenterAngleArcs = Measure(
+        "polyline-authoring-nested-center-angle-arcs",
+        iterations,
+        () => CreateNestedCenterAnglePolylineAuthoringSnapshot(segmentCount));
     var report = new CadPolylineAuthoringBenchmarkReport(
         DateTimeOffset.UtcNow,
         Environment.OSVersion.ToString(),
@@ -648,7 +653,8 @@ void RunPolylineAuthoringBenchmark(
         iterations,
         inherited,
         variable,
-        explicitArcs);
+        explicitArcs,
+        nestedCenterAngleArcs);
     var options = new JsonSerializerOptions { WriteIndented = true };
     string reportJson = JsonSerializer.Serialize(report, options);
     Console.WriteLine(reportJson);
@@ -717,6 +723,46 @@ CadPolylineAuthoringSnapshot CreateExplicitArcPolylineAuthoringSnapshot(
             !authoring.TryAcceptArcScalar(Math.PI / 3.0, out optionError) ||
             !authoring.TryAcceptArcEndpoint(
                 new CadPoint3D(i + 1.0, i % 17, 0.0),
+                out _,
+                out optionError))
+        {
+            throw new InvalidOperationException(optionError);
+        }
+    }
+    if (!authoring.TryCreateSnapshot(
+            close: false,
+            out CadPolylineAuthoringSnapshot? snapshot,
+            out string? snapshotError))
+    {
+        throw new InvalidOperationException(snapshotError);
+    }
+    return snapshot!;
+}
+
+CadPolylineAuthoringSnapshot CreateNestedCenterAnglePolylineAuthoringSnapshot(
+    int segmentCount)
+{
+    var authoring = new CadPolylineAuthoringSession(segmentCount);
+    if (!authoring.TryAcceptPoint(
+            new CadPoint3D(10.0, 0.0, 0.0),
+            out string? firstError))
+    {
+        throw new InvalidOperationException(firstError);
+    }
+    authoring.Mode = CadPolylineAuthoringMode.TangentArc;
+    for (int i = 0; i < segmentCount; i++)
+    {
+        CadPoint3D start = authoring.CurrentPoint!.Value;
+        CadPoint3D center = start + new CadPoint3D(-10.0, 0.0, 0.0);
+        if (!authoring.TryBeginArcConstruction(
+                CadPolylineArcConstruction.Center,
+                out string? optionError) ||
+            !authoring.TryAcceptArcControlPoint(center, out optionError) ||
+            !authoring.TryBeginArcNestedOption(
+                CadPolylineArcNestedOption.IncludedAngle,
+                out optionError) ||
+            !authoring.TryAcceptArcNestedScalar(
+                Math.PI / 3.0,
                 out _,
                 out optionError))
         {
@@ -2315,7 +2361,8 @@ internal sealed record CadPolylineAuthoringBenchmarkReport(
     int IterationCount,
     Measurement InheritedWidthMilliseconds,
     Measurement WidthOptionEverySegmentMilliseconds,
-    Measurement ExplicitAngleArcMilliseconds);
+    Measurement ExplicitAngleArcMilliseconds,
+    Measurement NestedCenterAngleArcMilliseconds);
 
 internal sealed record CadBenchmarkReport(
     DateTimeOffset CapturedAt,

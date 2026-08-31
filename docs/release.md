@@ -107,6 +107,12 @@ one generation-safe Undo/Redo action with DXF/DWG round trips. Width and
 Halfwidth now retain start/end widths, carry each ending width forward, update
 PLINEWID reversibly, and suppress PLINEGEN for a variable profile. Line-mode
 Length continues the actual endpoint tangent after either a line or arc.
+Arc construction now also follows the contextual nested PLINE prompts: Angle
+can finish from a fixed Center or from Radius plus chord direction, while
+Center can finish from a signed Angle or signed chord Length. Positive chord
+length selects the minor counterclockwise interval and negative length the
+major interval. The shared selector, typed keywords, pointer preview, viewport
+validation, and recoverable prompt state all use the same exact O(1) solver.
 Constant and straight tapered widths retain exact filled or FILLMODE-off
 model-space outlines through affine blocks, camera replay, managed/native
 compilation, and printing.

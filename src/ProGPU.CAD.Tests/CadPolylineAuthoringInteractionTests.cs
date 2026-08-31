@@ -78,7 +78,9 @@ public sealed class CadPolylineAuthoringInteractionTests
                 CadPolylineAuthoringPrompt.ArcEndpoint,
                 canvas.PendingPolylinePrompt);
             Assert.True(canvas.TryAcceptPolylineAuthoringInput("0,30", out _));
-            Assert.Equal(new CadPoint3D(0, 10, 0), canvas.PendingPolylineCurrentPoint);
+            AssertPointClose(
+                new CadPoint3D(0, 10, 0),
+                canvas.PendingPolylineCurrentPoint!.Value);
 
             Assert.True(canvas.TryAcceptPolylineAuthoringInput("A", out _));
             Assert.Equal(
@@ -97,6 +99,110 @@ public sealed class CadPolylineAuthoringInteractionTests
         finally
         {
             canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedCanvasAuthorsAllNestedPolylineArcOptions()
+    {
+        var session = new CadDocumentSession(new CadDocument());
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            canvas.ObjectSnapModes = CadObjectSnapModes.None;
+            Assert.True(canvas.BeginPolylineAuthoring());
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("10,0", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("A", out _));
+
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("A", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("90", out _));
+            Assert.True(canvas.CanAcceptPolylineAuthoringInput("CE"));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("CE", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("0,0", out _));
+            AssertPointClose(
+                new CadPoint3D(0, 10, 0),
+                canvas.PendingPolylineCurrentPoint!.Value);
+
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("A", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("60", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("R", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("10", out _));
+            Assert.Equal(
+                CadPolylineAuthoringPrompt.ArcChordDirection,
+                canvas.PendingPolylinePrompt);
+            Assert.False(canvas.CanAcceptPolylineAuthoringInput("L"));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("10,10", out _));
+            AssertPointClose(
+                new CadPoint3D(10, 10, 0),
+                canvas.PendingPolylineCurrentPoint!.Value);
+
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("CE", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("0,10", out _));
+            Assert.True(canvas.CanAcceptPolylineAuthoringInput("A"));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("A", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("-90", out _));
+            AssertPointClose(
+                CadPoint3D.Zero,
+                canvas.PendingPolylineCurrentPoint!.Value);
+
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("CE", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("-10,0", out _));
+            Assert.True(canvas.CanAcceptPolylineAuthoringInput("L"));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("L", out _));
+            Assert.False(canvas.CanAcceptPolylineAuthoringInput("21"));
+            Assert.False(canvas.TryAcceptPolylineAuthoringInput("21", out _));
+            Assert.Equal(
+                CadPolylineAuthoringPrompt.ArcChordLength,
+                canvas.PendingPolylinePrompt);
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("-10", out _));
+            Assert.True(canvas.CompletePolylineAuthoring(false, out _));
+
+            LwPolyline polyline = Assert.Single(session.Read(document =>
+                document.Entities.OfType<LwPolyline>().ToArray()));
+            Assert.Equal(5, polyline.Vertices.Count);
+            Assert.Equal(Math.Tan(Math.PI / 8.0), polyline.Vertices[0].Bulge, 12);
+            Assert.Equal(Math.Tan(Math.PI / 12.0), polyline.Vertices[1].Bulge, 12);
+            Assert.Equal(-Math.Tan(Math.PI / 8.0), polyline.Vertices[2].Bulge, 12);
+            Assert.Equal(Math.Tan(Math.PI * 5.0 / 12.0), polyline.Vertices[3].Bulge, 12);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedPolylineOptionControlEnablesOnlyContextualNestedChoice()
+    {
+        var session = new CadDocumentSession(new CadDocument());
+        var view = new CadSampleView();
+        try
+        {
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            Assert.True(view.Canvas.BeginPolylineAuthoring());
+            Assert.True(view.Canvas.TryAcceptPolylineAuthoringInput("10,0", out _));
+            view.Canvas.PolylineAuthoringMode = CadPolylineAuthoringMode.TangentArc;
+            Assert.True(view.Canvas.BeginPolylineArcConstruction(
+                CadPolylineArcConstruction.IncludedAngle,
+                out _));
+            Assert.True(view.Canvas.TryAcceptPolylineAuthoringInput("90", out _));
+
+            view.PolylineArcConstructionSelector.SelectedIndex = 2;
+            Assert.False(view.PolylineArcConstructionButton.IsEnabled);
+            view.PolylineArcConstructionSelector.SelectedIndex = 1;
+            Assert.True(view.PolylineArcConstructionButton.IsEnabled);
+            PressEnter(view.PolylineArcConstructionButton);
+            Assert.Equal(
+                CadPolylineAuthoringPrompt.ArcCenter,
+                view.Canvas.PendingPolylinePrompt);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
         }
     }
 
@@ -384,4 +490,11 @@ public sealed class CadPolylineAuthoringInteractionTests
         {
             Key = Silk.NET.Input.Key.Enter,
         });
+
+    private static void AssertPointClose(CadPoint3D expected, CadPoint3D actual)
+    {
+        Assert.InRange(Math.Abs(expected.X - actual.X), 0.0, 1e-10);
+        Assert.InRange(Math.Abs(expected.Y - actual.Y), 0.0, 1e-10);
+        Assert.InRange(Math.Abs(expected.Z - actual.Z), 0.0, 1e-10);
+    }
 }

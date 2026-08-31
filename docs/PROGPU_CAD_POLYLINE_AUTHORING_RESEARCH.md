@@ -5,18 +5,21 @@
 This record covers bounded `PLINE` authoring in the shared
 desktop/browser editor. It creates one planar ACadSharp `LwPolyline` containing
 straight and analytic circular-arc segments, including the interactive Width,
-Halfwidth, line-mode Length, and arc-mode Angle, Center, Direction, Radius,
-and Second point options. The design is clean-room and uses
+Halfwidth, line-mode Length, arc-mode Angle, Center, Direction, Radius,
+and Second point options, and the nested Angle/Center, Angle/Radius/chord-
+direction, Center/Angle, and Center/signed-Length workflows. The design is clean-room and uses
 public contracts rather than third-party implementation source:
 
 - Autodesk's [PLINE command reference](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-11883C70-6435-4F80-8FB4-F6E933B8FD94.htm)
   defines one 2D polyline object, line/arc modes, tangent continuation, signed
   included angles, fixed-center endpoint projection, tangent directions,
-  radius and three-point constructions, Width/Halfwidth state, tangent Length,
+  radius and three-point constructions, nested angle/center/radius/length
+  prompts, Width/Halfwidth state, tangent Length,
   `Undo`, `Close`, and `PLINEGEN` behavior.
 - Autodesk's [ARC command reference](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-Core/files/GUID-30ECFD30-A1D6-4D60-9DD1-B487603F6772.htm)
-  independently confirms positive counterclockwise angles, center/start/end
-  projection, start/end/direction tangency, start/end/radius, and three-point
+  independently confirms positive counterclockwise and negative clockwise
+  angles, center/start/end projection, signed center/start chord minor/major
+  selection, start/end/direction tangency, start/end/radius, and three-point
   circular construction behavior used by the differential tests.
 - Autodesk's [SetWidth API contract](https://help.autodesk.com/cloudhelp/2022/ENU/AutoCAD-ActiveX-Reference/files/GUID-ED45F9D1-AE03-4DF0-9F2D-2019BD42CD52E.htm)
   confirms per-segment start/end width ownership, while the
@@ -36,8 +39,8 @@ public contracts rather than third-party implementation source:
   policy.
 - Existing original ProGPU-owned `CadArcAuthoring.cs` is the exact in-repository
   normalized solver provenance for the new PLINE Angle, Center, Direction,
-  Radius, and Second point calculations. PLINE keeps vertex order and a signed
-  bulge while ARC canonicalizes persisted geometry to a positive
+  Radius, Second point, and nested Angle/Center/Radius/Length calculations.
+  PLINE keeps vertex order and a signed bulge while ARC canonicalizes persisted geometry to a positive
   counterclockwise interval; matched differential tests compare center, radius,
   and absolute sweep.
 
@@ -69,6 +72,18 @@ pipeline. Relative polar tracking and direct distance use the true endpoint
 tangent after either a line or arc. Pointer input after a typed nonzero-Z first
 point stays on that exact plane.
 
+At the Angle endpoint prompt, Center rotates the current start about a supplied
+fixed center by the already accepted signed angle, while Radius accepts a
+positive radius and then a chord-direction point; the chord length is exactly
+`2r |sin(a/2)|`. At the Center endpoint prompt, Angle rotates the start about
+that fixed center by a signed included angle, while Length accepts a signed
+chord: positive selects the minor counterclockwise interval and negative the
+major counterclockwise interval. Each final point or scalar solve is O(1),
+validates the resolved endpoint and retained float radius before mutation, and
+keeps the active prompt unchanged after failure. Shared typed keywords,
+selector/button availability, pointer acquisition, viewport validation, and
+live preview all use the same state machine.
+
 Width and Halfwidth use a two-scalar prompt. The prior ending width is the next
 starting default; the accepted starting width is the ending default; and the
 new ending width becomes the uniform default for following segments and the
@@ -90,9 +105,8 @@ fails before document mutation. Nonzero PLINEWID publishes through the exact
 filled or FILLMODE-off outline contract in
 `PROGPU_CAD_WIDE_POLYLINE_RESEARCH.md`.
 
-The following observable PLINE options remain explicit future work: nested
-Center/Radius after Angle, nested Angle/Length after Center, chord-direction
-input after Angle/Radius, clockwise radius toggling, command chaining from the
+The following observable PLINE options remain explicit future work: clockwise
+radius toggling, command chaining from the
 prior endpoint, temporary overrides, expressions and
 drawing units, legacy PLINETYPE output, 3D polyline authoring, and arbitrary
 UCS/camera acquisition. Variable-width arc publication also remains explicitly
@@ -174,13 +188,15 @@ Width/Halfwidth default propagation, Length after a line or arc, scalar prompt
 recovery, variable-arc fail-closed behavior, uniform-width collapse, explicit
 start/end width publication, PLINEGEN suppression, atomic PLINEWID restoration,
 locked-layer and FILLMODE-off atomic failure,
-all five explicit arc prompt state machines, differential center/radius/sweep
-parity with the authoritative ARC command, Center endpoint projection, shared
-typed arc-option interaction, one-entity/one-history
+all five explicit arc prompt state machines, all four nested arc workflows,
+differential center/radius/sweep parity with the authoritative ARC command,
+Center endpoint projection, signed chord minor/major selection, large-WCS
+center/angle stability, recoverable nested failure, contextual shared controls,
+shared typed arc-option interaction, one-entity/one-history
 Apply/Undo/Redo, typed and pointer interaction, shared buttons and keys, exact
 relative-polar direct distance after an arc, nonzero-Z pointer acquisition, and
 DXF/DWG entity-width and PLINEWID round trips. The focused authoring gate passes
-29/29 in both configurations; the complete suite passes 1,376/1,376 in both Debug and Release
+34/34 in both configurations; the complete suite passes 1,381/1,381 in both Debug and Release
 on macOS arm64. The Release `ACadSharp.ProGPU` and `ProGPU.CAD`
 packages build at `0.1.0-preview.62`; an isolated consumer resolves the reviewed
 `ACadSharp.ProGPU` identity, builds with zero warnings, and creates an AC1032
@@ -189,11 +205,12 @@ document.
 The checked-in Release benchmark
 `artifacts/benchmarks/cad-polyline-authoring-options.json` measures the maximum
 65,536-segment bound over five warmups and forty iterations on macOS arm64/.NET
-10. Inherited-width acquisition plus snapshot completion is p50 4.4279 ms,
-p95 15.0002 ms, and p99 16.4181 ms; changing Width on every segment is p50
-4.7292 ms, p95 8.7332 ms, and p99 13.8830 ms. An explicit 60-degree Angle
-arc at every segment is p50 5.1878 ms, p95 9.5171 ms, and p99 9.6805 ms.
-All three allocate about 17.5 MB per
+10. Inherited-width acquisition plus snapshot completion is p50 3.2097 ms,
+p95 6.7376 ms, and p99 7.7620 ms; changing Width on every segment is p50
+4.0228 ms, p95 9.6855 ms, and p99 11.8183 ms. An explicit 60-degree Angle
+arc at every segment is p50 5.2609 ms, p95 11.3247 ms, and p99 14.6625 ms.
+The nested Center/Angle solve at every segment is p50 7.5257 ms, p95
+14.0305 ms, and p99 15.4846 ms. All four allocate about 17.5 MB per
 completed maximum-size snapshot, dominated by geometrically grown retained
 arrays and the immutable O(S) snapshot copies. The result is complexity and
 bounded-throughput evidence, not an interactive rendering-speed claim; the

@@ -778,10 +778,34 @@ public sealed class CadSampleCanvas : FrameworkElement
         _polylineAuthoring?.CanBeginWidthInput == true;
 
     public bool CanBeginPolylineLengthInput =>
-        _polylineAuthoring?.CanBeginLengthInput == true;
+        _polylineAuthoring is { } authoring &&
+        (authoring.CanBeginLengthInput ||
+         authoring.CanBeginArcNestedOption(
+             CadPolylineArcNestedOption.ChordLength));
 
     public bool CanBeginPolylineArcConstruction =>
-        _polylineAuthoring?.CanBeginArcConstruction == true;
+        _polylineAuthoring is { } authoring &&
+        (authoring.CanBeginArcConstruction ||
+         authoring.CanBeginArcNestedOption(CadPolylineArcNestedOption.Center) ||
+         authoring.CanBeginArcNestedOption(CadPolylineArcNestedOption.Radius) ||
+         authoring.CanBeginArcNestedOption(
+             CadPolylineArcNestedOption.IncludedAngle));
+
+    public bool CanBeginPolylineArcConstructionOption(
+        CadPolylineArcConstruction construction)
+    {
+        CadPolylineAuthoringSession? authoring = _polylineAuthoring;
+        if (authoring is null || !Enum.IsDefined(construction) ||
+            construction == CadPolylineArcConstruction.TangentEndpoint)
+        {
+            return false;
+        }
+        return authoring.CanBeginArcConstruction ||
+            TryMapPolylineArcNestedOption(
+                construction,
+                out CadPolylineArcNestedOption nestedOption) &&
+            authoring.CanBeginArcNestedOption(nestedOption);
+    }
 
     public bool CanUndoPolylineAuthoring =>
         _polylineAuthoring?.CanUndo == true;
@@ -2332,11 +2356,18 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             return false;
         }
-        if (!authoring.TryResolvePendingSegment(
+        bool resolved = authoring.IsArcNestedFinalPointPrompt
+            ? authoring.TryResolveArcNestedPoint(
                 inputPoint,
                 out CadPoint3D endpoint,
                 out double bulge,
-                out _) ||
+                out _)
+            : authoring.TryResolvePendingSegment(
+                inputPoint,
+                out endpoint,
+                out bulge,
+                out _);
+        if (!resolved ||
             bulge == 0.0 ||
             !CadPolylineAuthoringSession.TryGetBulgeGeometry(
                 start,
@@ -3848,7 +3879,13 @@ public sealed class CadSampleCanvas : FrameworkElement
             errorMessage = "No PLINE command is active.";
             return false;
         }
-        if (!authoring.TryBeginLengthInput(out errorMessage))
+        bool began = authoring.CanBeginArcNestedOption(
+                CadPolylineArcNestedOption.ChordLength)
+            ? authoring.TryBeginArcNestedOption(
+                CadPolylineArcNestedOption.ChordLength,
+                out errorMessage)
+            : authoring.TryBeginLengthInput(out errorMessage);
+        if (!began)
         {
             return false;
         }
@@ -3870,7 +3907,13 @@ public sealed class CadSampleCanvas : FrameworkElement
             errorMessage = "No PLINE command is active.";
             return false;
         }
-        if (!authoring.TryBeginArcConstruction(construction, out errorMessage))
+        bool began = TryMapPolylineArcNestedOption(
+                construction,
+                out CadPolylineArcNestedOption nestedOption) &&
+            authoring.CanBeginArcNestedOption(nestedOption)
+            ? authoring.TryBeginArcNestedOption(nestedOption, out errorMessage)
+            : authoring.TryBeginArcConstruction(construction, out errorMessage);
+        if (!began)
         {
             return false;
         }
@@ -3914,14 +3957,31 @@ public sealed class CadSampleCanvas : FrameworkElement
                 length > 0.0;
         }
         if (authoring.Prompt is CadPolylineAuthoringPrompt.ArcIncludedAngle or
-            CadPolylineAuthoringPrompt.ArcRadius)
+            CadPolylineAuthoringPrompt.ArcRadius or
+            CadPolylineAuthoringPrompt.ArcChordLength)
         {
             if (!TryParseFiniteInvariantDouble(value, out double scalar))
             {
                 return false;
             }
+            if (authoring.Prompt == CadPolylineAuthoringPrompt.ArcIncludedAngle)
+            {
+                scalar *= Math.PI / 180.0;
+                if (_planPolarTrackingSettings.IsClockwise)
+                {
+                    scalar = -scalar;
+                }
+            }
+            if (authoring.IsArcNestedFinalScalarPrompt)
+            {
+                return authoring.TryResolveArcNestedScalar(
+                    scalar,
+                    out CadPoint3D endpoint,
+                    out _,
+                    out _) && CanProjectPolylinePoint(endpoint);
+            }
             return authoring.Prompt == CadPolylineAuthoringPrompt.ArcIncludedAngle
-                ? scalar != 0.0 && Math.Abs(scalar) < 360.0
+                ? scalar != 0.0 && Math.Abs(scalar) < Math.Tau
                 : scalar > 0.0;
         }
         if (IsPolylineKeyword(value, "Width", "W") ||
@@ -3932,11 +3992,14 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (IsPolylineKeyword(value, "Angle", "A") &&
             authoring.Mode == CadPolylineAuthoringMode.TangentArc)
         {
-            return authoring.CanBeginArcConstruction;
+            return CanBeginPolylineArcConstructionOption(
+                CadPolylineArcConstruction.IncludedAngle);
         }
         if (IsPolylineKeyword(value, "Arc", "A"))
         {
-            return authoring.HasFirstPoint;
+            return authoring.Prompt == CadPolylineAuthoringPrompt.Point &&
+                authoring.Mode == CadPolylineAuthoringMode.Line &&
+                authoring.HasFirstPoint;
         }
         if (value.Equals("Center", StringComparison.OrdinalIgnoreCase) ||
             value.Equals("CE", StringComparison.OrdinalIgnoreCase) ||
@@ -3945,7 +4008,16 @@ public sealed class CadSampleCanvas : FrameworkElement
             value.Equals("Second", StringComparison.OrdinalIgnoreCase) ||
             value.Equals("S", StringComparison.OrdinalIgnoreCase))
         {
-            return authoring.CanBeginArcConstruction;
+            CadPolylineArcConstruction construction =
+                value.Equals("Center", StringComparison.OrdinalIgnoreCase) ||
+                value.Equals("CE", StringComparison.OrdinalIgnoreCase)
+                    ? CadPolylineArcConstruction.Center
+                    : IsPolylineKeyword(value, "Direction", "D")
+                        ? CadPolylineArcConstruction.Direction
+                        : IsPolylineKeyword(value, "Radius", "R")
+                            ? CadPolylineArcConstruction.Radius
+                            : CadPolylineArcConstruction.ThreePoint;
+            return CanBeginPolylineArcConstructionOption(construction);
         }
         if (IsPolylineKeyword(value, "Undo", "U"))
         {
@@ -3957,12 +4029,21 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
         if (IsPolylineKeyword(value, "Length", "L"))
         {
-            return authoring.Mode == CadPolylineAuthoringMode.TangentArc ||
-                authoring.CanBeginLengthInput;
+            if (authoring.CanBeginArcNestedOption(
+                    CadPolylineArcNestedOption.ChordLength))
+            {
+                return true;
+            }
+            return value.Equals("L", StringComparison.OrdinalIgnoreCase)
+                ? authoring.Prompt == CadPolylineAuthoringPrompt.Point &&
+                    (authoring.Mode == CadPolylineAuthoringMode.TangentArc ||
+                     authoring.CanBeginLengthInput)
+                : authoring.CanBeginLengthInput;
         }
         if (value.Equals("Line", StringComparison.OrdinalIgnoreCase))
         {
-            return authoring.Mode == CadPolylineAuthoringMode.TangentArc;
+            return authoring.Prompt == CadPolylineAuthoringPrompt.Point &&
+                authoring.Mode == CadPolylineAuthoringMode.TangentArc;
         }
 
         CadPoint3D point;
@@ -3991,6 +4072,16 @@ public sealed class CadSampleCanvas : FrameworkElement
             }
         }
 
+        bool isNestedFinalPoint = authoring.IsArcNestedFinalPointPrompt;
+        if (isNestedFinalPoint &&
+            !authoring.TryResolveArcNestedPoint(
+                point,
+                out point,
+                out _,
+                out _))
+        {
+            return false;
+        }
         bool isArcEndpoint = authoring.Prompt ==
             CadPolylineAuthoringPrompt.ArcEndpoint;
         if (authoring.HasFirstPoint &&
@@ -3999,7 +4090,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             return false;
         }
-        if ((authoring.Prompt is CadPolylineAuthoringPrompt.ArcCenter or
+        if (!isNestedFinalPoint &&
+            (authoring.Prompt is CadPolylineAuthoringPrompt.ArcCenter or
             CadPolylineAuthoringPrompt.ArcDirection or
             CadPolylineAuthoringPrompt.ArcSecondPoint) &&
             !authoring.CanAcceptArcControlPoint(point))
@@ -4096,14 +4188,19 @@ public sealed class CadSampleCanvas : FrameworkElement
                 endpointScreen);
         }
         if (authoring.Prompt is CadPolylineAuthoringPrompt.ArcIncludedAngle or
-            CadPolylineAuthoringPrompt.ArcRadius)
+            CadPolylineAuthoringPrompt.ArcRadius or
+            CadPolylineAuthoringPrompt.ArcChordLength)
         {
             if (!TryParseFiniteInvariantDouble(value, out double scalar))
             {
-                errorMessage = authoring.Prompt ==
-                    CadPolylineAuthoringPrompt.ArcIncludedAngle
-                    ? "Enter a finite nonzero PLINE included angle in degrees."
-                    : "Enter a finite positive PLINE arc radius.";
+                errorMessage = authoring.Prompt switch
+                {
+                    CadPolylineAuthoringPrompt.ArcIncludedAngle =>
+                        "Enter a finite nonzero PLINE included angle in degrees.",
+                    CadPolylineAuthoringPrompt.ArcChordLength =>
+                        "Enter a finite nonzero signed PLINE arc chord length.",
+                    _ => "Enter a finite positive PLINE arc radius.",
+                };
                 return false;
             }
             if (authoring.Prompt == CadPolylineAuthoringPrompt.ArcIncludedAngle)
@@ -4113,6 +4210,39 @@ public sealed class CadSampleCanvas : FrameworkElement
                 {
                     scalar = -scalar;
                 }
+            }
+            if (authoring.IsArcNestedFinalScalarPrompt)
+            {
+                if (!authoring.TryResolveArcNestedScalar(
+                        scalar,
+                        out CadPoint3D endpoint,
+                        out _,
+                        out errorMessage))
+                {
+                    return false;
+                }
+                Vector2 endpointScreen;
+                try
+                {
+                    endpointScreen = CreateViewport().WorldToScreen(endpoint);
+                }
+                catch (ArgumentException)
+                {
+                    errorMessage =
+                        "The nested PLINE arc endpoint cannot be represented by the current plan viewport.";
+                    return false;
+                }
+                if (!authoring.TryAcceptArcNestedScalar(
+                        scalar,
+                        out _,
+                        out errorMessage))
+                {
+                    return false;
+                }
+                return SynchronizeAcceptedPolylinePoint(
+                    authoring,
+                    out errorMessage,
+                    endpointScreen);
             }
             if (!authoring.TryAcceptArcScalar(scalar, out errorMessage))
             {
@@ -4145,7 +4275,9 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
         if (IsPolylineKeyword(value, "Arc", "A"))
         {
-            if (!authoring.HasFirstPoint)
+            if (authoring.Prompt != CadPolylineAuthoringPrompt.Point ||
+                authoring.Mode != CadPolylineAuthoringMode.Line ||
+                !authoring.HasFirstPoint)
             {
                 errorMessage = "Accept the first PLINE point before entering Arc mode.";
                 return false;
@@ -4179,10 +4311,23 @@ public sealed class CadSampleCanvas : FrameworkElement
                 CadPolylineArcConstruction.ThreePoint,
                 out errorMessage);
         }
+        if (IsPolylineKeyword(value, "Length", "L") &&
+            authoring.CanBeginArcNestedOption(
+                CadPolylineArcNestedOption.ChordLength))
+        {
+            return BeginPolylineLengthInput(out errorMessage);
+        }
         if (value.Equals("Line", StringComparison.OrdinalIgnoreCase) ||
             (value.Equals("L", StringComparison.OrdinalIgnoreCase) &&
+             authoring.Prompt == CadPolylineAuthoringPrompt.Point &&
              authoring.Mode == CadPolylineAuthoringMode.TangentArc))
         {
+            if (authoring.Prompt != CadPolylineAuthoringPrompt.Point)
+            {
+                errorMessage =
+                    "Complete the active PLINE option before returning to Line mode.";
+                return false;
+            }
             PolylineAuthoringMode = CadPolylineAuthoringMode.Line;
             return true;
         }
@@ -4277,6 +4422,36 @@ public sealed class CadSampleCanvas : FrameworkElement
         string abbreviation) =>
         value.Equals(keyword, StringComparison.OrdinalIgnoreCase) ||
         value.Equals(abbreviation, StringComparison.OrdinalIgnoreCase);
+
+    private static bool TryMapPolylineArcNestedOption(
+        CadPolylineArcConstruction construction,
+        out CadPolylineArcNestedOption option)
+    {
+        option = construction switch
+        {
+            CadPolylineArcConstruction.IncludedAngle =>
+                CadPolylineArcNestedOption.IncludedAngle,
+            CadPolylineArcConstruction.Center =>
+                CadPolylineArcNestedOption.Center,
+            CadPolylineArcConstruction.Radius =>
+                CadPolylineArcNestedOption.Radius,
+            _ => CadPolylineArcNestedOption.None,
+        };
+        return option != CadPolylineArcNestedOption.None;
+    }
+
+    private bool CanProjectPolylinePoint(CadPoint3D point)
+    {
+        try
+        {
+            _ = CreateViewport().WorldToScreen(point);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
 
     public bool UndoPolylineAuthoringSegment()
     {
@@ -8548,11 +8723,26 @@ public sealed class CadSampleCanvas : FrameworkElement
             return false;
         }
         CadPolylineAuthoringPrompt prompt = authoring.Prompt;
-        bool isControlPoint = prompt is CadPolylineAuthoringPrompt.ArcCenter or
-            CadPolylineAuthoringPrompt.ArcDirection or
-            CadPolylineAuthoringPrompt.ArcSecondPoint;
+        bool isNestedFinalPoint = authoring.IsArcNestedFinalPointPrompt;
+        bool isControlPoint = !isNestedFinalPoint &&
+            prompt is (CadPolylineAuthoringPrompt.ArcCenter or
+                CadPolylineAuthoringPrompt.ArcDirection or
+                CadPolylineAuthoringPrompt.ArcSecondPoint);
         bool isArcEndpoint = prompt == CadPolylineAuthoringPrompt.ArcEndpoint;
         CadPoint3D resolvedPoint = point;
+        if (isNestedFinalPoint &&
+            !authoring.TryResolveArcNestedPoint(
+                point,
+                out resolvedPoint,
+                out _,
+                out errorMessage))
+        {
+            RaisePolylineAuthoringChanged(
+                CadPolylineAuthoringStage.Failed,
+                authoring,
+                errorMessage: errorMessage);
+            return false;
+        }
         if (isArcEndpoint &&
             !authoring.TryResolvePendingSegment(
                 point,
@@ -8570,7 +8760,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         Vector2 resolvedScreen;
         try
         {
-            resolvedScreen = isArcEndpoint
+            resolvedScreen = isArcEndpoint || isNestedFinalPoint
                 ? CreateViewport().WorldToScreen(resolvedPoint)
                 : screenPoint ?? CreateViewport().WorldToScreen(point);
         }
@@ -8583,7 +8773,9 @@ public sealed class CadSampleCanvas : FrameworkElement
                 errorMessage: errorMessage);
             return false;
         }
-        bool accepted = isArcEndpoint
+        bool accepted = isNestedFinalPoint
+            ? authoring.TryAcceptArcNestedPoint(point, out _, out errorMessage)
+            : isArcEndpoint
             ? authoring.TryAcceptArcEndpoint(point, out _, out errorMessage)
             : authoring.TryAcceptPoint(point, out errorMessage);
         if (!accepted)

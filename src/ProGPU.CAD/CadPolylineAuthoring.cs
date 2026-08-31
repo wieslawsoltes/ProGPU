@@ -25,6 +25,8 @@ public enum CadPolylineAuthoringPrompt : byte
     ArcRadius = 7,
     ArcSecondPoint = 8,
     ArcEndpoint = 9,
+    ArcChordDirection = 10,
+    ArcChordLength = 11,
 }
 
 /// <summary>The explicit construction used by the next PLINE arc.</summary>
@@ -36,6 +38,16 @@ public enum CadPolylineArcConstruction : byte
     Direction = 3,
     Radius = 4,
     ThreePoint = 5,
+}
+
+/// <summary>An option selected after a PLINE arc's Angle or Center input.</summary>
+public enum CadPolylineArcNestedOption : byte
+{
+    None = 0,
+    Center = 1,
+    Radius = 2,
+    IncludedAngle = 3,
+    ChordLength = 4,
 }
 
 /// <summary>Whether a PLINE width prompt consumes full or half widths.</summary>
@@ -221,7 +233,9 @@ public sealed class CadPolylineAuthoringSession
     private double _widthInputStart;
     private bool _widthWasChanged;
     private CadPolylineArcConstruction _arcConstruction;
+    private CadPolylineArcNestedOption _arcNestedOption;
     private double _arcScalar;
+    private double _arcNestedScalar;
     private CadPoint3D _arcControlPoint;
 
     public int MaximumSegmentCount { get; }
@@ -249,6 +263,8 @@ public sealed class CadPolylineAuthoringSession
     public CadPolylineWidthInputMode WidthInputMode { get; private set; }
 
     public CadPolylineArcConstruction ArcConstruction => _arcConstruction;
+
+    public CadPolylineArcNestedOption ArcNestedOption => _arcNestedOption;
 
     public double NextStartWidth => _nextStartWidth;
 
@@ -280,6 +296,34 @@ public sealed class CadPolylineAuthoringSession
         Mode == CadPolylineAuthoringMode.TangentArc &&
         HasFirstPoint &&
         SegmentCount < MaximumSegmentCount;
+
+    public bool CanBeginArcNestedOption(CadPolylineArcNestedOption option)
+    {
+        if (!Enum.IsDefined(option) || option == CadPolylineArcNestedOption.None)
+        {
+            return false;
+        }
+        return Prompt == CadPolylineAuthoringPrompt.ArcEndpoint &&
+            _arcNestedOption == CadPolylineArcNestedOption.None &&
+            ((_arcConstruction == CadPolylineArcConstruction.IncludedAngle &&
+              option is (CadPolylineArcNestedOption.Center or
+                  CadPolylineArcNestedOption.Radius)) ||
+             (_arcConstruction == CadPolylineArcConstruction.Center &&
+              option is (CadPolylineArcNestedOption.IncludedAngle or
+                  CadPolylineArcNestedOption.ChordLength)));
+    }
+
+    public bool IsArcNestedFinalPointPrompt =>
+        (_arcNestedOption == CadPolylineArcNestedOption.Center &&
+         Prompt == CadPolylineAuthoringPrompt.ArcCenter) ||
+        (_arcNestedOption == CadPolylineArcNestedOption.Radius &&
+         Prompt == CadPolylineAuthoringPrompt.ArcChordDirection);
+
+    public bool IsArcNestedFinalScalarPrompt =>
+        (_arcNestedOption == CadPolylineArcNestedOption.IncludedAngle &&
+         Prompt == CadPolylineAuthoringPrompt.ArcIncludedAngle) ||
+        (_arcNestedOption == CadPolylineArcNestedOption.ChordLength &&
+         Prompt == CadPolylineAuthoringPrompt.ArcChordLength);
 
     public bool CanUndo =>
         Prompt == CadPolylineAuthoringPrompt.Point && SegmentCount > 0;
@@ -365,6 +409,10 @@ public sealed class CadPolylineAuthoringSession
         CadPoint3D point,
         out string? errorMessage)
     {
+        if (IsArcNestedFinalPointPrompt)
+        {
+            return TryAcceptArcNestedPoint(point, out _, out errorMessage);
+        }
         if (Prompt is CadPolylineAuthoringPrompt.ArcCenter or
             CadPolylineAuthoringPrompt.ArcDirection or
             CadPolylineAuthoringPrompt.ArcSecondPoint)
@@ -421,6 +469,7 @@ public sealed class CadPolylineAuthoringSession
         }
 
         _arcConstruction = construction;
+        _arcNestedOption = CadPolylineArcNestedOption.None;
         Prompt = construction switch
         {
             CadPolylineArcConstruction.IncludedAngle =>
@@ -430,6 +479,38 @@ public sealed class CadPolylineAuthoringSession
             CadPolylineArcConstruction.Radius => CadPolylineAuthoringPrompt.ArcRadius,
             CadPolylineArcConstruction.ThreePoint =>
                 CadPolylineAuthoringPrompt.ArcSecondPoint,
+            _ => throw new InvalidOperationException(),
+        };
+        return true;
+    }
+
+    public bool TryBeginArcNestedOption(
+        CadPolylineArcNestedOption option,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (!Enum.IsDefined(option) || option == CadPolylineArcNestedOption.None)
+        {
+            throw new ArgumentOutOfRangeException(nameof(option));
+        }
+        if (!CanBeginArcNestedOption(option))
+        {
+            errorMessage =
+                "The requested nested PLINE arc option is not available for the active construction.";
+            return false;
+        }
+
+        _arcNestedOption = option;
+        Prompt = option switch
+        {
+            CadPolylineArcNestedOption.Center =>
+                CadPolylineAuthoringPrompt.ArcCenter,
+            CadPolylineArcNestedOption.Radius =>
+                CadPolylineAuthoringPrompt.ArcRadius,
+            CadPolylineArcNestedOption.IncludedAngle =>
+                CadPolylineAuthoringPrompt.ArcIncludedAngle,
+            CadPolylineArcNestedOption.ChordLength =>
+                CadPolylineAuthoringPrompt.ArcChordLength,
             _ => throw new InvalidOperationException(),
         };
         return true;
@@ -462,8 +543,142 @@ public sealed class CadPolylineAuthoringSession
             return false;
         }
 
-        _arcScalar = value;
-        Prompt = CadPolylineAuthoringPrompt.ArcEndpoint;
+        if (_arcNestedOption == CadPolylineArcNestedOption.Radius)
+        {
+            _arcNestedScalar = value;
+            Prompt = CadPolylineAuthoringPrompt.ArcChordDirection;
+        }
+        else
+        {
+            _arcScalar = value;
+            Prompt = CadPolylineAuthoringPrompt.ArcEndpoint;
+        }
+        return true;
+    }
+
+    public bool TryResolveArcNestedPoint(
+        CadPoint3D inputPoint,
+        out CadPoint3D endpoint,
+        out double bulge,
+        out string? errorMessage)
+    {
+        endpoint = default;
+        bulge = 0.0;
+        errorMessage = null;
+        if (!IsArcNestedFinalPointPrompt ||
+            !ValidatePlanPoint(inputPoint, out errorMessage))
+        {
+            errorMessage ??= "No nested PLINE arc point is currently requested.";
+            return false;
+        }
+
+        CadPoint3D start = _points[_pointCount - 1];
+        bool solved = _arcNestedOption switch
+        {
+            CadPolylineArcNestedOption.Center =>
+                TryGetCenterSweepArc(
+                    start,
+                    inputPoint,
+                    _arcScalar,
+                    out endpoint,
+                    out bulge),
+            CadPolylineArcNestedOption.Radius =>
+                TryGetSweepRadiusDirectionArc(
+                    start,
+                    _arcScalar,
+                    _arcNestedScalar,
+                    inputPoint,
+                    out endpoint,
+                    out bulge),
+            _ => false,
+        };
+        if (!solved ||
+            !ValidateResolvedArc(start, endpoint, bulge, out errorMessage))
+        {
+            return FailNestedArcSolve(ref errorMessage);
+        }
+        return true;
+    }
+
+    public bool TryAcceptArcNestedPoint(
+        CadPoint3D inputPoint,
+        out CadPoint3D endpoint,
+        out string? errorMessage)
+    {
+        if (!TryResolveArcNestedPoint(
+                inputPoint,
+                out endpoint,
+                out double bulge,
+                out errorMessage) ||
+            !TryAccept(endpoint, bulge, out errorMessage))
+        {
+            return false;
+        }
+        ResetArcConstruction();
+        return true;
+    }
+
+    public bool TryResolveArcNestedScalar(
+        double value,
+        out CadPoint3D endpoint,
+        out double bulge,
+        out string? errorMessage)
+    {
+        endpoint = default;
+        bulge = 0.0;
+        errorMessage = null;
+        if (!IsArcNestedFinalScalarPrompt)
+        {
+            errorMessage = "No nested PLINE arc scalar is currently requested.";
+            return false;
+        }
+
+        CadPoint3D start = _points[_pointCount - 1];
+        bool solved;
+        if (_arcNestedOption == CadPolylineArcNestedOption.IncludedAngle)
+        {
+            solved = double.IsFinite(value) && value != 0.0 &&
+                Math.Abs(value) < MaximumArcAngle &&
+                TryGetCenterSweepArc(
+                    start,
+                    _arcControlPoint,
+                    value,
+                    out endpoint,
+                    out bulge);
+        }
+        else
+        {
+            solved = double.IsFinite(value) && value != 0.0 &&
+                TryGetCenterChordArc(
+                    start,
+                    _arcControlPoint,
+                    value,
+                    out endpoint,
+                    out bulge);
+        }
+        if (!solved ||
+            !ValidateResolvedArc(start, endpoint, bulge, out errorMessage))
+        {
+            return FailNestedArcSolve(ref errorMessage);
+        }
+        return true;
+    }
+
+    public bool TryAcceptArcNestedScalar(
+        double value,
+        out CadPoint3D endpoint,
+        out string? errorMessage)
+    {
+        if (!TryResolveArcNestedScalar(
+                value,
+                out endpoint,
+                out double bulge,
+                out errorMessage) ||
+            !TryAccept(endpoint, bulge, out errorMessage))
+        {
+            return false;
+        }
+        ResetArcConstruction();
         return true;
     }
 
@@ -472,7 +687,8 @@ public sealed class CadPolylineAuthoringSession
         out string? errorMessage)
     {
         errorMessage = null;
-        if (Prompt is not (CadPolylineAuthoringPrompt.ArcCenter or
+        if (IsArcNestedFinalPointPrompt ||
+            Prompt is not (CadPolylineAuthoringPrompt.ArcCenter or
             CadPolylineAuthoringPrompt.ArcDirection or
             CadPolylineAuthoringPrompt.ArcSecondPoint))
         {
@@ -504,6 +720,7 @@ public sealed class CadPolylineAuthoringSession
     }
 
     public bool CanAcceptArcControlPoint(CadPoint3D point) =>
+        !IsArcNestedFinalPointPrompt &&
         Prompt is (CadPolylineAuthoringPrompt.ArcCenter or
             CadPolylineAuthoringPrompt.ArcDirection or
             CadPolylineAuthoringPrompt.ArcSecondPoint) &&
@@ -1211,6 +1428,127 @@ public sealed class CadPolylineAuthoringSession
             TryGetSweepBulge(PositiveAngle(endAngle - startAngle), out bulge);
     }
 
+    private static bool TryGetCenterSweepArc(
+        CadPoint3D start,
+        CadPoint3D center,
+        double signedSweep,
+        out CadPoint3D endpoint,
+        out double bulge)
+    {
+        endpoint = default;
+        bulge = 0.0;
+        double radiusX = start.X - center.X;
+        double radiusY = start.Y - center.Y;
+        double radius = Hypot(radiusX, radiusY);
+        if (!double.IsFinite(radius) || radius <= 0.0 ||
+            !TryGetSweepBulge(signedSweep, out bulge))
+        {
+            return false;
+        }
+
+        double cosine = Math.Cos(signedSweep);
+        double sine = Math.Sin(signedSweep);
+        endpoint = new CadPoint3D(
+            center.X + (radiusX * cosine) - (radiusY * sine),
+            center.Y + (radiusX * sine) + (radiusY * cosine),
+            start.Z);
+        return IsFinite(endpoint) && endpoint != start;
+    }
+
+    private static bool TryGetCenterChordArc(
+        CadPoint3D start,
+        CadPoint3D center,
+        double signedChordLength,
+        out CadPoint3D endpoint,
+        out double bulge)
+    {
+        endpoint = default;
+        bulge = 0.0;
+        double radius = Hypot(start.X - center.X, start.Y - center.Y);
+        double chord = Math.Abs(signedChordLength);
+        if (!double.IsFinite(radius) || radius <= 0.0 ||
+            !double.IsFinite(chord) || chord <= 0.0 || chord > radius * 2.0)
+        {
+            return false;
+        }
+
+        double minorSweep = 2.0 * Math.Asin(
+            Math.Min(1.0, chord / (radius * 2.0)));
+        double sweep = signedChordLength > 0.0
+            ? minorSweep
+            : Math.Tau - minorSweep;
+        return TryGetCenterSweepArc(
+            start,
+            center,
+            sweep,
+            out endpoint,
+            out bulge);
+    }
+
+    private static bool TryGetSweepRadiusDirectionArc(
+        CadPoint3D start,
+        double signedSweep,
+        double radius,
+        CadPoint3D chordDirectionPoint,
+        out CadPoint3D endpoint,
+        out double bulge)
+    {
+        endpoint = default;
+        bulge = 0.0;
+        if (!double.IsFinite(radius) || radius <= 0.0 ||
+            !TryGetSweepBulge(signedSweep, out bulge) ||
+            !TryGetUnit2D(
+                chordDirectionPoint - start,
+                out double chordX,
+                out double chordY))
+        {
+            return false;
+        }
+
+        double chordLength = 2.0 * radius *
+            Math.Abs(Math.Sin(signedSweep * 0.5));
+        if (!double.IsFinite(chordLength) || chordLength <= 0.0)
+        {
+            return false;
+        }
+        endpoint = new CadPoint3D(
+            start.X + (chordX * chordLength),
+            start.Y + (chordY * chordLength),
+            start.Z);
+        return IsFinite(endpoint) && endpoint != start;
+    }
+
+    private bool ValidateResolvedArc(
+        CadPoint3D start,
+        CadPoint3D endpoint,
+        double bulge,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (!TryGetBulgeGeometry(
+                start,
+                endpoint,
+                bulge,
+                out _,
+                out double radius,
+                out _,
+                out _) ||
+            radius > float.MaxValue)
+        {
+            errorMessage =
+                "The PLINE arc resolves outside finite retained geometry.";
+            return false;
+        }
+        return CanAcceptBulgeWithNextWidth(bulge, out errorMessage);
+    }
+
+    private static bool FailNestedArcSolve(ref string? errorMessage)
+    {
+        errorMessage ??=
+            "The nested PLINE arc inputs do not define a finite non-degenerate circular arc.";
+        return false;
+    }
+
     private static bool TryGetRadiusBulge(
         CadPoint3D start,
         CadPoint3D end,
@@ -1359,7 +1697,9 @@ public sealed class CadPolylineAuthoringSession
     private void ResetArcConstruction()
     {
         _arcConstruction = CadPolylineArcConstruction.TangentEndpoint;
+        _arcNestedOption = CadPolylineArcNestedOption.None;
         _arcScalar = 0.0;
+        _arcNestedScalar = 0.0;
         _arcControlPoint = default;
         Prompt = CadPolylineAuthoringPrompt.Point;
     }

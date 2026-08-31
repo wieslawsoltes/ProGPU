@@ -160,6 +160,134 @@ public sealed class CadPolylineAuthoringTests
     }
 
     [Fact]
+    public void NestedArcOptionsMatchAuthoritativeArcSolvers()
+    {
+        CadPoint3D start = new(10, 0, 7);
+        CadPoint3D center = new(0, 0, 7);
+
+        AssertMatchesArcSolver(
+            CreateNestedPointArc(
+                start,
+                CadPolylineArcConstruction.IncludedAngle,
+                Math.PI / 2.0,
+                CadPolylineArcNestedOption.Center,
+                center),
+            CreateCenterScalarArc(
+                CadArcAuthoringMode.StartCenterAngle,
+                start,
+                center,
+                Math.PI / 2.0));
+
+        AssertMatchesArcSolver(
+            CreateNestedPointArc(
+                CadPoint3D.Zero,
+                CadPolylineArcConstruction.IncludedAngle,
+                Math.PI / 3.0,
+                CadPolylineArcNestedOption.Radius,
+                new CadPoint3D(10, 0, 0),
+                nestedScalar: 10.0),
+            CreateScalarArc(
+                CadArcAuthoringMode.StartEndAngle,
+                CadPoint3D.Zero,
+                new CadPoint3D(10, 0, 0),
+                Math.PI / 3.0));
+
+        AssertMatchesArcSolver(
+            CreateNestedScalarArc(
+                start,
+                center,
+                CadPolylineArcNestedOption.IncludedAngle,
+                -Math.PI / 2.0),
+            CreateCenterScalarArc(
+                CadArcAuthoringMode.StartCenterAngle,
+                start,
+                center,
+                -Math.PI / 2.0));
+
+        foreach (double chord in new[] { 10.0, -10.0 })
+        {
+            AssertMatchesArcSolver(
+                CreateNestedScalarArc(
+                    start,
+                    center,
+                    CadPolylineArcNestedOption.ChordLength,
+                    chord),
+                CreateCenterScalarArc(
+                    CadArcAuthoringMode.StartCenterChord,
+                    start,
+                    center,
+                    chord));
+        }
+    }
+
+    [Fact]
+    public void NestedArcFailuresRetainTheirExactPromptForRecovery()
+    {
+        var authoring = new CadPolylineAuthoringSession();
+        Assert.True(authoring.TryAcceptPoint(new CadPoint3D(10, 0, 0), out _));
+        authoring.Mode = CadPolylineAuthoringMode.TangentArc;
+        Assert.True(authoring.TryBeginArcConstruction(
+            CadPolylineArcConstruction.Center,
+            out _));
+        Assert.True(authoring.TryAcceptArcControlPoint(CadPoint3D.Zero, out _));
+        Assert.True(authoring.TryBeginArcNestedOption(
+            CadPolylineArcNestedOption.ChordLength,
+            out _));
+
+        Assert.False(authoring.TryAcceptArcNestedScalar(21.0, out _, out _));
+        Assert.Equal(CadPolylineAuthoringPrompt.ArcChordLength, authoring.Prompt);
+        Assert.Equal(
+            CadPolylineArcNestedOption.ChordLength,
+            authoring.ArcNestedOption);
+        Assert.True(authoring.TryAcceptArcNestedScalar(10.0, out _, out _));
+        Assert.Equal(CadPolylineAuthoringPrompt.Point, authoring.Prompt);
+
+        Assert.True(authoring.TryBeginArcConstruction(
+            CadPolylineArcConstruction.IncludedAngle,
+            out _));
+        Assert.True(authoring.TryAcceptArcScalar(Math.PI / 2.0, out _));
+        Assert.True(authoring.TryBeginArcNestedOption(
+            CadPolylineArcNestedOption.Radius,
+            out _));
+        Assert.False(authoring.TryAcceptArcScalar(0.0, out _));
+        Assert.Equal(CadPolylineAuthoringPrompt.ArcRadius, authoring.Prompt);
+        Assert.True(authoring.TryAcceptArcScalar(5.0, out _));
+        Assert.False(authoring.TryAcceptArcNestedPoint(
+            authoring.CurrentPoint!.Value,
+            out _,
+            out _));
+        Assert.Equal(
+            CadPolylineAuthoringPrompt.ArcChordDirection,
+            authoring.Prompt);
+    }
+
+    [Fact]
+    public void NestedCenterAngleArcIsStableAtLargeWcsOrigin()
+    {
+        CadPoint3D center = new(1_000_000_000_000, -2_000_000_000_000, 9);
+        CadPoint3D start = center + new CadPoint3D(10, 0, 0);
+        (CadPoint3D _, CadPoint3D endpoint, double bulge) =
+            CreateNestedScalarArc(
+                start,
+                center,
+                CadPolylineArcNestedOption.IncludedAngle,
+                Math.PI / 2.0);
+
+        Assert.Equal(center + new CadPoint3D(0, 10, 0), endpoint);
+        Assert.True(CadPolylineAuthoringSession.TryGetBulgeGeometry(
+            start,
+            endpoint,
+            bulge,
+            out CadPoint3D resolvedCenter,
+            out double radius,
+            out _,
+            out double sweep));
+        Assert.Equal(center, resolvedCenter);
+        Assert.Equal(10.0, radius, 10);
+        Assert.Equal(Math.PI / 2.0, sweep, 10);
+    }
+
+    [Fact]
     public void ExplicitArcPromptFailuresRetainRecoverableState()
     {
         var authoring = new CadPolylineAuthoringSession(initialWidth: 2.0);
@@ -689,6 +817,70 @@ public sealed class CadPolylineAuthoringTests
             out CadArcAuthoringSnapshot snapshot,
             out _));
         return snapshot;
+    }
+
+    private static CadArcAuthoringSnapshot CreateCenterScalarArc(
+        CadArcAuthoringMode mode,
+        CadPoint3D start,
+        CadPoint3D center,
+        double scalar)
+    {
+        var authoring = new CadArcAuthoringSession(mode);
+        Assert.True(authoring.TryAcceptIntermediatePoint(start, out _));
+        Assert.True(authoring.TryAcceptIntermediatePoint(center, out _));
+        Assert.True(authoring.TryCreateSnapshotFromScalar(
+            scalar,
+            out CadArcAuthoringSnapshot snapshot,
+            out _));
+        return snapshot;
+    }
+
+    private static (CadPoint3D Start, CadPoint3D Endpoint, double Bulge)
+        CreateNestedPointArc(
+            CadPoint3D start,
+            CadPolylineArcConstruction construction,
+            double scalar,
+            CadPolylineArcNestedOption option,
+            CadPoint3D point,
+            double nestedScalar = 0.0)
+    {
+        var authoring = new CadPolylineAuthoringSession();
+        Assert.True(authoring.TryAcceptPoint(start, out _));
+        authoring.Mode = CadPolylineAuthoringMode.TangentArc;
+        Assert.True(authoring.TryBeginArcConstruction(construction, out _));
+        Assert.True(authoring.TryAcceptArcScalar(scalar, out _));
+        Assert.True(authoring.TryBeginArcNestedOption(option, out _));
+        if (option == CadPolylineArcNestedOption.Radius)
+        {
+            Assert.True(authoring.TryAcceptArcScalar(nestedScalar, out _));
+        }
+        Assert.True(authoring.TryAcceptArcNestedPoint(
+            point,
+            out CadPoint3D endpoint,
+            out _));
+        return (start, endpoint, authoring.Bulges.Span[0]);
+    }
+
+    private static (CadPoint3D Start, CadPoint3D Endpoint, double Bulge)
+        CreateNestedScalarArc(
+            CadPoint3D start,
+            CadPoint3D center,
+            CadPolylineArcNestedOption option,
+            double scalar)
+    {
+        var authoring = new CadPolylineAuthoringSession();
+        Assert.True(authoring.TryAcceptPoint(start, out _));
+        authoring.Mode = CadPolylineAuthoringMode.TangentArc;
+        Assert.True(authoring.TryBeginArcConstruction(
+            CadPolylineArcConstruction.Center,
+            out _));
+        Assert.True(authoring.TryAcceptArcControlPoint(center, out _));
+        Assert.True(authoring.TryBeginArcNestedOption(option, out _));
+        Assert.True(authoring.TryAcceptArcNestedScalar(
+            scalar,
+            out CadPoint3D endpoint,
+            out _));
+        return (start, endpoint, authoring.Bulges.Span[0]);
     }
 
     private static CadArcAuthoringSnapshot CreatePointArc(

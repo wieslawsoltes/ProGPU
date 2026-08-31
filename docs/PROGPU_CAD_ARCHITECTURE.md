@@ -1101,6 +1101,13 @@ reversible history entry. Interactive Width/Halfwidth retains per-segment
 start/end widths, propagates the ending width to later segments and PLINEWID,
 and suppresses PLINEGEN for variable profiles; Undo restores the prior default.
 Line-mode Length continues the actual endpoint tangent of either a line or arc.
+Arc prompts also retain Autodesk's contextual nesting without a second command
+object: Angle can resolve from a fixed Center or from Radius plus chord
+direction, and Center can resolve from a signed Angle or signed chord Length.
+The O(1) normalized solvers are derived from the original ProGPU-owned
+`CadArcAuthoring.cs`; point-final workflows feed the solved endpoint through
+the shared viewport and preview seams, scalar-final workflows commit the same
+exact endpoint, and any invalid solve leaves its typed prompt recoverable.
 Constant and straight variable widths are retained in source space with exact
 filled or FILLMODE-off outline replay through affine, managed/native, and print
 paths. Variable-width arcs remain fail-closed rather than silently degrading to
