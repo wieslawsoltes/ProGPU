@@ -5819,13 +5819,15 @@ constructor is scalar because it has no useful independent-lane bulk work.
 Focused managed ABI contracts pass 5/5; the system-Direct2D Windows
 differential remains pending.
 
-The shared cubic analysis visitor now applies the system Direct2D
-half-tolerance subdivision threshold. The Windows ellipse oracle measured
-`19.2537` at public tolerance `0.25`; ProGPU previously returned `19.1810`,
-while the same retained cubic at effective threshold `0.125` returns the
-system value. The recursive subdivision has data-dependent child termination,
-so it is not an independent-lane SIMD workload; emitted-edge reduction remains
-bounded and allocation ownership is unchanged.
+The analytic ellipse and rounded-rectangle length/point delegation now applies
+the system Direct2D half-tolerance subdivision threshold. The Windows ellipse
+oracle measured `19.2537` at public tolerance `0.25`; ProGPU previously
+returned `19.1810`, while the retained cubic at effective threshold `0.125`
+returns the system value. Arbitrary path geometry keeps the caller's unscaled
+tolerance and therefore preserves its separate passing system differential.
+Recursive subdivision has data-dependent child termination, so it is not an
+independent-lane SIMD workload; emitted-edge reduction remains bounded and
+allocation ownership is unchanged.
 
 ## Managed glyph row-reuse SIMD checkpoint
 

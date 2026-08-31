@@ -1506,15 +1506,8 @@ bool compat_visit_path(
     CubicCallback&& cubic_callback,
     EndCallback&& end_callback)
 {
-    // System Direct2D subdivides cubic analysis at an effective geometric
-    // threshold of one half the public flattening tolerance. Keep that safety
-    // factor in the shared path visitor so length, area, containment, and
-    // point-at-length queries consume the same bounded line approximation.
-    constexpr double direct2d_tolerance_scale = 0.5;
-    const double scaled_tolerance =
-        static_cast<double>(tolerance) * direct2d_tolerance_scale;
     const double tolerance_squared =
-        scaled_tolerance * scaled_tolerance;
+        static_cast<double>(tolerance) * tolerance;
     for (size_t figure_offset = 0U;
          figure_offset < data.figures.size();
          ++figure_offset) {
@@ -3090,9 +3083,12 @@ public:
         FLOAT flattening_tolerance,
         FLOAT* length) const noexcept override
     {
+        // Direct2D's analytic rounded-rectangle length at tolerance t matches
+        // the retained cubic approximation at t / 2. Keep the compensation
+        // at this shape boundary; arbitrary path geometry uses t unchanged.
         return path_->ComputeLength(
             world_transform,
-            flattening_tolerance,
+            flattening_tolerance * 0.5F,
             length);
     }
 
@@ -3106,7 +3102,7 @@ public:
         return path_->ComputePointAtLength(
             length,
             world_transform,
-            flattening_tolerance,
+            flattening_tolerance * 0.5F,
             point,
             unit_tangent_vector);
     }
@@ -3409,9 +3405,12 @@ public:
         FLOAT flattening_tolerance,
         FLOAT* length) const noexcept override
     {
+        // Direct2D's analytic ellipse length at tolerance t matches the
+        // retained four-cubic approximation at t / 2. Arbitrary path
+        // geometry intentionally retains the caller's unscaled tolerance.
         return path_->ComputeLength(
             world_transform,
-            flattening_tolerance,
+            flattening_tolerance * 0.5F,
             length);
     }
 
@@ -3425,7 +3424,7 @@ public:
         return path_->ComputePointAtLength(
             length,
             world_transform,
-            flattening_tolerance,
+            flattening_tolerance * 0.5F,
             point,
             unit_tangent_vector);
     }

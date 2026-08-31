@@ -652,7 +652,7 @@ public sealed class Direct2DInteropContractTests
             test,
             StringComparison.Ordinal);
         Assert.Contains(
-            "direct2d_tolerance_scale = 0.5",
+            "flattening_tolerance * 0.5F",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
