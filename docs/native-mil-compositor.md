@@ -5570,6 +5570,21 @@ native executable exits zero. The 176,640-byte provider SHA-256 is
 `50FD9745C40EE045B53F06D1CD089B48F20BABC502D48DB014BAD795A3466C7F`,
 with all 123 exports matching the allowlist.
 
+ABI v42 implementation `f56ebe75` combines finite Direct2D geometric and
+opacity-brush masks through the typed composite-mask serializer introduced at
+`1ce62657`. One pointer-free resource retains the brush child, exact vector
+path/segments, and shared stops. The existing backend creates both R8 masks and
+multiplies them with `ClipCompose.wgsl`; D3D12, Metal, Vulkan, and WebGPU retain
+the same renderer and no CPU pixel fallback or readback is introduced.
+
+The native oracle requires a real transformed line/cubic geometry plus a real
+two-stop linear gradient to decode as two components with one brush, one path,
+three segments, and two stops, alongside the exact content/mask bound
+intersection. Managed AOT build is warning-free and contracts pass 5/5.
+Windows VM runtime qualification remains pending after Parallels guest-command
+dispatch stalled following an exact archive transfer; clean PR MSVC/ClangCL
+jobs are the current compile oracle. No Windows execution result is inferred.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

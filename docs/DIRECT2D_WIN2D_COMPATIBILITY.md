@@ -1165,6 +1165,25 @@ provider and test from deleted objects under MSVC 19.44/SDK 10.0.26100.0
 is `50FD9745C40EE045B53F06D1CD089B48F20BABC502D48DB014BAD795A3466C7F`,
 and all 123 exports match the allowlist.
 
+ABI v42 at implementation `f56ebe75` removes the finite-layer restriction that
+only one mask kind may be present. The reusable scene builder added at
+`1ce62657` validates and serializes canonical composite-mask resources. A
+Direct2D layer carrying both `geometricMask` and `opacityBrush` now places the
+brush mask, exact vector path, segments, and shared gradient stops in that
+pointer-free resource. The backend independently rasterizes both children to
+R8 coverage and multiplies them through `ClipCompose.wgsl` before applying
+uniform group opacity.
+
+The Direct2D oracle records a genuine transformed line/cubic geometry and a
+real two-stop linear gradient on the same finite layer. It requires both typed
+feature flags plus the composite flag, exact content/mask bounds intersection,
+two components, one brush, one path, three segments, two stops, and no geometry
+primitive or picture child. The managed AOT build is warning-free and focused
+contracts pass 5/5. Windows VM runtime qualification is pending because
+Parallels guest-command dispatch stopped responding after the exact ABI v42
+archive was transferred; the PR Windows MSVC/ClangCL lanes are the active
+compile oracle. No Windows runtime pass or provider hash is claimed yet.
+
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
