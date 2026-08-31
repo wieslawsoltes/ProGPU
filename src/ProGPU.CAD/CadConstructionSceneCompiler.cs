@@ -8,7 +8,14 @@ public readonly record struct CadConstructionSceneStatistics(
     int SourceEntityCount,
     int RecordedEntityCount,
     int RecordedCommandCount,
-    int UnsupportedLineTypeCount);
+    int UnsupportedLineTypeCount)
+{
+    public int LoweredLineTypeEntityCount { get; init; }
+    public int LoweredLineTypeFigureCount { get; init; }
+    public int LoweredLineTypePlacementCount { get; init; }
+    public int LineTypePatternStepCount { get; init; }
+    public int LineTypeSourceSegmentCount { get; init; }
+}
 
 /// <summary>
 /// A viewport-specific retained overlay for unbounded RAY and XLINE entities.
@@ -50,10 +57,12 @@ public sealed class CadRecordedConstructionScene
 /// Clips unbounded CAD construction geometry to one explicit WCS-XY plan window.
 /// </summary>
 /// <remarks>
-/// Compilation is O(U) time and storage for U visible construction entities. The
-/// parametric slab clip is allocation-free per entity and never fabricates a large
-/// model-space endpoint. A camera change requires rebuilding only this overlay;
-/// the ordinary finite retained picture remains reusable.
+/// Continuous compilation is O(U) for U visible construction entities. Patterned
+/// compilation adds O(E + Q) per visible entity for E pattern descriptors and Q
+/// descriptors intersecting the clip. The parametric slab clip is allocation-free
+/// per entity and never fabricates a large model-space endpoint. A camera change
+/// requires rebuilding only this overlay; the ordinary finite retained picture
+/// remains reusable.
 /// </remarks>
 public sealed class CadConstructionSceneCompiler
 {
@@ -81,9 +90,17 @@ public sealed class CadConstructionSceneCompiler
         Pen[] pens = CreatePens(styles, options);
         var diagnostics = new List<CadDiagnostic>();
         var warnedLineTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var warnedLineTypeSubstitutions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int sourceCount = 0;
         int recordedCount = 0;
         int unsupportedLineTypes = 0;
+        int loweredLineTypeEntities = 0;
+        int loweredLineTypeFigures = 0;
+        int loweredLineTypePlacements = 0;
+        int lineTypeFigureBudgetUsed = 0;
+        int lineTypePatternSteps = 0;
+        int lineTypeSourceSegments = 0;
+        int lineTypePlacementBudgetUsed = 0;
         int activeStyleIndex = -1;
         PathGeometry? activePath = null;
 
@@ -104,25 +121,15 @@ public sealed class CadConstructionSceneCompiler
 
             CadStrokeStyle style = styles[entity.StyleIndex];
             CadLineTypePattern pattern = patterns[style.LineTypePatternIndex];
-            if (pattern.Kind != CadLineTypePatternKind.Continuous)
-            {
-                if (warnedLineTypes.Add(pattern.Name))
-                {
-                    unsupportedLineTypes++;
-                    diagnostics.Add(new CadDiagnostic(
-                        CadDiagnosticSeverity.Information,
-                        "CADCON001",
-                        $"Construction linetype '{pattern.Name}' is not recorded because its unbounded phase-origin contract is not yet supported."));
-                }
-                continue;
-            }
-
             CadConstructionLinePrimitive line =
                 snapshot.ConstructionLines.Span[entity.PrimitiveIndex];
-            if (!TryClipPlan(
+            if (!TryClipPlanInterval(
                     line,
                     planClipBounds,
                     entity.Kind == CadEntityKind.Ray,
+                    out double parameterMinimum,
+                    out double parameterMaximum,
+                    out bool hasProjectedDirection,
                     out CadPoint3D start,
                     out CadPoint3D end))
             {
@@ -130,6 +137,111 @@ public sealed class CadConstructionSceneCompiler
             }
 
             Pen pen = pens[entity.StyleIndex];
+            if (hasProjectedDirection && pattern.Kind is
+                CadLineTypePatternKind.Simple or CadLineTypePatternKind.Complex)
+            {
+                int remainingFigures = options.MaxLineTypeFigures - lineTypeFigureBudgetUsed;
+                int remainingPatternSteps =
+                    options.MaxLineTypePatternSteps - lineTypePatternSteps;
+                int remainingSourceSegments =
+                    options.MaxLineTypeSourceSegments - lineTypeSourceSegments;
+                int remainingPlacements =
+                    options.MaxLineTypePlacements - lineTypePlacementBudgetUsed;
+                CadLineTypeLoweringResult result =
+                    CadLineTypeLowerer.LowerConstructionInterval(
+                        snapshot,
+                        line,
+                        style,
+                        pattern,
+                        parameterMinimum,
+                        parameterMaximum,
+                        Math.Max(0, remainingFigures),
+                        Math.Max(0, remainingPatternSteps),
+                        Math.Max(0, remainingSourceSegments),
+                        Math.Max(0, remainingPlacements));
+                lineTypeFigureBudgetUsed = checked(
+                    lineTypeFigureBudgetUsed +
+                    Math.Min(Math.Max(0, remainingFigures), result.FigureCount));
+                lineTypePatternSteps = checked(
+                    lineTypePatternSteps +
+                    Math.Min(Math.Max(0, remainingPatternSteps), result.PatternStepCount));
+                lineTypeSourceSegments = checked(
+                    lineTypeSourceSegments +
+                    Math.Min(Math.Max(0, remainingSourceSegments), result.SourceSegmentCount));
+                lineTypePlacementBudgetUsed = checked(
+                    lineTypePlacementBudgetUsed +
+                    Math.Min(Math.Max(0, remainingPlacements), result.PlacementCount));
+                if (result.Status == CadLineTypeLoweringStatus.Lowered)
+                {
+                    if (CadPlanSceneCompiler.HasLineTypeSubstitution(snapshot, pattern) &&
+                        warnedLineTypeSubstitutions.Add(pattern.Name))
+                    {
+                        diagnostics.Add(new CadDiagnostic(
+                            CadDiagnosticSeverity.Warning,
+                            "CADCON002",
+                            $"Construction linetype '{pattern.Name}' uses a host-resolved text or SHX substitution."));
+                    }
+                    if (result.PlacementCount == 0)
+                    {
+                        AppendToActivePath(result.Path, entity.StyleIndex);
+                    }
+                    else
+                    {
+                        FlushActivePath();
+                        if (result.Path is not null && result.FigureCount != 0)
+                        {
+                            context.DrawPath(null, pen, result.Path);
+                        }
+                        CadPlanSceneCompiler.RecordLineTypePlacements(
+                            context,
+                            pen,
+                            snapshot,
+                            style,
+                            pattern,
+                            result);
+                    }
+                    loweredLineTypeEntities++;
+                    loweredLineTypeFigures = checked(
+                        loweredLineTypeFigures + result.FigureCount);
+                    loweredLineTypePlacements = checked(
+                        loweredLineTypePlacements + result.PlacementCount);
+                    recordedCount++;
+                    continue;
+                }
+
+                if (result.Status != CadLineTypeLoweringStatus.Continuous)
+                {
+                    string reason = result.Status switch
+                    {
+                        CadLineTypeLoweringStatus.FigureLimitExceeded =>
+                            $"the configured {options.MaxLineTypeFigures}-figure document limit was reached",
+                        CadLineTypeLoweringStatus.PatternStepLimitExceeded =>
+                            $"the configured {options.MaxLineTypePatternSteps}-step pattern traversal limit was reached",
+                        CadLineTypeLoweringStatus.SourceSegmentLimitExceeded =>
+                            $"the configured {options.MaxLineTypeSourceSegments}-segment document traversal limit was reached",
+                        CadLineTypeLoweringStatus.PlacementLimitExceeded =>
+                            $"the configured {options.MaxLineTypePlacements}-placement document limit was reached",
+                        CadLineTypeLoweringStatus.UnresolvedComplexElement =>
+                            "an embedded text/shape resource or persisted rotation contract is unresolved",
+                        _ => "the authored phase interval cannot be represented exactly",
+                    };
+                    AddUnsupportedLineTypeDiagnostic(pattern.Name, reason);
+                }
+            }
+            else if (pattern.Kind == CadLineTypePatternKind.UnsupportedAlignment)
+            {
+                AddUnsupportedLineTypeDiagnostic(
+                    pattern.Name,
+                    $"alignment '{pattern.Alignment}' is not the documented AutoCAD A alignment");
+            }
+            else if (!hasProjectedDirection &&
+                pattern.Kind == CadLineTypePatternKind.Complex)
+            {
+                AddUnsupportedLineTypeDiagnostic(
+                    pattern.Name,
+                    "its 3D tangent has a point projection, so embedded text/shape orientation is undefined");
+            }
+
             if (start.X == end.X && start.Y == end.Y)
             {
                 FlushActivePath();
@@ -166,8 +278,33 @@ public sealed class CadConstructionSceneCompiler
                 sourceCount,
                 recordedCount,
                 context.Commands.Count,
-                unsupportedLineTypes),
+                unsupportedLineTypes)
+            {
+                LoweredLineTypeEntityCount = loweredLineTypeEntities,
+                LoweredLineTypeFigureCount = loweredLineTypeFigures,
+                LoweredLineTypePlacementCount = loweredLineTypePlacements,
+                LineTypePatternStepCount = lineTypePatternSteps,
+                LineTypeSourceSegmentCount = lineTypeSourceSegments,
+            },
             diagnostics.ToArray());
+
+        void AppendToActivePath(PathGeometry? source, int styleIndex)
+        {
+            if (source is null || source.Figures.Count == 0)
+            {
+                return;
+            }
+            if (activePath is null || activeStyleIndex != styleIndex)
+            {
+                FlushActivePath();
+                activeStyleIndex = styleIndex;
+                activePath = new PathGeometry();
+            }
+            foreach (PathFigure figure in source.Figures)
+            {
+                activePath.Figures.Add(figure);
+            }
+        }
 
         void FlushActivePath()
         {
@@ -178,6 +315,20 @@ public sealed class CadConstructionSceneCompiler
             context.DrawPath(null, pens[activeStyleIndex], activePath);
             activePath = null;
             activeStyleIndex = -1;
+        }
+
+        void AddUnsupportedLineTypeDiagnostic(string lineTypeName, string reason)
+        {
+            string key = $"{lineTypeName}\0{reason}";
+            if (!warnedLineTypes.Add(key))
+            {
+                return;
+            }
+            unsupportedLineTypes++;
+            diagnostics.Add(new CadDiagnostic(
+                CadDiagnosticSeverity.Warning,
+                "CADCON001",
+                $"Construction linetype '{lineTypeName}' is recorded as a continuous stroke because {reason}."));
         }
     }
 
@@ -190,17 +341,38 @@ public sealed class CadConstructionSceneCompiler
         CadBounds3D bounds,
         bool isRay,
         out CadPoint3D start,
+        out CadPoint3D end) =>
+        TryClipPlanInterval(
+            line,
+            bounds,
+            isRay,
+            out _,
+            out _,
+            out _,
+            out start,
+            out end);
+
+    private static bool TryClipPlanInterval(
+        CadConstructionLinePrimitive line,
+        CadBounds3D bounds,
+        bool isRay,
+        out double parameterMinimum,
+        out double parameterMaximum,
+        out bool hasProjectedDirection,
+        out CadPoint3D start,
         out CadPoint3D end)
     {
         double minimum = isRay ? 0.0 : double.NegativeInfinity;
         double maximum = double.PositiveInfinity;
-        bool hasProjectedDirection = line.Direction.X != 0.0 || line.Direction.Y != 0.0;
+        hasProjectedDirection = line.Direction.X != 0.0 || line.Direction.Y != 0.0;
         if (!hasProjectedDirection)
         {
             bool inside = line.BasePoint.X >= bounds.Min.X &&
                 line.BasePoint.X <= bounds.Max.X &&
                 line.BasePoint.Y >= bounds.Min.Y &&
                 line.BasePoint.Y <= bounds.Max.Y;
+            parameterMinimum = 0.0;
+            parameterMaximum = 0.0;
             start = line.BasePoint;
             end = line.BasePoint;
             return inside;
@@ -209,6 +381,8 @@ public sealed class CadConstructionSceneCompiler
         if (!ClipAxis(line.BasePoint.X, line.Direction.X, bounds.Min.X, bounds.Max.X, ref minimum, ref maximum) ||
             !ClipAxis(line.BasePoint.Y, line.Direction.Y, bounds.Min.Y, bounds.Max.Y, ref minimum, ref maximum))
         {
+            parameterMinimum = 0.0;
+            parameterMaximum = 0.0;
             start = default;
             end = default;
             return false;
@@ -219,6 +393,8 @@ public sealed class CadConstructionSceneCompiler
                 "The construction-line clip interval exceeds finite retained coordinates.");
         }
 
+        parameterMinimum = minimum;
+        parameterMaximum = maximum;
         start = line.BasePoint + (line.Direction * minimum);
         end = line.BasePoint + (line.Direction * maximum);
         return true;
@@ -300,5 +476,9 @@ public sealed class CadConstructionSceneCompiler
                 nameof(options),
                 "Physical DPI and lineweight scale must be finite and positive.");
         }
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxLineTypeFigures, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxLineTypePatternSteps, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxLineTypeSourceSegments, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxLineTypePlacements, 1);
     }
 }

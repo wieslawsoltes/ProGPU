@@ -3,8 +3,10 @@ using ACadSharp.Blocks;
 using ACadSharp.Entities;
 using ACadSharp.Tables;
 using CSMath;
+using ProGPU.Fonts.Inter;
 using ProGPU.Scene;
 using ProGPU.Scene.Native;
+using ProGPU.Text;
 using ProGPU.Vector;
 using Xunit;
 
@@ -149,7 +151,7 @@ public sealed class CadConstructionLineTests
     }
 
     [Fact]
-    public void VerticalProjectionUsesPointBatchAndPatternedConstructionIsExplicitlyDeferred()
+    public void VerticalProjectionAndPatternedConstructionRetainExactVisibleFootprints()
     {
         var document = new CadDocument();
         var dashed = new LineType("CONSTRUCTION_DASH");
@@ -177,13 +179,248 @@ public sealed class CadConstructionLineTests
                 new CadPoint3D(5, 5, 0)));
 
         Assert.Equal(2, scene.Statistics.SourceEntityCount);
-        Assert.Equal(1, scene.Statistics.RecordedEntityCount);
-        Assert.Equal(1, scene.Statistics.UnsupportedLineTypeCount);
-        RenderCommand command = Assert.Single(scene.DrawingContext.Commands);
-        Assert.Equal(RenderCommandType.DrawPointBatch, command.Type);
-        Assert.Equal(1, command.PointBufferCount);
+        Assert.Equal(2, scene.Statistics.RecordedEntityCount);
+        Assert.Equal(0, scene.Statistics.UnsupportedLineTypeCount);
+        Assert.Equal(1, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(3, scene.Statistics.LoweredLineTypeFigureCount);
+        RenderCommand[] commands = scene.DrawingContext.Commands.ToArray();
+        Assert.Equal(2, commands.Length);
+        Assert.Equal(RenderCommandType.DrawPointBatch, commands[0].Type);
+        Assert.Equal(1, commands[0].PointBufferCount);
         Assert.Equal(new System.Numerics.Vector2(2, 3), scene.DrawingContext.PointBuffer[0]);
-        Assert.Contains(scene.Diagnostics.ToArray(), value => value.Code == "CADCON001");
+        Assert.Equal(RenderCommandType.DrawPath, commands[1].Type);
+        Assert.Equal(3, commands[1].Path!.Figures.Count);
+        Assert.Empty(scene.Diagnostics.ToArray());
+    }
+
+    [Fact]
+    public void AuthoredPhaseOriginSurvivesPanAndRayUsesEndpointHalfDash()
+    {
+        var document = new CadDocument();
+        var dashed = AddSimpleLineType(document, "ORIGIN_DASH", 4.0, -2.0);
+        document.Entities.Add(new XLine
+        {
+            FirstPoint = XYZ.Zero,
+            Direction = XYZ.AxisX,
+            LineType = dashed,
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        CadRecordedConstructionScene centered = new CadConstructionSceneCompiler().Compile(
+            snapshot,
+            Clip(-5.0, 5.0));
+        CadRecordedConstructionScene panned = new CadConstructionSceneCompiler().Compile(
+            snapshot,
+            Clip(-1.0, 7.0));
+
+        AssertFigureIntervals(centered, (-5.0f, -4.0f), (-2.0f, 2.0f), (4.0f, 5.0f));
+        AssertFigureIntervals(panned, (-1.0f, 2.0f), (4.0f, 7.0f));
+        Assert.Equal(1, centered.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(3, centered.Statistics.LoweredLineTypeFigureCount);
+        Assert.Equal(0, centered.Statistics.UnsupportedLineTypeCount);
+
+        var rayDocument = new CadDocument();
+        LineType rayDashed = AddSimpleLineType(rayDocument, "RAY_DASH", 4.0, -2.0);
+        rayDocument.Entities.Add(new Ray
+        {
+            StartPoint = XYZ.Zero,
+            Direction = XYZ.AxisX,
+            LineType = rayDashed,
+        });
+        CadDocumentSnapshot raySnapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(rayDocument));
+        CadRecordedConstructionScene ray = new CadConstructionSceneCompiler().Compile(
+            raySnapshot,
+            Clip(-5.0, 12.0));
+        AssertFigureIntervals(ray, (0.0f, 2.0f), (4.0f, 8.0f), (10.0f, 12.0f));
+
+        using GpuPicture picture = centered.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            96U,
+            1U,
+            out NativeCompiledPicture? native,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(native);
+    }
+
+    [Fact]
+    public void DotConstructionDescriptorsRemainPhaseAnchoredAcrossPan()
+    {
+        var document = new CadDocument();
+        LineType dotted = AddSimpleLineType(document, "ORIGIN_DOT", 4.0, -2.0, 0.0, -2.0);
+        document.Entities.Add(new XLine
+        {
+            FirstPoint = XYZ.Zero,
+            Direction = XYZ.AxisX,
+            LineType = dotted,
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        CadRecordedConstructionScene centered = new CadConstructionSceneCompiler().Compile(
+            snapshot,
+            Clip(-3.0, 8.0));
+        CadRecordedConstructionScene panned = new CadConstructionSceneCompiler().Compile(
+            snapshot,
+            Clip(3.0, 7.0));
+
+        AssertFigureIntervals(centered, (-2.0f, 2.0f), (4.0f, 4.0f), (6.0f, 8.0f));
+        AssertFigureIntervals(panned, (4.0f, 4.0f), (6.0f, 7.0f));
+        Assert.Equal(0, centered.Statistics.UnsupportedLineTypeCount);
+        Assert.Equal(0, panned.Statistics.UnsupportedLineTypeCount);
+    }
+
+    [Fact]
+    public void StrokeOnlyConstructionPatternUsesContinuousPathWithoutDiagnosticOrBudgetUse()
+    {
+        var document = new CadDocument();
+        LineType solidPattern = AddSimpleLineType(document, "SOLID_PATTERN", 4.0, 2.0);
+        document.Entities.Add(new XLine
+        {
+            FirstPoint = XYZ.Zero,
+            Direction = XYZ.AxisX,
+            LineType = solidPattern,
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        CadRecordedConstructionScene scene = new CadConstructionSceneCompiler().Compile(
+            snapshot,
+            Clip(-5.0, 7.0),
+            new CadPlanSceneOptions
+            {
+                MaxLineTypeFigures = 1,
+                MaxLineTypePatternSteps = 1,
+                MaxLineTypeSourceSegments = 1,
+            });
+
+        AssertFigureIntervals(scene, (-5.0f, 7.0f));
+        Assert.Equal(1, scene.Statistics.RecordedEntityCount);
+        Assert.Equal(0, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(0, scene.Statistics.UnsupportedLineTypeCount);
+        Assert.Equal(0, scene.Statistics.LineTypePatternStepCount);
+        Assert.Equal(0, scene.Statistics.LineTypeSourceSegmentCount);
+        Assert.Empty(scene.Diagnostics.ToArray());
+    }
+
+    [Fact]
+    public void FarViewportSeeksDirectlyIntoConstructionPatternWithinVisibleBudget()
+    {
+        var document = new CadDocument();
+        LineType dashed = AddSimpleLineType(document, "FAR_DASH", 4.0, -2.0);
+        document.Entities.Add(new XLine
+        {
+            FirstPoint = XYZ.Zero,
+            Direction = XYZ.AxisX,
+            LineType = dashed,
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        CadRecordedConstructionScene scene = new CadConstructionSceneCompiler().Compile(
+            snapshot,
+            Clip(1_000_000.0, 1_000_012.0),
+            new CadPlanSceneOptions { MaxLineTypePatternSteps = 8 });
+
+        Assert.Equal(1, scene.Statistics.RecordedEntityCount);
+        Assert.Equal(1, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.InRange(scene.Statistics.LineTypePatternStepCount, 1, 8);
+        Assert.Equal(0, scene.Statistics.UnsupportedLineTypeCount);
+        AssertFigureIntervals(
+            scene,
+            (1_000_000.0f, 1_000_004.0f),
+            (1_000_006.0f, 1_000_010.0f),
+            (1_000_012.0f, 1_000_012.0f));
+    }
+
+    [Fact]
+    public void PatternBudgetFailureFallsBackWithoutRetainingPartialFigures()
+    {
+        var document = new CadDocument();
+        LineType dashed = AddSimpleLineType(document, "BOUNDED_DASH", 4.0, -2.0);
+        document.Entities.Add(new XLine
+        {
+            FirstPoint = XYZ.Zero,
+            Direction = XYZ.AxisX,
+            LineType = dashed,
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document));
+
+        CadRecordedConstructionScene scene = new CadConstructionSceneCompiler().Compile(
+            snapshot,
+            Clip(-10.0, 10.0),
+            new CadPlanSceneOptions { MaxLineTypeFigures = 1 });
+
+        Assert.Equal(1, scene.Statistics.RecordedEntityCount);
+        Assert.Equal(0, scene.Statistics.LoweredLineTypeEntityCount);
+        Assert.Equal(1, scene.Statistics.UnsupportedLineTypeCount);
+        AssertFigureIntervals(scene, (-10.0f, 10.0f));
+        Assert.Contains(scene.Diagnostics.ToArray(), diagnostic =>
+            diagnostic.Code == "CADCON001" &&
+            diagnostic.Message.Contains("figure", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ComplexConstructionPlacementsKeepAuthoredPhaseAcrossPan()
+    {
+        var document = new CadDocument();
+        var textStyle = new TextStyle("INTER") { Filename = "Inter.ttf" };
+        document.TextStyles.Add(textStyle);
+        var complex = new LineType("GAS_XLINE");
+        complex.AddSegment(new LineType.Segment { Length = 4.0 });
+        complex.AddSegment(new LineType.Segment { Length = -2.0 });
+        complex.AddSegment(new LineType.Segment
+        {
+            Text = "G",
+            Style = textStyle,
+            Scale = 1.0,
+            Flags = LineTypeShapeFlags.Text,
+        });
+        complex.AddSegment(new LineType.Segment { Length = -2.0 });
+        document.LineTypes.Add(complex);
+        document.Entities.Add(new XLine
+        {
+            FirstPoint = XYZ.Zero,
+            Direction = XYZ.AxisX,
+            LineType = complex,
+        });
+        CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
+            new CadDocumentSession(document),
+            new CadSnapshotOptions
+            {
+                TextFontResolver = new FixedTextFontResolver(InterFontFamily.Regular),
+            });
+
+        CadRecordedConstructionScene wide = new CadConstructionSceneCompiler().Compile(
+            snapshot,
+            Clip(-5.0, 13.0));
+        CadRecordedConstructionScene panned = new CadConstructionSceneCompiler().Compile(
+            snapshot,
+            Clip(0.0, 9.0));
+
+        Assert.Equal(3, wide.Statistics.LoweredLineTypePlacementCount);
+        Assert.Equal(1, panned.Statistics.LoweredLineTypePlacementCount);
+        Assert.Equal([-4.0f, 4.0f, 12.0f], wide.DrawingContext.Commands
+            .Where(command => command.Type == RenderCommandType.DrawGlyphRun)
+            .Select(command => command.Transform.M41)
+            .ToArray());
+        Assert.Equal(4.0f, Assert.Single(
+            panned.DrawingContext.Commands,
+            command => command.Type == RenderCommandType.DrawGlyphRun).Transform.M41);
+        Assert.DoesNotContain(wide.Diagnostics.ToArray(), value => value.Code == "CADCON001");
+        using GpuPicture picture = wide.CreatePicture();
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            picture,
+            96U,
+            1U,
+            out NativeCompiledPicture? native,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(native);
     }
 
     [Fact]
@@ -375,10 +612,12 @@ public sealed class CadConstructionLineTests
     public void PrintClipsConstructionGeometryToExplicitPlotBounds()
     {
         var document = new CadDocument();
+        LineType dashed = AddSimpleLineType(document, "PRINT_DASH", 4.0, -2.0);
         document.Entities.Add(new Ray
         {
             StartPoint = XYZ.Zero,
             Direction = XYZ.AxisX,
+            LineType = dashed,
         });
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(
             new CadDocumentSession(document));
@@ -391,7 +630,60 @@ public sealed class CadConstructionLineTests
             new CadPrintPlanOptions { PlotBounds = plotBounds });
 
         Assert.Equal(1, plan.SceneStatistics.RecordedEntityCount);
+        Assert.Equal(1, plan.SceneStatistics.LoweredLineTypeEntityCount);
+        Assert.Equal(0, plan.SceneStatistics.UnsupportedLineTypeCount);
+        Assert.True(plan.SceneStatistics.LoweredLineTypeFigureCount > 0);
         using GpuPicture page = plan.CreatePagePicture();
         Assert.True(page.Commands.Count() > 0);
+        Assert.True(GpuPictureNativeSceneCompiler.TryCompile(
+            page,
+            96U,
+            1U,
+            out NativeCompiledPicture? native,
+            out NativePictureCompileFailure failure),
+            failure.ToString());
+        Assert.NotNull(native);
+    }
+
+    private static CadBounds3D Clip(double minimumX, double maximumX) =>
+        new(
+            new CadPoint3D(minimumX, -1.0, 0.0),
+            new CadPoint3D(maximumX, 1.0, 0.0));
+
+    private static LineType AddSimpleLineType(
+        CadDocument document,
+        string name,
+        params double[] lengths)
+    {
+        var lineType = new LineType(name);
+        foreach (double length in lengths)
+        {
+            lineType.AddSegment(new LineType.Segment { Length = length });
+        }
+        document.LineTypes.Add(lineType);
+        return lineType;
+    }
+
+    private static void AssertFigureIntervals(
+        CadRecordedConstructionScene scene,
+        params (float Start, float End)[] expected)
+    {
+        RenderCommand command = Assert.Single(scene.DrawingContext.Commands);
+        Assert.Equal(RenderCommandType.DrawPath, command.Type);
+        Assert.Equal(expected.Length, command.Path!.Figures.Count);
+        for (int i = 0; i < expected.Length; i++)
+        {
+            PathFigure figure = command.Path.Figures[i];
+            Assert.Equal(expected[i].Start, figure.StartPoint.X);
+            Assert.Equal(
+                expected[i].End,
+                Assert.IsType<LineSegment>(Assert.Single(figure.Segments)).Point.X);
+        }
+    }
+
+    private sealed class FixedTextFontResolver(TtfFont font) : ICadTextFontResolver
+    {
+        public CadTextFontResolution Resolve(in CadTextFontRequest request) =>
+            new(font, IsSubstitution: false);
     }
 }

@@ -474,6 +474,188 @@ internal static class CadLineTypeLowerer
             placementCount);
     }
 
+    /// <summary>
+    /// Intersects an authored, periodic RAY/XLINE linetype with one finite
+    /// signed parameter interval. Parameter zero remains the immutable phase
+    /// origin, so changing the viewport never restarts or recenters the pattern.
+    /// </summary>
+    /// <remarks>
+    /// The first A-aligned dash is centered on parameter zero. A RAY therefore
+    /// begins with its documented half-dash, while an XLINE extends the same
+    /// oriented periodic sequence in both parameter directions. For E pattern
+    /// descriptors and Q descriptors intersecting the visible interval, the
+    /// two-pass lowering is O(E + Q) time and O(F + P) retained storage for F
+    /// stroke figures and P complex placements. Seeking is independent of the
+    /// distance between the authored origin and the viewport.
+    /// </remarks>
+    internal static CadLineTypeLoweringResult LowerConstructionInterval(
+        CadDocumentSnapshot snapshot,
+        in CadConstructionLinePrimitive line,
+        in CadStrokeStyle style,
+        in CadLineTypePattern pattern,
+        double parameterMinimum,
+        double parameterMaximum,
+        int maxFigures,
+        int maxPatternSteps,
+        int maxSourceSegments,
+        int maxPlacements)
+    {
+        ReadOnlySpan<CadLineTypeElement> elements = snapshot.LineTypeElements.Span.Slice(
+            pattern.ElementOffset,
+            pattern.ElementCount);
+        if (HasUnresolvedComplexElement(elements))
+        {
+            return ConstructionFailure(CadLineTypeLoweringStatus.UnresolvedComplexElement);
+        }
+        if (!NeedsLowering(elements))
+        {
+            return ConstructionFailure(
+                CadLineTypeLoweringStatus.Continuous,
+                sourceSegments: 0);
+        }
+        if (maxSourceSegments < 1)
+        {
+            return ConstructionFailure(CadLineTypeLoweringStatus.SourceSegmentLimitExceeded);
+        }
+        if (maxFigures <= 0)
+        {
+            return ConstructionFailure(CadLineTypeLoweringStatus.FigureLimitExceeded);
+        }
+        if (maxPatternSteps <= 0)
+        {
+            return ConstructionFailure(CadLineTypeLoweringStatus.PatternStepLimitExceeded);
+        }
+        if (HasComplexElement(elements) && maxPlacements <= 0)
+        {
+            return ConstructionFailure(CadLineTypeLoweringStatus.PlacementLimitExceeded);
+        }
+        if (!double.IsFinite(parameterMinimum) ||
+            !double.IsFinite(parameterMaximum) ||
+            parameterMaximum < parameterMinimum)
+        {
+            return ConstructionFailure(CadLineTypeLoweringStatus.UnsupportedEntity);
+        }
+
+        Vector2 tangent = new(ToFloat(line.Direction.X), ToFloat(line.Direction.Y));
+        float tangentLength = tangent.Length();
+        if (!(tangentLength > 0.0f) || !float.IsFinite(tangentLength))
+        {
+            return ConstructionFailure(CadLineTypeLoweringStatus.UnsupportedEntity);
+        }
+        tangent /= tangentLength;
+
+        int figureCount = 0;
+        int placementCount = 0;
+        var counter = new ConstructionPatternSpanEnumerator(
+            parameterMinimum,
+            parameterMaximum,
+            elements,
+            pattern.PatternLength,
+            style.LineTypeScale,
+            maxPatternSteps);
+        if (!counter.IsValid)
+        {
+            return ConstructionFailure(CadLineTypeLoweringStatus.UnsupportedEntity);
+        }
+        while (counter.MoveNext())
+        {
+            if (counter.Current.IsContent)
+            {
+                if (++placementCount > maxPlacements)
+                {
+                    return ConstructionFailure(
+                        CadLineTypeLoweringStatus.PlacementLimitExceeded,
+                        figureCount,
+                        counter.PatternStepCount,
+                        placementCount);
+                }
+            }
+            else if (++figureCount > maxFigures)
+            {
+                return ConstructionFailure(
+                    CadLineTypeLoweringStatus.FigureLimitExceeded,
+                    figureCount,
+                    counter.PatternStepCount,
+                    placementCount);
+            }
+        }
+        if (counter.PatternStepLimitExceeded)
+        {
+            return ConstructionFailure(
+                CadLineTypeLoweringStatus.PatternStepLimitExceeded,
+                figureCount,
+                counter.PatternStepCount,
+                placementCount);
+        }
+
+        var path = new PathGeometry();
+        CadLineTypePlacement[] placements = placementCount == 0
+            ? []
+            : new CadLineTypePlacement[placementCount];
+        int placementIndex = 0;
+        var spans = new ConstructionPatternSpanEnumerator(
+            parameterMinimum,
+            parameterMaximum,
+            elements,
+            pattern.PatternLength,
+            style.LineTypeScale,
+            int.MaxValue);
+        while (spans.MoveNext())
+        {
+            PatternSpan span = spans.Current;
+            Vector2 start = Project(
+                line.BasePoint + (line.Direction * span.Start),
+                snapshot.RebaseOrigin);
+            if (span.IsContent)
+            {
+                placements[placementIndex++] = new CadLineTypePlacement(
+                    span.ElementIndex,
+                    start,
+                    tangent);
+                continue;
+            }
+
+            Vector2 end = span.IsPoint
+                ? start
+                : Project(
+                    line.BasePoint + (line.Direction * span.End),
+                    snapshot.RebaseOrigin);
+            var figure = new PathFigure(start)
+            {
+                IsFilled = false,
+                IsClosed = false,
+            };
+            figure.Segments.Add(new LineSegment(end));
+            path.Figures.Add(figure);
+        }
+
+        return new CadLineTypeLoweringResult(
+            CadLineTypeLoweringStatus.Lowered,
+            path,
+            Matrix4x4.Identity,
+            figureCount,
+            counter.PatternStepCount,
+            1,
+            placements,
+            placementCount);
+
+        CadLineTypeLoweringResult ConstructionFailure(
+            CadLineTypeLoweringStatus status,
+            int figures = 0,
+            int steps = 0,
+            int placements = 0,
+            int sourceSegments = 1) =>
+            new(
+                status,
+                null,
+                Matrix4x4.Identity,
+                figures,
+                steps,
+                sourceSegments,
+                null,
+                placements);
+    }
+
     private static CadLineTypeLoweringStatus CountMLinePatternIntersections(
         ReadOnlySpan<CadMLineStroke> strokes,
         double pathLength,
@@ -2331,6 +2513,153 @@ internal static class CadLineTypeLowerer
 
             PatternStepCount++;
             return true;
+        }
+    }
+
+    /// <summary>
+    /// Enumerates only the intersection of a signed construction-line interval
+    /// with an origin-anchored periodic A-aligned pattern.
+    /// </summary>
+    private ref struct ConstructionPatternSpanEnumerator
+    {
+        private readonly ReadOnlySpan<CadLineTypeElement> _elements;
+        private readonly double _minimum;
+        private readonly double _maximum;
+        private readonly double _scale;
+        private readonly double _period;
+        private readonly int _maxPatternSteps;
+        private double _cycleStart;
+        private double _elementOffset;
+        private int _elementIndex;
+        private bool _valid;
+
+        public PatternSpan Current { get; private set; }
+        public int PatternStepCount { get; private set; }
+        public bool PatternStepLimitExceeded { get; private set; }
+        public bool IsValid => _valid;
+
+        public ConstructionPatternSpanEnumerator(
+            double minimum,
+            double maximum,
+            ReadOnlySpan<CadLineTypeElement> elements,
+            double patternLength,
+            double scale,
+            int maxPatternSteps)
+        {
+            _elements = elements;
+            _minimum = minimum;
+            _maximum = maximum;
+            _scale = scale;
+            _period = patternLength * scale;
+            _maxPatternSteps = Math.Max(0, maxPatternSteps);
+            _cycleStart = 0.0;
+            _elementOffset = 0.0;
+            _elementIndex = 0;
+            _valid = false;
+            Current = default;
+            PatternStepCount = 0;
+            PatternStepLimitExceeded = false;
+
+            if (!double.IsFinite(minimum) ||
+                !double.IsFinite(maximum) ||
+                maximum < minimum ||
+                elements.IsEmpty ||
+                !double.IsFinite(_period) ||
+                _period <= 0.0 ||
+                !double.IsFinite(scale) ||
+                scale <= 0.0)
+            {
+                return;
+            }
+
+            double firstHalf = Math.Abs(elements[0].Length) * scale * 0.5;
+            double shiftedMinimum = minimum + firstHalf;
+            if (!double.IsFinite(firstHalf) || !double.IsFinite(shiftedMinimum))
+            {
+                return;
+            }
+            double cycleIndex = Math.Floor(shiftedMinimum / _period);
+            _cycleStart = (cycleIndex * _period) - firstHalf;
+            _valid = double.IsFinite(_cycleStart) &&
+                _cycleStart + _period > _cycleStart;
+        }
+
+        public bool MoveNext()
+        {
+            while (_valid && _cycleStart <= _maximum)
+            {
+                if (_elementIndex == _elements.Length)
+                {
+                    _cycleStart += _period;
+                    _elementOffset = 0.0;
+                    _elementIndex = 0;
+                    continue;
+                }
+                if (_cycleStart + _elementOffset > _maximum)
+                {
+                    _valid = false;
+                    return false;
+                }
+                if (PatternStepCount >= _maxPatternSteps)
+                {
+                    PatternStepLimitExceeded = true;
+                    return false;
+                }
+
+                PatternStepCount++;
+                int elementIndex = _elementIndex++;
+                CadLineTypeElement element = _elements[elementIndex];
+                double start = _cycleStart + _elementOffset;
+                double length = Math.Abs(element.Length) * _scale;
+                _elementOffset += length;
+                if (!double.IsFinite(start) || !double.IsFinite(length))
+                {
+                    _valid = false;
+                    return false;
+                }
+
+                if (element.Kind != CadLineTypeElementKind.Stroke)
+                {
+                    if (start >= _minimum && start <= _maximum)
+                    {
+                        Current = new PatternSpan(
+                            start,
+                            start,
+                            false,
+                            true,
+                            elementIndex);
+                        return true;
+                    }
+                    continue;
+                }
+                if (element.Length == 0.0)
+                {
+                    if (start >= _minimum && start <= _maximum)
+                    {
+                        Current = new PatternSpan(start, start, true);
+                        return true;
+                    }
+                    continue;
+                }
+                if (element.Length < 0.0)
+                {
+                    continue;
+                }
+
+                double end = start + length;
+                double visibleStart = Math.Max(start, _minimum);
+                double visibleEnd = Math.Min(end, _maximum);
+                if (visibleEnd >= visibleStart)
+                {
+                    Current = new PatternSpan(
+                        visibleStart,
+                        visibleEnd,
+                        visibleEnd == visibleStart);
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }

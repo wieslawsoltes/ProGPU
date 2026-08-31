@@ -2339,16 +2339,25 @@ automatic extents and requires an explicit view or plot window.
 finite WCS-XY plan window using the two-axis parametric slab interval. It emits
 the resulting exact segment relative to the snapshot rebase origin; a vertical
 WCS line whose XY projection is a point emits the existing retained point-batch
-primitive. Consecutive source-order segments with the same resolved continuous
-style share one retained multi-figure `PathGeometry`, while a style transition
-flushes the batch and preserves draw order. No arbitrary far endpoint,
-viewport-dependent tessellation, new shader, upload format, or managed/native
-crossing is introduced. The desktop/browser sample rebuilds only this bounded
-overlay when pan, zoom, size, or content changes and keeps `OnRender`
-mutation-free. Print compilation uses the exact plot window and printable-area
-clip. A non-continuous construction linetype is omitted with `CADCON001` until
-its unbounded phase-origin contract is independently established; it is never
-silently replaced with a continuous stroke.
+primitive. Simple and complex A-aligned patterns use the authored base point as
+immutable phase zero: the first dash is centered there, a RAY retains its
+positive endpoint half-dash, and an XLINE extends one oriented periodic sequence
+through both signed parameter directions. The viewport only intersects those
+authored spans, so pan, zoom, and plot clipping never restart or fit the pattern.
+The iterator seeks directly to the cycle containing the clip minimum instead of
+walking from the entity origin. Consecutive source-order continuous or simple
+pattern figures with the same resolved style share one retained multi-figure
+`PathGeometry`; complex content flushes that batch and reuses the shared
+TrueType/SHX placement recorder. A style transition preserves draw order. No
+arbitrary far endpoint, viewport-dependent tessellation, new shader, upload
+format, or managed/native crossing is introduced. The desktop/browser sample
+rebuilds only this bounded overlay when pan, zoom, size, or content changes and
+keeps `OnRender` mutation-free. Print compilation uses the exact plot window
+and printable-area clip and merges construction lowering counters. Unsupported
+alignment, exhausted budgets, unresolved complex resources, and
+point-projected complex orientation produce a once-per-reason `CADCON001`
+diagnostic and continuous-stroke fallback;
+partial patterned output is never retained.
 
 Every finite selection broad phase appends the `U` unbounded construction
 records after the ordinary BVH result. Point picking computes distance to the
@@ -2357,7 +2366,10 @@ full 3D parametric domain with the finite query box; Window selection always
 misses because a finite box cannot contain an unbounded primitive. Thus a
 query is `O(log F + K + U)` typical and `O(F + K + U)` worst case for `F`
 finite records and `K` BVH hits, with zero warm-query managed allocation.
-Snapshot and viewport-overlay construction are both `O(U)` time/storage.
+Snapshot construction and continuous viewport overlay are `O(U)`. Patterned
+overlay compilation adds `O(E + Q + F + C)` time and `O(F + C)` retained storage
+for definition descriptors `E`, visible descriptor visits `Q`, figures `F`, and
+complex placements `C`, independent of origin-to-viewport distance.
 The top-view shell creates an all-finite-Z selection column so projected
 construction geometry at any elevation is selectable without assigning it a
 finite document extent; the general public box API retains its exact 3D
@@ -2370,6 +2382,11 @@ point-batch commands; the matched regression compiles the clipped overlay
 through `GpuPictureNativeSceneCompiler`. The stable C ABI, generated wire
 records, canonical shaders, path caches, device-loss behavior, and submission
 crossing count are unchanged.
+
+The clean-room sources, rejected engine-specific approaches, exact phase rule,
+complex-placement reuse, print/native applicability audit, tests, and remaining
+evidence are recorded in
+`PROGPU_CAD_CONSTRUCTION_LINETYPE_RESEARCH.md`.
 
 ### Atomic common-start RAY authoring
 
@@ -3597,8 +3614,37 @@ planning was `3.0830/15.0855/17.0833 ms` at `2,030,620 B/op`; and the explicit
 `O(U)` unbounded broad-phase query was `31.9/90.1/167.8 us` with zero managed
 allocation. This is a reproducible feature/cost baseline, not an improvement
 or release-acceptance claim. Representative interactive traces, managed/native
-images, GPU counters, non-continuous construction-linetype phase work, and the
+images, GPU counters, patterned construction-linetype visual differentials, and the
 required matched Instruments captures remain open acceptance gates.
+
+The 2026-08-31 patterned-construction checkpoint used two sequential processes
+from the same final Apple Silicon/.NET 10.0.5 Release binary. The simple fixture
+contained 5,000 RAY and 5,000 XLINE entities using the benchmark dash/dot
+definition at entity linetype scale 20, the same explicit `[-100,-100]` through
+`[12100,500]` plan/plot window, three warmups, 24 construction iterations, and
+10,000 caller-buffered construction queries. Both runs lowered all 10,000
+entities with zero fallback, exactly 200,919 figures, 404,858 descriptor visits,
+and one style-batched retained command. Construction compilation was
+`113.8119/182.7288/203.5711 ms` and `162.1728/194.4085/244.7878 ms`
+p50/p95/p99, allocating `45,600,890` and `45,601,325 B/op`; print planning was
+`134.4956/217.7978/224.4152 ms` and `109.0666/138.4019/208.8951 ms`.
+
+The matched complex fixture used 500 RAY and 500 XLINE entities, the benchmark
+`GAS` TrueType pattern at the same scale/window, and identical warmup/iteration/
+query counts. Both runs lowered all 1,000 entities with zero fallback, exactly
+11,357 stroke figures and 10,377 placements in 11,377 retained commands.
+Construction compilation was `17.6564/62.9751/69.0310 ms` and
+`15.1876/55.1496/79.6880 ms`, allocating `9,340,197` and `9,340,260 B/op`;
+print planning was `15.4307/45.9684/52.5122 ms` and
+`19.9541/81.1369/128.1225 ms`. Query allocation remained zero in all four
+processes. The ignored artifacts are
+`artifacts/progpu-cad/cad-construction-linetype-run1.json`,
+`cad-construction-linetype-run2.json`,
+`cad-construction-complex-linetype-run1.json`, and
+`cad-construction-complex-linetype-run2.json`. These are transparent
+feature-cost baselines, not comparisons with the continuous workload or claims
+of latency improvement; interactive GPU/native images and Instruments traces
+remain open acceptance evidence.
 
 Two sequential 2026-08-30 WIPEOUT feature-cost runs used the same final Apple
 Silicon/.NET 10.0.5 Release binary, 1,000 four-vertex clipped masks alternating

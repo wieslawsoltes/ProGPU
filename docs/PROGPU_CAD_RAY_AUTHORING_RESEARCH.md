@@ -121,5 +121,5 @@ consumer gate passed without restoring or staging those deletions.
 
 Command chaining from the prior command endpoint, temporary overrides,
 expressions and drawing units, 3D UCS/arbitrary-camera acquisition,
-object-snap tracking, non-continuous unbounded linetype phase origins, visual
+object-snap tracking, visual
 goldens, and dense-sequence p50/p95/p99 measurements remain later gates.

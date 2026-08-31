@@ -383,6 +383,24 @@ public sealed class CadPrintPlanCompiler
                     RecordedCommandCount = checked(
                         combinedStatistics.RecordedCommandCount +
                         construction.Statistics.RecordedCommandCount),
+                    UnsupportedLineTypeCount = checked(
+                        combinedStatistics.UnsupportedLineTypeCount +
+                        construction.Statistics.UnsupportedLineTypeCount),
+                    LoweredLineTypeEntityCount = checked(
+                        combinedStatistics.LoweredLineTypeEntityCount +
+                        construction.Statistics.LoweredLineTypeEntityCount),
+                    LoweredLineTypeFigureCount = checked(
+                        combinedStatistics.LoweredLineTypeFigureCount +
+                        construction.Statistics.LoweredLineTypeFigureCount),
+                    LoweredLineTypePlacementCount = checked(
+                        combinedStatistics.LoweredLineTypePlacementCount +
+                        construction.Statistics.LoweredLineTypePlacementCount),
+                    LineTypePatternStepCount = checked(
+                        combinedStatistics.LineTypePatternStepCount +
+                        construction.Statistics.LineTypePatternStepCount),
+                    LineTypeSourceSegmentCount = checked(
+                        combinedStatistics.LineTypeSourceSegmentCount +
+                        construction.Statistics.LineTypeSourceSegmentCount),
                 };
                 diagnostics = new CadDiagnostic[
                     scene.Diagnostics.Length + construction.Diagnostics.Length];

@@ -1410,6 +1410,8 @@ CadDocumentSession CreateDocument(
                     FirstPoint = new XYZ(x, y, i % 17),
                     Direction = new XYZ(-0.25, 1, -0.05),
                 };
+            entity.LineType = benchmarkLineType ?? document.LineTypes.Continuous;
+            entity.LineTypeScale = benchmarkLineType is null ? 1.0 : 20.0;
             document.Entities.Add(entity);
         }
 

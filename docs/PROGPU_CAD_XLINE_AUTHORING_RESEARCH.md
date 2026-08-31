@@ -217,6 +217,5 @@ sample project. The equivalent direct two-package build, audit, and isolated
 consumer gate passed without restoring or staging those deletions.
 
 Command chaining, temporary overrides, expressions and drawing units, 3D
-UCS/arbitrary-camera acquisition, object-snap tracking, non-continuous unbounded
-linetype phase origins, visual goldens, and dense-sequence p50/p95/p99
-measurements remain later gates.
+UCS/arbitrary-camera acquisition, object-snap tracking, visual goldens, and
+dense-sequence p50/p95/p99 measurements remain later gates.

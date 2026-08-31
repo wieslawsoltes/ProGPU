@@ -749,7 +749,7 @@ public sealed class CadPlanSceneCompiler
         return pens;
     }
 
-    private static void RecordLineTypePlacements(
+    internal static void RecordLineTypePlacements(
         DrawingContext context,
         Pen pen,
         CadDocumentSnapshot snapshot,
@@ -909,7 +909,7 @@ public sealed class CadPlanSceneCompiler
         }
     }
 
-    private static bool HasLineTypeSubstitution(
+    internal static bool HasLineTypeSubstitution(
         CadDocumentSnapshot snapshot,
         in CadLineTypePattern pattern)
     {
