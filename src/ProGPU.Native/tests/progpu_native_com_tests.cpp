@@ -115,9 +115,24 @@ int main()
 
         com::pointer<probe_interface> copied(owner);
         com::pointer<probe_interface> moved(std::move(copied));
-        if (copied || !moved || moved->Value() != 42U) {
+        if (copied || !moved || moved.Get()->Value() != 42U ||
+            moved.GetAddressOf() == nullptr ||
+            *moved.GetAddressOf() != raw) {
             return 5;
         }
+
+        probe_interface* detached = moved.Detach();
+        if (moved || detached != raw) {
+            return 6;
+        }
+        moved.Attach(detached);
+        moved.Reset();
+
+        com::pointer<probe_interface> output;
+        probe_interface** output_address = &output;
+        if (output_address == nullptr || *output_address != nullptr) {
+            return 7;
+        }
     }
-    return destroyed ? 0 : 6;
+    return destroyed ? 0 : 8;
 }

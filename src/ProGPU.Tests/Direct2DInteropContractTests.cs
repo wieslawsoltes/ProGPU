@@ -22,6 +22,12 @@ public sealed class Direct2DInteropContractTests
             "ProGPU.Native",
             "tests",
             "progpu_native_com_tests.cpp");
+        string provider = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "src",
+            "Direct2D",
+            "progpu_native_direct2d.cpp");
 
         Assert.Contains("using unknown = IUnknown;", header, StringComparison.Ordinal);
         Assert.Contains("struct unknown", header, StringComparison.Ordinal);
@@ -40,7 +46,12 @@ public sealed class Direct2DInteropContractTests
             "identity.get() != static_cast<com::unknown*>(raw)",
             nativeTest,
             StringComparison.Ordinal);
-        Assert.Contains("return destroyed ? 0 : 6;", nativeTest, StringComparison.Ordinal);
+        Assert.Contains("return destroyed ? 0 : 8;", nativeTest, StringComparison.Ordinal);
+        Assert.Contains(
+            "using ComPtr = progpu::native::com::pointer<Interface>;",
+            provider,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("<wrl/client.h>", provider, StringComparison.Ordinal);
     }
 
     [Fact]
