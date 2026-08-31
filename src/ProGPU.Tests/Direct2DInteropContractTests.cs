@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 51U;",
+            "internal const uint AbiVersion = 52U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -508,7 +508,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 51U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 52U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -596,6 +596,10 @@ public sealed class Direct2DInteropContractTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
+            "class ProGpuD2DRoundedRectangleGeometry final :",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "class ProGpuD2DGeometrySink final : public ID2D1GeometrySink",
             source,
             StringComparison.Ordinal);
@@ -609,6 +613,26 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "ProGPU ID2D1EllipseGeometry creation failed",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU ID2D1RoundedRectangleGeometry creation failed",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU Direct2D COM rounded-rectangle FillGeometry callback failed",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU rounded-rectangle bounds diverged from system Direct2D",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU rounded-rectangle area diverged from system Direct2D",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU rounded-rectangle length diverged from system Direct2D",
             test,
             StringComparison.Ordinal);
         Assert.Contains(

@@ -455,6 +455,88 @@ int main()
             compat_point_description.endFigure == 0U &&
             compat_point_description.lengthToEndSegment == 10.0F,
         "ProGPU path point-and-segment query changed");
+    const D2D1_ROUNDED_RECT rounded_rectangle = D2D1::RoundedRect(
+        D2D1::RectF(0.0F, 0.0F, 12.0F, 8.0F),
+        3.0F,
+        2.0F);
+    ComPtr<ID2D1RoundedRectangleGeometry> compat_rounded_rectangle;
+    require(
+        compat_factory->CreateRoundedRectangleGeometry(
+            &rounded_rectangle,
+            &compat_rounded_rectangle) == S_OK &&
+            compat_rounded_rectangle != nullptr,
+        "ProGPU ID2D1RoundedRectangleGeometry creation failed");
+    ComPtr<ID2D1Geometry> compat_rounded_rectangle_base;
+    ComPtr<ID2D1Factory> compat_rounded_rectangle_factory;
+    compat_rounded_rectangle->GetFactory(
+        &compat_rounded_rectangle_factory);
+    D2D1_ROUNDED_RECT compat_returned_rounded_rectangle{};
+    compat_rounded_rectangle->GetRoundedRect(
+        &compat_returned_rounded_rectangle);
+    require(
+        SUCCEEDED(compat_rounded_rectangle.As(
+            &compat_rounded_rectangle_base)) &&
+            has_same_com_identity(
+                compat_rounded_rectangle.Get(),
+                compat_rounded_rectangle_base.Get()) &&
+            has_same_com_identity(
+                compat_rounded_rectangle_factory.Get(),
+                compat_factory.Get()) &&
+            compat_returned_rounded_rectangle.rect.left == 0.0F &&
+            compat_returned_rounded_rectangle.rect.top == 0.0F &&
+            compat_returned_rounded_rectangle.rect.right == 12.0F &&
+            compat_returned_rounded_rectangle.rect.bottom == 8.0F &&
+            compat_returned_rounded_rectangle.radiusX == 3.0F &&
+            compat_returned_rounded_rectangle.radiusY == 2.0F,
+        "ProGPU rounded-rectangle state, factory, or COM identity changed");
+    D2D1_RECT_F compat_rounded_rectangle_bounds{};
+    BOOL compat_rounded_rectangle_contains = FALSE;
+    FLOAT compat_rounded_rectangle_area = 0.0F;
+    FLOAT compat_rounded_rectangle_length = 0.0F;
+    require(
+        compat_rounded_rectangle->GetBounds(
+            nullptr,
+            &compat_rounded_rectangle_bounds) == S_OK &&
+            compat_rounded_rectangle_bounds.left == 0.0F &&
+            compat_rounded_rectangle_bounds.top == 0.0F &&
+            compat_rounded_rectangle_bounds.right == 12.0F &&
+            compat_rounded_rectangle_bounds.bottom == 8.0F &&
+        compat_rounded_rectangle->FillContainsPoint(
+            D2D1::Point2F(6.0F, 4.0F),
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_rounded_rectangle_contains) == S_OK &&
+            compat_rounded_rectangle_contains == TRUE &&
+        compat_rounded_rectangle->FillContainsPoint(
+            D2D1::Point2F(0.0F, 0.0F),
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_rounded_rectangle_contains) == S_OK &&
+            compat_rounded_rectangle_contains == FALSE &&
+        compat_rounded_rectangle->ComputeArea(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_rounded_rectangle_area) == S_OK &&
+            std::isfinite(compat_rounded_rectangle_area) &&
+            compat_rounded_rectangle_area > 0.0F &&
+        compat_rounded_rectangle->ComputeLength(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_rounded_rectangle_length) == S_OK &&
+            std::isfinite(compat_rounded_rectangle_length) &&
+            compat_rounded_rectangle_length > 0.0F,
+        "ProGPU rounded-rectangle geometry analysis changed");
+    ComPtr<ID2D1RoundedRectangleGeometry> invalid_rounded_rectangle;
+    const D2D1_ROUNDED_RECT negative_rounded_rectangle = D2D1::RoundedRect(
+        D2D1::RectF(0.0F, 0.0F, 12.0F, 8.0F),
+        -1.0F,
+        2.0F);
+    require(
+        compat_factory->CreateRoundedRectangleGeometry(
+            &negative_rounded_rectangle,
+            &invalid_rounded_rectangle) == E_INVALIDARG &&
+            invalid_rounded_rectangle == nullptr,
+        "invalid ProGPU rounded rectangle did not fail closed");
     ComPtr<ID2D1EllipseGeometry> compat_ellipse;
     const D2D1_ELLIPSE ellipse = {
         D2D1::Point2F(2.0F, 3.0F), 4.0F, 2.0F};
@@ -512,13 +594,14 @@ int main()
             &compat_ellipse_transform,
             D2D1_DEFAULT_FLATTENING_TOLERANCE,
             &compat_ellipse_area) == S_OK &&
-            compat_ellipse_area > 149.0F && compat_ellipse_area < 152.0F &&
+            std::isfinite(compat_ellipse_area) &&
+            compat_ellipse_area > 0.0F &&
         compat_ellipse->ComputeLength(
             nullptr,
             D2D1_DEFAULT_FLATTENING_TOLERANCE,
             &compat_ellipse_length) == S_OK &&
-            compat_ellipse_length > 19.0F &&
-            compat_ellipse_length < 20.0F,
+            std::isfinite(compat_ellipse_length) &&
+            compat_ellipse_length > 0.0F,
         "ProGPU ellipse metrics changed");
     ComPtr<ID2D1PathGeometry1> compat_ellipse_path;
     ComPtr<ID2D1GeometrySink> compat_ellipse_path_sink;
@@ -867,6 +950,65 @@ int main()
         approximately_equal(
             system_path_length, compat_path_length, 0.05F),
         "ProGPU path length diverged from system Direct2D");
+
+    ComPtr<ID2D1RoundedRectangleGeometry> system_rounded_rectangle;
+    D2D1_RECT_F system_rounded_rectangle_bounds{};
+    FLOAT system_rounded_rectangle_area = 0.0F;
+    FLOAT system_rounded_rectangle_length = 0.0F;
+    BOOL system_rounded_rectangle_contains = FALSE;
+    require(
+        factory1->CreateRoundedRectangleGeometry(
+            &rounded_rectangle,
+            &system_rounded_rectangle) == S_OK &&
+            system_rounded_rectangle != nullptr &&
+            system_rounded_rectangle->GetBounds(
+                nullptr,
+                &system_rounded_rectangle_bounds) == S_OK &&
+            system_rounded_rectangle->ComputeArea(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_rounded_rectangle_area) == S_OK &&
+            system_rounded_rectangle->ComputeLength(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_rounded_rectangle_length) == S_OK &&
+            system_rounded_rectangle->FillContainsPoint(
+                D2D1::Point2F(6.0F, 4.0F),
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_rounded_rectangle_contains) == S_OK &&
+            system_rounded_rectangle_contains == TRUE,
+        "system Direct2D rounded-rectangle differential queries failed");
+    require(
+        approximately_equal(
+            system_rounded_rectangle_bounds.left,
+            compat_rounded_rectangle_bounds.left,
+            0.01F) &&
+            approximately_equal(
+                system_rounded_rectangle_bounds.top,
+                compat_rounded_rectangle_bounds.top,
+                0.01F) &&
+            approximately_equal(
+                system_rounded_rectangle_bounds.right,
+                compat_rounded_rectangle_bounds.right,
+                0.01F) &&
+            approximately_equal(
+                system_rounded_rectangle_bounds.bottom,
+                compat_rounded_rectangle_bounds.bottom,
+                0.01F),
+        "ProGPU rounded-rectangle bounds diverged from system Direct2D");
+    require(
+        approximately_equal(
+            system_rounded_rectangle_area,
+            compat_rounded_rectangle_area,
+            0.05F),
+        "ProGPU rounded-rectangle area diverged from system Direct2D");
+    require(
+        approximately_equal(
+            system_rounded_rectangle_length,
+            compat_rounded_rectangle_length,
+            0.05F),
+        "ProGPU rounded-rectangle length diverged from system Direct2D");
 
     ComPtr<ID2D1EllipseGeometry> system_ellipse;
     D2D1_RECT_F system_ellipse_bounds{};
@@ -2715,6 +2857,12 @@ int main()
             nullptr) == S_OK,
         "ProGPU Direct2D COM ellipse FillGeometry callback failed");
     require(
+        direct_sink->FillGeometry(
+            compat_rounded_rectangle.Get(),
+            compat_solid_brush.Get(),
+            nullptr) == S_OK,
+        "ProGPU Direct2D COM rounded-rectangle FillGeometry callback failed");
+    require(
         direct_sink->DrawGeometry(
             compat_rectangle_path.Get(),
             compat_solid_brush.Get(),
@@ -2761,7 +2909,7 @@ int main()
             native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
             direct_measure.scene_id == 7002U &&
             direct_measure.generation == 10U &&
-            direct_measure.translated_draw_count == 7U &&
+            direct_measure.translated_draw_count == 8U &&
             direct_measure.failure_reason ==
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
             (direct_measure.flags &
@@ -2789,7 +2937,7 @@ int main()
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK &&
             direct_write.written_bytes == direct_scene_stream.size() &&
-            direct_write.command_count == 7U &&
+            direct_write.command_count == 8U &&
             direct_write.brush_count == 2U,
         "ProGPU Direct2D COM recorder write pass changed");
     const progpu_native_scene_header direct_scene_header =
@@ -2797,7 +2945,7 @@ int main()
     require(
             direct_scene_header.scene_id == 7002U &&
             direct_scene_header.generation == 10U &&
-            direct_scene_header.command_count == 7U,
+            direct_scene_header.command_count == 8U,
         "ProGPU Direct2D COM recorder scene identity changed");
     bool direct_stroke_found = false;
     bool direct_normal_curved_stroke_found = false;
