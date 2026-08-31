@@ -13,15 +13,15 @@
     },
     "decoder": {
       "path": "src/ProGPU.Native/src/Mil/progpu_native_mil.cpp",
-      "sha256": "699a000fe0f6630f2d12e468422959b7e1de736282c9640d7a028b8aae79d0b2"
+      "sha256": "b90830936e2d5efb70f59fbaa1b2082d8fbb4e9937c912d765606f7dbc239b96"
     }
   },
   "summary": {
     "commandCount": 143,
     "sentinel": 2,
-    "topLevelDecoder": 64,
+    "topLevelDecoder": 66,
     "nestedRenderDataDispatch": 25,
-    "notDispatched": 52
+    "notDispatched": 50
   },
   "commands": [
     {
@@ -188,7 +188,7 @@
       "name": "media_player",
       "wpfName": "MilCmdMediaPlayer",
       "value": 23,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_MEDIAPLAYER"
     },
     {
@@ -993,7 +993,7 @@
       "name": "video_drawing",
       "wpfName": "MilCmdVideoDrawing",
       "value": 138,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_VIDEODRAWING"
     },
     {

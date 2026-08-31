@@ -63,6 +63,7 @@ constexpr std::uint32_t type_pen = 85U;
 constexpr std::uint32_t type_geometry_drawing = 87U;
 constexpr std::uint32_t type_glyph_run_drawing = 88U;
 constexpr std::uint32_t type_image_drawing = 89U;
+constexpr std::uint32_t type_video_drawing = 90U;
 constexpr std::uint32_t type_drawing_group = 91U;
 constexpr std::uint32_t type_guideline_set = 92U;
 constexpr std::uint32_t type_bitmap_cache = 94U;
@@ -2222,6 +2223,15 @@ struct channel::implementation {
         std::uint32_t rect_animation_handle{};
     };
 
+    struct video_drawing_state {
+        double x{};
+        double y{};
+        double width{};
+        double height{};
+        std::uint32_t player_handle{};
+        std::uint32_t rect_animation_handle{};
+    };
+
     struct bitmap_source_state {
         std::uint32_t width{};
         std::uint32_t height{};
@@ -2451,6 +2461,7 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, glyph_run_drawing_state>
         glyph_run_drawings;
     std::unordered_map<std::uint32_t, image_drawing_state> image_drawings;
+    std::unordered_map<std::uint32_t, video_drawing_state> video_drawings;
     std::unordered_map<std::uint32_t, media_player_state> media_players;
     std::unordered_map<std::uint32_t, bitmap_source_state> bitmap_sources;
     std::unordered_map<std::uint32_t, d3d_image_state> d3d_images;
@@ -3177,6 +3188,13 @@ struct channel::implementation {
                     return status::invalid_graph;
                 }
             }
+            for (const auto& [drawing_handle, drawing] : video_drawings) {
+                if (drawing_handle != handle &&
+                    (drawing.player_handle == handle ||
+                     drawing.rect_animation_handle == handle)) {
+                    return status::invalid_graph;
+                }
+            }
             for (const auto& [image_handle, image] : drawing_images) {
                 if (image_handle != handle &&
                     image.drawing_handle == handle) {
@@ -3301,6 +3319,7 @@ struct channel::implementation {
             glyph_run_drawings.erase(handle);
             glyph_runs.erase(handle);
             image_drawings.erase(handle);
+            video_drawings.erase(handle);
             media_players.erase(handle);
             bitmap_sources.erase(handle);
             d3d_images.erase(handle);
@@ -3428,6 +3447,38 @@ struct channel::implementation {
             // The sideband owns the new pixels or live texture. This packet
             // only invalidates retained consumers, matching WPF's change
             // notification without copying or reading image data here.
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::media_player: {
+            using layout = command_layouts::media_player;
+            std::uint64_t media_pointer = 0U;
+            std::uint32_t notify_direct = 0U;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::p_media_offset,
+                    media_pointer) ||
+                !read_at(
+                    view.packet,
+                    layout::notify_uce_direct_offset,
+                    notify_direct)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_media_player)) {
+                return status::invalid_handle;
+            }
+            // The desktop pointer identifies process-local media state. A
+            // portable producer publishes the current same-device frame
+            // through set_media_player_external_image instead.
+            if (media_pointer != 0U) {
+                return status::invalid_argument;
+            }
+            if (notify_direct > 1U) {
+                return status::malformed_batch;
+            }
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -6143,6 +6194,49 @@ struct channel::implementation {
                 return status::malformed_batch;
             }
             image_drawings.insert_or_assign(handle, drawing);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::video_drawing: {
+            using layout = command_layouts::video_drawing;
+            video_drawing_state drawing{};
+            const std::size_t rect = layout::rect_offset;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, rect, drawing.x) ||
+                !read_at(view.packet, rect + 8U, drawing.y) ||
+                !read_at(view.packet, rect + 16U, drawing.width) ||
+                !read_at(view.packet, rect + 24U, drawing.height) ||
+                !read_at(
+                    view.packet,
+                    layout::h_player_offset,
+                    drawing.player_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::h_rect_animations_offset,
+                    drawing.rect_animation_handle)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_video_drawing) ||
+                (drawing.player_handle != 0U &&
+                 !require_resource(
+                     drawing.player_handle,
+                     type_media_player)) ||
+                (drawing.rect_animation_handle != 0U &&
+                 !require_resource(
+                     drawing.rect_animation_handle,
+                     type_rect_resource))) {
+                return status::invalid_handle;
+            }
+            if (!finite_double_as_float(drawing.x) ||
+                !finite_double_as_float(drawing.y) ||
+                !finite_double_as_float(drawing.width) ||
+                !finite_double_as_float(drawing.height) ||
+                drawing.width < 0.0 || drawing.height < 0.0) {
+                return status::malformed_batch;
+            }
+            video_drawings.insert_or_assign(handle, drawing);
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -10170,6 +10264,38 @@ struct channel::implementation {
                 }
                 return finish_bounds();
             }
+            const auto video_drawing = video_drawings.find(drawing_handle);
+            if (video_drawing != video_drawings.end()) {
+                auto video = video_drawing->second;
+                const status rectangle_status = resolve_animated_rect(
+                    video.x,
+                    video.y,
+                    video.width,
+                    video.height,
+                    video.rect_animation_handle,
+                    video.x,
+                    video.y,
+                    video.width,
+                    video.height);
+                if (rectangle_status != status::success) {
+                    return rectangle_status;
+                }
+                if (video.player_handle == 0U ||
+                    video.width <= 0.0 || video.height <= 0.0) {
+                    bounds = {};
+                    return status::success;
+                }
+                if (!try_transform_bounds(
+                        video.x,
+                        video.y,
+                        video.width,
+                        video.height,
+                        current_transform,
+                        bounds)) {
+                    return status::unsupported_command;
+                }
+                return finish_bounds();
+            }
             const auto glyph_drawing = glyph_run_drawings.find(
                 drawing_handle);
             if (glyph_drawing != glyph_run_drawings.end()) {
@@ -11526,6 +11652,40 @@ struct channel::implementation {
                             current);
                         if (image_status != status::success) {
                             return image_status;
+                        }
+                        continue;
+                    }
+                    const auto video = video_drawings.find(drawing_handle);
+                    if (video != video_drawings.end()) {
+                        auto video_state = video->second;
+                        const status rectangle_status =
+                            resolve_animated_rect(
+                                video_state.x,
+                                video_state.y,
+                                video_state.width,
+                                video_state.height,
+                                video_state.rect_animation_handle,
+                                video_state.x,
+                                video_state.y,
+                                video_state.width,
+                                video_state.height);
+                        if (rectangle_status != status::success) {
+                            return rectangle_status;
+                        }
+                        if (video_state.player_handle == 0U ||
+                            video_state.width == 0.0 ||
+                            video_state.height == 0.0) {
+                            continue;
+                        }
+                        const status video_status = append_media_player(
+                            video_state.player_handle,
+                            video_state.x,
+                            video_state.y,
+                            video_state.width,
+                            video_state.height,
+                            current);
+                        if (video_status != status::success) {
+                            return video_status;
                         }
                         continue;
                     }
@@ -14300,6 +14460,14 @@ struct channel::implementation {
                 result = status::invalid_handle;
             } else {
                 append_if_success(drawing->second.image_source_handle);
+                append_if_success(drawing->second.rect_animation_handle);
+            }
+        } else if (resource->second.type == type_video_drawing) {
+            const auto drawing = video_drawings.find(handle);
+            if (drawing == video_drawings.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(drawing->second.player_handle);
                 append_if_success(drawing->second.rect_animation_handle);
             }
         } else if (resource->second.type == type_drawing_image) {

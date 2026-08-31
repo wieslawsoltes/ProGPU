@@ -132,9 +132,9 @@ Decoder-coverage checkpoint adds a second generated authority beside the wire
 layout manifest. `eng/progpu-generate-mil-coverage.py` reads the canonical
 command table and bounded regions of the actual C++ channel decoder and nested
 render-data compiler, then emits
-`eng/mil/native-mil-command-coverage.json`. The current implementation has 64
+`eng/mil/native-mil-command-coverage.json`. The current implementation has 66
 explicit top-level decoder cases, explicit framing/dispatch for all 25
-canonical nested render-data opcodes, two non-retail sentinels, and 52 commands
+canonical nested render-data opcodes, two non-retail sentinels, and 50 commands
 with no native top-level dispatch. Nested dispatch does not claim every value
 or resource combination is supported; obsolete effects and other unsupported
 forms continue to fail closed after exact framing.
@@ -164,6 +164,19 @@ is false, its rectangle bytes are deliberately ignored because WPF's producer
 leaves that field uninitialized. Tests cover full and partial invalidation,
 pointer rejection, malformed flags/rectangles, generation changes, metrics,
 and rollback.
+
+Media packet checkpoint closes two more ledger entries. The exact 20-byte
+`MilCmdMediaPlayer` packet now validates its direct-notification BOOL while
+requiring the process-local media pointer to be null; live frames remain on the
+typed same-device external-image sideband. The exact 48-byte retained
+`MilCmdVideoDrawing` resource validates its destination rectangle, canonical
+MediaPlayer handle, and optional RectResource animation. `DrawDrawing` then
+reuses the existing native `DrawVideo` image-resource path, including animated
+bounds, retained dependency traversal, protected deletion, deterministic
+external resource identity, and no payload/readback. Non-null media pointers,
+invalid notification flags, missing frame bindings, wrong resources, and
+invalid graph deletion all fail transactionally. The live ledger is therefore
+66 top-level dispatches and 50 undispatched commands.
 
 Brush-layout checkpoint `1b4ef706` migrates SolidColorBrush,
 LinearGradientBrush, RadialGradientBrush, DashStyle, and Pen packet readers to
