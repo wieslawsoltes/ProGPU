@@ -5602,6 +5602,15 @@ scene. This is an explicit factory API, not a replacement `d2d1.dll`; future
 factory, geometry, resource, and device-context vtables will build on the same
 typed recorder and fail-closed rules.
 
+The exact ABI v43 source archive SHA-256 is
+`93F348B9C81F8D8211D24D9D0D145F620DD2EFBF9930D009B3826A8E46B4B05C`.
+Windows 11 ARM64 Parallels rebuilds the provider/test cleanly with MSVC
+19.44/SDK 10.0.26100.0 `/W4 /WX`; the native oracle exits zero. `dumpbin`
+matches all 127 allowlisted exports exactly. The 183,296-byte provider hash is
+`A6B2D9CFA4222846D91081F793BB3D6BAFC1F8C93854933DDD528BFE988D2533`,
+and the test executable hash is
+`08A3E37727EA14A579D6333E3E20914D15DE17F4F016AE10E6EC368F330A474D`.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
