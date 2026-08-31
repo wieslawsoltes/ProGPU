@@ -1487,13 +1487,13 @@ Direct2D's documented
 [`geometry resource model`](https://learn.microsoft.com/windows/win32/direct2d/direct2d-geometries-overview), preserves
 `IUnknown`/`ID2D1Resource`/`ID2D1Geometry` identity, retains the creating
 factory, exposes the original `D2D1_ELLIPSE`, and rejects non-finite or negative
-radii. Affine bounds use the ellipse support function, transformed area uses
-the absolute linear determinant, and nonsingular fill containment maps the
-test point through the inverse transform. These queries remain exact instead
-of depending on a sampled outline.
+radii. Affine bounds use the exact ellipse support function and nonsingular
+fill containment maps the test point through the inverse transform. Area,
+length, and point-at-length queries reuse the retained cubic path so the
+caller's flattening tolerance has the same observable role as system Direct2D.
 
 The geometry owns one closed four-cubic path created at factory time. Shared
-path code therefore supplies simplification, length/point queries, and
+path code therefore supplies simplification, tolerance-controlled metrics, and
 pointer-free fill/stroke scene translation without a per-frame adapter,
 reflection, CPU pixel work, or a renderer-specific ellipse sideband. Zero-radius
 degenerates use the same fail-closed path semantics. Constant-size construction

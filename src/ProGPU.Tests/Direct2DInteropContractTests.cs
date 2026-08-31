@@ -616,7 +616,15 @@ public sealed class Direct2DInteropContractTests
             test,
             StringComparison.Ordinal);
         Assert.Contains(
-            "ProGPU ellipse geometry diverged from system Direct2D",
+            "ProGPU ellipse bounds diverged from system Direct2D",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU ellipse area diverged from system Direct2D",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ProGPU ellipse length diverged from system Direct2D",
             test,
             StringComparison.Ordinal);
         Assert.Contains(

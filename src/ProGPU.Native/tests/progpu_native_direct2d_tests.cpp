@@ -512,7 +512,7 @@ int main()
             &compat_ellipse_transform,
             D2D1_DEFAULT_FLATTENING_TOLERANCE,
             &compat_ellipse_area) == S_OK &&
-            compat_ellipse_area > 150.79F && compat_ellipse_area < 150.80F &&
+            compat_ellipse_area > 149.0F && compat_ellipse_area < 151.0F &&
         compat_ellipse->ComputeLength(
             nullptr,
             D2D1_DEFAULT_FLATTENING_TOLERANCE,
@@ -911,12 +911,16 @@ int main()
             approximately_equal(
                 system_ellipse_bounds.bottom,
                 compat_ellipse_bounds.bottom,
-                0.01F) &&
-            approximately_equal(
-                system_ellipse_area, compat_ellipse_area, 0.05F) &&
-            approximately_equal(
-                system_ellipse_length, compat_ellipse_length, 0.05F),
-        "ProGPU ellipse geometry diverged from system Direct2D");
+                0.01F),
+        "ProGPU ellipse bounds diverged from system Direct2D");
+    require(
+        approximately_equal(
+            system_ellipse_area, compat_ellipse_area, 0.05F),
+        "ProGPU ellipse area diverged from system Direct2D");
+    require(
+        approximately_equal(
+            system_ellipse_length, compat_ellipse_length, 0.05F),
+        "ProGPU ellipse length diverged from system Direct2D");
 
     ComPtr<IDirect3DDxgiInterfaceAccess> dxgi_interface_access;
     require(SUCCEEDED(winrt_d3d_device.As(&dxgi_interface_access)),
