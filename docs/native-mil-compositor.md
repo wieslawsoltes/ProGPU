@@ -6171,6 +6171,85 @@ transform slice. The existing semantic viewport/D3D12 lane remains the visual
 backend gate until canonical mesh, model, material, and light packets remove
 the typed scene sideband.
 
+The boundary described above is historical as of the following checkpoint;
+the sideband remains only as a compatibility input when no canonical
+`Viewport3DVisualSet3DChild` binding has been received.
+
+## Canonical MIL Visual3D, model, mesh, material, and light checkpoint
+
+The native channel now decodes and executes the remaining seventeen WPF 3D
+scene commands: `Viewport3DVisualSet3DChild`, all five Visual3D topology/state
+mutations, `Model3DGroup`, ambient/directional/point/spot lights,
+`GeometryModel3D`, `MeshGeometry3D`, `MaterialGroup`, and the three concrete
+material resources. The generated coverage ledger advances from 84 to 101
+top-level decoder cases and reduces undispatched commands from 32 to 15.
+
+Resource identifiers come from WPF's processed `MIL_RESOURCE_TYPE` authority,
+including its abstract base-class slots. This matters for wire compatibility:
+the concrete cameras are 7/8/9, `Transform3DGroup` is 27, and translate/scale/
+rotate/matrix transforms are 29/30/31/32. Native compile-time constants,
+managed `NativeMilResourceType` values, and differential tests now lock those
+canonical identifiers rather than using a locally contiguous approximation.
+
+Visual3D children retain one-owner topology, indexed insertion/removal, cycle
+rejection, optional content, and optional transform state. Model and material
+groups retain ordered typed children and reject cycles transactionally.
+Dependency hashing and deletion protection traverse viewport child, visual,
+model, geometry, material, brush, light, transform, and animation edges. A
+failed graph update therefore leaves both the previous semantic stream and its
+retained revision intact.
+
+`MeshGeometry3D` consumes WPF's exact variable payload order and element
+widths: float3 positions, float3 normals, double2 texture coordinates, and
+32-bit triangle indices. Index processing matches WPF realization: an invalid
+index truncates the suffix, incomplete triangles are dropped, and a missing
+index collection uses consecutive non-indexed triangles. Missing or short
+normal collections use indexed face accumulation and normalized vertex sums;
+supplied normals override generated values. Missing texture coordinates become
+zero. The indexed accumulation has loop-carried scatter dependencies, so it is
+not a valid lane-independent SIMD kernel; its bounded three-component face
+cross products remain scalar. The independent per-vertex normalization runs in
+four-vertex ARM64 NEON or SSE2 batches with IEEE square-root/divide, finite and
+degenerate-lane masking, and a bounded scalar tail. The canonical test drives
+one full vector block plus its tail and compares supplied and generated normals
+to scalar expected values. GPU projection, lighting, material sampling, and
+rasterization remain in the shared semantic WebGPU path.
+
+Scene compilation makes two deterministic passes over the typed graph: lights
+first and geometry second. This gives every emitted material pass the final
+bounded light table without rebuilding mesh vertices. Row-vector Visual3D,
+Model3DGroup, GeometryModel3D, and light transforms compose in WPF order.
+Normals use inverse-transpose matrices. Ambient, directional, point, and spot
+records lower to the existing backend-neutral light ABI, including transformed
+positions/directions, attenuation, range, and cone cosines.
+
+Ordered `MaterialGroup` leaves produce ordered draw passes. Diffuse material
+retains diffuse/ambient colors, specular retains color and exponent, emissive
+selects unlit shading, and `BackMaterial` produces an explicit back-face pass.
+Solid and linear/radial gradient brushes reuse the ordinary retained brush
+compiler; no CPU readback, per-frame managed flattening, object pointer, or
+backend-specific mesh command is introduced. A canonical child binding always
+wins over the compatibility sideband, including an explicitly null child.
+
+`NativeMilBatchBuilder` exposes span-based writers for the same seventeen
+commands. Variable child and mesh arrays write directly into the canonical
+DWORD-aligned batch buffer without intermediate arrays. Static values are
+validated only when their animation handle is zero, matching generated WPF
+packet behavior; malformed byte counts, wrong resource types, missing handles,
+ownership conflicts, cycles, and non-finite resolved values fail closed.
+
+The native end-to-end test constructs a viewport solely from canonical WPF
+resources—no `set_viewport3d_scene` call—and verifies four material passes,
+generated normals, all four light kinds, transformed mesh state, camera and
+viewport payloads, dependency-protected deletion, transactional invalid
+material rollback, Visual3D cycle rejection, child removal, and reinsertion.
+The managed differential test verifies every added command identifier and
+packet size plus representative fixed, animation, variable-array, and resource
+identifier offsets. The focused native CTest and 97 managed native-interop
+tests pass on Apple Silicon. Windows ARM64 MSVC `/W4 /WX` and live D3D12
+qualification remain required before this checkpoint is called cross-platform
+qualified.
+
 ## Invariants
 
 - No reflection or private managed field scanning in the product bridge.

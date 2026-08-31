@@ -20,6 +20,15 @@
 #include <utility>
 #include <vector>
 
+#if defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+#define PROGPU_NATIVE_MIL_INTRINSICS_NEON 1
+#elif defined(__SSE2__) || defined(_M_X64) || \
+    (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#include <emmintrin.h>
+#define PROGPU_NATIVE_MIL_INTRINSICS_SSE2 1
+#endif
+
 namespace progpu::native::mil {
 namespace {
 
@@ -29,8 +38,20 @@ constexpr std::uint32_t type_quaternion_rotation3d = 4U;
 constexpr std::uint32_t type_perspective_camera = 7U;
 constexpr std::uint32_t type_orthographic_camera = 8U;
 constexpr std::uint32_t type_matrix_camera = 9U;
+constexpr std::uint32_t type_model3d_group = 11U;
+constexpr std::uint32_t type_ambient_light = 13U;
+constexpr std::uint32_t type_directional_light = 14U;
+constexpr std::uint32_t type_point_light = 16U;
+constexpr std::uint32_t type_spot_light = 17U;
+constexpr std::uint32_t type_geometry_model3d = 18U;
+constexpr std::uint32_t type_mesh_geometry3d = 20U;
+constexpr std::uint32_t type_material_group = 22U;
+constexpr std::uint32_t type_diffuse_material = 23U;
+constexpr std::uint32_t type_specular_material = 24U;
+constexpr std::uint32_t type_emissive_material = 25U;
 constexpr std::uint32_t type_visual = 39U;
 constexpr std::uint32_t type_viewport3d_visual = 40U;
+constexpr std::uint32_t type_visual3d = 41U;
 constexpr std::uint32_t type_glyph_run = 42U;
 constexpr std::uint32_t type_render_data = 43U;
 constexpr std::uint32_t type_render_target = 45U;
@@ -168,6 +189,21 @@ bool is_camera3d_type(std::uint32_t type) noexcept {
         type == type_orthographic_camera || type == type_matrix_camera;
 }
 
+bool is_model3d_type(std::uint32_t type) noexcept {
+    return type == type_model3d_group || type == type_ambient_light ||
+        type == type_directional_light || type == type_point_light ||
+        type == type_spot_light || type == type_geometry_model3d;
+}
+
+bool is_light3d_type(std::uint32_t type) noexcept {
+    return type >= type_ambient_light && type <= type_spot_light &&
+        type != 15U;
+}
+
+bool is_material3d_type(std::uint32_t type) noexcept {
+    return type >= type_material_group && type <= type_emissive_material;
+}
+
 bool is_transform3d_type(std::uint32_t type) noexcept {
     return type >= type_transform3d_group &&
         type <= type_matrix_transform3d;
@@ -221,6 +257,15 @@ progpu_native_matrix_4x4 multiply_matrix_4x4(
         }
     }
     return result;
+}
+
+progpu_native_matrix_4x4 transpose_matrix_4x4(
+    const progpu_native_matrix_4x4& value) noexcept {
+    return {
+        value.m11, value.m21, value.m31, value.m41,
+        value.m12, value.m22, value.m32, value.m42,
+        value.m13, value.m23, value.m33, value.m43,
+        value.m14, value.m24, value.m34, value.m44};
 }
 
 bool try_invert_matrix_4x4(
@@ -2340,6 +2385,64 @@ struct channel::implementation {
         std::uint32_t camera_handle{};
         bool has_viewport{};
         bool has_camera_binding{};
+        std::uint32_t child_handle{};
+        bool has_child_binding{};
+    };
+
+    struct visual3d_state {
+        std::uint32_t content_handle{};
+        std::uint32_t transform_handle{};
+        std::vector<std::uint32_t> children;
+    };
+
+    struct model3d_group_state {
+        std::uint32_t transform_handle{};
+        std::vector<std::uint32_t> children;
+    };
+
+    struct light3d_state {
+        std::uint32_t kind{};
+        progpu_native_color color{};
+        std::array<float, 3U> position{};
+        std::array<float, 3U> direction{};
+        double range{};
+        double constant_attenuation{};
+        double linear_attenuation{};
+        double quadratic_attenuation{};
+        double outer_cone_angle{};
+        double inner_cone_angle{};
+        std::uint32_t transform_handle{};
+        std::array<std::uint32_t, 9U> animations{};
+    };
+
+    struct geometry_model3d_state {
+        std::uint32_t transform_handle{};
+        std::uint32_t geometry_handle{};
+        std::uint32_t material_handle{};
+        std::uint32_t back_material_handle{};
+    };
+
+    struct mesh_geometry3d_state {
+        std::vector<std::array<float, 3U>> positions;
+        std::vector<std::array<float, 3U>> normals;
+        std::vector<std::array<double, 2U>> texture_coordinates;
+        std::vector<std::uint32_t> indices;
+    };
+
+    struct material_group_state {
+        std::vector<std::uint32_t> children;
+    };
+
+    struct material3d_state {
+        enum class kind : std::uint32_t {
+            diffuse,
+            specular,
+            emissive
+        } type{kind::diffuse};
+        progpu_native_color color{};
+        progpu_native_color ambient_color{};
+        double specular_power{1.0};
+        std::uint32_t brush_handle{};
     };
 
     struct solid_brush_state {
@@ -2716,6 +2819,16 @@ struct channel::implementation {
     std::unordered_map<std::uint32_t, visual_state> visuals;
     std::unordered_map<std::uint32_t, viewport3d_visual_state>
         viewport3d_visuals;
+    std::unordered_map<std::uint32_t, visual3d_state> visuals3d;
+    std::unordered_map<std::uint32_t, model3d_group_state> model3d_groups;
+    std::unordered_map<std::uint32_t, light3d_state> lights3d;
+    std::unordered_map<std::uint32_t, geometry_model3d_state>
+        geometry_models3d;
+    std::unordered_map<std::uint32_t, mesh_geometry3d_state>
+        mesh_geometries3d;
+    std::unordered_map<std::uint32_t, material_group_state>
+        material_groups3d;
+    std::unordered_map<std::uint32_t, material3d_state> materials3d;
     std::unordered_map<std::uint32_t, viewport3d_scene_state>
         viewport3d_scenes;
     std::unordered_map<std::uint32_t, target_state> targets;
@@ -2792,6 +2905,17 @@ struct channel::implementation {
             is_camera3d_type(found->second.type);
     }
 
+    bool require_model3d(std::uint32_t handle) const noexcept {
+        const auto found = resources.find(handle);
+        return found != resources.end() && is_model3d_type(found->second.type);
+    }
+
+    bool require_material3d(std::uint32_t handle) const noexcept {
+        const auto found = resources.find(handle);
+        return found != resources.end() &&
+            is_material3d_type(found->second.type);
+    }
+
     bool require_brush(std::uint32_t handle) const noexcept {
         const auto found = resources.find(handle);
         return found != resources.end() &&
@@ -2861,6 +2985,81 @@ struct channel::implementation {
                 pending.end(),
                 found->second.children.begin(),
                 found->second.children.end());
+        }
+        return false;
+    }
+
+    bool visual3d_reaches(
+        std::uint32_t start,
+        std::uint32_t destination) const {
+        std::vector<std::uint32_t> pending{start};
+        std::unordered_set<std::uint32_t> visited;
+        while (!pending.empty()) {
+            const std::uint32_t current = pending.back();
+            pending.pop_back();
+            if (current == destination) {
+                return true;
+            }
+            if (!visited.insert(current).second) {
+                continue;
+            }
+            const auto found = visuals3d.find(current);
+            if (found != visuals3d.end()) {
+                pending.insert(
+                    pending.end(),
+                    found->second.children.begin(),
+                    found->second.children.end());
+            }
+        }
+        return false;
+    }
+
+    bool model3d_reaches(
+        std::uint32_t start,
+        std::uint32_t destination) const {
+        std::vector<std::uint32_t> pending{start};
+        std::unordered_set<std::uint32_t> visited;
+        while (!pending.empty()) {
+            const std::uint32_t current = pending.back();
+            pending.pop_back();
+            if (current == destination) {
+                return true;
+            }
+            if (!visited.insert(current).second) {
+                continue;
+            }
+            const auto found = model3d_groups.find(current);
+            if (found != model3d_groups.end()) {
+                pending.insert(
+                    pending.end(),
+                    found->second.children.begin(),
+                    found->second.children.end());
+            }
+        }
+        return false;
+    }
+
+    bool material3d_reaches(
+        std::uint32_t start,
+        std::uint32_t destination) const {
+        std::vector<std::uint32_t> pending{start};
+        std::unordered_set<std::uint32_t> visited;
+        while (!pending.empty()) {
+            const std::uint32_t current = pending.back();
+            pending.pop_back();
+            if (current == destination) {
+                return true;
+            }
+            if (!visited.insert(current).second) {
+                continue;
+            }
+            const auto found = material_groups3d.find(current);
+            if (found != material_groups3d.end()) {
+                pending.insert(
+                    pending.end(),
+                    found->second.children.begin(),
+                    found->second.children.end());
+            }
         }
         return false;
     }
@@ -3715,6 +3914,912 @@ struct channel::implementation {
             : status::invalid_graph;
     }
 
+    static bool normalize_vector3(std::array<float, 3U>& value) noexcept {
+        const float length_squared = value[0] * value[0] +
+            value[1] * value[1] + value[2] * value[2];
+        if (!(length_squared > std::numeric_limits<float>::min()) ||
+            !std::isfinite(length_squared)) {
+            value = {};
+            return false;
+        }
+        const float inverse_length = 1.0F / std::sqrt(length_squared);
+        value[0] *= inverse_length;
+        value[1] *= inverse_length;
+        value[2] *= inverse_length;
+        return std::ranges::all_of(
+            value,
+            [](float component) noexcept {
+                return std::isfinite(component);
+            });
+    }
+
+    static void normalize_vector3_buffer(
+        std::span<std::array<float, 3U>> values) noexcept {
+        static_assert(sizeof(std::array<float, 3U>) == 3U * sizeof(float));
+        std::size_t index = 0U;
+#if defined(PROGPU_NATIVE_MIL_INTRINSICS_NEON)
+        const float32x4_t one = vdupq_n_f32(1.0F);
+        const float32x4_t zero = vdupq_n_f32(0.0F);
+        const float32x4_t minimum =
+            vdupq_n_f32(std::numeric_limits<float>::min());
+        const float32x4_t maximum =
+            vdupq_n_f32(std::numeric_limits<float>::max());
+        for (; index + 4U <= values.size(); index += 4U) {
+            float32x4x3_t coordinates = vld3q_f32(values[index].data());
+            const float32x4_t length_squared = vaddq_f32(
+                vaddq_f32(
+                    vmulq_f32(coordinates.val[0], coordinates.val[0]),
+                    vmulq_f32(coordinates.val[1], coordinates.val[1])),
+                vmulq_f32(coordinates.val[2], coordinates.val[2]));
+            const uint32x4_t valid = vandq_u32(
+                vcgtq_f32(length_squared, minimum),
+                vcleq_f32(length_squared, maximum));
+            const float32x4_t inverse_length = vdivq_f32(
+                one, vsqrtq_f32(length_squared));
+            coordinates.val[0] = vbslq_f32(
+                valid,
+                vmulq_f32(coordinates.val[0], inverse_length),
+                zero);
+            coordinates.val[1] = vbslq_f32(
+                valid,
+                vmulq_f32(coordinates.val[1], inverse_length),
+                zero);
+            coordinates.val[2] = vbslq_f32(
+                valid,
+                vmulq_f32(coordinates.val[2], inverse_length),
+                zero);
+            vst3q_f32(values[index].data(), coordinates);
+        }
+#elif defined(PROGPU_NATIVE_MIL_INTRINSICS_SSE2)
+        const __m128 one = _mm_set1_ps(1.0F);
+        const __m128 minimum =
+            _mm_set1_ps(std::numeric_limits<float>::min());
+        const __m128 maximum =
+            _mm_set1_ps(std::numeric_limits<float>::max());
+        for (; index + 4U <= values.size(); index += 4U) {
+            const __m128 x = _mm_set_ps(
+                values[index + 3U][0],
+                values[index + 2U][0],
+                values[index + 1U][0],
+                values[index][0]);
+            const __m128 y = _mm_set_ps(
+                values[index + 3U][1],
+                values[index + 2U][1],
+                values[index + 1U][1],
+                values[index][1]);
+            const __m128 z = _mm_set_ps(
+                values[index + 3U][2],
+                values[index + 2U][2],
+                values[index + 1U][2],
+                values[index][2]);
+            const __m128 length_squared = _mm_add_ps(
+                _mm_add_ps(_mm_mul_ps(x, x), _mm_mul_ps(y, y)),
+                _mm_mul_ps(z, z));
+            const __m128 valid = _mm_and_ps(
+                _mm_cmpgt_ps(length_squared, minimum),
+                _mm_cmple_ps(length_squared, maximum));
+            const __m128 inverse_length = _mm_div_ps(
+                one, _mm_sqrt_ps(length_squared));
+            alignas(16) std::array<float, 4U> normalized_x{};
+            alignas(16) std::array<float, 4U> normalized_y{};
+            alignas(16) std::array<float, 4U> normalized_z{};
+            _mm_store_ps(
+                normalized_x.data(),
+                _mm_and_ps(_mm_mul_ps(x, inverse_length), valid));
+            _mm_store_ps(
+                normalized_y.data(),
+                _mm_and_ps(_mm_mul_ps(y, inverse_length), valid));
+            _mm_store_ps(
+                normalized_z.data(),
+                _mm_and_ps(_mm_mul_ps(z, inverse_length), valid));
+            for (std::size_t lane = 0U; lane < 4U; ++lane) {
+                values[index + lane] = {
+                    normalized_x[lane],
+                    normalized_y[lane],
+                    normalized_z[lane]};
+            }
+        }
+#endif
+        for (; index < values.size(); ++index) {
+            normalize_vector3(values[index]);
+        }
+    }
+
+    static bool transform_vector3(
+        const std::array<float, 3U>& source,
+        const progpu_native_matrix_4x4& transform,
+        std::array<float, 3U>& destination) noexcept {
+        destination = {
+            source[0] * transform.m11 + source[1] * transform.m21 +
+                source[2] * transform.m31,
+            source[0] * transform.m12 + source[1] * transform.m22 +
+                source[2] * transform.m32,
+            source[0] * transform.m13 + source[1] * transform.m23 +
+                source[2] * transform.m33};
+        return std::ranges::all_of(
+            destination,
+            [](float component) noexcept {
+                return std::isfinite(component);
+            });
+    }
+
+    static bool transform_point3(
+        const std::array<float, 3U>& source,
+        const progpu_native_matrix_4x4& transform,
+        std::array<float, 3U>& destination) noexcept {
+        const float x = source[0] * transform.m11 +
+            source[1] * transform.m21 + source[2] * transform.m31 +
+            transform.m41;
+        const float y = source[0] * transform.m12 +
+            source[1] * transform.m22 + source[2] * transform.m32 +
+            transform.m42;
+        const float z = source[0] * transform.m13 +
+            source[1] * transform.m23 + source[2] * transform.m33 +
+            transform.m43;
+        const float w = source[0] * transform.m14 +
+            source[1] * transform.m24 + source[2] * transform.m34 +
+            transform.m44;
+        if (!std::isfinite(x) || !std::isfinite(y) ||
+            !std::isfinite(z) || !std::isfinite(w) || w == 0.0F) {
+            return false;
+        }
+        destination = {x / w, y / w, z / w};
+        return std::ranges::all_of(
+            destination,
+            [](float component) noexcept {
+                return std::isfinite(component);
+            });
+    }
+
+    status resolve_light3d(
+        std::uint32_t handle,
+        const progpu_native_matrix_4x4& parent_transform,
+        progpu_native_scene_light_3d& native) const noexcept {
+        const auto source = lights3d.find(handle);
+        if (source == lights3d.end()) {
+            return status::invalid_handle;
+        }
+        const auto& light = source->second;
+        progpu_native_color color{};
+        status value_status = resolve_animated_color(
+            light.color, light.animations[0], color);
+        if (value_status != status::success) {
+            return value_status;
+        }
+        progpu_native_matrix_4x4 local_transform{};
+        value_status = resolve_transform3d(
+            light.transform_handle, local_transform);
+        if (value_status != status::success) {
+            return value_status;
+        }
+        const progpu_native_matrix_4x4 effective_transform =
+            multiply_matrix_4x4(local_transform, parent_transform);
+        native = {};
+        native.struct_size = sizeof(native);
+        native.kind = light.kind;
+        native.color = color;
+        if (light.kind == PROGPU_NATIVE_LIGHT_3D_AMBIENT) {
+            return semantic::is_valid_semantic_light_3d(native)
+                ? status::success
+                : status::invalid_graph;
+        }
+        if (light.kind == PROGPU_NATIVE_LIGHT_3D_DIRECTIONAL ||
+            light.kind == PROGPU_NATIVE_LIGHT_3D_SPOT) {
+            std::array<float, 3U> direction{};
+            value_status = resolve_animated_vector3(
+                light.direction,
+                light.animations[6],
+                false,
+                direction);
+            if (value_status != status::success ||
+                !transform_vector3(
+                    direction, effective_transform, direction) ||
+                !normalize_vector3(direction)) {
+                return value_status == status::success
+                    ? status::invalid_graph
+                    : value_status;
+            }
+            native.direction_inner_cos = {
+                direction[0], direction[1], direction[2], 0.0F};
+        }
+        if (light.kind == PROGPU_NATIVE_LIGHT_3D_POINT ||
+            light.kind == PROGPU_NATIVE_LIGHT_3D_SPOT) {
+            std::array<float, 3U> position{};
+            value_status = resolve_animated_vector3(
+                light.position,
+                light.animations[1],
+                true,
+                position);
+            if (value_status != status::success ||
+                !transform_point3(
+                    position, effective_transform, position)) {
+                return value_status == status::success
+                    ? status::invalid_graph
+                    : value_status;
+            }
+            std::array<double, 4U> values{};
+            const std::array base_values{
+                light.range,
+                light.constant_attenuation,
+                light.linear_attenuation,
+                light.quadratic_attenuation};
+            for (std::size_t index = 0U; index < values.size(); ++index) {
+                value_status = resolve_animated_double(
+                    base_values[index],
+                    light.animations[index + 2U],
+                    values[index]);
+                if (value_status != status::success) {
+                    return value_status;
+                }
+            }
+            const bool infinite_range = std::isinf(values[0]) &&
+                values[0] > 0.0;
+            if ((!finite_double_as_float(values[0]) && !infinite_range) ||
+                values[0] <= 0.0 ||
+                !finite_double_as_float(values[1]) || values[1] < 0.0 ||
+                !finite_double_as_float(values[2]) || values[2] < 0.0 ||
+                !finite_double_as_float(values[3]) || values[3] < 0.0 ||
+                (values[1] == 0.0 && values[2] == 0.0 &&
+                 values[3] == 0.0)) {
+                return status::invalid_graph;
+            }
+            native.position_range = {
+                position[0],
+                position[1],
+                position[2],
+                infinite_range
+                    ? std::numeric_limits<float>::max()
+                    : static_cast<float>(values[0])};
+            native.attenuation_outer_cos = {
+                static_cast<float>(values[1]),
+                static_cast<float>(values[2]),
+                static_cast<float>(values[3]),
+                0.0F};
+        }
+        if (light.kind == PROGPU_NATIVE_LIGHT_3D_SPOT) {
+            double outer = 0.0;
+            double inner = 0.0;
+            value_status = resolve_animated_double(
+                light.outer_cone_angle,
+                light.animations[7],
+                outer);
+            if (value_status == status::success) {
+                value_status = resolve_animated_double(
+                    light.inner_cone_angle,
+                    light.animations[8],
+                    inner);
+            }
+            if (value_status != status::success ||
+                !finite_double_as_float(outer) ||
+                !finite_double_as_float(inner) ||
+                outer < 0.0 || outer > 180.0 ||
+                inner < 0.0 || inner > 180.0) {
+                return value_status == status::success
+                    ? status::invalid_graph
+                    : value_status;
+            }
+            inner = std::min(inner, outer);
+            native.direction_inner_cos.w = static_cast<float>(std::cos(
+                inner * std::numbers::pi_v<double> / 360.0));
+            native.attenuation_outer_cos.w = static_cast<float>(std::cos(
+                outer * std::numbers::pi_v<double> / 360.0));
+        }
+        return semantic::is_valid_semantic_light_3d(native)
+            ? status::success
+            : status::invalid_graph;
+    }
+
+    status append_material3d_handles(
+        std::uint32_t handle,
+        std::vector<std::uint32_t>& handles,
+        std::unordered_set<std::uint32_t>& active,
+        std::uint32_t depth) const {
+        if (handle == 0U) {
+            return status::success;
+        }
+        if (depth > maximum_visual_depth || !active.insert(handle).second) {
+            return status::invalid_graph;
+        }
+        const auto resource = resources.find(handle);
+        if (resource == resources.end() ||
+            !is_material3d_type(resource->second.type)) {
+            active.erase(handle);
+            return status::invalid_handle;
+        }
+        if (resource->second.type != type_material_group) {
+            try {
+                handles.push_back(handle);
+            } catch (const std::bad_alloc&) {
+                active.erase(handle);
+                return status::capacity_exceeded;
+            }
+            active.erase(handle);
+            return status::success;
+        }
+        const auto group = material_groups3d.find(handle);
+        if (group == material_groups3d.end()) {
+            active.erase(handle);
+            return status::invalid_handle;
+        }
+        status result = status::success;
+        for (const std::uint32_t child : group->second.children) {
+            result = append_material3d_handles(
+                child, handles, active, depth + 1U);
+            if (result != status::success) {
+                break;
+            }
+        }
+        active.erase(handle);
+        return result;
+    }
+
+    static progpu_native_scene_brush white_scene_brush() noexcept {
+        progpu_native_scene_brush brush{};
+        brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+        brush.opacity = 1.0F;
+        brush.colors[0] = {1.0F, 1.0F, 1.0F, 1.0F};
+        brush.coordinate_transform0[0] = 1.0F;
+        brush.coordinate_transform1[1] = 1.0F;
+        return brush;
+    }
+
+    status append_material3d_pass(
+        std::uint32_t handle,
+        bool back_face,
+        const progpu_native_scene_mesh_3d& source_mesh,
+        viewport3d_scene_state& scene) const {
+        const auto material = materials3d.find(handle);
+        if (material == materials3d.end()) {
+            return status::invalid_handle;
+        }
+        if (material->second.brush_handle == 0U) {
+            return status::success;
+        }
+        progpu_native_scene_mesh_3d mesh = source_mesh;
+        mesh.flags = back_face
+            ? PROGPU_NATIVE_MESH_3D_BACK_FACE
+            : PROGPU_NATIVE_MESH_3D_FRONT_FACE;
+        mesh.color = {0.0F, 0.0F, 0.0F, 1.0F};
+        mesh.specular_color = {0.0F, 0.0F, 0.0F, 1.0F};
+        mesh.material_ambient = {0.0F, 0.0F, 0.0F, 1.0F};
+        mesh.opacity = 1.0F;
+        mesh.shading_mode = 1U;
+        progpu_native_scene_brush native_brush = white_scene_brush();
+        const auto solid = solid_brushes.find(
+            material->second.brush_handle);
+        if (solid != solid_brushes.end()) {
+            progpu_native_color brush_color{};
+            double brush_opacity = 0.0;
+            const status brush_status = resolve_solid_brush(
+                material->second.brush_handle,
+                brush_color,
+                brush_opacity);
+            if (brush_status != status::success) {
+                return brush_status;
+            }
+            const progpu_native_color multiplied{
+                brush_color.r * material->second.color.r,
+                brush_color.g * material->second.color.g,
+                brush_color.b * material->second.color.b,
+                1.0F};
+            mesh.opacity = static_cast<float>(brush_opacity) *
+                brush_color.a * material->second.color.a;
+            if (material->second.type ==
+                material3d_state::kind::specular) {
+                mesh.flags |= PROGPU_NATIVE_MESH_3D_SPECULAR_MATERIAL;
+                mesh.specular_color = {
+                    multiplied.r,
+                    multiplied.g,
+                    multiplied.b,
+                    static_cast<float>(std::max(
+                        material->second.specular_power,
+                        0.001))};
+            } else {
+                mesh.color = multiplied;
+            }
+        } else {
+            std::vector<progpu_native_scene_gradient_stop> stops;
+            const brush_use_state use{
+                0.0,
+                0.0,
+                1.0,
+                1.0,
+                {}};
+            const status brush_status = resolve_gradient_scene_brush(
+                material->second.brush_handle,
+                use,
+                native_brush,
+                stops);
+            if (brush_status != status::success) {
+                return brush_status;
+            }
+            if (scene.gradient_stops.size() >
+                std::numeric_limits<std::uint32_t>::max() -
+                    native_brush.stop_offset) {
+                return status::capacity_exceeded;
+            }
+            native_brush.stop_offset += static_cast<std::uint32_t>(
+                scene.gradient_stops.size());
+            try {
+                scene.gradient_stops.insert(
+                    scene.gradient_stops.end(),
+                    stops.begin(),
+                    stops.end());
+            } catch (const std::bad_alloc&) {
+                return status::capacity_exceeded;
+            }
+            mesh.opacity = material->second.color.a;
+            if (material->second.type ==
+                material3d_state::kind::specular) {
+                mesh.flags |= PROGPU_NATIVE_MESH_3D_SPECULAR_MATERIAL;
+                mesh.specular_color = {
+                    material->second.color.r,
+                    material->second.color.g,
+                    material->second.color.b,
+                    static_cast<float>(std::max(
+                        material->second.specular_power,
+                        0.001))};
+            } else {
+                mesh.color = {
+                    material->second.color.r,
+                    material->second.color.g,
+                    material->second.color.b,
+                    1.0F};
+            }
+        }
+        if (material->second.type == material3d_state::kind::diffuse) {
+            mesh.material_ambient = {
+                material->second.ambient_color.r,
+                material->second.ambient_color.g,
+                material->second.ambient_color.b,
+                1.0F};
+        } else if (material->second.type ==
+            material3d_state::kind::emissive) {
+            mesh.shading_mode = 0U;
+        }
+        if (!semantic::is_valid_semantic_mesh_3d(
+                mesh,
+                scene.vertices.size(),
+                scene.indices.size(),
+                scene.lights.size())) {
+            return status::invalid_graph;
+        }
+        try {
+            scene.meshes.push_back(mesh);
+            scene.materials.push_back(native_brush);
+        } catch (const std::bad_alloc&) {
+            return status::capacity_exceeded;
+        }
+        return status::success;
+    }
+
+    status append_geometry_model3d(
+        std::uint32_t handle,
+        const progpu_native_matrix_4x4& parent_transform,
+        viewport3d_scene_state& scene) const {
+        const auto model = geometry_models3d.find(handle);
+        if (model == geometry_models3d.end()) {
+            return status::invalid_handle;
+        }
+        if (model->second.geometry_handle == 0U ||
+            (model->second.material_handle == 0U &&
+             model->second.back_material_handle == 0U)) {
+            return status::success;
+        }
+        const auto geometry = mesh_geometries3d.find(
+            model->second.geometry_handle);
+        if (geometry == mesh_geometries3d.end()) {
+            return status::invalid_handle;
+        }
+        const auto& source = geometry->second;
+        if (source.positions.empty()) {
+            return status::success;
+        }
+        std::size_t used_vertex_count = source.positions.size();
+        std::vector<std::uint32_t> local_indices;
+        try {
+            if (source.indices.empty()) {
+                used_vertex_count -= used_vertex_count % 3U;
+                local_indices.resize(used_vertex_count);
+                for (std::size_t index = 0U;
+                     index < used_vertex_count;
+                     ++index) {
+                    local_indices[index] = static_cast<std::uint32_t>(index);
+                }
+            } else {
+                std::size_t valid_count = 0U;
+                while (valid_count < source.indices.size() &&
+                    source.indices[valid_count] < source.positions.size()) {
+                    ++valid_count;
+                }
+                valid_count -= valid_count % 3U;
+                local_indices.assign(
+                    source.indices.begin(),
+                    source.indices.begin() + valid_count);
+            }
+        } catch (const std::bad_alloc&) {
+            return status::capacity_exceeded;
+        }
+        if (used_vertex_count < 3U || local_indices.size() < 3U ||
+            used_vertex_count > std::numeric_limits<std::uint32_t>::max() ||
+            local_indices.size() >
+                std::numeric_limits<std::uint32_t>::max()) {
+            return status::success;
+        }
+        std::vector<std::uint32_t> front_materials;
+        std::vector<std::uint32_t> back_materials;
+        std::unordered_set<std::uint32_t> active_materials;
+        status result = append_material3d_handles(
+            model->second.material_handle,
+            front_materials,
+            active_materials,
+            0U);
+        if (result == status::success) {
+            result = append_material3d_handles(
+                model->second.back_material_handle,
+                back_materials,
+                active_materials,
+                0U);
+        }
+        if (result != status::success ||
+            (front_materials.empty() && back_materials.empty())) {
+            return result;
+        }
+        progpu_native_matrix_4x4 local_transform{};
+        result = resolve_transform3d(
+            model->second.transform_handle,
+            local_transform);
+        if (result != status::success) {
+            return result;
+        }
+        const progpu_native_matrix_4x4 model_transform =
+            multiply_matrix_4x4(local_transform, parent_transform);
+        progpu_native_matrix_4x4 inverse_model{};
+        if (!try_invert_matrix_4x4(model_transform, inverse_model)) {
+            return status::invalid_graph;
+        }
+        const progpu_native_matrix_4x4 normal_transform =
+            transpose_matrix_4x4(inverse_model);
+        std::vector<std::array<float, 3U>> normals;
+        try {
+            normals.resize(used_vertex_count);
+        } catch (const std::bad_alloc&) {
+            return status::capacity_exceeded;
+        }
+        if (source.normals.size() < used_vertex_count) {
+            // Indexed face accumulation has loop-carried scatter dependencies;
+            // intrinsic SIMD is not applicable to this WPF-compatible phase.
+            // Normalization below is bounded to three lanes per vertex.
+            for (std::size_t index = 0U;
+                 index < local_indices.size();
+                 index += 3U) {
+                const auto& first = source.positions[local_indices[index]];
+                const auto& second =
+                    source.positions[local_indices[index + 1U]];
+                const auto& third =
+                    source.positions[local_indices[index + 2U]];
+                const std::array<float, 3U> edge0{
+                    first[0] - second[0],
+                    first[1] - second[1],
+                    first[2] - second[2]};
+                const std::array<float, 3U> edge1{
+                    first[0] - third[0],
+                    first[1] - third[1],
+                    first[2] - third[2]};
+                std::array<float, 3U> face{
+                    edge0[1] * edge1[2] - edge0[2] * edge1[1],
+                    edge0[2] * edge1[0] - edge0[0] * edge1[2],
+                    edge0[0] * edge1[1] - edge0[1] * edge1[0]};
+                normalize_vector3(face);
+                for (std::size_t corner = 0U; corner < 3U; ++corner) {
+                    auto& destination =
+                        normals[local_indices[index + corner]];
+                    destination[0] += face[0];
+                    destination[1] += face[1];
+                    destination[2] += face[2];
+                }
+            }
+        }
+        const std::size_t supplied_normal_count = std::min(
+            source.normals.size(), used_vertex_count);
+        for (std::size_t index = 0U;
+             index < supplied_normal_count;
+             ++index) {
+            normals[index] = source.normals[index];
+        }
+        normalize_vector3_buffer(normals);
+        const std::size_t vertex_offset = scene.vertices.size();
+        const std::size_t index_offset = scene.indices.size();
+        if (vertex_offset > std::numeric_limits<std::uint32_t>::max() ||
+            index_offset > std::numeric_limits<std::uint32_t>::max()) {
+            return status::capacity_exceeded;
+        }
+        try {
+            scene.vertices.reserve(vertex_offset + used_vertex_count);
+            for (std::size_t index = 0U;
+                 index < used_vertex_count;
+                 ++index) {
+                const auto texture = index < source.texture_coordinates.size()
+                    ? source.texture_coordinates[index]
+                    : std::array<double, 2U>{};
+                scene.vertices.push_back({
+                    {source.positions[index][0],
+                     source.positions[index][1],
+                     source.positions[index][2],
+                     0.0F},
+                    {normals[index][0],
+                     normals[index][1],
+                     normals[index][2],
+                     0.0F},
+                    {static_cast<float>(texture[0]),
+                     static_cast<float>(texture[1])},
+                    0U,
+                    0U});
+            }
+            scene.indices.insert(
+                scene.indices.end(),
+                local_indices.begin(),
+                local_indices.end());
+        } catch (const std::bad_alloc&) {
+            return status::capacity_exceeded;
+        }
+        progpu_native_scene_mesh_3d mesh{};
+        mesh.struct_size = sizeof(mesh);
+        mesh.topology = PROGPU_NATIVE_MESH_3D_TRIANGLES;
+        mesh.render_mode = PROGPU_NATIVE_MESH_3D_SOLID;
+        mesh.vertex_offset = static_cast<std::uint32_t>(vertex_offset);
+        mesh.vertex_count = static_cast<std::uint32_t>(used_vertex_count);
+        mesh.index_offset = static_cast<std::uint32_t>(index_offset);
+        mesh.index_count = static_cast<std::uint32_t>(local_indices.size());
+        mesh.model_transform = model_transform;
+        mesh.normal_transform = normal_transform;
+        mesh.light_direction = {0.0F, 0.0F, -1.0F, 0.0F};
+        mesh.ambient_color = {0.0F, 0.0F, 0.0F, 0.0F};
+        mesh.specular_color = {0.0F, 0.0F, 0.0F, 1.0F};
+        mesh.material_ambient = {0.0F, 0.0F, 0.0F, 1.0F};
+        mesh.opacity = 1.0F;
+        mesh.shading_mode = 1U;
+        mesh.light_count = static_cast<std::uint32_t>(scene.lights.size());
+        for (const std::uint32_t material_handle : front_materials) {
+            result = append_material3d_pass(
+                material_handle, false, mesh, scene);
+            if (result != status::success) {
+                return result;
+            }
+        }
+        for (const std::uint32_t material_handle : back_materials) {
+            result = append_material3d_pass(
+                material_handle, true, mesh, scene);
+            if (result != status::success) {
+                return result;
+            }
+        }
+        return status::success;
+    }
+
+    status build_canonical_viewport3d_scene(
+        std::uint32_t root_handle,
+        viewport3d_scene_state& scene) const {
+        scene.meshes.clear();
+        scene.vertices.clear();
+        scene.indices.clear();
+        scene.lights.clear();
+        scene.materials.clear();
+        scene.gradient_stops.clear();
+        std::unordered_set<std::uint32_t> active_visuals;
+        std::unordered_set<std::uint32_t> active_models;
+        const auto visit_model_lights = [
+            this,
+            &scene,
+            &active_models](auto&& self,
+                            std::uint32_t handle,
+                            const progpu_native_matrix_4x4& parent_transform,
+                            std::uint32_t depth) -> status {
+            if (depth > maximum_visual_depth ||
+                !active_models.insert(handle).second) {
+                return status::invalid_graph;
+            }
+            const auto resource = resources.find(handle);
+            if (resource == resources.end() ||
+                !is_model3d_type(resource->second.type)) {
+                active_models.erase(handle);
+                return status::invalid_handle;
+            }
+            status result = status::success;
+            if (resource->second.type == type_model3d_group) {
+                const auto group = model3d_groups.find(handle);
+                if (group == model3d_groups.end()) {
+                    result = status::invalid_handle;
+                } else {
+                    progpu_native_matrix_4x4 local_transform{};
+                    result = resolve_transform3d(
+                        group->second.transform_handle,
+                        local_transform);
+                    const auto effective_transform = multiply_matrix_4x4(
+                        local_transform, parent_transform);
+                    for (const std::uint32_t child : group->second.children) {
+                        if (result != status::success) {
+                            break;
+                        }
+                        result = self(
+                            self,
+                            child,
+                            effective_transform,
+                            depth + 1U);
+                    }
+                }
+            } else if (is_light3d_type(resource->second.type)) {
+                if (scene.lights.size() >=
+                    PROGPU_NATIVE_SCENE_MAX_3D_LIGHTS_PER_MESH) {
+                    result = status::unsupported_command;
+                } else {
+                    progpu_native_scene_light_3d light{};
+                    result = resolve_light3d(
+                        handle, parent_transform, light);
+                    if (result == status::success) {
+                        try {
+                            scene.lights.push_back(light);
+                        } catch (const std::bad_alloc&) {
+                            result = status::capacity_exceeded;
+                        }
+                    }
+                }
+            }
+            active_models.erase(handle);
+            return result;
+        };
+        const auto visit_visual_lights = [
+            this,
+            &active_visuals,
+            &visit_model_lights](auto&& self,
+                                 std::uint32_t handle,
+                                 const progpu_native_matrix_4x4&
+                                     parent_transform,
+                                 std::uint32_t depth) -> status {
+            if (depth > maximum_visual_depth ||
+                !active_visuals.insert(handle).second) {
+                return status::invalid_graph;
+            }
+            const auto visual = visuals3d.find(handle);
+            if (visual == visuals3d.end()) {
+                active_visuals.erase(handle);
+                return status::invalid_handle;
+            }
+            progpu_native_matrix_4x4 local_transform{};
+            status result = resolve_transform3d(
+                visual->second.transform_handle,
+                local_transform);
+            const auto effective_transform = multiply_matrix_4x4(
+                local_transform, parent_transform);
+            if (result == status::success &&
+                visual->second.content_handle != 0U) {
+                result = visit_model_lights(
+                    visit_model_lights,
+                    visual->second.content_handle,
+                    effective_transform,
+                    depth + 1U);
+            }
+            for (const std::uint32_t child : visual->second.children) {
+                if (result != status::success) {
+                    break;
+                }
+                result = self(
+                    self,
+                    child,
+                    effective_transform,
+                    depth + 1U);
+            }
+            active_visuals.erase(handle);
+            return result;
+        };
+        status result = visit_visual_lights(
+            visit_visual_lights,
+            root_handle,
+            identity_matrix_4x4(),
+            0U);
+        if (result != status::success) {
+            return result;
+        }
+        active_visuals.clear();
+        active_models.clear();
+        const auto visit_model_meshes = [
+            this,
+            &scene,
+            &active_models](auto&& self,
+                            std::uint32_t handle,
+                            const progpu_native_matrix_4x4& parent_transform,
+                            std::uint32_t depth) -> status {
+            if (depth > maximum_visual_depth ||
+                !active_models.insert(handle).second) {
+                return status::invalid_graph;
+            }
+            const auto resource = resources.find(handle);
+            if (resource == resources.end() ||
+                !is_model3d_type(resource->second.type)) {
+                active_models.erase(handle);
+                return status::invalid_handle;
+            }
+            status local_result = status::success;
+            if (resource->second.type == type_model3d_group) {
+                const auto group = model3d_groups.find(handle);
+                if (group == model3d_groups.end()) {
+                    local_result = status::invalid_handle;
+                } else {
+                    progpu_native_matrix_4x4 local_transform{};
+                    local_result = resolve_transform3d(
+                        group->second.transform_handle,
+                        local_transform);
+                    const auto effective_transform = multiply_matrix_4x4(
+                        local_transform, parent_transform);
+                    for (const std::uint32_t child : group->second.children) {
+                        if (local_result != status::success) {
+                            break;
+                        }
+                        local_result = self(
+                            self,
+                            child,
+                            effective_transform,
+                            depth + 1U);
+                    }
+                }
+            } else if (resource->second.type == type_geometry_model3d) {
+                local_result = append_geometry_model3d(
+                    handle, parent_transform, scene);
+            }
+            active_models.erase(handle);
+            return local_result;
+        };
+        const auto visit_visual_meshes = [
+            this,
+            &active_visuals,
+            &visit_model_meshes](auto&& self,
+                                 std::uint32_t handle,
+                                 const progpu_native_matrix_4x4&
+                                     parent_transform,
+                                 std::uint32_t depth) -> status {
+            if (depth > maximum_visual_depth ||
+                !active_visuals.insert(handle).second) {
+                return status::invalid_graph;
+            }
+            const auto visual = visuals3d.find(handle);
+            if (visual == visuals3d.end()) {
+                active_visuals.erase(handle);
+                return status::invalid_handle;
+            }
+            progpu_native_matrix_4x4 local_transform{};
+            status local_result = resolve_transform3d(
+                visual->second.transform_handle,
+                local_transform);
+            const auto effective_transform = multiply_matrix_4x4(
+                local_transform, parent_transform);
+            if (local_result == status::success &&
+                visual->second.content_handle != 0U) {
+                local_result = visit_model_meshes(
+                    visit_model_meshes,
+                    visual->second.content_handle,
+                    effective_transform,
+                    depth + 1U);
+            }
+            for (const std::uint32_t child : visual->second.children) {
+                if (local_result != status::success) {
+                    break;
+                }
+                local_result = self(
+                    self,
+                    child,
+                    effective_transform,
+                    depth + 1U);
+            }
+            active_visuals.erase(handle);
+            return local_result;
+        };
+        return visit_visual_meshes(
+            visit_visual_meshes,
+            root_handle,
+            identity_matrix_4x4(),
+            0U);
+    }
+
     bool require_geometry(std::uint32_t handle) const noexcept {
         const auto found = resources.find(handle);
         return found != resources.end() &&
@@ -3860,7 +4965,55 @@ struct channel::implementation {
             for (const auto& [viewport_handle, viewport] :
                  viewport3d_visuals) {
                 if (viewport_handle != handle &&
-                    viewport.camera_handle == handle) {
+                    (viewport.camera_handle == handle ||
+                     viewport.child_handle == handle)) {
+                    return status::invalid_graph;
+                }
+            }
+            for (const auto& [visual_handle, visual] : visuals3d) {
+                if (visual_handle != handle &&
+                    (visual.content_handle == handle ||
+                     visual.transform_handle == handle ||
+                     std::ranges::find(visual.children, handle) !=
+                         visual.children.end())) {
+                    return status::invalid_graph;
+                }
+            }
+            for (const auto& [group_handle, group] : model3d_groups) {
+                if (group_handle != handle &&
+                    (group.transform_handle == handle ||
+                     std::ranges::find(group.children, handle) !=
+                         group.children.end())) {
+                    return status::invalid_graph;
+                }
+            }
+            for (const auto& [light_handle, light] : lights3d) {
+                if (light_handle != handle &&
+                    (light.transform_handle == handle ||
+                     std::ranges::find(light.animations, handle) !=
+                         light.animations.end())) {
+                    return status::invalid_graph;
+                }
+            }
+            for (const auto& [model_handle, model] : geometry_models3d) {
+                if (model_handle != handle &&
+                    (model.transform_handle == handle ||
+                     model.geometry_handle == handle ||
+                     model.material_handle == handle ||
+                     model.back_material_handle == handle)) {
+                    return status::invalid_graph;
+                }
+            }
+            for (const auto& [group_handle, group] : material_groups3d) {
+                if (group_handle != handle &&
+                    std::ranges::find(group.children, handle) !=
+                        group.children.end()) {
+                    return status::invalid_graph;
+                }
+            }
+            for (const auto& [material_handle, material] : materials3d) {
+                if (material_handle != handle &&
+                    material.brush_handle == handle) {
                     return status::invalid_graph;
                 }
             }
@@ -4036,6 +5189,13 @@ struct channel::implementation {
             }
             visuals.erase(handle);
             viewport3d_visuals.erase(handle);
+            visuals3d.erase(handle);
+            model3d_groups.erase(handle);
+            lights3d.erase(handle);
+            geometry_models3d.erase(handle);
+            mesh_geometries3d.erase(handle);
+            material_groups3d.erase(handle);
+            materials3d.erase(handle);
             viewport3d_scenes.erase(handle);
             targets.erase(handle);
             double_resources.erase(handle);
@@ -4726,9 +5886,159 @@ struct channel::implementation {
                 viewport.camera_handle = existing->second.camera_handle;
                 viewport.has_camera_binding =
                     existing->second.has_camera_binding;
+                viewport.child_handle = existing->second.child_handle;
+                viewport.has_child_binding =
+                    existing->second.has_child_binding;
             }
             viewport.has_viewport = true;
             viewport3d_visuals.insert_or_assign(handle, viewport);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::viewport3d_visual_set_3d_child: {
+            using layout = command_layouts::viewport3d_visual_set_3d_child;
+            std::uint32_t child = 0U;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::h_child_offset, child)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_viewport3d_visual) ||
+                !visuals.contains(handle) ||
+                (child != 0U &&
+                 !require_resource(child, type_visual3d))) {
+                return status::invalid_handle;
+            }
+            if (child != 0U) {
+                for (const auto& [parent_handle, parent] : visuals3d) {
+                    if (std::ranges::find(parent.children, child) !=
+                        parent.children.end()) {
+                        return status::invalid_graph;
+                    }
+                }
+                for (const auto& [viewport_handle, viewport] :
+                     viewport3d_visuals) {
+                    if (viewport_handle != handle &&
+                        viewport.has_child_binding &&
+                        viewport.child_handle == child) {
+                        return status::invalid_graph;
+                    }
+                }
+            }
+            auto& viewport = viewport3d_visuals[handle];
+            viewport.child_handle = child;
+            viewport.has_child_binding = true;
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::visual3d_set_content: {
+            using layout = command_layouts::visual3d_set_content;
+            std::uint32_t content = 0U;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::h_content_offset, content)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_visual3d) ||
+                (content != 0U && !require_model3d(content))) {
+                return status::invalid_handle;
+            }
+            visuals3d[handle].content_handle = content;
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::visual3d_set_transform: {
+            using layout = command_layouts::visual3d_set_transform;
+            std::uint32_t transform = 0U;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::h_transform_offset, transform)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_visual3d) ||
+                (transform != 0U && !require_transform3d(transform))) {
+                return status::invalid_handle;
+            }
+            visuals3d[handle].transform_handle = transform;
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::visual3d_remove_all_children: {
+            using layout = command_layouts::visual3d_remove_all_children;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_visual3d)) {
+                return status::invalid_handle;
+            }
+            visuals3d[handle].children.clear();
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::visual3d_remove_child: {
+            using layout = command_layouts::visual3d_remove_child;
+            std::uint32_t child = 0U;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::h_child_offset, child)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_visual3d) ||
+                !require_resource(child, type_visual3d)) {
+                return status::invalid_handle;
+            }
+            auto& children = visuals3d[handle].children;
+            const auto found = std::ranges::find(children, child);
+            if (found == children.end()) {
+                return status::invalid_graph;
+            }
+            children.erase(found);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::visual3d_insert_child_at: {
+            using layout = command_layouts::visual3d_insert_child_at;
+            std::uint32_t child = 0U;
+            std::uint32_t index = 0U;
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(view.packet, layout::h_child_offset, child) ||
+                !read_at(view.packet, layout::index_offset, index)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_visual3d) ||
+                !require_resource(child, type_visual3d)) {
+                return status::invalid_handle;
+            }
+            auto& children = visuals3d[handle].children;
+            if (index > children.size() || child == handle ||
+                std::ranges::find(children, child) != children.end() ||
+                visual3d_reaches(child, handle)) {
+                return status::invalid_graph;
+            }
+            for (const auto& [parent_handle, parent] : visuals3d) {
+                if (parent_handle != handle &&
+                    std::ranges::find(parent.children, child) !=
+                        parent.children.end()) {
+                    return status::invalid_graph;
+                }
+            }
+            for (const auto& [viewport_handle, viewport] :
+                 viewport3d_visuals) {
+                if (viewport_handle != handle &&
+                    viewport.has_child_binding &&
+                    viewport.child_handle == child) {
+                    return status::invalid_graph;
+                }
+            }
+            children.insert(children.begin() + index, child);
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -5469,6 +6779,487 @@ struct channel::implementation {
                 return status::malformed_batch;
             }
             cameras3d.insert_or_assign(handle, camera);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::model3d_group: {
+            using layout = command_layouts::model3d_group;
+            model3d_group_state group{};
+            std::uint32_t children_size = 0U;
+            if (view.packet.size() < layout::fixed_size ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::htransform_offset,
+                    group.transform_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::children_size_offset,
+                    children_size) ||
+                children_size % sizeof(std::uint32_t) != 0U ||
+                view.packet.size() != layout::fixed_size + children_size ||
+                children_size / sizeof(std::uint32_t) >
+                    maximum_path_record_count) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_model3d_group) ||
+                (group.transform_handle != 0U &&
+                 !require_transform3d(group.transform_handle))) {
+                return status::invalid_handle;
+            }
+            const std::size_t child_count =
+                children_size / sizeof(std::uint32_t);
+            group.children.reserve(child_count);
+            for (std::size_t index = 0U; index < child_count; ++index) {
+                std::uint32_t child = 0U;
+                if (!read_at(
+                        view.packet,
+                        layout::fixed_size +
+                            index * sizeof(std::uint32_t),
+                        child)) {
+                    return status::malformed_batch;
+                }
+                if (child == 0U || !require_model3d(child)) {
+                    return status::invalid_handle;
+                }
+                if (child == handle || model3d_reaches(child, handle)) {
+                    return status::invalid_graph;
+                }
+                group.children.push_back(child);
+            }
+            model3d_groups.insert_or_assign(handle, std::move(group));
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::ambient_light:
+        case command::directional_light:
+        case command::point_light:
+        case command::spot_light: {
+            const bool ambient = view.kind == command::ambient_light;
+            const bool directional = view.kind == command::directional_light;
+            const bool point = view.kind == command::point_light;
+            const std::uint32_t expected_type = ambient
+                ? type_ambient_light
+                : directional
+                    ? type_directional_light
+                    : point
+                        ? type_point_light
+                        : type_spot_light;
+            const std::size_t fixed_size = ambient
+                ? command_layouts::ambient_light::fixed_size
+                : directional
+                    ? command_layouts::directional_light::fixed_size
+                    : point
+                        ? command_layouts::point_light::fixed_size
+                        : command_layouts::spot_light::fixed_size;
+            light3d_state light{};
+            light.kind = ambient
+                ? PROGPU_NATIVE_LIGHT_3D_AMBIENT
+                : directional
+                    ? PROGPU_NATIVE_LIGHT_3D_DIRECTIONAL
+                    : point
+                        ? PROGPU_NATIVE_LIGHT_3D_POINT
+                        : PROGPU_NATIVE_LIGHT_3D_SPOT;
+            if (!has_exact_size(view, fixed_size) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, light.color)) {
+                return status::malformed_batch;
+            }
+            if (ambient) {
+                if (!read_at(view.packet, 24U, light.transform_handle) ||
+                    !read_at(view.packet, 28U, light.animations[0])) {
+                    return status::malformed_batch;
+                }
+            } else if (directional) {
+                if (!read_at(view.packet, 24U, light.direction) ||
+                    !read_at(view.packet, 36U, light.transform_handle) ||
+                    !read_at(view.packet, 40U, light.animations[0]) ||
+                    !read_at(view.packet, 44U, light.animations[6])) {
+                    return status::malformed_batch;
+                }
+            } else if (point) {
+                if (!read_at(view.packet, 24U, light.range) ||
+                    !read_at(
+                        view.packet,
+                        32U,
+                        light.constant_attenuation) ||
+                    !read_at(
+                        view.packet,
+                        40U,
+                        light.linear_attenuation) ||
+                    !read_at(
+                        view.packet,
+                        48U,
+                        light.quadratic_attenuation) ||
+                    !read_at(view.packet, 56U, light.position) ||
+                    !read_at(view.packet, 68U, light.transform_handle) ||
+                    !read_at(view.packet, 72U, light.animations[0]) ||
+                    !read_at(view.packet, 76U, light.animations[1]) ||
+                    !read_at(view.packet, 80U, light.animations[2]) ||
+                    !read_at(view.packet, 84U, light.animations[3]) ||
+                    !read_at(view.packet, 88U, light.animations[4]) ||
+                    !read_at(view.packet, 92U, light.animations[5])) {
+                    return status::malformed_batch;
+                }
+            } else {
+                if (!read_at(view.packet, 24U, light.range) ||
+                    !read_at(
+                        view.packet,
+                        32U,
+                        light.constant_attenuation) ||
+                    !read_at(
+                        view.packet,
+                        40U,
+                        light.linear_attenuation) ||
+                    !read_at(
+                        view.packet,
+                        48U,
+                        light.quadratic_attenuation) ||
+                    !read_at(view.packet, 56U, light.outer_cone_angle) ||
+                    !read_at(view.packet, 64U, light.inner_cone_angle) ||
+                    !read_at(view.packet, 72U, light.position) ||
+                    !read_at(view.packet, 84U, light.transform_handle) ||
+                    !read_at(view.packet, 88U, light.direction) ||
+                    !read_at(view.packet, 100U, light.animations[0]) ||
+                    !read_at(view.packet, 104U, light.animations[1]) ||
+                    !read_at(view.packet, 108U, light.animations[2]) ||
+                    !read_at(view.packet, 112U, light.animations[3]) ||
+                    !read_at(view.packet, 116U, light.animations[4]) ||
+                    !read_at(view.packet, 120U, light.animations[5]) ||
+                    !read_at(view.packet, 124U, light.animations[6]) ||
+                    !read_at(view.packet, 128U, light.animations[7]) ||
+                    !read_at(view.packet, 132U, light.animations[8])) {
+                    return status::malformed_batch;
+                }
+            }
+            if (!require_resource(handle, expected_type) ||
+                (light.transform_handle != 0U &&
+                 !require_transform3d(light.transform_handle))) {
+                return status::invalid_handle;
+            }
+            for (std::size_t index = 0U;
+                 index < light.animations.size();
+                 ++index) {
+                const std::uint32_t animation = light.animations[index];
+                if (animation == 0U) {
+                    continue;
+                }
+                const std::uint32_t animation_type = index == 0U
+                    ? type_color_resource
+                    : index == 1U
+                        ? type_point3d_resource
+                        : index == 6U
+                            ? type_vector3d_resource
+                            : type_double_resource;
+                if (!require_resource(animation, animation_type)) {
+                    return status::invalid_handle;
+                }
+            }
+            const auto finite_vector = [](const auto& value) noexcept {
+                return std::ranges::all_of(
+                    value,
+                    [](float component) noexcept {
+                        return std::isfinite(component);
+                    });
+            };
+            const bool finite_color =
+                std::isfinite(light.color.r) &&
+                std::isfinite(light.color.g) &&
+                std::isfinite(light.color.b) &&
+                std::isfinite(light.color.a);
+            if ((light.animations[0] == 0U && !finite_color) ||
+                (!ambient && !directional &&
+                 light.animations[1] == 0U &&
+                 !finite_vector(light.position)) ||
+                (!ambient && !point &&
+                 light.animations[6] == 0U &&
+                 !finite_vector(light.direction))) {
+                return status::malformed_batch;
+            }
+            if (!ambient && !directional) {
+                const std::array values{
+                    light.range,
+                    light.constant_attenuation,
+                    light.linear_attenuation,
+                    light.quadratic_attenuation};
+                for (std::size_t index = 0U; index < values.size(); ++index) {
+                    const std::uint32_t animation =
+                        light.animations[index + 2U];
+                    const bool positive_infinity = index == 0U &&
+                        std::isinf(values[index]) && values[index] > 0.0;
+                    if (animation == 0U &&
+                        !finite_double_as_float(values[index]) &&
+                        !positive_infinity) {
+                        return status::malformed_batch;
+                    }
+                }
+            }
+            if (!ambient && !directional && !point &&
+                ((light.animations[7] == 0U &&
+                  !finite_double_as_float(light.outer_cone_angle)) ||
+                 (light.animations[8] == 0U &&
+                  !finite_double_as_float(light.inner_cone_angle)))) {
+                return status::malformed_batch;
+            }
+            lights3d.insert_or_assign(handle, light);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::geometry_model3d: {
+            using layout = command_layouts::geometry_model3d;
+            geometry_model3d_state model{};
+            if (!has_exact_size(view, layout::fixed_size) ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::htransform_offset,
+                    model.transform_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::hgeometry_offset,
+                    model.geometry_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::hmaterial_offset,
+                    model.material_handle) ||
+                !read_at(
+                    view.packet,
+                    layout::hback_material_offset,
+                    model.back_material_handle)) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_geometry_model3d) ||
+                (model.transform_handle != 0U &&
+                 !require_transform3d(model.transform_handle)) ||
+                (model.geometry_handle != 0U &&
+                 !require_resource(
+                     model.geometry_handle,
+                     type_mesh_geometry3d)) ||
+                (model.material_handle != 0U &&
+                 !require_material3d(model.material_handle)) ||
+                (model.back_material_handle != 0U &&
+                 !require_material3d(model.back_material_handle))) {
+                return status::invalid_handle;
+            }
+            geometry_models3d.insert_or_assign(handle, model);
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::mesh_geometry3d: {
+            using layout = command_layouts::mesh_geometry3d;
+            std::uint32_t positions_size = 0U;
+            std::uint32_t normals_size = 0U;
+            std::uint32_t texture_coordinates_size = 0U;
+            std::uint32_t triangle_indices_size = 0U;
+            if (view.packet.size() < layout::fixed_size ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::positions_size_offset,
+                    positions_size) ||
+                !read_at(
+                    view.packet,
+                    layout::normals_size_offset,
+                    normals_size) ||
+                !read_at(
+                    view.packet,
+                    layout::texture_coordinates_size_offset,
+                    texture_coordinates_size) ||
+                !read_at(
+                    view.packet,
+                    layout::triangle_indices_size_offset,
+                    triangle_indices_size) ||
+                positions_size % (sizeof(float) * 3U) != 0U ||
+                normals_size % (sizeof(float) * 3U) != 0U ||
+                texture_coordinates_size % (sizeof(double) * 2U) != 0U ||
+                triangle_indices_size % sizeof(std::uint32_t) != 0U) {
+                return status::malformed_batch;
+            }
+            const std::size_t payload_size =
+                static_cast<std::size_t>(positions_size) + normals_size +
+                texture_coordinates_size + triangle_indices_size;
+            if (payload_size > view.packet.size() - layout::fixed_size ||
+                view.packet.size() != layout::fixed_size + payload_size) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_mesh_geometry3d)) {
+                return status::invalid_handle;
+            }
+            mesh_geometry3d_state mesh{};
+            const std::size_t position_count =
+                positions_size / (sizeof(float) * 3U);
+            const std::size_t normal_count =
+                normals_size / (sizeof(float) * 3U);
+            const std::size_t texture_coordinate_count =
+                texture_coordinates_size / (sizeof(double) * 2U);
+            const std::size_t index_count =
+                triangle_indices_size / sizeof(std::uint32_t);
+            if (position_count > maximum_path_record_count ||
+                normal_count > maximum_path_record_count ||
+                texture_coordinate_count > maximum_path_record_count ||
+                index_count > maximum_path_record_count) {
+                return status::capacity_exceeded;
+            }
+            try {
+                mesh.positions.resize(position_count);
+                mesh.normals.resize(normal_count);
+                mesh.texture_coordinates.resize(texture_coordinate_count);
+                mesh.indices.resize(index_count);
+            } catch (const std::bad_alloc&) {
+                return status::capacity_exceeded;
+            }
+            std::size_t offset = layout::fixed_size;
+            for (auto& position : mesh.positions) {
+                if (!read_at(view.packet, offset, position) ||
+                    !std::ranges::all_of(
+                        position,
+                        [](float value) noexcept {
+                            return std::isfinite(value);
+                        })) {
+                    return status::malformed_batch;
+                }
+                offset += sizeof(position);
+            }
+            for (auto& normal : mesh.normals) {
+                if (!read_at(view.packet, offset, normal) ||
+                    !std::ranges::all_of(
+                        normal,
+                        [](float value) noexcept {
+                            return std::isfinite(value);
+                        })) {
+                    return status::malformed_batch;
+                }
+                offset += sizeof(normal);
+            }
+            for (auto& coordinate : mesh.texture_coordinates) {
+                if (!read_at(view.packet, offset, coordinate) ||
+                    !std::ranges::all_of(
+                        coordinate,
+                        [](double value) noexcept {
+                            return finite_double_as_float(value);
+                        })) {
+                    return status::malformed_batch;
+                }
+                offset += sizeof(coordinate);
+            }
+            for (auto& index : mesh.indices) {
+                if (!read_at(view.packet, offset, index)) {
+                    return status::malformed_batch;
+                }
+                offset += sizeof(index);
+            }
+            mesh_geometries3d.insert_or_assign(handle, std::move(mesh));
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::material_group: {
+            using layout = command_layouts::material_group;
+            std::uint32_t children_size = 0U;
+            if (view.packet.size() < layout::fixed_size ||
+                !read_at(view.packet, layout::handle_offset, handle) ||
+                !read_at(
+                    view.packet,
+                    layout::children_size_offset,
+                    children_size) ||
+                children_size % sizeof(std::uint32_t) != 0U ||
+                view.packet.size() != layout::fixed_size + children_size ||
+                children_size / sizeof(std::uint32_t) >
+                    maximum_path_record_count) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, type_material_group)) {
+                return status::invalid_handle;
+            }
+            material_group_state group{};
+            const std::size_t child_count =
+                children_size / sizeof(std::uint32_t);
+            group.children.reserve(child_count);
+            for (std::size_t index = 0U; index < child_count; ++index) {
+                std::uint32_t child = 0U;
+                if (!read_at(
+                        view.packet,
+                        layout::fixed_size +
+                            index * sizeof(std::uint32_t),
+                        child)) {
+                    return status::malformed_batch;
+                }
+                if (child == 0U || !require_material3d(child)) {
+                    return status::invalid_handle;
+                }
+                if (child == handle || material3d_reaches(child, handle)) {
+                    return status::invalid_graph;
+                }
+                group.children.push_back(child);
+            }
+            material_groups3d.insert_or_assign(handle, std::move(group));
+            increment_generation(handle);
+            ++metrics.updated_resource_count;
+            return status::success;
+        }
+        case command::diffuse_material:
+        case command::specular_material:
+        case command::emissive_material: {
+            const bool diffuse = view.kind == command::diffuse_material;
+            const bool specular = view.kind == command::specular_material;
+            const std::size_t fixed_size = diffuse
+                ? command_layouts::diffuse_material::fixed_size
+                : specular
+                    ? command_layouts::specular_material::fixed_size
+                    : command_layouts::emissive_material::fixed_size;
+            const std::uint32_t expected_type = diffuse
+                ? type_diffuse_material
+                : specular
+                    ? type_specular_material
+                    : type_emissive_material;
+            material3d_state material{};
+            material.type = diffuse
+                ? material3d_state::kind::diffuse
+                : specular
+                    ? material3d_state::kind::specular
+                    : material3d_state::kind::emissive;
+            const std::size_t brush_offset = diffuse
+                ? command_layouts::diffuse_material::hbrush_offset
+                : specular
+                    ? command_layouts::specular_material::hbrush_offset
+                    : command_layouts::emissive_material::hbrush_offset;
+            if (!has_exact_size(view, fixed_size) ||
+                !read_at(view.packet, 4U, handle) ||
+                !read_at(view.packet, 8U, material.color) ||
+                !read_at(
+                    view.packet,
+                    brush_offset,
+                    material.brush_handle) ||
+                (diffuse &&
+                 !read_at(view.packet, 24U, material.ambient_color)) ||
+                (specular &&
+                 !read_at(view.packet, 24U, material.specular_power))) {
+                return status::malformed_batch;
+            }
+            if (!require_resource(handle, expected_type) ||
+                (material.brush_handle != 0U &&
+                 !require_brush(material.brush_handle))) {
+                return status::invalid_handle;
+            }
+            if (!std::isfinite(material.color.r) ||
+                !std::isfinite(material.color.g) ||
+                !std::isfinite(material.color.b) ||
+                !std::isfinite(material.color.a) ||
+                (diffuse &&
+                 (!std::isfinite(material.ambient_color.r) ||
+                  !std::isfinite(material.ambient_color.g) ||
+                  !std::isfinite(material.ambient_color.b) ||
+                  !std::isfinite(material.ambient_color.a))) ||
+                (specular &&
+                 (!finite_double_as_float(material.specular_power) ||
+                  material.specular_power < 0.0))) {
+                return status::malformed_batch;
+            }
+            materials3d.insert_or_assign(handle, material);
             increment_generation(handle);
             ++metrics.updated_resource_count;
             return status::success;
@@ -15837,7 +17628,67 @@ struct channel::implementation {
                 result = append_dependency(dependency);
             }
         };
-        if (is_rotation3d_type(resource->second.type)) {
+        if (resource->second.type == type_visual3d) {
+            const auto visual = visuals3d.find(handle);
+            if (visual == visuals3d.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(visual->second.content_handle);
+                append_if_success(visual->second.transform_handle);
+                for (const std::uint32_t child : visual->second.children) {
+                    append_if_success(child);
+                }
+            }
+        } else if (resource->second.type == type_model3d_group) {
+            const auto group = model3d_groups.find(handle);
+            if (group == model3d_groups.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(group->second.transform_handle);
+                for (const std::uint32_t child : group->second.children) {
+                    append_if_success(child);
+                }
+            }
+        } else if (is_light3d_type(resource->second.type)) {
+            const auto light = lights3d.find(handle);
+            if (light == lights3d.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(light->second.transform_handle);
+                for (const std::uint32_t animation :
+                     light->second.animations) {
+                    append_if_success(animation);
+                }
+            }
+        } else if (resource->second.type == type_geometry_model3d) {
+            const auto model = geometry_models3d.find(handle);
+            if (model == geometry_models3d.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(model->second.transform_handle);
+                append_if_success(model->second.geometry_handle);
+                append_if_success(model->second.material_handle);
+                append_if_success(model->second.back_material_handle);
+            }
+        } else if (resource->second.type == type_material_group) {
+            const auto group = material_groups3d.find(handle);
+            if (group == material_groups3d.end()) {
+                result = status::invalid_handle;
+            } else {
+                for (const std::uint32_t child : group->second.children) {
+                    append_if_success(child);
+                }
+            }
+        } else if (resource->second.type == type_diffuse_material ||
+            resource->second.type == type_specular_material ||
+            resource->second.type == type_emissive_material) {
+            const auto material = materials3d.find(handle);
+            if (material == materials3d.end()) {
+                result = status::invalid_handle;
+            } else {
+                append_if_success(material->second.brush_handle);
+            }
+        } else if (is_rotation3d_type(resource->second.type)) {
             const auto rotation = rotations3d.find(handle);
             if (rotation == rotations3d.end()) {
                 result = status::invalid_handle;
@@ -16246,7 +18097,12 @@ struct channel::implementation {
                 append_fnv1a64(hash, viewport->second.height);
                 append_fnv1a64(hash, viewport->second.has_viewport);
                 append_fnv1a64(hash, viewport->second.has_camera_binding);
+                append_fnv1a64(hash, viewport->second.has_child_binding);
                 if (!append_resource(viewport->second.camera_handle)) {
+                    active_visuals.erase(handle);
+                    return status::invalid_handle;
+                }
+                if (!append_resource(viewport->second.child_handle)) {
                     active_visuals.erase(handle);
                     return status::invalid_handle;
                 }
@@ -16957,10 +18813,7 @@ struct channel::implementation {
         const bool is_viewport3d = visual_resource != resources.end() &&
             visual_resource->second.type == type_viewport3d_visual;
         if (!skip_cached_content && is_viewport3d) {
-            const auto scene = viewport3d_scenes.find(handle);
-            if (scene == viewport3d_scenes.end()) {
-                result = status::unsupported_command;
-            } else if (content_scope.mask_resource_index !=
+            if (content_scope.mask_resource_index !=
                            PROGPU_NATIVE_SCENE_NO_INDEX ||
                        content_scope.guideline_resource_index !=
                            PROGPU_NATIVE_SCENE_NO_INDEX) {
@@ -16969,12 +18822,36 @@ struct channel::implementation {
                            content_scope.transform)) {
                 result = status::unsupported_command;
             } else {
-                progpu_native_image_rect source_viewport =
-                    scene->second.viewport;
-                progpu_native_scene_camera_3d camera =
-                    scene->second.camera;
-                bool render_viewport = true;
                 const auto canonical = viewport3d_visuals.find(handle);
+                viewport3d_scene_state canonical_scene{};
+                const viewport3d_scene_state* render_scene = nullptr;
+                const bool has_canonical_graph =
+                    canonical != viewport3d_visuals.end() &&
+                    canonical->second.has_child_binding;
+                bool render_viewport = true;
+                if (has_canonical_graph) {
+                    if (canonical->second.child_handle == 0U) {
+                        render_viewport = false;
+                    } else {
+                        result = build_canonical_viewport3d_scene(
+                            canonical->second.child_handle,
+                            canonical_scene);
+                        render_scene = &canonical_scene;
+                    }
+                } else {
+                    const auto sideband = viewport3d_scenes.find(handle);
+                    if (sideband == viewport3d_scenes.end()) {
+                        result = status::unsupported_command;
+                    } else {
+                        render_scene = &sideband->second;
+                    }
+                }
+                progpu_native_image_rect source_viewport = render_scene
+                    ? render_scene->viewport
+                    : progpu_native_image_rect{};
+                progpu_native_scene_camera_3d camera = render_scene
+                    ? render_scene->camera
+                    : progpu_native_scene_camera_3d{};
                 if (canonical != viewport3d_visuals.end()) {
                     if (canonical->second.has_viewport) {
                         if (canonical->second.width <= 0.0 ||
@@ -17007,6 +18884,8 @@ struct channel::implementation {
                                 result = camera_status;
                             }
                         }
+                    } else if (has_canonical_graph) {
+                        render_viewport = false;
                     }
                 }
                 progpu_native_image_rect viewport{};
@@ -17019,7 +18898,9 @@ struct channel::implementation {
                         content_scope.transform,
                         viewport)) {
                     result = status::invalid_graph;
-                } else if (result == status::success && render_viewport) {
+                } else if (result == status::success && render_viewport &&
+                    render_scene != nullptr &&
+                    !render_scene->meshes.empty()) {
                     auto viewport_state =
                         native::semantic_scene_builder::identity_state();
                     viewport_state.opacity = static_cast<float>(
@@ -17034,12 +18915,12 @@ struct channel::implementation {
                     if (!builder.add_state(
                             viewport_state, viewport_state_index) ||
                         !builder.draw_meshes_3d(
-                            scene->second.meshes,
-                            scene->second.vertices,
-                            scene->second.indices,
-                            scene->second.lights,
-                            scene->second.materials,
-                            scene->second.gradient_stops,
+                            render_scene->meshes,
+                            render_scene->vertices,
+                            render_scene->indices,
+                            render_scene->lights,
+                            render_scene->materials,
+                            render_scene->gradient_stops,
                             camera,
                             viewport,
                             viewport_state_index)) {

@@ -505,6 +505,170 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuilderWritesCanonicalViewport3DSceneGraph()
+    {
+        Assert.Equal(11U, (uint)NativeMilResourceType.Model3DGroup);
+        Assert.Equal(13U, (uint)NativeMilResourceType.AmbientLight);
+        Assert.Equal(14U, (uint)NativeMilResourceType.DirectionalLight);
+        Assert.Equal(16U, (uint)NativeMilResourceType.PointLight);
+        Assert.Equal(17U, (uint)NativeMilResourceType.SpotLight);
+        Assert.Equal(18U, (uint)NativeMilResourceType.GeometryModel3D);
+        Assert.Equal(20U, (uint)NativeMilResourceType.MeshGeometry3D);
+        Assert.Equal(22U, (uint)NativeMilResourceType.MaterialGroup);
+        Assert.Equal(23U, (uint)NativeMilResourceType.DiffuseMaterial);
+        Assert.Equal(24U, (uint)NativeMilResourceType.SpecularMaterial);
+        Assert.Equal(25U, (uint)NativeMilResourceType.EmissiveMaterial);
+        Assert.Equal(41U, (uint)NativeMilResourceType.Visual3D);
+
+        var white = new NativeMilColor(1, 1, 1, 1);
+        var batch = new NativeMilBatchBuilder();
+        batch.SetViewport3DVisualChild(40, 41);
+        batch.SetVisual3DContent(41, 11);
+        batch.SetVisual3DTransform(41, 29);
+        batch.RemoveAllVisual3DChildren(41);
+        batch.RemoveVisual3DChild(41, 42);
+        batch.InsertVisual3DChild(41, 42, 3);
+        batch.SetModel3DGroup(11, 29, [13, 18]);
+        batch.SetAmbientLight(13, white, 29, 50);
+        batch.SetDirectionalLight(
+            14,
+            white,
+            -Vector3.UnitZ,
+            transformHandle: 29,
+            colorAnimationHandle: 50,
+            directionAnimationHandle: 56);
+        batch.SetPointLight(
+            16,
+            white,
+            20,
+            1,
+            0.1,
+            0.01,
+            new Vector3(1, 2, 3),
+            transformHandle: 29,
+            colorAnimationHandle: 50,
+            positionAnimationHandle: 55,
+            rangeAnimationHandle: 49);
+        batch.SetSpotLight(
+            17,
+            white,
+            30,
+            1,
+            0.05,
+            0.005,
+            60,
+            30,
+            new Vector3(4, 5, 6),
+            -Vector3.UnitZ,
+            transformHandle: 29,
+            directionAnimationHandle: 56,
+            outerConeAngleAnimationHandle: 49,
+            innerConeAngleAnimationHandle: 49);
+        batch.SetGeometryModel3D(18, 29, 20, 22, 23);
+        batch.SetMeshGeometry3D(
+            20,
+            [
+                new Vector3(-0.5F, -0.5F, 0),
+                new Vector3(0.5F, -0.5F, 0),
+                new Vector3(0, 0.5F, 0)
+            ],
+            [],
+            [
+                new NativeMilPoint(0, 1),
+                new NativeMilPoint(1, 1),
+                new NativeMilPoint(0.5, 0)
+            ],
+            [0U, 1U, 2U]);
+        batch.SetMaterialGroup(22, [23, 24, 25]);
+        batch.SetDiffuseMaterial(
+            23,
+            new NativeMilColor(0.5F, 1, 0.5F, 0.5F),
+            new NativeMilColor(0.2F, 0.3F, 0.4F, 1),
+            75);
+        batch.SetSpecularMaterial(
+            24,
+            new NativeMilColor(0.25F, 0.5F, 1, 1),
+            32,
+            75);
+        batch.SetEmissiveMaterial(
+            25,
+            new NativeMilColor(1, 0.5F, 0.25F, 1),
+            75);
+        byte[] encoded = batch.ToArray();
+
+        int offset = 0;
+        int Next(uint itemSize, uint command, uint handle)
+        {
+            int itemOffset = offset;
+            Assert.Equal(itemSize, ReadUInt32(encoded, itemOffset));
+            Assert.Equal(command, ReadUInt32(encoded, itemOffset + 4));
+            Assert.Equal(handle, ReadUInt32(encoded, itemOffset + 8));
+            offset += checked((int)itemSize);
+            return itemOffset;
+        }
+
+        Assert.Equal(41U, ReadUInt32(encoded, Next(16, 0x2b, 40) + 12));
+        Assert.Equal(11U, ReadUInt32(encoded, Next(16, 0x2c, 41) + 12));
+        Assert.Equal(29U, ReadUInt32(encoded, Next(16, 0x2d, 41) + 12));
+        Next(12, 0x2e, 41);
+        Assert.Equal(42U, ReadUInt32(encoded, Next(16, 0x2f, 41) + 12));
+        int insert = Next(20, 0x30, 41);
+        Assert.Equal(42U, ReadUInt32(encoded, insert + 12));
+        Assert.Equal(3U, ReadUInt32(encoded, insert + 16));
+
+        int modelGroup = Next(28, 0x5c, 11);
+        Assert.Equal(29U, ReadUInt32(encoded, modelGroup + 12));
+        Assert.Equal(8U, ReadUInt32(encoded, modelGroup + 16));
+        int ambient = Next(36, 0x5d, 13);
+        Assert.Equal(29U, ReadUInt32(encoded, ambient + 28));
+        Assert.Equal(50U, ReadUInt32(encoded, ambient + 32));
+        int directional = Next(52, 0x5e, 14);
+        Assert.Equal(-1F, ReadSingle(encoded, directional + 36));
+        Assert.Equal(56U, ReadUInt32(encoded, directional + 48));
+        int point = Next(100, 0x5f, 16);
+        Assert.Equal(20.0, ReadDouble(encoded, point + 28));
+        Assert.Equal(3F, ReadSingle(encoded, point + 68));
+        Assert.Equal(55U, ReadUInt32(encoded, point + 80));
+        int spot = Next(140, 0x60, 17);
+        Assert.Equal(60.0, ReadDouble(encoded, spot + 60));
+        Assert.Equal(-1F, ReadSingle(encoded, spot + 100));
+        Assert.Equal(56U, ReadUInt32(encoded, spot + 128));
+        Assert.Equal(49U, ReadUInt32(encoded, spot + 136));
+
+        int geometryModel = Next(28, 0x61, 18);
+        Assert.Equal(20U, ReadUInt32(encoded, geometryModel + 16));
+        Assert.Equal(22U, ReadUInt32(encoded, geometryModel + 20));
+        int mesh = Next(124, 0x62, 20);
+        Assert.Equal(36U, ReadUInt32(encoded, mesh + 12));
+        Assert.Equal(0U, ReadUInt32(encoded, mesh + 16));
+        Assert.Equal(48U, ReadUInt32(encoded, mesh + 20));
+        Assert.Equal(12U, ReadUInt32(encoded, mesh + 24));
+        Assert.Equal(-0.5F, ReadSingle(encoded, mesh + 28));
+        Assert.Equal(1.0, ReadDouble(encoded, mesh + 72));
+        Assert.Equal(2U, ReadUInt32(encoded, mesh + 120));
+        int materials = Next(28, 0x63, 22);
+        Assert.Equal(12U, ReadUInt32(encoded, materials + 12));
+        Assert.Equal(25U, ReadUInt32(encoded, materials + 24));
+        int diffuse = Next(48, 0x64, 23);
+        Assert.Equal(0.5F, ReadSingle(encoded, diffuse + 12));
+        Assert.Equal(75U, ReadUInt32(encoded, diffuse + 44));
+        int specular = Next(40, 0x65, 24);
+        Assert.Equal(32.0, ReadDouble(encoded, specular + 28));
+        Assert.Equal(75U, ReadUInt32(encoded, specular + 36));
+        int emissive = Next(32, 0x66, 25);
+        Assert.Equal(75U, ReadUInt32(encoded, emissive + 28));
+        Assert.Equal(encoded.Length, offset);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetMeshGeometry3D(
+                20,
+                [new Vector3(float.NaN, 0, 0)],
+                [],
+                [],
+                []));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalSolidPenAndLinePackets()
     {
         var batch = new NativeMilBatchBuilder();

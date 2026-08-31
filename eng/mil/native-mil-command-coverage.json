@@ -13,15 +13,15 @@
     },
     "decoder": {
       "path": "src/ProGPU.Native/src/Mil/progpu_native_mil.cpp",
-      "sha256": "8dbb2541f1fbd19e131cc02d0821617a0f5fd8b6bf764aeae0682f0afe53f0e2"
+      "sha256": "6c6b4541264dc02148a505b8cbaf5b472151d8d8053d8fa8b3be5374eaabf702"
     }
   },
   "summary": {
     "commandCount": 143,
     "sentinel": 2,
-    "topLevelDecoder": 84,
+    "topLevelDecoder": 101,
     "nestedRenderDataDispatch": 25,
-    "notDispatched": 32
+    "notDispatched": 15
   },
   "commands": [
     {
@@ -328,42 +328,42 @@
       "name": "viewport3d_visual_set_3d_child",
       "wpfName": "MilCmdViewport3DVisualSet3DChild",
       "value": 43,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_VIEWPORT3DVISUAL_SET3DCHILD"
     },
     {
       "name": "visual3d_set_content",
       "wpfName": "MilCmdVisual3DSetContent",
       "value": 44,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_VISUAL3D_SETCONTENT"
     },
     {
       "name": "visual3d_set_transform",
       "wpfName": "MilCmdVisual3DSetTransform",
       "value": 45,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_VISUAL3D_SETTRANSFORM"
     },
     {
       "name": "visual3d_remove_all_children",
       "wpfName": "MilCmdVisual3DRemoveAllChildren",
       "value": 46,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_VISUAL3D_REMOVEALLCHILDREN"
     },
     {
       "name": "visual3d_remove_child",
       "wpfName": "MilCmdVisual3DRemoveChild",
       "value": 47,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_VISUAL3D_REMOVECHILD"
     },
     {
       "name": "visual3d_insert_child_at",
       "wpfName": "MilCmdVisual3DInsertChildAt",
       "value": 48,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_VISUAL3D_INSERTCHILDAT"
     },
     {
@@ -671,77 +671,77 @@
       "name": "model3d_group",
       "wpfName": "MilCmdModel3DGroup",
       "value": 92,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_MODEL3DGROUP"
     },
     {
       "name": "ambient_light",
       "wpfName": "MilCmdAmbientLight",
       "value": 93,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_AMBIENTLIGHT"
     },
     {
       "name": "directional_light",
       "wpfName": "MilCmdDirectionalLight",
       "value": 94,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_DIRECTIONALLIGHT"
     },
     {
       "name": "point_light",
       "wpfName": "MilCmdPointLight",
       "value": 95,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_POINTLIGHT"
     },
     {
       "name": "spot_light",
       "wpfName": "MilCmdSpotLight",
       "value": 96,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_SPOTLIGHT"
     },
     {
       "name": "geometry_model3d",
       "wpfName": "MilCmdGeometryModel3D",
       "value": 97,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_GEOMETRYMODEL3D"
     },
     {
       "name": "mesh_geometry3d",
       "wpfName": "MilCmdMeshGeometry3D",
       "value": 98,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_MESHGEOMETRY3D"
     },
     {
       "name": "material_group",
       "wpfName": "MilCmdMaterialGroup",
       "value": 99,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_MATERIALGROUP"
     },
     {
       "name": "diffuse_material",
       "wpfName": "MilCmdDiffuseMaterial",
       "value": 100,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_DIFFUSEMATERIAL"
     },
     {
       "name": "specular_material",
       "wpfName": "MilCmdSpecularMaterial",
       "value": 101,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_SPECULARMATERIAL"
     },
     {
       "name": "emissive_material",
       "wpfName": "MilCmdEmissiveMaterial",
       "value": 102,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_EMISSIVEMATERIAL"
     },
     {

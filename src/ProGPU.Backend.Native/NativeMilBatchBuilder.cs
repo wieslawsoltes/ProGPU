@@ -355,6 +355,62 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 8, cameraHandle);
     }
 
+    public void SetViewport3DVisualChild(uint handle, uint childHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Viewport3DVisualSet3DChild, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, childHandle);
+    }
+
+    public void SetVisual3DContent(uint handle, uint contentHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Visual3DSetContent, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, contentHandle);
+    }
+
+    public void SetVisual3DTransform(uint handle, uint transformHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Visual3DSetTransform, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, transformHandle);
+    }
+
+    public void RemoveAllVisual3DChildren(uint handle)
+    {
+        WriteHandleCommand(NativeMilCommand.Visual3DRemoveAllChildren, handle);
+    }
+
+    public void RemoveVisual3DChild(uint handle, uint childHandle)
+    {
+        ValidateHandle(handle);
+        ValidateHandle(childHandle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Visual3DRemoveChild, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, childHandle);
+    }
+
+    public void InsertVisual3DChild(
+        uint handle,
+        uint childHandle,
+        uint index)
+    {
+        ValidateHandle(handle);
+        ValidateHandle(childHandle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Visual3DInsertChildAt, 16);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, childHandle);
+        WriteUInt32(packet, 12, index);
+    }
+
     /// <summary>
     /// Writes a canonical viewport. The WPF <c>Rect.Empty</c> wire value is
     /// represented by positive-infinite X/Y and negative-infinite size.
@@ -1104,6 +1160,343 @@ public sealed class NativeMilBatchBuilder
             _writer, NativeMilCommand.MatrixTransform3D, 72);
         WriteUInt32(packet, 4, handle);
         WriteMatrix4x4(packet, 8, matrix);
+    }
+
+    public void SetModel3DGroup(
+        uint handle,
+        uint transformHandle,
+        ReadOnlySpan<uint> children)
+    {
+        ValidateHandle(handle);
+        int childrenSize = checked(children.Length * sizeof(uint));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.Model3DGroup,
+            checked(16 + childrenSize));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, transformHandle);
+        WriteUInt32(packet, 12, checked((uint)childrenSize));
+        for (int index = 0; index < children.Length; ++index)
+        {
+            ValidateHandle(children[index]);
+            WriteUInt32(packet, 16 + index * sizeof(uint), children[index]);
+        }
+    }
+
+    public void SetAmbientLight(
+        uint handle,
+        NativeMilColor color,
+        uint transformHandle = 0,
+        uint colorAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateAnimatedColor(color, colorAnimationHandle, nameof(color));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.AmbientLight, 32);
+        WriteUInt32(packet, 4, handle);
+        WriteColor(packet, 8, color);
+        WriteUInt32(packet, 24, transformHandle);
+        WriteUInt32(packet, 28, colorAnimationHandle);
+    }
+
+    public void SetDirectionalLight(
+        uint handle,
+        NativeMilColor color,
+        Vector3 direction,
+        uint transformHandle = 0,
+        uint colorAnimationHandle = 0,
+        uint directionAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateAnimatedColor(color, colorAnimationHandle, nameof(color));
+        ValidateAnimatedVector3(
+            direction,
+            directionAnimationHandle,
+            nameof(direction));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DirectionalLight, 48);
+        WriteUInt32(packet, 4, handle);
+        WriteColor(packet, 8, color);
+        WriteVector3(packet, 24, direction);
+        WriteUInt32(packet, 36, transformHandle);
+        WriteUInt32(packet, 40, colorAnimationHandle);
+        WriteUInt32(packet, 44, directionAnimationHandle);
+    }
+
+    public void SetPointLight(
+        uint handle,
+        NativeMilColor color,
+        double range,
+        double constantAttenuation,
+        double linearAttenuation,
+        double quadraticAttenuation,
+        Vector3 position,
+        uint transformHandle = 0,
+        uint colorAnimationHandle = 0,
+        uint positionAnimationHandle = 0,
+        uint rangeAnimationHandle = 0,
+        uint constantAttenuationAnimationHandle = 0,
+        uint linearAttenuationAnimationHandle = 0,
+        uint quadraticAttenuationAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateAnimatedColor(color, colorAnimationHandle, nameof(color));
+        ValidateAnimatedVector3(
+            position,
+            positionAnimationHandle,
+            nameof(position));
+        ValidateAnimatedDouble(
+            range,
+            rangeAnimationHandle,
+            nameof(range),
+            allowPositiveInfinity: true);
+        ValidateAnimatedDouble(
+            constantAttenuation,
+            constantAttenuationAnimationHandle,
+            nameof(constantAttenuation));
+        ValidateAnimatedDouble(
+            linearAttenuation,
+            linearAttenuationAnimationHandle,
+            nameof(linearAttenuation));
+        ValidateAnimatedDouble(
+            quadraticAttenuation,
+            quadraticAttenuationAnimationHandle,
+            nameof(quadraticAttenuation));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.PointLight, 96);
+        WriteUInt32(packet, 4, handle);
+        WriteColor(packet, 8, color);
+        WriteDouble(packet, 24, range);
+        WriteDouble(packet, 32, constantAttenuation);
+        WriteDouble(packet, 40, linearAttenuation);
+        WriteDouble(packet, 48, quadraticAttenuation);
+        WriteVector3(packet, 56, position);
+        WriteUInt32(packet, 68, transformHandle);
+        WriteUInt32(packet, 72, colorAnimationHandle);
+        WriteUInt32(packet, 76, positionAnimationHandle);
+        WriteUInt32(packet, 80, rangeAnimationHandle);
+        WriteUInt32(packet, 84, constantAttenuationAnimationHandle);
+        WriteUInt32(packet, 88, linearAttenuationAnimationHandle);
+        WriteUInt32(packet, 92, quadraticAttenuationAnimationHandle);
+    }
+
+    public void SetSpotLight(
+        uint handle,
+        NativeMilColor color,
+        double range,
+        double constantAttenuation,
+        double linearAttenuation,
+        double quadraticAttenuation,
+        double outerConeAngle,
+        double innerConeAngle,
+        Vector3 position,
+        Vector3 direction,
+        uint transformHandle = 0,
+        uint colorAnimationHandle = 0,
+        uint positionAnimationHandle = 0,
+        uint rangeAnimationHandle = 0,
+        uint constantAttenuationAnimationHandle = 0,
+        uint linearAttenuationAnimationHandle = 0,
+        uint quadraticAttenuationAnimationHandle = 0,
+        uint directionAnimationHandle = 0,
+        uint outerConeAngleAnimationHandle = 0,
+        uint innerConeAngleAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateAnimatedColor(color, colorAnimationHandle, nameof(color));
+        ValidateAnimatedVector3(
+            position,
+            positionAnimationHandle,
+            nameof(position));
+        ValidateAnimatedVector3(
+            direction,
+            directionAnimationHandle,
+            nameof(direction));
+        ReadOnlySpan<double> values = stackalloc double[]
+        {
+            range,
+            constantAttenuation,
+            linearAttenuation,
+            quadraticAttenuation,
+            outerConeAngle,
+            innerConeAngle
+        };
+        ReadOnlySpan<uint> animations = stackalloc uint[]
+        {
+            rangeAnimationHandle,
+            constantAttenuationAnimationHandle,
+            linearAttenuationAnimationHandle,
+            quadraticAttenuationAnimationHandle,
+            outerConeAngleAnimationHandle,
+            innerConeAngleAnimationHandle
+        };
+        for (int index = 0; index < values.Length; ++index)
+        {
+            ValidateAnimatedDouble(
+                values[index],
+                animations[index],
+                nameof(range),
+                allowPositiveInfinity: index == 0);
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.SpotLight, 136);
+        WriteUInt32(packet, 4, handle);
+        WriteColor(packet, 8, color);
+        for (int index = 0; index < values.Length; ++index)
+        {
+            WriteDouble(packet, 24 + index * sizeof(double), values[index]);
+        }
+        WriteVector3(packet, 72, position);
+        WriteUInt32(packet, 84, transformHandle);
+        WriteVector3(packet, 88, direction);
+        WriteUInt32(packet, 100, colorAnimationHandle);
+        WriteUInt32(packet, 104, positionAnimationHandle);
+        WriteUInt32(packet, 108, rangeAnimationHandle);
+        WriteUInt32(packet, 112, constantAttenuationAnimationHandle);
+        WriteUInt32(packet, 116, linearAttenuationAnimationHandle);
+        WriteUInt32(packet, 120, quadraticAttenuationAnimationHandle);
+        WriteUInt32(packet, 124, directionAnimationHandle);
+        WriteUInt32(packet, 128, outerConeAngleAnimationHandle);
+        WriteUInt32(packet, 132, innerConeAngleAnimationHandle);
+    }
+
+    public void SetGeometryModel3D(
+        uint handle,
+        uint transformHandle,
+        uint geometryHandle,
+        uint materialHandle,
+        uint backMaterialHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.GeometryModel3D, 24);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, transformHandle);
+        WriteUInt32(packet, 12, geometryHandle);
+        WriteUInt32(packet, 16, materialHandle);
+        WriteUInt32(packet, 20, backMaterialHandle);
+    }
+
+    public void SetMeshGeometry3D(
+        uint handle,
+        ReadOnlySpan<Vector3> positions,
+        ReadOnlySpan<Vector3> normals,
+        ReadOnlySpan<NativeMilPoint> textureCoordinates,
+        ReadOnlySpan<uint> triangleIndices)
+    {
+        ValidateHandle(handle);
+        int positionsSize = checked(positions.Length * 3 * sizeof(float));
+        int normalsSize = checked(normals.Length * 3 * sizeof(float));
+        int textureCoordinatesSize = checked(
+            textureCoordinates.Length * 2 * sizeof(double));
+        int triangleIndicesSize = checked(
+            triangleIndices.Length * sizeof(uint));
+        int fixedSize = 24;
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.MeshGeometry3D,
+            checked(fixedSize + positionsSize + normalsSize +
+                textureCoordinatesSize + triangleIndicesSize));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, checked((uint)positionsSize));
+        WriteUInt32(packet, 12, checked((uint)normalsSize));
+        WriteUInt32(packet, 16, checked((uint)textureCoordinatesSize));
+        WriteUInt32(packet, 20, checked((uint)triangleIndicesSize));
+        int offset = fixedSize;
+        foreach (Vector3 position in positions)
+        {
+            ValidateVector3(position, nameof(positions));
+            WriteVector3(packet, offset, position);
+            offset += 3 * sizeof(float);
+        }
+        foreach (Vector3 normal in normals)
+        {
+            ValidateVector3(normal, nameof(normals));
+            WriteVector3(packet, offset, normal);
+            offset += 3 * sizeof(float);
+        }
+        foreach (NativeMilPoint coordinate in textureCoordinates)
+        {
+            ValidatePoint(coordinate);
+            WriteDouble(packet, offset, coordinate.X);
+            WriteDouble(packet, offset + sizeof(double), coordinate.Y);
+            offset += 2 * sizeof(double);
+        }
+        foreach (uint triangleIndex in triangleIndices)
+        {
+            WriteUInt32(packet, offset, triangleIndex);
+            offset += sizeof(uint);
+        }
+    }
+
+    public void SetMaterialGroup(
+        uint handle,
+        ReadOnlySpan<uint> children)
+    {
+        ValidateHandle(handle);
+        int childrenSize = checked(children.Length * sizeof(uint));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.MaterialGroup,
+            checked(12 + childrenSize));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, checked((uint)childrenSize));
+        for (int index = 0; index < children.Length; ++index)
+        {
+            ValidateHandle(children[index]);
+            WriteUInt32(packet, 12 + index * sizeof(uint), children[index]);
+        }
+    }
+
+    public void SetDiffuseMaterial(
+        uint handle,
+        NativeMilColor color,
+        NativeMilColor ambientColor,
+        uint brushHandle)
+    {
+        ValidateHandle(handle);
+        ValidateColor(color);
+        ValidateColor(ambientColor);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.DiffuseMaterial, 44);
+        WriteUInt32(packet, 4, handle);
+        WriteColor(packet, 8, color);
+        WriteColor(packet, 24, ambientColor);
+        WriteUInt32(packet, 40, brushHandle);
+    }
+
+    public void SetSpecularMaterial(
+        uint handle,
+        NativeMilColor color,
+        double specularPower,
+        uint brushHandle)
+    {
+        ValidateHandle(handle);
+        ValidateColor(color);
+        if (!double.IsFinite(specularPower))
+        {
+            throw new ArgumentOutOfRangeException(nameof(specularPower));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.SpecularMaterial, 36);
+        WriteUInt32(packet, 4, handle);
+        WriteColor(packet, 8, color);
+        WriteDouble(packet, 24, specularPower);
+        WriteUInt32(packet, 32, brushHandle);
+    }
+
+    public void SetEmissiveMaterial(
+        uint handle,
+        NativeMilColor color,
+        uint brushHandle)
+    {
+        ValidateHandle(handle);
+        ValidateColor(color);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.EmissiveMaterial, 28);
+        WriteUInt32(packet, 4, handle);
+        WriteColor(packet, 8, color);
+        WriteUInt32(packet, 24, brushHandle);
     }
 
     private void SetProjectionCamera(
@@ -2140,6 +2533,21 @@ public sealed class NativeMilBatchBuilder
         }
     }
 
+    private static void ValidateAnimatedColor(
+        NativeMilColor value,
+        uint animationHandle,
+        string parameterName)
+    {
+        if (animationHandle == 0 &&
+            (!float.IsFinite(value.Red) ||
+             !float.IsFinite(value.Green) ||
+             !float.IsFinite(value.Blue) ||
+             !float.IsFinite(value.Alpha)))
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+    }
+
     private static void ValidateAnimatedQuaternion(
         Quaternion value,
         uint animationHandle,
@@ -2174,6 +2582,17 @@ public sealed class NativeMilBatchBuilder
         WriteSingle(destination, offset, value.X);
         WriteSingle(destination, offset + 4, value.Y);
         WriteSingle(destination, offset + 8, value.Z);
+    }
+
+    private static void WriteColor(
+        Span<byte> destination,
+        int offset,
+        NativeMilColor value)
+    {
+        WriteSingle(destination, offset, value.Red);
+        WriteSingle(destination, offset + 4, value.Green);
+        WriteSingle(destination, offset + 8, value.Blue);
+        WriteSingle(destination, offset + 12, value.Alpha);
     }
 
     private static void WriteQuaternion(
@@ -2772,6 +3191,12 @@ internal static class NativeMilCommand
     internal const uint VisualSetScrollableAreaClip = 0x28;
     internal const uint Viewport3DVisualSetCamera = 0x29;
     internal const uint Viewport3DVisualSetViewport = 0x2a;
+    internal const uint Viewport3DVisualSet3DChild = 0x2b;
+    internal const uint Visual3DSetContent = 0x2c;
+    internal const uint Visual3DSetTransform = 0x2d;
+    internal const uint Visual3DRemoveAllChildren = 0x2e;
+    internal const uint Visual3DRemoveChild = 0x2f;
+    internal const uint Visual3DInsertChildAt = 0x30;
     internal const uint HwndTargetCreate = 0x31;
     internal const uint HwndTargetSuppressLayered = 0x32;
     internal const uint TargetUpdateWindowSettings = 0x33;
@@ -2811,6 +3236,17 @@ internal static class NativeMilCommand
     internal const uint PerspectiveCamera = 0x59;
     internal const uint OrthographicCamera = 0x5a;
     internal const uint MatrixCamera = 0x5b;
+    internal const uint Model3DGroup = 0x5c;
+    internal const uint AmbientLight = 0x5d;
+    internal const uint DirectionalLight = 0x5e;
+    internal const uint PointLight = 0x5f;
+    internal const uint SpotLight = 0x60;
+    internal const uint GeometryModel3D = 0x61;
+    internal const uint MeshGeometry3D = 0x62;
+    internal const uint MaterialGroup = 0x63;
+    internal const uint DiffuseMaterial = 0x64;
+    internal const uint SpecularMaterial = 0x65;
+    internal const uint EmissiveMaterial = 0x66;
     internal const uint Transform3DGroup = 0x67;
     internal const uint TranslateTransform3D = 0x68;
     internal const uint ScaleTransform3D = 0x69;
