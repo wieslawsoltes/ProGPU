@@ -346,6 +346,47 @@ public sealed class NativeMilBatchBuilder
         }
     }
 
+    public void SetViewport3DVisualCamera(uint handle, uint cameraHandle)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Viewport3DVisualSetCamera, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, cameraHandle);
+    }
+
+    /// <summary>
+    /// Writes a canonical viewport. The WPF <c>Rect.Empty</c> wire value is
+    /// represented by positive-infinite X/Y and negative-infinite size.
+    /// </summary>
+    public void SetViewport3DVisualViewport(
+        uint handle,
+        NativeMilRect viewport)
+    {
+        ValidateHandle(handle);
+        bool isEmpty =
+            double.IsPositiveInfinity(viewport.X) &&
+            double.IsPositiveInfinity(viewport.Y) &&
+            double.IsNegativeInfinity(viewport.Width) &&
+            double.IsNegativeInfinity(viewport.Height);
+        if (!isEmpty &&
+            (!double.IsFinite(viewport.X) ||
+             !double.IsFinite(viewport.Y) ||
+             !double.IsFinite(viewport.Width) ||
+             !double.IsFinite(viewport.Height) ||
+             viewport.Width < 0.0 || viewport.Height < 0.0))
+        {
+            throw new ArgumentOutOfRangeException(nameof(viewport));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.Viewport3DVisualSetViewport, 40);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, viewport.X);
+        WriteDouble(packet, 16, viewport.Y);
+        WriteDouble(packet, 24, viewport.Width);
+        WriteDouble(packet, 32, viewport.Height);
+    }
+
     public void InsertVisualChild(uint handle, uint childHandle, uint index)
     {
         ValidateHandle(handle);
@@ -597,6 +638,41 @@ public sealed class NativeMilBatchBuilder
         WriteDouble(packet, 8, value);
     }
 
+    public void SetPoint3DResource(uint handle, Vector3 value)
+    {
+        SetVector3Resource(
+            handle, value, NativeMilCommand.Point3DResource);
+    }
+
+    public void SetVector3DResource(uint handle, Vector3 value)
+    {
+        SetVector3Resource(
+            handle, value, NativeMilCommand.Vector3DResource);
+    }
+
+    public void SetQuaternionResource(uint handle, Quaternion value)
+    {
+        ValidateHandle(handle);
+        ValidateQuaternion(value, nameof(value));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.QuaternionResource, 24);
+        WriteUInt32(packet, 4, handle);
+        WriteQuaternion(packet, 8, value);
+    }
+
+    private void SetVector3Resource(
+        uint handle,
+        Vector3 value,
+        uint command)
+    {
+        ValidateHandle(handle);
+        ValidateVector3(value, nameof(value));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, command, 20);
+        WriteUInt32(packet, 4, handle);
+        WriteVector3(packet, 8, value);
+    }
+
     /// <summary>Writes canonical MilCmdBitmapCache resource state.</summary>
     public void SetBitmapCache(uint handle, NativeMilBitmapCache cache)
     {
@@ -767,6 +843,325 @@ public sealed class NativeMilBatchBuilder
         WriteDouble(packet, 40, matrix.OffsetX);
         WriteDouble(packet, 48, matrix.OffsetY);
         WriteUInt32(packet, 56, matrixAnimationHandle);
+    }
+
+    public void SetAxisAngleRotation3D(
+        uint handle,
+        double angle,
+        Vector3 axis,
+        uint axisAnimationHandle = 0,
+        uint angleAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateAnimatedVector3(axis, axisAnimationHandle, nameof(axis));
+        ValidateAnimatedDouble(
+            angle, angleAnimationHandle, nameof(angle));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.AxisAngleRotation3D, 36);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, angle);
+        WriteVector3(packet, 16, axis);
+        WriteUInt32(packet, 28, axisAnimationHandle);
+        WriteUInt32(packet, 32, angleAnimationHandle);
+    }
+
+    public void SetQuaternionRotation3D(
+        uint handle,
+        Quaternion quaternion,
+        uint quaternionAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateAnimatedQuaternion(
+            quaternion,
+            quaternionAnimationHandle,
+            nameof(quaternion));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.QuaternionRotation3D, 28);
+        WriteUInt32(packet, 4, handle);
+        WriteQuaternion(packet, 8, quaternion);
+        WriteUInt32(packet, 24, quaternionAnimationHandle);
+    }
+
+    public void SetPerspectiveCamera(
+        uint handle,
+        double nearPlaneDistance,
+        double farPlaneDistance,
+        double fieldOfView,
+        Vector3 position,
+        Vector3 lookDirection,
+        Vector3 upDirection,
+        uint transformHandle = 0,
+        uint nearPlaneDistanceAnimationHandle = 0,
+        uint farPlaneDistanceAnimationHandle = 0,
+        uint positionAnimationHandle = 0,
+        uint lookDirectionAnimationHandle = 0,
+        uint upDirectionAnimationHandle = 0,
+        uint fieldOfViewAnimationHandle = 0)
+    {
+        SetProjectionCamera(
+            handle,
+            NativeMilCommand.PerspectiveCamera,
+            nearPlaneDistance,
+            farPlaneDistance,
+            fieldOfView,
+            position,
+            lookDirection,
+            upDirection,
+            transformHandle,
+            nearPlaneDistanceAnimationHandle,
+            farPlaneDistanceAnimationHandle,
+            positionAnimationHandle,
+            lookDirectionAnimationHandle,
+            upDirectionAnimationHandle,
+            fieldOfViewAnimationHandle);
+    }
+
+    public void SetOrthographicCamera(
+        uint handle,
+        double nearPlaneDistance,
+        double farPlaneDistance,
+        double width,
+        Vector3 position,
+        Vector3 lookDirection,
+        Vector3 upDirection,
+        uint transformHandle = 0,
+        uint nearPlaneDistanceAnimationHandle = 0,
+        uint farPlaneDistanceAnimationHandle = 0,
+        uint positionAnimationHandle = 0,
+        uint lookDirectionAnimationHandle = 0,
+        uint upDirectionAnimationHandle = 0,
+        uint widthAnimationHandle = 0)
+    {
+        SetProjectionCamera(
+            handle,
+            NativeMilCommand.OrthographicCamera,
+            nearPlaneDistance,
+            farPlaneDistance,
+            width,
+            position,
+            lookDirection,
+            upDirection,
+            transformHandle,
+            nearPlaneDistanceAnimationHandle,
+            farPlaneDistanceAnimationHandle,
+            positionAnimationHandle,
+            lookDirectionAnimationHandle,
+            upDirectionAnimationHandle,
+            widthAnimationHandle);
+    }
+
+    public void SetMatrixCamera(
+        uint handle,
+        Matrix4x4 viewMatrix,
+        Matrix4x4 projectionMatrix,
+        uint transformHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateMatrix4x4(viewMatrix, nameof(viewMatrix));
+        ValidateMatrix4x4(projectionMatrix, nameof(projectionMatrix));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.MatrixCamera, 140);
+        WriteUInt32(packet, 4, handle);
+        WriteMatrix4x4(packet, 8, viewMatrix);
+        WriteMatrix4x4(packet, 72, projectionMatrix);
+        WriteUInt32(packet, 136, transformHandle);
+    }
+
+    public void SetTransform3DGroup(
+        uint handle,
+        ReadOnlySpan<uint> children)
+    {
+        ValidateHandle(handle);
+        int childrenSize = checked(children.Length * sizeof(uint));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer,
+            NativeMilCommand.Transform3DGroup,
+            checked(12 + childrenSize));
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, checked((uint)childrenSize));
+        for (int index = 0; index < children.Length; ++index)
+        {
+            ValidateHandle(children[index]);
+            WriteUInt32(packet, 12 + index * sizeof(uint), children[index]);
+        }
+    }
+
+    public void SetTranslateTransform3D(
+        uint handle,
+        double offsetX,
+        double offsetY,
+        double offsetZ,
+        uint offsetXAnimationHandle = 0,
+        uint offsetYAnimationHandle = 0,
+        uint offsetZAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateAnimatedDouble(
+            offsetX, offsetXAnimationHandle, nameof(offsetX));
+        ValidateAnimatedDouble(
+            offsetY, offsetYAnimationHandle, nameof(offsetY));
+        ValidateAnimatedDouble(
+            offsetZ, offsetZAnimationHandle, nameof(offsetZ));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.TranslateTransform3D, 44);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, offsetX);
+        WriteDouble(packet, 16, offsetY);
+        WriteDouble(packet, 24, offsetZ);
+        WriteUInt32(packet, 32, offsetXAnimationHandle);
+        WriteUInt32(packet, 36, offsetYAnimationHandle);
+        WriteUInt32(packet, 40, offsetZAnimationHandle);
+    }
+
+    public void SetScaleTransform3D(
+        uint handle,
+        double scaleX,
+        double scaleY,
+        double scaleZ,
+        double centerX = 0.0,
+        double centerY = 0.0,
+        double centerZ = 0.0,
+        uint scaleXAnimationHandle = 0,
+        uint scaleYAnimationHandle = 0,
+        uint scaleZAnimationHandle = 0,
+        uint centerXAnimationHandle = 0,
+        uint centerYAnimationHandle = 0,
+        uint centerZAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ReadOnlySpan<double> values = stackalloc double[]
+        {
+            scaleX, scaleY, scaleZ,
+            centerX, centerY, centerZ
+        };
+        ReadOnlySpan<uint> animations = stackalloc uint[]
+        {
+            scaleXAnimationHandle,
+            scaleYAnimationHandle,
+            scaleZAnimationHandle,
+            centerXAnimationHandle,
+            centerYAnimationHandle,
+            centerZAnimationHandle
+        };
+        for (int index = 0; index < values.Length; ++index)
+        {
+            ValidateAnimatedDouble(
+                values[index], animations[index], nameof(scaleX));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.ScaleTransform3D, 80);
+        WriteUInt32(packet, 4, handle);
+        for (int index = 0; index < values.Length; ++index)
+        {
+            WriteDouble(packet, 8 + index * sizeof(double), values[index]);
+            WriteUInt32(packet, 56 + index * sizeof(uint), animations[index]);
+        }
+    }
+
+    public void SetRotateTransform3D(
+        uint handle,
+        uint rotationHandle,
+        double centerX = 0.0,
+        double centerY = 0.0,
+        double centerZ = 0.0,
+        uint centerXAnimationHandle = 0,
+        uint centerYAnimationHandle = 0,
+        uint centerZAnimationHandle = 0)
+    {
+        ValidateHandle(handle);
+        ValidateHandle(rotationHandle);
+        ReadOnlySpan<double> values = stackalloc double[]
+        {
+            centerX, centerY, centerZ
+        };
+        ReadOnlySpan<uint> animations = stackalloc uint[]
+        {
+            centerXAnimationHandle,
+            centerYAnimationHandle,
+            centerZAnimationHandle
+        };
+        for (int index = 0; index < values.Length; ++index)
+        {
+            ValidateAnimatedDouble(
+                values[index], animations[index], nameof(centerX));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.RotateTransform3D, 48);
+        WriteUInt32(packet, 4, handle);
+        for (int index = 0; index < values.Length; ++index)
+        {
+            WriteDouble(packet, 8 + index * sizeof(double), values[index]);
+            WriteUInt32(packet, 32 + index * sizeof(uint), animations[index]);
+        }
+        WriteUInt32(packet, 44, rotationHandle);
+    }
+
+    public void SetMatrixTransform3D(uint handle, Matrix4x4 matrix)
+    {
+        ValidateHandle(handle);
+        ValidateMatrix4x4(matrix, nameof(matrix));
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.MatrixTransform3D, 72);
+        WriteUInt32(packet, 4, handle);
+        WriteMatrix4x4(packet, 8, matrix);
+    }
+
+    private void SetProjectionCamera(
+        uint handle,
+        uint command,
+        double nearPlaneDistance,
+        double farPlaneDistance,
+        double projectionValue,
+        Vector3 position,
+        Vector3 lookDirection,
+        Vector3 upDirection,
+        uint transformHandle,
+        uint nearPlaneDistanceAnimationHandle,
+        uint farPlaneDistanceAnimationHandle,
+        uint positionAnimationHandle,
+        uint lookDirectionAnimationHandle,
+        uint upDirectionAnimationHandle,
+        uint projectionValueAnimationHandle)
+    {
+        ValidateHandle(handle);
+        ValidateAnimatedDouble(
+            nearPlaneDistance,
+            nearPlaneDistanceAnimationHandle,
+            nameof(nearPlaneDistance));
+        ValidateAnimatedDouble(
+            farPlaneDistance,
+            farPlaneDistanceAnimationHandle,
+            nameof(farPlaneDistance),
+            allowPositiveInfinity: true);
+        ValidateAnimatedDouble(
+            projectionValue,
+            projectionValueAnimationHandle,
+            nameof(projectionValue));
+        ValidateAnimatedVector3(
+            position, positionAnimationHandle, nameof(position));
+        ValidateAnimatedVector3(
+            lookDirection,
+            lookDirectionAnimationHandle,
+            nameof(lookDirection));
+        ValidateAnimatedVector3(
+            upDirection, upDirectionAnimationHandle, nameof(upDirection));
+
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, command, 96);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, nearPlaneDistance);
+        WriteDouble(packet, 16, farPlaneDistance);
+        WriteDouble(packet, 24, projectionValue);
+        WriteVector3(packet, 32, position);
+        WriteUInt32(packet, 44, transformHandle);
+        WriteVector3(packet, 48, lookDirection);
+        WriteUInt32(packet, 60, nearPlaneDistanceAnimationHandle);
+        WriteVector3(packet, 64, upDirection);
+        WriteUInt32(packet, 76, farPlaneDistanceAnimationHandle);
+        WriteUInt32(packet, 80, positionAnimationHandle);
+        WriteUInt32(packet, 84, lookDirectionAnimationHandle);
+        WriteUInt32(packet, 88, upDirectionAnimationHandle);
+        WriteUInt32(packet, 92, projectionValueAnimationHandle);
     }
 
     public void SetTransformGroup(uint handle, ReadOnlySpan<uint> children)
@@ -1696,6 +2091,115 @@ public sealed class NativeMilBatchBuilder
         }
     }
 
+    private static void ValidateVector3(Vector3 value, string parameterName)
+    {
+        if (!float.IsFinite(value.X) || !float.IsFinite(value.Y) ||
+            !float.IsFinite(value.Z))
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+    }
+
+    private static void ValidateQuaternion(
+        Quaternion value,
+        string parameterName)
+    {
+        if (!float.IsFinite(value.X) || !float.IsFinite(value.Y) ||
+            !float.IsFinite(value.Z) || !float.IsFinite(value.W))
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+    }
+
+    private static void ValidateAnimatedDouble(
+        double value,
+        uint animationHandle,
+        string parameterName,
+        bool allowPositiveInfinity = false)
+    {
+        if (animationHandle != 0)
+        {
+            return;
+        }
+        float converted = (float)value;
+        if ((!double.IsFinite(value) || !float.IsFinite(converted)) &&
+            !(allowPositiveInfinity && double.IsPositiveInfinity(value)))
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+    }
+
+    private static void ValidateAnimatedVector3(
+        Vector3 value,
+        uint animationHandle,
+        string parameterName)
+    {
+        if (animationHandle == 0)
+        {
+            ValidateVector3(value, parameterName);
+        }
+    }
+
+    private static void ValidateAnimatedQuaternion(
+        Quaternion value,
+        uint animationHandle,
+        string parameterName)
+    {
+        if (animationHandle == 0)
+        {
+            ValidateQuaternion(value, parameterName);
+        }
+    }
+
+    private static void ValidateMatrix4x4(
+        Matrix4x4 value,
+        string parameterName)
+    {
+        ReadOnlySpan<float> values = MemoryMarshal.CreateReadOnlySpan(
+            ref value.M11, 16);
+        foreach (float component in values)
+        {
+            if (!float.IsFinite(component))
+            {
+                throw new ArgumentOutOfRangeException(parameterName);
+            }
+        }
+    }
+
+    private static void WriteVector3(
+        Span<byte> destination,
+        int offset,
+        Vector3 value)
+    {
+        WriteSingle(destination, offset, value.X);
+        WriteSingle(destination, offset + 4, value.Y);
+        WriteSingle(destination, offset + 8, value.Z);
+    }
+
+    private static void WriteQuaternion(
+        Span<byte> destination,
+        int offset,
+        Quaternion value)
+    {
+        WriteSingle(destination, offset, value.X);
+        WriteSingle(destination, offset + 4, value.Y);
+        WriteSingle(destination, offset + 8, value.Z);
+        WriteSingle(destination, offset + 12, value.W);
+    }
+
+    private static void WriteMatrix4x4(
+        Span<byte> destination,
+        int offset,
+        Matrix4x4 value)
+    {
+        ReadOnlySpan<float> values = MemoryMarshal.CreateReadOnlySpan(
+            ref value.M11, 16);
+        for (int index = 0; index < values.Length; ++index)
+        {
+            WriteSingle(destination, offset + index * sizeof(float), values[index]);
+        }
+    }
+
     private static void ValidateTransformValues(
         double first,
         double second,
@@ -2248,6 +2752,9 @@ internal static class NativeMilCommand
     internal const uint PointResource = 0x10;
     internal const uint RectResource = 0x11;
     internal const uint MatrixResource = 0x13;
+    internal const uint Point3DResource = 0x14;
+    internal const uint Vector3DResource = 0x15;
+    internal const uint QuaternionResource = 0x16;
     internal const uint MediaPlayer = 0x17;
     internal const uint RenderData = 0x18;
     internal const uint VisualCreate = 0x1a;
@@ -2263,6 +2770,8 @@ internal static class NativeMilCommand
     internal const uint VisualInsertChildAt = 0x26;
     internal const uint VisualSetGuidelineCollection = 0x27;
     internal const uint VisualSetScrollableAreaClip = 0x28;
+    internal const uint Viewport3DVisualSetCamera = 0x29;
+    internal const uint Viewport3DVisualSetViewport = 0x2a;
     internal const uint HwndTargetCreate = 0x31;
     internal const uint HwndTargetSuppressLayered = 0x32;
     internal const uint TargetUpdateWindowSettings = 0x33;
@@ -2297,6 +2806,16 @@ internal static class NativeMilCommand
     internal const uint PushGuidelineY1 = 0x53;
     internal const uint PushGuidelineY2 = 0x54;
     internal const uint Pop = 0x56;
+    internal const uint AxisAngleRotation3D = 0x57;
+    internal const uint QuaternionRotation3D = 0x58;
+    internal const uint PerspectiveCamera = 0x59;
+    internal const uint OrthographicCamera = 0x5a;
+    internal const uint MatrixCamera = 0x5b;
+    internal const uint Transform3DGroup = 0x67;
+    internal const uint TranslateTransform3D = 0x68;
+    internal const uint ScaleTransform3D = 0x69;
+    internal const uint RotateTransform3D = 0x6a;
+    internal const uint MatrixTransform3D = 0x6b;
     internal const uint BlurEffect = 0x6e;
     internal const uint DropShadowEffect = 0x6f;
     internal const uint DrawingImage = 0x71;

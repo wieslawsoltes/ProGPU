@@ -13,15 +13,15 @@
     },
     "decoder": {
       "path": "src/ProGPU.Native/src/Mil/progpu_native_mil.cpp",
-      "sha256": "3fc657ac0e0eb9aa5d155c07dd5a0b053bcaae6632aaa056cd0a7040829349c4"
+      "sha256": "8dbb2541f1fbd19e131cc02d0821617a0f5fd8b6bf764aeae0682f0afe53f0e2"
     }
   },
   "summary": {
     "commandCount": 143,
     "sentinel": 2,
-    "topLevelDecoder": 72,
+    "topLevelDecoder": 84,
     "nestedRenderDataDispatch": 25,
-    "notDispatched": 44
+    "notDispatched": 32
   },
   "commands": [
     {
@@ -314,14 +314,14 @@
       "name": "viewport3d_visual_set_camera",
       "wpfName": "MilCmdViewport3DVisualSetCamera",
       "value": 41,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_VIEWPORT3DVISUAL_SETCAMERA"
     },
     {
       "name": "viewport3d_visual_set_viewport",
       "wpfName": "MilCmdViewport3DVisualSetViewport",
       "value": 42,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_VIEWPORT3DVISUAL_SETVIEWPORT"
     },
     {
@@ -636,35 +636,35 @@
       "name": "axis_angle_rotation3d",
       "wpfName": "MilCmdAxisAngleRotation3D",
       "value": 87,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_AXISANGLEROTATION3D"
     },
     {
       "name": "quaternion_rotation3d",
       "wpfName": "MilCmdQuaternionRotation3D",
       "value": 88,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_QUATERNIONROTATION3D"
     },
     {
       "name": "perspective_camera",
       "wpfName": "MilCmdPerspectiveCamera",
       "value": 89,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_PERSPECTIVECAMERA"
     },
     {
       "name": "orthographic_camera",
       "wpfName": "MilCmdOrthographicCamera",
       "value": 90,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_ORTHOGRAPHICCAMERA"
     },
     {
       "name": "matrix_camera",
       "wpfName": "MilCmdMatrixCamera",
       "value": 91,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_MATRIXCAMERA"
     },
     {
@@ -748,35 +748,35 @@
       "name": "transform3d_group",
       "wpfName": "MilCmdTransform3DGroup",
       "value": 103,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_TRANSFORM3DGROUP"
     },
     {
       "name": "translate_transform3d",
       "wpfName": "MilCmdTranslateTransform3D",
       "value": 104,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_TRANSLATETRANSFORM3D"
     },
     {
       "name": "scale_transform3d",
       "wpfName": "MilCmdScaleTransform3D",
       "value": 105,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_SCALETRANSFORM3D"
     },
     {
       "name": "rotate_transform3d",
       "wpfName": "MilCmdRotateTransform3D",
       "value": 106,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_ROTATETRANSFORM3D"
     },
     {
       "name": "matrix_transform3d",
       "wpfName": "MilCmdMatrixTransform3D",
       "value": 107,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_MATRIXTRANSFORM3D"
     },
     {

@@ -343,6 +343,162 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuilderWritesCanonicalViewport3DCameraAndTransforms()
+    {
+        Assert.Equal(3U, (uint)NativeMilResourceType.AxisAngleRotation3D);
+        Assert.Equal(7U, (uint)NativeMilResourceType.MatrixCamera);
+        Assert.Equal(27U, (uint)NativeMilResourceType.Transform3DGroup);
+        Assert.Equal(40U, (uint)NativeMilResourceType.Viewport3DVisual);
+        Assert.Equal(55U, (uint)NativeMilResourceType.Point3DResource);
+        Assert.Equal(56U, (uint)NativeMilResourceType.Vector3DResource);
+        Assert.Equal(57U, (uint)NativeMilResourceType.QuaternionResource);
+
+        var batch = new NativeMilBatchBuilder();
+        batch.SetPoint3DResource(50, new Vector3(1, 2, 3));
+        batch.SetVector3DResource(51, new Vector3(4, 5, 6));
+        batch.SetQuaternionResource(52, new Quaternion(0, 0, 0, 1));
+        batch.SetViewport3DVisualCamera(40, 80);
+        batch.SetViewport3DVisualViewport(
+            40,
+            new NativeMilRect(
+                double.PositiveInfinity,
+                double.PositiveInfinity,
+                double.NegativeInfinity,
+                double.NegativeInfinity));
+        batch.SetAxisAngleRotation3D(
+            60,
+            double.NaN,
+            new Vector3(float.NaN),
+            axisAnimationHandle: 51,
+            angleAnimationHandle: 70);
+        batch.SetQuaternionRotation3D(
+            61,
+            new Quaternion(float.NaN, float.NaN, float.NaN, float.NaN),
+            quaternionAnimationHandle: 52);
+        batch.SetPerspectiveCamera(
+            80,
+            double.NaN,
+            double.NaN,
+            double.NaN,
+            new Vector3(float.NaN),
+            new Vector3(float.NaN),
+            new Vector3(float.NaN),
+            transformHandle: 75,
+            nearPlaneDistanceAnimationHandle: 70,
+            farPlaneDistanceAnimationHandle: 71,
+            positionAnimationHandle: 50,
+            lookDirectionAnimationHandle: 51,
+            upDirectionAnimationHandle: 51,
+            fieldOfViewAnimationHandle: 72);
+        batch.SetOrthographicCamera(
+            81,
+            -2,
+            double.PositiveInfinity,
+            20,
+            new Vector3(1, 2, 3),
+            new Vector3(0, 0, -1),
+            Vector3.UnitY);
+        var view = Matrix4x4.CreateTranslation(1, 2, 3);
+        var projection = Matrix4x4.CreateScale(2, 3, 4);
+        batch.SetMatrixCamera(82, view, projection, transformHandle: 76);
+        batch.SetTransform3DGroup(75, [73, 74]);
+        batch.SetTranslateTransform3D(
+            73,
+            double.NaN,
+            2,
+            3,
+            offsetXAnimationHandle: 70);
+        batch.SetScaleTransform3D(74, 2, 3, 4, 5, 6, 7);
+        batch.SetRotateTransform3D(76, 61, 8, 9, 10);
+        var transform = Matrix4x4.CreateTranslation(11, 12, 13);
+        batch.SetMatrixTransform3D(77, transform);
+        byte[] encoded = batch.ToArray();
+
+        int offset = 0;
+        int Next(uint itemSize, uint command, uint handle)
+        {
+            int itemOffset = offset;
+            Assert.Equal(itemSize, ReadUInt32(encoded, itemOffset));
+            Assert.Equal(command, ReadUInt32(encoded, itemOffset + 4));
+            Assert.Equal(handle, ReadUInt32(encoded, itemOffset + 8));
+            offset += checked((int)itemSize);
+            return itemOffset;
+        }
+
+        int point = Next(24, 0x14, 50);
+        Assert.Equal(1F, ReadSingle(encoded, point + 12));
+        int vector = Next(24, 0x15, 51);
+        Assert.Equal(6F, ReadSingle(encoded, vector + 20));
+        int quaternion = Next(28, 0x16, 52);
+        Assert.Equal(1F, ReadSingle(encoded, quaternion + 24));
+
+        int cameraBinding = Next(16, 0x29, 40);
+        Assert.Equal(80U, ReadUInt32(encoded, cameraBinding + 12));
+        int viewport = Next(44, 0x2a, 40);
+        Assert.Equal(
+            double.PositiveInfinity,
+            ReadDouble(encoded, viewport + 12));
+        Assert.Equal(
+            double.NegativeInfinity,
+            ReadDouble(encoded, viewport + 36));
+
+        int axisAngle = Next(40, 0x57, 60);
+        Assert.True(double.IsNaN(ReadDouble(encoded, axisAngle + 12)));
+        Assert.Equal(51U, ReadUInt32(encoded, axisAngle + 32));
+        Assert.Equal(70U, ReadUInt32(encoded, axisAngle + 36));
+        int quaternionRotation = Next(32, 0x58, 61);
+        Assert.True(float.IsNaN(ReadSingle(encoded, quaternionRotation + 12)));
+        Assert.Equal(52U, ReadUInt32(encoded, quaternionRotation + 28));
+
+        int perspective = Next(100, 0x59, 80);
+        Assert.True(double.IsNaN(ReadDouble(encoded, perspective + 12)));
+        Assert.Equal(75U, ReadUInt32(encoded, perspective + 48));
+        Assert.Equal(70U, ReadUInt32(encoded, perspective + 64));
+        Assert.Equal(72U, ReadUInt32(encoded, perspective + 96));
+        int orthographic = Next(100, 0x5a, 81);
+        Assert.Equal(-2.0, ReadDouble(encoded, orthographic + 12));
+        Assert.Equal(
+            double.PositiveInfinity,
+            ReadDouble(encoded, orthographic + 20));
+        Assert.Equal(20.0, ReadDouble(encoded, orthographic + 28));
+        int matrixCamera = Next(144, 0x5b, 82);
+        Assert.Equal(view.M41, ReadSingle(encoded, matrixCamera + 60));
+        Assert.Equal(
+            projection.M22,
+            ReadSingle(encoded, matrixCamera + 96));
+        Assert.Equal(76U, ReadUInt32(encoded, matrixCamera + 140));
+
+        int group = Next(24, 0x67, 75);
+        Assert.Equal(8U, ReadUInt32(encoded, group + 12));
+        Assert.Equal(73U, ReadUInt32(encoded, group + 16));
+        Assert.Equal(74U, ReadUInt32(encoded, group + 20));
+        int translate = Next(48, 0x68, 73);
+        Assert.True(double.IsNaN(ReadDouble(encoded, translate + 12)));
+        Assert.Equal(70U, ReadUInt32(encoded, translate + 36));
+        int scale = Next(84, 0x69, 74);
+        Assert.Equal(2.0, ReadDouble(encoded, scale + 12));
+        Assert.Equal(7.0, ReadDouble(encoded, scale + 52));
+        int rotate = Next(52, 0x6a, 76);
+        Assert.Equal(8.0, ReadDouble(encoded, rotate + 12));
+        Assert.Equal(61U, ReadUInt32(encoded, rotate + 48));
+        int matrixTransform = Next(76, 0x6b, 77);
+        Assert.Equal(
+            transform.M43,
+            ReadSingle(encoded, matrixTransform + 68));
+        Assert.Equal(encoded.Length, offset);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetViewport3DVisualViewport(
+                40,
+                new NativeMilRect(0, 0, -1, 1)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.SetAxisAngleRotation3D(
+                60,
+                0,
+                new Vector3(float.NaN)));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalSolidPenAndLinePackets()
     {
         var batch = new NativeMilBatchBuilder();

@@ -61,6 +61,20 @@ static_assert(command_layouts::matrix_transform::fixed_size == 60U);
 static_assert(command_layouts::matrix_transform::matrix_offset == 8U);
 static_assert(
     command_layouts::matrix_transform::h_matrix_animations_offset == 56U);
+static_assert(command_layouts::axis_angle_rotation3d::fixed_size == 36U);
+static_assert(command_layouts::quaternion_rotation3d::fixed_size == 28U);
+static_assert(command_layouts::perspective_camera::fixed_size == 96U);
+static_assert(command_layouts::orthographic_camera::fixed_size == 96U);
+static_assert(command_layouts::matrix_camera::fixed_size == 140U);
+static_assert(command_layouts::transform3d_group::fixed_size == 12U);
+static_assert(command_layouts::translate_transform3d::fixed_size == 44U);
+static_assert(command_layouts::scale_transform3d::fixed_size == 80U);
+static_assert(command_layouts::rotate_transform3d::fixed_size == 48U);
+static_assert(command_layouts::matrix_transform3d::fixed_size == 72U);
+static_assert(
+    command_layouts::viewport3d_visual_set_camera::fixed_size == 12U);
+static_assert(
+    command_layouts::viewport3d_visual_set_viewport::fixed_size == 40U);
 static_assert(command_layouts::line_geometry::fixed_size == 52U);
 static_assert(command_layouts::line_geometry::end_point_offset == 24U);
 static_assert(command_layouts::rectangle_geometry::fixed_size == 72U);
@@ -16971,6 +16985,379 @@ bool retained_viewport3d_uses_pointer_free_mesh_sideband() {
     return true;
 }
 
+bool canonical_viewport3d_camera_uses_wpf_transform_resources() {
+    constexpr std::uint32_t viewport_handle = 940U;
+    constexpr std::uint32_t target = 941U;
+    constexpr std::uint32_t angle_animation = 942U;
+    constexpr std::uint32_t x_animation = 943U;
+    constexpr std::uint32_t rotation = 944U;
+    constexpr std::uint32_t rotate = 945U;
+    constexpr std::uint32_t translate = 946U;
+    constexpr std::uint32_t group = 947U;
+    constexpr std::uint32_t camera_handle = 948U;
+    constexpr std::uint32_t quaternion_rotation = 949U;
+    constexpr std::uint32_t quaternion_rotate = 950U;
+    constexpr std::uint32_t scale = 951U;
+    constexpr std::uint32_t matrix_transform = 952U;
+    constexpr std::uint32_t orthographic_camera = 953U;
+    constexpr std::uint32_t matrix_camera = 954U;
+    const std::array<float, 3U> z_axis{0.0F, 0.0F, 1.0F};
+    const std::array<float, 3U> position{0.0F, 0.0F, 2.0F};
+    const std::array<float, 3U> look{0.0F, 0.0F, -1.0F};
+    const std::array<float, 3U> up{0.0F, 1.0F, 0.0F};
+    const std::array<std::uint32_t, 2U> children{rotate, translate};
+
+    std::vector<std::byte> batch;
+    append_create(batch, viewport_handle, 40U);
+    append_create(batch, target, 47U);
+    append_create(batch, angle_animation, 49U);
+    append_create(batch, x_animation, 49U);
+    append_create(batch, rotation, 3U);
+    append_create(batch, rotate, 30U);
+    append_create(batch, translate, 28U);
+    append_create(batch, group, 27U);
+    append_create(batch, camera_handle, 5U);
+    append_create(batch, quaternion_rotation, 4U);
+    append_create(batch, quaternion_rotate, 30U);
+    append_create(batch, scale, 29U);
+    append_create(batch, matrix_transform, 31U);
+    append_create(batch, orthographic_camera, 6U);
+    append_create(batch, matrix_camera, 7U);
+    append_command(batch, command::visual_create, viewport_handle);
+    append_command(batch, command::double_resource, angle_animation, 90.0);
+    append_command(batch, command::double_resource, x_animation, 1.0);
+    append_command(
+        batch,
+        command::axis_angle_rotation3d,
+        rotation,
+        std::numeric_limits<double>::quiet_NaN(),
+        z_axis,
+        0U,
+        angle_animation);
+    append_command(
+        batch,
+        command::rotate_transform3d,
+        rotate,
+        0.0,
+        0.0,
+        0.0,
+        0U,
+        0U,
+        0U,
+        rotation);
+    append_command(
+        batch,
+        command::translate_transform3d,
+        translate,
+        std::numeric_limits<double>::quiet_NaN(),
+        2.0,
+        3.0,
+        x_animation,
+        0U,
+        0U);
+    append_command(
+        batch,
+        command::transform3d_group,
+        group,
+        static_cast<std::uint32_t>(sizeof(children)),
+        children);
+    append_command(
+        batch,
+        command::perspective_camera,
+        camera_handle,
+        1.0,
+        11.0,
+        90.0,
+        position,
+        group,
+        look,
+        0U,
+        up,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U);
+    constexpr float half_root_two = 0.7071067811865475244F;
+    append_command(
+        batch,
+        command::quaternion_rotation3d,
+        quaternion_rotation,
+        std::array<float, 4U>{
+            0.0F, 0.0F, half_root_two, half_root_two},
+        0U);
+    append_command(
+        batch,
+        command::rotate_transform3d,
+        quaternion_rotate,
+        0.0,
+        0.0,
+        0.0,
+        0U,
+        0U,
+        0U,
+        quaternion_rotation);
+    append_command(
+        batch,
+        command::scale_transform3d,
+        scale,
+        2.0,
+        3.0,
+        4.0,
+        0.0,
+        0.0,
+        0.0,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U);
+    const progpu_native_matrix_4x4 translated{
+        1.0F, 0.0F, 0.0F, 0.0F,
+        0.0F, 1.0F, 0.0F, 0.0F,
+        0.0F, 0.0F, 1.0F, 0.0F,
+        10.0F, 20.0F, 30.0F, 1.0F};
+    append_command(
+        batch,
+        command::matrix_transform3d,
+        matrix_transform,
+        translated);
+    append_command(
+        batch,
+        command::orthographic_camera,
+        orthographic_camera,
+        -1.0,
+        9.0,
+        20.0,
+        std::array<float, 3U>{1.0F, 2.0F, 3.0F},
+        group,
+        look,
+        0U,
+        up,
+        0U,
+        0U,
+        0U,
+        0U,
+        0U);
+    const progpu_native_matrix_4x4 direct_view{
+        1.0F, 0.0F, 0.0F, 0.0F,
+        0.0F, 1.0F, 0.0F, 0.0F,
+        0.0F, 0.0F, 1.0F, 0.0F,
+        -7.0F, -8.0F, -9.0F, 1.0F};
+    const progpu_native_matrix_4x4 direct_projection{
+        2.0F, 0.0F, 0.0F, 0.0F,
+        0.0F, 3.0F, 0.0F, 0.0F,
+        0.0F, 0.0F, -1.0F, -1.0F,
+        0.0F, 0.0F, -1.0F, 0.0F};
+    append_command(
+        batch,
+        command::matrix_camera,
+        matrix_camera,
+        direct_view,
+        direct_projection,
+        0U);
+    append_command(
+        batch,
+        command::viewport3d_visual_set_camera,
+        viewport_handle,
+        camera_handle);
+    append_command(
+        batch,
+        command::viewport3d_visual_set_viewport,
+        viewport_handle,
+        20.0,
+        30.0,
+        100.0,
+        50.0);
+    append_command(
+        batch,
+        command::generic_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        160U,
+        120U,
+        0U);
+    append_command(batch, command::target_set_root, target, viewport_handle);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    const progpu_native_matrix_4x4 identity{
+        1.0F, 0.0F, 0.0F, 0.0F,
+        0.0F, 1.0F, 0.0F, 0.0F,
+        0.0F, 0.0F, 1.0F, 0.0F,
+        0.0F, 0.0F, 0.0F, 1.0F};
+    progpu_native_scene_camera_3d sideband_camera{};
+    sideband_camera.struct_size = sizeof(sideband_camera);
+    sideband_camera.projection = identity;
+    sideband_camera.view = identity;
+    std::array<progpu_native_scene_mesh_3d_vertex, 3U> vertices{};
+    vertices[0].position = {-0.5F, -0.5F, 0.0F, 0.0F};
+    vertices[1].position = {0.5F, -0.5F, 0.0F, 0.0F};
+    vertices[2].position = {0.0F, 0.5F, 0.0F, 0.0F};
+    for (auto& vertex : vertices) {
+        vertex.normal = {0.0F, 0.0F, 1.0F, 0.0F};
+    }
+    const std::array<std::uint32_t, 3U> indices{0U, 1U, 2U};
+    progpu_native_scene_mesh_3d mesh{};
+    mesh.struct_size = sizeof(mesh);
+    mesh.topology = PROGPU_NATIVE_MESH_3D_TRIANGLES;
+    mesh.render_mode = PROGPU_NATIVE_MESH_3D_SOLID;
+    mesh.vertex_count = static_cast<std::uint32_t>(vertices.size());
+    mesh.index_count = static_cast<std::uint32_t>(indices.size());
+    mesh.model_transform = identity;
+    mesh.normal_transform = identity;
+    mesh.color = {1.0F, 1.0F, 1.0F, 1.0F};
+    mesh.light_direction = {0.0F, 0.0F, -1.0F, 1.0F};
+    mesh.ambient_color = {1.0F, 1.0F, 1.0F, 1.0F};
+    mesh.specular_color = {0.0F, 0.0F, 0.0F, 1.0F};
+    mesh.material_ambient = {1.0F, 1.0F, 1.0F, 1.0F};
+    mesh.opacity = 1.0F;
+    PROGPU_REQUIRE(
+        state.set_viewport3d_scene(
+            viewport_handle,
+            sideband_camera,
+            {0.0F, 0.0F, 1.0F, 1.0F},
+            std::span<const progpu_native_scene_mesh_3d>{&mesh, 1U},
+            vertices,
+            indices) == status::success);
+
+    const auto read_draw = [](
+        const std::vector<std::byte>& stream,
+        progpu_native_scene_command& draw,
+        progpu_native_scene_camera_3d& camera) {
+        const auto header = read_value<progpu_native_scene_header>(
+            stream, 0U);
+        for (std::uint32_t index = 0U;
+             index < header.command_count;
+             ++index) {
+            const auto candidate = read_value<progpu_native_scene_command>(
+                stream,
+                header.command_offset +
+                    index * sizeof(progpu_native_scene_command));
+            if (candidate.kind !=
+                PROGPU_NATIVE_SCENE_COMMAND_DRAW_MESH_3D_BATCH) {
+                continue;
+            }
+            draw = candidate;
+            camera = read_value<progpu_native_scene_camera_3d>(
+                stream, candidate.payload_offset);
+            return true;
+        }
+        return false;
+    };
+    std::vector<std::byte> stream;
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8'300U, 1U, stream) == status::success);
+    progpu_native_scene_command draw{};
+    progpu_native_scene_camera_3d camera{};
+    PROGPU_REQUIRE(read_draw(stream, draw, camera));
+    PROGPU_REQUIRE(draw.bounds_x == 20.0F);
+    PROGPU_REQUIRE(draw.bounds_y == 30.0F);
+    PROGPU_REQUIRE(draw.bounds_width == 100.0F);
+    PROGPU_REQUIRE(draw.bounds_height == 50.0F);
+    PROGPU_REQUIRE(std::abs(camera.camera_position.x - 1.0F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.camera_position.y - 2.0F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.camera_position.z - 5.0F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.projection.m11 - 1.0F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.projection.m22 - 2.0F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.projection.m33 + 1.1F) < 0.0001F);
+
+    std::vector<std::byte> animation_update;
+    append_command(
+        animation_update,
+        command::double_resource,
+        angle_animation,
+        0.0);
+    append_command(
+        animation_update,
+        command::double_resource,
+        x_animation,
+        4.0);
+    PROGPU_REQUIRE(state.apply(animation_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8'300U, 2U, stream) == status::success);
+    PROGPU_REQUIRE(read_draw(stream, draw, camera));
+    PROGPU_REQUIRE(std::abs(camera.camera_position.x - 4.0F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.camera_position.y - 2.0F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.camera_position.z - 5.0F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.view.m41 + 4.0F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.view.m42 + 2.0F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.view.m43 + 5.0F) < 0.0001F);
+
+    std::vector<std::byte> invalid_group;
+    const std::array<std::uint32_t, 1U> invalid_child{camera_handle};
+    append_command(
+        invalid_group,
+        command::transform3d_group,
+        group,
+        static_cast<std::uint32_t>(sizeof(invalid_child)),
+        invalid_child);
+    PROGPU_REQUIRE(state.apply(invalid_group) == status::invalid_handle);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8'300U, 3U, stream) == status::success);
+    PROGPU_REQUIRE(read_draw(stream, draw, camera));
+    PROGPU_REQUIRE(std::abs(camera.camera_position.x - 4.0F) < 0.0001F);
+
+    std::vector<std::byte> orthographic_update;
+    const std::array<std::uint32_t, 3U> orthographic_children{
+        quaternion_rotate, scale, matrix_transform};
+    append_command(
+        orthographic_update,
+        command::transform3d_group,
+        group,
+        static_cast<std::uint32_t>(sizeof(orthographic_children)),
+        orthographic_children);
+    append_command(
+        orthographic_update,
+        command::viewport3d_visual_set_camera,
+        viewport_handle,
+        orthographic_camera);
+    PROGPU_REQUIRE(state.apply(orthographic_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8'300U, 4U, stream) == status::success);
+    PROGPU_REQUIRE(read_draw(stream, draw, camera));
+    PROGPU_REQUIRE(std::abs(camera.camera_position.x - 6.0F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.camera_position.y - 23.0F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.camera_position.z - 42.0F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.projection.m11 - 0.1F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.projection.m22 - 0.2F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.projection.m33 + 0.1F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.projection.m43 - 0.1F) < 0.0001F);
+
+    std::vector<std::byte> matrix_camera_update;
+    append_command(
+        matrix_camera_update,
+        command::viewport3d_visual_set_camera,
+        viewport_handle,
+        matrix_camera);
+    PROGPU_REQUIRE(state.apply(matrix_camera_update) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8'300U, 5U, stream) == status::success);
+    PROGPU_REQUIRE(read_draw(stream, draw, camera));
+    PROGPU_REQUIRE(std::abs(camera.camera_position.x - 7.0F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.camera_position.y - 8.0F) < 0.0001F);
+    PROGPU_REQUIRE(std::abs(camera.camera_position.z - 9.0F) < 0.0001F);
+    PROGPU_REQUIRE(camera.projection.m11 == 2.0F);
+    PROGPU_REQUIRE(camera.projection.m22 == 3.0F);
+
+    std::vector<std::byte> empty_viewport;
+    append_command(
+        empty_viewport,
+        command::viewport3d_visual_set_viewport,
+        viewport_handle,
+        std::numeric_limits<double>::infinity(),
+        std::numeric_limits<double>::infinity(),
+        -std::numeric_limits<double>::infinity(),
+        -std::numeric_limits<double>::infinity());
+    PROGPU_REQUIRE(state.apply(empty_viewport) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 8'300U, 6U, stream) == status::success);
+    PROGPU_REQUIRE(!read_draw(stream, draw, camera));
+    return true;
+}
+
 bool malformed_and_unsupported_packets_fail_closed() {
     channel state;
     const std::array malformed{
@@ -17328,6 +17715,8 @@ int main() {
     PROGPU_REQUIRE(
         retained_gradient_stops_match_wpf_coincidence_and_pad_edges());
     PROGPU_REQUIRE(retained_viewport3d_uses_pointer_free_mesh_sideband());
+    PROGPU_REQUIRE(
+        canonical_viewport3d_camera_uses_wpf_transform_resources());
     PROGPU_REQUIRE(render_data_scope_errors_fail_closed());
     PROGPU_REQUIRE(malformed_and_unsupported_packets_fail_closed());
     PROGPU_REQUIRE(c_abi_is_typed_and_size_versioned());
