@@ -1073,6 +1073,29 @@ The 164,864-byte provider SHA-256 is
 `305C1D7D3BC72F0CFC016778721CC36D90FDC91ABE1F9FCDE5DA2A8C5CFEF121`;
 all 123 exports exactly match the checked-in allowlist.
 
+ABI v39 at implementation `35a8fadc` extends the same grouped-opacity path to
+finite `contentBounds` when the active draw transform is axis preserving. The
+sink transforms the finite rectangle into exact target-space ProGPU layer
+bounds at `PushLayer` time, so a later transform change cannot move the
+already-pushed layer. Scale, translation, reflection, and their combinations
+are admitted; rotation and shear remain typed unsupported state because an
+axis-aligned retained bound would otherwise broaden the transformed region.
+Full-target layers continue to accept any finite draw transform because they
+have no bound to approximate.
+
+The evolved Windows oracle pushes an outer clip under identity, switches to a
+`[2,0,0,0.5,7,9]` transform, and requires Direct2D content bounds
+`[1,2,21,22]` to decode as target bounds `[9,10,40,10]`. The grouped 37.5%
+opacity, balanced mixed scopes, and background-initialization rejection remain
+gated. Managed contracts pass 5/5 and AOT build is warning-free. Windows 11
+ARM64 Parallels with MSVC 19.44/SDK 10.0.26100.0 rebuilds provider/test from
+deleted objects under `/W4 /WX`; the fresh executable exits zero. The
+90,402-byte payload SHA-256 is
+`EDCD1850DABE2055AC05B6ACAC5583ADA8899C5A7806FC8A177551FF7D03B282`.
+Provider SHA-256 is
+`C42A075E13706B42F7AA617CA437A194B20076BB538F5C2E91520A4F28BFE81E`;
+all 123 exports exactly match the allowlist.
+
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
