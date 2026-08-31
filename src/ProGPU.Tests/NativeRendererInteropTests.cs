@@ -346,8 +346,14 @@ public class NativeRendererInteropTests
     public void NativeMilBuilderWritesCanonicalViewport3DCameraAndTransforms()
     {
         Assert.Equal(3U, (uint)NativeMilResourceType.AxisAngleRotation3D);
-        Assert.Equal(7U, (uint)NativeMilResourceType.MatrixCamera);
+        Assert.Equal(7U, (uint)NativeMilResourceType.PerspectiveCamera);
+        Assert.Equal(8U, (uint)NativeMilResourceType.OrthographicCamera);
+        Assert.Equal(9U, (uint)NativeMilResourceType.MatrixCamera);
         Assert.Equal(27U, (uint)NativeMilResourceType.Transform3DGroup);
+        Assert.Equal(29U, (uint)NativeMilResourceType.TranslateTransform3D);
+        Assert.Equal(30U, (uint)NativeMilResourceType.ScaleTransform3D);
+        Assert.Equal(31U, (uint)NativeMilResourceType.RotateTransform3D);
+        Assert.Equal(32U, (uint)NativeMilResourceType.MatrixTransform3D);
         Assert.Equal(40U, (uint)NativeMilResourceType.Viewport3DVisual);
         Assert.Equal(55U, (uint)NativeMilResourceType.Point3DResource);
         Assert.Equal(56U, (uint)NativeMilResourceType.Vector3DResource);
