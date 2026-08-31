@@ -165,7 +165,10 @@ explicit image-attribute/projective rejection, and transactional rollback after
 a supported draw but before an unsupported record. WMF gates cover 16-bit
 parameter ordering, lowest-free slot reuse, state, pen/brush selection,
 polygon/polyline/arc/rectangle/ellipse pixels, intersect/exclude clip pixels,
-and transactional rollback. The real
+SaveDC/relative RestoreDC scope, and transactional rollback. Saved WMF state
+includes window and viewport origins/extents, current point, world transform,
+fill/map/background/raster/text/background-color settings, selected pen and
+brush, and the typed `GraphicsState` clip. The real
 LibreWinForms `telescope_01.wmf` fixture renders end to end into a 200-by-267
 bitmap with 6,048 opaque pixels. The focused metafile suite is 30/30 and both
 complete Debug and Release drawing suites are 391/391. Windows differential and
@@ -205,9 +208,19 @@ work rather than claiming allocation-free playback.
 
 `Playback256WmfRectanglesToRetainedCommands` exercises the shared ordered-box decoder and selected brush/pen lowering through the simpler rectangle path. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 757.639 microsecond median (753.507 microsecond mean, 139.549 microsecond standard deviation) and 622.08 KB managed allocation for 256 filled/stroked rectangles. One launch and three measured iterations make this coarse retained-command evidence; exact selected-fill pixels and the shared malformed-bound/transactional gates remain the correctness proof.
 
-`Playback256WmfRectanglesWithClipState` adds one intersect and one exclude record around the same 256-rectangle fixture. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured an 840.428 microsecond median (847.766 microsecond mean, 125.202 microsecond standard deviation) and 626.08 KB managed allocation. The three-iteration result is a coarse clip-state checkpoint. Independent pixels prove that earlier commands remain visible, the exclude hole is transparent, intersection bounds clip later shapes, and a following unsupported record still rolls back the complete temporary stream.
+`Playback256WmfRectanglesWithClipState` adds an outer intersect clip, saves the
+complete typed WMF state, applies an exclude clip for the first 128 rectangles,
+restores relative level -1, and draws the remaining 128 rectangles under only
+the outer clip. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a
+561.572 microsecond median (599.013 microsecond mean, 103.320 microsecond
+standard deviation) and 628.33 KB managed allocation. The three-iteration
+result is a coarse clip/save/restore checkpoint. Independent pixels prove that
+earlier commands remain visible, the exclude hole is transparent only inside
+the saved scope, the outer intersection survives restoration, and a following
+unsupported record still rolls back the complete temporary stream. Restoring
+an unavailable relative level also fails before publishing commands.
 
-`Playback256WmfEllipsesToRetainedCommands` guards the WMF 16-bit bottom/right/top/left parameter order, selected brush and pen lowering, transactional append, and retained curve commands. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 millisecond median (1.109 millisecond mean, 0.115 millisecond standard deviation) and 622.14 KB managed allocation for 256 filled and stroked ellipses. One launch and three measured iterations make this a coarse first baseline. Focused gates verify selected fill/outline pixels, reject unordered bounds without publication, and prove that a following unsupported text record does not publish a partially lowered ellipse stream. The complete drawing suite passes 394/394, and ApiCompat remains at 0 missing types, 0 missing members, and 13 reviewed platform-annotation differences.
+`Playback256WmfEllipsesToRetainedCommands` guards the WMF 16-bit bottom/right/top/left parameter order, selected brush and pen lowering, transactional append, and retained curve commands. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 millisecond median (1.109 millisecond mean, 0.115 millisecond standard deviation) and 622.14 KB managed allocation for 256 filled and stroked ellipses. One launch and three measured iterations make this a coarse first baseline. Focused gates verify selected fill/outline pixels, reject unordered bounds without publication, and prove that a following unsupported text record does not publish a partially lowered ellipse stream. The complete drawing suite passes 395/395, and ApiCompat remains at 0 missing types, 0 missing members, and 13 reviewed platform-annotation differences.
 
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication
