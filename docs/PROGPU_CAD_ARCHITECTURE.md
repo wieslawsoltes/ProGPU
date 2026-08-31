@@ -1101,7 +1101,22 @@ captured once; Axis-Z preserves the accepted WCS-Z plane. TTR and Tan-Tan-Tan
 remain deferred until exact entity-selection and multiple-solution arbitration
 are available. Exact behavior, clean-room sources, managed/native
 applicability, and complexity are in
-`PROGPU_CAD_CIRCLE_AUTHORING_RESEARCH.md`. One `CadDocumentHistory` belongs to
+`PROGPU_CAD_CIRCLE_AUTHORING_RESEARCH.md`. Shared ARC authoring likewise keeps
+exactly two accepted WCS points but covers all ten independent 3P,
+Center/Start/End-or-Angle-or-Chord, Start/Center/End-or-Angle-or-Chord, and
+Start/End/Angle-or-Direction-or-Radius constructions. Normalized
+perpendicular-bisector, signed cotangent, tangent-normal, and stable
+radius-height solvers retain one exact positive counterclockwise DXF interval;
+clockwise construction is canonicalized to the same geometric interval without
+a negative-sweep backend fork. Signed degree/chord/radius prompts honor ANGDIR
+and documented minor/major selection, while point prompts reuse the complete
+object-snap/grid/Ortho/polar/PolarSnap/direct-distance pipeline. Point-final
+feedback is one analytic `ArcSegment`; no model compile or upload occurs before
+commit. One successful final solve captures current entity properties and adds
+one Axis-Z ACadSharp `Arc`; preflight failure retains the prompt. Tangent
+Continue remains deferred to the separate global command-chaining contract.
+Exact clean-room sources, formulas, applicability, and complexity are in
+`PROGPU_CAD_ARC_AUTHORING_RESEARCH.md`. One `CadDocumentHistory` belongs to
 the loaded session, so each Move, Copy, Rotate, Scale,
 Undo, or Redo publishes exactly one generation and then prepares one complete
 replacement snapshot and picture. The prior picture stays drawable until

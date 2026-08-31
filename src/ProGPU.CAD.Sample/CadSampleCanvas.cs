@@ -190,6 +190,48 @@ public sealed class CadCircleAuthoringChangedEventArgs : EventArgs
     }
 }
 
+/// <summary>Observable stage of one shared desktop/browser ARC command.</summary>
+public enum CadArcAuthoringStage : byte
+{
+    AwaitingFirstPoint = 0,
+    AwaitingNextInput = 1,
+    Completed = 2,
+    Canceled = 3,
+    Failed = 4,
+}
+
+/// <summary>Immutable transition emitted by bounded ARC authoring.</summary>
+public sealed class CadArcAuthoringChangedEventArgs : EventArgs
+{
+    public CadArcAuthoringStage Stage { get; }
+
+    public CadArcAuthoringMode Mode { get; }
+
+    public int PointCount { get; }
+
+    public CadPoint3D? CurrentPoint { get; }
+
+    public CadArcAuthoringSnapshot? Snapshot { get; }
+
+    public string? ErrorMessage { get; }
+
+    internal CadArcAuthoringChangedEventArgs(
+        CadArcAuthoringStage stage,
+        CadArcAuthoringMode mode,
+        int pointCount,
+        CadPoint3D? currentPoint = null,
+        CadArcAuthoringSnapshot? snapshot = null,
+        string? errorMessage = null)
+    {
+        Stage = stage;
+        Mode = mode;
+        PointCount = pointCount;
+        CurrentPoint = currentPoint;
+        Snapshot = snapshot;
+        ErrorMessage = errorMessage;
+    }
+}
+
 /// <summary>
 /// Common general properties for the current semantic model-space selection.
 /// A null common property means selected entities have different persisted values;
@@ -290,6 +332,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     private CadLineAuthoringSession? _lineAuthoring;
     private CadPolylineAuthoringSession? _polylineAuthoring;
     private CadCircleAuthoringSession? _circleAuthoring;
+    private CadArcAuthoringSession? _arcAuthoring;
     private CadBounds3D _bounds;
     private CadBounds3D _selectedBounds;
     private CadBounds3D _drawOrderReferenceBounds;
@@ -434,6 +477,21 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public CadPoint3D? PendingCircleCurrentPoint => _circleAuthoring?.CurrentPoint;
 
+    /// <summary>Whether one bounded plan-view ARC is active.</summary>
+    public bool IsArcAuthoring => _arcAuthoring is not null;
+
+    public CadArcAuthoringMode? PendingArcAuthoringMode =>
+        _arcAuthoring?.Mode;
+
+    public CadArcScalarInputKind PendingArcScalarInputKind =>
+        _arcAuthoring?.ScalarInputKind ?? CadArcScalarInputKind.None;
+
+    public int PendingArcPointCount => _arcAuthoring?.PointCount ?? 0;
+
+    public CadPoint3D? PendingArcFirstPoint => _arcAuthoring?.FirstPoint;
+
+    public CadPoint3D? PendingArcCurrentPoint => _arcAuthoring?.CurrentPoint;
+
     public CadPolylineAuthoringMode PolylineAuthoringMode
     {
         get => _polylineAuthoring?.Mode ?? CadPolylineAuthoringMode.Line;
@@ -468,7 +526,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         PendingPointTransformOperation is not null ||
         _lineAuthoring is not null ||
         _polylineAuthoring is not null ||
-        _circleAuthoring is not null;
+        _circleAuthoring is not null ||
+        _arcAuthoring is not null;
 
     /// <summary>Running object-snap modes used by MOVE/COPY point prompts.</summary>
     public CadObjectSnapModes ObjectSnapModes
@@ -897,6 +956,13 @@ public sealed class CadSampleCanvas : FrameworkElement
         CircleAuthoringChanged;
 
     /// <summary>
+    /// Raised for accepted ARC points, completion, cancellation, and failure.
+    /// Pointer motion does not allocate events.
+    /// </summary>
+    public event EventHandler<CadArcAuthoringChangedEventArgs>?
+        ArcAuthoringChanged;
+
+    /// <summary>
     /// Raised when cursor-direction availability changes for typed point input.
     /// </summary>
     public event EventHandler? PointTransformInputAvailabilityChanged;
@@ -1085,6 +1151,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             ResetLineAuthoringState();
             ResetPolylineAuthoringState();
             ResetCircleAuthoringState();
+            ResetArcAuthoringState();
             ResetSelectionState(notify: false);
             _needsFit = true;
         }
@@ -1165,7 +1232,8 @@ public sealed class CadSampleCanvas : FrameworkElement
             _hasPointTransformBasePoint)
         {
             Vector2 basePoint = viewport.WorldToScreen(_pointTransformBasePoint);
-            if (!DrawPendingCircle(context, viewport) &&
+            if (!DrawPendingArc(context, viewport) &&
+                !DrawPendingCircle(context, viewport) &&
                 !DrawPendingPolylineArc(context, viewport, basePoint))
             {
                 context.DrawLine(
@@ -1265,6 +1333,102 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             return false;
         }
+    }
+
+    private bool DrawPendingArc(
+        DrawingContext context,
+        CadPlanViewport viewport)
+    {
+        CadArcAuthoringSession? authoring = _arcAuthoring;
+        if (authoring is null || !authoring.HasFirstPoint)
+        {
+            return false;
+        }
+
+        ReadOnlySpan<CadPoint3D> points = authoring.Points.Span;
+        if (points.Length < 2)
+        {
+            return false;
+        }
+
+        try
+        {
+            context.DrawLine(
+                _drawOrderReferencePen,
+                viewport.WorldToScreen(points[0]),
+                viewport.WorldToScreen(points[1]));
+        }
+        catch (ArgumentException)
+        {
+            return true;
+        }
+
+        if (!authoring.AcceptsPointFinalInput)
+        {
+            return true;
+        }
+
+        CadPoint3D finalPoint;
+        try
+        {
+            finalPoint = viewport.ScreenToWorld(
+                _pointTransformCurrent,
+                authoring.FirstPoint!.Value.Z);
+        }
+        catch (ArgumentException)
+        {
+            return true;
+        }
+        if (!authoring.TryCreateSnapshot(
+                finalPoint,
+                out CadArcAuthoringSnapshot snapshot,
+                out _))
+        {
+            return true;
+        }
+
+        try
+        {
+            Vector2 center = viewport.WorldToScreen(snapshot.Center);
+            Vector2 xEdge = viewport.WorldToScreen(new CadPoint3D(
+                snapshot.Center.X + snapshot.Radius,
+                snapshot.Center.Y,
+                snapshot.Center.Z));
+            Vector2 yEdge = viewport.WorldToScreen(new CadPoint3D(
+                snapshot.Center.X,
+                snapshot.Center.Y + snapshot.Radius,
+                snapshot.Center.Z));
+            Vector2 start = viewport.WorldToScreen(snapshot.StartPoint);
+            Vector2 end = viewport.WorldToScreen(snapshot.EndPoint);
+            float radiusX = Vector2.Distance(center, xEdge);
+            float radiusY = Vector2.Distance(center, yEdge);
+            if (!float.IsFinite(radiusX) || radiusX <= 0.0f ||
+                !float.IsFinite(radiusY) || radiusY <= 0.0f)
+            {
+                return true;
+            }
+
+            var path = new PathGeometry();
+            var figure = new PathFigure(start)
+            {
+                IsFilled = false,
+                IsClosed = false,
+            };
+            figure.Segments.Add(new ArcSegment(
+                end,
+                new Vector2(radiusX, radiusY),
+                rotationAngle: 0.0f,
+                isLargeArc: snapshot.SweepAngle > Math.PI,
+                sweepDirection: SweepDirection.Clockwise));
+            path.Figures.Add(figure);
+            context.DrawPath(null, _drawOrderReferencePen, path);
+        }
+        catch (ArgumentException)
+        {
+            // The accepted guide remains valid even if this pointer preview
+            // cannot be represented by the current float viewport.
+        }
+        return true;
     }
 
     private bool DrawPendingPolylineArc(
@@ -1538,6 +1702,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetLineAuthoringState();
         ResetPolylineAuthoringState();
         ResetCircleAuthoringState();
+        ResetArcAuthoringState();
         ResetSelectionState(notify: true);
         Invalidate();
     }
@@ -2468,6 +2633,281 @@ public sealed class CadSampleCanvas : FrameworkElement
                 currentPoint));
         Invalidate();
         return true;
+    }
+
+    /// <summary>
+    /// Starts one bounded plan-view ARC using any independent point, center,
+    /// included-angle, chord, tangent-direction, or radius construction.
+    /// </summary>
+    public bool BeginArcAuthoring(CadArcAuthoringMode mode)
+    {
+        if (!Enum.IsDefined(mode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode));
+        }
+        if (CurrentSession is null || CurrentSnapshot is null)
+        {
+            return false;
+        }
+        ThrowIfDrawOrderReferenceSelectionPending();
+        if (IsPointAcquisitionActive)
+        {
+            throw new InvalidOperationException(
+                "Complete the pending point-acquisition command first.");
+        }
+
+        _arcAuthoring = new CadArcAuthoringSession(mode);
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        ClearPointTransformSnapState();
+        ArcAuthoringChanged?.Invoke(
+            this,
+            new CadArcAuthoringChangedEventArgs(
+                CadArcAuthoringStage.AwaitingFirstPoint,
+                mode,
+                pointCount: 0));
+        Invalidate();
+        return true;
+    }
+
+    public bool CanAcceptArcAuthoringInput(string? text)
+    {
+        CadArcAuthoringSession? authoring = _arcAuthoring;
+        if (authoring is null)
+        {
+            return false;
+        }
+
+        if (authoring.PointCount == 2 &&
+            authoring.AcceptsScalarFinalInput &&
+            CadArcScalarInput.TryParse(text, out CadArcScalarInput scalar))
+        {
+            return TryResolveArcScalarSnapshot(
+                    authoring,
+                    scalar.Value,
+                    out CadArcAuthoringSnapshot snapshot,
+                    out _) &&
+                CanRepresentArcSnapshot(snapshot);
+        }
+
+        CadPoint3D point;
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            if (!CadDirectDistanceInput.TryParse(
+                    text,
+                    out CadDirectDistanceInput distance) ||
+                !TryResolvePointTransformDirectDistance(distance, out point))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            if (!_hasPointTransformBasePoint && coordinate.IsRelative)
+            {
+                return false;
+            }
+            CadPoint3D origin = _hasPointTransformBasePoint
+                ? _pointTransformBasePoint
+                : CadPoint3D.Zero;
+            if (!coordinate.TryResolve(origin, out point))
+            {
+                return false;
+            }
+        }
+
+        if (!authoring.CanAcceptPoint(point))
+        {
+            return false;
+        }
+        try
+        {
+            _ = CreateViewport().WorldToScreen(point);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    public bool TryAcceptArcAuthoringInput(
+        string? text,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadArcAuthoringSession? authoring = _arcAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No ARC command is awaiting input.";
+            return false;
+        }
+
+        if (authoring.PointCount == 2 &&
+            authoring.AcceptsScalarFinalInput &&
+            CadArcScalarInput.TryParse(text, out CadArcScalarInput scalar))
+        {
+            if (!TryResolveArcScalarSnapshot(
+                    authoring,
+                    scalar.Value,
+                    out CadArcAuthoringSnapshot scalarSnapshot,
+                    out errorMessage))
+            {
+                NotifyArcAuthoringFailure(authoring, errorMessage);
+                return false;
+            }
+            return TryCommitArcAuthoringSnapshot(
+                authoring,
+                scalarSnapshot,
+                finalPoint: null,
+                out errorMessage);
+        }
+
+        CadPoint3D point;
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            if (!CadDirectDistanceInput.TryParse(
+                    text,
+                    out CadDirectDistanceInput directDistance))
+            {
+                errorMessage = authoring.PointCount == 2 &&
+                    authoring.AcceptsScalarFinalInput
+                    ? "Enter the requested signed ARC angle in degrees or signed chord/radius using invariant numbers."
+                    : "Enter x,y[,z], @dx,dy[,dz], distance<angle, @distance<angle, or a positive direct distance using invariant numbers.";
+                return false;
+            }
+            if (!_hasPointTransformBasePoint)
+            {
+                errorMessage =
+                    "Accept an absolute first point before entering a direct distance.";
+                return false;
+            }
+            if (!_hasPointTransformPointerPosition)
+            {
+                errorMessage =
+                    "Move the cursor from the current ARC point before entering a direct distance.";
+                return false;
+            }
+            if (!TryResolvePointTransformDirectDistance(
+                    directDistance,
+                    out point))
+            {
+                errorMessage =
+                    "The cursor direction and distance do not resolve to a finite WCS point.";
+                return false;
+            }
+        }
+        else
+        {
+            if (!_hasPointTransformBasePoint && coordinate.IsRelative)
+            {
+                errorMessage =
+                    "Enter an absolute first point before using a relative coordinate.";
+                return false;
+            }
+            CadPoint3D origin = _hasPointTransformBasePoint
+                ? _pointTransformBasePoint
+                : CadPoint3D.Zero;
+            if (!coordinate.TryResolve(origin, out point))
+            {
+                errorMessage = "The coordinate resolves outside finite WCS values.";
+                return false;
+            }
+        }
+
+        Vector2 screenPoint;
+        try
+        {
+            screenPoint = CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException)
+        {
+            errorMessage =
+                "The ARC point cannot be represented by the current plan viewport.";
+            return false;
+        }
+        return TryAcceptArcAuthoringPoint(point, screenPoint, out errorMessage);
+    }
+
+    /// <summary>Cancels ARC without changing the document or history.</summary>
+    public bool CancelArcAuthoring()
+    {
+        CadArcAuthoringSession? authoring = _arcAuthoring;
+        if (authoring is null)
+        {
+            return false;
+        }
+
+        CadArcAuthoringMode mode = authoring.Mode;
+        int pointCount = authoring.PointCount;
+        CadPoint3D? currentPoint = authoring.CurrentPoint;
+        ResetArcAuthoringState();
+        ArcAuthoringChanged?.Invoke(
+            this,
+            new CadArcAuthoringChangedEventArgs(
+                CadArcAuthoringStage.Canceled,
+                mode,
+                pointCount,
+                currentPoint));
+        Invalidate();
+        return true;
+    }
+
+    private bool TryResolveArcScalarSnapshot(
+        CadArcAuthoringSession authoring,
+        double value,
+        out CadArcAuthoringSnapshot snapshot,
+        out string? errorMessage)
+    {
+        if (authoring.ScalarInputKind ==
+            CadArcScalarInputKind.DirectionAngleRadians)
+        {
+            double reducedDegrees = Math.IEEERemainder(value, 360.0);
+            double radians = reducedDegrees * (Math.PI / 180.0);
+            double sine = Math.Sin(radians);
+            if (_planPolarTrackingSettings.IsClockwise)
+            {
+                sine = -sine;
+            }
+            CadPoint3D direction =
+                (_planPolarTrackingSettings.XAxis * Math.Cos(radians)) +
+                (_planPolarTrackingSettings.YAxis * sine);
+            return authoring.TryCreateSnapshotFromDirection(
+                direction,
+                out snapshot,
+                out errorMessage);
+        }
+
+        double scalar = value;
+        if (authoring.ScalarInputKind ==
+            CadArcScalarInputKind.IncludedAngleRadians)
+        {
+            scalar = value * (Math.PI / 180.0);
+            if (_planPolarTrackingSettings.IsClockwise)
+            {
+                scalar = -scalar;
+            }
+        }
+        return authoring.TryCreateSnapshotFromScalar(
+            scalar,
+            out snapshot,
+            out errorMessage);
+    }
+
+    private bool CanRepresentArcSnapshot(CadArcAuthoringSnapshot snapshot)
+    {
+        try
+        {
+            CadPlanViewport viewport = CreateViewport();
+            _ = viewport.WorldToScreen(snapshot.Center);
+            _ = viewport.WorldToScreen(snapshot.StartPoint);
+            _ = viewport.WorldToScreen(snapshot.EndPoint);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -4115,7 +4555,8 @@ public sealed class CadSampleCanvas : FrameworkElement
 
         CadPlanViewport viewport = CreateViewport();
         CadPoint3D pointerWorld = (_polylineAuthoring is not null ||
-                _circleAuthoring is not null) &&
+                _circleAuthoring is not null ||
+                _arcAuthoring is not null) &&
             _hasPointTransformBasePoint
             ? viewport.ScreenToWorld(screenPoint, _pointTransformBasePoint.Z)
             : viewport.ScreenToWorld(screenPoint);
@@ -4595,7 +5036,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (operation is null &&
             _lineAuthoring is null &&
             _polylineAuthoring is null &&
-            _circleAuthoring is null)
+            _circleAuthoring is null &&
+            _arcAuthoring is null)
         {
             return;
         }
@@ -4604,7 +5046,8 @@ public sealed class CadSampleCanvas : FrameworkElement
         try
         {
             point = (_polylineAuthoring is not null ||
-                    _circleAuthoring is not null) &&
+                    _circleAuthoring is not null ||
+                    _arcAuthoring is not null) &&
                 _hasPointTransformBasePoint
                 ? CreateViewport().ScreenToWorld(
                     screenPoint,
@@ -4644,7 +5087,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                         _polylineAuthoring?.CurrentPoint,
                         errorMessage: exception.Message));
             }
-            else
+            else if (_circleAuthoring is not null)
             {
                 CircleAuthoringChanged?.Invoke(
                     this,
@@ -4654,6 +5097,18 @@ public sealed class CadSampleCanvas : FrameworkElement
                             CadCircleAuthoringMode.CenterRadius,
                         _circleAuthoring?.PointCount ?? 0,
                         _circleAuthoring?.CurrentPoint,
+                        errorMessage: exception.Message));
+            }
+            else
+            {
+                ArcAuthoringChanged?.Invoke(
+                    this,
+                    new CadArcAuthoringChangedEventArgs(
+                        CadArcAuthoringStage.Failed,
+                        _arcAuthoring?.Mode ??
+                            CadArcAuthoringMode.ThreePoint,
+                        _arcAuthoring?.PointCount ?? 0,
+                        _arcAuthoring?.CurrentPoint,
                         errorMessage: exception.Message));
             }
             Invalidate();
@@ -4680,6 +5135,11 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (_circleAuthoring is not null)
         {
             _ = TryAcceptCircleAuthoringPoint(point, screenPoint, out _);
+            return;
+        }
+        if (_arcAuthoring is not null)
+        {
+            _ = TryAcceptArcAuthoringPoint(point, screenPoint, out _);
             return;
         }
 
@@ -4914,6 +5374,124 @@ public sealed class CadSampleCanvas : FrameworkElement
             this,
             new CadCircleAuthoringChangedEventArgs(
                 CadCircleAuthoringStage.Failed,
+                authoring.Mode,
+                authoring.PointCount,
+                authoring.CurrentPoint,
+                errorMessage: errorMessage));
+        Invalidate();
+    }
+
+    private bool TryAcceptArcAuthoringPoint(
+        CadPoint3D point,
+        Vector2? screenPoint,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadArcAuthoringSession? authoring = _arcAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No ARC command is active.";
+            return false;
+        }
+
+        Vector2 resolvedScreen;
+        try
+        {
+            resolvedScreen = screenPoint ?? CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException exception)
+        {
+            errorMessage = exception.Message;
+            NotifyArcAuthoringFailure(authoring, errorMessage);
+            return false;
+        }
+
+        if (authoring.PointCount < 2)
+        {
+            if (!authoring.TryAcceptIntermediatePoint(point, out errorMessage))
+            {
+                NotifyArcAuthoringFailure(authoring, errorMessage);
+                return false;
+            }
+
+            ClearPointTransformSnapState();
+            _pointTransformBasePoint = point;
+            _pointTransformCurrent = resolvedScreen;
+            _hasPointTransformBasePoint = true;
+            ArcAuthoringChanged?.Invoke(
+                this,
+                new CadArcAuthoringChangedEventArgs(
+                    CadArcAuthoringStage.AwaitingNextInput,
+                    authoring.Mode,
+                    authoring.PointCount,
+                    point));
+            Invalidate();
+            return true;
+        }
+
+        if (!authoring.TryCreateSnapshot(
+                point,
+                out CadArcAuthoringSnapshot snapshot,
+                out errorMessage))
+        {
+            NotifyArcAuthoringFailure(authoring, errorMessage);
+            return false;
+        }
+
+        return TryCommitArcAuthoringSnapshot(
+            authoring,
+            snapshot,
+            point,
+            out errorMessage);
+    }
+
+    private bool TryCommitArcAuthoringSnapshot(
+        CadArcAuthoringSession authoring,
+        CadArcAuthoringSnapshot snapshot,
+        CadPoint3D? finalPoint,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException(
+                "The CAD edit history is not initialized.");
+        try
+        {
+            history.Execute(new CadAddArcCommand(
+                snapshot,
+                description: $"ARC: add {authoring.Mode}"));
+            CadArcAuthoringMode mode = authoring.Mode;
+            int pointCount = authoring.RequiredPointCount;
+            ResetArcAuthoringState();
+            RecompileAfterEdit(session);
+            ArcAuthoringChanged?.Invoke(
+                this,
+                new CadArcAuthoringChangedEventArgs(
+                    CadArcAuthoringStage.Completed,
+                    mode,
+                    pointCount,
+                    finalPoint,
+                    snapshot));
+            return true;
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+            NotifyArcAuthoringFailure(authoring, errorMessage);
+            return false;
+        }
+    }
+
+    private void NotifyArcAuthoringFailure(
+        CadArcAuthoringSession authoring,
+        string? errorMessage)
+    {
+        ArcAuthoringChanged?.Invoke(
+            this,
+            new CadArcAuthoringChangedEventArgs(
+                CadArcAuthoringStage.Failed,
                 authoring.Mode,
                 authoring.PointCount,
                 authoring.CurrentPoint,
@@ -5224,6 +5802,16 @@ public sealed class CadSampleCanvas : FrameworkElement
         ClearPointTransformSnapState();
     }
 
+    private void ResetArcAuthoringState()
+    {
+        _arcAuthoring = null;
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        _pointTransformBasePoint = default;
+        _pointTransformCurrent = default;
+        ClearPointTransformSnapState();
+    }
+
     private void ResetSelectionState(bool notify)
     {
         _selectedHandleCount = 0;
@@ -5474,6 +6062,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetLineAuthoringState();
         ResetPolylineAuthoringState();
         ResetCircleAuthoringState();
+        ResetArcAuthoringState();
         _picture?.Dispose();
         _picture = null;
         _constructionPicture?.Dispose();

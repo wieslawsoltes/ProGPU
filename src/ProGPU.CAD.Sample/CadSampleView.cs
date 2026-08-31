@@ -69,6 +69,8 @@ public sealed class CadSampleView : Grid
     private readonly Button _circleDiameterButton;
     private readonly Button _circleTwoPointButton;
     private readonly Button _circleThreePointButton;
+    private readonly ComboBox _arcModeSelector;
+    private readonly Button _arcButton;
     private readonly Button[] _drawOrderButtons;
     private readonly Button[] _moveButtons;
     private readonly Button[] _copyButtons;
@@ -317,6 +319,10 @@ public sealed class CadSampleView : Grid
     public Button CircleTwoPointButton => _circleTwoPointButton;
 
     public Button CircleThreePointButton => _circleThreePointButton;
+
+    public ComboBox ArcModeSelector => _arcModeSelector;
+
+    public Button ArcButton => _arcButton;
 
     public ComboBox SelectionAttributeSelector =>
         _selectionAttributeSelector;
@@ -570,6 +576,35 @@ public sealed class CadSampleView : Grid
         _circleDiameterButton = CreateButton("Circle D", font, 78, 30);
         _circleTwoPointButton = CreateButton("Circle 2P", font, 84, 30);
         _circleThreePointButton = CreateButton("Circle 3P", font, 84, 30);
+        _arcModeSelector = new ComboBox
+        {
+            WidthConstraint = 158,
+            HeightConstraint = 30,
+            Font = font,
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        foreach ((CadArcAuthoringMode mode, string label) in new[]
+        {
+            (CadArcAuthoringMode.ThreePoint, "Arc 3P"),
+            (CadArcAuthoringMode.CenterStartEnd, "Arc Center/Start/End"),
+            (CadArcAuthoringMode.CenterStartAngle, "Arc Center/Start/Angle"),
+            (CadArcAuthoringMode.CenterStartChord, "Arc Center/Start/Chord"),
+            (CadArcAuthoringMode.StartCenterEnd, "Arc Start/Center/End"),
+            (CadArcAuthoringMode.StartCenterAngle, "Arc Start/Center/Angle"),
+            (CadArcAuthoringMode.StartCenterChord, "Arc Start/Center/Chord"),
+            (CadArcAuthoringMode.StartEndAngle, "Arc Start/End/Angle"),
+            (CadArcAuthoringMode.StartEndDirection, "Arc Start/End/Direction"),
+            (CadArcAuthoringMode.StartEndRadius, "Arc Start/End/Radius"),
+        })
+        {
+            _arcModeSelector.Items.Add(new ComboBoxItem(label)
+            {
+                Tag = mode,
+            });
+        }
+        _arcModeSelector.SelectedIndex = 0;
+        _arcButton = CreateButton("Arc", font, 64, 30);
         Button sendToBack = CreateButton("To back", font, 76, 30);
         Button bringToFront = CreateButton("To front", font, 76, 30);
         Button bringAbove = CreateButton("Above…", font, 82, 30);
@@ -590,7 +625,8 @@ public sealed class CadSampleView : Grid
         _circleButton.Margin = new Thickness(0, 0, 4, 0);
         _circleDiameterButton.Margin = new Thickness(0, 0, 4, 0);
         _circleTwoPointButton.Margin = new Thickness(0, 0, 4, 0);
-        _circleThreePointButton.Margin = new Thickness(0, 0, 12, 0);
+        _circleThreePointButton.Margin = new Thickness(0, 0, 4, 0);
+        _arcButton.Margin = new Thickness(0, 0, 12, 0);
         sendToBack.Margin = new Thickness(0, 0, 4, 0);
         bringToFront.Margin = new Thickness(0, 0, 4, 0);
         bringAbove.Margin = new Thickness(0, 0, 4, 0);
@@ -613,6 +649,8 @@ public sealed class CadSampleView : Grid
         editActions.AddChild(_circleDiameterButton);
         editActions.AddChild(_circleTwoPointButton);
         editActions.AddChild(_circleThreePointButton);
+        editActions.AddChild(_arcModeSelector);
+        editActions.AddChild(_arcButton);
         editActions.AddChild(sendToBack);
         editActions.AddChild(bringToFront);
         editActions.AddChild(bringAbove);
@@ -2076,6 +2114,15 @@ public sealed class CadSampleView : Grid
             BeginCircleAuthoring(CadCircleAuthoringMode.TwoPoint);
         _circleThreePointButton.Click += (_, _) =>
             BeginCircleAuthoring(CadCircleAuthoringMode.ThreePoint);
+        _arcButton.Click += (_, _) =>
+        {
+            if ((_arcModeSelector.SelectedItem as ComboBoxItem)?.Tag is
+                CadArcAuthoringMode mode)
+            {
+                BeginArcAuthoring(mode);
+            }
+        };
+        _arcModeSelector.SelectionChanged += (_, _) => UpdateEditControls();
         sendToBack.Click += (_, _) =>
             SetSelectionDrawOrder(CadDrawOrderPlacement.SendToBack);
         bringToFront.Click += (_, _) =>
@@ -2305,6 +2352,12 @@ public sealed class CadSampleView : Grid
             SetStatus(DescribeCircleAuthoring(args));
             UpdateEditControls();
         };
+        _canvas.ArcAuthoringChanged += (_, args) =>
+        {
+            _pointTransformInput.Text = string.Empty;
+            SetStatus(DescribeArcAuthoring(args));
+            UpdateEditControls();
+        };
         _canvas.PointTransformInputAvailabilityChanged += (_, _) =>
             UpdateEditControls();
         _canvas.SnapshotChanged += (_, _) =>
@@ -2342,6 +2395,16 @@ public sealed class CadSampleView : Grid
                 _currentDocumentName,
                 _currentDiagnosticCount));
             UpdateEditControls();
+            e.Handled = true;
+            return;
+        }
+
+        if (!e.Handled &&
+            _canvas.IsArcAuthoring &&
+            e.Key == Key.Escape &&
+            FocusManager.GetFocusedElement() is not TextBox)
+        {
+            _canvas.CancelArcAuthoring();
             e.Handled = true;
             return;
         }
@@ -5023,6 +5086,28 @@ public sealed class CadSampleView : Grid
         UpdateEditControls();
     }
 
+    private void BeginArcAuthoring(CadArcAuthoringMode mode)
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        try
+        {
+            _pointTransformInput.Text = string.Empty;
+            if (!_canvas.BeginArcAuthoring(mode))
+            {
+                SetStatus("ARC requires a loaded plan-view document.");
+            }
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"ARC could not start: {exception.Message}");
+        }
+        UpdateEditControls();
+    }
+
     private void AcceptPointInput()
     {
         if (_isBusy)
@@ -5033,7 +5118,13 @@ public sealed class CadSampleView : Grid
         string input = _pointTransformInput.Text;
         bool accepted;
         string? errorMessage;
-        if (_canvas.IsCircleAuthoring)
+        if (_canvas.IsArcAuthoring)
+        {
+            accepted = _canvas.TryAcceptArcAuthoringInput(
+                input,
+                out errorMessage);
+        }
+        else if (_canvas.IsCircleAuthoring)
         {
             accepted = _canvas.TryAcceptCircleAuthoringInput(
                 input,
@@ -5209,6 +5300,87 @@ public sealed class CadSampleView : Grid
             CadCircleAuthoringMode.CenterDiameter => "center/diameter",
             CadCircleAuthoringMode.TwoPoint => "2P diameter",
             CadCircleAuthoringMode.ThreePoint => "3P circumference",
+            _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+        };
+
+    private static string DescribeArcAuthoring(
+        CadArcAuthoringChangedEventArgs args) => args.Stage switch
+    {
+        CadArcAuthoringStage.AwaitingFirstPoint =>
+            $"ARC {DescribeArcMode(args.Mode)}: specify {DescribeArcPointPrompt(args.Mode, 0)} by click or absolute WCS coordinate; Escape cancels.",
+        CadArcAuthoringStage.AwaitingNextInput when args.PointCount < 2 =>
+            $"ARC {DescribeArcMode(args.Mode)}: specify {DescribeArcPointPrompt(args.Mode, args.PointCount)}; Escape cancels.",
+        CadArcAuthoringStage.AwaitingNextInput =>
+            $"ARC {DescribeArcMode(args.Mode)}: {DescribeArcFinalPrompt(args.Mode)}; Escape cancels.",
+        CadArcAuthoringStage.Completed =>
+            $"ARC {DescribeArcMode(args.Mode)} created center " +
+            $"{FormatPoint(args.Snapshot!.Value.Center)} radius " +
+            $"{args.Snapshot.Value.Radius:G17}, sweep " +
+            $"{args.Snapshot.Value.SweepAngle * (180.0 / Math.PI):G17}°.",
+        CadArcAuthoringStage.Canceled => "ARC canceled.",
+        CadArcAuthoringStage.Failed =>
+            $"ARC failed: {args.ErrorMessage}",
+        _ => throw new ArgumentOutOfRangeException(nameof(args)),
+    };
+
+    private static string DescribeArcMode(CadArcAuthoringMode mode) =>
+        mode switch
+        {
+            CadArcAuthoringMode.ThreePoint => "3P",
+            CadArcAuthoringMode.CenterStartEnd => "Center/Start/End",
+            CadArcAuthoringMode.CenterStartAngle => "Center/Start/Angle",
+            CadArcAuthoringMode.CenterStartChord => "Center/Start/Chord",
+            CadArcAuthoringMode.StartCenterEnd => "Start/Center/End",
+            CadArcAuthoringMode.StartCenterAngle => "Start/Center/Angle",
+            CadArcAuthoringMode.StartCenterChord => "Start/Center/Chord",
+            CadArcAuthoringMode.StartEndAngle => "Start/End/Angle",
+            CadArcAuthoringMode.StartEndDirection => "Start/End/Direction",
+            CadArcAuthoringMode.StartEndRadius => "Start/End/Radius",
+            _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+        };
+
+    private static string DescribeArcPointPrompt(
+        CadArcAuthoringMode mode,
+        int pointIndex) => (mode, pointIndex) switch
+        {
+            (CadArcAuthoringMode.ThreePoint, 0) => "start point",
+            (CadArcAuthoringMode.ThreePoint, 1) => "second circumference point",
+            (CadArcAuthoringMode.CenterStartEnd or
+                CadArcAuthoringMode.CenterStartAngle or
+                CadArcAuthoringMode.CenterStartChord, 0) => "center point",
+            (CadArcAuthoringMode.CenterStartEnd or
+                CadArcAuthoringMode.CenterStartAngle or
+                CadArcAuthoringMode.CenterStartChord, 1) => "start point",
+            (CadArcAuthoringMode.StartCenterEnd or
+                CadArcAuthoringMode.StartCenterAngle or
+                CadArcAuthoringMode.StartCenterChord, 0) => "start point",
+            (CadArcAuthoringMode.StartCenterEnd or
+                CadArcAuthoringMode.StartCenterAngle or
+                CadArcAuthoringMode.StartCenterChord, 1) => "center point",
+            (_, 0) => "start point",
+            (_, 1) => "end point",
+            _ => "next input",
+        };
+
+    private static string DescribeArcFinalPrompt(CadArcAuthoringMode mode) =>
+        mode switch
+        {
+            CadArcAuthoringMode.ThreePoint =>
+                "specify endpoint by click or coordinate",
+            CadArcAuthoringMode.CenterStartEnd or
+            CadArcAuthoringMode.StartCenterEnd =>
+                "specify endpoint ray by click or coordinate",
+            CadArcAuthoringMode.CenterStartAngle or
+            CadArcAuthoringMode.StartCenterAngle or
+            CadArcAuthoringMode.StartEndAngle =>
+                "enter a signed included angle in degrees",
+            CadArcAuthoringMode.CenterStartChord or
+            CadArcAuthoringMode.StartCenterChord =>
+                "enter a signed chord length (positive minor, negative major)",
+            CadArcAuthoringMode.StartEndDirection =>
+                "specify a tangent-direction point or enter its angle in degrees",
+            CadArcAuthoringMode.StartEndRadius =>
+                "enter a signed radius (positive minor, negative major)",
             _ => throw new ArgumentOutOfRangeException(nameof(mode)),
         };
 
@@ -5983,9 +6155,10 @@ public sealed class CadSampleView : Grid
         bool isLineAuthoring = _canvas.IsLineAuthoring;
         bool isPolylineAuthoring = _canvas.IsPolylineAuthoring;
         bool isCircleAuthoring = _canvas.IsCircleAuthoring;
+        bool isArcAuthoring = _canvas.IsArcAuthoring;
         bool isPointInputActive =
             isPointTransformPicking || isLineAuthoring ||
-            isPolylineAuthoring || isCircleAuthoring;
+            isPolylineAuthoring || isCircleAuthoring || isArcAuthoring;
         bool isInteractivePicking =
             isReferencePicking || isPointInputActive;
         bool canUsePlanTools =
@@ -6089,6 +6262,12 @@ public sealed class CadSampleView : Grid
         _circleDiameterButton.IsEnabled = canStartCircle;
         _circleTwoPointButton.IsEnabled = canStartCircle;
         _circleThreePointButton.IsEnabled = canStartCircle;
+        bool canStartArc = canUsePlanTools && !_is3DView &&
+            _canvas.CurrentSession is not null;
+        _arcModeSelector.IsEnabled = canStartArc;
+        _arcButton.IsEnabled = canStartArc &&
+            (_arcModeSelector.SelectedItem as ComboBoxItem)?.Tag is
+                CadArcAuthoringMode;
         _selectionColorInput.IsEnabled = canTransform;
         _selectionLineWeightSelector.IsEnabled = canTransform;
         _selectionLayerSelector.IsEnabled = canTransform;
@@ -6339,7 +6518,10 @@ public sealed class CadSampleView : Grid
         _acceptPointTransformInputButton.IsEnabled =
             !_isBusy &&
             isPointInputActive &&
-            (isCircleAuthoring
+            (isArcAuthoring
+                ? _canvas.CanAcceptArcAuthoringInput(
+                    _pointTransformInput.Text)
+                : isCircleAuthoring
                 ? _canvas.CanAcceptCircleAuthoringInput(
                     _pointTransformInput.Text)
                 : isPolylineAuthoring

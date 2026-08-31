@@ -112,6 +112,20 @@ round trips pass. TTR and Tan-Tan-Tan remain deferred rather than approximated.
 The established managed/native analytic circle lowering is unchanged, so no
 shader, ABI, resource, or device-loss fork is introduced.
 
+Shared desktop/browser ProGPU.CAD now also authors exact plan-view ARCs through
+all ten independent 3P, Center/Start, Start/Center, and Start/End construction
+families using endpoint, included-angle, chord-length, tangent-direction, or
+radius input. Signed angle/chord/radius values preserve clockwise and
+minor/major semantics, current ANGDIR is honored, and large-WCS 3P/direction
+solves avoid origin-relative precision loss. The prompt retains exactly two
+points; point-final feedback records one analytic `ArcSegment` without
+tessellation or model compilation. One successful final solve publishes one
+Axis-Z `Arc` and one history generation, while locked layer, invalid CELTSCALE,
+and nonzero THICKNESS failures retain the prompt. Tangent Continue remains
+deferred to the global command-chaining contract rather than approximated. The
+existing managed/native analytic ARC lowering is unchanged, so no shader, ABI,
+resource, cache, upload, or device-loss fork is introduced.
+
 The shared ProGPU.CAD plan grid now defaults to AutoCAD's lined model-space
 GRIDSTYLE and exposes a shared desktop/browser Dots toggle. Autodesk documents
 GRIDSTYLE as registry-backed host state, so the toggle intentionally changes no
