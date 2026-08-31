@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 36U;",
+            "internal const uint AbiVersion = 37U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -480,7 +480,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 36U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 37U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -765,6 +765,14 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_PATH_GEOMETRY",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "geometry->Widen(",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_STROKED_PATH_GEOMETRY",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
