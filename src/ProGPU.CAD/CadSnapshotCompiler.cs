@@ -755,6 +755,7 @@ public sealed partial class CadSnapshotCompiler
                         hasTransform,
                         layerIndex,
                         styleIndex,
+                        document.Header.FillMode,
                         polylines,
                         polylineVertices),
                     Polyline3D polyline => CompilePolyline3D(
@@ -3336,6 +3337,7 @@ public sealed partial class CadSnapshotCompiler
         bool hasTransform,
         int layerIndex,
         int styleIndex,
+        bool fillMode,
         List<CadPolylinePrimitive> destination,
         List<CadPolylineVertex> vertices)
     {
@@ -3344,11 +3346,21 @@ public sealed partial class CadSnapshotCompiler
             throw new ArgumentException("A 2D polyline must contain at least two vertices.");
         }
 
-        if (polyline.StartWidth != 0.0 || polyline.EndWidth != 0.0 ||
-            polyline.Vertices.Any(vertex => vertex.StartWidth != 0.0 || vertex.EndWidth != 0.0))
+        int widthSegmentCount = polyline.IsClosed
+            ? polyline.Vertices.Count
+            : polyline.Vertices.Count - 1;
+        double constantWidth = ResolveLegacyPolylineConstantWidth(
+            polyline,
+            widthSegmentCount);
+        if (constantWidth > float.MaxValue)
+        {
+            throw new ArgumentException(
+                "2D-polyline width exceeds the retained float stroke domain.");
+        }
+        if (constantWidth > 0.0 && !fillMode)
         {
             throw new CadUnsupportedEntityException(
-                "Wide 2D polylines require filled-outline lowering and cannot be treated as cosmetic strokes.");
+                "FILLMODE-off wide 2D polylines require exact filled-object outline lowering.");
         }
 
         if (polyline.Thickness != 0.0)
@@ -3407,10 +3419,59 @@ public sealed partial class CadSnapshotCompiler
             basis,
             polyline.IsClosed,
             polyline.Flags.HasFlag(PolylineFlags.ContinuousLinetypePattern),
-            0.0,
+            constantWidth,
             normalizedVertices,
             destination,
             vertices);
+    }
+
+    private static double ResolveLegacyPolylineConstantWidth(
+        Polyline2D polyline,
+        int segmentCount)
+    {
+        ValidateLegacyPolylineWidth(polyline.StartWidth, "default start");
+        ValidateLegacyPolylineWidth(polyline.EndWidth, "default end");
+
+        double constantWidth = double.NaN;
+        for (int i = 0; i < polyline.Vertices.Count; i++)
+        {
+            Vertex2D vertex = polyline.Vertices[i];
+            ValidateLegacyPolylineWidth(vertex.StartWidth, "vertex start");
+            ValidateLegacyPolylineWidth(vertex.EndWidth, "vertex end");
+            if (i >= segmentCount)
+            {
+                continue;
+            }
+
+            // Autodesk's legacy POLYLINE group 40/41 values are defaults for
+            // missing VERTEX widths. ACadSharp represents an omitted optional
+            // vertex value as zero, so resolve that public object-model state
+            // before deciding whether the retained stroke is constant.
+            double startWidth = vertex.StartWidth != 0.0
+                ? vertex.StartWidth
+                : polyline.StartWidth;
+            double endWidth = vertex.EndWidth != 0.0
+                ? vertex.EndWidth
+                : polyline.EndWidth;
+            if (startWidth != endWidth ||
+                (!double.IsNaN(constantWidth) && startWidth != constantWidth))
+            {
+                throw new CadUnsupportedEntityException(
+                    "Variable-width 2D polylines require tapered filled-outline lowering and cannot be treated as constant strokes.");
+            }
+            constantWidth = startWidth;
+        }
+
+        return double.IsNaN(constantWidth) ? 0.0 : constantWidth;
+    }
+
+    private static void ValidateLegacyPolylineWidth(double width, string role)
+    {
+        if (!double.IsFinite(width) || width < 0.0)
+        {
+            throw new ArgumentException(
+                $"2D-polyline {role} width must be finite and non-negative.");
+        }
     }
 
     private static CadEntityHeader AddPlanarPolyline(

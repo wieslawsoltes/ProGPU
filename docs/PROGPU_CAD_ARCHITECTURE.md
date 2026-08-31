@@ -121,10 +121,19 @@ The first phase-2 slice is implemented in `src/ProGPU.CAD`:
   geometry; model width is not confused with cosmetic lineweight.
 - Legacy 2D POLYLINE uses the owning polyline elevation and OCS normal, ignores
   the historically unused vertex Z value, and shares the same one-path analytic
-  bulge representation. Legacy 3D POLYLINE retains an independent packed WCS
-  point stream with exact XYZ bounds and records one top-projection path. Width,
-  extrusion, and unresolved curve/spline-fit semantics are reported rather than
-  flattened or silently treated as centerlines.
+  bulge representation. Entity default widths and nonzero vertex overrides are
+  resolved for every actual segment; an equal fill-on constant result reuses the
+  exact affine bevel/butt rendering, bounds, selection, print, and managed/native
+  replay contract of a wide lightweight polyline. Open terminal widths do not
+  describe a segment, while the closing vertex of a closed polyline does.
+  Legacy 3D POLYLINE retains an independent packed WCS point stream with exact
+  XYZ bounds and records one top-projection path. Variable/tapered width,
+  FILLMODE-off width, extrusion, and unresolved curve/spline-fit semantics are
+  reported rather than flattened or silently treated as centerlines. ACadSharp
+  feature commit
+  [`90a423e0`](https://github.com/wieslawsoltes/ACadSharp/commit/90a423e0ef673fb6ca1f8e00bbc3c5b473249d35)
+  preserves the documented legacy default-width and thickness groups in DXF;
+  ACadSharp `master` remains synchronized with upstream.
 - Ellipses and elliptical arcs preserve their WCS major/minor basis, parameter
   sweep, and exact double-precision extrema. The plan compiler records one unit
   analytic ellipse or arc under an affine transform, never a sampled polygon.

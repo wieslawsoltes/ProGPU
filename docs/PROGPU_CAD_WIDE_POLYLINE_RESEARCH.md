@@ -1,14 +1,15 @@
-# ProGPU.CAD Constant-Width LWPOLYLINE Research and Contract
+# ProGPU.CAD Constant-Width Polyline Research and Contract
 
 Date: 2026-08-31
 
 ## Scope
 
-This clean-room checkpoint adds exact retained rendering and authoring
-publication for fill-on ACadSharp `LwPolyline.ConstantWidth`. The width is an
-absolute OCS/model-space width centered on one retained line-and-bulge path. It
-is independent of display/plot lineweight and follows the complete entity,
-block, camera, and print transform.
+This clean-room work adds exact retained rendering and authoring publication
+for fill-on ACadSharp `LwPolyline.ConstantWidth`, then extends the same retained
+contract to legacy `Polyline2D` entity defaults and constant per-segment
+overrides. The resolved width is an absolute OCS/model-space width centered on
+one retained line-and-bulge path. It is independent of display/plot lineweight
+and follows the complete entity, block, camera, and print transform.
 
 Variable/tapered vertex widths, FILLMODE-off outline rendering, and patterned
 wide-polyline cap exceptions remain explicit unsupported geometry. The work
@@ -20,6 +21,16 @@ does not approximate those cases as a cosmetic centerline.
   group 43 is the optional constant width, groups 40/41 are per-vertex start
   and end widths, group 42 is bulge, coordinates are OCS, and constant width
   is not the variable-width representation.
+- Autodesk [`POLYLINE` DXF entity](https://help.autodesk.com/cloudhelp/2023/ENU/AutoCAD-DXF/files/GUID-ABF6B778-BE20-4B49-9B58-A94E64CEFFF3.htm):
+  groups 40/41 are the legacy default start/end widths, group 39 is thickness,
+  and elevation and extrusion establish the entity OCS.
+- Autodesk [`VERTEX` DXF entity](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-DXF/files/GUID-0741E831-599E-4CBF-91E1-8ADBCFD6556D.htm):
+  groups 40/41 are the start/end widths of the segment beginning at that
+  vertex and group 42 is its bulge.
+- Autodesk [`AcDb2dPolyline` methods](https://help.autodesk.com/cloudhelp/2018/ENU/OARX-RefGuide/files/OREF-__MEMBERTYPE_Methods_AcDb2dPolyline.html):
+  a vertex without its own group-40/group-41 values uses the owning polyline's
+  corresponding default width. ProGPU resolves ACadSharp's omitted optional
+  zero state before classifying the retained stroke.
 - Autodesk [`PLINE` command](https://help.autodesk.com/view/ACD/2026/ENU/?caas=caas%2Fdocumentation%2FACDLT%2F2014%2FENU%2Ffiles%2FGUID-11883C70-6435-4F80-8FB4-F6E933B8FD94-htm.html):
   width is centered on the segment; wide-segment junctions are normally
   beveled; nontangent arcs, very acute angles, and dot-dash linetypes have
@@ -83,6 +94,10 @@ The implementation directly extends original ProGPU-owned code in:
 - ProGPU.Vector and ProGPU.Scene's existing analytic path stroker and
   `PenStrokeTransformMode.Normal`, which are already shared by managed and
   native scene compilation.
+- ACadSharp feature commit
+  [`90a423e0`](https://github.com/wieslawsoltes/ACadSharp/commit/90a423e0ef673fb6ca1f8e00bbc3c5b473249d35)
+  for original DXF writer publication of legacy `POLYLINE` groups 39/40/41;
+  the existing DWG writer and generic DXF reader already persisted them.
 
 ## Geometry and rendering contract
 
@@ -134,25 +149,28 @@ allocate zero managed memory and do not initialize a GPU backend.
 
 ## Deliberate fail-closed behavior
 
-- Any nonzero per-vertex start/end width remains unsupported. Exact tapered
-  strips require segment-specific outlines, corner classification, and matched
-  CAD differential fixtures.
+- Any `LWPOLYLINE` per-vertex width remains unsupported. A legacy `POLYLINE`
+  is accepted only when every actual segment resolves equal start/end widths
+  and the same constant value. Open terminal-vertex widths do not describe a
+  segment; the final vertex of a closed polyline does. Any resolved taper or
+  segment-to-segment change remains unsupported because it requires exact
+  filled-outline lowering and matched CAD differential fixtures.
 - FILLMODE off remains unsupported because AutoCAD displays/plots the boundary
   outline of the filled object. Replaying the centerline would be incorrect.
 - Simple or complex linetypes on a wide polyline emit `CADSCENE009` and replay
   one continuous wide path. Autodesk documents cap/join exceptions for
   dot-dash patterns; the existing zero-width linetype lowerer cannot preserve
   them.
-- Legacy `Polyline2D` width remains unsupported. Its entity-level and
-  per-vertex width rules need a separate persistence and differential audit.
 
 ## Complexity, retention, and parity audit
 
-Snapshot normalization and exact bounds are O(V) time for V vertices and O(V)
-retained vertex storage. Scene recording is O(V), produces one retained path
-command, and uses O(U) cached pens for U distinct `(style,width)` pairs. Stable
-replay, pan, zoom, and print replay do not rebuild CAD geometry and introduce
-no per-frame managed/native crossing, upload, or CAD allocation.
+Snapshot width resolution, normalization, and exact bounds are O(V) time for V
+vertices and O(V) retained vertex storage. Legacy width resolution is one
+bounded pass and stores no parallel width stream after proving constancy. Scene
+recording is O(V), produces one retained path command, and uses O(U) cached pens
+for U distinct `(style,width)` pairs. Stable replay, pan, zoom, and print replay
+do not rebuild CAD geometry and introduce no per-frame managed/native crossing,
+upload, or CAD allocation.
 
 The managed and native renderers consume the same `GpuPicture` path and the
 same existing ProGPU stroke compiler. No C ABI record, generated C# wire type,
@@ -170,9 +188,10 @@ signed-radius bulge selection, bevel and flat-cap selection, whole-box strip
 containment, zero warm-query allocation, bounded shared pen identity, print
 replay, managed/native compilation, authoring and Undo/Redo, DXF/DWG round
 trips, recoverable FILLMODE failure, variable-width rejection, and patterned
-fallback diagnostics. The focused wide-polyline suite passes 15/15 and the
-complete CAD suite passes 1,336/1,336 in both Debug and Release. Fresh
-`ACadSharp.ProGPU` and `ProGPU.CAD`
+fallback diagnostics. The focused lightweight suite passes 15/15, the legacy
+suite passes 13/13, and the complete CAD suite passes 1,349/1,349 in both Debug
+and Release. The ACadSharp DXF writer regression passes 3/3 across AC1015,
+AC1021, and AC1032. Fresh `ACadSharp.ProGPU` and `ProGPU.CAD`
 packages at `0.1.0-preview.62` pass the two-package content/dependency audit;
 an isolated package-only consumer resolves the fork identity, rejects upstream
 ACadSharp, builds with 0 warnings and 0 errors, and creates an AC1032 document.

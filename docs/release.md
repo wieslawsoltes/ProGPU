@@ -5,6 +5,16 @@ The release workflow does not pack samples, tests, diagnostic tools, or framewor
 It also builds the separately versioned Avalonia 11 and 12 integration packages
 from `scripts/progpu-package-list.sh`.
 
+ProGPU.CAD now resolves documented legacy `POLYLINE` entity default widths and
+per-vertex segment overrides into the existing exact constant-width retained
+stroke when every actual segment is uniform. Analytic bulges, affine bounds,
+point and Window/Crossing selection, print output, and managed/native replay all
+reuse the same bevel/butt contract as `LWPOLYLINE`; variable/tapered widths,
+FILLMODE-off outlines, and extrusions remain typed unsupported geometry. The
+pinned ACadSharp feature commit `90a423e0` adds the missing DXF groups 39/40/41
+writer path and three-version round-trip coverage, while ACadSharp `master`
+remains synchronized with upstream.
+
 Preview.62 advances the successfully published preview.61 boundary with a
 second measured optimization round for the ProGPU-backed SkiaSharp compatibility
 layer. Avalonia's common bounded SaveLayer containing one analytic rounded
