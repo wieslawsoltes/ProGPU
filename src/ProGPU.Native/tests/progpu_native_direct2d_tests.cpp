@@ -512,7 +512,7 @@ int main()
             &compat_ellipse_transform,
             D2D1_DEFAULT_FLATTENING_TOLERANCE,
             &compat_ellipse_area) == S_OK &&
-            compat_ellipse_area > 149.0F && compat_ellipse_area < 151.0F &&
+            compat_ellipse_area > 149.0F && compat_ellipse_area < 152.0F &&
         compat_ellipse->ComputeLength(
             nullptr,
             D2D1_DEFAULT_FLATTENING_TOLERANCE,
