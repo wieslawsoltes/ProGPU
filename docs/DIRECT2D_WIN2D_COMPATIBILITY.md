@@ -1040,6 +1040,39 @@ and test under `/W4 /WX`; the focused CTest passes 1/1 in 40.29 seconds (78.46
 seconds total under concurrent guest load). No export is added; ABI v37 only
 extends the version and scene-result flag contract.
 
+ABI v38 at implementation `a308e7df` adds the first exact
+`ID2D1CommandSink::PushLayer`/`PopLayer` translation. The admitted subset is a
+full-target `D2D1::InfiniteRect()` layer with finite uniform opacity, no
+geometric mask, no opacity brush, and `D2D1_LAYER_OPTIONS1_NONE`. This maps to
+ProGPU's existing isolated semantic layer so opacity is applied once when the
+group is composited, rather than incorrectly multiplying every overlapping
+draw. The `ID2D1Layer` scratch resource does not enter the scene; ProGPU owns
+the pooled cross-backend layer allocation.
+
+The sink now maintains one bounded typed scope stack shared by axis-aligned
+clips and layers. It admits Direct2D's properly nested clip/layer pairs and
+rejects overlapping or unbalanced pops with `D2DERR_WRONG_STATE`. Depth is
+bounded by the native scene maximum of 64. Finite content bounds, geometric
+masks, opacity brushes, `INITIALIZE_FROM_BACKGROUND`, and `IGNORE_ALPHA` remain
+fail-closed until their exact bounds/mask/backdrop contracts are translated.
+This deliberately follows the documented Direct2D layer boundary: uniform
+opacity is applied during target composition, while masks and initialization
+options have distinct semantics that cannot be treated as ordinary opacity.
+
+The Windows oracle records two overlapping rectangles inside 37.5% opacity,
+with the valid ordering `PushAxisAlignedClip`, `PushLayer`, `PopLayer`,
+`PopAxisAlignedClip`. It decodes the pointer-free layer payload, exact source-
+over blend, absent mask/effect references, and balanced command order. A
+second command list proves `INITIALIZE_FROM_BACKGROUND` returns typed
+unsupported state without a partial scene. Managed AOT contracts pass 5/5 and
+the package builds with zero warnings. Windows 11 ARM64 Parallels with MSVC
+19.44/SDK 10.0.26100.0 recompiles provider and test under `/W4 /WX`; the
+fresh test executable exits zero. The final 97,082-byte payload SHA-256 is
+`84A118A67091ED4DA4854B1B00A4AEB26F760073D22A729DFCE1B8460859C270`.
+The 164,864-byte provider SHA-256 is
+`305C1D7D3BC72F0CFC016778721CC36D90FDC91ABE1F9FCDE5DA2A8C5CFEF121`;
+all 123 exports exactly match the checked-in allowlist.
+
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
 `progpu_native_direct2d.dll` in both Windows runtime packages, and rejects any
