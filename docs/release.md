@@ -69,10 +69,21 @@ normalization, and immediate pending-prompt reevaluation. The ten values live
 inline and every warm pointer query remains allocation-free bounded `O(A)` for
 `A <= 10`. Object snap still wins, additional paths compose with PolarSnap, and
 typed direct distance preserves its exact length. Invalid lists fail closed and
-produce no drawing generation. Last-segment-relative POLARMODE remains tied to
-a future real LINE/POLYLINE authored-segment context instead of being guessed
-from MOVE/COPY state. No shader, native ABI, GPU resource, or native scene
-compiler changes.
+produce no drawing generation. Last-segment-relative POLARMODE is never guessed
+from MOVE/COPY state and now uses only a real LINE segment context. No shader,
+native ABI, GPU resource, or native scene compiler changes.
+
+Shared desktop/browser ProGPU.CAD now provides bounded LINE authoring. Clicks or
+typed absolute/relative Cartesian and polar points create a contiguous sequence
+of separate LINE entities; object snap, grid, Ortho, polar, PolarSnap, and exact
+direct distance reuse the shared point-acquisition pipeline. Relative polar mode
+uses the actual previous authored segment and fails closed when none exists.
+Accepted segments remain a retained transient picture, `U` removes only the
+latest segment, Close is available after two segments, and Enter/Escape finish.
+Completion captures current entity properties and publishes the entire sequence
+as one generation-safe Undo/Redo command with DXF/DWG round trips. The ordinary
+line renderer is unchanged, so this adds no shader, native ABI, or one-sided
+managed/native rendering path.
 
 The shared ProGPU.CAD plan grid now defaults to AutoCAD's lined model-space
 GRIDSTYLE and exposes a shared desktop/browser Dots toggle. Autodesk documents

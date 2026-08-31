@@ -5,9 +5,9 @@
 This slice adds exact incremental plan polar tracking to the shared
 desktop/browser MOVE and COPY second-point prompts. The continuations add exact
 profile-distance PolarSnap, drawing-persisted F9 Snap Mode, and up to ten
-profile-scoped absolute non-incremental additional angles. They do not add
-relative-to-last-segment angles, object-snap tracking/acquired points, 3D Z
-paths, or arbitrary-camera acquisition.
+profile-scoped absolute non-incremental additional angles. The LINE continuation
+adds explicit actual-last-segment-relative incremental angles. Object-snap
+tracking/acquired points, 3D Z paths, and arbitrary-camera acquisition remain.
 
 The implementation was designed clean-room from public behavior contracts:
 
@@ -72,6 +72,8 @@ state and distance algorithm in `PROGPU_CAD_POLAR_SNAP_RESEARCH.md`.
 The additional-angle continuation records its bounded POLARADDANG profile,
 arbitration, and last-segment fidelity boundary in
 `PROGPU_CAD_ADDITIONAL_POLAR_ANGLES_RESEARCH.md`.
+The LINE continuation records its explicit previous-segment basis, command
+state, and authoring transaction in `PROGPU_CAD_LINE_AUTHORING_RESEARCH.md`.
 
 For accepted base `B`, pointer `P`, ANGBASE-adjusted orthonormal axes `X,Y`,
 direction sign `s` (`+1` counterclockwise, `-1` clockwise), and increment `a`:
@@ -151,10 +153,11 @@ and browser key reservation. PolarSnap regressions cover explicit and Snap-X-
 inherited distance, live prompt reevaluation, object-snap precedence, direct-
 distance separation, F9/type retention, exact SNAPMODE history, staged input,
 zero-allocation warm queries, browser reservation, and DXF/DWG round trips.
-The complete macOS arm64 Release ProGPU.CAD suite passes 1,060/1,060.
+The complete macOS arm64 Release ProGPU.CAD suite passes 1,075/1,075.
 
-Relative-to-last-segment measurement, object-snap tracking and acquired points,
-3D UCS Z paths, temporary overrides, cross-session host profile persistence,
+Relative-to-last-segment measurement is covered for LINE and remains pending
+for POLYLINE. Object-snap tracking and acquired points, 3D UCS Z paths,
+temporary overrides, cross-session host profile persistence,
 arbitrary-camera rays, interaction image goldens, dense-drawing p50/p95/p99
 evidence, and independent DXF/DWG angle fixtures remain before the broader
 tracking feature can be called complete.

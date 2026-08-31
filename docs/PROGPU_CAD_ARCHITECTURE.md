@@ -1053,21 +1053,30 @@ semicolon-degree controls update pending prompts immediately and never mutate
 the drawing; invalid input disables the list rather than retaining hidden stale
 angles. Exact angular ties preserve the incremental path, ANGBASE/ANGDIR remain
 authoritative, object snap still returns first, and an additional path composes
-with PolarSnap or exact direct distance. Last-segment-relative POLARMODE remains
-deferred until LINE/POLYLINE authoring owns a genuine preceding segment. A bare
+with PolarSnap or exact direct distance. Last-segment-relative POLARMODE now
+accepts only an explicit finite nonzero direction from a real preceding LINE
+segment; MOVE/COPY do not infer one. A bare
 positive invariant scalar at the second-point prompt applies an exact direct
 distance along the post-base raw cursor ray, the
 active Ortho axis, or an actually acquired polar path. It preserves the base Z
 plane, ignores object/grid point quantization for length and direction, uses an
 overflow-safe O(1) normalization, and leaves the explicit coordinate grammar
-unchanged. Additional/relative angles, object-snap tracking, 3D UCS Z acquisition,
+unchanged. Object-snap tracking, 3D UCS Z acquisition,
 global-last-point state, arbitrary-camera planes, reference-angle, and
 reference-length input remain later editor tools. The exact clean-room behavior
 and applicability records are in `PROGPU_CAD_ORTHO_RESEARCH.md`,
 `PROGPU_CAD_POLAR_TRACKING_RESEARCH.md`,
 `PROGPU_CAD_ADDITIONAL_POLAR_ANGLES_RESEARCH.md`,
 `PROGPU_CAD_POLAR_SNAP_RESEARCH.md`, and
-`PROGPU_CAD_DIRECT_DISTANCE_RESEARCH.md`. One
+`PROGPU_CAD_DIRECT_DISTANCE_RESEARCH.md`. Shared desktop/browser LINE authoring
+retains up to 65,536 accepted segments outside the document, replays accepted
+edges as one screen-space picture, and keeps pointer motion to one rubber band.
+In-command U removes the latest segment in O(1); Close adds the first endpoint
+after two segments; Enter/Escape finish. Completion creates separate ACadSharp
+LINE entities with current CLAYER/CECOLOR/CELTYPE/CELTSCALE/CELWEIGHT through
+one O(S) reversible history command, so a finished sequence publishes one
+generation and global Undo is atomic. Exact behavior and applicability are in
+`PROGPU_CAD_LINE_AUTHORING_RESEARCH.md`. One
 `CadDocumentHistory` belongs to the loaded session, so each Move, Copy, Rotate, Scale,
 Undo, or Redo publishes exactly one generation and then prepares one complete
 replacement snapshot and picture. The prior picture stays drawable until

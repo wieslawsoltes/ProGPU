@@ -76,6 +76,78 @@ public sealed class CadPlanPolarTrackingTests
     }
 
     [Fact]
+    public void RelativeMeasurementUsesTheActualPreviousSegmentBasis()
+    {
+        var settings = new CadPlanPolarTrackingSettings(
+            true,
+            new CadPoint3D(1.0, 0.0, 0.0),
+            new CadPoint3D(0.0, 1.0, 0.0),
+            false,
+            Math.PI / 4.0,
+            CadPlanPolarAngleMeasurement.RelativeToLastSegment,
+            false,
+            CadPlanPolarAdditionalAngles.Empty);
+        CadPoint3D reference = new(
+            Math.Cos(Math.PI / 6.0),
+            Math.Sin(Math.PI / 6.0),
+            0.0);
+        double expected = Math.PI / 6.0 + Math.PI / 4.0;
+        CadPoint3D pointer = new(
+            5.0 * Math.Cos(expected + 0.03),
+            5.0 * Math.Sin(expected + 0.03),
+            0.0);
+
+        Assert.False(settings.TryTrack(
+            CadPoint3D.Zero,
+            pointer,
+            out _));
+        Assert.True(settings.TryTrack(
+            CadPoint3D.Zero,
+            pointer,
+            reference,
+            out CadPlanPolarTrackingResult result));
+
+        Assert.True(result.IsRelativeIncrement);
+        Assert.False(result.IsAdditionalAngle);
+        Assert.InRange(Math.Abs(result.AngleRadians - expected), 0.0, 1e-12);
+        Assert.InRange(Math.Abs(result.Direction.X - Math.Cos(expected)), 0.0, 1e-12);
+        Assert.InRange(Math.Abs(result.Direction.Y - Math.Sin(expected)), 0.0, 1e-12);
+    }
+
+    [Fact]
+    public void AdditionalAnglesRemainAbsoluteDuringRelativeMeasurement()
+    {
+        CadPlanPolarAdditionalAngles additional =
+            CadPlanPolarAdditionalAngles.FromDegrees([20.0]);
+        var settings = new CadPlanPolarTrackingSettings(
+            true,
+            new CadPoint3D(1.0, 0.0, 0.0),
+            new CadPoint3D(0.0, 1.0, 0.0),
+            false,
+            Math.PI / 2.0,
+            CadPlanPolarAngleMeasurement.RelativeToLastSegment,
+            true,
+            additional);
+        double pointerAngle = 21.0 * Math.PI / 180.0;
+
+        Assert.True(settings.TryTrack(
+            CadPoint3D.Zero,
+            new CadPoint3D(
+                Math.Cos(pointerAngle),
+                Math.Sin(pointerAngle),
+                0.0),
+            new CadPoint3D(0.0, 1.0, 0.0),
+            out CadPlanPolarTrackingResult result));
+
+        Assert.True(result.IsAdditionalAngle);
+        Assert.False(result.IsRelativeIncrement);
+        Assert.InRange(
+            Math.Abs(result.AngleRadians - (20.0 * Math.PI / 180.0)),
+            0.0,
+            1e-12);
+    }
+
+    [Fact]
     public void WarmQueriesAllocateNoManagedMemory()
     {
         var settings = new CadPlanPolarTrackingSettings(

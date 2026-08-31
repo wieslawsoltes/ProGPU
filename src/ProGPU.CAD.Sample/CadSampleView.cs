@@ -55,6 +55,10 @@ public sealed class CadSampleView : Grid
     private readonly Button _undoButton;
     private readonly Button _redoButton;
     private readonly Button _deleteButton;
+    private readonly Button _lineButton;
+    private readonly Button _lineUndoButton;
+    private readonly Button _lineCloseButton;
+    private readonly Button _lineFinishButton;
     private readonly Button[] _drawOrderButtons;
     private readonly Button[] _moveButtons;
     private readonly Button[] _copyButtons;
@@ -78,6 +82,7 @@ public sealed class CadSampleView : Grid
     private readonly CheckBox _planOrthoCheckBox;
     private readonly CheckBox _planPolarTrackingCheckBox;
     private readonly ComboBox _planPolarTrackingIncrementSelector;
+    private readonly CheckBox _planPolarRelativeCheckBox;
     private readonly CheckBox _planPolarAdditionalAnglesCheckBox;
     private readonly TextBox _planPolarAdditionalAnglesInput;
     private readonly CheckBox _planPolarSnapCheckBox;
@@ -260,6 +265,9 @@ public sealed class CadSampleView : Grid
     public ComboBox PlanPolarTrackingIncrementSelector =>
         _planPolarTrackingIncrementSelector;
 
+    public CheckBox PlanPolarRelativeCheckBox =>
+        _planPolarRelativeCheckBox;
+
     public CheckBox PlanPolarAdditionalAnglesCheckBox =>
         _planPolarAdditionalAnglesCheckBox;
 
@@ -271,6 +279,14 @@ public sealed class CadSampleView : Grid
     public TextBox PlanPolarSnapDistanceInput => _planPolarSnapDistanceInput;
 
     public TextBox PointTransformInput => _pointTransformInput;
+
+    public Button LineButton => _lineButton;
+
+    public Button LineUndoButton => _lineUndoButton;
+
+    public Button LineCloseButton => _lineCloseButton;
+
+    public Button LineFinishButton => _lineFinishButton;
 
     public ComboBox SelectionAttributeSelector =>
         _selectionAttributeSelector;
@@ -510,6 +526,10 @@ public sealed class CadSampleView : Grid
         _undoButton = CreateButton("Undo", font, 68, 30);
         _redoButton = CreateButton("Redo", font, 68, 30);
         _deleteButton = CreateButton("Delete", font, 76, 30);
+        _lineButton = CreateButton("Line", font, 64, 30);
+        _lineUndoButton = CreateButton("Line U", font, 68, 30);
+        _lineCloseButton = CreateButton("Close", font, 68, 30);
+        _lineFinishButton = CreateButton("Finish", font, 68, 30);
         Button sendToBack = CreateButton("To back", font, 76, 30);
         Button bringToFront = CreateButton("To front", font, 76, 30);
         Button bringAbove = CreateButton("Above…", font, 82, 30);
@@ -517,6 +537,10 @@ public sealed class CadSampleView : Grid
         _undoButton.Margin = new Thickness(0, 0, 8, 0);
         _redoButton.Margin = new Thickness(0, 0, 8, 0);
         _deleteButton.Margin = new Thickness(0, 0, 8, 0);
+        _lineButton.Margin = new Thickness(0, 0, 4, 0);
+        _lineUndoButton.Margin = new Thickness(0, 0, 4, 0);
+        _lineCloseButton.Margin = new Thickness(0, 0, 4, 0);
+        _lineFinishButton.Margin = new Thickness(0, 0, 12, 0);
         sendToBack.Margin = new Thickness(0, 0, 4, 0);
         bringToFront.Margin = new Thickness(0, 0, 4, 0);
         bringAbove.Margin = new Thickness(0, 0, 4, 0);
@@ -525,6 +549,10 @@ public sealed class CadSampleView : Grid
         editActions.AddChild(_undoButton);
         editActions.AddChild(_redoButton);
         editActions.AddChild(_deleteButton);
+        editActions.AddChild(_lineButton);
+        editActions.AddChild(_lineUndoButton);
+        editActions.AddChild(_lineCloseButton);
+        editActions.AddChild(_lineFinishButton);
         editActions.AddChild(sendToBack);
         editActions.AddChild(bringToFront);
         editActions.AddChild(bringAbove);
@@ -767,6 +795,13 @@ public sealed class CadSampleView : Grid
         }
         _planPolarTrackingIncrementSelector.SelectedIndex = 0;
         transformActions.AddChild(_planPolarTrackingIncrementSelector);
+        _planPolarRelativeCheckBox = CreateAttributeModeCheckBox(
+            "Relative to last segment",
+            font);
+        _planPolarRelativeCheckBox.IsChecked =
+            _canvas.PlanPolarAngleMeasurement ==
+                CadPlanPolarAngleMeasurement.RelativeToLastSegment;
+        transformActions.AddChild(_planPolarRelativeCheckBox);
         _planPolarAdditionalAnglesCheckBox = CreateAttributeModeCheckBox(
             "Additional angles",
             font);
@@ -1959,6 +1994,10 @@ public sealed class CadSampleView : Grid
         _undoButton.Click += (_, _) => PerformUndo();
         _redoButton.Click += (_, _) => PerformRedo();
         _deleteButton.Click += (_, _) => PerformDelete();
+        _lineButton.Click += (_, _) => BeginLineAuthoring();
+        _lineUndoButton.Click += (_, _) => UndoLineAuthoringSegment();
+        _lineCloseButton.Click += (_, _) => CompleteLineAuthoring(close: true);
+        _lineFinishButton.Click += (_, _) => CompleteLineAuthoring(close: false);
         sendToBack.Click += (_, _) =>
             SetSelectionDrawOrder(CadDrawOrderPlacement.SendToBack);
         bringToFront.Click += (_, _) =>
@@ -2052,6 +2091,20 @@ public sealed class CadSampleView : Grid
                 _canvas.PlanPolarTrackingIncrementDegrees = increment;
             }
         };
+        _planPolarRelativeCheckBox.CheckedChanged += (_, _) =>
+        {
+            if (!_isRefreshingPlanConstraints)
+            {
+                _canvas.PlanPolarAngleMeasurement =
+                    _planPolarRelativeCheckBox.IsChecked
+                        ? CadPlanPolarAngleMeasurement.RelativeToLastSegment
+                        : CadPlanPolarAngleMeasurement.Absolute;
+                SetStatus(_planPolarRelativeCheckBox.IsChecked
+                    ? "Polar angles now measure relative to the last accepted LINE segment."
+                    : "Polar angles now measure from the current UCS basis.");
+                UpdateEditControls();
+            }
+        };
         _planPolarAdditionalAnglesCheckBox.CheckedChanged += (_, _) =>
         {
             if (!_isRefreshingPlanConstraints)
@@ -2105,12 +2158,20 @@ public sealed class CadSampleView : Grid
         {
             if (!args.Handled && args.Key == Key.Enter)
             {
-                AcceptPointTransformInput();
+                if (_canvas.IsLineAuthoring &&
+                    string.IsNullOrWhiteSpace(_pointTransformInput.Text))
+                {
+                    CompleteLineAuthoring(close: false);
+                }
+                else
+                {
+                    AcceptPointInput();
+                }
                 args.Handled = true;
             }
         };
         _acceptPointTransformInputButton.Click += (_, _) =>
-            AcceptPointTransformInput();
+            AcceptPointInput();
         rotateCounterclockwise.Click += (_, _) => RotateSelection(1);
         rotateClockwise.Click += (_, _) => RotateSelection(-1);
         scaleUp.Click += (_, _) => ScaleSelection(useReciprocal: false);
@@ -2139,6 +2200,12 @@ public sealed class CadSampleView : Grid
         {
             _pointTransformInput.Text = string.Empty;
             SetStatus(DescribePointTransform(args));
+            UpdateEditControls();
+        };
+        _canvas.LineAuthoringChanged += (_, args) =>
+        {
+            _pointTransformInput.Text = string.Empty;
+            SetStatus(DescribeLineAuthoring(args));
             UpdateEditControls();
         };
         _canvas.PointTransformInputAvailabilityChanged += (_, _) =>
@@ -2180,6 +2247,30 @@ public sealed class CadSampleView : Grid
             UpdateEditControls();
             e.Handled = true;
             return;
+        }
+
+        if (!e.Handled &&
+            _canvas.IsLineAuthoring &&
+            FocusManager.GetFocusedElement() is not TextBox)
+        {
+            if (e.Key is Key.Enter or Key.Escape)
+            {
+                CompleteLineAuthoring(close: false);
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.U)
+            {
+                UndoLineAuthoringSegment();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.C && _canvas.CanCloseLineAuthoring)
+            {
+                CompleteLineAuthoring(close: true);
+                e.Handled = true;
+                return;
+            }
         }
 
         if (!e.Handled &&
@@ -4720,19 +4811,79 @@ public sealed class CadSampleView : Grid
         }
     }
 
-    private void AcceptPointTransformInput()
+    private void BeginLineAuthoring()
     {
-        if (_isBusy || _canvas.PendingPointTransformOperation is null)
+        if (_isBusy)
+        {
+            return;
+        }
+
+        try
+        {
+            _pointTransformInput.Text = string.Empty;
+            if (!_canvas.BeginLineAuthoring())
+            {
+                SetStatus("LINE requires a loaded plan-view document.");
+            }
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"LINE failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
+    private void AcceptPointInput()
+    {
+        if (_isBusy)
         {
             return;
         }
 
         string input = _pointTransformInput.Text;
-        if (!_canvas.TryAcceptSelectionPointTransformInput(
+        bool accepted;
+        string? errorMessage;
+        if (_canvas.IsLineAuthoring)
+        {
+            accepted = _canvas.TryAcceptLineAuthoringInput(
                 input,
-                out string? errorMessage))
+                out errorMessage);
+        }
+        else if (_canvas.PendingPointTransformOperation is not null)
+        {
+            accepted = _canvas.TryAcceptSelectionPointTransformInput(
+                input,
+                out errorMessage);
+        }
+        else
+        {
+            return;
+        }
+
+        if (!accepted)
         {
             SetStatus(errorMessage ?? "The coordinate input was rejected.");
+        }
+        UpdateEditControls();
+    }
+
+    private void UndoLineAuthoringSegment()
+    {
+        if (!_canvas.UndoLineAuthoringSegment())
+        {
+            SetStatus("LINE has no accepted segment to undo.");
+        }
+        UpdateEditControls();
+    }
+
+    private void CompleteLineAuthoring(bool close)
+    {
+        if (!_canvas.CompleteLineAuthoring(close, out string? errorMessage))
+        {
+            SetStatus(errorMessage ?? "LINE completion failed.");
         }
         UpdateEditControls();
     }
@@ -4760,6 +4911,27 @@ public sealed class CadSampleView : Grid
         };
     }
 
+    private static string DescribeLineAuthoring(
+        CadLineAuthoringChangedEventArgs args) => args.Stage switch
+    {
+        CadLineAuthoringStage.AwaitingFirstPoint =>
+            "LINE: specify first point by click or absolute WCS coordinate; Escape ends.",
+        CadLineAuthoringStage.AwaitingNextPoint when args.SegmentCount == 0 =>
+            $"LINE: first point {FormatPoint(args.CurrentPoint!.Value)}; specify next point.",
+        CadLineAuthoringStage.AwaitingNextPoint =>
+            $"LINE: {args.SegmentCount} accepted segment(s); next point, U, Close, Enter, or Escape.",
+        CadLineAuthoringStage.SegmentUndone =>
+            $"LINE: latest segment removed; {args.SegmentCount} segment(s) remain.",
+        CadLineAuthoringStage.Completed when args.SegmentCount == 0 =>
+            "LINE ended without creating a segment.",
+        CadLineAuthoringStage.Completed =>
+            $"LINE created {args.SegmentCount} separate segment(s)" +
+            (args.IsClosed ? " and closed the sequence." : "."),
+        CadLineAuthoringStage.Failed =>
+            $"LINE failed: {args.ErrorMessage}",
+        _ => throw new ArgumentOutOfRangeException(nameof(args)),
+    };
+
     private void SelectPolarTrackingIncrement()
     {
         double target = _canvas.PlanPolarTrackingIncrementDegrees;
@@ -4785,6 +4957,9 @@ public sealed class CadSampleView : Grid
             _planOrthoCheckBox.IsChecked = _canvas.IsPlanOrthoEnabled;
             _planPolarTrackingCheckBox.IsChecked =
                 _canvas.IsPlanPolarTrackingEnabled;
+            _planPolarRelativeCheckBox.IsChecked =
+                _canvas.PlanPolarAngleMeasurement ==
+                    CadPlanPolarAngleMeasurement.RelativeToLastSegment;
             _planPolarAdditionalAnglesCheckBox.IsChecked =
                 _canvas.UsePlanPolarAdditionalAngles;
             _planPolarSnapCheckBox.IsChecked =
@@ -5525,8 +5700,11 @@ public sealed class CadSampleView : Grid
             _canvas.PendingDrawOrderPlacement is not null;
         bool isPointTransformPicking =
             _canvas.PendingPointTransformOperation is not null;
+        bool isLineAuthoring = _canvas.IsLineAuthoring;
+        bool isPointInputActive =
+            isPointTransformPicking || isLineAuthoring;
         bool isInteractivePicking =
-            isReferencePicking || isPointTransformPicking;
+            isReferencePicking || isPointInputActive;
         bool canUsePlanTools =
             !_isBusy && !_isPrintPreview && !isInteractivePicking;
         _openButton.IsEnabled = canUsePlanTools;
@@ -5538,7 +5716,7 @@ public sealed class CadSampleView : Grid
             _canvas.CurrentSession is not null;
         _importPageSetupsButton.IsEnabled = canImportPageSetups;
         _importReplacePageSetupsButton.IsEnabled = canImportPageSetups;
-        _saveButton.IsEnabled = !_isBusy;
+        _saveButton.IsEnabled = !_isBusy && !isInteractivePicking;
         _fitButton.IsEnabled = canUsePlanTools && !_is3DView;
         _clearSelectionButton.IsEnabled = canUsePlanTools;
         _attributeDisplaySelector.IsEnabled =
@@ -5593,6 +5771,17 @@ public sealed class CadSampleView : Grid
             _canvas.SelectedHandleCount > 0 &&
             _isSelectionEditable;
         _deleteButton.IsEnabled = canTransform;
+        _lineButton.IsEnabled =
+            canUsePlanTools && !_is3DView &&
+            _canvas.CurrentSession is not null;
+        _lineUndoButton.IsEnabled =
+            !_isBusy && isLineAuthoring &&
+            _canvas.PendingLineSegmentCount > 0;
+        _lineCloseButton.IsEnabled =
+            !_isBusy && isLineAuthoring &&
+            _canvas.CanCloseLineAuthoring;
+        _lineFinishButton.IsEnabled =
+            !_isBusy && isLineAuthoring;
         _selectionColorInput.IsEnabled = canTransform;
         _selectionLineWeightSelector.IsEnabled = canTransform;
         _selectionLayerSelector.IsEnabled = canTransform;
@@ -5821,6 +6010,8 @@ public sealed class CadSampleView : Grid
             _canvas.PlanPolarTrackingSettings.IsSupported;
         _planPolarTrackingIncrementSelector.IsEnabled =
             _planPolarTrackingCheckBox.IsEnabled;
+        _planPolarRelativeCheckBox.IsEnabled =
+            _planPolarTrackingCheckBox.IsEnabled;
         _planPolarAdditionalAnglesInput.IsEnabled =
             _planPolarTrackingCheckBox.IsEnabled;
         _planPolarAdditionalAnglesCheckBox.IsEnabled =
@@ -5837,12 +6028,15 @@ public sealed class CadSampleView : Grid
                  _planPolarSnapDistanceInput.Text,
                  out _));
         _pointTransformInput.IsEnabled =
-            !_isBusy && isPointTransformPicking;
+            !_isBusy && isPointInputActive;
         _acceptPointTransformInputButton.IsEnabled =
             !_isBusy &&
-            isPointTransformPicking &&
-            _canvas.CanAcceptSelectionPointTransformInput(
-                _pointTransformInput.Text);
+            isPointInputActive &&
+            (isLineAuthoring
+                ? _canvas.CanAcceptLineAuthoringInput(
+                    _pointTransformInput.Text)
+                : _canvas.CanAcceptSelectionPointTransformInput(
+                    _pointTransformInput.Text));
         foreach (Button drawOrderButton in _drawOrderButtons)
         {
             drawOrderButton.IsEnabled = canTransform;

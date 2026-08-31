@@ -1,5 +1,12 @@
 namespace ProGPU.CAD;
 
+/// <summary>Profile-scoped basis used for incremental polar alignment paths.</summary>
+public enum CadPlanPolarAngleMeasurement : byte
+{
+    Absolute = 0,
+    RelativeToLastSegment = 1,
+}
+
 public readonly record struct CadPlanPolarTrackingResult(
     CadPoint3D Point,
     CadPoint3D Direction,
@@ -9,6 +16,9 @@ public readonly record struct CadPlanPolarTrackingResult(
 {
     /// <summary>Whether a non-incremental POLARADDANG path won arbitration.</summary>
     public bool IsAdditionalAngle { get; init; }
+
+    /// <summary>Whether the winning incremental path used a supplied segment basis.</summary>
+    public bool IsRelativeIncrement { get; init; }
 
     /// <summary>Whether the along-path distance was quantized by PolarSnap.</summary>
     public bool IsDistanceSnapped { get; init; }
@@ -43,6 +53,9 @@ public readonly record struct CadPlanPolarTrackingSettings
 
     public double IncrementDegrees => IncrementRadians * (180.0 / Math.PI);
 
+    /// <summary>Absolute UCS or previous-segment incremental angle measurement.</summary>
+    public CadPlanPolarAngleMeasurement AngleMeasurement { get; }
+
     /// <summary>Whether the bounded POLARADDANG list participates.</summary>
     public bool UseAdditionalAngles { get; }
 
@@ -56,6 +69,7 @@ public readonly record struct CadPlanPolarTrackingSettings
         new CadPoint3D(0.0, 1.0, 0.0),
         false,
         Math.PI / 2.0,
+        CadPlanPolarAngleMeasurement.Absolute,
         false,
         CadPlanPolarAdditionalAngles.Empty);
 
@@ -66,6 +80,7 @@ public readonly record struct CadPlanPolarTrackingSettings
         new CadPoint3D(0.0, 1.0, 0.0),
         false,
         Math.PI / 2.0,
+        CadPlanPolarAngleMeasurement.Absolute,
         false,
         CadPlanPolarAdditionalAngles.Empty);
 
@@ -82,6 +97,7 @@ public readonly record struct CadPlanPolarTrackingSettings
             yAxis,
             isClockwise,
             incrementRadians,
+            CadPlanPolarAngleMeasurement.Absolute,
             false,
             CadPlanPolarAdditionalAngles.Empty)
     {
@@ -97,11 +113,33 @@ public readonly record struct CadPlanPolarTrackingSettings
         CadPlanPolarAdditionalAngles additionalAngles)
         : this(
             isEnabled,
+            xAxis,
+            yAxis,
+            isClockwise,
+            incrementRadians,
+            CadPlanPolarAngleMeasurement.Absolute,
+            useAdditionalAngles,
+            additionalAngles)
+    {
+    }
+
+    public CadPlanPolarTrackingSettings(
+        bool isEnabled,
+        CadPoint3D xAxis,
+        CadPoint3D yAxis,
+        bool isClockwise,
+        double incrementRadians,
+        CadPlanPolarAngleMeasurement angleMeasurement,
+        bool useAdditionalAngles,
+        CadPlanPolarAdditionalAngles additionalAngles)
+        : this(
+            isEnabled,
             true,
             xAxis,
             yAxis,
             isClockwise,
             incrementRadians,
+            angleMeasurement,
             useAdditionalAngles,
             additionalAngles)
     {
@@ -114,6 +152,7 @@ public readonly record struct CadPlanPolarTrackingSettings
         CadPoint3D yAxis,
         bool isClockwise,
         double incrementRadians,
+        CadPlanPolarAngleMeasurement angleMeasurement,
         bool useAdditionalAngles,
         CadPlanPolarAdditionalAngles additionalAngles)
     {
@@ -126,6 +165,10 @@ public readonly record struct CadPlanPolarTrackingSettings
             incrementRadians > Math.PI / 2.0)
         {
             throw new ArgumentOutOfRangeException(nameof(incrementRadians));
+        }
+        if (!Enum.IsDefined(angleMeasurement))
+        {
+            throw new ArgumentOutOfRangeException(nameof(angleMeasurement));
         }
 
         double xLengthSquared = CadPoint3D.Dot(xAxis, xAxis);
@@ -154,6 +197,7 @@ public readonly record struct CadPlanPolarTrackingSettings
         YAxis = yAxis;
         IsClockwise = isClockwise;
         IncrementRadians = incrementRadians;
+        AngleMeasurement = angleMeasurement;
         UseAdditionalAngles = useAdditionalAngles;
         AdditionalAngles = additionalAngles;
     }
@@ -165,45 +209,94 @@ public readonly record struct CadPlanPolarTrackingSettings
         YAxis,
         IsClockwise,
         IncrementRadians,
+        AngleMeasurement,
         UseAdditionalAngles,
         AdditionalAngles);
 
     public CadPlanPolarTrackingSettings WithIncrementRadians(
         double incrementRadians) => new(
-            IsEnabled,
-            IsSupported,
-            XAxis,
-            YAxis,
-            IsClockwise,
-            incrementRadians,
-            UseAdditionalAngles,
-            AdditionalAngles);
+        IsEnabled,
+        IsSupported,
+        XAxis,
+        YAxis,
+        IsClockwise,
+        incrementRadians,
+        AngleMeasurement,
+        UseAdditionalAngles,
+        AdditionalAngles);
+
+    public CadPlanPolarTrackingSettings WithAngleMeasurement(
+        CadPlanPolarAngleMeasurement angleMeasurement) => new(
+        IsEnabled,
+        IsSupported,
+        XAxis,
+        YAxis,
+        IsClockwise,
+        IncrementRadians,
+        angleMeasurement,
+        UseAdditionalAngles,
+        AdditionalAngles);
 
     public CadPlanPolarTrackingSettings WithAdditionalAnglesEnabled(
         bool isEnabled) => new(
-            IsEnabled,
-            IsSupported,
-            XAxis,
-            YAxis,
-            IsClockwise,
-            IncrementRadians,
-            isEnabled,
-            AdditionalAngles);
+        IsEnabled,
+        IsSupported,
+        XAxis,
+        YAxis,
+        IsClockwise,
+        IncrementRadians,
+        AngleMeasurement,
+        isEnabled,
+        AdditionalAngles);
 
     public CadPlanPolarTrackingSettings WithAdditionalAngles(
         CadPlanPolarAdditionalAngles additionalAngles) => new(
-            IsEnabled,
-            IsSupported,
-            XAxis,
-            YAxis,
-            IsClockwise,
-            IncrementRadians,
-            UseAdditionalAngles,
-            additionalAngles);
+        IsEnabled,
+        IsSupported,
+        XAxis,
+        YAxis,
+        IsClockwise,
+        IncrementRadians,
+        AngleMeasurement,
+        UseAdditionalAngles,
+        additionalAngles);
 
     public bool TryTrack(
         CadPoint3D basePoint,
         CadPoint3D pointerPoint,
+        out CadPlanPolarTrackingResult result)
+    {
+        return TryTrackCore(
+            basePoint,
+            pointerPoint,
+            hasReferenceDirection: false,
+            referenceDirection: default,
+            out result);
+    }
+
+    /// <summary>
+    /// Projects onto the nearest polar path while supplying the actual previous
+    /// segment direction required by relative angle measurement.
+    /// </summary>
+    public bool TryTrack(
+        CadPoint3D basePoint,
+        CadPoint3D pointerPoint,
+        CadPoint3D referenceDirection,
+        out CadPlanPolarTrackingResult result)
+    {
+        return TryTrackCore(
+            basePoint,
+            pointerPoint,
+            hasReferenceDirection: true,
+            referenceDirection,
+            out result);
+    }
+
+    private bool TryTrackCore(
+        CadPoint3D basePoint,
+        CadPoint3D pointerPoint,
+        bool hasReferenceDirection,
+        CadPoint3D referenceDirection,
         out CadPlanPolarTrackingResult result)
     {
         result = default;
@@ -225,10 +318,34 @@ public readonly record struct CadPlanPolarTrackingSettings
 
         double measuredY = IsClockwise ? -localY : localY;
         double pointerAngle = Math.Atan2(measuredY, localX);
+        double referenceAngle = 0.0;
+        bool isRelativeIncrement =
+            AngleMeasurement == CadPlanPolarAngleMeasurement.RelativeToLastSegment;
+        if (isRelativeIncrement)
+        {
+            if (!hasReferenceDirection || !IsFinite(referenceDirection))
+            {
+                return false;
+            }
+
+            double referenceX = CadPoint3D.Dot(referenceDirection, XAxis);
+            double referenceY = CadPoint3D.Dot(referenceDirection, YAxis);
+            double referenceLengthSquared =
+                (referenceX * referenceX) + (referenceY * referenceY);
+            if (!double.IsFinite(referenceLengthSquared) ||
+                referenceLengthSquared <= double.Epsilon)
+            {
+                return false;
+            }
+
+            referenceAngle = Math.Atan2(
+                IsClockwise ? -referenceY : referenceY,
+                referenceX);
+        }
         double multiple = Math.Round(
-            pointerAngle / IncrementRadians,
+            (pointerAngle - referenceAngle) / IncrementRadians,
             MidpointRounding.AwayFromZero);
-        double angle = multiple * IncrementRadians;
+        double angle = referenceAngle + (multiple * IncrementRadians);
         double angularError = AngularDistance(pointerAngle, angle);
         bool isAdditionalAngle = false;
         if (UseAdditionalAngles)
@@ -279,6 +396,7 @@ public readonly record struct CadPlanPolarTrackingSettings
             Math.Sqrt(perpendicularDistanceSquared))
         {
             IsAdditionalAngle = isAdditionalAngle,
+            IsRelativeIncrement = isRelativeIncrement && !isAdditionalAngle,
         };
         return true;
     }

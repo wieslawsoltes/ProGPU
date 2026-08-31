@@ -66,6 +66,44 @@ public sealed class CadPointTransformChangedEventArgs : EventArgs
     }
 }
 
+/// <summary>Observable stage of one shared desktop/browser LINE command.</summary>
+public enum CadLineAuthoringStage : byte
+{
+    AwaitingFirstPoint = 0,
+    AwaitingNextPoint = 1,
+    SegmentUndone = 2,
+    Completed = 3,
+    Failed = 4,
+}
+
+/// <summary>Immutable transition emitted by the bounded LINE authoring state.</summary>
+public sealed class CadLineAuthoringChangedEventArgs : EventArgs
+{
+    public CadLineAuthoringStage Stage { get; }
+
+    public int SegmentCount { get; }
+
+    public CadPoint3D? CurrentPoint { get; }
+
+    public bool IsClosed { get; }
+
+    public string? ErrorMessage { get; }
+
+    internal CadLineAuthoringChangedEventArgs(
+        CadLineAuthoringStage stage,
+        int segmentCount,
+        CadPoint3D? currentPoint = null,
+        bool isClosed = false,
+        string? errorMessage = null)
+    {
+        Stage = stage;
+        SegmentCount = segmentCount;
+        CurrentPoint = currentPoint;
+        IsClosed = isClosed;
+        ErrorMessage = errorMessage;
+    }
+}
+
 /// <summary>
 /// Common general properties for the current semantic model-space selection.
 /// A null common property means selected entities have different persisted values;
@@ -157,7 +195,9 @@ public sealed class CadSampleCanvas : FrameworkElement
     private GpuPicture? _picture;
     private GpuPicture? _constructionPicture;
     private GpuPicture? _pointMarkerPicture;
+    private GpuPicture? _lineAuthoringPicture;
     private CadDocumentHistory? _history;
+    private CadLineAuthoringSession? _lineAuthoring;
     private CadBounds3D _bounds;
     private CadBounds3D _selectedBounds;
     private CadBounds3D _drawOrderReferenceBounds;
@@ -264,6 +304,20 @@ public sealed class CadSampleCanvas : FrameworkElement
     public CadPoint3D? PendingPointTransformBasePoint =>
         _hasPointTransformBasePoint ? _pointTransformBasePoint : null;
 
+    /// <summary>Whether one bounded model-space LINE sequence is active.</summary>
+    public bool IsLineAuthoring => _lineAuthoring is not null;
+
+    public int PendingLineSegmentCount => _lineAuthoring?.SegmentCount ?? 0;
+
+    public bool CanCloseLineAuthoring => _lineAuthoring?.CanClose == true;
+
+    public CadPoint3D? PendingLineFirstPoint => _lineAuthoring?.FirstPoint;
+
+    public CadPoint3D? PendingLineCurrentPoint => _lineAuthoring?.CurrentPoint;
+
+    private bool IsPointAcquisitionActive =>
+        PendingPointTransformOperation is not null || _lineAuthoring is not null;
+
     /// <summary>Running object-snap modes used by MOVE/COPY point prompts.</summary>
     public CadObjectSnapModes ObjectSnapModes
     {
@@ -283,7 +337,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             }
 
             _objectSnapModes = value;
-            if (PendingPointTransformOperation is not null &&
+            if (IsPointAcquisitionActive &&
                 _hasPointTransformPointerPosition)
             {
                 UpdatePointTransformPointer(_pointTransformPointerPosition);
@@ -455,7 +509,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                 _planPolarTrackingSettings =
                     _planPolarTrackingSettings.WithEnabled(false);
             }
-            if (PendingPointTransformOperation is not null &&
+            if (IsPointAcquisitionActive &&
                 _hasPointTransformPointerPosition)
             {
                 UpdatePointTransformPointer(_pointTransformPointerPosition);
@@ -531,7 +585,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             }
 
             _planPolarSnapSettings = updated;
-            if (PendingPointTransformOperation is not null &&
+            if (IsPointAcquisitionActive &&
                 _hasPointTransformPointerPosition)
             {
                 UpdatePointTransformPointer(_pointTransformPointerPosition);
@@ -556,7 +610,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             {
                 _isPlanOrthoEnabled = false;
             }
-            if (PendingPointTransformOperation is not null &&
+            if (IsPointAcquisitionActive &&
                 _hasPointTransformPointerPosition)
             {
                 UpdatePointTransformPointer(_pointTransformPointerPosition);
@@ -583,13 +637,21 @@ public sealed class CadSampleCanvas : FrameworkElement
             }
 
             _planPolarTrackingSettings = updated;
-            if (PendingPointTransformOperation is not null &&
+            if (IsPointAcquisitionActive &&
                 _hasPointTransformPointerPosition)
             {
                 UpdatePointTransformPointer(_pointTransformPointerPosition);
             }
             Invalidate();
         }
+    }
+
+    /// <summary>Profile-scoped POLARMODE bit-1 angle-measurement equivalent.</summary>
+    public CadPlanPolarAngleMeasurement PlanPolarAngleMeasurement
+    {
+        get => _planPolarTrackingSettings.AngleMeasurement;
+        set => SetPlanPolarTrackingProfile(
+            _planPolarTrackingSettings.WithAngleMeasurement(value));
     }
 
     /// <summary>Whether the bounded POLARADDANG profile list participates.</summary>
@@ -660,6 +722,13 @@ public sealed class CadSampleCanvas : FrameworkElement
     /// </summary>
     public event EventHandler<CadPointTransformChangedEventArgs>?
         PointTransformChanged;
+
+    /// <summary>
+    /// Raised for accepted LINE points, segment Undo, completion, and failure.
+    /// Pointer-motion rubber-band updates do not allocate events.
+    /// </summary>
+    public event EventHandler<CadLineAuthoringChangedEventArgs>?
+        LineAuthoringChanged;
 
     /// <summary>
     /// Raised when cursor-direction availability changes for typed point input.
@@ -817,6 +886,8 @@ public sealed class CadSampleCanvas : FrameworkElement
             : snapshot.PlanPolarTrackingSettings
                 .WithIncrementRadians(
                     _planPolarTrackingSettings.IncrementRadians)
+                .WithAngleMeasurement(
+                    _planPolarTrackingSettings.AngleMeasurement)
                 .WithAdditionalAngles(
                     _planPolarTrackingSettings.AdditionalAngles)
                 .WithAdditionalAnglesEnabled(
@@ -845,6 +916,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             ResetDrawOrderReferencePickState(notify: false);
             ResetPointTransformState(notify: false);
+            ResetLineAuthoringState();
             ResetSelectionState(notify: false);
             _needsFit = true;
         }
@@ -899,6 +971,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             context.DrawPicture(_pointMarkerPicture, viewport.CreateCameraMatrix());
         }
+        if (_lineAuthoringPicture is not null)
+        {
+            context.DrawPicture(_lineAuthoringPicture);
+        }
         if (!_selectedBounds.IsEmpty)
         {
             context.DrawRectangle(
@@ -913,7 +989,7 @@ public sealed class CadSampleCanvas : FrameworkElement
                 _drawOrderReferencePen,
                 ToScreenRect(viewport, _drawOrderReferenceBounds));
         }
-        if (PendingPointTransformOperation is not null &&
+        if (IsPointAcquisitionActive &&
             _hasPointTransformBasePoint)
         {
             Vector2 basePoint = viewport.WorldToScreen(_pointTransformBasePoint);
@@ -1032,7 +1108,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             return;
         }
 
-        if (PendingPointTransformOperation is not null)
+        if (IsPointAcquisitionActive)
         {
             _isPointTransformPointerPressed = true;
             _isSelecting = false;
@@ -1072,7 +1148,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             args.Handled = true;
             return;
         }
-        if (PendingPointTransformOperation is not null)
+        if (IsPointAcquisitionActive)
         {
             UpdatePointTransformPointer(args.Position);
             Invalidate();
@@ -1155,6 +1231,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     {
         ResetDrawOrderReferencePickState(notify: true);
         ResetPointTransformState(notify: true);
+        ResetLineAuthoringState();
         ResetSelectionState(notify: true);
         Invalidate();
     }
@@ -1179,7 +1256,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             throw new InvalidOperationException(
                 "Commit or cancel the pending draw-order reference selection first.");
         }
-        if (PendingPointTransformOperation is not null)
+        if (IsPointAcquisitionActive)
         {
             throw new InvalidOperationException(
                 "Complete or cancel the pending point transform first.");
@@ -1358,6 +1435,255 @@ public sealed class CadSampleCanvas : FrameworkElement
 
         AcceptPointTransformPoint(point, screenPoint);
         return true;
+    }
+
+    /// <summary>
+    /// Starts a bounded contiguous LINE sequence. Accepted segments remain a
+    /// retained transient overlay until Enter, Escape, or Close publishes one
+    /// atomic document-history edit.
+    /// </summary>
+    public bool BeginLineAuthoring(
+        int maximumSegmentCount =
+            CadLineAuthoringSession.DefaultMaximumSegmentCount)
+    {
+        if (CurrentSession is null || CurrentSnapshot is null)
+        {
+            return false;
+        }
+        ThrowIfDrawOrderReferenceSelectionPending();
+        if (IsPointAcquisitionActive)
+        {
+            throw new InvalidOperationException(
+                "Complete the pending point-acquisition command first.");
+        }
+
+        _lineAuthoring = new CadLineAuthoringSession(maximumSegmentCount);
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        ClearPointTransformSnapState();
+        RefreshLineAuthoringPicture();
+        LineAuthoringChanged?.Invoke(
+            this,
+            new CadLineAuthoringChangedEventArgs(
+                CadLineAuthoringStage.AwaitingFirstPoint,
+                segmentCount: 0));
+        Invalidate();
+        return true;
+    }
+
+    public bool CanAcceptLineAuthoringInput(string? text)
+    {
+        if (_lineAuthoring is null)
+        {
+            return false;
+        }
+
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            return CadDirectDistanceInput.TryParse(
+                    text,
+                    out CadDirectDistanceInput distance) &&
+                TryResolvePointTransformDirectDistance(distance, out _);
+        }
+        if (!_hasPointTransformBasePoint && coordinate.IsRelative)
+        {
+            return false;
+        }
+
+        CadPoint3D origin = _hasPointTransformBasePoint
+            ? _pointTransformBasePoint
+            : CadPoint3D.Zero;
+        if (!coordinate.TryResolve(origin, out CadPoint3D point) ||
+            (_hasPointTransformBasePoint && point == _pointTransformBasePoint))
+        {
+            return false;
+        }
+
+        try
+        {
+            _ = CreateViewport().WorldToScreen(point);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    public bool TryAcceptLineAuthoringInput(
+        string? text,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (_lineAuthoring is null)
+        {
+            errorMessage = "No LINE command is awaiting point input.";
+            return false;
+        }
+
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            if (CadDirectDistanceInput.TryParse(
+                    text,
+                    out CadDirectDistanceInput directDistance))
+            {
+                if (!_hasPointTransformBasePoint)
+                {
+                    errorMessage =
+                        "Accept an absolute first point before entering a direct distance.";
+                    return false;
+                }
+                if (!_hasPointTransformPointerPosition)
+                {
+                    errorMessage =
+                        "Move the cursor from the current LINE point before entering a direct distance.";
+                    return false;
+                }
+                if (!TryResolvePointTransformDirectDistance(
+                        directDistance,
+                        out CadPoint3D directPoint))
+                {
+                    errorMessage =
+                        "The cursor direction and distance do not resolve to a finite WCS point.";
+                    return false;
+                }
+
+                return TryAcceptLineAuthoringPoint(
+                    directPoint,
+                    screenPoint: null,
+                    out errorMessage);
+            }
+
+            errorMessage =
+                "Enter x,y[,z], @dx,dy[,dz], distance<angle, @distance<angle, or a positive direct distance using invariant numbers.";
+            return false;
+        }
+        if (!_hasPointTransformBasePoint && coordinate.IsRelative)
+        {
+            errorMessage =
+                "Enter an absolute first point before using a relative coordinate.";
+            return false;
+        }
+
+        CadPoint3D origin = _hasPointTransformBasePoint
+            ? _pointTransformBasePoint
+            : CadPoint3D.Zero;
+        if (!coordinate.TryResolve(origin, out CadPoint3D point))
+        {
+            errorMessage = "The coordinate resolves outside finite WCS values.";
+            return false;
+        }
+
+        Vector2 screenPoint;
+        try
+        {
+            screenPoint = CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException)
+        {
+            errorMessage =
+                "The LINE point cannot be represented by the current plan viewport.";
+            return false;
+        }
+        return TryAcceptLineAuthoringPoint(point, screenPoint, out errorMessage);
+    }
+
+    /// <summary>Removes the latest accepted LINE segment without leaving LINE.</summary>
+    public bool UndoLineAuthoringSegment()
+    {
+        CadLineAuthoringSession? authoring = _lineAuthoring;
+        if (authoring is null || !authoring.TryUndoLastSegment())
+        {
+            return false;
+        }
+
+        _pointTransformBasePoint = authoring.CurrentPoint!.Value;
+        _pointTransformCurrent = CreateViewport().WorldToScreen(
+            _pointTransformBasePoint);
+        _hasPointTransformBasePoint = true;
+        ClearPointTransformSnapState();
+        RefreshLineAuthoringPicture();
+        LineAuthoringChanged?.Invoke(
+            this,
+            new CadLineAuthoringChangedEventArgs(
+                CadLineAuthoringStage.SegmentUndone,
+                authoring.SegmentCount,
+                authoring.CurrentPoint));
+        Invalidate();
+        return true;
+    }
+
+    /// <summary>
+    /// Ends LINE and publishes every accepted segment as one reversible edit.
+    /// With no accepted segment, completion changes no document generation.
+    /// </summary>
+    public bool CompleteLineAuthoring(
+        bool close,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadLineAuthoringSession? authoring = _lineAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No LINE command is active.";
+            return false;
+        }
+        if (close && !authoring.CanClose)
+        {
+            errorMessage =
+                "Close requires at least two accepted LINE segments.";
+            return false;
+        }
+
+        int segmentCount = authoring.SegmentCount + (close ? 1 : 0);
+        if (segmentCount == 0)
+        {
+            ResetLineAuthoringState();
+            LineAuthoringChanged?.Invoke(
+                this,
+                new CadLineAuthoringChangedEventArgs(
+                    CadLineAuthoringStage.Completed,
+                    segmentCount: 0));
+            Invalidate();
+            return true;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException(
+                "The CAD edit history is not initialized.");
+        CadPoint3D[] points = authoring.CreatePointSnapshot(close);
+        try
+        {
+            history.Execute(new CadAddLineSequenceCommand(
+                points,
+                description: segmentCount == 1
+                    ? "LINE: add 1 segment"
+                    : $"LINE: add {segmentCount} segments"));
+            ResetLineAuthoringState();
+            RecompileAfterEdit(session);
+            LineAuthoringChanged?.Invoke(
+                this,
+                new CadLineAuthoringChangedEventArgs(
+                    CadLineAuthoringStage.Completed,
+                    segmentCount,
+                    points[^1],
+                    isClosed: close));
+            return true;
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+            LineAuthoringChanged?.Invoke(
+                this,
+                new CadLineAuthoringChangedEventArgs(
+                    CadLineAuthoringStage.Failed,
+                    authoring.SegmentCount,
+                    authoring.CurrentPoint,
+                    errorMessage: exception.Message));
+            return false;
+        }
     }
 
     /// <summary>
@@ -3057,7 +3383,7 @@ public sealed class CadSampleCanvas : FrameworkElement
 
         if (_planPolarTrackingSettings.IsEnabled &&
             _hasPointTransformBasePoint &&
-            _planPolarTrackingSettings.TryTrack(
+            TryTrackActivePolar(
                 _pointTransformBasePoint,
                 pointerWorld,
                 out CadPlanPolarTrackingResult polarTracking))
@@ -3109,7 +3435,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             isEnabled && type == CadPlanSnapType.Grid);
         _planPolarSnapSettings = _planPolarSnapSettings.WithEnabled(
             isEnabled && type == CadPlanSnapType.Polar);
-        if (PendingPointTransformOperation is not null &&
+        if (IsPointAcquisitionActive &&
             _hasPointTransformPointerPosition)
         {
             UpdatePointTransformPointer(_pointTransformPointerPosition);
@@ -3131,7 +3457,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
 
         _planPolarTrackingSettings = updated;
-        if (PendingPointTransformOperation is not null &&
+        if (IsPointAcquisitionActive &&
             _hasPointTransformPointerPosition)
         {
             UpdatePointTransformPointer(_pointTransformPointerPosition);
@@ -3179,7 +3505,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             direction = ortho.Point - _pointTransformBasePoint;
         }
         else if (_planPolarTrackingSettings.IsEnabled &&
-            _planPolarTrackingSettings.TryTrack(
+            TryTrackActivePolar(
                 _pointTransformBasePoint,
                 pointerPoint,
                 out CadPlanPolarTrackingResult polar))
@@ -3207,6 +3533,27 @@ public sealed class CadSampleCanvas : FrameworkElement
             _pointTransformBasePoint,
             direction,
             out point);
+    }
+
+    private bool TryTrackActivePolar(
+        CadPoint3D basePoint,
+        CadPoint3D pointerPoint,
+        out CadPlanPolarTrackingResult result)
+    {
+        if (_lineAuthoring?.PreviousSegmentDirection is
+            CadPoint3D referenceDirection)
+        {
+            return _planPolarTrackingSettings.TryTrack(
+                basePoint,
+                pointerPoint,
+                referenceDirection,
+                out result);
+        }
+
+        return _planPolarTrackingSettings.TryTrack(
+            basePoint,
+            pointerPoint,
+            out result);
     }
 
     private void NotifyPointTransformInputAvailability(bool notify)
@@ -3421,7 +3768,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             CadPoint3D point = _pointTransformObjectSnap.Point;
             Vector2 snappedScreen = _pointTransformCurrent;
-            AcceptPointTransformPoint(point, snappedScreen);
+            AcceptActivePoint(point, snappedScreen);
             return;
         }
 
@@ -3429,7 +3776,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             CadPoint3D point = _pointTransformGridSnap;
             Vector2 snappedScreen = _pointTransformCurrent;
-            AcceptPointTransformPoint(point, snappedScreen);
+            AcceptActivePoint(point, snappedScreen);
             return;
         }
 
@@ -3437,7 +3784,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             CadPoint3D point = _pointTransformOrtho.Point;
             Vector2 constrainedScreen = _pointTransformCurrent;
-            AcceptPointTransformPoint(point, constrainedScreen);
+            AcceptActivePoint(point, constrainedScreen);
             return;
         }
 
@@ -3445,17 +3792,17 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             CadPoint3D point = _pointTransformPolarTracking.Point;
             Vector2 trackedScreen = _pointTransformCurrent;
-            AcceptPointTransformPoint(point, trackedScreen);
+            AcceptActivePoint(point, trackedScreen);
             return;
         }
 
-        AcceptPointTransformPoint(screenPoint);
+        AcceptActivePoint(screenPoint);
     }
 
-    private void AcceptPointTransformPoint(Vector2 screenPoint)
+    private void AcceptActivePoint(Vector2 screenPoint)
     {
         CadPointTransformOperation? operation = PendingPointTransformOperation;
-        if (operation is null)
+        if (operation is null && _lineAuthoring is null)
         {
             return;
         }
@@ -3467,18 +3814,101 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
         catch (Exception exception)
         {
-            ResetPointTransformState(notify: false);
-            PointTransformChanged?.Invoke(
-                this,
-                new CadPointTransformChangedEventArgs(
-                    operation.Value,
-                    CadPointTransformStage.Failed,
-                    errorMessage: exception.Message));
+            if (operation is CadPointTransformOperation value)
+            {
+                ResetPointTransformState(notify: false);
+                PointTransformChanged?.Invoke(
+                    this,
+                    new CadPointTransformChangedEventArgs(
+                        value,
+                        CadPointTransformStage.Failed,
+                        errorMessage: exception.Message));
+            }
+            else
+            {
+                LineAuthoringChanged?.Invoke(
+                    this,
+                    new CadLineAuthoringChangedEventArgs(
+                        CadLineAuthoringStage.Failed,
+                        _lineAuthoring?.SegmentCount ?? 0,
+                        _lineAuthoring?.CurrentPoint,
+                        errorMessage: exception.Message));
+            }
             Invalidate();
             return;
         }
 
+        AcceptActivePoint(point, screenPoint);
+    }
+
+    private void AcceptActivePoint(
+        CadPoint3D point,
+        Vector2? screenPoint)
+    {
+        if (_lineAuthoring is not null)
+        {
+            _ = TryAcceptLineAuthoringPoint(point, screenPoint, out _);
+            return;
+        }
+
         AcceptPointTransformPoint(point, screenPoint);
+    }
+
+    private bool TryAcceptLineAuthoringPoint(
+        CadPoint3D point,
+        Vector2? screenPoint,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadLineAuthoringSession? authoring = _lineAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No LINE command is active.";
+            return false;
+        }
+        Vector2 resolvedScreen;
+        try
+        {
+            resolvedScreen = screenPoint ??
+                CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException exception)
+        {
+            errorMessage = exception.Message;
+            LineAuthoringChanged?.Invoke(
+                this,
+                new CadLineAuthoringChangedEventArgs(
+                    CadLineAuthoringStage.Failed,
+                    authoring.SegmentCount,
+                    authoring.CurrentPoint,
+                    errorMessage: errorMessage));
+            return false;
+        }
+        if (!authoring.TryAcceptPoint(point, out errorMessage))
+        {
+            LineAuthoringChanged?.Invoke(
+                this,
+                new CadLineAuthoringChangedEventArgs(
+                    CadLineAuthoringStage.Failed,
+                    authoring.SegmentCount,
+                    authoring.CurrentPoint,
+                    errorMessage: errorMessage));
+            return false;
+        }
+
+        ClearPointTransformSnapState();
+        _pointTransformBasePoint = point;
+        _pointTransformCurrent = resolvedScreen;
+        _hasPointTransformBasePoint = true;
+        RefreshLineAuthoringPicture();
+        LineAuthoringChanged?.Invoke(
+            this,
+            new CadLineAuthoringChangedEventArgs(
+                CadLineAuthoringStage.AwaitingNextPoint,
+                authoring.SegmentCount,
+                point));
+        Invalidate();
+        return true;
     }
 
     private void AcceptPointTransformPoint(
@@ -3714,10 +4144,10 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     private void ThrowIfPointTransformPending()
     {
-        if (PendingPointTransformOperation is not null)
+        if (IsPointAcquisitionActive)
         {
             throw new InvalidOperationException(
-                "Complete or cancel the pending point transform first.");
+                "Complete the pending point-acquisition command first.");
         }
     }
 
@@ -3750,6 +4180,18 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
     }
 
+    private void ResetLineAuthoringState()
+    {
+        _lineAuthoring = null;
+        _lineAuthoringPicture?.Dispose();
+        _lineAuthoringPicture = null;
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        _pointTransformBasePoint = default;
+        _pointTransformCurrent = default;
+        ClearPointTransformSnapState();
+    }
+
     private void ResetSelectionState(bool notify)
     {
         _selectedHandleCount = 0;
@@ -3779,6 +4221,8 @@ public sealed class CadSampleCanvas : FrameworkElement
             _constructionPicture = null;
             _pointMarkerPicture?.Dispose();
             _pointMarkerPicture = null;
+            _lineAuthoringPicture?.Dispose();
+            _lineAuthoringPicture = null;
             return;
         }
 
@@ -3806,6 +4250,45 @@ public sealed class CadSampleCanvas : FrameworkElement
         GpuPicture? previousMarkers = _pointMarkerPicture;
         _pointMarkerPicture = markerReplacement;
         previousMarkers?.Dispose();
+        RefreshLineAuthoringPicture();
+    }
+
+    private void RefreshLineAuthoringPicture()
+    {
+        GpuPicture? replacement = null;
+        CadLineAuthoringSession? authoring = _lineAuthoring;
+        if (authoring is not null &&
+            authoring.SegmentCount > 0 &&
+            CurrentSnapshot is not null &&
+            Size.X > 0.0f &&
+            Size.Y > 0.0f)
+        {
+            CadPlanViewport viewport = CreateViewport();
+            var recorder = new GpuPictureRecorder();
+            DrawingContext target = recorder.BeginRecording(
+                new Rect(0, 0, Size.X, Size.Y));
+            try
+            {
+                ReadOnlySpan<CadPoint3D> points = authoring.Points.Span;
+                for (int i = 1; i < points.Length; i++)
+                {
+                    target.DrawLine(
+                        _drawOrderReferencePen,
+                        viewport.WorldToScreen(points[i - 1]),
+                        viewport.WorldToScreen(points[i]));
+                }
+                replacement = recorder.EndRecording();
+            }
+            catch
+            {
+                target.Clear();
+                throw;
+            }
+        }
+
+        GpuPicture? previous = _lineAuthoringPicture;
+        _lineAuthoringPicture = replacement;
+        previous?.Dispose();
     }
 
     private static Rect ToScreenRect(
@@ -3828,6 +4311,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ReleasePointerCaptures();
         ResetDrawOrderReferencePickState(notify: false);
         ResetPointTransformState(notify: false);
+        ResetLineAuthoringState();
         _picture?.Dispose();
         _picture = null;
         _constructionPicture?.Dispose();

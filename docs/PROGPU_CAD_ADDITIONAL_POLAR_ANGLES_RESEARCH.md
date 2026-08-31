@@ -76,13 +76,12 @@ Typed coordinate forms continue to bypass pointer constraints.
 
 ## Last-segment fidelity boundary
 
-POLARMODE bit 1 is not approximated in this slice. Autodesk defines it against
-the last segment drawn. Current shared point prompts modify existing selections
-and do not own an authored preceding segment. Selection geometry, a previous
-MOVE displacement, or cursor history is not equivalent evidence. The later
-LINE/POLYLINE command state must retain a finite nonzero authored segment
-direction and pass that explicit basis to the polar query; absent that context,
-relative mode must fail closed rather than silently use the UCS.
+The subsequent LINE slice implements POLARMODE bit 1 from an actual accepted
+LINE segment. It passes that finite nonzero direction explicitly to the polar
+query; before such a segment exists, relative incremental tracking fails closed.
+Additional angles remain absolute. MOVE/COPY still cannot infer a segment from
+selection geometry, a previous displacement, or cursor history. POLYLINE remains
+a later command-state consumer of the same explicit-reference overload.
 
 ## Rendering and managed/native applicability
 
@@ -105,9 +104,9 @@ queries over all ten slots with zero managed allocation. Shared interaction
 regressions cover live reevaluation without pointer motion, invalid-list disable,
 no drawing generation, object-snap precedence, PolarSnap composition, exact
 MOVE, and exact direct-distance separation.
-The complete macOS arm64 Release ProGPU.CAD suite passes 1,060/1,060.
+The complete macOS arm64 Release ProGPU.CAD suite passes 1,075/1,075.
 
-Last-segment-relative measurement remains coupled to a real LINE/POLYLINE
-authoring state. Object-snap tracking/acquired points, 3D paths, cross-session
+Last-segment-relative measurement is now covered by real LINE authoring and
+remains pending for POLYLINE. Object-snap tracking/acquired points, 3D paths, cross-session
 profile persistence, arbitrary-camera rays, visual goldens, and dense-drawing
 p50/p95/p99 evidence also remain.
