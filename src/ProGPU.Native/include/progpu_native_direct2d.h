@@ -779,11 +779,20 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 43U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 44U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
 progpu_native_direct2d_get_abi_version(void);
+
+/* Returns a caller-owned ProGPU-implemented ID2D1Factory1. The explicit
+ * compatibility factory is independent of the system Direct2D provider and
+ * never shadows D2D1CreateFactory or d2d1.dll. ABI v44 implements immutable
+ * rectangle geometry; unsupported resource families fail closed. */
+PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
+progpu_native_direct2d_compat_factory_create(
+    void** factory,
+    int32_t* native_hresult);
 
 /* Creates a retained ProGPU scene recorder. capacity_hint is optional and is
  * used only to reserve storage; recording remains bounded by the semantic
