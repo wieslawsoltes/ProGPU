@@ -101,7 +101,10 @@ member suppression, leaving zero missing types, zero missing members, and 13
     transformed value to a device pixel outside `MM_TEXT`, and participates in
     alignment, measured backgrounds, rotated current-position updates, and
     SaveDC/RestoreDC. An explicit `EXTTEXTOUT` `Dx` array overrides that default
-    spacing. `EXTTEXTOUT` adds explicit
+    spacing. Typed `META_SETTEXTJUSTIFICATION` distributes its total extra among
+    space break characters, carries integer remainder across text runs, and
+    participates in the same map, rotation, extent, and saved-state path.
+    `EXTTEXTOUT` adds explicit
     opaque/clipped rectangles, RTL layout without explicit advances, and signed
     one-byte-character advances. WMF SaveDC and relative RestoreDC
     snapshot window/viewport origins and extents, current point, world
@@ -366,6 +369,17 @@ claim. State restoration, exact `Dx` override, non-`MM_TEXT` rounding, shaped
 glyph spacing, right alignment/background extent, rotated `TA_UPDATECP`,
 malformed-record rollback, and the complete 429/429 drawing suite are the
 correctness authority. ApiCompat remains 0/0/13.
+
+`MetafileBenchmarks.Playback256WmfJustifiedRotatedTextOutToRetainedCommands`
+adds one `META_SETTEXTJUSTIFICATION` and a break character to the preceding
+rotated default-spacing workload. Its stable managed-allocation checkpoint is
+800.26 KB versus 799.95 KB for the paired character-extra-only workload. Host
+contention made the paired five-iteration timing samples range from 5.197 ms to
+111.522 ms, so no latency comparison is valid or claimed. Fixed-size rollback,
+SaveDC/RestoreDC, exact `Dx` override, integer remainder across records,
+anisotropic total rounding, combined rotated current-position progression, and
+the complete 433/433 drawing suite are the correctness authority. ApiCompat
+remains 0/0/13.
 
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the

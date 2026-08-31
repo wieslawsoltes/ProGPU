@@ -2516,20 +2516,22 @@ public partial class Graphics :
             CurrentTransform4x4());
     }
 
-    internal void DrawStringWithCharacterExtra(
+    internal void DrawStringWithCharacterSpacing(
         string text,
         Font font,
         Brush brush,
         float x,
         float y,
-        float characterExtra)
+        ReadOnlySpan<float> characterSpacing)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(font);
         ArgumentNullException.ThrowIfNull(brush);
-        if (!float.IsFinite(characterExtra))
+        if (characterSpacing.Length != text.Length)
         {
-            throw new ArgumentOutOfRangeException(nameof(characterExtra));
+            throw new ArgumentException(
+                "The spacing count must match the text length.",
+                nameof(characterSpacing));
         }
         if (text.Length == 0)
         {
@@ -2545,29 +2547,45 @@ public partial class Graphics :
             return;
         }
 
-        int previousCluster = layout.Glyphs[0].Cluster;
-        int crossedCharacters = 0;
+        int consumedCharacters = 0;
         float offset = 0f;
         for (int index = 0; index < layout.Glyphs.Count; index++)
         {
             ProGPU.Text.TextRunGlyph glyph = layout.Glyphs[index];
-            if (glyph.Cluster != previousCluster)
+            int cluster = Math.Clamp(glyph.Cluster, 0, text.Length - 1);
+            if (cluster < consumedCharacters)
             {
-                int clusterDistance = Math.Abs(glyph.Cluster - previousCluster);
-                crossedCharacters = checked(crossedCharacters + clusterDistance);
-                offset += clusterDistance * characterExtra;
-                previousCluster = glyph.Cluster;
+                throw new NotSupportedException(
+                    "Character-cell spacing requires monotonically ordered text clusters.");
+            }
+            while (consumedCharacters < cluster)
+            {
+                float spacing = characterSpacing[consumedCharacters++];
+                if (!float.IsFinite(spacing))
+                {
+                    throw new ArgumentOutOfRangeException(nameof(characterSpacing));
+                }
+                offset += spacing;
             }
             glyph.Position.X += offset;
             layout.Glyphs[index] = glyph;
         }
 
-        int trailingCharacters = Math.Max(0, text.Length - crossedCharacters);
-        if (trailingCharacters > 0)
+        float trailingSpacing = 0f;
+        while (consumedCharacters < characterSpacing.Length)
+        {
+            float spacing = characterSpacing[consumedCharacters++];
+            if (!float.IsFinite(spacing))
+            {
+                throw new ArgumentOutOfRangeException(nameof(characterSpacing));
+            }
+            trailingSpacing += spacing;
+        }
+        if (trailingSpacing != 0f)
         {
             int lastIndex = layout.Glyphs.Count - 1;
             ProGPU.Text.TextRunGlyph last = layout.Glyphs[lastIndex];
-            last.Glyph.Advance += trailingCharacters * characterExtra;
+            last.Glyph.Advance += trailingSpacing;
             layout.Glyphs[lastIndex] = last;
         }
 

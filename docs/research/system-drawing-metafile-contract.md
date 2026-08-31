@@ -119,7 +119,12 @@ rounds the spacing to the nearest device pixel before returning it to the
 logical baseline. Alignment, measured opaque background, compatible-mode
 escapement, and `TA_UPDATECP` use the same effective advance. An explicit `Dx`
 array supplies the complete character-cell origins and therefore overrides
-default character extra. Selected WMF underline and strikeout font bits lower through the same
+default character extra. `META_SETTEXTJUSTIFICATION` retains unsigned break
+count and total-extra state, distributes integer quotient/remainder spacing at
+space break characters, and carries the remainder across consecutive text runs.
+Resetting the state clears that error term. It uses the same mapped total,
+alignment, background, escapement, current-position, and `Dx`-override rules.
+Selected WMF underline and strikeout font bits lower through the same
 OpenType-metric retained decoration path as ordinary `Graphics.DrawString`.
 Compatible-mode fonts whose escapement and orientation match rotate the text
 baseline, glyphs, measured background, and decorations together in device
@@ -161,6 +166,8 @@ implementation is based on the official
 [META_SETTEXTCHAREXTRA](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/e9ac157a-cb53-406d-be53-f249cd5b2dff),
 [SetTextCharacterExtra](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-settextcharacterextra),
 [GetTextExtentPoint32W spacing rules](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-gettextextentpoint32w),
+[SetTextJustification](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-settextjustification),
+[WMF state records](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/54e4a2e0-5ca9-4c69-b6a8-dc8f938c68ae),
 [META_TEXTOUT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/96531e1a-1875-49e5-b797-b4c4c50fa789),
 [META_EXTTEXTOUT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/7d07c44a-a828-4b82-9af0-e0a81cced5a8),
 [ExtTextOutOptions Flags](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/830cec14-2f3c-46f3-8f20-82b3da370573),
@@ -441,6 +448,25 @@ arrays and rotation work of the new workload; it is not presented as a
 like-for-like regression. The complete drawing suite passes 429/429 and
 ApiCompat remains 0 missing types, 0 missing members, and 13 reviewed
 platform-annotation differences.
+
+`META_SETTEXTJUSTIFICATION` shares the generalized shaped character-cell
+spacing seam rather than splitting text into per-character commands. Its fixed
+unsigned break-count/total-extra state and running remainder are included in
+SaveDC/RestoreDC. Focused gates prove a 5-unit total distributes as 2 then 3
+across two space breaks and across two separate text records, while a 4-unit
+temporary saved state distributes as 2 then 2. Additional gates cover explicit
+`Dx` override, anisotropic rounding of the total before distribution, combined
+character-extra/justification under 90-degree `TA_UPDATECP`, and malformed
+record rollback.
+
+`Playback256WmfJustifiedRotatedTextOutToRetainedCommands` guards 256 retained
+three-character records with both character extra and one justified break. Its
+managed allocation is 800.26 KB, compared with 799.95 KB for the paired
+character-extra-only workload. Severe host contention made the five-iteration
+timing samples span 5.197 to 111.522 milliseconds, invalidating any throughput
+comparison; no timing baseline is claimed from that run. The complete drawing
+suite passes 433/433 and ApiCompat remains 0 missing types, 0 missing members,
+and 13 reviewed platform-annotation differences.
 
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication

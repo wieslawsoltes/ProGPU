@@ -32,6 +32,7 @@ public class MetafileBenchmarks
     private Metafile _wmfOffsetClipPatBltPlaybackMetafile = null!;
     private Metafile _wmfTextPlaybackMetafile = null!;
     private Metafile _wmfSpacedRotatedTextPlaybackMetafile = null!;
+    private Metafile _wmfJustifiedRotatedTextPlaybackMetafile = null!;
     private Metafile _wmfExtendedTextPlaybackMetafile = null!;
     private Metafile _wmfRotatedExtendedTextPlaybackMetafile = null!;
     private readonly Graphics.EnumerateMetafileProc _enumerate = static (_, _, _, _, _) => true;
@@ -80,6 +81,15 @@ public class MetafileBenchmarks
             new MemoryStream(
                 CreatePlaybackWmfText(256, escapement: 900, characterExtra: 4),
                 writable: false));
+        _wmfJustifiedRotatedTextPlaybackMetafile = new Metafile(
+            new MemoryStream(
+                CreatePlaybackWmfText(
+                    256,
+                    escapement: 900,
+                    characterExtra: 2,
+                    breakExtra: 5,
+                    breakCount: 1),
+                writable: false));
         _wmfExtendedTextPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfExtendedText(256), writable: false));
         _wmfRotatedExtendedTextPlaybackMetafile = new Metafile(
@@ -106,6 +116,7 @@ public class MetafileBenchmarks
         _wmfOffsetClipPatBltPlaybackMetafile.Dispose();
         _wmfTextPlaybackMetafile.Dispose();
         _wmfSpacedRotatedTextPlaybackMetafile.Dispose();
+        _wmfJustifiedRotatedTextPlaybackMetafile.Dispose();
         _wmfExtendedTextPlaybackMetafile.Dispose();
         _wmfRotatedExtendedTextPlaybackMetafile.Dispose();
         _playbackGraphics.Dispose();
@@ -297,6 +308,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _wmfSpacedRotatedTextPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256WmfJustifiedRotatedTextOutToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _wmfJustifiedRotatedTextPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -872,13 +895,17 @@ public class MetafileBenchmarks
     private static byte[] CreatePlaybackWmfText(
         int recordCount,
         short escapement = 0,
-        short characterExtra = 0)
+        short characterExtra = 0,
+        short breakExtra = 0,
+        short breakCount = 0)
     {
         const int fontWords = 28;
         const int textWords = 8;
         int characterExtraWords = characterExtra == 0 ? 0 : 4;
+        int justificationWords = breakExtra == 0 ? 0 : 5;
         int declaredWords = checked(
-            9 + fontWords + 4 + 4 + characterExtraWords + 5 + recordCount * textWords + 3);
+            9 + fontWords + 4 + 4 + characterExtraWords + justificationWords + 5 +
+            recordCount * textWords + 3);
         byte[] bytes = new byte[checked(22 + declaredWords * 2)];
         WriteUInt32(bytes, 0, 0x9AC6_CDD7);
         WriteInt16(bytes, 10, 640);
@@ -915,6 +942,15 @@ public class MetafileBenchmarks
         {
             cursor += WriteWmfWordsRecord(bytes, cursor, 0x0108, characterExtra);
         }
+        if (breakExtra != 0)
+        {
+            cursor += WriteWmfWordsRecord(
+                bytes,
+                cursor,
+                0x020A,
+                breakCount,
+                breakExtra);
+        }
 
         WriteUInt32(bytes, cursor, 5);
         WriteUInt16(bytes, cursor + 4, 0x0209);
@@ -929,7 +965,7 @@ public class MetafileBenchmarks
             WriteUInt16(bytes, cursor + 4, 0x0521);
             WriteInt16(bytes, cursor + 6, 3);
             bytes[cursor + 8] = (byte)'W';
-            bytes[cursor + 9] = (byte)'M';
+            bytes[cursor + 9] = breakExtra == 0 ? (byte)'M' : (byte)' ';
             bytes[cursor + 10] = (byte)'F';
             WriteInt16(bytes, cursor + 12, y);
             WriteInt16(bytes, cursor + 14, x);

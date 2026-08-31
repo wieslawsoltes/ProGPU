@@ -100,6 +100,13 @@ internal static class MetafilePlaybackRenderer
                 state.TextCharacterExtra = ReadUInt16(payload, 0);
                 return;
 
+            case EmfPlusRecordType.WmfSetTextJustification:
+                RequireSize(record, payload, 4);
+                state.SetTextJustification(
+                    ReadUInt16(payload, 2),
+                    ReadUInt16(payload, 0));
+                return;
+
             case EmfPlusRecordType.WmfSetBkColor:
                 RequireSize(record, payload, 4);
                 state.BackgroundColor = ReadColor(payload, 0);
@@ -1286,6 +1293,9 @@ internal static class MetafilePlaybackRenderer
         internal int RasterOperation { get; set; } = 13;
         internal int TextAlignment { get; set; }
         internal int TextCharacterExtra { get; set; }
+        internal int TextJustificationExtra { get; private set; }
+        internal int TextJustificationBreakCount { get; private set; }
+        internal int TextJustificationError { get; private set; }
         internal Color BackgroundColor { get; set; } = Color.White;
         internal Color TextColor { get; set; } = Color.Black;
         internal Pen? SelectedPen => _selectedPen;
@@ -1489,6 +1499,9 @@ internal static class MetafilePlaybackRenderer
                 RasterOperation,
                 TextAlignment,
                 TextCharacterExtra,
+                TextJustificationExtra,
+                TextJustificationBreakCount,
+                TextJustificationError,
                 BackgroundColor,
                 TextColor,
                 _selectedPen,
@@ -1527,6 +1540,9 @@ internal static class MetafilePlaybackRenderer
             RasterOperation = saved.RasterOperation;
             TextAlignment = saved.TextAlignment;
             TextCharacterExtra = saved.TextCharacterExtra;
+            TextJustificationExtra = saved.TextJustificationExtra;
+            TextJustificationBreakCount = saved.TextJustificationBreakCount;
+            TextJustificationError = saved.TextJustificationError;
             BackgroundColor = saved.BackgroundColor;
             TextColor = saved.TextColor;
             _selectedPen = saved.SelectedPen;
@@ -1679,6 +1695,13 @@ internal static class MetafilePlaybackRenderer
                 rightToLeft: false,
                 default);
 
+        internal void SetTextJustification(int extra, int breakCount)
+        {
+            TextJustificationExtra = extra;
+            TextJustificationBreakCount = breakCount;
+            TextJustificationError = 0;
+        }
+
         internal void DrawExtendedText(
             in MetafileRecord record,
             string text,
@@ -1715,7 +1738,9 @@ internal static class MetafilePlaybackRenderer
                     record,
                     "Per-character advances combined with right-to-left layout require a bidi glyph-positioning path.");
             }
-            if (dx.IsEmpty && TextCharacterExtra != 0 && effectiveRightToLeft)
+            if (dx.IsEmpty &&
+                (TextCharacterExtra != 0 || TextJustificationExtra != 0) &&
+                effectiveRightToLeft)
             {
                 throw Unsupported(
                     record,
@@ -1740,8 +1765,32 @@ internal static class MetafilePlaybackRenderer
             float characterExtra = dx.IsEmpty
                 ? GetEffectiveTextCharacterExtra(baseTransform, record)
                 : 0f;
+            scoped Span<float> characterSpacing = default;
+            float spacingAdvance = 0f;
+            bool hasCharacterSpacing = false;
+            if (dx.IsEmpty &&
+                (characterExtra != 0f ||
+                 (TextJustificationExtra != 0 &&
+                  TextJustificationBreakCount != 0 &&
+                  text.Contains(' '))))
+            {
+                characterSpacing = text.Length <= 256
+                    ? stackalloc float[text.Length]
+                    : new float[text.Length];
+                for (int index = 0; index < text.Length; index++)
+                {
+                    float spacing = characterExtra;
+                    if (text[index] == ' ')
+                    {
+                        spacing += GetNextTextJustificationExtra(baseTransform, record);
+                    }
+                    characterSpacing[index] = spacing;
+                    spacingAdvance += spacing;
+                    hasCharacterSpacing |= spacing != 0f;
+                }
+            }
             float horizontalAdvance = dx.IsEmpty
-                ? measuredSize.Width + characterExtra * text.Length
+                ? measuredSize.Width + spacingAdvance
                 : totalAdvance;
             if (!float.IsFinite(horizontalAdvance))
             {
@@ -1801,15 +1850,15 @@ internal static class MetafilePlaybackRenderer
                     SolidBrush foreground = GetTextBrush();
                     if (dx.IsEmpty)
                     {
-                        if (characterExtra != 0f)
+                        if (hasCharacterSpacing)
                         {
-                            Graphics.DrawStringWithCharacterExtra(
+                            Graphics.DrawStringWithCharacterSpacing(
                                 text,
                                 _selectedFont,
                                 foreground,
                                 x,
                                 y,
-                                characterExtra);
+                                characterSpacing);
                         }
                         else if (effectiveRightToLeft)
                         {
@@ -1892,23 +1941,89 @@ internal static class MetafilePlaybackRenderer
             Matrix3x2 baseTransform,
             in MetafileRecord record)
         {
-            if (TextCharacterExtra == 0 || MapMode == 1)
+            return GetEffectiveLogicalTextSpacing(
+                TextCharacterExtra,
+                baseTransform,
+                record);
+        }
+
+        private float GetNextTextJustificationExtra(
+            Matrix3x2 baseTransform,
+            in MetafileRecord record)
+        {
+            if (TextJustificationExtra == 0 || TextJustificationBreakCount == 0)
             {
-                return TextCharacterExtra;
+                return 0f;
+            }
+
+            int totalExtra = TextJustificationExtra;
+            if (MapMode != 1)
+            {
+                float deviceTotal = Vector2.TransformNormal(
+                    new Vector2(TextJustificationExtra, 0f),
+                    baseTransform).X;
+                if (!float.IsFinite(deviceTotal) ||
+                    deviceTotal < int.MinValue || deviceTotal > int.MaxValue)
+                {
+                    throw Invalid(record);
+                }
+                totalExtra = checked((int)MathF.Round(deviceTotal));
+            }
+
+            int spacing = Math.DivRem(
+                totalExtra,
+                TextJustificationBreakCount,
+                out int remainder);
+            TextJustificationError += remainder;
+            if (Math.Abs(TextJustificationError) >= TextJustificationBreakCount)
+            {
+                int correction = Math.Sign(TextJustificationError);
+                spacing += correction;
+                TextJustificationError -= correction * TextJustificationBreakCount;
+            }
+
+            return MapMode == 1
+                ? spacing
+                : DeviceTextSpacingToLogical(spacing, baseTransform, record);
+        }
+
+        private float GetEffectiveLogicalTextSpacing(
+            int logicalSpacing,
+            Matrix3x2 baseTransform,
+            in MetafileRecord record)
+        {
+            if (logicalSpacing == 0 || MapMode == 1)
+            {
+                return logicalSpacing;
             }
 
             Vector2 deviceExtra = Vector2.TransformNormal(
-                new Vector2(TextCharacterExtra, 0f),
+                new Vector2(logicalSpacing, 0f),
                 baseTransform);
-            deviceExtra = new Vector2(
-                MathF.Round(deviceExtra.X),
-                MathF.Round(deviceExtra.Y));
+            float roundedDeviceX = MathF.Round(deviceExtra.X);
+            if (!float.IsFinite(roundedDeviceX))
+            {
+                throw Invalid(record);
+            }
+            return DeviceTextSpacingToLogical(
+                roundedDeviceX,
+                baseTransform,
+                record);
+        }
+
+        private static float DeviceTextSpacingToLogical(
+            float deviceSpacing,
+            Matrix3x2 baseTransform,
+            in MetafileRecord record)
+        {
             if (!Matrix3x2.Invert(baseTransform, out Matrix3x2 inverseBase))
             {
                 throw Invalid(record);
             }
 
-            Vector2 logicalExtra = Vector2.TransformNormal(deviceExtra, inverseBase);
+            Vector2 logicalExtra = Vector2.TransformNormal(
+                new Vector2(deviceSpacing, 0f),
+                inverseBase);
             if (!float.IsFinite(logicalExtra.X) || !float.IsFinite(logicalExtra.Y))
             {
                 throw Invalid(record);
@@ -2103,6 +2218,9 @@ internal static class MetafilePlaybackRenderer
             int RasterOperation,
             int TextAlignment,
             int TextCharacterExtra,
+            int TextJustificationExtra,
+            int TextJustificationBreakCount,
+            int TextJustificationError,
             Color BackgroundColor,
             Color TextColor,
             Pen? SelectedPen,
