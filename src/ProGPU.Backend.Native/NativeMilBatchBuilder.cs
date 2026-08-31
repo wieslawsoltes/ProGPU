@@ -416,6 +416,112 @@ public sealed class NativeMilBatchBuilder
         WriteUInt32(packet, 76, (uint)renderingBias);
     }
 
+    /// <summary>
+    /// Writes canonical MilCmdHwndTargetCreate with every process-local
+    /// Windows handle set to zero. Surface ownership belongs to the portable
+    /// host; this packet retains dimensions, clear state, flags, and DPI.
+    /// </summary>
+    public void CreateHwndTarget(
+        uint handle,
+        uint pixelWidth,
+        uint pixelHeight,
+        NativeMilColor clearColor,
+        uint flags,
+        int dpiAwarenessContext,
+        double dpiX,
+        double dpiY)
+    {
+        ValidateHandle(handle);
+        ValidateColor(clearColor);
+        if (!double.IsFinite(dpiX) || !double.IsFinite(dpiY) ||
+            dpiX <= 0.0 || dpiY <= 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(dpiX));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.HwndTargetCreate, 92);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 32, pixelWidth);
+        WriteUInt32(packet, 36, pixelHeight);
+        WriteSingle(packet, 40, clearColor.Red);
+        WriteSingle(packet, 44, clearColor.Green);
+        WriteSingle(packet, 48, clearColor.Blue);
+        WriteSingle(packet, 52, clearColor.Alpha);
+        WriteUInt32(packet, 56, flags);
+        WriteUInt32(packet, 72, unchecked((uint)dpiAwarenessContext));
+        WriteDouble(packet, 76, dpiX);
+        WriteDouble(packet, 84, dpiY);
+    }
+
+    public void SuppressHwndTargetLayeredPresentation(
+        uint handle,
+        bool suppress)
+    {
+        ValidateHandle(handle);
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.HwndTargetSuppressLayered, 12);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, suppress ? 1U : 0U);
+    }
+
+    public void UpdateHwndTargetWindowSettings(
+        uint handle,
+        NativeMilWindowSettings settings)
+    {
+        ValidateHandle(handle);
+        ValidateColor(settings.ColorKey);
+        const NativeMilTransparencyMode supportedTransparency =
+            NativeMilTransparencyMode.ConstantAlpha |
+            NativeMilTransparencyMode.PerPixelAlpha |
+            NativeMilTransparencyMode.ColorKey;
+        if (settings.LayerType >
+                NativeMilWindowLayerType.ApplicationManagedLayer ||
+            (settings.TransparencyMode & ~supportedTransparency) != 0 ||
+            !float.IsFinite(settings.ConstantAlpha))
+        {
+            throw new ArgumentOutOfRangeException(nameof(settings));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.TargetUpdateWindowSettings, 72);
+        WriteUInt32(packet, 4, handle);
+        WriteUInt32(packet, 8, unchecked((uint)settings.WindowRect.Left));
+        WriteUInt32(packet, 12, unchecked((uint)settings.WindowRect.Top));
+        WriteUInt32(packet, 16, unchecked((uint)settings.WindowRect.Right));
+        WriteUInt32(packet, 20, unchecked((uint)settings.WindowRect.Bottom));
+        WriteUInt32(packet, 24, (uint)settings.LayerType);
+        WriteUInt32(packet, 28, (uint)settings.TransparencyMode);
+        WriteSingle(packet, 32, settings.ConstantAlpha);
+        WriteUInt32(packet, 36, settings.IsChild ? 1U : 0U);
+        WriteUInt32(packet, 40, settings.IsRtl ? 1U : 0U);
+        WriteUInt32(packet, 44, settings.RenderingEnabled ? 1U : 0U);
+        WriteSingle(packet, 48, settings.ColorKey.Red);
+        WriteSingle(packet, 52, settings.ColorKey.Green);
+        WriteSingle(packet, 56, settings.ColorKey.Blue);
+        WriteSingle(packet, 60, settings.ColorKey.Alpha);
+        WriteUInt32(packet, 64, settings.DisableCookie);
+        WriteUInt32(packet, 68, settings.GdiBlt ? 1U : 0U);
+    }
+
+    public void NotifyHwndTargetDpiChanged(
+        uint handle,
+        double dpiX,
+        double dpiY,
+        bool afterParent)
+    {
+        ValidateHandle(handle);
+        if (!double.IsFinite(dpiX) || !double.IsFinite(dpiY) ||
+            dpiX <= 0.0 || dpiY <= 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(dpiX));
+        }
+        Span<byte> packet = NativeMilBatchEncoding.Allocate(
+            _writer, NativeMilCommand.HwndTargetDpiChanged, 28);
+        WriteUInt32(packet, 4, handle);
+        WriteDouble(packet, 8, dpiX);
+        WriteDouble(packet, 16, dpiY);
+        WriteUInt32(packet, 24, afterParent ? 1U : 0U);
+    }
+
     public void CreateGenericTarget(
         uint handle,
         uint pixelWidth,
@@ -2157,9 +2263,13 @@ internal static class NativeMilCommand
     internal const uint VisualInsertChildAt = 0x26;
     internal const uint VisualSetGuidelineCollection = 0x27;
     internal const uint VisualSetScrollableAreaClip = 0x28;
+    internal const uint HwndTargetCreate = 0x31;
+    internal const uint HwndTargetSuppressLayered = 0x32;
+    internal const uint TargetUpdateWindowSettings = 0x33;
     internal const uint GenericTargetCreate = 0x34;
     internal const uint TargetSetRoot = 0x35;
     internal const uint TargetSetClearColor = 0x36;
+    internal const uint HwndTargetDpiChanged = 0x39;
     internal const uint GlyphRunCreate = 0x3a;
     internal const uint DoubleBufferedBitmap = 0x3b;
     internal const uint DoubleBufferedBitmapCopyForward = 0x3c;

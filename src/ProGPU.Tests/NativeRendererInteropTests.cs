@@ -127,6 +127,114 @@ public class NativeRendererInteropTests
     }
 
     [Fact]
+    public void NativeMilBuilderWritesPointerFreeHwndTargetLifecycle()
+    {
+        var batch = new NativeMilBatchBuilder();
+        batch.CreateHwndTarget(
+            12,
+            640,
+            480,
+            new NativeMilColor(0.1f, 0.2f, 0.3f, 1.0f),
+            0x21,
+            -4,
+            1.25,
+            1.5);
+        batch.SuppressHwndTargetLayeredPresentation(12, true);
+        batch.UpdateHwndTargetWindowSettings(
+            12,
+            new NativeMilWindowSettings(
+                new NativeMilWindowRect(-10, 20, 630, 500),
+                NativeMilWindowLayerType.ApplicationManagedLayer,
+                NativeMilTransparencyMode.ConstantAlpha |
+                    NativeMilTransparencyMode.PerPixelAlpha,
+                0.75f,
+                IsChild: false,
+                IsRtl: true,
+                RenderingEnabled: false,
+                new NativeMilColor(0.4f, 0.5f, 0.6f, 1.0f),
+                DisableCookie: 7,
+                GdiBlt: true));
+        batch.NotifyHwndTargetDpiChanged(12, 2.0, 2.25, afterParent: true);
+        byte[] encoded = batch.ToArray();
+
+        Assert.Equal(220, encoded.Length);
+        Assert.Equal(96U, ReadUInt32(encoded, 0));
+        Assert.Equal(0x31U, ReadUInt32(encoded, 4));
+        Assert.Equal(12U, ReadUInt32(encoded, 8));
+        Assert.Equal(0UL, ReadUInt64(encoded, 12));
+        Assert.Equal(0UL, ReadUInt64(encoded, 20));
+        Assert.Equal(0UL, ReadUInt64(encoded, 28));
+        Assert.Equal(640U, ReadUInt32(encoded, 36));
+        Assert.Equal(480U, ReadUInt32(encoded, 40));
+        Assert.Equal(0.1f, ReadSingle(encoded, 44));
+        Assert.Equal(0.2f, ReadSingle(encoded, 48));
+        Assert.Equal(0.3f, ReadSingle(encoded, 52));
+        Assert.Equal(1.0f, ReadSingle(encoded, 56));
+        Assert.Equal(0x21U, ReadUInt32(encoded, 60));
+        Assert.Equal(0UL, ReadUInt64(encoded, 64));
+        Assert.Equal(unchecked((uint)-4), ReadUInt32(encoded, 76));
+        Assert.Equal(1.25, ReadDouble(encoded, 80));
+        Assert.Equal(1.5, ReadDouble(encoded, 88));
+
+        Assert.Equal(16U, ReadUInt32(encoded, 96));
+        Assert.Equal(0x32U, ReadUInt32(encoded, 100));
+        Assert.Equal(12U, ReadUInt32(encoded, 104));
+        Assert.Equal(1U, ReadUInt32(encoded, 108));
+
+        Assert.Equal(76U, ReadUInt32(encoded, 112));
+        Assert.Equal(0x33U, ReadUInt32(encoded, 116));
+        Assert.Equal(12U, ReadUInt32(encoded, 120));
+        Assert.Equal(unchecked((uint)-10), ReadUInt32(encoded, 124));
+        Assert.Equal(20U, ReadUInt32(encoded, 128));
+        Assert.Equal(630U, ReadUInt32(encoded, 132));
+        Assert.Equal(500U, ReadUInt32(encoded, 136));
+        Assert.Equal(2U, ReadUInt32(encoded, 140));
+        Assert.Equal(3U, ReadUInt32(encoded, 144));
+        Assert.Equal(0.75f, ReadSingle(encoded, 148));
+        Assert.Equal(0U, ReadUInt32(encoded, 152));
+        Assert.Equal(1U, ReadUInt32(encoded, 156));
+        Assert.Equal(0U, ReadUInt32(encoded, 160));
+        Assert.Equal(0.4f, ReadSingle(encoded, 164));
+        Assert.Equal(0.5f, ReadSingle(encoded, 168));
+        Assert.Equal(0.6f, ReadSingle(encoded, 172));
+        Assert.Equal(1.0f, ReadSingle(encoded, 176));
+        Assert.Equal(7U, ReadUInt32(encoded, 180));
+        Assert.Equal(1U, ReadUInt32(encoded, 184));
+
+        Assert.Equal(32U, ReadUInt32(encoded, 188));
+        Assert.Equal(0x39U, ReadUInt32(encoded, 192));
+        Assert.Equal(12U, ReadUInt32(encoded, 196));
+        Assert.Equal(2.0, ReadDouble(encoded, 200));
+        Assert.Equal(2.25, ReadDouble(encoded, 208));
+        Assert.Equal(1U, ReadUInt32(encoded, 216));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.CreateHwndTarget(
+                12,
+                1,
+                1,
+                new NativeMilColor(),
+                0,
+                0,
+                0,
+                1));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            batch.UpdateHwndTargetWindowSettings(
+                12,
+                new NativeMilWindowSettings(
+                    new NativeMilWindowRect(),
+                    (NativeMilWindowLayerType)3,
+                    NativeMilTransparencyMode.Opaque,
+                    1,
+                    false,
+                    false,
+                    true,
+                    new NativeMilColor(),
+                    0,
+                    false)));
+    }
+
+    [Fact]
     public void NativeMilBuildersWriteCanonicalBitmapCachePackets()
     {
         var batch = new NativeMilBatchBuilder();

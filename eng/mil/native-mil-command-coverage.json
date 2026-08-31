@@ -13,15 +13,15 @@
     },
     "decoder": {
       "path": "src/ProGPU.Native/src/Mil/progpu_native_mil.cpp",
-      "sha256": "323272f78035e0a9bff9a8820ff8a0e5cf33ff2b64124e993786824c7c7a4450"
+      "sha256": "3fc657ac0e0eb9aa5d155c07dd5a0b053bcaae6632aaa056cd0a7040829349c4"
     }
   },
   "summary": {
     "commandCount": 143,
     "sentinel": 2,
-    "topLevelDecoder": 68,
+    "topLevelDecoder": 72,
     "nestedRenderDataDispatch": 25,
-    "notDispatched": 48
+    "notDispatched": 44
   },
   "commands": [
     {
@@ -370,21 +370,21 @@
       "name": "hwnd_target_create",
       "wpfName": "MilCmdHwndTargetCreate",
       "value": 49,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_HWNDTARGET_CREATE"
     },
     {
       "name": "hwnd_target_suppress_layered",
       "wpfName": "MilCmdHwndTargetSuppressLayered",
       "value": 50,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_HWNDTARGET_SUPPRESSLAYERED"
     },
     {
       "name": "target_update_window_settings",
       "wpfName": "MilCmdTargetUpdateWindowSettings",
       "value": 51,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_TARGET_UPDATEWINDOWSETTINGS"
     },
     {
@@ -426,7 +426,7 @@
       "name": "hwnd_target_dpi_changed",
       "wpfName": "MilCmdHwndTargetDpiChanged",
       "value": 57,
-      "executionPath": "not-dispatched",
+      "executionPath": "top-level-decoder",
       "layout": "MILCMD_HWNDTARGET_DPICHANGED"
     },
     {

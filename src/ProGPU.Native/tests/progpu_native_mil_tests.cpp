@@ -106,6 +106,13 @@ static_assert(
     command_layouts::drop_shadow_effect::h_blur_radius_animations_offset ==
     72U);
 static_assert(command_layouts::generic_target_create::fixed_size == 36U);
+static_assert(command_layouts::hwnd_target_create::fixed_size == 92U);
+static_assert(command_layouts::hwnd_target_create::dpi_x_offset == 76U);
+static_assert(
+    command_layouts::target_update_window_settings::fixed_size == 72U);
+static_assert(
+    command_layouts::target_update_window_settings::gdi_blt_offset == 68U);
+static_assert(command_layouts::hwnd_target_dpi_changed::fixed_size == 28U);
 static_assert(command_layouts::target_set_root::h_root_offset == 8U);
 static_assert(command_layouts::target_set_clear_color::fixed_size == 24U);
 static_assert(
@@ -1279,6 +1286,202 @@ bool channel_retains_visual_target_graph() {
     PROGPU_REQUIRE(target.clear_blue == 0.3F);
     PROGPU_REQUIRE(target.clear_alpha == 1.0F);
     PROGPU_REQUIRE(target.flags == 7U);
+    return true;
+}
+
+bool canonical_hwnd_target_uses_portable_surface_state() {
+    constexpr std::uint32_t visual = 1U;
+    constexpr std::uint32_t content = 2U;
+    constexpr std::uint32_t target = 3U;
+    constexpr std::uint32_t brush = 4U;
+
+    std::vector<std::byte> batch;
+    append_create(batch, visual, 39U);
+    append_create(batch, content, 43U);
+    append_create(batch, target, 46U);
+    append_create(batch, brush, 75U);
+    append_command(batch, command::visual_create, visual);
+    append_command(batch, command::visual_set_content, visual, content);
+    append_command(
+        batch,
+        command::solid_color_brush,
+        brush,
+        1.0,
+        progpu_native_color{0.2F, 0.4F, 0.8F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U);
+    std::vector<std::byte> nested;
+    append_command(
+        nested,
+        command::draw_rectangle,
+        0.0,
+        0.0,
+        32.0,
+        24.0,
+        brush,
+        0U);
+    append_render_data(batch, content, nested);
+    append_command(
+        batch,
+        command::hwnd_target_create,
+        target,
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        640U,
+        480U,
+        std::array<float, 4U>{0.1F, 0.2F, 0.3F, 1.0F},
+        0x21U,
+        0U,
+        0U,
+        0U,
+        std::int32_t{-4},
+        1.25,
+        1.5);
+    append_command(batch, command::target_set_root, target, visual);
+
+    channel state;
+    PROGPU_REQUIRE(state.apply(batch) == status::success);
+    progpu::native::mil::target_snapshot snapshot{};
+    PROGPU_REQUIRE(state.try_get_target(target, snapshot));
+    PROGPU_REQUIRE(snapshot.root_handle == visual);
+    PROGPU_REQUIRE(snapshot.clear_red == 0.1F);
+    PROGPU_REQUIRE(snapshot.clear_green == 0.2F);
+    PROGPU_REQUIRE(snapshot.clear_blue == 0.3F);
+    PROGPU_REQUIRE(snapshot.clear_alpha == 1.0F);
+    PROGPU_REQUIRE(snapshot.flags == 0x21U);
+
+    std::vector<std::byte> stream;
+    progpu::native::mil::scene_metrics metrics{};
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7018U, 1U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.visual_count == 1U);
+    PROGPU_REQUIRE(metrics.rectangle_count == 1U);
+
+    std::vector<std::byte> host_state;
+    append_command(
+        host_state,
+        command::hwnd_target_suppress_layered,
+        target,
+        1U);
+    append_command(
+        host_state,
+        command::hwnd_target_dpi_changed,
+        target,
+        2.0,
+        2.25,
+        1U);
+    append_command(
+        host_state,
+        command::target_update_window_settings,
+        target,
+        std::array<std::int32_t, 4U>{-10, 20, 630, 500},
+        2U,
+        0x7U,
+        0.75F,
+        0U,
+        1U,
+        0U,
+        progpu_native_color{0.0F, 0.0F, 0.0F, 0.0F},
+        7U,
+        0U);
+    PROGPU_REQUIRE(state.apply(host_state) == status::success);
+    const std::uint64_t disabled_generation =
+        state.resource_generation(target);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7018U, 2U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.visual_count == 0U);
+    PROGPU_REQUIRE(metrics.rectangle_count == 0U);
+
+    std::vector<std::byte> stale_enable;
+    append_command(
+        stale_enable,
+        command::target_update_window_settings,
+        target,
+        std::array<std::int32_t, 4U>{0, 0, 640, 480},
+        0U,
+        0U,
+        1.0F,
+        0U,
+        0U,
+        1U,
+        progpu_native_color{},
+        6U,
+        0U);
+    PROGPU_REQUIRE(state.apply(stale_enable) == status::success);
+    PROGPU_REQUIRE(
+        state.resource_generation(target) == disabled_generation);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7018U, 3U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 0U);
+
+    std::vector<std::byte> current_enable;
+    append_command(
+        current_enable,
+        command::target_update_window_settings,
+        target,
+        std::array<std::int32_t, 4U>{0, 0, 640, 480},
+        0U,
+        0U,
+        1.0F,
+        0U,
+        0U,
+        1U,
+        progpu_native_color{},
+        7U,
+        0U);
+    PROGPU_REQUIRE(state.apply(current_enable) == status::success);
+    PROGPU_REQUIRE(
+        state.build_scene(target, 7018U, 4U, stream, &metrics) ==
+        status::success);
+    PROGPU_REQUIRE(metrics.rectangle_count == 1U);
+
+    const std::uint64_t valid_generation =
+        state.resource_generation(target);
+    std::vector<std::byte> raw_hwnd;
+    append_command(
+        raw_hwnd,
+        command::hwnd_target_create,
+        target,
+        std::uint64_t{1U},
+        std::uint64_t{0U},
+        std::uint64_t{0U},
+        640U,
+        480U,
+        std::array<float, 4U>{0.0F, 0.0F, 0.0F, 1.0F},
+        0U,
+        0U,
+        0U,
+        0U,
+        std::int32_t{0},
+        1.0,
+        1.0);
+    PROGPU_REQUIRE(state.apply(raw_hwnd) == status::invalid_argument);
+    PROGPU_REQUIRE(state.resource_generation(target) == valid_generation);
+
+    std::vector<std::byte> invalid_settings;
+    append_command(
+        invalid_settings,
+        command::target_update_window_settings,
+        target,
+        std::array<std::int32_t, 4U>{0, 0, 640, 480},
+        3U,
+        0U,
+        1.0F,
+        0U,
+        0U,
+        1U,
+        progpu_native_color{},
+        7U,
+        0U);
+    PROGPU_REQUIRE(
+        state.apply(invalid_settings) == status::malformed_batch);
+    PROGPU_REQUIRE(state.resource_generation(target) == valid_generation);
     return true;
 }
 
@@ -17059,6 +17262,7 @@ int main() {
     PROGPU_REQUIRE(
         semantic_path_strokes_preserve_curves_and_forced_joins());
     PROGPU_REQUIRE(channel_retains_visual_target_graph());
+    PROGPU_REQUIRE(canonical_hwnd_target_uses_portable_surface_state());
     PROGPU_REQUIRE(failed_batches_roll_back());
     PROGPU_REQUIRE(invalid_visual_graphs_fail_closed());
     PROGPU_REQUIRE(solid_rectangle_compiles_to_semantic_scene());
