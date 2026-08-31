@@ -6,12 +6,13 @@
 over WebGPU, with D3D12 selected by the Windows backend. The C++ backend now
 also ships an isolated Windows `progpu_native_direct2d` provider. It creates
 genuine system Direct2D COM objects and a synchronized DXGI target that ProGPU
-can import. ABI v47 extends the deliberately ProGPU-owned COM endpoint from an
+can import. ABI v48 extends the deliberately ProGPU-owned COM endpoint from an
 `ID2D1CommandSink1` recorder to an explicit `ID2D1Factory1`, immutable
 `ID2D1RectangleGeometry`, mutable `ID2D1SolidColorBrush`, and one-shot
 `ID2D1PathGeometry1`/`ID2D1GeometrySink` path construction pair, plus immutable
-`ID2D1StrokeStyle1` metadata resources. Supported resource callbacks lower
-directly into the portable semantic scene. This is an explicit
+`ID2D1StrokeStyle1` metadata resources and compatible path-stroke recording.
+Supported resource callbacks lower directly into the portable semantic scene.
+This is an explicit
 compatibility facade, not an
 impersonation of `d2d1.dll`; unsupported methods fail closed and the full
 device-context/resource vtable family remains incremental work. DirectWrite,
@@ -41,7 +42,7 @@ binary.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` and DirectWrite text API | Foundation plus bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, typed device-loss domains, and the first ProGPU-owned COM factory/geometry/brush/path/stroke-style/recorder slice implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine system factory, device, context, target, and resource interfaces over a keyed-mutex BGRA DXGI target. Independently, ABI v47 returns ProGPU-owned `ID2D1Factory1`, `ID2D1RectangleGeometry`, `ID2D1PathGeometry1`, `ID2D1GeometrySink`, `ID2D1SolidColorBrush`, `ID2D1StrokeStyle1`, and `ID2D1CommandSink1` identities; supported COM callbacks compile directly to the pointer-free scene used on D3D12, Metal, Vulkan, and WebGPU. Full ProGPU-owned device-context/resource vtables remain gated, unsupported methods fail closed, and there is no fake `d2d1.dll` or `dwrite.dll` |
+| Direct2D `ID2D1*` and DirectWrite text API | Foundation plus bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, typed device-loss domains, and the first ProGPU-owned COM factory/geometry/brush/path/stroke-style/recorder slice implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine system factory, device, context, target, and resource interfaces over a keyed-mutex BGRA DXGI target. Independently, ABI v48 returns ProGPU-owned `ID2D1Factory1`, `ID2D1RectangleGeometry`, `ID2D1PathGeometry1`, `ID2D1GeometrySink`, `ID2D1SolidColorBrush`, `ID2D1StrokeStyle1`, and `ID2D1CommandSink1` identities; compatible line-path strokes and supported fill callbacks compile directly to the pointer-free scene used on D3D12, Metal, Vulkan, and WebGPU. Full ProGPU-owned device-context/resource vtables and exact per-segment curved-stroke join metadata remain gated, unsupported methods fail closed, and there is no fake `d2d1.dll` or `dwrite.dll` |
 | Native Win2D binary interop | Device/target/bitmap/brush/geometry/stroke/command-list/effect-output/text-format/text-layout/typography round trips plus layer/state/text draws package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, `CanvasStrokeStyle`, `CanvasCommandList`, device-independent `CanvasTextFormat`/`CanvasTypography`, and device-associated `CanvasTextLayout` projections. The packaged Microsoft Win2D 1.4.0 oracle also wraps effect-output image brushes, executes typed ProGPU layer/state and native-text command-list scopes, observes ProGPU range formatting/OpenType features through the projected layout and typography, mutates that same native layout through Win2D, and draws it. It qualifies identities, resource metadata, boolean geometry/styled-stroke/image-brush/command-list/effect/text drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; glyph runs/color fonts, remaining typography, the full effect catalog, custom effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
@@ -1336,6 +1337,35 @@ SHA-256 is
 `D259FFBF25B8F9B2950A1DBE876901175D4EC31E7BFBE665324678BAEE68E095`;
 the 120,320-byte test executable SHA-256 is
 `E2C71C12741DB7A71C01EBCE510664BBE20E693131C21DA4DCCC2C1ACAF54CAE`.
+
+ABI v48 routes compatible `ID2D1CommandSink1::DrawGeometry` callbacks into
+ProGPU's existing pointer-free `STROKE_BATCH` scene resource. A bounded
+`ID2D1SimplifiedGeometrySink` capture preserves figure boundaries, open/closed
+topology, normal/fixed/hairline transform policy, caps, joins, miter limit,
+dash cap/offset, predefined dash patterns, and copied custom dash intervals.
+Flattening tolerance tightens with the active transform, and the scene retains
+one brush index per figure without COM pointers or CPU pixel data.
+
+This slice intentionally accepts only paths whose simplified line vocabulary
+does not require per-segment `FORCE_UNSTROKED` or
+`FORCE_ROUND_LINE_JOIN` semantics. Genuine system Direct2D curved paths that
+publish those hints continue through the qualified Windows `Widen` path;
+ProGPU-owned resources for which no exact fallback exists fail closed. The
+next scene-format gate must carry exact per-segment join/stroke metadata before
+that fallback can be removed. The direct COM oracle proves a ProGPU-owned
+closed rectangle plus fixed custom style becomes a retained stroke batch,
+while the existing system cubic oracle continues to verify the hinted Windows
+widening path.
+
+Focused managed contracts pass 5/5. The exact implementation checkpoint is
+`2d7809f9`; its committed source archive SHA-256 is
+`D010D1EF377FE30D47FCA9411EC1921BDC20A04F69637B53B2DDB53FD25E5F8F`.
+Windows 11 ARM64 Parallels rebuilds it with MSVC 19.44/SDK 10.0.26100.0
+`/W4 /WX`, and the full native oracle exits zero. `dumpbin` matches all 129
+allowlisted exports with zero differences. The 243,712-byte provider SHA-256
+is `ECC61FFBA903F53532094CD5A7492CA1F9DEC828CB1C91BE08EB0241FB020587`;
+the 121,856-byte test executable SHA-256 is
+`21C542CEFF8805DB694A4D449891486F2A4F094BF4A0BD428ABF8F9063B3C23D`.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages

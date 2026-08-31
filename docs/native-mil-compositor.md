@@ -5707,6 +5707,34 @@ the 228,864-byte provider SHA-256 is
 the 120,320-byte test executable SHA-256 is
 `E2C71C12741DB7A71C01EBCE510664BBE20E693131C21DA4DCCC2C1ACAF54CAE`.
 
+ABI v48 translates compatible Direct2D `DrawGeometry` path strokes to the
+existing pointer-free semantic stroke batch. Its bounded simplified-geometry
+capture emits one retained polyline per figure and preserves open/closed
+topology, caps, uniform joins, miter limit, normal/fixed/hairline policy,
+predefined or custom dash intervals, dash cap/offset, active transform, and
+brush indirection. Flattening tolerance is transform-aware; no COM pointer,
+widened outline, CPU pixel buffer, or per-item GPU submission enters the scene.
+
+Direct2D may attach per-segment un-stroked or forced-round join hints while
+flattening curves. The current uniform-stroke descriptor cannot represent
+those exactly, so hinted genuine system geometries retain the qualified
+Windows `Widen` path and ProGPU-owned cases without that fallback fail closed.
+The direct COM oracle separately proves a compatible ProGPU-owned rectangle
+and fixed custom stroke style serialize as `STROKE_BATCH`; the existing cubic
+oracle continues to cover the Windows hinted fallback. Exact per-segment scene
+metadata is the next dependency before portable curved-stroke coverage can be
+claimed.
+
+Focused managed contracts pass 5/5. The exact implementation checkpoint is
+`2d7809f9`; its committed source archive SHA-256 is
+`D010D1EF377FE30D47FCA9411EC1921BDC20A04F69637B53B2DDB53FD25E5F8F`.
+Windows 11 ARM64 Parallels rebuilds it with MSVC 19.44/SDK 10.0.26100.0
+`/W4 /WX`; the full native oracle exits zero and `dumpbin` matches all 129
+allowlisted exports with zero differences. The 243,712-byte provider SHA-256
+is `ECC61FFBA903F53532094CD5A7492CA1F9DEC828CB1C91BE08EB0241FB020587`;
+the 121,856-byte test executable SHA-256 is
+`21C542CEFF8805DB694A4D449891486F2A4F094BF4A0BD428ABF8F9063B3C23D`.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
