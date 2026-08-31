@@ -164,6 +164,10 @@ internal static class MetafilePlaybackRenderer
                 DrawRectangle(state, record, ReadWmfRectangle(record, payload));
                 return;
 
+            case EmfPlusRecordType.WmfRoundRect:
+                DrawWmfRoundRectangle(state, record, payload);
+                return;
+
             default:
                 throw Unsupported(record);
         }
@@ -390,6 +394,36 @@ internal static class MetafilePlaybackRenderer
         if (state.SelectedPen is Pen pen)
         {
             state.Graphics.DrawEllipse(pen, rectangle);
+        }
+    }
+
+    private static void DrawWmfRoundRectangle(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        RequireSize(record, payload, 12);
+        int height = ReadInt16(payload, 0);
+        int width = ReadInt16(payload, 2);
+        int bottom = ReadInt16(payload, 4);
+        int right = ReadInt16(payload, 6);
+        int top = ReadInt16(payload, 8);
+        int left = ReadInt16(payload, 10);
+        if (right <= left || bottom <= top)
+        {
+            throw Invalid(record);
+        }
+
+        var rectangle = Rectangle.FromLTRB(left, top, right, bottom);
+        var cornerEllipse = new Size(width, height);
+        state.ApplyTransform(record);
+        if (state.SelectedBrush is Brush brush)
+        {
+            state.Graphics.FillRoundedRectangle(brush, rectangle, cornerEllipse);
+        }
+        if (state.SelectedPen is Pen pen)
+        {
+            state.Graphics.DrawRoundedRectangle(pen, rectangle, cornerEllipse);
         }
     }
 

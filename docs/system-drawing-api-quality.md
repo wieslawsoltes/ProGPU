@@ -87,7 +87,7 @@ member suppression, leaving zero missing types, zero missing members, and 13
     allocation, and supports the state, solid/null pen/brush, polygon, polyline,
     and counterclockwise arc records used by the canonical LibreWinForms
     `telescope_01.wmf` asset, plus filled/stroked rectangles and ellipses and
-    intersect/exclude rectangle clip state. WMF SaveDC and relative RestoreDC
+    rounded rectangles, plus intersect/exclude rectangle clip state. WMF SaveDC and relative RestoreDC
     snapshot window/viewport origins and extents, current point, world
     transform, fill/map/background/raster/text/background-color settings,
     selected pen and brush, and the typed `GraphicsState` clip; restoration
@@ -217,10 +217,19 @@ measured a 561.572 µs median (599.013 µs mean, 103.320 µs standard deviation)
 with 628.33 KB allocated. Three iterations make this coarse state-lowering
 evidence; independent inside, excluded-hole, restored-clip, intersection-edge,
 invalid-relative-level, and transactional-rollback gates remain authoritative.
-The complete drawing suite passes 395/395, and ApiCompat remains at zero
+The complete drawing suite passes 398/398, and ApiCompat remains at zero
 missing types, zero missing members, and 13 reviewed platform annotations.
 
 `MetafileBenchmarks.Playback256WmfEllipsesToRetainedCommands` guards typed WMF ellipse playback through the selected fill and outline objects. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 ms median (1.109 ms mean, 0.115 ms standard deviation) with 622.14 KB allocated for 256 ellipses. The three-iteration result is coarse retained-command evidence; exact pixels and rollback after a later unsupported text record remain the independent correctness gates.
+
+`MetafileBenchmarks.Playback256WmfRoundRectanglesToRetainedCommands` guards the
+official height/width plus bottom/right/top/left parameter order and typed
+rounded-geometry lowering through the selected fill and outline objects. The
+2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.347 ms median
+(1.379 ms mean, 0.234 ms standard deviation) with 1.05 MB allocated for 256
+rounded rectangles. The three-iteration result is coarse curve-lowering
+evidence; exact center, antialiased outline, transparent-corner, zero-corner
+rectangle fallback, and invalid-bound rollback gates remain authoritative.
 
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the

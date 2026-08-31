@@ -21,6 +21,7 @@ public class MetafileBenchmarks
     private Metafile _wmfRectanglePlaybackMetafile = null!;
     private Metafile _wmfClippedRectanglePlaybackMetafile = null!;
     private Metafile _wmfEllipsePlaybackMetafile = null!;
+    private Metafile _wmfRoundRectanglePlaybackMetafile = null!;
     private readonly Graphics.EnumerateMetafileProc _enumerate = static (_, _, _, _, _) => true;
     private readonly byte[] _comment = new byte[64];
 
@@ -43,6 +44,8 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackWmfBoxes(256, 0x041B, includeClipState: true), writable: false));
         _wmfEllipsePlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfBoxes(256, 0x0418), writable: false));
+        _wmfRoundRectanglePlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackWmfBoxes(256, 0x061C), writable: false));
     }
 
     [GlobalCleanup]
@@ -54,6 +57,7 @@ public class MetafileBenchmarks
         _wmfRectanglePlaybackMetafile.Dispose();
         _wmfClippedRectanglePlaybackMetafile.Dispose();
         _wmfEllipsePlaybackMetafile.Dispose();
+        _wmfRoundRectanglePlaybackMetafile.Dispose();
         _playbackGraphics.Dispose();
         _graphics.Dispose();
         _target.Dispose();
@@ -132,6 +136,16 @@ public class MetafileBenchmarks
     {
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(_wmfEllipsePlaybackMetafile, new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256WmfRoundRectanglesToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(_wmfRoundRectanglePlaybackMetafile, new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
         return commandCount;
@@ -277,8 +291,10 @@ public class MetafileBenchmarks
         ushort function,
         bool includeClipState = false)
     {
+        bool roundRectangle = function == 0x061C;
+        int shapeWords = roundRectangle ? 9 : 7;
         int clipWords = includeClipState ? 21 : 0;
-        int declaredWords = checked(9 + 7 + 8 + 4 + 4 + clipWords + recordCount * 7 + 3);
+        int declaredWords = checked(9 + 7 + 8 + 4 + 4 + clipWords + recordCount * shapeWords + 3);
         byte[] bytes = new byte[checked(22 + declaredWords * 2)];
         WriteUInt32(bytes, 0, 0x9AC6_CDD7);
         WriteInt16(bytes, 10, 640);
@@ -296,7 +312,7 @@ public class MetafileBenchmarks
         WriteUInt16(bytes, 26, 0x0300);
         WriteUInt32(bytes, 28, (uint)declaredWords);
         WriteUInt16(bytes, 32, 2);
-        WriteUInt32(bytes, 34, 8);
+        WriteUInt32(bytes, 34, roundRectangle ? 9u : 8u);
 
         int cursor = 40;
         WriteUInt32(bytes, cursor, 7);
@@ -338,15 +354,31 @@ public class MetafileBenchmarks
 
             short left = checked((short)((index % 16) * 40));
             short top = checked((short)((index / 16) * 30));
-            WriteWmfBoxRecord(
-                bytes,
-                cursor,
-                function,
-                left,
-                top,
-                checked((short)(left + 32)),
-                checked((short)(top + 22)));
-            cursor += 14;
+            if (roundRectangle)
+            {
+                WriteWmfRoundRectangleRecord(
+                    bytes,
+                    cursor,
+                    left,
+                    top,
+                    checked((short)(left + 32)),
+                    checked((short)(top + 22)),
+                    width: 8,
+                    height: 8);
+                cursor += 18;
+            }
+            else
+            {
+                WriteWmfBoxRecord(
+                    bytes,
+                    cursor,
+                    function,
+                    left,
+                    top,
+                    checked((short)(left + 32)),
+                    checked((short)(top + 22)));
+                cursor += 14;
+            }
         }
 
         WriteUInt32(bytes, cursor, 3);
@@ -368,6 +400,26 @@ public class MetafileBenchmarks
         WriteInt16(target, offset + 8, right);
         WriteInt16(target, offset + 10, top);
         WriteInt16(target, offset + 12, left);
+    }
+
+    private static void WriteWmfRoundRectangleRecord(
+        byte[] target,
+        int offset,
+        short left,
+        short top,
+        short right,
+        short bottom,
+        short width,
+        short height)
+    {
+        WriteUInt32(target, offset, 9);
+        WriteUInt16(target, offset + 4, 0x061C);
+        WriteInt16(target, offset + 6, height);
+        WriteInt16(target, offset + 8, width);
+        WriteInt16(target, offset + 10, bottom);
+        WriteInt16(target, offset + 12, right);
+        WriteInt16(target, offset + 14, top);
+        WriteInt16(target, offset + 16, left);
     }
 
     private static void WriteWmfObjectIndexRecord(

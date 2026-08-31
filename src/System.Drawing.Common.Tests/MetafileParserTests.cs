@@ -340,6 +340,77 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void WmfRoundRectangleDrawsTypedSelectedObjects()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreateRoundRectanglePlaybackWmf()));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Green.ToArgb(), target.GetPixel(32, 32).ToArgb());
+        Color outlinePixel = target.GetPixel(32, 12);
+        Assert.Equal(byte.MaxValue, outlinePixel.A);
+        Assert.True(outlinePixel.G < Color.Green.G);
+        Assert.Equal(0, target.GetPixel(12, 12).A);
+    }
+
+    [Fact]
+    public void WmfRoundRectangleZeroCornerSizeFallsBackToRectangle()
+    {
+        byte[] bytes = CreateRoundRectanglePlaybackWmf();
+        int roundRectangleDataOffset;
+        using (var parsed = new Metafile(new MemoryStream(bytes, writable: false)))
+        {
+            roundRectangleDataOffset = Assert.Single(
+                parsed.Records.ToArray(),
+                record => record.Type == EmfPlusRecordType.WmfRoundRect).DataOffset;
+        }
+        WriteInt16(bytes, roundRectangleDataOffset, 0);
+        WriteInt16(bytes, roundRectangleDataOffset + 2, 0);
+
+        using var metafile = new Metafile(new MemoryStream(bytes, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Green.ToArgb(), target.GetPixel(32, 32).ToArgb());
+        Assert.True(target.GetPixel(12, 12).A > 0);
+    }
+
+    [Fact]
+    public void WmfRoundRectangleRejectsUnorderedBoundsWithoutPublishingCommands()
+    {
+        byte[] bytes = CreateRoundRectanglePlaybackWmf();
+        int roundRectangleDataOffset;
+        using (var parsed = new Metafile(new MemoryStream(bytes, writable: false)))
+        {
+            roundRectangleDataOffset = Assert.Single(
+                parsed.Records.ToArray(),
+                record => record.Type == EmfPlusRecordType.WmfRoundRect).DataOffset;
+        }
+        short left = BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(roundRectangleDataOffset + 10, 2));
+        WriteInt16(bytes, roundRectangleDataOffset + 6, left);
+
+        using var metafile = new Metafile(new MemoryStream(bytes, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Contains(nameof(EmfPlusRecordType.WmfRoundRect), exception.Message, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(32, 32).ToArgb());
+    }
+
+    [Fact]
     public void WmfEllipseRejectsUnorderedBoundsWithoutPublishingCommands()
     {
         byte[] bytes = CreatePlaybackWmf();
@@ -757,6 +828,27 @@ public sealed class MetafileParserTests
         }
         records.Add((0, []));
 
+        return CreatePlaybackWmf(records);
+    }
+
+    private static byte[] CreateRoundRectanglePlaybackWmf()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x020C, WmfWords(64, 64)),
+            (0x020B, WmfWords(0, 0)),
+            (0x02FC, WmfBrush(Color.Green)),
+            (0x02FA, WmfPen(Color.Black, 1)),
+            (0x012D, WmfWords(0)),
+            (0x012D, WmfWords(1)),
+            (0x061C, WmfWords(16, 16, 52, 52, 12, 12)),
+            (0, [])
+        };
+        return CreatePlaybackWmf(records);
+    }
+
+    private static byte[] CreatePlaybackWmf(List<(ushort Function, byte[] Payload)> records)
+    {
         int maximumRecordWords = records.Max(record => (record.Payload.Length + 6) / 2);
         int declaredWords = 9 + records.Sum(record => (record.Payload.Length + 6) / 2);
         byte[] bytes = new byte[checked(22 + declaredWords * 2)];
