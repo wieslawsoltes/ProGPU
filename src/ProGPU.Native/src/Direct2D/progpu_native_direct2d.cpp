@@ -4124,6 +4124,126 @@ bool compat_geometry_contains_group(
     return false;
 }
 
+class CompatGroupGeometrySink final :
+    public ID2D1SimplifiedGeometrySink {
+public:
+    explicit CompatGroupGeometrySink(
+        ID2D1GeometrySink* target) noexcept
+        : target_(target)
+    {
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(
+                interface_id,
+                __uuidof(ID2D1SimplifiedGeometrySink))) {
+            *value = static_cast<ID2D1SimplifiedGeometrySink*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    void STDMETHODCALLTYPE SetFillMode(
+        D2D1_FILL_MODE fill_mode) noexcept override
+    {
+        if (fill_mode != D2D1_FILL_MODE_ALTERNATE &&
+            fill_mode != D2D1_FILL_MODE_WINDING) {
+            fail(E_INVALIDARG);
+        }
+    }
+
+    void STDMETHODCALLTYPE SetSegmentFlags(
+        D2D1_PATH_SEGMENT flags) noexcept override
+    {
+        if (SUCCEEDED(failure_)) {
+            target_->SetSegmentFlags(flags);
+        }
+    }
+
+    void STDMETHODCALLTYPE BeginFigure(
+        D2D1_POINT_2F start,
+        D2D1_FIGURE_BEGIN begin) noexcept override
+    {
+        if (SUCCEEDED(failure_)) {
+            target_->BeginFigure(start, begin);
+        }
+    }
+
+    void STDMETHODCALLTYPE AddLines(
+        const D2D1_POINT_2F* points,
+        UINT32 points_count) noexcept override
+    {
+        if (SUCCEEDED(failure_)) {
+            target_->AddLines(points, points_count);
+        }
+    }
+
+    void STDMETHODCALLTYPE AddBeziers(
+        const D2D1_BEZIER_SEGMENT* beziers,
+        UINT32 beziers_count) noexcept override
+    {
+        if (SUCCEEDED(failure_)) {
+            target_->AddBeziers(beziers, beziers_count);
+        }
+    }
+
+    void STDMETHODCALLTYPE EndFigure(
+        D2D1_FIGURE_END end) noexcept override
+    {
+        if (SUCCEEDED(failure_)) {
+            target_->EndFigure(end);
+        }
+    }
+
+    HRESULT STDMETHODCALLTYPE Close() noexcept override
+    {
+        fail(D2DERR_WRONG_STATE);
+        return failure_;
+    }
+
+    HRESULT failure() const noexcept
+    {
+        return failure_;
+    }
+
+private:
+    void fail(HRESULT value) noexcept
+    {
+        if (SUCCEEDED(failure_)) {
+            failure_ = value;
+        }
+    }
+
+    std::atomic<ULONG> reference_count_{1U};
+    ComPtr<ID2D1GeometrySink> target_;
+    HRESULT failure_ = S_OK;
+};
+
 class ProGpuD2DFactory final :
     public ID2D1Factory1,
     public ID2D1Multithread,
@@ -4481,17 +4601,27 @@ public:
             return hr;
         }
         sink->SetFillMode(fill_mode);
+        auto* raw_group_sink = new (std::nothrow)
+            CompatGroupGeometrySink(sink.Get());
+        if (raw_group_sink == nullptr) {
+            static_cast<void>(sink->Close());
+            return E_OUTOFMEMORY;
+        }
+        ComPtr<ID2D1SimplifiedGeometrySink> group_sink;
+        group_sink.Attach(raw_group_sink);
         for (const auto& source : sources) {
             hr = source->Simplify(
                 D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES,
                 nullptr,
                 D2D1_DEFAULT_FLATTENING_TOLERANCE,
-                sink.Get());
+                group_sink.Get());
+            if (SUCCEEDED(hr)) {
+                hr = raw_group_sink->failure();
+            }
             if (FAILED(hr)) {
                 static_cast<void>(sink->Close());
                 return hr;
             }
-            sink->SetFillMode(fill_mode);
         }
         hr = sink->Close();
         if (FAILED(hr)) {
