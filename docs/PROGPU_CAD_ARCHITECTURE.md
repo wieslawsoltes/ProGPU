@@ -1097,10 +1097,14 @@ screen-space path; live pointer arcs use allocation-free DPI-aware bounded
 tessellation only until acceptance. In-command U is O(1), closure uses the
 entity flag rather than a duplicate vertex, and completion captures current
 CLAYER/CECOLOR/CELTYPE/CELTSCALE/CELWEIGHT/PLINEGEN/PLINEWID through one
-reversible history entry. Fill-on constant width is retained in source space
-with exact expanded bounds and one bevel/butt analytic stroke through affine,
-managed/native, and print replay. Variable widths and FILLMODE-off outlines
-remain explicit rather than silently degrading to a cosmetic centerline.
+reversible history entry. Interactive Width/Halfwidth retains per-segment
+start/end widths, propagates the ending width to later segments and PLINEWID,
+and suppresses PLINEGEN for variable profiles; Undo restores the prior default.
+Line-mode Length continues the actual endpoint tangent of either a line or arc.
+Constant and straight variable widths are retained in source space with exact
+filled or FILLMODE-off outline replay through affine, managed/native, and print
+paths. Variable-width arcs remain fail-closed rather than silently degrading to
+a cosmetic centerline.
 Exact behavior, cross-engine applicability, and remaining command options are
 in `PROGPU_CAD_POLYLINE_AUTHORING_RESEARCH.md`. Shared CIRCLE authoring keeps at
 most two accepted construction points and publishes one exact plan-view

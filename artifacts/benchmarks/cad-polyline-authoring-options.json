@@ -1,0 +1,24 @@
+{
+  "CapturedAt": "2026-08-31T16:28:21.852755+00:00",
+  "OperatingSystem": "Unix 26.6.0",
+  "Runtime": ".NET 10.0.5",
+  "SegmentCount": 65536,
+  "WarmupCount": 5,
+  "IterationCount": 40,
+  "InheritedWidthMilliseconds": {
+    "Name": "polyline-authoring-inherited-width",
+    "P50": 4.9602,
+    "P95": 12.5514,
+    "P99": 13.3511,
+    "Mean": 5.5333625,
+    "AllocatedBytesPerOperation": 17500048
+  },
+  "WidthOptionEverySegmentMilliseconds": {
+    "Name": "polyline-authoring-width-option-every-segment",
+    "P50": 2.258,
+    "P95": 7.7057,
+    "P99": 11.0241,
+    "Mean": 2.8342125000000005,
+    "AllocatedBytesPerOperation": 17500609
+  }
+}

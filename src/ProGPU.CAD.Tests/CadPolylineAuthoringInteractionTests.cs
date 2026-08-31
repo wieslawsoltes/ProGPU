@@ -192,6 +192,104 @@ public sealed class CadPolylineAuthoringInteractionTests
     }
 
     [Fact]
+    public void SharedTextInputAuthorsWidthHalfwidthAndTangentLength()
+    {
+        var document = new CadDocument();
+        document.Header.PolylineWidthDefault = 1.0;
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            Assert.True(canvas.BeginPolylineAuthoring());
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("0,0", out _));
+
+            Assert.True(canvas.CanAcceptPolylineAuthoringInput("W"));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("W", out _));
+            Assert.Equal(
+                CadPolylineAuthoringPrompt.StartingWidth,
+                canvas.PendingPolylinePrompt);
+            Assert.True(canvas.CanAcceptPolylineAuthoringInput(string.Empty));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput(string.Empty, out _));
+            Assert.Equal(
+                CadPolylineAuthoringPrompt.EndingWidth,
+                canvas.PendingPolylinePrompt);
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("3", out _));
+            Assert.Equal(CadPolylineAuthoringPrompt.Point, canvas.PendingPolylinePrompt);
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("10,0", out _));
+
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("H", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("1.5", out _));
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput(string.Empty, out _));
+            Assert.Equal(3.0, canvas.PendingPolylineNextStartWidth);
+            Assert.Equal(3.0, canvas.PendingPolylineNextEndWidth);
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("L", out _));
+            Assert.Equal(CadPolylineAuthoringPrompt.Length, canvas.PendingPolylinePrompt);
+            Assert.True(canvas.TryAcceptPolylineAuthoringInput("5", out _));
+            Assert.Equal(new CadPoint3D(15, 0, 0), canvas.PendingPolylineCurrentPoint);
+
+            Assert.True(canvas.CompletePolylineAuthoring(false, out _));
+            LwPolyline polyline = Assert.Single(document.Entities.OfType<LwPolyline>());
+            Assert.Equal(0.0, polyline.ConstantWidth);
+            Assert.Equal(1.0, polyline.Vertices[0].StartWidth);
+            Assert.Equal(3.0, polyline.Vertices[0].EndWidth);
+            Assert.Equal(3.0, polyline.Vertices[1].StartWidth);
+            Assert.Equal(3.0, polyline.Vertices[1].EndWidth);
+            Assert.Equal(3.0, document.Header.PolylineWidthDefault);
+
+            Assert.True(canvas.TryUndo());
+            Assert.Equal(1.0, document.Header.PolylineWidthDefault);
+            Assert.True(canvas.TryRedo());
+            Assert.Same(polyline, Assert.Single(document.Entities));
+            Assert.Equal(3.0, document.Header.PolylineWidthDefault);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void SharedButtonsExposeWidthHalfwidthAndLengthPrompts()
+    {
+        var session = new CadDocumentSession(new CadDocument());
+        var view = new CadSampleView();
+        try
+        {
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            PressEnter(view.PolylineButton);
+            Assert.True(view.Canvas.TryAcceptPolylineAuthoringInput("0,0", out _));
+            Assert.True(view.PolylineWidthButton.IsEnabled);
+            Assert.True(view.PolylineHalfwidthButton.IsEnabled);
+            Assert.False(view.PolylineLengthButton.IsEnabled);
+
+            PressEnter(view.PolylineWidthButton);
+            Assert.Equal(
+                CadPolylineAuthoringPrompt.StartingWidth,
+                view.Canvas.PendingPolylinePrompt);
+            Assert.False(view.PolylineArcModeButton.IsEnabled);
+            Assert.True(view.Canvas.TryAcceptPolylineAuthoringInput("2", out _));
+            Assert.True(view.Canvas.TryAcceptPolylineAuthoringInput("2", out _));
+            Assert.True(view.Canvas.TryAcceptPolylineAuthoringInput("10,0", out _));
+            Assert.True(view.PolylineLengthButton.IsEnabled);
+
+            PressEnter(view.PolylineLengthButton);
+            Assert.Equal(
+                CadPolylineAuthoringPrompt.Length,
+                view.Canvas.PendingPolylinePrompt);
+            Assert.True(view.Canvas.TryAcceptPolylineAuthoringInput("5", out _));
+            Assert.Equal(new CadPoint3D(15, 0, 0), view.Canvas.PendingPolylineCurrentPoint);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
     public void PointerEndpointStaysOnTypedFirstPointElevation()
     {
         var session = new CadDocumentSession(new CadDocument());

@@ -11,6 +11,19 @@ using ProGPU.CAD;
 using ProGPU.Fonts.Inter;
 using ProGPU.Text;
 
+int polylineAuthoringSegmentCount = ReadNonNegativeInt(
+    "--polyline-authoring-segments",
+    0);
+if (polylineAuthoringSegmentCount != 0)
+{
+    RunPolylineAuthoringBenchmark(
+        polylineAuthoringSegmentCount,
+        ReadNonNegativeInt("--warmup", 3),
+        ReadPositiveInt("--iterations", 24),
+        ReadString("--output-json"));
+    return;
+}
+
 int viewportCount = ReadNonNegativeInt("--viewports", 0);
 if (viewportCount != 0)
 {
@@ -592,6 +605,93 @@ Console.WriteLine(json);
 if (outputPath is not null)
 {
     File.WriteAllText(outputPath, json);
+}
+
+void RunPolylineAuthoringBenchmark(
+    int segmentCount,
+    int warmups,
+    int iterations,
+    string? reportPath)
+{
+    if (segmentCount > CadPolylineAuthoringSession.DefaultMaximumSegmentCount)
+    {
+        throw new ArgumentOutOfRangeException(
+            nameof(segmentCount),
+            $"PLINE authoring cannot exceed {CadPolylineAuthoringSession.DefaultMaximumSegmentCount} segments.");
+    }
+
+    for (int i = 0; i < warmups; i++)
+    {
+        _ = CreatePolylineAuthoringSnapshot(segmentCount, changeEverySegment: false);
+        _ = CreatePolylineAuthoringSnapshot(segmentCount, changeEverySegment: true);
+    }
+
+    Measurement inherited = Measure(
+        "polyline-authoring-inherited-width",
+        iterations,
+        () => CreatePolylineAuthoringSnapshot(segmentCount, changeEverySegment: false));
+    Measurement variable = Measure(
+        "polyline-authoring-width-option-every-segment",
+        iterations,
+        () => CreatePolylineAuthoringSnapshot(segmentCount, changeEverySegment: true));
+    var report = new CadPolylineAuthoringBenchmarkReport(
+        DateTimeOffset.UtcNow,
+        Environment.OSVersion.ToString(),
+        System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
+        segmentCount,
+        warmups,
+        iterations,
+        inherited,
+        variable);
+    var options = new JsonSerializerOptions { WriteIndented = true };
+    string reportJson = JsonSerializer.Serialize(report, options);
+    Console.WriteLine(reportJson);
+    if (reportPath is not null)
+    {
+        File.WriteAllText(reportPath, reportJson);
+    }
+}
+
+CadPolylineAuthoringSnapshot CreatePolylineAuthoringSnapshot(
+    int segmentCount,
+    bool changeEverySegment)
+{
+    var authoring = new CadPolylineAuthoringSession(segmentCount, initialWidth: 2.0);
+    if (!authoring.TryAcceptPoint(CadPoint3D.Zero, out string? firstError))
+    {
+        throw new InvalidOperationException(firstError);
+    }
+    double width = 2.0;
+    for (int i = 0; i < segmentCount; i++)
+    {
+        if (changeEverySegment)
+        {
+            double endingWidth = (i & 1) == 0 ? 4.0 : 2.0;
+            if (!authoring.TryBeginWidthInput(
+                    CadPolylineWidthInputMode.Width,
+                    out string? widthError) ||
+                !authoring.TryAcceptWidthValue(width, out widthError) ||
+                !authoring.TryAcceptWidthValue(endingWidth, out widthError))
+            {
+                throw new InvalidOperationException(widthError);
+            }
+            width = endingWidth;
+        }
+        if (!authoring.TryAcceptPoint(
+                new CadPoint3D(i + 1.0, i % 17, 0.0),
+                out string? pointError))
+        {
+            throw new InvalidOperationException(pointError);
+        }
+    }
+    if (!authoring.TryCreateSnapshot(
+            close: false,
+            out CadPolylineAuthoringSnapshot? snapshot,
+            out string? snapshotError))
+    {
+        throw new InvalidOperationException(snapshotError);
+    }
+    return snapshot!;
 }
 
 void RunViewportBenchmark(
@@ -2166,6 +2266,16 @@ internal sealed record Measurement(
     double P99,
     double Mean,
     long AllocatedBytesPerOperation);
+
+internal sealed record CadPolylineAuthoringBenchmarkReport(
+    DateTimeOffset CapturedAt,
+    string OperatingSystem,
+    string Runtime,
+    int SegmentCount,
+    int WarmupCount,
+    int IterationCount,
+    Measurement InheritedWidthMilliseconds,
+    Measurement WidthOptionEverySegmentMilliseconds);
 
 internal sealed record CadBenchmarkReport(
     DateTimeOffset CapturedAt,

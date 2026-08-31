@@ -103,15 +103,21 @@ uses the entity flag with either a straight or tangent closing segment.
 Accepted arcs use one retained analytic path; only the live pointer arc uses a
 DPI-aware allocation-free approximation capped at 512 lines. Completion
 captures current entity properties plus PLINEGEN and publishes one entity as
-one generation-safe Undo/Redo action with DXF/DWG round trips. Fill-on constant
-PLINEWID is retained as an absolute model-space bevel/butt stroke through
-affine blocks, camera replay, managed/native compilation, and printing.
+one generation-safe Undo/Redo action with DXF/DWG round trips. Width and
+Halfwidth now retain start/end widths, carry each ending width forward, update
+PLINEWID reversibly, and suppress PLINEGEN for a variable profile. Line-mode
+Length continues the actual endpoint tangent after either a line or arc.
+Constant and straight tapered widths retain exact filled or FILLMODE-off
+model-space outlines through affine blocks, camera replay, managed/native
+compilation, and printing.
 Point and Window/Crossing selection now tests that exact filled stroke,
 including affine line strips, bevels, signed-radius rational bulges, widths at
 or above a bulge diameter, and boxes wholly inside a curved strip, with zero
-warm-query allocation. Variable widths, FILLMODE-off outlines, and
-patterned-wide caps fail explicitly rather than reducing to a cosmetic
-centerline. No shader or ABI fork is introduced.
+warm-query allocation. Variable-width arcs and patterned-wide caps fail
+explicitly rather than reducing to a cosmetic centerline. The maximum-bound
+65,536-segment authoring lane has checked-in p50/p95/p99 evidence, and DXF now
+persists the resulting PLINEWID through the reviewed ACadSharp fork. No shader
+or ABI fork is introduced.
 
 Shared desktop/browser ProGPU.CAD now also authors exact plan-view CIRCLEs by
 center/radius, center/diameter, two diameter endpoints, or three circumference
