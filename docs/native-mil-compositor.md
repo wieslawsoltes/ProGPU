@@ -5807,6 +5807,18 @@ or per-frame path reconstruction is introduced. The construction work is a
 fixed four-segment operation rather than a SIMD-eligible bulk loop. Focused
 managed ABI contracts pass 5/5; Windows native qualification is still pending.
 
+Direct2D compatibility ABI v52 adds ProGPU-owned
+`ID2D1RoundedRectangleGeometry`. The immutable COM resource preserves the
+original descriptor and factory identity while retaining one four-line,
+four-cubic path whose corner radii are bounded by the rectangle half-extents.
+The same shared path analysis and pointer-free scene compiler handle
+containment, tolerance-controlled metrics, fills, and strokes across D3D12,
+Metal, Vulkan, and WebGPU. It performs no reflection, CPU pixel conversion,
+readback, or per-frame path reconstruction. The constant eight-segment
+constructor is scalar because it has no useful independent-lane bulk work.
+Focused managed ABI contracts pass 5/5; the system-Direct2D Windows
+differential remains pending.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

@@ -84,7 +84,7 @@ diagnostic, and bounded image-differential parity.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` and DirectWrite text API | Foundation plus bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, typed device-loss domains, and the first ProGPU-owned COM factory/geometry/brush/path/stroke-style/recorder slice implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine system factory, device, context, target, and resource interfaces over a keyed-mutex BGRA DXGI target. Independently, ABI v51 returns ProGPU-owned `ID2D1Factory1`, `ID2D1RectangleGeometry`, `ID2D1EllipseGeometry`, `ID2D1PathGeometry1`, `ID2D1GeometrySink`, `ID2D1SolidColorBrush`, `ID2D1StrokeStyle1`, and `ID2D1CommandSink1` identities; line paths retain the `STROKE_BATCH` fast path while normal, fixed-device, and hairline cubic paths, forced-round joins, un-stroked gaps, and reusable ellipse paths compile to analytic pointer-free geometry used on D3D12, Metal, Vulkan, and WebGPU. Full ProGPU-owned device-context/resource vtables remain gated, unsupported methods fail closed, and there is no fake `d2d1.dll` or `dwrite.dll` |
+| Direct2D `ID2D1*` and DirectWrite text API | Foundation plus bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, typed device-loss domains, and the first ProGPU-owned COM factory/geometry/brush/path/stroke-style/recorder slice implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine system factory, device, context, target, and resource interfaces over a keyed-mutex BGRA DXGI target. Independently, ABI v52 returns ProGPU-owned `ID2D1Factory1`, `ID2D1RectangleGeometry`, `ID2D1RoundedRectangleGeometry`, `ID2D1EllipseGeometry`, `ID2D1PathGeometry1`, `ID2D1GeometrySink`, `ID2D1SolidColorBrush`, `ID2D1StrokeStyle1`, and `ID2D1CommandSink1` identities; line paths retain the `STROKE_BATCH` fast path while normal, fixed-device, and hairline cubic paths, forced-round joins, un-stroked gaps, and reusable ellipse/rounded-rectangle paths compile to analytic pointer-free geometry used on D3D12, Metal, Vulkan, and WebGPU. Full ProGPU-owned device-context/resource vtables remain gated, unsupported methods fail closed, and there is no fake `d2d1.dll` or `dwrite.dll` |
 | Native Win2D binary interop | Device/target/bitmap/brush/geometry/stroke/command-list/effect-output/text-format/text-layout/typography round trips plus layer/state/text draws package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, `CanvasStrokeStyle`, `CanvasCommandList`, device-independent `CanvasTextFormat`/`CanvasTypography`, and device-associated `CanvasTextLayout` projections. The packaged Microsoft Win2D 1.4.0 oracle also wraps effect-output image brushes, executes typed ProGPU layer/state and native-text command-list scopes, observes ProGPU range formatting/OpenType features through the projected layout and typography, mutates that same native layout through Win2D, and draws it. It qualifies identities, resource metadata, boolean geometry/styled-stroke/image-brush/command-list/effect/text drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; glyph runs/color fonts, remaining typography, the full effect catalog, custom effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
@@ -1501,6 +1501,26 @@ is deliberately scalar; it records exactly four cubic segments and is not a
 data-parallel buffer workload. Focused managed ABI contracts pass 5/5. Exact
 Windows COM/native qualification remains required before this checkpoint is
 described as Windows-qualified.
+
+ABI v52 adds a genuine ProGPU-owned
+[`ID2D1RoundedRectangleGeometry`](https://learn.microsoft.com/windows/win32/api/d2d1/nn-d2d1-id2d1roundedrectanglegeometry).
+The immutable resource preserves the caller's `D2D1_ROUNDED_RECT`, COM
+identity, and factory parentage. Its retained construction clamps each internal
+corner radius to half the corresponding rectangle dimension, matching the
+documented quarter-ellipse model, while `GetRoundedRect` continues to return
+the original descriptor. Invalid rectangles and non-finite or negative radii
+fail closed.
+
+One closed path containing four straight edges and four cubic quarter-ellipse
+corners is built at factory time. Bounds, containment, simplification,
+tolerance-controlled area/length queries, and command-sink fills reuse the
+shared ProGPU path implementation. The hot replay path therefore remains
+reflection-free and allocation-free with respect to geometry construction and
+does not introduce CPU pixel readback, per-frame path rebuilding, or
+backend-specific Direct2D branches. Construction is fixed eight-segment scalar
+work rather than a SIMD-eligible bulk loop. The Windows oracle compares bounds,
+area, length, containment, COM identity, and semantic scene translation with
+system Direct2D; Windows qualification remains pending.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
