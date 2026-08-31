@@ -256,7 +256,7 @@ the saved scope, the outer intersection survives restoration, and a following
 unsupported record still rolls back the complete temporary stream. Restoring
 an unavailable relative level also fails before publishing commands.
 
-`Playback256WmfEllipsesToRetainedCommands` guards the WMF 16-bit bottom/right/top/left parameter order, selected brush and pen lowering, transactional append, and retained curve commands. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 millisecond median (1.109 millisecond mean, 0.115 millisecond standard deviation) and 622.14 KB managed allocation for 256 filled and stroked ellipses. One launch and three measured iterations make this a coarse first baseline. Focused gates verify selected fill/outline pixels, reject unordered bounds without publication, and prove that a following unsupported `STRETCHBLT` record does not publish a partially lowered ellipse stream. The complete drawing suite passes 418/418, and ApiCompat remains at 0 missing types, 0 missing members, and 13 reviewed platform-annotation differences.
+`Playback256WmfEllipsesToRetainedCommands` guards the WMF 16-bit bottom/right/top/left parameter order, selected brush and pen lowering, transactional append, and retained curve commands. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 millisecond median (1.109 millisecond mean, 0.115 millisecond standard deviation) and 622.14 KB managed allocation for 256 filled and stroked ellipses. One launch and three measured iterations make this a coarse first baseline. Focused gates verify selected fill/outline pixels, reject unordered bounds without publication, and prove that a following unsupported `STRETCHBLT` record does not publish a partially lowered ellipse stream. The complete drawing suite passes 419/419, and ApiCompat remains at 0 missing types, 0 missing members, and 13 reviewed platform-annotation differences.
 
 `Playback256WmfRoundRectanglesToRetainedCommands` guards the official height,
 width, bottom, right, top, left `META_ROUNDRECT` payload and typed selected
@@ -361,6 +361,17 @@ background, spaced glyph, current-position, malformed-array, unsupported-option,
 and rollback gates are authoritative. The coarse result exposes per-character
 shaping, glyph-command fragmentation, and clip-state ownership as explicit
 optimization targets rather than concealing them behind an API-only record.
+
+A typed follow-up shapes each extended string once, maps its UTF-16 cluster
+origins onto the requested character-cell origins, preserves fallback-font and
+mark offsets within each cluster, and records one glyph run per resolved font
+rather than one string command per character. A command-level gate proves that
+two 20-unit-spaced characters remain one shaped glyph run. The comparable
+five-iteration ShortRun improved to a 5.227 millisecond median (5.474
+millisecond mean, 0.527 millisecond standard deviation) and 2.66 MB allocated:
+0.647 milliseconds (11.0%) lower median and 0.62 MB (18.9%) less allocation
+than the initial checkpoint. Repeated layout/caret construction and Region clip
+state remain visible optimization targets.
 
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication

@@ -228,7 +228,7 @@ measured a 561.572 µs median (599.013 µs mean, 103.320 µs standard deviation)
 with 628.33 KB allocated. Three iterations make this coarse state-lowering
 evidence; independent inside, excluded-hole, restored-clip, intersection-edge,
 invalid-relative-level, and transactional-rollback gates remain authoritative.
-The complete drawing suite passes 418/418, and ApiCompat remains at zero
+The complete drawing suite passes 419/419, and ApiCompat remains at zero
 missing types, zero missing members, and 13 reviewed platform annotations.
 
 `MetafileBenchmarks.Playback256WmfEllipsesToRetainedCommands` guards typed WMF ellipse playback through the selected fill and outline objects. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 ms median (1.109 ms mean, 0.115 ms standard deviation) with 622.14 KB allocated for 256 ellipses. The three-iteration result is coarse retained-command evidence; exact pixels and rollback after a later unsupported `STRETCHBLT` record remain the independent correctness gates.
@@ -324,6 +324,14 @@ measured a 5.874 ms median (5.929 ms mean, 0.970 ms standard deviation) with
 pixels, current-position progression, malformed arrays, unsupported options,
 and rollback remain the correctness gates. Per-character shaping, fragmented
 glyph commands, and clip-state ownership are explicit optimization debt.
+
+The typed follow-up shapes each string once, remaps its cluster origins to the
+requested character cells, preserves fallback/mark offsets, and emits one glyph
+run per resolved font. A command-level gate proves two 20-unit-spaced characters
+remain one run. The comparable five-iteration ShortRun improved to a 5.227 ms
+median (5.474 ms mean, 0.527 ms standard deviation) and 2.66 MB allocated,
+reducing median by 0.647 ms (11.0%) and allocation by 0.62 MB (18.9%). Repeated
+layout/caret construction and Region clip state remain explicit debt.
 
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the

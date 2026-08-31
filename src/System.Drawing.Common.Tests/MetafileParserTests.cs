@@ -3,6 +3,7 @@ using System.Drawing.Imaging;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using ProGPU.Scene;
 using ProGPU.SystemDrawing;
 using Xunit;
 
@@ -423,6 +424,36 @@ public sealed class MetafileParserTests
         Assert.True(CountPixels(target, new Rectangle(22, 2, 14, 18), IsMostlyRed) > 2);
         Assert.True(CountPixels(target, new Rectangle(42, 2, 18, 18), IsMostlyGreen) > 2);
         Assert.Equal(0, target.GetPixel(18, 10).A);
+    }
+
+    [Fact]
+    public void WmfExtTextOutBatchesExplicitAdvancesIntoOneShapedGlyphRun()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x0102, WmfWords(1)),
+            (0x02FB, WmfFont(-14, SystemFonts.DefaultFont.Name)),
+            (0x012D, WmfWords(0)),
+            (0x0A32, WmfExtTextOut(
+                "MM",
+                new Point(4, 4),
+                options: 0,
+                rectangle: Rectangle.Empty,
+                advances: [20, 20])),
+            (0, [])
+        };
+        using var metafile = new Metafile(new MemoryStream(CreatePlaybackWmf(records)));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand glyphRun = Assert.Single(
+            context.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun);
+        Assert.NotNull(glyphRun.GlyphPositions);
+        Assert.Equal(2, glyphRun.GlyphPositions.Length);
+        Assert.Equal(20f, glyphRun.GlyphPositions[1].X - glyphRun.GlyphPositions[0].X, 3);
     }
 
     [Fact]

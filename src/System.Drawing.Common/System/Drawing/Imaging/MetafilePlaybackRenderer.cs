@@ -1788,12 +1788,20 @@ internal static class MetafilePlaybackRenderer
                 }
                 else
                 {
-                    int advance = 0;
+                    Span<int> advances = text.Length <= 256
+                        ? stackalloc int[text.Length]
+                        : new int[text.Length];
                     for (int index = 0; index < text.Length; index++)
                     {
-                        Graphics.DrawString(text.AsSpan(index, 1), _selectedFont, foreground, x + advance, y);
-                        advance = checked(advance + ReadInt16(dx, index * 2));
+                        advances[index] = ReadInt16(dx, index * 2);
                     }
+                    Graphics.DrawStringWithCharacterAdvances(
+                        text,
+                        _selectedFont,
+                        foreground,
+                        x,
+                        y,
+                        advances);
                 }
             }
             finally
