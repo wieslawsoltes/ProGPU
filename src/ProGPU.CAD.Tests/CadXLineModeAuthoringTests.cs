@@ -266,6 +266,45 @@ public sealed class CadXLineModeAuthoringTests
         Assert.Equal(0UL, handleMix);
     }
 
+    [Fact]
+    public void PreviewAndAcquisitionMetadataFollowPromptWithoutMutation()
+    {
+        var horizontal = new CadXLineModeAuthoringSession(
+            CadXLineAuthoringMode.Horizontal,
+            CadPlanAuthoringContext.World,
+            sourceContentGeneration: 3);
+        Assert.Null(horizontal.AcquisitionBasePoint);
+        Assert.Equal(
+            new CadPoint3D(1, 0, 0),
+            horizontal.PlacementDirection);
+        Assert.True(horizontal.TryPreviewPoint(
+            new CadPoint3D(4, 5, 0),
+            out CadXLineDefinition preview));
+        Assert.Equal(new CadPoint3D(4, 5, 0), preview.FirstPoint);
+        Assert.Equal(0, horizontal.LineCount);
+        Assert.True(horizontal.TryAcceptPoint(preview.FirstPoint, out _));
+        Assert.Equal(preview.FirstPoint, horizontal.AcquisitionBasePoint);
+
+        var bisector = new CadXLineModeAuthoringSession(
+            CadXLineAuthoringMode.Bisect,
+            CadPlanAuthoringContext.World,
+            sourceContentGeneration: 3);
+        CadPoint3D vertex = new(2, 3, 0);
+        CadPoint3D firstRay = new(3, 3, 0);
+        Assert.True(bisector.TryAcceptPoint(vertex, out _));
+        Assert.Equal(vertex, bisector.BisectorVertex);
+        Assert.Equal(vertex, bisector.AcquisitionBasePoint);
+        Assert.True(bisector.TryAcceptPoint(firstRay, out _));
+        Assert.Equal(firstRay, bisector.BisectorFirstRayPoint);
+        Assert.True(bisector.TryPreviewPoint(
+            new CadPoint3D(2, 4, 0),
+            out CadXLineDefinition bisectorPreview));
+        AssertPoint(
+            new CadPoint3D(1 / Math.Sqrt(2.0), 1 / Math.Sqrt(2.0), 0),
+            bisectorPreview.Direction);
+        Assert.Equal(0, bisector.LineCount);
+    }
+
     private static CadDocumentSnapshot CreateLinearSourceSnapshot()
     {
         var document = new CadDocument();

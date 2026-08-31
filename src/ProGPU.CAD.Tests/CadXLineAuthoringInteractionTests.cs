@@ -235,6 +235,188 @@ public sealed class CadXLineAuthoringInteractionTests
         }
     }
 
+    [Fact]
+    public void SharedModeSelectorCreatesIndependentHorizontalPlacements()
+    {
+        var session = new CadDocumentSession(new CadDocument());
+        var view = new CadSampleView();
+        try
+        {
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            view.XLineModeSelector.SelectedIndex = 1;
+            PressEnter(view.XLineButton);
+
+            Assert.Equal(
+                CadXLineAuthoringMode.Horizontal,
+                view.Canvas.PendingXLineMode);
+            Assert.Equal(
+                CadXLinePromptKind.PlacementPoint,
+                view.Canvas.PendingXLinePrompt);
+            Assert.False(view.XLineModeSelector.IsEnabled);
+            Enter(view, "1,2");
+            Enter(view, "5,7");
+            PressEnter(view.XLineFinishButton);
+
+            XLine[] lines = session.Read(document =>
+                document.Entities.OfType<XLine>().ToArray());
+            Assert.Equal(2, lines.Length);
+            Assert.Equal(new CSMath.XYZ(1, 2, 0), lines[0].FirstPoint);
+            Assert.Equal(new CSMath.XYZ(5, 7, 0), lines[1].FirstPoint);
+            Assert.All(lines, line =>
+                AssertDirection(new CadPoint3D(1, 0, 0), line));
+            Assert.True(view.XLineModeSelector.IsEnabled);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void AngleModeAcceptsDegreesAndDrawsLiveInfinitePreview()
+    {
+        var session = new CadDocumentSession(new CadDocument());
+        var view = new CadSampleView();
+        try
+        {
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            view.Canvas.ObjectSnapModes = CadObjectSnapModes.None;
+            view.XLineModeSelector.SelectedIndex = 3;
+            PressEnter(view.XLineButton);
+            Enter(view, "90");
+
+            Vector2 placement = view.Canvas.CurrentViewport.WorldToScreen(
+                new CadPoint3D(2, 3, 0));
+            view.Canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = placement,
+            });
+            var preview = new DrawingContext();
+            view.Canvas.OnRender(preview);
+            Assert.Contains(preview.Commands, command =>
+                command.Type == RenderCommandType.DrawLine &&
+                Vector2.Distance(command.Position, command.Position2) > 500.0f);
+
+            Click(view.Canvas, placement);
+            PressEnter(view.XLineFinishButton);
+            XLine line = Assert.Single(session.Read(document =>
+                document.Entities.OfType<XLine>().ToArray()));
+            Assert.Equal(new CSMath.XYZ(2, 3, 0), line.FirstPoint);
+            AssertDirection(new CadPoint3D(0, 1, 0), line);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void OffsetModePicksExactLinearSourceAndPersistsChosenSide()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Line(
+            new CSMath.XYZ(-10, 0, 0),
+            new CSMath.XYZ(10, 0, 0)));
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            view.Canvas.ObjectSnapModes = CadObjectSnapModes.None;
+            view.XLineModeSelector.SelectedIndex = 5;
+            PressEnter(view.XLineButton);
+            Enter(view, "2");
+            Assert.Equal(
+                CadXLinePromptKind.OffsetSource,
+                view.Canvas.PendingXLinePrompt);
+
+            Click(view.Canvas, view.Canvas.CurrentViewport.WorldToScreen(
+                CadPoint3D.Zero));
+            Assert.Equal(
+                CadXLinePromptKind.OffsetSidePoint,
+                view.Canvas.PendingXLinePrompt);
+            Click(view.Canvas, view.Canvas.CurrentViewport.WorldToScreen(
+                new CadPoint3D(0, 5, 0)));
+            Assert.Equal(1, view.Canvas.PendingXLineCount);
+            Assert.Equal(
+                CadXLinePromptKind.OffsetSource,
+                view.Canvas.PendingXLinePrompt);
+            PressEnter(view.XLineFinishButton);
+
+            XLine offset = Assert.Single(document.Entities.OfType<XLine>());
+            Assert.Equal(2.0, offset.FirstPoint.Y, 12);
+            AssertDirection(new CadPoint3D(1, 0, 0), offset);
+            Assert.Equal(1UL, session.ContentGeneration);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void ReferenceAndThroughKeywordsRouteSourcePromptsAcrossEdits()
+    {
+        var document = new CadDocument();
+        document.Entities.Add(new Line(
+            new CSMath.XYZ(-10, 0, 0),
+            new CSMath.XYZ(10, 0, 0)));
+        var session = new CadDocumentSession(document);
+        var view = new CadSampleView();
+        try
+        {
+            view.Canvas.Load(session);
+            view.Canvas.Arrange(new Rect(0, 0, 800, 600));
+            view.Canvas.ObjectSnapModes = CadObjectSnapModes.None;
+
+            view.XLineModeSelector.SelectedIndex = 3;
+            PressEnter(view.XLineButton);
+            Enter(view, "R");
+            Assert.Equal(
+                CadXLinePromptKind.AngleReferenceSource,
+                view.Canvas.PendingXLinePrompt);
+            Click(view.Canvas, view.Canvas.CurrentViewport.WorldToScreen(
+                new CadPoint3D(3, 0, 0)));
+            Enter(view, "90");
+            Click(view.Canvas, view.Canvas.CurrentViewport.WorldToScreen(
+                new CadPoint3D(0, 2, 0)));
+            PressEnter(view.XLineFinishButton);
+
+            view.XLineModeSelector.SelectedIndex = 5;
+            PressEnter(view.XLineButton);
+            Enter(view, "T");
+            Assert.Equal(
+                CadXLinePromptKind.OffsetSource,
+                view.Canvas.PendingXLinePrompt);
+            Click(view.Canvas, view.Canvas.CurrentViewport.WorldToScreen(
+                new CadPoint3D(3, 0, 0)));
+            Assert.Equal(
+                CadXLinePromptKind.OffsetThroughPoint,
+                view.Canvas.PendingXLinePrompt);
+            Click(view.Canvas, view.Canvas.CurrentViewport.WorldToScreen(
+                new CadPoint3D(0, 4, 0)));
+            PressEnter(view.XLineFinishButton);
+
+            XLine[] lines = document.Entities.OfType<XLine>().ToArray();
+            Assert.Equal(2, lines.Length);
+            AssertDirection(new CadPoint3D(0, 1, 0), lines[0]);
+            Assert.Equal(4.0, lines[1].FirstPoint.Y, 12);
+            AssertDirection(new CadPoint3D(1, 0, 0), lines[1]);
+            Assert.Equal(2UL, session.ContentGeneration);
+        }
+        finally
+        {
+            view.PrintPreview.FireUnloaded();
+            view.Canvas.FireUnloaded();
+        }
+    }
+
     private static GpuPicture GetXLinePreview(
         DrawingContext drawing,
         int expectedFigureCount) =>

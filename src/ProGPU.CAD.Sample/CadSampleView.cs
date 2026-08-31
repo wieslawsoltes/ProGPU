@@ -62,6 +62,7 @@ public sealed class CadSampleView : Grid
     private readonly Button _rayButton;
     private readonly Button _rayUndoButton;
     private readonly Button _rayFinishButton;
+    private readonly ComboBox _xlineModeSelector;
     private readonly Button _xlineButton;
     private readonly Button _xlineUndoButton;
     private readonly Button _xlineFinishButton;
@@ -318,6 +319,8 @@ public sealed class CadSampleView : Grid
     public Button RayUndoButton => _rayUndoButton;
 
     public Button RayFinishButton => _rayFinishButton;
+
+    public ComboBox XLineModeSelector => _xlineModeSelector;
 
     public Button XLineButton => _xlineButton;
 
@@ -608,6 +611,30 @@ public sealed class CadSampleView : Grid
         _rayButton = CreateButton("Ray", font, 64, 30);
         _rayUndoButton = CreateButton("Ray U", font, 68, 30);
         _rayFinishButton = CreateButton("Ray finish", font, 84, 30);
+        _xlineModeSelector = new ComboBox
+        {
+            WidthConstraint = 142,
+            HeightConstraint = 30,
+            Font = font,
+            FontSize = 11,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        foreach ((CadXLineAuthoringMode mode, string label) in new[]
+        {
+            (CadXLineAuthoringMode.TwoPoint, "XLine 2P"),
+            (CadXLineAuthoringMode.Horizontal, "XLine Horizontal"),
+            (CadXLineAuthoringMode.Vertical, "XLine Vertical"),
+            (CadXLineAuthoringMode.Angle, "XLine Angle"),
+            (CadXLineAuthoringMode.Bisect, "XLine Bisect"),
+            (CadXLineAuthoringMode.Offset, "XLine Offset"),
+        })
+        {
+            _xlineModeSelector.Items.Add(new ComboBoxItem(label)
+            {
+                Tag = mode,
+            });
+        }
+        _xlineModeSelector.SelectedIndex = 0;
         _xlineButton = CreateButton("XLine", font, 68, 30);
         _xlineUndoButton = CreateButton("XLine U", font, 76, 30);
         _xlineFinishButton = CreateButton("XLine finish", font, 92, 30);
@@ -773,6 +800,7 @@ public sealed class CadSampleView : Grid
         editActions.AddChild(_rayButton);
         editActions.AddChild(_rayUndoButton);
         editActions.AddChild(_rayFinishButton);
+        editActions.AddChild(_xlineModeSelector);
         editActions.AddChild(_xlineButton);
         editActions.AddChild(_xlineUndoButton);
         editActions.AddChild(_xlineFinishButton);
@@ -2244,6 +2272,7 @@ public sealed class CadSampleView : Grid
         _rayUndoButton.Click += (_, _) => UndoRayAuthoringRay();
         _rayFinishButton.Click += (_, _) => CompleteRayAuthoring();
         _xlineButton.Click += (_, _) => BeginXLineAuthoring();
+        _xlineModeSelector.SelectionChanged += (_, _) => UpdateEditControls();
         _xlineUndoButton.Click += (_, _) => UndoXLineAuthoringLine();
         _xlineFinishButton.Click += (_, _) => CompleteXLineAuthoring();
         _pointButton.Click += (_, _) => BeginPointAuthoring();
@@ -5385,7 +5414,12 @@ public sealed class CadSampleView : Grid
         try
         {
             _pointTransformInput.Text = string.Empty;
-            if (!_canvas.BeginXLineAuthoring())
+            CadXLineAuthoringMode mode =
+                (_xlineModeSelector.SelectedItem as ComboBoxItem)?.Tag is
+                    CadXLineAuthoringMode selectedMode
+                    ? selectedMode
+                    : CadXLineAuthoringMode.TwoPoint;
+            if (!_canvas.BeginXLineAuthoring(mode))
             {
                 SetStatus("XLINE requires a loaded plan-view document.");
             }
@@ -5751,15 +5785,43 @@ public sealed class CadSampleView : Grid
             $"XLINE: first point {FormatPoint(args.FirstPoint!.Value)}; specify through point.",
         CadXLineAuthoringStage.AwaitingThroughPoint =>
             $"XLINE: {args.LineCount} accepted line(s) through {FormatPoint(args.FirstPoint!.Value)}; next through point, U, Enter, or Escape.",
+        CadXLineAuthoringStage.AwaitingInput =>
+            DescribeXLinePrompt(args),
         CadXLineAuthoringStage.LineUndone =>
             $"XLINE: latest line removed; {args.LineCount} line(s) remain.",
         CadXLineAuthoringStage.Completed when args.LineCount == 0 =>
             "XLINE ended without creating an entity.",
         CadXLineAuthoringStage.Completed =>
-            $"XLINE created {args.LineCount} line(s) through one common point.",
+            $"XLINE created {args.LineCount} line(s) in {args.Mode} mode.",
         CadXLineAuthoringStage.Failed =>
             $"XLINE failed: {args.ErrorMessage}",
         _ => throw new ArgumentOutOfRangeException(nameof(args)),
+    };
+
+    private static string DescribeXLinePrompt(
+        CadXLineAuthoringChangedEventArgs args) => args.Prompt switch
+    {
+        CadXLinePromptKind.PlacementPoint =>
+            $"XLINE {args.Mode}: specify a placement point; U, Enter, or Escape ends.",
+        CadXLinePromptKind.AngleValue =>
+            "XLINE Angle: enter angle in degrees or Reference (R) when available.",
+        CadXLinePromptKind.AngleReferenceSource =>
+            "XLINE Angle/Reference: select a visible LINE, RAY, or XLINE.",
+        CadXLinePromptKind.BisectorVertex =>
+            "XLINE Bisect: specify angle vertex.",
+        CadXLinePromptKind.BisectorFirstRayPoint =>
+            "XLINE Bisect: specify a point on the first ray.",
+        CadXLinePromptKind.BisectorSecondRayPoint =>
+            "XLINE Bisect: specify a point on the second ray.",
+        CadXLinePromptKind.OffsetDistance =>
+            "XLINE Offset: enter a positive distance or Through (T).",
+        CadXLinePromptKind.OffsetSource =>
+            "XLINE Offset: select a visible LINE, RAY, or XLINE source.",
+        CadXLinePromptKind.OffsetSidePoint =>
+            "XLINE Offset: specify the side to offset.",
+        CadXLinePromptKind.OffsetThroughPoint =>
+            "XLINE Offset/Through: specify the through point.",
+        _ => "XLINE: specify the requested input.",
     };
 
     private static string DescribePointAuthoring(
@@ -6894,6 +6956,9 @@ public sealed class CadSampleView : Grid
             _canvas.PendingRayCount > 0;
         _rayFinishButton.IsEnabled =
             !_isBusy && isRayAuthoring;
+        _xlineModeSelector.IsEnabled =
+            canUsePlanTools && !_is3DView && !isXLineAuthoring &&
+            _canvas.CurrentSession is not null;
         _xlineButton.IsEnabled =
             canUsePlanTools && !_is3DView &&
             _canvas.CurrentSession is not null;

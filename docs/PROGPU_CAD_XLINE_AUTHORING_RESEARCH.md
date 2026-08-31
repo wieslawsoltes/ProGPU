@@ -2,9 +2,10 @@
 
 ## Scope and authoritative behavior
 
-This checkpoint adds the default bounded shared desktop/browser two-point
-`XLINE` mode over the already implemented unbounded construction renderer. The
-design is a clean-room implementation from public contracts:
+This record begins with the default bounded shared desktop/browser two-point
+`XLINE` mode and follows its clean-room completion into every documented mode
+over the already implemented unbounded construction renderer. The design is a
+clean-room implementation from public contracts:
 
 - Autodesk's [XLINE command reference](https://help.autodesk.com/cloudhelp/2015/ENU/AutoCAD-Core/files/GUID-40650DCE-E8CA-483C-8E25-7FA9AB6992C1.htm)
   defines an infinite line and the default Point mode as a line through two
@@ -14,9 +15,9 @@ design is a clean-room implementation from public contracts:
   defines group 10/20/30 as the WCS first point and group 11/21/31 as a unit
   WCS direction.
 
-This checkpoint intentionally covers the default Point mode. Horizontal,
-Vertical, Angle, Bisect, and Offset prompt modes remain separate design and
-conformance gates.
+The initial checkpoint intentionally covered only Point mode. Subsequent
+checkpoints add Horizontal, Vertical, Angle, Bisect, and Offset through the
+same bounded typed command contract.
 
 No third-party implementation source was copied, translated, or structurally
 adapted. Approved implementation provenance is the original ProGPU-owned RAY
@@ -127,10 +128,29 @@ atomic edit command. Source resolution and every prompt transition are O(1) and
 allocation-free after bounded storage warmup; definition snapshot creation is
 O(L) time/storage for L accepted lines.
 
-Shared desktop/browser controls, exact pointer source picking, mode-specific
-transient guides/previews, keyboard keywords, and end-to-end mode persistence
-coverage remain. The host-neutral state is therefore a completed foundation,
-not a claim that the interactive modes are complete.
+The interactive completion slice consumes that state directly in the shared
+desktop/browser view and canvas. One selector starts Point, Horizontal,
+Vertical, Angle, Bisect, or Offset. The invariant input box accepts angle values
+in degrees, positive offset distances, `Reference`/`R`, and `Through`/`T` at
+their exact prompts while retaining the established Cartesian, polar, relative,
+and direct-distance point input elsewhere.
+
+Angle/Reference and Offset source hover/click run the existing exact crossing
+query over preallocated entity, candidate, match, handle-hash, and handle
+buffers. The result rejects any truncation, filters through the immutable
+generation-exact resolver, measures the exact visible LINE or viewport-clipped
+RAY/XLINE segment in device space, and chooses the nearest candidate with an
+entity-index tie break. Hover is O(log F + K + U) typical and O(F + K + U)
+worst-case for F finite primitives, K local candidates, and U unbounded
+construction primitives, with no per-move managed allocation after snapshot
+buffer sizing.
+
+Accepted heterogeneous definitions remain one retained multi-figure picture.
+Live Point/Horizontal/Vertical/Angle/Offset/Bisect output calls the same exact
+two-sided clipper; Bisect additionally draws its accepted/current finite input
+rays. Scalar prompts suppress irrelevant snap guides and source prompts draw
+the exact hovered primitive. No model mutation or document generation occurs
+until completion.
 
 The solver foundation slice passed 13/13 XLINE core tests and the complete
 1,271/1,271 CAD suite in Debug and Release. One first Release-suite run observed
@@ -140,7 +160,7 @@ Release binary then passed 1,271/1,271. The direct two-package preview.62 audit
 also passed, and its isolated package-only consumer built with 0 warnings and
 0 errors, rejected upstream `ACadSharp`, and created an AC1032 document.
 
-The prompt/source foundation passes the combined 26/26 XLINE core and current
+The prompt/source foundation passed the combined 26/26 XLINE core and current
 interaction suite in Debug and Release, including raw-UCS/ANGBASE/ANGDIR capture,
 all mode transitions, stale selection rejection, opposite-maximum-coordinate
 normalization, and a zero-managed-allocation warm linear-source resolver test.
@@ -148,6 +168,20 @@ The complete unchanged test binaries pass 1,279/1,279 in both configurations.
 The direct preview.62 ACadSharp.ProGPU/ProGPU.CAD content audit and isolated
 package-only consumer also pass; the consumer builds with 0 warnings and 0
 errors, rejects upstream `ACadSharp`, and creates an AC1032 document.
+
+The interactive mode slice passes 31/31 focused XLINE tests in Debug and
+Release, covering host-neutral non-mutating preview metadata, selector-driven
+independent Horizontal placement, invariant degree conversion with live
+infinite preview, exact distance-offset source/side interaction and persistence,
+and direct `Reference`/`R` plus `Through`/`T` prompt routing across snapshot
+generations. The complete CAD suite passes 1,284/1,284 in Debug and Release.
+One first Debug run observed process-noise allocation in the pre-existing warm
+plan-grid creation test; that test passed immediately in isolation and the
+complete unchanged Debug binary then passed.
+Fresh preview.62 CAD packages pass the two-package content/dependency audit;
+the isolated package-only consumer builds with 0 warnings and 0 errors, rejects
+upstream `ACadSharp`, and creates an AC1032 document. The package build reports
+only the existing ACadSharp warning baseline.
 
 ## Complexity, validation, and remaining gates
 
@@ -182,7 +216,7 @@ The grouped package-list scan still reports the separately user-deleted browser
 sample project. The equivalent direct two-package build, audit, and isolated
 consumer gate passed without restoring or staging those deletions.
 
-Horizontal/Vertical/Angle/Bisect/Offset interaction, command chaining, temporary
-overrides, expressions and drawing units, 3D UCS/arbitrary-camera acquisition,
-object-snap tracking, non-continuous unbounded linetype phase origins, visual
-goldens, and dense-sequence p50/p95/p99 measurements remain later gates.
+Command chaining, temporary overrides, expressions and drawing units, 3D
+UCS/arbitrary-camera acquisition, object-snap tracking, non-continuous unbounded
+linetype phase origins, visual goldens, and dense-sequence p50/p95/p99
+measurements remain later gates.

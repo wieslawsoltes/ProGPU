@@ -2398,7 +2398,7 @@ construction-picture regressions cover the authored result. The source record,
 adopted/rejected engine concepts, and remaining gates are in
 `PROGPU_CAD_RAY_AUTHORING_RESEARCH.md`.
 
-### Atomic common-point XLINE authoring
+### Atomic multi-mode XLINE authoring
 
 `CadXLineAuthoringSession` is the host-neutral default two-point XLINE state.
 It retains one finite double-WCS first point and a geometrically growing,
@@ -2427,10 +2427,16 @@ now retains their recoverable point/scalar/source prompt state, while an exact
 generation-tagged resolver accepts only matching immutable LINE, RAY, or XLINE
 selection candidates. The snapshot carries raw active-UCS axes independently
 from its ANGBASE/ANGDIR angle basis so Horizontal/Vertical never inherit
-SNAPANG. Shared desktop/browser controls, pointer source picking, keyboard
-keywords, transient mode guides/previews, and matched end-to-end persistence
-tests remain later gates. The source record and engine applicability audit are in
-`PROGPU_CAD_XLINE_AUTHORING_RESEARCH.md`.
+SNAPANG. The shared desktop/browser selector now starts every documented mode.
+Invariant degree/distance values and `Reference`/`R` or `Through`/`T` keywords
+advance scalar prompts; source prompts run the existing exact crossing query
+over caller-owned buffers, filter visible linear primitives, and choose the
+nearest screen-space segment with entity-index tie breaking. Accepted and live
+mode-specific XLINEs use the same exact viewport clipper, while Bisect retains
+its two finite input-ray guides. End-to-end tests cover independent placement
+points, angle conversion, exact offset source picking, retained previews, and
+one-generation heterogeneous persistence. The source record and engine
+applicability audit are in `PROGPU_CAD_XLINE_AUTHORING_RESEARCH.md`.
 
 ## Retained TrueType TEXT lowering
 

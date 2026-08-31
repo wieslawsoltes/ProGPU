@@ -447,6 +447,8 @@ public sealed class CadXLineModeAuthoringSession
     private CadPoint3D _bisectorFirstRayPoint;
     private CadXLineLinearSource _linearSource;
     private bool _hasLinearSource;
+    private CadPoint3D _lastAcceptedPoint;
+    private bool _hasLastAcceptedPoint;
     private bool _usesReferenceAngle;
     private bool _usesThroughOffset;
     private double _offsetDistance;
@@ -470,6 +472,40 @@ public sealed class CadXLineModeAuthoringSession
     public bool UsesReferenceAngle => _usesReferenceAngle;
 
     public bool UsesThroughOffset => _usesThroughOffset;
+
+    public CadPoint3D? PlacementDirection =>
+        Prompt == CadXLinePromptKind.PlacementPoint
+            ? _fixedDirection
+            : null;
+
+    public CadPoint3D? BisectorVertex =>
+        Prompt is CadXLinePromptKind.BisectorFirstRayPoint or
+            CadXLinePromptKind.BisectorSecondRayPoint
+            ? _bisectorVertex
+            : null;
+
+    public CadPoint3D? BisectorFirstRayPoint =>
+        Prompt == CadXLinePromptKind.BisectorSecondRayPoint
+            ? _bisectorFirstRayPoint
+            : null;
+
+    public CadXLineLinearSource? CurrentLinearSource =>
+        _hasLinearSource ? _linearSource : null;
+
+    public CadPoint3D? AcquisitionBasePoint => Prompt switch
+    {
+        CadXLinePromptKind.ThroughPoint => FirstPoint,
+        CadXLinePromptKind.PlacementPoint when _hasLastAcceptedPoint =>
+            _lastAcceptedPoint,
+        CadXLinePromptKind.BisectorVertex when _hasLastAcceptedPoint =>
+            _lastAcceptedPoint,
+        CadXLinePromptKind.BisectorFirstRayPoint or
+            CadXLinePromptKind.BisectorSecondRayPoint => _bisectorVertex,
+        CadXLinePromptKind.OffsetSidePoint or
+            CadXLinePromptKind.OffsetThroughPoint when _hasLinearSource =>
+            _linearSource.BasePoint,
+        _ => null,
+    };
 
     public ReadOnlyMemory<CadXLineDefinition> Definitions =>
         _definitions.AsMemory(0, _definitionCount);
@@ -792,6 +828,59 @@ public sealed class CadXLineModeAuthoringSession
         }
     }
 
+    /// <summary>
+    /// Resolves the construction line that accepting <paramref name="point"/>
+    /// would create without mutating prompt state.
+    /// </summary>
+    public bool TryPreviewPoint(
+        CadPoint3D point,
+        out CadXLineDefinition definition)
+    {
+        definition = default;
+        if (!IsFinite(point))
+        {
+            return false;
+        }
+
+        return Prompt switch
+        {
+            CadXLinePromptKind.ThroughPoint when _hasFirstPoint =>
+                CadRayAuthoringSession.TryGetUnitDirection(
+                    _firstPoint,
+                    point,
+                    out CadPoint3D twoPointDirection) &&
+                CadXLineConstruction.TryCreateThroughPoint(
+                    _firstPoint,
+                    twoPointDirection,
+                    out definition),
+            CadXLinePromptKind.PlacementPoint =>
+                CadXLineConstruction.TryCreateThroughPoint(
+                    point,
+                    _fixedDirection,
+                    out definition),
+            CadXLinePromptKind.BisectorSecondRayPoint =>
+                CadXLineConstruction.TryCreateBisector(
+                    _bisectorVertex,
+                    _bisectorFirstRayPoint,
+                    point,
+                    out definition),
+            CadXLinePromptKind.OffsetSidePoint when _hasLinearSource =>
+                CadXLineConstruction.TryCreateOffsetAtDistance(
+                    ToDefinition(_linearSource),
+                    point,
+                    _context.Normal,
+                    _offsetDistance,
+                    out definition),
+            CadXLinePromptKind.OffsetThroughPoint when _hasLinearSource =>
+                CadXLineConstruction.TryCreateOffsetThrough(
+                    ToDefinition(_linearSource),
+                    point,
+                    _context.Normal,
+                    out definition),
+            _ => false,
+        };
+    }
+
     public bool TryUndoLastLine()
     {
         if (_definitionCount == 0)
@@ -800,6 +889,10 @@ public sealed class CadXLineModeAuthoringSession
         }
 
         _definitions[--_definitionCount] = default;
+        _hasLastAcceptedPoint = _definitionCount > 0;
+        _lastAcceptedPoint = _hasLastAcceptedPoint
+            ? _definitions[_definitionCount - 1].FirstPoint
+            : default;
         ResetPartialPrompt();
         return true;
     }
@@ -826,6 +919,8 @@ public sealed class CadXLineModeAuthoringSession
         }
         EnsureCapacity(_definitionCount + 1);
         _definitions[_definitionCount++] = definition;
+        _lastAcceptedPoint = definition.FirstPoint;
+        _hasLastAcceptedPoint = true;
         return true;
     }
 
