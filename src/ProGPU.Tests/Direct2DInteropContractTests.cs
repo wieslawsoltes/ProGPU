@@ -668,6 +668,10 @@ public sealed class Direct2DInteropContractTests
             test,
             StringComparison.Ordinal);
         Assert.Contains(
+            "translated Direct2D scene omitted its fill path or analytic stroke",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "ProGPU path bounds diverged from system Direct2D",
             test,
             StringComparison.Ordinal);

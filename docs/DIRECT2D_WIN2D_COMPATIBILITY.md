@@ -1499,6 +1499,12 @@ deduplicates the unchanged solid brush across draw transforms. ABI v52 now
 requires the correct single-brush result; the archived ABI-v50 execution
 remains a non-passing run, but its failure is classified as an oracle false
 negative rather than provider serialization corruption.
+The subsequently exposed command-list assertion was also stale: curved strokes
+have intentionally used analytic `GEOMETRY_BATCH` resources since ABI v50, but
+the older oracle still demanded a second widened `PATH_BATCH`. ABI v52 now
+requires one fill path and one analytic stroke resource, with detailed cubic,
+join, dash, fixed-device, and hairline validation retained by the recorder
+tests.
 
 ABI v51 extends the ProGPU-owned factory with a genuine
 [`ID2D1EllipseGeometry`](https://learn.microsoft.com/windows/win32/api/d2d1/nn-d2d1-id2d1ellipsegeometry)
