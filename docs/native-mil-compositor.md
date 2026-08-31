@@ -128,6 +128,29 @@ for `progpu_native.dll` and
 for the wgpu-native runtime DLL. The live LibreWPF-to-ProGPU regeneration gate
 reports `143 commands, 141 complete packet layouts`.
 
+Decoder-coverage checkpoint adds a second generated authority beside the wire
+layout manifest. `eng/progpu-generate-mil-coverage.py` reads the canonical
+command table and bounded regions of the actual C++ channel decoder and nested
+render-data compiler, then emits
+`eng/mil/native-mil-command-coverage.json`. The current implementation has 62
+explicit top-level decoder cases, explicit framing/dispatch for all 25
+canonical nested render-data opcodes, two non-retail sentinels, and 54 commands
+with no native top-level dispatch. Nested dispatch does not claim every value
+or resource combination is supported; obsolete effects and other unsupported
+forms continue to fail closed after exact framing.
+The ledger deliberately calls the first category `top-level-decoder`, not
+`parity`: an explicit case proves framing and dispatch ownership, while
+value-domain, resource, scene, and pixel parity remain separately tested.
+
+Every `not-dispatched` entry is therefore visible as either a native parity gap
+or an intentional transport/platform boundary requiring a typed portable
+replacement. The generator rejects unknown implementation command names,
+missing nested render-data opcodes, and accidental acceptance of a nested
+opcode as a top-level channel packet. Both native build and source-contract
+gates reject a stale ledger whenever the protocol or decoder source changes.
+This closes the earlier reporting hole where “141 layouts generated” could be
+misread as “141 packets implemented.”
+
 Brush-layout checkpoint `1b4ef706` migrates SolidColorBrush,
 LinearGradientBrush, RadialGradientBrush, DashStyle, and Pen packet readers to
 generated WPF MCG metadata. Generated fixed-header boundaries now own gradient
