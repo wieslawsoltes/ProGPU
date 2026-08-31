@@ -2589,6 +2589,66 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfOffsetAndExcludeClipRegionRespectSavedDcState()
+    {
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0004)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0008)),
+            (EmfPlusRecordType.EmfIntersectClipRect, EmfRectangle(8, 8, 32, 32)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(0, 0, 64, 64)),
+            (EmfPlusRecordType.EmfSaveDC, []),
+            (EmfPlusRecordType.EmfOffsetClipRgn, EmfPoint(16, 0)),
+            (EmfPlusRecordType.EmfExcludeClipRect, EmfRectangle(32, 8, 40, 32)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0000)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(0, 0, 64, 64)),
+            (EmfPlusRecordType.EmfRestoreDC, EmfInt32(-1)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0000)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(8, 8, 16, 16))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(12, 12).ToArgb());
+        Assert.Equal(Color.Black.ToArgb(), target.GetPixel(20, 12).ToArgb());
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(28, 12).ToArgb());
+        Assert.Equal(0, target.GetPixel(36, 12).A);
+        Assert.Equal(Color.White.ToArgb(), target.GetPixel(44, 12).ToArgb());
+        Assert.Equal(0, target.GetPixel(52, 12).A);
+    }
+
+    [Fact]
+    public void EmfMalformedOffsetClipRegionRollsBackEarlierGeometry()
+    {
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0004)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(0x8000_0008)),
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(0, 0, 64, 64)),
+            (EmfPlusRecordType.EmfOffsetClipRgn, EmfInt32(16))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Blue);
+            ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Contains(
+                nameof(EmfPlusRecordType.EmfOffsetClipRgn),
+                exception.Message,
+                StringComparison.Ordinal);
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(12, 12).ToArgb());
+    }
+
+    [Fact]
     public void LargeRecordTableParsingHasBoundedAllocation()
     {
         byte[] fixture = CreateLargeEmf(4_096);

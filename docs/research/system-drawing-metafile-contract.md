@@ -670,6 +670,29 @@ iterations and denied priority elevation make this coarse local
 command-shape/allocation evidence; the focused state, geometry, and malformed-
 input gates remain authoritative.
 
+The EMF clip-state follow-up adds `EMR_OFFSETCLIPRGN` and
+`EMR_EXCLUDECLIPRECT` through the same typed `Graphics` clip state already used
+by the WMF player. The records require exact `POINTL` and `RECTL` payloads;
+unordered rectangles and truncated offsets fail before publication. Clip
+offsets and exclusions participate in the active map/world transform and the
+existing `GraphicsState` SaveDC/RestoreDC snapshot. These rules follow the
+official
+[`EMROFFSETCLIPRGN`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-emroffsetcliprgn)
+and
+[`EMREXCLUDECLIPRECT`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-emrexcludecliprect)
+structures. Focused raster evidence covers the initial intersection, moved
+clip, excluded hole, and restored outer clip; a malformed offset after earlier
+geometry proves whole-stream rollback. The complete drawing suite passes
+472/472.
+
+`Playback256EmfOffsetExcludeClipSequences` guards 256 saved clip scopes, each
+with an offset, exclusion, retained rectangle, and relative restore. The
+2026-08-31 ARM64/.NET 10.0.11 ShortRun measured a 5.499 millisecond median
+(5.566 millisecond mean, 1.306 millisecond standard deviation) and 2.41 MB
+allocated. Three measured iterations and denied priority elevation make this
+coarse state-heavy command-shape evidence; the focused raster and rollback
+gates remain the correctness authority.
+
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication
 to a pre-sized memory stream. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun

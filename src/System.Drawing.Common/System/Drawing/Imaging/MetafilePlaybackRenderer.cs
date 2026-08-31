@@ -498,6 +498,16 @@ internal static class MetafilePlaybackRenderer
                 DrawPolyPoly(state, record, payload, close: false, points16: true);
                 return;
 
+            case EmfPlusRecordType.EmfOffsetClipRgn:
+                RequireSize(record, payload, 8);
+                state.OffsetClip(record, ReadPoint(payload));
+                return;
+
+            case EmfPlusRecordType.EmfExcludeClipRect:
+                RequireSize(record, payload, 16);
+                state.ExcludeClip(record, ReadRectangle(record, payload));
+                return;
+
             case EmfPlusRecordType.EmfIntersectClipRect:
                 RequireSize(record, payload, 16);
                 state.IntersectClip(record, ReadRectangle(record, payload));

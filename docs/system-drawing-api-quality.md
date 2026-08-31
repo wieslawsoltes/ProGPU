@@ -143,6 +143,13 @@ AngleArc converts the documented counterclockwise angle convention before
 lowering to typed retained geometry. Malformed records still roll back the
 entire temporary command stream.
 
+The EMF clip-state follow-up adds exact typed `EMR_OFFSETCLIPRGN` and
+`EMR_EXCLUDECLIPRECT` dispatch. Both use the active logical-to-device transform
+and existing `GraphicsState` clip snapshots, so relative RestoreDC removes an
+inner moved/excluded scope without losing the outer intersection. Exact point
+and ordered-rectangle layouts are validated before drawing, and a malformed
+record rolls back earlier temporary geometry.
+
 The type-scoped bitmap-resource slice restores `Bitmap(Type, string)` as a
 functional managed path for designer and control artwork embedded beside its
 owning type. It performs the exact case-sensitive namespace-scoped manifest
@@ -271,6 +278,15 @@ the current-position, signed-storage, closure-origin, orientation, malformed-
 input, and rollback authority. The complete drawing suite passes 470/470 and
 ApiCompat remains at zero missing types, zero missing members, and 13 reviewed
 differences.
+
+`MetafileBenchmarks.Playback256EmfOffsetExcludeClipSequences` guards 256 saved
+offset/exclude/rectangle/restore groups. The 2026-08-31 ARM64/.NET 10.0.11
+ShortRun measured a 5.499 millisecond median (5.566 millisecond mean, 1.306
+millisecond standard deviation) and 2.41 MB allocated. Three iterations and
+denied priority elevation make this coarse state-heavy evidence; exact moved,
+excluded, restored, and transactional-rollback pixels are authoritative. The
+complete drawing suite passes 472/472 and ApiCompat remains at zero missing
+types, zero missing members, and 13 reviewed differences.
 
 `MetafileBenchmarks.Playback256WmfRectanglesToRetainedCommands` guards the shared ordered-box decoder and typed selected brush/pen lowering. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 757.639 µs median (753.507 µs mean, 139.549 µs standard deviation) with 622.08 KB allocated for 256 rectangles. The three-iteration result is coarse transactional retained-command evidence; exact selected-fill pixels and shared malformed-bound rollback remain the correctness gates.
 
