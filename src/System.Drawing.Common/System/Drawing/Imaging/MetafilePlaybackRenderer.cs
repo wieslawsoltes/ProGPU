@@ -95,6 +95,11 @@ internal static class MetafilePlaybackRenderer
                 state.TextAlignment = ReadUInt16(payload, 0);
                 return;
 
+            case EmfPlusRecordType.WmfSetTextCharExtra:
+                RequireSize(record, payload, 2);
+                state.TextCharacterExtra = ReadUInt16(payload, 0);
+                return;
+
             case EmfPlusRecordType.WmfSetBkColor:
                 RequireSize(record, payload, 4);
                 state.BackgroundColor = ReadColor(payload, 0);
@@ -1280,6 +1285,7 @@ internal static class MetafilePlaybackRenderer
         internal int BackgroundMode { get; set; } = 2;
         internal int RasterOperation { get; set; } = 13;
         internal int TextAlignment { get; set; }
+        internal int TextCharacterExtra { get; set; }
         internal Color BackgroundColor { get; set; } = Color.White;
         internal Color TextColor { get; set; } = Color.Black;
         internal Pen? SelectedPen => _selectedPen;
@@ -1482,6 +1488,7 @@ internal static class MetafilePlaybackRenderer
                 BackgroundMode,
                 RasterOperation,
                 TextAlignment,
+                TextCharacterExtra,
                 BackgroundColor,
                 TextColor,
                 _selectedPen,
@@ -1519,6 +1526,7 @@ internal static class MetafilePlaybackRenderer
             BackgroundMode = saved.BackgroundMode;
             RasterOperation = saved.RasterOperation;
             TextAlignment = saved.TextAlignment;
+            TextCharacterExtra = saved.TextCharacterExtra;
             BackgroundColor = saved.BackgroundColor;
             TextColor = saved.TextColor;
             _selectedPen = saved.SelectedPen;
@@ -1707,6 +1715,12 @@ internal static class MetafilePlaybackRenderer
                     record,
                     "Per-character advances combined with right-to-left layout require a bidi glyph-positioning path.");
             }
+            if (dx.IsEmpty && TextCharacterExtra != 0 && effectiveRightToLeft)
+            {
+                throw Unsupported(
+                    record,
+                    "Inter-character spacing combined with right-to-left layout requires a bidi glyph-positioning path.");
+            }
 
             long totalAdvance = 0;
             long minimumAdvance = 0;
@@ -1717,19 +1731,22 @@ internal static class MetafilePlaybackRenderer
                 minimumAdvance = Math.Min(minimumAdvance, totalAdvance);
                 maximumAdvance = Math.Max(maximumAdvance, totalAdvance);
             }
-            long updatedX = (long)((TextAlignment & 0x0001) != 0
-                ? CurrentPoint.X
-                : recordPoint.X) + totalAdvance;
-            if (!dx.IsEmpty && (updatedX < int.MinValue || updatedX > int.MaxValue))
-            {
-                throw Invalid(record);
-            }
 
             SizeF measuredSize = Graphics.MeasureString(text, _selectedFont);
-            float horizontalAdvance = dx.IsEmpty ? measuredSize.Width : totalAdvance;
             PointF reference = (TextAlignment & 0x0001) != 0
                 ? CurrentPoint
                 : recordPoint;
+            Matrix3x2 baseTransform = ApplyTransform(record);
+            float characterExtra = dx.IsEmpty
+                ? GetEffectiveTextCharacterExtra(baseTransform, record)
+                : 0f;
+            float horizontalAdvance = dx.IsEmpty
+                ? measuredSize.Width + characterExtra * text.Length
+                : totalAdvance;
+            if (!float.IsFinite(horizontalAdvance))
+            {
+                throw Invalid(record);
+            }
             float x = reference.X;
             float y = reference.Y;
             x -= (TextAlignment & 0x0006) switch
@@ -1749,7 +1766,6 @@ internal static class MetafilePlaybackRenderer
                 _ => 0f
             };
 
-            Matrix3x2 baseTransform = ApplyTransform(record);
             Matrix3x2 textTransform = CreateTextTransform(baseTransform, reference);
             GraphicsState? clippingState = null;
             if (clipped)
@@ -1769,7 +1785,7 @@ internal static class MetafilePlaybackRenderer
                 {
                     float backgroundX = dx.IsEmpty ? x : x + minimumAdvance;
                     float backgroundWidth = dx.IsEmpty
-                        ? measuredSize.Width
+                        ? horizontalAdvance
                         : maximumAdvance - minimumAdvance;
                     if (!opaque && BackgroundMode == 2 &&
                         backgroundWidth > 0f && measuredSize.Height > 0f)
@@ -1785,7 +1801,17 @@ internal static class MetafilePlaybackRenderer
                     SolidBrush foreground = GetTextBrush();
                     if (dx.IsEmpty)
                     {
-                        if (effectiveRightToLeft)
+                        if (characterExtra != 0f)
+                        {
+                            Graphics.DrawStringWithCharacterExtra(
+                                text,
+                                _selectedFont,
+                                foreground,
+                                x,
+                                y,
+                                characterExtra);
+                        }
+                        else if (effectiveRightToLeft)
                         {
                             using var format = new StringFormat(StringFormat.GenericTypographic)
                             {
@@ -1833,11 +1859,13 @@ internal static class MetafilePlaybackRenderer
             {
                 if (_selectedFontEscapement == 0)
                 {
-                    CurrentPoint = new Point(
-                        dx.IsEmpty
-                            ? Point.Round(new PointF(reference.X + horizontalAdvance, reference.Y)).X
-                            : checked((int)updatedX),
-                        Point.Round(reference).Y);
+                    float logicalEndX = reference.X + horizontalAdvance;
+                    if (!float.IsFinite(logicalEndX) ||
+                        logicalEndX < int.MinValue || logicalEndX > int.MaxValue)
+                    {
+                        throw Invalid(record);
+                    }
+                    CurrentPoint = Point.Round(new PointF(logicalEndX, reference.Y));
                 }
                 else
                 {
@@ -1858,6 +1886,34 @@ internal static class MetafilePlaybackRenderer
                     CurrentPoint = Point.Round(new PointF(logicalEnd.X, logicalEnd.Y));
                 }
             }
+        }
+
+        private float GetEffectiveTextCharacterExtra(
+            Matrix3x2 baseTransform,
+            in MetafileRecord record)
+        {
+            if (TextCharacterExtra == 0 || MapMode == 1)
+            {
+                return TextCharacterExtra;
+            }
+
+            Vector2 deviceExtra = Vector2.TransformNormal(
+                new Vector2(TextCharacterExtra, 0f),
+                baseTransform);
+            deviceExtra = new Vector2(
+                MathF.Round(deviceExtra.X),
+                MathF.Round(deviceExtra.Y));
+            if (!Matrix3x2.Invert(baseTransform, out Matrix3x2 inverseBase))
+            {
+                throw Invalid(record);
+            }
+
+            Vector2 logicalExtra = Vector2.TransformNormal(deviceExtra, inverseBase);
+            if (!float.IsFinite(logicalExtra.X) || !float.IsFinite(logicalExtra.Y))
+            {
+                throw Invalid(record);
+            }
+            return logicalExtra.X;
         }
 
         private Matrix3x2 CreateTextTransform(Matrix3x2 baseTransform, PointF reference)
@@ -2046,6 +2102,7 @@ internal static class MetafilePlaybackRenderer
             int BackgroundMode,
             int RasterOperation,
             int TextAlignment,
+            int TextCharacterExtra,
             Color BackgroundColor,
             Color TextColor,
             Pen? SelectedPen,

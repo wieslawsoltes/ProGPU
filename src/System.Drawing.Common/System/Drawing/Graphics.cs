@@ -2516,6 +2516,67 @@ public partial class Graphics :
             CurrentTransform4x4());
     }
 
+    internal void DrawStringWithCharacterExtra(
+        string text,
+        Font font,
+        Brush brush,
+        float x,
+        float y,
+        float characterExtra)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        ArgumentNullException.ThrowIfNull(font);
+        ArgumentNullException.ThrowIfNull(brush);
+        if (!float.IsFinite(characterExtra))
+        {
+            throw new ArgumentOutOfRangeException(nameof(characterExtra));
+        }
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        var layout = new ProGPU.Text.TextLayout(
+            text,
+            font.TtfFont,
+            GetFontPixelSize(font));
+        if (layout.Glyphs.Count == 0)
+        {
+            return;
+        }
+
+        int previousCluster = layout.Glyphs[0].Cluster;
+        int crossedCharacters = 0;
+        float offset = 0f;
+        for (int index = 0; index < layout.Glyphs.Count; index++)
+        {
+            ProGPU.Text.TextRunGlyph glyph = layout.Glyphs[index];
+            if (glyph.Cluster != previousCluster)
+            {
+                int clusterDistance = Math.Abs(glyph.Cluster - previousCluster);
+                crossedCharacters = checked(crossedCharacters + clusterDistance);
+                offset += clusterDistance * characterExtra;
+                previousCluster = glyph.Cluster;
+            }
+            glyph.Position.X += offset;
+            layout.Glyphs[index] = glyph;
+        }
+
+        int trailingCharacters = Math.Max(0, text.Length - crossedCharacters);
+        if (trailingCharacters > 0)
+        {
+            int lastIndex = layout.Glyphs.Count - 1;
+            ProGPU.Text.TextRunGlyph last = layout.Glyphs[lastIndex];
+            last.Glyph.Advance += trailingCharacters * characterExtra;
+            layout.Glyphs[lastIndex] = last;
+        }
+
+        Vector2 origin = new(x, y);
+        Matrix4x4 transform = CurrentTransform4x4();
+        DrawFormattedGlyphRuns(layout, font, brush, origin, transform);
+        DrawFontDecorations(layout, font, brush, origin, transform);
+    }
+
     public void DrawString(string? s, Font font, Brush brush, RectangleF layoutRectangle)
     {
         ArgumentNullException.ThrowIfNull(brush);

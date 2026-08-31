@@ -31,6 +31,7 @@ public class MetafileBenchmarks
     private Metafile _wmfPatBltPlaybackMetafile = null!;
     private Metafile _wmfOffsetClipPatBltPlaybackMetafile = null!;
     private Metafile _wmfTextPlaybackMetafile = null!;
+    private Metafile _wmfSpacedRotatedTextPlaybackMetafile = null!;
     private Metafile _wmfExtendedTextPlaybackMetafile = null!;
     private Metafile _wmfRotatedExtendedTextPlaybackMetafile = null!;
     private readonly Graphics.EnumerateMetafileProc _enumerate = static (_, _, _, _, _) => true;
@@ -75,6 +76,10 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackWmfPatBlts(256, includeOffsetClipState: true), writable: false));
         _wmfTextPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfText(256), writable: false));
+        _wmfSpacedRotatedTextPlaybackMetafile = new Metafile(
+            new MemoryStream(
+                CreatePlaybackWmfText(256, escapement: 900, characterExtra: 4),
+                writable: false));
         _wmfExtendedTextPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfExtendedText(256), writable: false));
         _wmfRotatedExtendedTextPlaybackMetafile = new Metafile(
@@ -100,6 +105,7 @@ public class MetafileBenchmarks
         _wmfPatBltPlaybackMetafile.Dispose();
         _wmfOffsetClipPatBltPlaybackMetafile.Dispose();
         _wmfTextPlaybackMetafile.Dispose();
+        _wmfSpacedRotatedTextPlaybackMetafile.Dispose();
         _wmfExtendedTextPlaybackMetafile.Dispose();
         _wmfRotatedExtendedTextPlaybackMetafile.Dispose();
         _playbackGraphics.Dispose();
@@ -280,6 +286,18 @@ public class MetafileBenchmarks
     {
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(_wmfTextPlaybackMetafile, new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256WmfSpacedRotatedTextOutToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _wmfSpacedRotatedTextPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
         return commandCount;
@@ -851,11 +869,16 @@ public class MetafileBenchmarks
         return bytes;
     }
 
-    private static byte[] CreatePlaybackWmfText(int recordCount)
+    private static byte[] CreatePlaybackWmfText(
+        int recordCount,
+        short escapement = 0,
+        short characterExtra = 0)
     {
         const int fontWords = 28;
         const int textWords = 8;
-        int declaredWords = checked(9 + fontWords + 4 + 4 + 5 + recordCount * textWords + 3);
+        int characterExtraWords = characterExtra == 0 ? 0 : 4;
+        int declaredWords = checked(
+            9 + fontWords + 4 + 4 + characterExtraWords + 5 + recordCount * textWords + 3);
         byte[] bytes = new byte[checked(22 + declaredWords * 2)];
         WriteUInt32(bytes, 0, 0x9AC6_CDD7);
         WriteInt16(bytes, 10, 640);
@@ -879,6 +902,8 @@ public class MetafileBenchmarks
         WriteUInt32(bytes, cursor, fontWords);
         WriteUInt16(bytes, cursor + 4, 0x02FB);
         WriteInt16(bytes, cursor + 6, -14);
+        WriteInt16(bytes, cursor + 10, escapement);
+        WriteInt16(bytes, cursor + 12, escapement);
         WriteInt16(bytes, cursor + 14, 400);
         bytes[cursor + 19] = 1;
         cursor += fontWords * 2;
@@ -886,6 +911,10 @@ public class MetafileBenchmarks
         WriteWmfObjectIndexRecord(bytes, cursor, 0x012D, 0);
         cursor += 8;
         cursor += WriteWmfWordsRecord(bytes, cursor, 0x0102, 1);
+        if (characterExtra != 0)
+        {
+            cursor += WriteWmfWordsRecord(bytes, cursor, 0x0108, characterExtra);
+        }
 
         WriteUInt32(bytes, cursor, 5);
         WriteUInt16(bytes, cursor + 4, 0x0209);

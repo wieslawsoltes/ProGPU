@@ -458,6 +458,137 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void WmfTextCharacterExtraIsSavedRestoredAndSpacesOneShapedRun()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x0102, WmfWords(1)),
+            (0x02FB, WmfFont(-14, SystemFonts.DefaultFont.Name)),
+            (0x012D, WmfWords(0)),
+            (0x0108, WmfWords(8)),
+            (0x001E, []),
+            (0x0108, WmfWords(2)),
+            (0x0521, WmfTextOut("MM", new Point(4, 4))),
+            (0x0127, WmfWords(-1)),
+            (0x0521, WmfTextOut("MM", new Point(4, 24))),
+            (0, [])
+        };
+        using var metafile = new Metafile(new MemoryStream(CreatePlaybackWmf(records)));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand[] glyphRuns = context.Commands
+            .Where(static command => command.Type == RenderCommandType.DrawGlyphRun)
+            .ToArray();
+        Assert.Equal(2, glyphRuns.Length);
+        Assert.All(glyphRuns, static run => Assert.Equal(2, run.GlyphPositions!.Length));
+        Vector2[] temporaryPositions = glyphRuns[0].GlyphPositions!;
+        Vector2[] restoredPositions = glyphRuns[1].GlyphPositions!;
+        float temporarySpacing =
+            temporaryPositions[1].X - temporaryPositions[0].X;
+        float restoredSpacing =
+            restoredPositions[1].X - restoredPositions[0].X;
+        Assert.Equal(6f, restoredSpacing - temporarySpacing, 3);
+    }
+
+    [Fact]
+    public void WmfTextCharacterExtraExpandsOpaqueBackgroundAndRightAlignment()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x012E, WmfWords(2)),
+            (0x02FB, WmfFont(-14, SystemFonts.DefaultFont.Name)),
+            (0x012D, WmfWords(0)),
+            (0x0108, WmfWords(2)),
+            (0x0521, WmfTextOut("MM", new Point(60, 4))),
+            (0x0108, WmfWords(8)),
+            (0x0521, WmfTextOut("MM", new Point(60, 24))),
+            (0, [])
+        };
+        using var metafile = new Metafile(new MemoryStream(CreatePlaybackWmf(records)));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand[] backgrounds = context.Commands
+            .Where(static command => command.Type == RenderCommandType.DrawRect)
+            .ToArray();
+        RenderCommand[] glyphRuns = context.Commands
+            .Where(static command => command.Type == RenderCommandType.DrawGlyphRun)
+            .ToArray();
+        Assert.Equal(2, backgrounds.Length);
+        Assert.Equal(2, glyphRuns.Length);
+        Assert.Equal(12f, backgrounds[1].Rect.Width - backgrounds[0].Rect.Width, 3);
+        Assert.Equal(-12f, glyphRuns[1].Position.X - glyphRuns[0].Position.X, 3);
+    }
+
+    [Fact]
+    public void WmfExplicitAdvancesOverrideTextCharacterExtra()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x0102, WmfWords(1)),
+            (0x02FB, WmfFont(-14, SystemFonts.DefaultFont.Name)),
+            (0x012D, WmfWords(0)),
+            (0x0108, WmfWords(8)),
+            (0x0A32, WmfExtTextOut(
+                "MM",
+                new Point(4, 4),
+                options: 0,
+                rectangle: Rectangle.Empty,
+                advances: [20, 20])),
+            (0, [])
+        };
+        using var metafile = new Metafile(new MemoryStream(CreatePlaybackWmf(records)));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand glyphRun = Assert.Single(
+            context.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun);
+        Assert.Equal(20f, glyphRun.GlyphPositions![1].X - glyphRun.GlyphPositions[0].X, 3);
+    }
+
+    [Fact]
+    public void WmfTextCharacterExtraRoundsThroughNonTextMapMode()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x0103, WmfWords(8)),
+            (0x020C, WmfWords(1, 3)),
+            (0x020E, WmfWords(1, 2)),
+            (0x0102, WmfWords(1)),
+            (0x02FB, WmfFont(-14, SystemFonts.DefaultFont.Name)),
+            (0x012D, WmfWords(0)),
+            (0x0108, WmfWords(1)),
+            (0x0521, WmfTextOut("MM", new Point(4, 4))),
+            (0x0108, WmfWords(3)),
+            (0x0521, WmfTextOut("MM", new Point(4, 24))),
+            (0, [])
+        };
+        using var metafile = new Metafile(new MemoryStream(CreatePlaybackWmf(records)));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand[] glyphRuns = context.Commands
+            .Where(static command => command.Type == RenderCommandType.DrawGlyphRun)
+            .ToArray();
+        Assert.Equal(2, glyphRuns.Length);
+        Vector2[] roundedPositions = glyphRuns[0].GlyphPositions!;
+        Vector2[] exactPositions = glyphRuns[1].GlyphPositions!;
+        float roundedOne = roundedPositions[1].X - roundedPositions[0].X;
+        float exactThree = exactPositions[1].X - exactPositions[0].X;
+        Assert.Equal(1.5f, exactThree - roundedOne, 3);
+    }
+
+    [Fact]
     public void WmfSelectedFontRecordsUnderlineAndStrikeout()
     {
         var records = new List<(ushort Function, byte[] Payload)>
@@ -549,6 +680,68 @@ public sealed class MetafileParserTests
         }
         Rectangle paintedBounds = GetPaintedBounds(target);
         Assert.True(paintedBounds.Height > paintedBounds.Width);
+    }
+
+    [Fact]
+    public void WmfRotatedTextCharacterExtraUpdatesCurrentPointAlongEscapement()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x0102, WmfWords(1)),
+            (0x012E, WmfWords(1)),
+            (0x0214, WmfWords(56, 48)),
+            (0x02FB, WmfFont(
+                -14,
+                SystemFonts.DefaultFont.Name,
+                escapement: 900)),
+            (0x012D, WmfWords(0)),
+            (0x0108, WmfWords(6)),
+            (0x0521, WmfTextOut("MM", Point.Empty)),
+            (0x0108, WmfWords(0)),
+            (0x0521, WmfTextOut("M", Point.Empty)),
+            (0, [])
+        };
+        using var metafile = new Metafile(new MemoryStream(CreatePlaybackWmf(records)));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        using var expectedFont = new Font(
+            SystemFonts.DefaultFont.Name,
+            14f,
+            FontStyle.Regular,
+            GraphicsUnit.Pixel);
+        float expectedAdvance = graphics.MeasureString("MM", expectedFont).Width + 12f;
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand[] textCommands = context.Commands
+            .Where(static command => command.Type is
+                RenderCommandType.DrawGlyphRun or RenderCommandType.DrawText)
+            .ToArray();
+        Assert.Equal(2, textCommands.Length);
+        Assert.Equal(48f, textCommands[0].Position.X, 3);
+        Assert.Equal(56f, textCommands[0].Position.Y, 3);
+        Assert.Equal(48f, textCommands[1].Position.X, 3);
+        Assert.Equal(MathF.Round(56f - expectedAdvance), textCommands[1].Position.Y, 3);
+    }
+
+    [Fact]
+    public void WmfMalformedTextCharacterExtraRollsBackEarlierText()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x0521, WmfTextOut("M", new Point(4, 4))),
+            (0x0108, WmfWords(2, 3)),
+            (0, [])
+        };
+        using var metafile = new Metafile(new MemoryStream(CreatePlaybackWmf(records)));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+        Assert.Contains(nameof(EmfPlusRecordType.WmfSetTextCharExtra), exception.Message);
+        Assert.Empty(context.Commands);
     }
 
     [Fact]

@@ -96,7 +96,12 @@ member suppression, leaving zero missing types, zero missing members, and 13
     decorations from selected WMF font flags. Matching compatible-mode font
     escapement/orientation rotates baselines, glyphs, backgrounds, and
     decorations in device space and advances `TA_UPDATECP` along the rotated
-    baseline. `EXTTEXTOUT` adds explicit
+    baseline. Typed `META_SETTEXTCHAREXTRA` state adds its unsigned logical-unit
+    spacing to every character cell when text uses default spacing, rounds the
+    transformed value to a device pixel outside `MM_TEXT`, and participates in
+    alignment, measured backgrounds, rotated current-position updates, and
+    SaveDC/RestoreDC. An explicit `EXTTEXTOUT` `Dx` array overrides that default
+    spacing. `EXTTEXTOUT` adds explicit
     opaque/clipped rectangles, RTL layout without explicit advances, and signed
     one-byte-character advances. WMF SaveDC and relative RestoreDC
     snapshot window/viewport origins and extents, current point, world
@@ -348,6 +353,19 @@ deviation). Command gates independently prove upward baseline rotation,
 decoration-transform identity, deterministic `TA_UPDATECP`, and transactional
 rejection of independent orientation. The complete suite passes 423/423 and
 ApiCompat remains 0/0/13.
+
+`MetafileBenchmarks.Playback256WmfSpacedRotatedTextOutToRetainedCommands`
+guards the new default-spacing path with one selected 90-degree font, one
+`META_SETTEXTCHAREXTRA`, and 256 three-character `TEXTOUT` records. The
+2026-08-31 ARM64/.NET 10.0.11 paired five-iteration in-process ShortRun measured
+a 799.768 µs median (795.294 µs mean, 24.929 µs standard deviation after one
+outlier) and 800.19 KB allocated. The paired unspaced, unrotated retained-text
+workload measured a 492.332 µs median (499.250 µs mean, 26.098 µs standard
+deviation) and 550.16 KB; it is a workload-cost reference, not an equivalence
+claim. State restoration, exact `Dx` override, non-`MM_TEXT` rounding, shaped
+glyph spacing, right alignment/background extent, rotated `TA_UPDATECP`,
+malformed-record rollback, and the complete 429/429 drawing suite are the
+correctness authority. ApiCompat remains 0/0/13.
 
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the

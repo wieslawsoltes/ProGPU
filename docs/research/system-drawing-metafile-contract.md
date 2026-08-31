@@ -112,7 +112,14 @@ state/object path separate from EMF. It implements background mode/color,
 `R2_COPYPEN`, `META_SETRELABS` no-op semantics, polygon fill mode, text-alignment
 state, text color, `CREATEFONTINDIRECT` object-table fonts, charset-decoded
 `TEXTOUT`, and `EXTTEXTOUT` opaque/clipped rectangles and signed character
-advances. Selected WMF underline and strikeout font bits lower through the same
+advances. `META_SETTEXTCHAREXTRA` is retained as unsigned 16-bit DC state and
+adds logical-unit spacing to every character cell for `TEXTOUT` and
+`EXTTEXTOUT` without a `Dx` array. Outside `MM_TEXT`, playback transforms and
+rounds the spacing to the nearest device pixel before returning it to the
+logical baseline. Alignment, measured opaque background, compatible-mode
+escapement, and `TA_UPDATECP` use the same effective advance. An explicit `Dx`
+array supplies the complete character-cell origins and therefore overrides
+default character extra. Selected WMF underline and strikeout font bits lower through the same
 OpenType-metric retained decoration path as ordinary `Graphics.DrawString`.
 Compatible-mode fonts whose escapement and orientation match rotate the text
 baseline, glyphs, measured background, and decorations together in device
@@ -151,6 +158,9 @@ implementation is based on the official
 [Font Object](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/dabb1ed6-e5e8-4243-80ed-e63443e5484f),
 [LOGFONT escapement and orientation](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/ns-wingdi-logfonta),
 [META_SETTEXTCOLOR](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/2bdfee2b-3016-4a6a-b4cd-c725ce9cb2a0),
+[META_SETTEXTCHAREXTRA](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/e9ac157a-cb53-406d-be53-f249cd5b2dff),
+[SetTextCharacterExtra](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-settextcharacterextra),
+[GetTextExtentPoint32W spacing rules](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-gettextextentpoint32w),
 [META_TEXTOUT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/96531e1a-1875-49e5-b797-b4c4c50fa789),
 [META_EXTTEXTOUT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/7d07c44a-a828-4b82-9af0-e0a81cced5a8),
 [ExtTextOutOptions Flags](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/830cec14-2f3c-46f3-8f20-82b3da370573),
@@ -164,7 +174,10 @@ contracts. Paths, other clipping records, `EXTTEXTOUT` glyph-index, numeric-
 substitution, two-dimensional, DBCS-advance, and bidi-advance modes, independent
 escapement/orientation, vertical fonts, SYMBOL glyph-index mapping, DIB images, richer GDI objects,
 other WMF drawing families, and nonstructural EMF+ drawing records remain
-explicit later tranches.
+explicit later tranches. The Win32 contract identifies character extra as
+incompatible with complex shaping; playback consequently rejects explicit RTL
+plus character-extra combinations until a typed bidi cell-positioning path can
+match Windows behavior rather than silently perturbing visual clusters.
 
 Portable comment recording is a typed encoder over the same immutable record
 model. `ProGPU.SystemDrawing.PortableMetafile.Create` accepts a caller-owned,
@@ -406,6 +419,28 @@ the exact base transform reduced the comparable five-iteration checkpoint to
 10.0.11 ShortRun measured a 5.599 millisecond median (5.831 millisecond mean,
 0.821 millisecond standard deviation). Timing remains high variance; the
 allocation result and command-transform gates are the authoritative evidence.
+
+`META_SETTEXTCHAREXTRA` now participates in the same owned playback-state
+snapshot as map mode, alignment, colors, selected objects, and clip state. A
+fixed-size record gate proves malformed payload rollback; command gates prove
+SaveDC/RestoreDC spacing, one shaped run, right-aligned opaque-background
+extent, explicit-`Dx` override, and nearest-device-pixel rounding under
+anisotropic mapping. A rotated `TA_UPDATECP` gate
+adds character extra to the measured default advance and verifies that the
+following text origin moves along the selected font baseline.
+
+`Playback256WmfSpacedRotatedTextOutToRetainedCommands` guards one selected
+90-degree WMF font, one character-extra state record, and 256 three-character
+`TEXTOUT` records. The paired 2026-08-31 ARM64/.NET 10.0.11 five-iteration
+in-process ShortRun measured a 799.768 microsecond median (795.294 microsecond
+mean, 24.929 microsecond standard deviation after one outlier) with 800.19 KB
+allocated. The unspaced/unrotated retained-text reference measured a 492.332
+microsecond median (499.250 microsecond mean, 26.098 microsecond standard
+deviation) with 550.16 KB. The difference captures the shaped glyph-position
+arrays and rotation work of the new workload; it is not presented as a
+like-for-like regression. The complete drawing suite passes 429/429 and
+ApiCompat remains 0 missing types, 0 missing members, and 13 reviewed
+platform-annotation differences.
 
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication
