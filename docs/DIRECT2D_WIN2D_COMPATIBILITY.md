@@ -78,6 +78,48 @@ behavior oracle, ProGPU on Windows to separate translation errors from backend
 differences, and ProGPU on macOS/Linux for command-stream, resource-lifetime,
 diagnostic, and bounded image-differential parity.
 
+### Application compatibility tiers
+
+“Uses COM” and “requires Windows” are not equivalent. COM supplies interface
+identity, lifetime, and activation rules; the concrete interface and the data
+crossing it determine portability. ProGPU classifies an application at each
+interop boundary instead of assigning one portability label to the whole
+process:
+
+| Application call shape | macOS/Linux behavior | Required application change |
+| --- | --- | --- |
+| `IUnknown`, `QueryInterface`, `AddRef`/`Release`, and supported ProGPU-owned `ID2D1*` resources | Runs in-process through the portable C++ compatibility objects and records the same pointer-free scene used on Windows | Rebuild against the ProGPU compatibility SDK; preserve COM ownership rules |
+| Supported Direct3D-style buffers, textures, pipelines, descriptors, and command recording | Lowers to WebGPU and selects Metal on macOS or Vulkan on Linux | Rebuild against `ProGPU.DirectX`; replace raw native handles with typed ProGPU resource leases |
+| Win2D drawing expressed through the portable `ProGPU.Win2D` Canvas API | Runs in-process and lowers to the shared scene/vector/text/effect implementation | Rebuild source against the portable Canvas projection |
+| System `ID2D1*`, DXGI shared handles, D3D11 keyed mutexes, HWND/HDC targets, or native Win2D resource wrapping | No native in-process equivalent; the call fails closed at the typed platform boundary | Select a ProGPU-owned resource on portable targets, or keep a Windows implementation behind a platform service |
+| Arbitrary registered COM servers, ActiveX, shell automation, Media Foundation/DirectShow components, or an unchanged PE/WinRT binary | Not provided by ProGPU | Use a Windows VM/Wine or a Windows helper process/plugin and exchange neutral data |
+
+A supported Direct2D call therefore follows one batched translation path:
+
+```text
+application ID2D1*/Canvas call
+        -> ProGPU-owned COM identity and validated resource domain
+        -> retained pointer-free geometry/image/text/effect command
+        -> shared scene compilation and resource lifetime tracking
+        -> D3D12 (Windows) / Metal (macOS) / Vulkan (Linux) / WebGPU
+```
+
+The COM call itself does not cross a process or become a GPU submission. COM
+objects remain on the application side of the boundary, while the retained
+scene carries stable IDs and value descriptors. This prevents Windows pointer,
+registry, apartment, HWND, and DXGI-handle assumptions from leaking into the
+portable renderer and allows command batching, resource caching, and device
+loss recovery to remain shared.
+
+Applications with a large mixed surface should introduce one adapter boundary,
+not wrappers around every call. Keep portable drawing, compute, and resource
+creation on ProGPU; isolate genuinely Windows-only capture, codec, shell, or
+third-party COM components behind a service whose contract uses byte streams,
+shared scene/resource descriptors, or explicit external-texture leases. On
+Windows that service may return genuine system DirectX resources for zero-copy
+interop. On macOS/Linux it selects a native portable provider or reports the
+missing capability before recording work.
+
 ## Current support matrix
 
 | Surface | Status | Contract |
