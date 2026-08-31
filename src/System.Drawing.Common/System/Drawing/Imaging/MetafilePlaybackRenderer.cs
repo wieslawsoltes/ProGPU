@@ -62,6 +62,11 @@ internal static class MetafilePlaybackRenderer
                 state.SetBackgroundMode(ReadUInt16(payload, 0), record);
                 return;
 
+            case EmfPlusRecordType.WmfSetMapMode:
+                RequireSize(record, payload, 2);
+                state.SetMapMode(ReadUInt16(payload, 0), record);
+                return;
+
             case EmfPlusRecordType.WmfSetROP2:
                 RequireSize(record, payload, 2);
                 state.SetRasterOperation(ReadUInt16(payload, 0), record);
@@ -99,6 +104,36 @@ internal static class MetafilePlaybackRenderer
             case EmfPlusRecordType.WmfSetWindowExt:
                 RequireSize(record, payload, 4);
                 state.SetWindowExtent(ReadWmfYxPoint(payload), record);
+                return;
+
+            case EmfPlusRecordType.WmfSetViewportOrg:
+                RequireSize(record, payload, 4);
+                state.ViewportOrigin = ReadWmfYxPoint(payload);
+                return;
+
+            case EmfPlusRecordType.WmfSetViewportExt:
+                RequireSize(record, payload, 4);
+                state.SetViewportExtent(ReadWmfYxPoint(payload), record);
+                return;
+
+            case EmfPlusRecordType.WmfOffsetWindowOrg:
+                RequireSize(record, payload, 4);
+                state.OffsetWindowOrigin(ReadWmfYxPoint(payload), record);
+                return;
+
+            case EmfPlusRecordType.WmfOffsetViewportOrg:
+                RequireSize(record, payload, 4);
+                state.OffsetViewportOrigin(ReadWmfYxPoint(payload), record);
+                return;
+
+            case EmfPlusRecordType.WmfScaleWindowExt:
+                RequireSize(record, payload, 8);
+                state.ScaleWmfWindowExtent(payload, record);
+                return;
+
+            case EmfPlusRecordType.WmfScaleViewportExt:
+                RequireSize(record, payload, 8);
+                state.ScaleWmfViewportExtent(payload, record);
                 return;
 
             case EmfPlusRecordType.WmfMoveTo:
@@ -849,6 +884,32 @@ internal static class MetafilePlaybackRenderer
         }
     }
 
+    private static Point ScaleWmfExtent(
+        Point extent,
+        ReadOnlySpan<byte> payload,
+        in MetafileRecord record)
+    {
+        int yDenominator = ReadInt16(payload, 0);
+        int yNumerator = ReadInt16(payload, 2);
+        int xDenominator = ReadInt16(payload, 4);
+        int xNumerator = ReadInt16(payload, 6);
+        if (xDenominator == 0 || yDenominator == 0)
+        {
+            throw Invalid(record);
+        }
+
+        try
+        {
+            return new Point(
+                checked((int)((long)extent.X * xNumerator / xDenominator)),
+                checked((int)((long)extent.Y * yNumerator / yDenominator)));
+        }
+        catch (OverflowException exception)
+        {
+            throw Invalid(record, exception);
+        }
+    }
+
     private static Matrix3x2 ReadTransform(
         in MetafileRecord record,
         ReadOnlySpan<byte> payload)
@@ -1040,6 +1101,34 @@ internal static class MetafilePlaybackRenderer
             }
         }
 
+        internal void OffsetWindowOrigin(Point offset, in MetafileRecord record)
+        {
+            try
+            {
+                WindowOrigin = new Point(
+                    checked(WindowOrigin.X + offset.X),
+                    checked(WindowOrigin.Y + offset.Y));
+            }
+            catch (OverflowException exception)
+            {
+                throw Invalid(record, exception);
+            }
+        }
+
+        internal void OffsetViewportOrigin(Point offset, in MetafileRecord record)
+        {
+            try
+            {
+                ViewportOrigin = new Point(
+                    checked(ViewportOrigin.X + offset.X),
+                    checked(ViewportOrigin.Y + offset.Y));
+            }
+            catch (OverflowException exception)
+            {
+                throw Invalid(record, exception);
+            }
+        }
+
         internal void ScaleWindowExtent(ReadOnlySpan<byte> payload, in MetafileRecord record)
         {
             if (MapMode == 8)
@@ -1054,6 +1143,24 @@ internal static class MetafilePlaybackRenderer
             if (MapMode == 8)
             {
                 ViewportExtent = ScaleExtent(ViewportExtent, payload, record);
+                ValidateExtents(record);
+            }
+        }
+
+        internal void ScaleWmfWindowExtent(ReadOnlySpan<byte> payload, in MetafileRecord record)
+        {
+            if (MapMode == 8)
+            {
+                WindowExtent = ScaleWmfExtent(WindowExtent, payload, record);
+                ValidateExtents(record);
+            }
+        }
+
+        internal void ScaleWmfViewportExtent(ReadOnlySpan<byte> payload, in MetafileRecord record)
+        {
+            if (MapMode == 8)
+            {
+                ViewportExtent = ScaleWmfExtent(ViewportExtent, payload, record);
                 ValidateExtents(record);
             }
         }

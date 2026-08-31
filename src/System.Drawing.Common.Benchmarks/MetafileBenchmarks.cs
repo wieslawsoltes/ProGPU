@@ -27,6 +27,7 @@ public class MetafileBenchmarks
     private Metafile _wmfLinePlaybackMetafile = null!;
     private Metafile _wmfPixelPlaybackMetafile = null!;
     private Metafile _wmfPolyPolygonPlaybackMetafile = null!;
+    private Metafile _wmfMappedPixelPlaybackMetafile = null!;
     private readonly Graphics.EnumerateMetafileProc _enumerate = static (_, _, _, _, _) => true;
     private readonly byte[] _comment = new byte[64];
 
@@ -61,6 +62,8 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackWmfLineOrPixels(256, setPixels: true), writable: false));
         _wmfPolyPolygonPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfPolyPolygons(256), writable: false));
+        _wmfMappedPixelPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackWmfMappedPixels(256), writable: false));
     }
 
     [GlobalCleanup]
@@ -78,6 +81,7 @@ public class MetafileBenchmarks
         _wmfLinePlaybackMetafile.Dispose();
         _wmfPixelPlaybackMetafile.Dispose();
         _wmfPolyPolygonPlaybackMetafile.Dispose();
+        _wmfMappedPixelPlaybackMetafile.Dispose();
         _playbackGraphics.Dispose();
         _graphics.Dispose();
         _target.Dispose();
@@ -216,6 +220,16 @@ public class MetafileBenchmarks
     {
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(_wmfPolyPolygonPlaybackMetafile, new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256WmfMappedPixelsWithViewportState()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(_wmfMappedPixelPlaybackMetafile, new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
         return commandCount;
@@ -641,6 +655,62 @@ public class MetafileBenchmarks
         return bytes;
     }
 
+    private static byte[] CreatePlaybackWmfMappedPixels(int recordCount)
+    {
+        const int setupWords = 24;
+        const int cycleWords = 55;
+        int declaredWords = checked(9 + setupWords + recordCount * cycleWords + 3);
+        byte[] bytes = new byte[checked(22 + declaredWords * 2)];
+        WriteUInt32(bytes, 0, 0x9AC6_CDD7);
+        WriteInt16(bytes, 10, 640);
+        WriteInt16(bytes, 12, 480);
+        WriteUInt16(bytes, 14, 96);
+        ushort checksum = 0;
+        for (int offset = 0; offset < 20; offset += 2)
+        {
+            checksum ^= BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset, 2));
+        }
+        WriteUInt16(bytes, 20, checksum);
+
+        WriteUInt16(bytes, 22, 1);
+        WriteUInt16(bytes, 24, 9);
+        WriteUInt16(bytes, 26, 0x0300);
+        WriteUInt32(bytes, 28, (uint)declaredWords);
+        WriteUInt16(bytes, 32, 0);
+        WriteUInt32(bytes, 34, 7);
+
+        int cursor = 40;
+        cursor += WriteWmfWordsRecord(bytes, cursor, 0x0103, 8);
+        cursor += WriteWmfWordsRecord(bytes, cursor, 0x020C, 480, 640);
+        cursor += WriteWmfWordsRecord(bytes, cursor, 0x020B, 0, 0);
+        cursor += WriteWmfWordsRecord(bytes, cursor, 0x020E, 480, 640);
+        cursor += WriteWmfWordsRecord(bytes, cursor, 0x020D, 0, 0);
+
+        for (int index = 0; index < recordCount; index++)
+        {
+            cursor += WriteWmfWordsRecord(bytes, cursor, 0x020F, 1, 1);
+            cursor += WriteWmfWordsRecord(bytes, cursor, 0x020F, -1, -1);
+            cursor += WriteWmfWordsRecord(bytes, cursor, 0x0211, 1, 1);
+            cursor += WriteWmfWordsRecord(bytes, cursor, 0x0211, -1, -1);
+            cursor += WriteWmfWordsRecord(bytes, cursor, 0x0410, 1, 2, 1, 2);
+            cursor += WriteWmfWordsRecord(bytes, cursor, 0x0410, 2, 1, 2, 1);
+            cursor += WriteWmfWordsRecord(bytes, cursor, 0x0412, 1, 2, 1, 2);
+            cursor += WriteWmfWordsRecord(bytes, cursor, 0x0412, 2, 1, 2, 1);
+
+            short x = checked((short)((index * 37) % 640));
+            short y = checked((short)((index * 29) % 480));
+            WriteUInt32(bytes, cursor, 7);
+            WriteUInt16(bytes, cursor + 4, 0x041F);
+            WriteUInt32(bytes, cursor + 6, 0x00FF_FF00);
+            WriteInt16(bytes, cursor + 10, y);
+            WriteInt16(bytes, cursor + 12, x);
+            cursor += 14;
+        }
+
+        WriteUInt32(bytes, cursor, 3);
+        return bytes;
+    }
+
     private static void WriteWmfBoxRecord(
         byte[] target,
         int offset,
@@ -708,6 +778,22 @@ public class MetafileBenchmarks
         WriteUInt32(target, offset, 4);
         WriteUInt16(target, offset + 4, function);
         WriteUInt16(target, offset + 6, index);
+    }
+
+    private static int WriteWmfWordsRecord(
+        byte[] target,
+        int offset,
+        ushort function,
+        params short[] values)
+    {
+        int byteCount = checked(6 + values.Length * 2);
+        WriteUInt32(target, offset, checked((uint)(byteCount / 2)));
+        WriteUInt16(target, offset + 4, function);
+        for (int index = 0; index < values.Length; index++)
+        {
+            WriteInt16(target, offset + 6 + index * 2, values[index]);
+        }
+        return byteCount;
     }
 
     private static void WriteWmfPoint(byte[] target, int offset, short x, short y)

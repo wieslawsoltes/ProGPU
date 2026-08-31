@@ -93,7 +93,9 @@ member suppression, leaving zero missing types, zero missing members, and 13
     snapshot window/viewport origins and extents, current point, world
     transform, fill/map/background/raster/text/background-color settings,
     selected pen and brush, and the typed `GraphicsState` clip; restoration
-    therefore removes inner clip changes without losing the outer clip. Four-point
+    therefore removes inner clip changes without losing the outer clip. Typed
+    `MM_TEXT`/`MM_ANISOTROPIC` state now includes set/offset origins and y-first
+    ratio scaling for both window and viewport extents. Four-point
     perspective, image attributes, paths,
     text, DIBs, other WMF drawing families, and nonstructural EMF+ drawing remain
     explicit follow-up work. Contract, security bounds, and benchmark evidence are recorded
@@ -219,7 +221,7 @@ measured a 561.572 µs median (599.013 µs mean, 103.320 µs standard deviation)
 with 628.33 KB allocated. Three iterations make this coarse state-lowering
 evidence; independent inside, excluded-hole, restored-clip, intersection-edge,
 invalid-relative-level, and transactional-rollback gates remain authoritative.
-The complete drawing suite passes 405/405, and ApiCompat remains at zero
+The complete drawing suite passes 407/407, and ApiCompat remains at zero
 missing types, zero missing members, and 13 reviewed platform annotations.
 
 `MetafileBenchmarks.Playback256WmfEllipsesToRetainedCommands` guards typed WMF ellipse playback through the selected fill and outline objects. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 ms median (1.109 ms mean, 0.115 ms standard deviation) with 622.14 KB allocated for 256 ellipses. The three-iteration result is coarse retained-command evidence; exact pixels and rollback after a later unsupported text record remain the independent correctness gates.
@@ -265,6 +267,14 @@ coarse evidence and expose array/path allocation as an optimization target.
 Exact disjoint pixels, unchanged current-position behavior, invalid count
 rejection, and rollback after a later unsupported record remain the correctness
 gates.
+
+`MetafileBenchmarks.Playback256WmfMappedPixelsWithViewportState` guards 256
+balanced cycles of signed window/viewport origin offsets, y-first window and
+viewport extent ratios, and transformed one-device-pixel output. The 2026-08-31
+ARM64/.NET 10.0.11 in-process ShortRun measured a 155.282 µs median (156.556 µs
+mean, 3.099 µs standard deviation) with 305.71 KB allocated. Exact pixels cover
+`MM_ANISOTROPIC`, set/offset/scale composition, and SaveDC/RestoreDC; a zero
+denominator rollback gate remains the correctness authority.
 
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the

@@ -558,6 +558,51 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void WmfViewportWindowOffsetAndScaleRecordsComposeAndRestore()
+    {
+        using var metafile = new Metafile(new MemoryStream(CreateMappedPixelPlaybackWmf()));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(8, 8).ToArgb());
+        Assert.Equal(Color.Green.ToArgb(), target.GetPixel(22, 22).ToArgb());
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(20, 25).ToArgb());
+        Assert.Equal(Color.Magenta.ToArgb(), target.GetPixel(38, 38).ToArgb());
+        Assert.Equal(Color.Yellow.ToArgb(), target.GetPixel(16, 16).ToArgb());
+    }
+
+    [Fact]
+    public void WmfScaleWindowExtentRejectsZeroDenominatorWithoutPublishingPixels()
+    {
+        byte[] bytes = CreateMappedPixelPlaybackWmf();
+        int scaleDataOffset;
+        using (var parsed = new Metafile(new MemoryStream(bytes, writable: false)))
+        {
+            scaleDataOffset = Assert.Single(
+                parsed.Records.ToArray(),
+                record => record.Type == EmfPlusRecordType.WmfScaleWindowExt).DataOffset;
+        }
+        WriteInt16(bytes, scaleDataOffset, 0);
+
+        using var metafile = new Metafile(new MemoryStream(bytes, writable: false));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Cyan);
+            ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Contains(nameof(EmfPlusRecordType.WmfScaleWindowExt), exception.Message, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(Color.Cyan.ToArgb(), target.GetPixel(8, 8).ToArgb());
+        Assert.Equal(Color.Cyan.ToArgb(), target.GetPixel(22, 22).ToArgb());
+    }
+
+    [Fact]
     public void WmfEllipseRejectsUnorderedBoundsWithoutPublishingCommands()
     {
         byte[] bytes = CreatePlaybackWmf();
@@ -1054,6 +1099,31 @@ public sealed class MetafileParserTests
             records.Add((0x0521, WmfWords(0)));
         }
         records.Add((0, []));
+        return CreatePlaybackWmf(records);
+    }
+
+    private static byte[] CreateMappedPixelPlaybackWmf()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x0103, WmfWords(8)),
+            (0x020C, WmfWords(64, 64)),
+            (0x020B, WmfWords(0, 0)),
+            (0x020E, WmfWords(64, 64)),
+            (0x020D, WmfWords(0, 0)),
+            (0x001E, []),
+            (0x041F, WmfSetPixel(Color.Red, new Point(8, 8))),
+            (0x020F, WmfWords(6, 4)),
+            (0x0211, WmfWords(20, 10)),
+            (0x041F, WmfSetPixel(Color.Green, new Point(16, 8))),
+            (0x0410, WmfWords(1, 2, 1, 2)),
+            (0x041F, WmfSetPixel(Color.Blue, new Point(24, 16))),
+            (0x0412, WmfWords(1, 2, 1, 2)),
+            (0x041F, WmfSetPixel(Color.Magenta, new Point(32, 24))),
+            (0x0127, WmfWords(-1)),
+            (0x041F, WmfSetPixel(Color.Yellow, new Point(16, 16))),
+            (0, [])
+        };
         return CreatePlaybackWmf(records);
     }
 
