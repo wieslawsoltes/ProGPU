@@ -5854,6 +5854,24 @@ qualifies ABI v52 on Windows x64. The ClangCL x64/ARM64 lanes still stop only
 at the three pre-existing missing-braces warning-as-error sites; this slice
 introduces no additional ClangCL warning.
 
+Direct2D compatibility ABI v53 adds a ProGPU-owned
+`ID2D1TransformedGeometry`. It retains its immutable source, original affine
+matrix, and factory identity, and composes the stored transform before each
+caller world transform with double intermediates and finite-range validation.
+Supported analysis, simplification, and scene-recording calls delegate through
+that composed matrix, so nested transformed resources and normal
+`FillGeometry` lowering reuse the retained source without a copied path,
+per-frame rebuilding, CPU readback, or backend-specific command. Sources from
+another factory and malformed transforms fail closed; compare/combine remain
+explicitly unsupported rather than dropping the transformed-resource matrix.
+
+The native oracle covers COM/source/factory identity, metadata, exact affine
+bounds, containment, area, length, point-at-length, simplified topology,
+invalid creation, pointer-free semantic fill translation, and a non-commuting
+stored-plus-world differential against system Direct2D. Focused managed ABI
+contracts pass 5/5. Exact Windows MSVC/native qualification remains pending for
+this ABI-v53 checkpoint.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

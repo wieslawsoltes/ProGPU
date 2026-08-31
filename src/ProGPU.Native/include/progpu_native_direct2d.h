@@ -779,7 +779,7 @@ typedef struct progpu_native_direct2d_stroke_style_properties {
 } progpu_native_direct2d_stroke_style_properties;
 
 enum {
-    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 52U
+    PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 53U
 };
 
 PROGPU_NATIVE_DIRECT2D_API uint32_t
@@ -787,9 +787,9 @@ progpu_native_direct2d_get_abi_version(void);
 
 /* Returns a caller-owned ProGPU-implemented ID2D1Factory1. The explicit
  * compatibility factory is independent of the system Direct2D provider and
- * never shadows D2D1CreateFactory or d2d1.dll. ABI v52 implements immutable
- * rectangle, rounded-rectangle, ellipse, and path geometry plus typed
- * stroke/brush resources; unsupported resource families fail closed. */
+ * never shadows D2D1CreateFactory or d2d1.dll. ABI v53 implements immutable
+ * rectangle, rounded-rectangle, ellipse, transformed, and path geometry plus
+ * typed stroke/brush resources; unsupported resource families fail closed. */
 PROGPU_NATIVE_DIRECT2D_API progpu_native_direct2d_status
 progpu_native_direct2d_compat_factory_create(
     void** factory,

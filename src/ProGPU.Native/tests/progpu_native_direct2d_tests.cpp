@@ -628,6 +628,122 @@ int main()
             invalid_ellipse == nullptr,
         "invalid ProGPU ellipse did not fail closed");
 
+    const D2D1_MATRIX_3X2_F compat_geometry_transform =
+        D2D1::Matrix3x2F(2.0F, 0.0F, 0.0F, 3.0F, 5.0F, -2.0F);
+    ComPtr<ID2D1TransformedGeometry> compat_transformed_geometry;
+    require(
+        compat_factory->CreateTransformedGeometry(
+            compat_rectangle_path.Get(),
+            &compat_geometry_transform,
+            &compat_transformed_geometry) == S_OK &&
+            compat_transformed_geometry != nullptr,
+        "ProGPU ID2D1TransformedGeometry creation failed");
+    ComPtr<ID2D1Geometry> compat_transformed_geometry_base;
+    ComPtr<ID2D1Geometry> compat_transformed_geometry_source;
+    ComPtr<ID2D1Factory> compat_transformed_geometry_factory;
+    compat_transformed_geometry->GetSourceGeometry(
+        &compat_transformed_geometry_source);
+    compat_transformed_geometry->GetFactory(
+        &compat_transformed_geometry_factory);
+    D2D1_MATRIX_3X2_F compat_returned_geometry_transform{};
+    compat_transformed_geometry->GetTransform(
+        &compat_returned_geometry_transform);
+    require(
+        SUCCEEDED(compat_transformed_geometry.As(
+            &compat_transformed_geometry_base)) &&
+            has_same_com_identity(
+                compat_transformed_geometry.Get(),
+                compat_transformed_geometry_base.Get()) &&
+            has_same_com_identity(
+                compat_transformed_geometry_source.Get(),
+                compat_rectangle_path.Get()) &&
+            has_same_com_identity(
+                compat_transformed_geometry_factory.Get(),
+                compat_factory.Get()) &&
+            compat_returned_geometry_transform._11 == 2.0F &&
+            compat_returned_geometry_transform._22 == 3.0F &&
+            compat_returned_geometry_transform._31 == 5.0F &&
+            compat_returned_geometry_transform._32 == -2.0F,
+        "ProGPU transformed geometry state, source, factory, or COM identity changed");
+    D2D1_RECT_F compat_transformed_geometry_bounds{};
+    BOOL compat_transformed_geometry_contains = FALSE;
+    FLOAT compat_transformed_geometry_area = 0.0F;
+    FLOAT compat_transformed_geometry_length = 0.0F;
+    require(
+        compat_transformed_geometry->GetBounds(
+            nullptr,
+            &compat_transformed_geometry_bounds) == S_OK &&
+            compat_transformed_geometry_bounds.left == 5.0F &&
+            compat_transformed_geometry_bounds.top == -2.0F &&
+            compat_transformed_geometry_bounds.right == 25.0F &&
+            compat_transformed_geometry_bounds.bottom == 22.0F &&
+        compat_transformed_geometry->FillContainsPoint(
+            D2D1::Point2F(15.0F, 10.0F),
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_transformed_geometry_contains) == S_OK &&
+            compat_transformed_geometry_contains == TRUE &&
+        compat_transformed_geometry->ComputeArea(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_transformed_geometry_area) == S_OK &&
+            compat_transformed_geometry_area == 480.0F &&
+        compat_transformed_geometry->ComputeLength(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_transformed_geometry_length) == S_OK &&
+            compat_transformed_geometry_length == 88.0F,
+        "ProGPU transformed geometry analysis changed");
+    require(
+        compat_transformed_geometry->ComputePointAtLength(
+            5.0F,
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_point,
+            &compat_tangent) == S_OK &&
+            compat_point.x == 10.0F && compat_point.y == -2.0F &&
+            compat_tangent.x == 1.0F && compat_tangent.y == 0.0F,
+        "ProGPU transformed geometry point-at-length changed");
+    ComPtr<ID2D1PathGeometry1> compat_transformed_path;
+    ComPtr<ID2D1GeometrySink> compat_transformed_path_sink;
+    UINT32 compat_transformed_segment_count = 0U;
+    require(
+        compat_factory->CreatePathGeometry(
+            &compat_transformed_path) == S_OK &&
+            compat_transformed_path->Open(
+                &compat_transformed_path_sink) == S_OK &&
+            compat_transformed_geometry->Simplify(
+                D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                compat_transformed_path_sink.Get()) == S_OK &&
+            compat_transformed_path_sink->Close() == S_OK &&
+            compat_transformed_path->GetSegmentCount(
+                &compat_transformed_segment_count) == S_OK &&
+            compat_transformed_segment_count == 4U,
+        "ProGPU transformed geometry did not stream its retained source");
+    ComPtr<ID2D1TransformedGeometry> invalid_transformed_geometry;
+    const D2D1_MATRIX_3X2_F invalid_geometry_transform =
+        D2D1::Matrix3x2F(
+            std::numeric_limits<float>::quiet_NaN(),
+            0.0F,
+            0.0F,
+            1.0F,
+            0.0F,
+            0.0F);
+    require(
+        compat_factory->CreateTransformedGeometry(
+            compat_rectangle_path.Get(),
+            nullptr,
+            &invalid_transformed_geometry) == E_INVALIDARG &&
+            invalid_transformed_geometry == nullptr &&
+        compat_factory->CreateTransformedGeometry(
+            compat_rectangle_path.Get(),
+            &invalid_geometry_transform,
+            &invalid_transformed_geometry) == E_INVALIDARG &&
+            invalid_transformed_geometry == nullptr,
+        "invalid ProGPU transformed geometry did not fail closed");
+
     const progpu_native_direct2d_color_f compat_brush_color = {
         0.25F, 0.5F, 0.75F, 1.0F};
     const progpu_native_direct2d_brush_properties compat_brush_properties = {
@@ -1077,6 +1193,95 @@ int main()
         approximately_equal(
             system_ellipse_length, compat_ellipse_length, 0.05F),
         "ProGPU ellipse length diverged from system Direct2D");
+
+    ComPtr<ID2D1RectangleGeometry> system_transformed_source;
+    ComPtr<ID2D1TransformedGeometry> system_transformed_geometry;
+    const D2D1_RECT_F system_transformed_source_rect =
+        D2D1::RectF(0.0F, 0.0F, 10.0F, 8.0F);
+    require(
+        factory1->CreateRectangleGeometry(
+            &system_transformed_source_rect,
+            &system_transformed_source) == S_OK &&
+        factory1->CreateTransformedGeometry(
+            system_transformed_source.Get(),
+            &compat_geometry_transform,
+            &system_transformed_geometry) == S_OK &&
+            system_transformed_geometry != nullptr,
+        "system Direct2D transformed-geometry creation failed");
+    const D2D1_MATRIX_3X2_F compat_geometry_world_transform =
+        D2D1::Matrix3x2F(1.0F, 0.5F, -0.25F, 1.0F, 7.0F, 11.0F);
+    D2D1_RECT_F system_transformed_geometry_bounds{};
+    D2D1_RECT_F compat_composed_geometry_bounds{};
+    FLOAT system_transformed_geometry_area = 0.0F;
+    FLOAT system_transformed_geometry_length = 0.0F;
+    FLOAT compat_composed_geometry_area = 0.0F;
+    FLOAT compat_composed_geometry_length = 0.0F;
+    BOOL system_transformed_geometry_contains = FALSE;
+    compat_transformed_geometry_contains = FALSE;
+    const D2D1_POINT_2F composed_interior_point =
+        D2D1::Point2F(19.5F, 28.5F);
+    require(
+        system_transformed_geometry->GetBounds(
+            &compat_geometry_world_transform,
+            &system_transformed_geometry_bounds) == S_OK &&
+        compat_transformed_geometry->GetBounds(
+            &compat_geometry_world_transform,
+            &compat_composed_geometry_bounds) == S_OK &&
+        system_transformed_geometry->ComputeArea(
+            &compat_geometry_world_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &system_transformed_geometry_area) == S_OK &&
+        compat_transformed_geometry->ComputeArea(
+            &compat_geometry_world_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_composed_geometry_area) == S_OK &&
+        system_transformed_geometry->ComputeLength(
+            &compat_geometry_world_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &system_transformed_geometry_length) == S_OK &&
+        compat_transformed_geometry->ComputeLength(
+            &compat_geometry_world_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_composed_geometry_length) == S_OK &&
+        system_transformed_geometry->FillContainsPoint(
+            composed_interior_point,
+            &compat_geometry_world_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &system_transformed_geometry_contains) == S_OK &&
+            system_transformed_geometry_contains == TRUE &&
+        compat_transformed_geometry->FillContainsPoint(
+            composed_interior_point,
+            &compat_geometry_world_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_transformed_geometry_contains) == S_OK &&
+            compat_transformed_geometry_contains == TRUE,
+        "Direct2D transformed-geometry differential queries failed");
+    require(
+        approximately_equal(
+            system_transformed_geometry_bounds.left,
+            compat_composed_geometry_bounds.left,
+            0.01F) &&
+        approximately_equal(
+            system_transformed_geometry_bounds.top,
+            compat_composed_geometry_bounds.top,
+            0.01F) &&
+        approximately_equal(
+            system_transformed_geometry_bounds.right,
+            compat_composed_geometry_bounds.right,
+            0.01F) &&
+        approximately_equal(
+            system_transformed_geometry_bounds.bottom,
+            compat_composed_geometry_bounds.bottom,
+            0.01F) &&
+        approximately_equal(
+            system_transformed_geometry_area,
+            compat_composed_geometry_area,
+            0.01F) &&
+        approximately_equal(
+            system_transformed_geometry_length,
+            compat_composed_geometry_length,
+            0.01F),
+        "ProGPU transformed geometry diverged from system Direct2D");
 
     ComPtr<IDirect3DDxgiInterfaceAccess> dxgi_interface_access;
     require(SUCCEEDED(winrt_d3d_device.As(&dxgi_interface_access)),
@@ -2860,10 +3065,10 @@ int main()
         "ProGPU Direct2D COM FillRectangle callback failed");
     require(
         direct_sink->FillGeometry(
-            compat_path.Get(),
+            compat_transformed_geometry.Get(),
             compat_solid_brush.Get(),
             nullptr) == S_OK,
-        "ProGPU Direct2D COM FillGeometry callback failed");
+        "ProGPU Direct2D COM transformed FillGeometry callback failed");
     require(
         direct_sink->FillGeometry(
             compat_ellipse.Get(),
