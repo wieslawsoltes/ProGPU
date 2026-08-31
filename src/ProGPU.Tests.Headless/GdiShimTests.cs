@@ -1104,17 +1104,18 @@ public class GdiShimTests
     }
 
     [Fact]
-    public void DrawImageFailsClosedWhenSourceIsTheDestinationBitmap()
+    public void DrawImageSnapshotsWhenSourceIsTheDestinationBitmap()
     {
         using var bitmap = new Bitmap(4, 4);
         using var graphics = Graphics.FromImage(bitmap);
+        var destinationTexture = bitmap.GpuTexture;
 
-        var exception = Assert.Throws<InvalidOperationException>(
-            () => graphics.DrawImage(bitmap, new RectangleF(0f, 0f, 2f, 2f)));
+        graphics.DrawImage(bitmap, new RectangleF(0f, 0f, 2f, 2f));
 
-        Assert.Contains("snapshot texture", exception.Message, StringComparison.Ordinal);
-        Assert.Empty(graphics.DrawingContext.Commands);
-        Assert.Equal(0, graphics.DrawingContext.RetainedResourceCount);
+        var command = Assert.Single(graphics.DrawingContext.Commands);
+        Assert.Equal(RenderCommandType.DrawTexture, command.Type);
+        Assert.NotSame(destinationTexture, command.Texture);
+        Assert.Equal(1, graphics.DrawingContext.RetainedResourceCount);
     }
 
     [Fact]
