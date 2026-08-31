@@ -441,6 +441,26 @@ bool compat_finite_rectangle(const D2D1_RECT_F* value) noexcept
         value->bottom >= value->top;
 }
 
+bool compat_finite_ellipse(const D2D1_ELLIPSE* value) noexcept
+{
+    if (value == nullptr || !std::isfinite(value->point.x) ||
+        !std::isfinite(value->point.y) ||
+        !std::isfinite(value->radiusX) || value->radiusX < 0.0F ||
+        !std::isfinite(value->radiusY) || value->radiusY < 0.0F) {
+        return false;
+    }
+    const double left = static_cast<double>(value->point.x) - value->radiusX;
+    const double top = static_cast<double>(value->point.y) - value->radiusY;
+    const double right = static_cast<double>(value->point.x) + value->radiusX;
+    const double bottom = static_cast<double>(value->point.y) + value->radiusY;
+    constexpr double maximum =
+        static_cast<double>(std::numeric_limits<float>::max());
+    return std::isfinite(left) && std::isfinite(top) &&
+        std::isfinite(right) && std::isfinite(bottom) &&
+        left >= -maximum && top >= -maximum && right <= maximum &&
+        bottom <= maximum;
+}
+
 bool compat_transform_rectangle(
     const D2D1_RECT_F& rectangle,
     const D2D1_MATRIX_3X2_F* transform,
@@ -2862,6 +2882,344 @@ private:
     std::shared_ptr<compat_path_data> data_;
 };
 
+class ProGpuD2DEllipseGeometry final : public ID2D1EllipseGeometry {
+public:
+    ProGpuD2DEllipseGeometry(
+        ID2D1Factory1* factory,
+        const D2D1_ELLIPSE& ellipse,
+        ID2D1PathGeometry1* path) noexcept
+        : factory_(factory), ellipse_(ellipse), path_(path)
+    {
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1Resource)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1Geometry)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1EllipseGeometry))) {
+            *value = static_cast<ID2D1EllipseGeometry*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    void STDMETHODCALLTYPE GetFactory(
+        ID2D1Factory** factory) const noexcept override
+    {
+        if (factory == nullptr) {
+            return;
+        }
+        *factory = factory_.Get();
+        if (*factory != nullptr) {
+            (*factory)->AddRef();
+        }
+    }
+
+    HRESULT STDMETHODCALLTYPE GetBounds(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        D2D1_RECT_F* bounds) const noexcept override
+    {
+        if (bounds == nullptr) {
+            return E_POINTER;
+        }
+        *bounds = {};
+        if (!compat_finite_transform(world_transform)) {
+            return E_INVALIDARG;
+        }
+        const D2D1_MATRIX_3X2_F matrix = world_transform == nullptr
+            ? D2D1::Matrix3x2F::Identity()
+            : *world_transform;
+        const double center_x =
+            static_cast<double>(ellipse_.point.x) * matrix._11 +
+            static_cast<double>(ellipse_.point.y) * matrix._21 + matrix._31;
+        const double center_y =
+            static_cast<double>(ellipse_.point.x) * matrix._12 +
+            static_cast<double>(ellipse_.point.y) * matrix._22 + matrix._32;
+        const double extent_x = std::hypot(
+            static_cast<double>(ellipse_.radiusX) * matrix._11,
+            static_cast<double>(ellipse_.radiusY) * matrix._21);
+        const double extent_y = std::hypot(
+            static_cast<double>(ellipse_.radiusX) * matrix._12,
+            static_cast<double>(ellipse_.radiusY) * matrix._22);
+        const std::array<double, 4U> values = {
+            center_x - extent_x,
+            center_y - extent_y,
+            center_x + extent_x,
+            center_y + extent_y};
+        constexpr double maximum =
+            static_cast<double>(std::numeric_limits<float>::max());
+        if (!std::all_of(values.begin(), values.end(), [&](double value) {
+                return std::isfinite(value) && value >= -maximum &&
+                    value <= maximum;
+            })) {
+            return E_INVALIDARG;
+        }
+        *bounds = {
+            static_cast<float>(values[0]),
+            static_cast<float>(values[1]),
+            static_cast<float>(values[2]),
+            static_cast<float>(values[3])};
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetWidenedBounds(
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* stroke_style,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        D2D1_RECT_F* bounds) const noexcept override
+    {
+        return path_->GetWidenedBounds(
+            stroke_width,
+            stroke_style,
+            world_transform,
+            flattening_tolerance,
+            bounds);
+    }
+
+    HRESULT STDMETHODCALLTYPE StrokeContainsPoint(
+        D2D1_POINT_2F point,
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* stroke_style,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        BOOL* contains) const noexcept override
+    {
+        return path_->StrokeContainsPoint(
+            point,
+            stroke_width,
+            stroke_style,
+            world_transform,
+            flattening_tolerance,
+            contains);
+    }
+
+    HRESULT STDMETHODCALLTYPE FillContainsPoint(
+        D2D1_POINT_2F point,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        BOOL* contains) const noexcept override
+    {
+        if (contains == nullptr) {
+            return E_POINTER;
+        }
+        *contains = FALSE;
+        if (!compat_finite_point(point) ||
+            !std::isfinite(flattening_tolerance) ||
+            flattening_tolerance <= 0.0F ||
+            !compat_finite_transform(world_transform)) {
+            return E_INVALIDARG;
+        }
+        const D2D1_MATRIX_3X2_F matrix = world_transform == nullptr
+            ? D2D1::Matrix3x2F::Identity()
+            : *world_transform;
+        const double determinant =
+            static_cast<double>(matrix._11) * matrix._22 -
+            static_cast<double>(matrix._12) * matrix._21;
+        if (determinant == 0.0 || ellipse_.radiusX == 0.0F ||
+            ellipse_.radiusY == 0.0F) {
+            return path_->FillContainsPoint(
+                point,
+                world_transform,
+                flattening_tolerance,
+                contains);
+        }
+        const double translated_x =
+            static_cast<double>(point.x) - matrix._31;
+        const double translated_y =
+            static_cast<double>(point.y) - matrix._32;
+        const double local_x =
+            (translated_x * matrix._22 - translated_y * matrix._21) /
+            determinant;
+        const double local_y =
+            (-translated_x * matrix._12 + translated_y * matrix._11) /
+            determinant;
+        const double normalized_x =
+            (local_x - ellipse_.point.x) / ellipse_.radiusX;
+        const double normalized_y =
+            (local_y - ellipse_.point.y) / ellipse_.radiusY;
+        const double distance_squared =
+            normalized_x * normalized_x + normalized_y * normalized_y;
+        if (!std::isfinite(distance_squared)) {
+            return E_INVALIDARG;
+        }
+        *contains = distance_squared <= 1.0 ? TRUE : FALSE;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE CompareWithGeometry(
+        ID2D1Geometry* input_geometry,
+        const D2D1_MATRIX_3X2_F* input_geometry_transform,
+        FLOAT flattening_tolerance,
+        D2D1_GEOMETRY_RELATION* relation) const noexcept override
+    {
+        return path_->CompareWithGeometry(
+            input_geometry,
+            input_geometry_transform,
+            flattening_tolerance,
+            relation);
+    }
+
+    HRESULT STDMETHODCALLTYPE Simplify(
+        D2D1_GEOMETRY_SIMPLIFICATION_OPTION simplification_option,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
+    {
+        return path_->Simplify(
+            simplification_option,
+            world_transform,
+            flattening_tolerance,
+            geometry_sink);
+    }
+
+    HRESULT STDMETHODCALLTYPE Tessellate(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1TessellationSink* tessellation_sink) const noexcept override
+    {
+        return path_->Tessellate(
+            world_transform,
+            flattening_tolerance,
+            tessellation_sink);
+    }
+
+    HRESULT STDMETHODCALLTYPE CombineWithGeometry(
+        ID2D1Geometry* input_geometry,
+        D2D1_COMBINE_MODE combine_mode,
+        const D2D1_MATRIX_3X2_F* input_geometry_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
+    {
+        return path_->CombineWithGeometry(
+            input_geometry,
+            combine_mode,
+            input_geometry_transform,
+            flattening_tolerance,
+            geometry_sink);
+    }
+
+    HRESULT STDMETHODCALLTYPE Outline(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
+    {
+        return path_->Outline(
+            world_transform,
+            flattening_tolerance,
+            geometry_sink);
+    }
+
+    HRESULT STDMETHODCALLTYPE ComputeArea(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        FLOAT* area) const noexcept override
+    {
+        if (area == nullptr) {
+            return E_POINTER;
+        }
+        *area = 0.0F;
+        if (!std::isfinite(flattening_tolerance) ||
+            flattening_tolerance <= 0.0F ||
+            !compat_finite_transform(world_transform)) {
+            return E_INVALIDARG;
+        }
+        const D2D1_MATRIX_3X2_F matrix = world_transform == nullptr
+            ? D2D1::Matrix3x2F::Identity()
+            : *world_transform;
+        const double determinant = std::abs(
+            static_cast<double>(matrix._11) * matrix._22 -
+            static_cast<double>(matrix._12) * matrix._21);
+        constexpr double pi = 3.14159265358979323846264338327950288;
+        const double result = pi * ellipse_.radiusX * ellipse_.radiusY *
+            determinant;
+        if (!std::isfinite(result) ||
+            result > std::numeric_limits<float>::max()) {
+            return E_INVALIDARG;
+        }
+        *area = static_cast<float>(result);
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE ComputeLength(
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        FLOAT* length) const noexcept override
+    {
+        return path_->ComputeLength(
+            world_transform,
+            flattening_tolerance,
+            length);
+    }
+
+    HRESULT STDMETHODCALLTYPE ComputePointAtLength(
+        FLOAT length,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        D2D1_POINT_2F* point,
+        D2D1_POINT_2F* unit_tangent_vector) const noexcept override
+    {
+        return path_->ComputePointAtLength(
+            length,
+            world_transform,
+            flattening_tolerance,
+            point,
+            unit_tangent_vector);
+    }
+
+    HRESULT STDMETHODCALLTYPE Widen(
+        FLOAT stroke_width,
+        ID2D1StrokeStyle* stroke_style,
+        const D2D1_MATRIX_3X2_F* world_transform,
+        FLOAT flattening_tolerance,
+        ID2D1SimplifiedGeometrySink* geometry_sink) const noexcept override
+    {
+        return path_->Widen(
+            stroke_width,
+            stroke_style,
+            world_transform,
+            flattening_tolerance,
+            geometry_sink);
+    }
+
+    void STDMETHODCALLTYPE GetEllipse(D2D1_ELLIPSE* ellipse) const noexcept override
+    {
+        if (ellipse != nullptr) {
+            *ellipse = ellipse_;
+        }
+    }
+
+private:
+    std::atomic<ULONG> reference_count_{1U};
+    ComPtr<ID2D1Factory1> factory_;
+    D2D1_ELLIPSE ellipse_{};
+    ComPtr<ID2D1PathGeometry1> path_;
+};
+
 class ProGpuD2DFactory final :
     public ID2D1Factory1,
     public ID2D1Multithread,
@@ -2954,10 +3312,102 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE CreateEllipseGeometry(
-        const D2D1_ELLIPSE*,
+        const D2D1_ELLIPSE* ellipse,
         ID2D1EllipseGeometry** value) noexcept override
     {
-        return unsupported(value);
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (!compat_finite_ellipse(ellipse)) {
+            return E_INVALIDARG;
+        }
+
+        ComPtr<ID2D1PathGeometry1> path;
+        auto* raw_path = new (std::nothrow) ProGpuD2DPathGeometry(this);
+        if (raw_path == nullptr) {
+            return E_OUTOFMEMORY;
+        }
+        path.Attach(raw_path);
+        ComPtr<ID2D1GeometrySink> sink;
+        HRESULT hr = path->Open(&sink);
+        if (FAILED(hr)) {
+            return hr;
+        }
+
+        constexpr float control_scale = 0.5522847498307936F;
+        const float control_x = ellipse->radiusX * control_scale;
+        const float control_y = ellipse->radiusY * control_scale;
+        const D2D1_POINT_2F start = {
+            ellipse->point.x + ellipse->radiusX,
+            ellipse->point.y};
+        std::array<D2D1_BEZIER_SEGMENT, 4U> segments{};
+        segments[0U].point1 = D2D1::Point2F(
+            ellipse->point.x + ellipse->radiusX,
+            ellipse->point.y + control_y);
+        segments[0U].point2 = D2D1::Point2F(
+            ellipse->point.x + control_x,
+            ellipse->point.y + ellipse->radiusY);
+        segments[0U].point3 = D2D1::Point2F(
+            ellipse->point.x,
+            ellipse->point.y + ellipse->radiusY);
+        segments[1U].point1 = D2D1::Point2F(
+            ellipse->point.x - control_x,
+            ellipse->point.y + ellipse->radiusY);
+        segments[1U].point2 = D2D1::Point2F(
+            ellipse->point.x - ellipse->radiusX,
+            ellipse->point.y + control_y);
+        segments[1U].point3 = D2D1::Point2F(
+            ellipse->point.x - ellipse->radiusX,
+            ellipse->point.y);
+        segments[2U].point1 = D2D1::Point2F(
+            ellipse->point.x - ellipse->radiusX,
+            ellipse->point.y - control_y);
+        segments[2U].point2 = D2D1::Point2F(
+            ellipse->point.x - control_x,
+            ellipse->point.y - ellipse->radiusY);
+        segments[2U].point3 = D2D1::Point2F(
+            ellipse->point.x,
+            ellipse->point.y - ellipse->radiusY);
+        segments[3U].point1 = D2D1::Point2F(
+            ellipse->point.x + control_x,
+            ellipse->point.y - ellipse->radiusY);
+        segments[3U].point2 = D2D1::Point2F(
+            ellipse->point.x + ellipse->radiusX,
+            ellipse->point.y - control_y);
+        segments[3U].point3 = start;
+        if (!compat_finite_point(start) ||
+            !std::all_of(
+                segments.begin(),
+                segments.end(),
+                [](const D2D1_BEZIER_SEGMENT& segment) {
+                    return compat_finite_point(segment.point1) &&
+                        compat_finite_point(segment.point2) &&
+                        compat_finite_point(segment.point3);
+                })) {
+            static_cast<void>(sink->Close());
+            return E_INVALIDARG;
+        }
+        sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+        sink->SetSegmentFlags(D2D1_PATH_SEGMENT_NONE);
+        sink->BeginFigure(start, D2D1_FIGURE_BEGIN_FILLED);
+        sink->AddBeziers(
+            segments.data(), static_cast<UINT32>(segments.size()));
+        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        hr = sink->Close();
+        if (FAILED(hr)) {
+            return hr;
+        }
+
+        auto* geometry = new (std::nothrow) ProGpuD2DEllipseGeometry(
+            this,
+            *ellipse,
+            path.Get());
+        if (geometry == nullptr) {
+            return E_OUTOFMEMORY;
+        }
+        *value = geometry;
+        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE CreateGeometryGroup(

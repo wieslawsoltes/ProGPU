@@ -455,13 +455,95 @@ int main()
             compat_point_description.endFigure == 0U &&
             compat_point_description.lengthToEndSegment == 10.0F,
         "ProGPU path point-and-segment query changed");
-    ComPtr<ID2D1EllipseGeometry> unsupported_ellipse;
-    const D2D1_ELLIPSE ellipse = {D2D1::Point2F(0.0F, 0.0F), 1.0F, 1.0F};
+    ComPtr<ID2D1EllipseGeometry> compat_ellipse;
+    const D2D1_ELLIPSE ellipse = {
+        D2D1::Point2F(2.0F, 3.0F), 4.0F, 2.0F};
     require(
         compat_factory->CreateEllipseGeometry(
-            &ellipse, &unsupported_ellipse) == E_NOTIMPL &&
-            unsupported_ellipse == nullptr,
-        "unsupported ProGPU compatibility geometry did not fail closed");
+            &ellipse, &compat_ellipse) == S_OK &&
+            compat_ellipse != nullptr,
+        "ProGPU ID2D1EllipseGeometry creation failed");
+    ComPtr<ID2D1Geometry> compat_ellipse_base;
+    ComPtr<ID2D1Factory> compat_ellipse_factory;
+    compat_ellipse->GetFactory(&compat_ellipse_factory);
+    D2D1_ELLIPSE returned_ellipse{};
+    compat_ellipse->GetEllipse(&returned_ellipse);
+    require(
+        SUCCEEDED(compat_ellipse.As(&compat_ellipse_base)) &&
+            has_same_com_identity(
+                compat_ellipse.Get(), compat_ellipse_base.Get()) &&
+            has_same_com_identity(
+                compat_ellipse_factory.Get(), compat_factory.Get()) &&
+            returned_ellipse.point.x == 2.0F &&
+            returned_ellipse.point.y == 3.0F &&
+            returned_ellipse.radiusX == 4.0F &&
+            returned_ellipse.radiusY == 2.0F,
+        "ProGPU ellipse state, factory, or COM identity changed");
+    D2D1_RECT_F compat_ellipse_bounds{};
+    const D2D1_MATRIX_3X2_F compat_ellipse_transform = {
+        2.0F, 0.0F, 0.0F, 3.0F, 5.0F, -1.0F};
+    require(
+        compat_ellipse->GetBounds(
+            &compat_ellipse_transform, &compat_ellipse_bounds) == S_OK &&
+            compat_ellipse_bounds.left == 1.0F &&
+            compat_ellipse_bounds.top == 2.0F &&
+            compat_ellipse_bounds.right == 17.0F &&
+            compat_ellipse_bounds.bottom == 14.0F,
+        "ProGPU transformed ellipse bounds changed");
+    BOOL compat_ellipse_contains = FALSE;
+    require(
+        compat_ellipse->FillContainsPoint(
+            D2D1::Point2F(9.0F, 8.0F),
+            &compat_ellipse_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_ellipse_contains) == S_OK &&
+            compat_ellipse_contains == TRUE &&
+        compat_ellipse->FillContainsPoint(
+            D2D1::Point2F(18.0F, 8.0F),
+            &compat_ellipse_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_ellipse_contains) == S_OK &&
+            compat_ellipse_contains == FALSE,
+        "ProGPU transformed ellipse containment changed");
+    FLOAT compat_ellipse_area = 0.0F;
+    FLOAT compat_ellipse_length = 0.0F;
+    require(
+        compat_ellipse->ComputeArea(
+            &compat_ellipse_transform,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_ellipse_area) == S_OK &&
+            compat_ellipse_area > 150.79F && compat_ellipse_area < 150.80F &&
+        compat_ellipse->ComputeLength(
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_ellipse_length) == S_OK &&
+            compat_ellipse_length > 19.0F &&
+            compat_ellipse_length < 20.0F,
+        "ProGPU ellipse metrics changed");
+    ComPtr<ID2D1PathGeometry1> compat_ellipse_path;
+    ComPtr<ID2D1GeometrySink> compat_ellipse_path_sink;
+    UINT32 compat_ellipse_segment_count = 0U;
+    require(
+        compat_factory->CreatePathGeometry(&compat_ellipse_path) == S_OK &&
+            compat_ellipse_path->Open(&compat_ellipse_path_sink) == S_OK &&
+            compat_ellipse->Simplify(
+                D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES,
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                compat_ellipse_path_sink.Get()) == S_OK &&
+            compat_ellipse_path_sink->Close() == S_OK &&
+            compat_ellipse_path->GetSegmentCount(
+                &compat_ellipse_segment_count) == S_OK &&
+            compat_ellipse_segment_count == 5U,
+        "ProGPU ellipse did not stream through the shared cubic path contract");
+    ComPtr<ID2D1EllipseGeometry> invalid_ellipse;
+    const D2D1_ELLIPSE negative_ellipse = {
+        D2D1::Point2F(0.0F, 0.0F), -1.0F, 1.0F};
+    require(
+        compat_factory->CreateEllipseGeometry(
+            &negative_ellipse, &invalid_ellipse) == E_INVALIDARG &&
+            invalid_ellipse == nullptr,
+        "invalid ProGPU ellipse did not fail closed");
 
     const progpu_native_direct2d_color_f compat_brush_color = {
         0.25F, 0.5F, 0.75F, 1.0F};
@@ -785,6 +867,56 @@ int main()
         approximately_equal(
             system_path_length, compat_path_length, 0.05F),
         "ProGPU path length diverged from system Direct2D");
+
+    ComPtr<ID2D1EllipseGeometry> system_ellipse;
+    D2D1_RECT_F system_ellipse_bounds{};
+    FLOAT system_ellipse_area = 0.0F;
+    FLOAT system_ellipse_length = 0.0F;
+    BOOL system_ellipse_contains = FALSE;
+    require(
+        factory1->CreateEllipseGeometry(
+            &ellipse, &system_ellipse) == S_OK &&
+            system_ellipse != nullptr &&
+            system_ellipse->GetBounds(
+                &compat_ellipse_transform,
+                &system_ellipse_bounds) == S_OK &&
+            system_ellipse->ComputeArea(
+                &compat_ellipse_transform,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_ellipse_area) == S_OK &&
+            system_ellipse->ComputeLength(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_ellipse_length) == S_OK &&
+            system_ellipse->FillContainsPoint(
+                D2D1::Point2F(9.0F, 8.0F),
+                &compat_ellipse_transform,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_ellipse_contains) == S_OK &&
+            system_ellipse_contains == TRUE,
+        "system Direct2D ellipse differential queries failed");
+    require(
+        approximately_equal(
+            system_ellipse_bounds.left,
+            compat_ellipse_bounds.left,
+            0.01F) &&
+            approximately_equal(
+                system_ellipse_bounds.top,
+                compat_ellipse_bounds.top,
+                0.01F) &&
+            approximately_equal(
+                system_ellipse_bounds.right,
+                compat_ellipse_bounds.right,
+                0.01F) &&
+            approximately_equal(
+                system_ellipse_bounds.bottom,
+                compat_ellipse_bounds.bottom,
+                0.01F) &&
+            approximately_equal(
+                system_ellipse_area, compat_ellipse_area, 0.05F) &&
+            approximately_equal(
+                system_ellipse_length, compat_ellipse_length, 0.05F),
+        "ProGPU ellipse geometry diverged from system Direct2D");
 
     ComPtr<IDirect3DDxgiInterfaceAccess> dxgi_interface_access;
     require(SUCCEEDED(winrt_d3d_device.As(&dxgi_interface_access)),
@@ -2501,8 +2633,8 @@ int main()
     recorder_hint.struct_size = static_cast<uint32_t>(sizeof(recorder_hint));
     recorder_hint.clear_count = 1U;
     recorder_hint.draw_count = 4U;
-    recorder_hint.fill_count = 2U;
-    recorder_hint.total_command_count = 7U;
+    recorder_hint.fill_count = 3U;
+    recorder_hint.total_command_count = 8U;
     progpu_native_direct2d_scene_recorder* direct_recorder = nullptr;
     native_hresult = E_FAIL;
     require(
@@ -2573,6 +2705,12 @@ int main()
             nullptr) == S_OK,
         "ProGPU Direct2D COM FillGeometry callback failed");
     require(
+        direct_sink->FillGeometry(
+            compat_ellipse.Get(),
+            compat_solid_brush.Get(),
+            nullptr) == S_OK,
+        "ProGPU Direct2D COM ellipse FillGeometry callback failed");
+    require(
         direct_sink->DrawGeometry(
             compat_rectangle_path.Get(),
             compat_solid_brush.Get(),
@@ -2619,7 +2757,7 @@ int main()
             native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
             direct_measure.scene_id == 7002U &&
             direct_measure.generation == 10U &&
-            direct_measure.translated_draw_count == 6U &&
+            direct_measure.translated_draw_count == 7U &&
             direct_measure.failure_reason ==
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
             (direct_measure.flags &
@@ -2647,7 +2785,7 @@ int main()
             &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
             native_hresult == S_OK &&
             direct_write.written_bytes == direct_scene_stream.size() &&
-            direct_write.command_count == 6U &&
+            direct_write.command_count == 7U &&
             direct_write.brush_count == 2U,
         "ProGPU Direct2D COM recorder write pass changed");
     const progpu_native_scene_header direct_scene_header =
@@ -2655,7 +2793,7 @@ int main()
     require(
             direct_scene_header.scene_id == 7002U &&
             direct_scene_header.generation == 10U &&
-            direct_scene_header.command_count == 6U,
+            direct_scene_header.command_count == 7U,
         "ProGPU Direct2D COM recorder scene identity changed");
     bool direct_stroke_found = false;
     bool direct_normal_curved_stroke_found = false;

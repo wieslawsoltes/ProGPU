@@ -5771,6 +5771,42 @@ symbols. The 265,216-byte `progpu_native_direct2d.dll` SHA-256 is
 the 122,880-byte test executable SHA-256 is
 `3D285A96AA096967ACB5E4A6AA1DCD46B1D040CA6603AFC54804360707B6A7DA`.
 
+ABI v50 completes the portable curved-stroke transform-policy matrix. Fixed
+and hairline paths now retain their analytic segments while the shared dash
+splitter measures distance through the active transform's linear component.
+Translation is deliberately excluded because it cannot change arc length and
+would reduce precision for small curves at large world offsets. The resulting
+distance-to-parameter lookup therefore follows device-space geometry without
+flattening or replacing the emitted local quadratic, cubic, or arc span.
+
+Normal strokes continue to measure and scale dashes in local space. Fixed
+strokes measure in device space while retaining the supplied stroke width;
+hairlines measure in device space with a one-unit dash scale, store zero scene
+thickness, and ignore the caller's stroke width as required by Direct2D. Fixed
+and hairline flags remain mutually exclusive and malformed forced states fail
+closed. The line-only uniform case remains the one-record `STROKE_BATCH` fast
+path; analytic curves still compile to one pointer-free `GEOMETRY_BATCH`, with
+no CPU widening, pixel readback, repacking, or per-segment submission.
+
+The portable MIL oracle differentiates normal, fixed, and hairline dash ends
+for the same cubic under a non-uniform transform and verifies the resulting
+flags and thickness. The Windows COM oracle records the three matching
+`ID2D1StrokeStyle1` policies through a genuine Direct2D command list and
+requires three distinct analytic curved batches. Focused managed ABI contracts
+pass 5/5 and the native MIL oracle exits zero on macOS.
+
+Direct2D compatibility ABI v51 adds a ProGPU-owned
+`ID2D1EllipseGeometry`. It keeps genuine resource/geometry/ellipse COM
+identity and factory parentage, exact affine support-function bounds, exact
+determinant-scaled area, inverse-transform containment, and the original
+ellipse descriptor. A closed four-cubic path is constructed once with the
+resource and is then reused by the shared path simplifier and scene compiler,
+so filled and stroked ellipses enter the same backend-neutral vector resources
+as other Direct2D paths. No runtime reflection, widened CPU bitmap, readback,
+or per-frame path reconstruction is introduced. The construction work is a
+fixed four-segment operation rather than a SIMD-eligible bulk loop. Focused
+managed ABI contracts pass 5/5; Windows native qualification is still pending.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
