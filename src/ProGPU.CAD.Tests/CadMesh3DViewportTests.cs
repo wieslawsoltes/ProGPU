@@ -147,6 +147,9 @@ public sealed class CadMesh3DViewportTests
         var view = new CadSampleView();
         CadDocumentSession session = CreateFaceSession(10_000.0);
         view.Canvas.Load(session);
+        Assert.True(view.MeshViewport.EnableRetainedSceneCache);
+        ulong loadedMeshGeneration =
+            view.MeshViewport.SceneGeneration;
         var camera = Assert.IsType<PerspectiveCamera>(view.MeshViewport.Camera);
         CadMesh3DViewStatistics beforeCamera = view.MeshViewStatistics;
         camera.SetView(
@@ -158,6 +161,9 @@ public sealed class CadMesh3DViewportTests
         Assert.Equal(
             beforeCamera.CameraUpdateCount + 1,
             beforeEdit.CameraUpdateCount);
+        Assert.Equal(
+            loadedMeshGeneration,
+            view.MeshViewport.SceneGeneration);
 
         Assert.True(view.Canvas.BeginPointAuthoring());
         Assert.True(view.Canvas.TryAcceptPointAuthoringInput(
@@ -176,6 +182,9 @@ public sealed class CadMesh3DViewportTests
         Assert.Equal(beforeEdit.PreservedCameraCount + 1,
             afterEdit.PreservedCameraCount);
         Assert.Equal(beforeEdit.CameraUpdateCount, afterEdit.CameraUpdateCount);
+        Assert.Equal(
+            loadedMeshGeneration + 1,
+            view.MeshViewport.SceneGeneration);
         AssertCameraOnlyCountersAreZero(afterEdit);
 
         view.Canvas.Load(CreateFaceSession(-50_000.0));

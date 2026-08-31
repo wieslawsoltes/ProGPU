@@ -490,6 +490,61 @@ namespace Microsoft.UI.Xaml.Controls
 
     public class Viewport3D : Control
     {
+        private bool _enableRetainedSceneCache;
+        private ulong _sceneGeneration = 1;
+        private ulong _recordGeneration = 1;
+        private ulong _compiledSceneGeneration;
+        private long _sceneCompilationCount;
+        private readonly Viewport3DCompilationPayload
+            _retainedPayload = new();
+        private readonly Mesh3DFrameMetricsTarget
+            _metricsTarget = new();
+
+        /// <summary>
+        /// Enables generation-retained model compilation. Call
+        /// <see cref="InvalidateScene"/> after mutating children, models,
+        /// geometry, or materials while this option is enabled.
+        /// </summary>
+        public bool EnableRetainedSceneCache
+        {
+            get => _enableRetainedSceneCache;
+            set
+            {
+                if (_enableRetainedSceneCache == value)
+                {
+                    return;
+                }
+                _enableRetainedSceneCache = value;
+                InvalidateScene();
+            }
+        }
+
+        public ulong SceneGeneration => _sceneGeneration;
+
+        public long SceneCompilationCount => _sceneCompilationCount;
+
+        public Mesh3DFrameMetrics LastMesh3DFrameMetrics =>
+            _metricsTarget.LastFrameMetrics;
+
+        /// <summary>
+        /// Advances the immutable model generation and schedules a redraw.
+        /// </summary>
+        public void InvalidateScene()
+        {
+            _sceneGeneration = NextGeneration(_sceneGeneration);
+            _recordGeneration = NextGeneration(_recordGeneration);
+            Invalidate();
+        }
+
+        private void InvalidateRecords()
+        {
+            _recordGeneration = NextGeneration(_recordGeneration);
+            Invalidate();
+        }
+
+        private static ulong NextGeneration(ulong generation) =>
+            generation == ulong.MaxValue ? 1 : generation + 1;
+
         private Camera _camera = new PerspectiveCamera();
         public Camera Camera
         {
@@ -525,17 +580,83 @@ namespace Microsoft.UI.Xaml.Controls
         public new List<Visual3D> Children { get; } = new();
 
         // High-performance directional + ambient lighting parameters
-        public Vector3 LightDirection { get; set; } = new Vector3(0.5f, 1f, -0.5f);
-        public float LightIntensity { get; set; } = 1.0f;
-        public Vector3 AmbientColor { get; set; } = new Vector3(1f, 1f, 1f);
-        public float AmbientIntensity { get; set; } = 0.25f;
+        private Vector3 _lightDirection = new(0.5f, 1f, -0.5f);
+        private float _lightIntensity = 1.0f;
+        private Vector3 _ambientColor = Vector3.One;
+        private float _ambientIntensity = 0.25f;
+        private RenderMode3D _renderMode = RenderMode3D.Solid;
+        private ShadingMode3D _shadingMode = ShadingMode3D.Realistic;
 
-        public RenderMode3D RenderMode { get; set; } = RenderMode3D.Solid;
-        public ShadingMode3D ShadingMode { get; set; } = ShadingMode3D.Realistic;
+        public Vector3 LightDirection
+        {
+            get => _lightDirection;
+            set
+            {
+                if (_lightDirection == value) return;
+                _lightDirection = value;
+                InvalidateRecords();
+            }
+        }
+
+        public float LightIntensity
+        {
+            get => _lightIntensity;
+            set
+            {
+                if (_lightIntensity == value) return;
+                _lightIntensity = value;
+                InvalidateRecords();
+            }
+        }
+
+        public Vector3 AmbientColor
+        {
+            get => _ambientColor;
+            set
+            {
+                if (_ambientColor == value) return;
+                _ambientColor = value;
+                InvalidateRecords();
+            }
+        }
+
+        public float AmbientIntensity
+        {
+            get => _ambientIntensity;
+            set
+            {
+                if (_ambientIntensity == value) return;
+                _ambientIntensity = value;
+                InvalidateRecords();
+            }
+        }
+
+        public RenderMode3D RenderMode
+        {
+            get => _renderMode;
+            set
+            {
+                if (_renderMode == value) return;
+                _renderMode = value;
+                InvalidateRecords();
+            }
+        }
+
+        public ShadingMode3D ShadingMode
+        {
+            get => _shadingMode;
+            set
+            {
+                if (_shadingMode == value) return;
+                _shadingMode = value;
+                InvalidateRecords();
+            }
+        }
 
         private GpuTexture? _colorTexture;
         private GpuTexture? _msaaColorTexture;
         private GpuTexture? _depthTexture;
+        private WgpuContext? _textureContext;
         private uint _textureSampleCount;
         private readonly HashSet<ProGpuMediaTextureMaterial>
             _observedMediaMaterials = new();
@@ -626,6 +747,7 @@ namespace Microsoft.UI.Xaml.Controls
             _depthTexture?.Dispose();
             _depthTexture = null;
             _textureSampleCount = 0;
+            _textureContext = null;
         }
 
         protected override Vector2 MeasureOverride(Vector2 availableSize)
@@ -672,6 +794,13 @@ namespace Microsoft.UI.Xaml.Controls
             var wgpuContext = GetActiveWgpuContext();
             if (wgpuContext == null) return;
 
+            if (_textureContext != null &&
+                !ReferenceEquals(_textureContext, wgpuContext))
+            {
+                DisposeTextures();
+            }
+            _textureContext = wgpuContext;
+
             float dpiScale = (float)DisplayScaleResolver.ResolveWindowDisplayScale(wgpuContext.Window);
 
             uint width = (uint)Math.Max(1, Size.X * dpiScale);
@@ -703,27 +832,53 @@ namespace Microsoft.UI.Xaml.Controls
             var projection = Camera.GetProjectionMatrix(aspectRatio);
             var view = Camera.GetViewMatrix();
 
-            // 2. Build recursive payload for Mesh3DExtensionPipeline
-            var payload = new Viewport3DCompilationPayload
-            {
-                ViewportSize = Size,
-                LightDirection = LightDirection,
-                LightIntensity = LightIntensity,
-                AmbientColor = AmbientColor,
-                AmbientIntensity = AmbientIntensity,
-                ColorTexture = _colorTexture,
-                MsaaColorTexture = _msaaColorTexture,
-                DepthTexture = _depthTexture,
-                SampleCount = sampleCount,
-                RenderMode = RenderMode,
-                ShadingMode = ShadingMode
-            };
+            // 2. Build or reuse the generation-owned recursive payload.
+            Viewport3DCompilationPayload payload =
+                EnableRetainedSceneCache
+                    ? _retainedPayload
+                    : new Viewport3DCompilationPayload();
+            bool compileScene =
+                !EnableRetainedSceneCache ||
+                _compiledSceneGeneration != _sceneGeneration;
+            payload.ViewportSize = Size;
+            payload.LightDirection = LightDirection;
+            payload.LightIntensity = LightIntensity;
+            payload.AmbientColor = AmbientColor;
+            payload.AmbientIntensity = AmbientIntensity;
+            payload.ColorTexture = _colorTexture;
+            payload.MsaaColorTexture = _msaaColorTexture;
+            payload.DepthTexture = _depthTexture;
+            payload.SampleCount = sampleCount;
+            payload.RenderMode = RenderMode;
+            payload.ShadingMode = ShadingMode;
+            payload.SceneGeneration = EnableRetainedSceneCache
+                ? _sceneGeneration
+                : 0;
+            payload.RecordGeneration = EnableRetainedSceneCache
+                ? _recordGeneration
+                : 0;
+            payload.SceneReused = !compileScene;
+            payload.SceneCompilationCount = compileScene ? 1 : 0;
+            payload.ModelVisualVisitCount = 0;
+            payload.MetricsTarget = _metricsTarget;
 
-            foreach (var visual in Children)
+            if (compileScene)
             {
-                CompileVisual(visual, Matrix4x4.Identity, payload);
+                payload.Meshes.Clear();
+                foreach (var visual in Children)
+                {
+                    CompileVisual(
+                        visual,
+                        Matrix4x4.Identity,
+                        payload);
+                }
+                SynchronizeMediaMaterialSubscriptions();
+                _sceneCompilationCount++;
+                if (EnableRetainedSceneCache)
+                {
+                    _compiledSceneGeneration = _sceneGeneration;
+                }
             }
-            SynchronizeMediaMaterialSubscriptions();
 
             if (payload.Meshes.Count > 0)
             {
@@ -804,10 +959,11 @@ namespace Microsoft.UI.Xaml.Controls
         private void OnMediaMaterialChanged(
             object? sender,
             EventArgs args) =>
-            Invalidate();
+            InvalidateScene();
 
         private void CompileVisual(Visual3D visual, Matrix4x4 parentTransform, Viewport3DCompilationPayload payload)
         {
+            payload.ModelVisualVisitCount++;
             if (visual is ModelVisual3D modelVisual)
             {
                 var localTransform = parentTransform;

@@ -483,6 +483,7 @@ public sealed class CadSampleView : Grid
         _canvas = new CadSampleCanvas(shxFonts);
         _viewport3D = new Viewport3D
         {
+            EnableRetainedSceneCache = true,
             Visibility = Visibility.Collapsed,
             RenderMode = RenderMode3D.Solid,
             ShadingMode = ShadingMode3D.Flat,
@@ -4319,6 +4320,7 @@ public sealed class CadSampleView : Grid
         CadDocumentSnapshot? snapshot = _canvas.CurrentSnapshot;
         if (snapshot is null)
         {
+            _viewport3D.InvalidateScene();
             SetMeshViewAvailability(false);
             return;
         }
@@ -4363,6 +4365,8 @@ public sealed class CadSampleView : Grid
                 },
             });
         }
+
+        _viewport3D.InvalidateScene();
 
         bool hasMeshes = scene.DrawBatches.Length != 0;
         SetMeshViewAvailability(hasMeshes);
