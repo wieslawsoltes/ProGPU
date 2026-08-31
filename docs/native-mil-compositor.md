@@ -5635,6 +5635,16 @@ Windows 11 ARM64 Parallels rebuilds it cleanly with MSVC 19.44/SDK
 the 111,104-byte test executable SHA-256 is
 `7910843D99080398B21DDD8F383FBEBBCB99E662B76338800C97034844B4C722`.
 
+ABI v45 adds a mutable ProGPU-owned `ID2D1SolidColorBrush` in the explicit
+compatibility-factory domain. It exposes canonical resource/brush/solid-brush
+COM identity, retains its factory, synchronizes valid color/opacity/transform
+state, and fails invalid creation closed. The direct recorder oracle now uses
+only ProGPU-owned factory, rectangle, brush, and command-sink objects; standard
+brush vtable reads still lower the two draws to one shared pointer-free scene
+brush. No system Direct2D resource, CPU fallback, or alternate renderer remains
+in that oracle. Committed-source Windows ARM64 qualification follows after the
+ABI v45 archive is rebuilt in Parallels.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit

@@ -6,10 +6,11 @@
 over WebGPU, with D3D12 selected by the Windows backend. The C++ backend now
 also ships an isolated Windows `progpu_native_direct2d` provider. It creates
 genuine system Direct2D COM objects and a synchronized DXGI target that ProGPU
-can import. ABI v44 extends the deliberately ProGPU-owned COM endpoint from an
+can import. ABI v45 extends the deliberately ProGPU-owned COM endpoint from an
 `ID2D1CommandSink1` recorder to an explicit `ID2D1Factory1` plus immutable
-`ID2D1RectangleGeometry`. Supported geometry callbacks lower directly into the
-portable semantic scene. This is an explicit compatibility facade, not an
+`ID2D1RectangleGeometry` and mutable `ID2D1SolidColorBrush`. Supported resource
+callbacks lower directly into the portable semantic scene. This is an explicit
+compatibility facade, not an
 impersonation of `d2d1.dll`; unsupported methods fail closed and the full
 device-context/resource vtable family remains incremental work. DirectWrite,
 WIC, and the native Win2D WinRT component remain Windows
@@ -38,7 +39,7 @@ binary.
 | `ProGPU.DirectX` D3D-style device/resources/pipelines | Implemented | Portable typed facade backed by WebGPU; D3D12 on qualified Windows adapters |
 | Native C++ MIL/retained scene on D3D12 | Implemented | Same backend-neutral scene ABI used on Metal, Vulkan, and browser WebGPU |
 | DXGI shared-handle import | Implemented building block | `ProGpuExternalTextureDescriptor` plus Dawn shared-texture memory, keyed-mutex ownership, and no CPU readback |
-| Direct2D `ID2D1*` and DirectWrite text API | Foundation plus bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, typed device-loss domains, and the first ProGPU-owned COM factory/geometry/recorder slice implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine system factory, device, context, target, and resource interfaces over a keyed-mutex BGRA DXGI target. Independently, ABI v44 returns ProGPU-owned `ID2D1Factory1`, `ID2D1RectangleGeometry`, and `ID2D1CommandSink1` identities; supported COM callbacks compile directly to the pointer-free scene used on D3D12, Metal, Vulkan, and WebGPU. Full ProGPU-owned device-context/resource vtables remain gated, unsupported methods fail closed, and there is no fake `d2d1.dll` or `dwrite.dll` |
+| Direct2D `ID2D1*` and DirectWrite text API | Foundation plus bitmap/brush/geometry/stroke/command-list/effect/layer/state/text/SVG resources, geometry analysis/realization, vector drawing, typed device-loss domains, and the first ProGPU-owned COM factory/geometry/brush/recorder slice implemented | Windows-only native provider plus AOT-safe `ProGPU.Direct2D` managed owner return genuine system factory, device, context, target, and resource interfaces over a keyed-mutex BGRA DXGI target. Independently, ABI v45 returns ProGPU-owned `ID2D1Factory1`, `ID2D1RectangleGeometry`, `ID2D1SolidColorBrush`, and `ID2D1CommandSink1` identities; supported COM callbacks compile directly to the pointer-free scene used on D3D12, Metal, Vulkan, and WebGPU. Full ProGPU-owned device-context/resource vtables remain gated, unsupported methods fail closed, and there is no fake `d2d1.dll` or `dwrite.dll` |
 | Native Win2D binary interop | Device/target/bitmap/brush/geometry/stroke/command-list/effect-output/text-format/text-layout/typography round trips plus layer/state/text draws package-qualified | The official factory/resource-wrapper contracts preserve exact provider identities through real `CanvasDevice`, `CanvasRenderTarget`, `CanvasBitmap`, brush, `CanvasGeometry`, `CanvasStrokeStyle`, `CanvasCommandList`, device-independent `CanvasTextFormat`/`CanvasTypography`, and device-associated `CanvasTextLayout` projections. The packaged Microsoft Win2D 1.4.0 oracle also wraps effect-output image brushes, executes typed ProGPU layer/state and native-text command-list scopes, observes ProGPU range formatting/OpenType features through the projected layout and typography, mutates that same native layout through Win2D, and draws it. It qualifies identities, resource metadata, boolean geometry/styled-stroke/image-brush/command-list/effect/text drawing and pixels, exclusive producer ownership, and zero-copy Dawn import; glyph runs/color fonts, remaining typography, the full effect catalog, custom effects, and full device-loss recreation remain gated work |
 | Portable Win2D-style Canvas source API | MVP implemented | `ProGPU.Win2D` records Win2D-shaped commands, compiles them with `ProGPU.Scene.Native`, and submits the retained scene to the C++ renderer |
 | Portable Win2D bitmap in LibreWPF native MIL | Implemented | Wrap a same-device `CanvasBitmap` lease source in `IPortableNativeImageSource`; canonical `TYPE_BITMAPSOURCE` lowers to a zero-payload external scene image with no readback or repack |
@@ -1246,6 +1247,22 @@ Windows 11 ARM64 Parallels rebuilds it cleanly with MSVC 19.44/SDK
 `3D90668C81E5113EF5A3C1B86EC13CC5B4B6E09B2C070F753CF5276AE8BCB033`;
 the 111,104-byte test executable SHA-256 is
 `7910843D99080398B21DDD8F383FBEBBCB99E662B76338800C97034844B4C722`.
+
+ABI v45 adds a ProGPU-owned mutable `ID2D1SolidColorBrush` to the compatibility
+factory domain. The explicit creation API accepts finite HDR color values plus
+optional opacity/transform properties, returns a caller-owned standard COM
+brush identity, and preserves canonical `IUnknown`/`ID2D1Resource`/
+`ID2D1Brush`/`ID2D1SolidColorBrush` queries and factory ownership. Standard
+color, opacity, and transform getters/setters are synchronized; invalid
+void-returning mutations retain the last valid state, while invalid creation
+fails closed with typed status and HRESULT data.
+
+The direct-COM oracle now uses only ProGPU-owned factory, rectangle, solid
+brush, and command sink objects for its two draws. The recorder consumes the
+standard brush vtable and still emits one pointer-free semantic brush shared by
+the analytic rectangle and vector-path commands on every backend. Windows
+qualification evidence is added after the committed ABI v45 archive is rebuilt
+in Parallels.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages

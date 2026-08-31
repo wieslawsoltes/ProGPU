@@ -51,12 +51,25 @@ public:
         void** resource) = 0;
 };
 
+MIDL_INTERFACE("19967CEE-EA52-45DD-9FDA-D9703A9FD150")
+IProGpuD2DCompatFactoryNative : public IUnknown {
+public:
+    virtual HRESULT STDMETHODCALLTYPE CreateSolidColorBrush(
+        const D2D1_COLOR_F* color,
+        const D2D1_BRUSH_PROPERTIES* properties,
+        ID2D1SolidColorBrush** brush) = 0;
+};
+
 static_assert(
     sizeof(progpu_native_direct2d_guid) == sizeof(GUID),
     "Direct2D portable GUID layout changed");
 static_assert(
     sizeof(progpu_native_direct2d_color_f) == sizeof(D2D1_COLOR_F),
     "Direct2D portable color layout changed");
+static_assert(
+    sizeof(progpu_native_direct2d_brush_properties) ==
+        sizeof(D2D1_BRUSH_PROPERTIES),
+    "Direct2D portable brush-properties layout changed");
 static_assert(
     sizeof(progpu_native_direct2d_gradient_stop) ==
         sizeof(D2D1_GRADIENT_STOP),
@@ -866,9 +879,138 @@ private:
     D2D1_RECT_F rectangle_{};
 };
 
+class ProGpuD2DSolidColorBrush final : public ID2D1SolidColorBrush {
+public:
+    ProGpuD2DSolidColorBrush(
+        ID2D1Factory1* factory,
+        const D2D1_COLOR_F& color,
+        const D2D1_BRUSH_PROPERTIES& properties) noexcept
+        : factory_(factory),
+          color_(color),
+          opacity_(properties.opacity),
+          transform_(properties.transform)
+    {
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(
+        REFIID interface_id,
+        void** value) noexcept override
+    {
+        if (value == nullptr) {
+            return E_POINTER;
+        }
+        *value = nullptr;
+        if (IsEqualIID(interface_id, IID_IUnknown) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1Resource)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1Brush)) ||
+            IsEqualIID(interface_id, __uuidof(ID2D1SolidColorBrush))) {
+            *value = static_cast<ID2D1SolidColorBrush*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() noexcept override
+    {
+        return reference_count_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+    }
+
+    ULONG STDMETHODCALLTYPE Release() noexcept override
+    {
+        const ULONG remaining = reference_count_.fetch_sub(
+            1U,
+            std::memory_order_acq_rel) - 1U;
+        if (remaining == 0U) {
+            delete this;
+        }
+        return remaining;
+    }
+
+    void STDMETHODCALLTYPE GetFactory(
+        ID2D1Factory** factory) const noexcept override
+    {
+        if (factory == nullptr) {
+            return;
+        }
+        *factory = factory_.Get();
+        if (*factory != nullptr) {
+            (*factory)->AddRef();
+        }
+    }
+
+    void STDMETHODCALLTYPE SetOpacity(FLOAT opacity) noexcept override
+    {
+        if (!std::isfinite(opacity) || opacity < 0.0F || opacity > 1.0F) {
+            return;
+        }
+        const std::lock_guard lock(mutex_);
+        opacity_ = opacity;
+    }
+
+    void STDMETHODCALLTYPE SetTransform(
+        const D2D1_MATRIX_3X2_F* transform) noexcept override
+    {
+        if (!compat_finite_transform(transform) || transform == nullptr) {
+            return;
+        }
+        const std::lock_guard lock(mutex_);
+        transform_ = *transform;
+    }
+
+    FLOAT STDMETHODCALLTYPE GetOpacity() const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return opacity_;
+    }
+
+    void STDMETHODCALLTYPE GetTransform(
+        D2D1_MATRIX_3X2_F* transform) const noexcept override
+    {
+        if (transform == nullptr) {
+            return;
+        }
+        const std::lock_guard lock(mutex_);
+        *transform = transform_;
+    }
+
+    void STDMETHODCALLTYPE SetColor(
+        const D2D1_COLOR_F* color) noexcept override
+    {
+        if (!finite_color_value(color)) {
+            return;
+        }
+        const std::lock_guard lock(mutex_);
+        color_ = *color;
+    }
+
+    D2D1_COLOR_F STDMETHODCALLTYPE GetColor() const noexcept override
+    {
+        const std::lock_guard lock(mutex_);
+        return color_;
+    }
+
+private:
+    static bool finite_color_value(
+        const D2D1_COLOR_F* color) noexcept
+    {
+        return color != nullptr && std::isfinite(color->r) &&
+            std::isfinite(color->g) && std::isfinite(color->b) &&
+            std::isfinite(color->a);
+    }
+
+    std::atomic<ULONG> reference_count_{1U};
+    ComPtr<ID2D1Factory1> factory_;
+    mutable std::mutex mutex_;
+    D2D1_COLOR_F color_{};
+    FLOAT opacity_ = 1.0F;
+    D2D1_MATRIX_3X2_F transform_ = D2D1::Matrix3x2F::Identity();
+};
+
 class ProGpuD2DFactory final :
     public ID2D1Factory1,
-    public ID2D1Multithread {
+    public ID2D1Multithread,
+    public IProGpuD2DCompatFactoryNative {
 public:
     HRESULT STDMETHODCALLTYPE QueryInterface(
         REFIID interface_id,
@@ -885,6 +1027,10 @@ public:
         } else if (IsEqualIID(
                 interface_id, __uuidof(ID2D1Multithread))) {
             *value = static_cast<ID2D1Multithread*>(this);
+        } else if (IsEqualIID(
+                interface_id,
+                __uuidof(IProGpuD2DCompatFactoryNative))) {
+            *value = static_cast<IProGpuD2DCompatFactoryNative*>(this);
         } else {
             return E_NOINTERFACE;
         }
@@ -1127,6 +1273,42 @@ public:
     void STDMETHODCALLTYPE Leave() noexcept override
     {
         mutex_.unlock();
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateSolidColorBrush(
+        const D2D1_COLOR_F* color,
+        const D2D1_BRUSH_PROPERTIES* properties,
+        ID2D1SolidColorBrush** brush) noexcept override
+    {
+        if (brush == nullptr) {
+            return E_POINTER;
+        }
+        *brush = nullptr;
+        if (color == nullptr || !std::isfinite(color->r) ||
+            !std::isfinite(color->g) || !std::isfinite(color->b) ||
+            !std::isfinite(color->a)) {
+            return E_INVALIDARG;
+        }
+        D2D1_BRUSH_PROPERTIES actual_properties =
+            D2D1::BrushProperties();
+        if (properties != nullptr) {
+            if (!std::isfinite(properties->opacity) ||
+                properties->opacity < 0.0F ||
+                properties->opacity > 1.0F ||
+                !compat_finite_transform(&properties->transform)) {
+                return E_INVALIDARG;
+            }
+            actual_properties = *properties;
+        }
+        auto* result = new (std::nothrow) ProGpuD2DSolidColorBrush(
+            this,
+            *color,
+            actual_properties);
+        if (result == nullptr) {
+            return E_OUTOFMEMORY;
+        }
+        *brush = result;
+        return S_OK;
     }
 
 private:
@@ -4832,6 +5014,64 @@ progpu_native_direct2d_compat_factory_create(
     }
     *factory = static_cast<ID2D1Factory1*>(instance);
     *native_hresult = S_OK;
+    return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
+}
+
+progpu_native_direct2d_status
+progpu_native_direct2d_compat_factory_create_solid_color_brush(
+    void* factory,
+    const progpu_native_direct2d_color_f* color,
+    const progpu_native_direct2d_brush_properties* properties,
+    void** brush,
+    int32_t* native_hresult)
+{
+    if (brush != nullptr) {
+        *brush = nullptr;
+    }
+    if (native_hresult != nullptr) {
+        *native_hresult = E_INVALIDARG;
+    }
+    if (factory == nullptr || color == nullptr || brush == nullptr ||
+        native_hresult == nullptr) {
+        return PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT;
+    }
+
+    auto* factory1 = static_cast<ID2D1Factory1*>(factory);
+    ComPtr<IProGpuD2DCompatFactoryNative> native_factory;
+    HRESULT hr = factory1->QueryInterface(IID_PPV_ARGS(&native_factory));
+    if (FAILED(hr)) {
+        *native_hresult = hr;
+        return status_from_scene_stream_hresult(hr);
+    }
+    D2D1_BRUSH_PROPERTIES native_properties{};
+    const D2D1_BRUSH_PROPERTIES* native_properties_pointer = nullptr;
+    if (properties != nullptr) {
+        native_properties.opacity = properties->opacity;
+        native_properties.transform = {
+            properties->transform.m11,
+            properties->transform.m12,
+            properties->transform.m21,
+            properties->transform.m22,
+            properties->transform.m31,
+            properties->transform.m32};
+        native_properties_pointer = &native_properties;
+    }
+    ComPtr<ID2D1SolidColorBrush> native_brush;
+    const D2D1_COLOR_F native_color = {
+        color->red,
+        color->green,
+        color->blue,
+        color->alpha};
+    hr = native_factory->CreateSolidColorBrush(
+        &native_color,
+        native_properties_pointer,
+        &native_brush);
+    *native_hresult = hr;
+    if (FAILED(hr)) {
+        return status_from_scene_stream_hresult(hr);
+    }
+    native_brush->AddRef();
+    *brush = native_brush.Get();
     return PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS;
 }
 

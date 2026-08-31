@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 44U;",
+            "internal const uint AbiVersion = 45U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -443,8 +443,12 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_compat_factory_create",
             exports,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "progpu_native_direct2d_compat_factory_create_solid_color_brush",
+            exports,
+            StringComparison.Ordinal);
         Assert.Equal(
-            128,
+            129,
             exports.Split(
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries |
@@ -492,7 +496,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 44U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 45U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -529,6 +533,10 @@ public sealed class Direct2DInteropContractTests
             StringComparison.Ordinal);
         Assert.Contains(
             "class ProGpuD2DRectangleGeometry final",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "class ProGpuD2DSolidColorBrush final",
             source,
             StringComparison.Ordinal);
         Assert.Contains(

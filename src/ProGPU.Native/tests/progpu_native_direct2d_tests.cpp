@@ -226,6 +226,88 @@ int main()
             unsupported_ellipse == nullptr,
         "unsupported ProGPU compatibility geometry did not fail closed");
 
+    const progpu_native_direct2d_color_f compat_brush_color = {
+        0.25F, 0.5F, 0.75F, 1.0F};
+    const progpu_native_direct2d_brush_properties compat_brush_properties = {
+        0.75F,
+        {1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 0.0F}};
+    void* compat_brush_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_compat_factory_create_solid_color_brush(
+            compat_factory.Get(),
+            &compat_brush_color,
+            &compat_brush_properties,
+            &compat_brush_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            compat_brush_value != nullptr && native_hresult == S_OK,
+        "ProGPU ID2D1SolidColorBrush compatibility creation failed");
+    ComPtr<ID2D1SolidColorBrush> compat_solid_brush;
+    compat_solid_brush.Attach(
+        static_cast<ID2D1SolidColorBrush*>(compat_brush_value));
+    ComPtr<ID2D1Brush> compat_base_brush;
+    require(
+        SUCCEEDED(compat_solid_brush.As(&compat_base_brush)) &&
+            has_same_com_identity(
+                compat_solid_brush.Get(), compat_base_brush.Get()),
+        "ProGPU solid brush COM identity changed");
+    ComPtr<ID2D1Factory> compat_brush_factory;
+    compat_solid_brush->GetFactory(&compat_brush_factory);
+    const D2D1_COLOR_F initial_compat_color =
+        compat_solid_brush->GetColor();
+    require(
+        compat_brush_factory != nullptr &&
+            has_same_com_identity(
+                compat_brush_factory.Get(), compat_factory.Get()) &&
+            initial_compat_color.r == 0.25F &&
+            initial_compat_color.g == 0.5F &&
+            initial_compat_color.b == 0.75F &&
+            initial_compat_color.a == 1.0F &&
+            compat_solid_brush->GetOpacity() == 0.75F,
+        "ProGPU solid brush initial state or factory identity changed");
+    const D2D1_COLOR_F final_compat_color =
+        D2D1::ColorF(0.875F, 0.375F, 0.125F, 1.0F);
+    const D2D1_MATRIX_3X2_F compat_brush_transform = {
+        1.0F, 0.0F, 0.0F, 1.0F, 3.0F, 4.0F};
+    compat_solid_brush->SetColor(&final_compat_color);
+    compat_solid_brush->SetOpacity(0.625F);
+    compat_solid_brush->SetTransform(&compat_brush_transform);
+    D2D1_MATRIX_3X2_F returned_compat_brush_transform{};
+    compat_solid_brush->GetTransform(&returned_compat_brush_transform);
+    const D2D1_COLOR_F returned_compat_color =
+        compat_solid_brush->GetColor();
+    require(
+        returned_compat_color.r == 0.875F &&
+            returned_compat_color.g == 0.375F &&
+            returned_compat_color.b == 0.125F &&
+            returned_compat_color.a == 1.0F &&
+            compat_solid_brush->GetOpacity() == 0.625F &&
+            returned_compat_brush_transform._31 == 3.0F &&
+            returned_compat_brush_transform._32 == 4.0F,
+        "ProGPU solid brush mutable state changed");
+    const D2D1_COLOR_F invalid_compat_mutation_color = {
+        std::numeric_limits<float>::quiet_NaN(), 0.0F, 0.0F, 1.0F};
+    compat_solid_brush->SetColor(&invalid_compat_mutation_color);
+    compat_solid_brush->SetOpacity(-1.0F);
+    require(
+        compat_solid_brush->GetColor().r == 0.875F &&
+            compat_solid_brush->GetOpacity() == 0.625F,
+        "invalid ProGPU solid brush mutation escaped validation");
+    void* invalid_compat_brush = reinterpret_cast<void*>(1);
+    const progpu_native_direct2d_color_f invalid_compat_creation_color = {
+        std::numeric_limits<float>::quiet_NaN(), 0.0F, 0.0F, 1.0F};
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_compat_factory_create_solid_color_brush(
+            compat_factory.Get(),
+            &invalid_compat_creation_color,
+            nullptr,
+            &invalid_compat_brush,
+            &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INVALID_ARGUMENT &&
+            invalid_compat_brush == nullptr && native_hresult == E_INVALIDARG,
+        "invalid ProGPU compatibility brush did not fail closed");
+
     progpu_native_direct2d_surface_options invalid_options{};
     invalid_options.struct_size = sizeof(invalid_options);
     invalid_options.dpi_x = 96.0F;
@@ -2159,12 +2241,12 @@ int main()
     require(
         direct_sink->FillRectangle(
             &direct_fill,
-            solid_brush.Get()) == S_OK,
+            compat_solid_brush.Get()) == S_OK,
         "ProGPU Direct2D COM FillRectangle callback failed");
     require(
         direct_sink->FillGeometry(
             compat_rectangle.Get(),
-            solid_brush.Get(),
+            compat_solid_brush.Get(),
             nullptr) == S_OK,
         "ProGPU Direct2D COM FillGeometry callback failed");
     require(
