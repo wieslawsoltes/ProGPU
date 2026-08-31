@@ -144,6 +144,25 @@ portable Direct2D header executable. The focused managed Direct2D contract gate
 passes 6/6 with zero build warnings and verifies that the capability split,
 install rule, and native layout test cannot be removed accidentally.
 
+ProGPU `6c48a2a9` adds the next extraction layer as installed header
+`progpu_native_com.hpp`. On Windows its GUID, HRESULT, reference-count, and
+`IUnknown` types alias the real SDK ABI. On other targets it provides the same
+fixed-width GUID/result layout and three-slot `QueryInterface`/`AddRef`/
+`Release` interface shape without importing a Windows runtime. Shared helpers
+provide HRESULT success/failure classification, field-wise GUID comparison,
+the canonical `IID_IUnknown`, atomic reference counting, and an allocation-free
+RAII COM pointer with attach/detach/copy/move/query ownership.
+
+This foundation does not emulate `CoCreateInstance`, apartments, the registry,
+marshalling, or arbitrary COM servers. It exists specifically so ProGPU-owned
+Direct2D resources can preserve COM identity and lifetime while their current
+WRL/Windows declarations are extracted. The native regression validates exact
+GUID/result widths, canonical identity, successful and failed
+`QueryInterface`, copy/move ownership, balanced references, and final object
+destruction. The Apple Silicon/macOS no-provider tree now passes 12/12 CTests;
+the focused managed Direct2D source/packaging contract passes 7/7 with zero
+build warnings.
+
 ## Current support matrix
 
 | Surface | Status | Contract |
