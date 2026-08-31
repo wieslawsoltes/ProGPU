@@ -1616,6 +1616,39 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfExtTextOutWGlyphIndexRetainsStoredOrderWhenLanguageProcessingIsDisabled()
+    {
+        ushort firstGlyph = SystemFonts.DefaultFont.TtfFont.GetGlyphIndex('M');
+        ushort secondGlyph = SystemFonts.DefaultFont.TtfFont.GetGlyphIndex('\u03A9');
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetBkMode, EmfInt32(1)),
+            (EmfPlusRecordType.EmfSetTextAlign, EmfInt32(0x0100)),
+            (EmfPlusRecordType.EmfExtTextOutW,
+                EmfExtTextOutW(
+                    new string([(char)firstGlyph, (char)secondGlyph]),
+                    new Point(4, 4),
+                    0x0000_1090,
+                    Rectangle.Empty,
+                    [20, 24]))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand glyphRun = Assert.Single(
+            context.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun);
+        Assert.Equal(
+            new[] { firstGlyph, secondGlyph },
+            Assert.IsType<ushort[]>(glyphRun.GlyphIndices));
+        Vector2[] positions = Assert.IsType<Vector2[]>(glyphRun.GlyphPositions);
+        Assert.Equal(20f, positions[1].X - positions[0].X, 3);
+    }
+
+    [Fact]
     public void EmfExtTextOutWGlyphIndexRejectsDecoratedPdyWithoutPublishing()
     {
         ushort glyph = SystemFonts.DefaultFont.TtfFont.GetGlyphIndex('M');

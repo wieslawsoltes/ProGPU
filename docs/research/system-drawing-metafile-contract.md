@@ -577,15 +577,21 @@ each cell from the selected font's exact glyph advance instead of rounding it
 to an integer character width. Alignment, opaque/clipped rectangles,
 background mode, escapement, and `TA_UPDATECP` remain owned EMF state. ANSI
 glyph-index storage is rejected transactionally because its separately
-specified 16-bit storage contract is not implemented. Bidi visual ordering,
-language suppression combined with glyph IDs, and decorated two-dimensional
-cells remain named boundaries. Horizontal explicit or natural cells now lower
+specified 16-bit storage contract is not implemented. The official
+[`ExtTextOutOptions`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/e7ffcc53-40d1-4873-8eda-c5c5ee104aa5)
+contract defines glyph input as already positioned, while
+[`ExtTextOutW`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-exttextoutw)
+specifies that `ETO_RTLREADING` is ignored with `ETO_GLYPH_INDEX`. Playback
+therefore retains stored glyph order when either record-level RTL or
+`TA_RTLREADING` is present, and accepts `ETO_IGNORELANGUAGE` as the natural
+no-language-processing form of the direct path. Decorated two-dimensional
+cells remain a named boundary. Horizontal explicit or natural cells now lower
 underline and strikeout through selected-font OpenType metrics without Unicode
 clusters; PDY decorations reject until per-cell vertical geometry is defined.
 Exact selected-font glyph IDs, explicit 20-unit cell placement, a 44-unit
 current-position update, natural positive advance, both horizontal decoration
-forms, ANSI/PDY-decoration rejection, and rollback raise the complete drawing
-suite to 457/457.
+forms, stored-order language suppression, ANSI/PDY-decoration rejection, and
+rollback raise the complete drawing suite to 458/458.
 
 `Playback256EmfExtTextOutWGlyphIndices` guards 256 direct three-glyph records.
 The 2026-08-31 ARM64/.NET 10.0.11 in-process run allocated 528.25 KB and

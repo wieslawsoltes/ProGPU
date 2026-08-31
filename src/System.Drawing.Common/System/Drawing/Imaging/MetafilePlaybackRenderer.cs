@@ -1400,26 +1400,23 @@ internal static class MetafilePlaybackRenderer
 
         if ((options & EtoIgnoreLanguage) != 0)
         {
-            if (!glyphIndices.IsEmpty)
+            if (glyphIndices.IsEmpty)
             {
-                throw Unsupported(
-                    record,
-                    "ETO_IGNORELANGUAGE combined with glyph-index input has no text-language stage to suppress.");
-            }
-            bool hasNonAsciiText = false;
-            foreach (char character in text)
-            {
-                if (character > 0x7F)
+                bool hasNonAsciiText = false;
+                foreach (char character in text)
                 {
-                    hasNonAsciiText = true;
-                    break;
+                    if (character > 0x7F)
+                    {
+                        hasNonAsciiText = true;
+                        break;
+                    }
                 }
-            }
-            if (advances.IsEmpty || hasNonAsciiText)
-            {
-                throw Unsupported(
-                    record,
-                    "ETO_IGNORELANGUAGE requires explicit advances and currently supports ASCII text only.");
+                if (advances.IsEmpty || hasNonAsciiText)
+                {
+                    throw Unsupported(
+                        record,
+                        "ETO_IGNORELANGUAGE requires explicit advances and currently supports ASCII text only.");
+                }
             }
         }
 
@@ -1446,7 +1443,6 @@ internal static class MetafilePlaybackRenderer
                 rectangle,
                 opaque: (options & EtoOpaque) != 0,
                 clipped: (options & EtoClipped) != 0,
-                rightToLeft: (options & EtoRtlReading) != 0,
                 advances,
                 verticalAdvances);
         }
@@ -2310,7 +2306,6 @@ internal static class MetafilePlaybackRenderer
             Rectangle rectangle,
             bool opaque,
             bool clipped,
-            bool rightToLeft,
             ReadOnlySpan<int> advances,
             ReadOnlySpan<int> verticalAdvances)
         {
@@ -2322,12 +2317,6 @@ internal static class MetafilePlaybackRenderer
                 (!verticalAdvances.IsEmpty && verticalAdvances.Length != glyphIndices.Length))
             {
                 throw Invalid(record);
-            }
-            if (rightToLeft || (TextAlignment & 0x0100) != 0)
-            {
-                throw Unsupported(
-                    record,
-                    "Glyph-index text combined with right-to-left layout requires explicit visual-order semantics.");
             }
             if (!verticalAdvances.IsEmpty &&
                 (_selectedFont.Style & (FontStyle.Underline | FontStyle.Strikeout)) != 0)

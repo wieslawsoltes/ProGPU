@@ -452,14 +452,16 @@ typed floating-point path preserves scalar/PDY cells or, when `offDx` is zero,
 uses each selected-font glyph's natural advance without cumulative integer
 rounding. Alignment, background and clip state, escapement, and current-position
 updates remain intact. ANSI storage is rejected transactionally until its
-separate 16-bit contract is implemented; bidi visual order and decorated
-two-dimensional glyph-index text remain explicit boundaries. Horizontal
+separate 16-bit contract is implemented. Because glyph input is already
+language-processed, record-level RTL, `TA_RTLREADING`, and
+`ETO_IGNORELANGUAGE` retain the stored glyph order without another bidi pass.
+Decorated two-dimensional glyph-index text remains an explicit boundary. Horizontal
 explicit and natural cells now use selected-font OpenType metrics for retained
 underline/strikeout rectangles without reconstructing Unicode; decorated PDY
 rejects until per-cell vertical geometry is defined. Exact IDs, explicit and
 natural cell origins, `TA_UPDATECP`, both horizontal decoration forms, ANSI and
-PDY-decoration rejection, and rollback are covered by the complete 457/457
-suite. ApiCompat remains 0/0/13.
+PDY-decoration rejection, stored-order language suppression, and rollback are
+covered by the complete 458/458 suite. ApiCompat remains 0/0/13.
 
 `MetafileBenchmarks.Playback256EmfExtTextOutWGlyphIndices` measured a 3.818 ms
 median (4.194 ms mean, 1.187 ms standard deviation) and 528.25 KB allocated for
