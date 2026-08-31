@@ -112,8 +112,8 @@ state/object path separate from EMF. It implements background mode/color,
 `R2_COPYPEN`, `META_SETRELABS` no-op semantics, polygon fill mode, text-alignment
 state, window origin/extent, move, lowest-free object-table allocation and slot
 reuse, selection/deletion, solid/null pens and brushes, polygons, polylines,
-counterclockwise elliptical arcs, filled/stroked rectangles, and
-filled/stroked ellipses and rounded rectangles. Intersect- and exclude-clip
+counterclockwise elliptical arcs, filled/stroked pies and chords, rectangles,
+ellipses, and rounded rectangles. Intersect- and exclude-clip
 rectangles lower through the retained Region clip path, and SaveDC/relative
 RestoreDC uses the complete managed state snapshot described below. The record
 inventory used by the canonical LibreWinForms `telescope_01.wmf` asset remains
@@ -122,6 +122,8 @@ implementation is based on the official
 [WMF object record rules](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/aeab62b8-03ab-48c0-8176-09c392f3c9da),
 [META_POLYGON](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/0982bbfc-feb7-4f06-a8fb-ad03b465ffea),
 [META_ARC](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/742097b4-5879-4c36-b57e-77e7cc152253),
+[META_PIE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/b3f3e55f-6f69-4678-87ea-e6feb6af6eeb),
+[META_CHORD](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/44aa3feb-ab01-47ca-9386-62acf7df5263),
 [META_ROUNDRECT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/9c262e3b-e631-4343-8b90-0441872f1e9a), and
 [state record](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/54e4a2e0-5ca9-4c69-b6a8-dc8f938c68ae)
 contracts. Paths, other clipping records, text output, DIB images, richer GDI objects,
@@ -166,7 +168,7 @@ saved clip restoration, multi-polygon count/point validation,
 explicit image-attribute/projective rejection, and transactional rollback after
 a supported draw but before an unsupported record. WMF gates cover 16-bit
 parameter ordering, lowest-free slot reuse, state, pen/brush selection,
-polygon/polyline/arc/rectangle/ellipse/rounded-rectangle pixels,
+polygon/polyline/arc/pie/chord/rectangle/ellipse/rounded-rectangle pixels,
 intersect/exclude clip pixels, zero-corner rectangle fallback, invalid-bound rejection,
 SaveDC/relative RestoreDC scope, and transactional rollback. Saved WMF state
 includes window and viewport origins/extents, current point, world transform,
@@ -223,7 +225,7 @@ the saved scope, the outer intersection survives restoration, and a following
 unsupported record still rolls back the complete temporary stream. Restoring
 an unavailable relative level also fails before publishing commands.
 
-`Playback256WmfEllipsesToRetainedCommands` guards the WMF 16-bit bottom/right/top/left parameter order, selected brush and pen lowering, transactional append, and retained curve commands. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 millisecond median (1.109 millisecond mean, 0.115 millisecond standard deviation) and 622.14 KB managed allocation for 256 filled and stroked ellipses. One launch and three measured iterations make this a coarse first baseline. Focused gates verify selected fill/outline pixels, reject unordered bounds without publication, and prove that a following unsupported text record does not publish a partially lowered ellipse stream. The complete drawing suite passes 398/398, and ApiCompat remains at 0 missing types, 0 missing members, and 13 reviewed platform-annotation differences.
+`Playback256WmfEllipsesToRetainedCommands` guards the WMF 16-bit bottom/right/top/left parameter order, selected brush and pen lowering, transactional append, and retained curve commands. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun measured a 1.060 millisecond median (1.109 millisecond mean, 0.115 millisecond standard deviation) and 622.14 KB managed allocation for 256 filled and stroked ellipses. One launch and three measured iterations make this a coarse first baseline. Focused gates verify selected fill/outline pixels, reject unordered bounds without publication, and prove that a following unsupported text record does not publish a partially lowered ellipse stream. The complete drawing suite passes 400/400, and ApiCompat remains at 0 missing types, 0 missing members, and 13 reviewed platform-annotation differences.
 
 `Playback256WmfRoundRectanglesToRetainedCommands` guards the official height,
 width, bottom, right, top, left `META_ROUNDRECT` payload and typed selected
@@ -235,6 +237,18 @@ this a coarse curve-lowering checkpoint and expose allocation as an explicit
 optimization target. Exact center, antialiased outline, and transparent-corner
 pixels, zero-corner rectangle fallback, and invalid-bound rollback remain the
 correctness evidence.
+
+`Playback256WmfPiesToRetainedCommands` and
+`Playback256WmfChordsToRetainedCommands` guard the shared official radial2,
+radial1, bottom/right/top/left decoder and the distinct center-radial versus
+straight-chord closures. The 2026-08-31 ARM64/.NET 10.0.11 in-process ShortRun
+measured pies at a 1.382 millisecond median (1.621 millisecond mean, 0.785
+millisecond standard deviation) with 816.23 KB allocated, and chords at a
+792.480 microsecond median (946.270 microsecond mean, 284.554 microsecond
+standard deviation) with 800.03 KB allocated. Three high-variance iterations
+make these coarse curve-lowering checkpoints. Independent inside/outside pixels
+distinguish both closures, and an invalid chord after a valid pie proves that
+the earlier shape is not published transactionally.
 
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication

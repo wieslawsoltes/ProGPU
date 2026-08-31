@@ -22,6 +22,8 @@ public class MetafileBenchmarks
     private Metafile _wmfClippedRectanglePlaybackMetafile = null!;
     private Metafile _wmfEllipsePlaybackMetafile = null!;
     private Metafile _wmfRoundRectanglePlaybackMetafile = null!;
+    private Metafile _wmfPiePlaybackMetafile = null!;
+    private Metafile _wmfChordPlaybackMetafile = null!;
     private readonly Graphics.EnumerateMetafileProc _enumerate = static (_, _, _, _, _) => true;
     private readonly byte[] _comment = new byte[64];
 
@@ -46,6 +48,10 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackWmfBoxes(256, 0x0418), writable: false));
         _wmfRoundRectanglePlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfBoxes(256, 0x061C), writable: false));
+        _wmfPiePlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackWmfFilledArcs(256, 0x081A), writable: false));
+        _wmfChordPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackWmfFilledArcs(256, 0x0830), writable: false));
     }
 
     [GlobalCleanup]
@@ -58,6 +64,8 @@ public class MetafileBenchmarks
         _wmfClippedRectanglePlaybackMetafile.Dispose();
         _wmfEllipsePlaybackMetafile.Dispose();
         _wmfRoundRectanglePlaybackMetafile.Dispose();
+        _wmfPiePlaybackMetafile.Dispose();
+        _wmfChordPlaybackMetafile.Dispose();
         _playbackGraphics.Dispose();
         _graphics.Dispose();
         _target.Dispose();
@@ -146,6 +154,26 @@ public class MetafileBenchmarks
     {
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(_wmfRoundRectanglePlaybackMetafile, new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256WmfPiesToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(_wmfPiePlaybackMetafile, new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256WmfChordsToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(_wmfChordPlaybackMetafile, new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
         return commandCount;
@@ -385,6 +413,59 @@ public class MetafileBenchmarks
         return bytes;
     }
 
+    private static byte[] CreatePlaybackWmfFilledArcs(int recordCount, ushort function)
+    {
+        int declaredWords = checked(9 + 7 + 8 + 4 + 4 + recordCount * 11 + 3);
+        byte[] bytes = new byte[checked(22 + declaredWords * 2)];
+        WriteUInt32(bytes, 0, 0x9AC6_CDD7);
+        WriteInt16(bytes, 10, 640);
+        WriteInt16(bytes, 12, 480);
+        WriteUInt16(bytes, 14, 96);
+        ushort checksum = 0;
+        for (int offset = 0; offset < 20; offset += 2)
+        {
+            checksum ^= BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset, 2));
+        }
+        WriteUInt16(bytes, 20, checksum);
+
+        WriteUInt16(bytes, 22, 1);
+        WriteUInt16(bytes, 24, 9);
+        WriteUInt16(bytes, 26, 0x0300);
+        WriteUInt32(bytes, 28, (uint)declaredWords);
+        WriteUInt16(bytes, 32, 2);
+        WriteUInt32(bytes, 34, 11);
+
+        int cursor = 40;
+        WriteUInt32(bytes, cursor, 7);
+        WriteUInt16(bytes, cursor + 4, 0x02FC);
+        WriteUInt32(bytes, cursor + 8, 0x0044_4444);
+        cursor += 14;
+
+        WriteUInt32(bytes, cursor, 8);
+        WriteUInt16(bytes, cursor + 4, 0x02FA);
+        WriteUInt16(bytes, cursor + 6, 0);
+        WriteInt16(bytes, cursor + 8, 1);
+        cursor += 16;
+
+        WriteWmfObjectIndexRecord(bytes, cursor, 0x012D, 0);
+        cursor += 8;
+        WriteWmfObjectIndexRecord(bytes, cursor, 0x012D, 1);
+        cursor += 8;
+
+        for (int index = 0; index < recordCount; index++)
+        {
+            short left = checked((short)((index % 16) * 40));
+            short top = checked((short)((index / 16) * 30));
+            short right = checked((short)(left + 32));
+            short bottom = checked((short)(top + 22));
+            WriteWmfFilledArcRecord(bytes, cursor, function, left, top, right, bottom);
+            cursor += 22;
+        }
+
+        WriteUInt32(bytes, cursor, 3);
+        return bytes;
+    }
+
     private static void WriteWmfBoxRecord(
         byte[] target,
         int offset,
@@ -420,6 +501,27 @@ public class MetafileBenchmarks
         WriteInt16(target, offset + 12, right);
         WriteInt16(target, offset + 14, top);
         WriteInt16(target, offset + 16, left);
+    }
+
+    private static void WriteWmfFilledArcRecord(
+        byte[] target,
+        int offset,
+        ushort function,
+        short left,
+        short top,
+        short right,
+        short bottom)
+    {
+        WriteUInt32(target, offset, 11);
+        WriteUInt16(target, offset + 4, function);
+        WriteInt16(target, offset + 6, top);
+        WriteInt16(target, offset + 8, checked((short)(left + (right - left) / 2)));
+        WriteInt16(target, offset + 10, checked((short)(top + (bottom - top) / 2)));
+        WriteInt16(target, offset + 12, right);
+        WriteInt16(target, offset + 14, bottom);
+        WriteInt16(target, offset + 16, right);
+        WriteInt16(target, offset + 18, top);
+        WriteInt16(target, offset + 20, left);
     }
 
     private static void WriteWmfObjectIndexRecord(

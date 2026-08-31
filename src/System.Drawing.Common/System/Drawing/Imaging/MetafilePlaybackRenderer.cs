@@ -153,7 +153,15 @@ internal static class MetafilePlaybackRenderer
                 return;
 
             case EmfPlusRecordType.WmfArc:
-                DrawWmfArc(state, record, payload);
+                DrawWmfArcFamily(state, record, payload, WmfArcClosure.Open);
+                return;
+
+            case EmfPlusRecordType.WmfPie:
+                DrawWmfArcFamily(state, record, payload, WmfArcClosure.Pie);
+                return;
+
+            case EmfPlusRecordType.WmfChord:
+                DrawWmfArcFamily(state, record, payload, WmfArcClosure.Chord);
                 return;
 
             case EmfPlusRecordType.WmfEllipse:
@@ -624,10 +632,11 @@ internal static class MetafilePlaybackRenderer
         }
     }
 
-    private static void DrawWmfArc(
+    private static void DrawWmfArcFamily(
         PlaybackState state,
         in MetafileRecord record,
-        ReadOnlySpan<byte> payload)
+        ReadOnlySpan<byte> payload,
+        WmfArcClosure closure)
     {
         RequireSize(record, payload, 16);
         int left = ReadInt16(payload, 14);
@@ -659,10 +668,46 @@ internal static class MetafilePlaybackRenderer
         }
 
         state.ApplyTransform(record);
+        if (closure == WmfArcClosure.Open)
+        {
+            if (state.SelectedPen is Pen openPen)
+            {
+                state.Graphics.DrawArc(openPen, rectangle, startAngle, sweepAngle);
+            }
+            return;
+        }
+
+        if (state.SelectedBrush is null && state.SelectedPen is null)
+        {
+            return;
+        }
+
+        using var path = new GraphicsPath();
+        if (closure == WmfArcClosure.Pie)
+        {
+            path.AddPie(rectangle, startAngle, sweepAngle);
+        }
+        else
+        {
+            path.AddArc(rectangle, startAngle, sweepAngle);
+            path.CloseFigure();
+        }
+
+        if (state.SelectedBrush is Brush brush)
+        {
+            state.Graphics.FillPath(brush, path);
+        }
         if (state.SelectedPen is Pen pen)
         {
-            state.Graphics.DrawArc(pen, rectangle, startAngle, sweepAngle);
+            state.Graphics.DrawPath(pen, path);
         }
+    }
+
+    private enum WmfArcClosure
+    {
+        Open,
+        Pie,
+        Chord
     }
 
     private static Point ScaleExtent(
