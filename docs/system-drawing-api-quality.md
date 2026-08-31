@@ -393,6 +393,16 @@ justification and remainder, opaque clipping, bounded/aligned offsets, invalid
 UTF-16, and transactional rollback are covered by the complete 438/438 drawing
 suite. ApiCompat remains 0/0/13.
 
+`MetafileBenchmarks.Playback256EmfExtTextOutAWithAdvances` reuses the typed EMF
+record parser and shaped advance path while decoding bytes through the selected
+logical font's GDI charset. Its 2026-08-31 ARM64/.NET 10.0.11 in-process
+ShortRun allocated 1.07 MB for 256 records. Timing ranged from 3.510 to 10.228
+ms with 3.833 ms standard deviation, so no latency baseline is claimed. CP1252
+non-ASCII glyphs at odd-byte offsets, exact origins/colors, Shift-JIS decoding
+without explicit advances, invalid Shift-JIS, explicit DBCS-advance rejection,
+and transaction rollback are covered by the complete 442/442 suite. ApiCompat
+remains 0/0/13.
+
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the
 same parser used by consumers, and final stream publication. The 2026-08-27

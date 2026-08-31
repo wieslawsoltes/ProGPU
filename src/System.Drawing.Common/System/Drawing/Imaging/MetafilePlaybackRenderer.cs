@@ -466,7 +466,11 @@ internal static class MetafilePlaybackRenderer
                 return;
 
             case EmfPlusRecordType.EmfExtTextOutW:
-                DrawEmfExtTextOutW(state, record, payload);
+                DrawEmfExtTextOut(state, record, payload, unicode: true);
+                return;
+
+            case EmfPlusRecordType.EmfExtTextOutA:
+                DrawEmfExtTextOut(state, record, payload, unicode: false);
                 return;
 
             case EmfPlusRecordType.EmfSetTextJustification:
@@ -1027,10 +1031,11 @@ internal static class MetafilePlaybackRenderer
             advances);
     }
 
-    private static void DrawEmfExtTextOutW(
+    private static void DrawEmfExtTextOut(
         PlaybackState state,
         in MetafileRecord record,
-        ReadOnlySpan<byte> payload)
+        ReadOnlySpan<byte> payload,
+        bool unicode)
     {
         const uint EtoOpaque = 0x0000_0002;
         const uint EtoClipped = 0x0000_0004;
@@ -1070,7 +1075,7 @@ internal static class MetafilePlaybackRenderer
             {
                 throw Unsupported(
                     record,
-                    $"EXTTEXTOUTW options 0x{options:X8} require glyph-index, numeric-substitution, small-character, or two-dimensional advance support.");
+                    $"EXTTEXTOUT options 0x{options:X8} require glyph-index, numeric-substitution, small-character, or two-dimensional advance support.");
             }
             throw Invalid(record);
         }
@@ -1084,13 +1089,13 @@ internal static class MetafilePlaybackRenderer
             stringOffset = characterCount == 0 && stringOffsetValue == 0
                 ? EmrTextOffset + EmrTextSize
                 : checked((int)stringOffsetValue - RecordHeaderSize);
-            stringSize = checked(characterCount * 2);
+            stringSize = checked(characterCount * (unicode ? 2 : 1));
         }
         catch (OverflowException exception)
         {
             throw Invalid(record, exception);
         }
-        if ((stringOffsetValue & 1) != 0 ||
+        if ((unicode && (stringOffsetValue & 1) != 0) ||
             stringOffset < EmrTextOffset + EmrTextSize ||
             stringOffset > payload.Length - stringSize)
         {
@@ -1098,22 +1103,43 @@ internal static class MetafilePlaybackRenderer
         }
 
         string text;
-        try
+        Encoding? ansiEncoding = null;
+        if (unicode)
         {
-            text = Encoding.GetEncoding(
-                1200,
-                EncoderFallback.ExceptionFallback,
-                DecoderFallback.ExceptionFallback).GetString(
-                    payload.Slice(stringOffset, stringSize));
+            try
+            {
+                text = Encoding.GetEncoding(
+                    1200,
+                    EncoderFallback.ExceptionFallback,
+                    DecoderFallback.ExceptionFallback).GetString(
+                        payload.Slice(stringOffset, stringSize));
+            }
+            catch (DecoderFallbackException exception)
+            {
+                throw Invalid(record, exception);
+            }
         }
-        catch (DecoderFallbackException exception)
+        else
         {
-            throw Invalid(record, exception);
+            text = DecodeWmfText(
+                state.SelectedFont.GdiCharSet,
+                record,
+                payload.Slice(stringOffset, stringSize),
+                out ansiEncoding);
         }
 
         scoped Span<int> advances = default;
         if (advancesOffsetValue != 0)
         {
+            if (!unicode &&
+                (ansiEncoding is null || !ansiEncoding.IsSingleByte ||
+                 text.Length != characterCount))
+            {
+                throw Unsupported(
+                    record,
+                    "Per-character ANSI EMF advances currently require a one-byte charset with one UTF-16 code unit per input byte.");
+            }
+
             int advancesOffset;
             int advancesSize;
             try

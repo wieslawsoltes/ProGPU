@@ -94,7 +94,7 @@ transparent/opaque background state, `R2_COPYPEN`, solid or null cosmetic pen
 creation, solid or null brush creation, stock/dynamic selection, and safe
 deletion. The typed text slice adds text/background colors, alignment,
 justification, Unicode `EMR_EXTCREATEFONTINDIRECTW` object-table fonts, and
-`EMR_EXTTEXTOUTW` with opaque/clipped rectangles, RTL layout without explicit
+`EMR_EXTTEXTOUTA/W` with opaque/clipped rectangles, RTL layout without explicit
 advances, and 32-bit character-cell advances. Saved DC state includes the
 retained clip and text state and restores both through the typed `GraphicsState`
 path. EMF/EMF+ structural and comment records are
@@ -107,6 +107,7 @@ official [EMR_RECTANGLE](https://learn.microsoft.com/en-us/openspecs/windows_pro
 [EMR_SETWORLDTRANSFORM](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/985724c0-4db1-48f0-b346-67288b3288cb),
 [EMR_POLYGON](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/eb916781-58b6-4e92-b606-68071aa65733),
 [EMR_EXTCREATEFONTINDIRECTW](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/7e266b6d-32e5-4201-b687-8ec40c24cd73),
+[EMR_EXTTEXTOUTA](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/6b582a71-3c29-4fc6-a0f4-1f8a313739a1),
 [EMR_EXTTEXTOUTW](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/a59a79ac-328e-492d-a34d-e02727af6edf), and
 [EmrText](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/dd585d0a-5d7c-4034-963a-1141af836972)
 contracts. Each supported record lowers to existing typed `Graphics`, brush,
@@ -114,9 +115,12 @@ and pen operations. Playback records into a temporary `DrawingContext`; an
 unsupported or malformed record reports its type and byte offset and prevents
 the entire temporary command stream from being appended.
 
-The Unicode text parser treats offsets as record-relative, requires aligned
-in-bounds non-overlapping string/advance ranges, rejects invalid UTF-16, and
-bounds `LOGFONTEXDV` to its protocol maximum. `ETO_IGNORELANGUAGE` is accepted
+The text parser treats offsets as record-relative, requires format-appropriate
+in-bounds non-overlapping string/advance ranges, rejects invalid UTF-16 or
+selected-font charset sequences, and bounds `LOGFONTEXDV` to its protocol
+maximum. ANSI records decode through the selected font's GDI charset; explicit
+advances require a one-byte encoding with a one-to-one UTF-16 mapping until a
+typed DBCS byte-to-cell seam lands. `ETO_IGNORELANGUAGE` is accepted
 only for ASCII text carrying explicit cell advances, matching the common print-
 spool form without pretending to implement an unshaped complex-script path.
 Glyph-index, numeric substitution, small-character encoding, two-dimensional
@@ -495,6 +499,16 @@ deviation, so no throughput baseline is claimed. Exact Unicode glyph identity,
 advance origins, colors, current-position updates, justification remainder,
 saved state, opaque clipping, malformed offsets, and transactional rollback are
 covered by the authoritative 438/438 drawing suite.
+
+`Playback256EmfExtTextOutAWithAdvances` applies the same 256-record retained
+workload to one-byte ANSI records, exercising selected-font charset conversion,
+arbitrary byte-aligned strings, and 32-bit cell advances. The ARM64/.NET 10.0.11
+in-process ShortRun allocated 1.07 MB per playback. Its three timing samples
+ranged from 3.510 to 10.228 milliseconds with a 3.833 millisecond standard
+deviation, so no latency baseline is claimed. CP1252 non-ASCII conversion,
+odd-byte offsets, explicit advances, Shift-JIS decoding without explicit
+advances, invalid Shift-JIS input, DBCS-advance rejection, and rollback raise
+the authoritative drawing suite to 442/442.
 
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication

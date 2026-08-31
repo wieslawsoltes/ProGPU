@@ -1523,6 +1523,141 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfExtTextOutAUsesSelectedCharsetOddOffsetAnd32BitAdvances()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetBkMode, EmfInt32(1)),
+            (EmfPlusRecordType.EmfExtCreateFontIndirect,
+                EmfFont(1, -14, SystemFonts.DefaultFont.Name)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfSetTextColor, EmfUInt32(0x0000_00FF)),
+            (EmfPlusRecordType.EmfExtTextOutA,
+                EmfExtTextOutA(
+                    "M\u20AC",
+                    new Point(4, 4),
+                    0,
+                    Rectangle.Empty,
+                    [20, 24],
+                    codePage: 1252,
+                    stringPadding: 1))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand glyphRun = Assert.Single(
+            context.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun);
+        ushort[] glyphIndices = Assert.IsType<ushort[]>(glyphRun.GlyphIndices);
+        Vector2[] glyphPositions = Assert.IsType<Vector2[]>(glyphRun.GlyphPositions);
+        Assert.Equal(2, glyphIndices.Length);
+        Assert.NotEqual(glyphIndices[0], glyphIndices[1]);
+        Assert.Equal(20f, glyphPositions[1].X - glyphPositions[0].X, 3);
+        var brush = Assert.IsType<ProGPU.Vector.SolidColorBrush>(glyphRun.Brush);
+        Assert.Equal(new Vector4(1f, 0f, 0f, 1f), brush.Color);
+    }
+
+    [Fact]
+    public void EmfExtTextOutARejectsDbcsAdvancesWithoutPublishingCommands()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfExtCreateFontIndirect,
+                EmfFont(1, -14, SystemFonts.DefaultFont.Name, charSet: 128)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfExtTextOutA,
+                EmfExtTextOutA(
+                    "\u3042",
+                    new Point(4, 4),
+                    0,
+                    Rectangle.Empty,
+                    [10, 10],
+                    codePage: 932))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+        Assert.Contains(nameof(EmfPlusRecordType.EmfExtTextOutA), exception.Message);
+        Assert.Contains("one-byte charset", exception.Message);
+        Assert.Empty(context.Commands);
+    }
+
+    [Fact]
+    public void EmfExtTextOutADecodesDbcsWithoutExplicitAdvances()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetBkMode, EmfInt32(1)),
+            (EmfPlusRecordType.EmfExtCreateFontIndirect,
+                EmfFont(1, -14, SystemFonts.DefaultFont.Name, charSet: 128)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfExtTextOutA,
+                EmfExtTextOutA(
+                    "\u3042",
+                    new Point(4, 4),
+                    0,
+                    Rectangle.Empty,
+                    null,
+                    codePage: 932))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand textCommand = Assert.Single(
+            context.Commands,
+            static command => command.Type is
+                RenderCommandType.DrawGlyphRun or RenderCommandType.DrawText);
+        if (textCommand.Type == RenderCommandType.DrawGlyphRun)
+        {
+            Assert.Single(Assert.IsType<ushort[]>(textCommand.GlyphIndices));
+        }
+        else
+        {
+            Assert.Equal("\u3042", textCommand.Text);
+        }
+    }
+
+    [Fact]
+    public void EmfExtTextOutARejectsInvalidDbcsSequenceWithoutPublishingCommands()
+    {
+        byte[] malformedText = EmfExtTextOutA(
+            "M",
+            new Point(4, 4),
+            0,
+            Rectangle.Empty,
+            null,
+            codePage: 932);
+        malformedText[68] = 0x81;
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(1, 1, 4, 4)),
+            (EmfPlusRecordType.EmfExtCreateFontIndirect,
+                EmfFont(1, -14, SystemFonts.DefaultFont.Name, charSet: 128)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfExtTextOutA, malformedText)
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+        Assert.Contains(nameof(EmfPlusRecordType.EmfExtTextOutA), exception.Message);
+        Assert.Empty(context.Commands);
+    }
+
+    [Fact]
     public void EmfPlaybackRejectsImageAttributesAndPerspectiveMappingExplicitly()
     {
         using var metafile = new Metafile(new MemoryStream(CreatePlaybackEmf()));
@@ -2451,7 +2586,11 @@ public sealed class MetafileParserTests
         return bytes;
     }
 
-    private static byte[] EmfFont(uint index, int height, string faceName)
+    private static byte[] EmfFont(
+        uint index,
+        int height,
+        string faceName,
+        byte charSet = 1)
     {
         byte[] faceNameBytes = Encoding.Unicode.GetBytes(faceName);
         if (faceNameBytes.Length > 62)
@@ -2465,7 +2604,7 @@ public sealed class MetafileParserTests
         WriteInt32(payload, 12, 0);
         WriteInt32(payload, 16, 0);
         WriteInt32(payload, 20, 400);
-        payload[27] = 1;
+        payload[27] = charSet;
         faceNameBytes.CopyTo(payload, 32);
         return payload;
     }
@@ -2478,15 +2617,63 @@ public sealed class MetafileParserTests
         int[]? advances,
         int stringPadding = 0)
     {
+        if ((stringPadding & 1) != 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(stringPadding));
+        }
         byte[] stringBytes = Encoding.Unicode.GetBytes(text);
-        if (stringPadding < 0 || (stringPadding & 1) != 0)
+        return EmfExtTextOut(
+            text.Length,
+            stringBytes,
+            reference,
+            options,
+            rectangle,
+            advances,
+            stringPadding);
+    }
+
+    private static byte[] EmfExtTextOutA(
+        string text,
+        Point reference,
+        uint options,
+        Rectangle rectangle,
+        int[]? advances,
+        int codePage,
+        int stringPadding = 0)
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        Encoding encoding = Encoding.GetEncoding(
+            codePage,
+            EncoderFallback.ExceptionFallback,
+            DecoderFallback.ExceptionFallback);
+        byte[] stringBytes = encoding.GetBytes(text);
+        return EmfExtTextOut(
+            stringBytes.Length,
+            stringBytes,
+            reference,
+            options,
+            rectangle,
+            advances,
+            stringPadding);
+    }
+
+    private static byte[] EmfExtTextOut(
+        int characterCount,
+        byte[] stringBytes,
+        Point reference,
+        uint options,
+        Rectangle rectangle,
+        int[]? advances,
+        int stringPadding)
+    {
+        if (stringPadding < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(stringPadding));
         }
         int stringOffset = checked(68 + stringPadding);
         int afterStringOffset = checked((stringOffset + stringBytes.Length + 3) & ~3);
         int advancesSize = advances is null ? 0 : checked(advances.Length * 4);
-        if (advances is not null && advances.Length != text.Length)
+        if (advances is not null && advances.Length != characterCount)
         {
             throw new ArgumentException("One EMF advance is required per UTF-16 code unit.", nameof(advances));
         }
@@ -2497,7 +2684,7 @@ public sealed class MetafileParserTests
         WriteSingle(payload, 24, 1f);
         WriteInt32(payload, 28, reference.X);
         WriteInt32(payload, 32, reference.Y);
-        WriteUInt32(payload, 36, checked((uint)text.Length));
+        WriteUInt32(payload, 36, checked((uint)characterCount));
         WriteUInt32(payload, 40, checked((uint)stringOffset + 8));
         WriteUInt32(payload, 44, options);
         WriteInt32(payload, 48, rectangle.Left);
