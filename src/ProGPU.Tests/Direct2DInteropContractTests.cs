@@ -608,6 +608,10 @@ public sealed class Direct2DInteropContractTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
+            "class CompatGroupGeometrySink final :",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "class ProGpuD2DGeometrySink final : public ID2D1GeometrySink",
             source,
             StringComparison.Ordinal);
