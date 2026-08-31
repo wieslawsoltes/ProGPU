@@ -1473,7 +1473,8 @@ public:
             parameters->opacity < 0.0F || parameters->opacity > 1.0F) {
             return fail_invalid_value();
         }
-        if (!infinite_rectangle(parameters->contentBounds)) {
+        const bool full_target = infinite_rectangle(parameters->contentBounds);
+        if (!full_target && !axis_preserving_transform(transform_)) {
             return fail_unsupported_state();
         }
         if (parameters->geometricMask != nullptr ||
@@ -1491,10 +1492,20 @@ public:
         if (scope_depth_ == scope_stack_.size()) {
             return fail_capacity_exceeded();
         }
+        const progpu_native_image_rect bounds = full_target
+            ? progpu_native_image_rect{}
+            : transformed_bounds(
+                parameters->contentBounds.left,
+                parameters->contentBounds.top,
+                parameters->contentBounds.right,
+                parameters->contentBounds.bottom);
+        if (!finite_native_rectangle(bounds)) {
+            return fail_invalid_value();
+        }
         const progpu_native_scene_layer layer{
             sizeof(progpu_native_scene_layer),
-            0U,
-            {},
+            full_target ? 0U : PROGPU_NATIVE_SCENE_LAYER_BOUNDS,
+            bounds,
             parameters->opacity,
             PROGPU_NATIVE_BLEND_SRC_OVER,
             PROGPU_NATIVE_SCENE_NO_INDEX,
@@ -1654,6 +1665,12 @@ private:
         const float maximum = std::numeric_limits<float>::max();
         return value.left == -maximum && value.top == -maximum &&
             value.right == maximum && value.bottom == maximum;
+    }
+
+    static bool axis_preserving_transform(
+        const D2D1_MATRIX_3X2_F& value) noexcept
+    {
+        return value._12 == 0.0F && value._21 == 0.0F;
     }
 
     static bool finite_native_rectangle(
