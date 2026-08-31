@@ -1600,12 +1600,11 @@ internal static class MetafilePlaybackRenderer
             bool strikeout = payload[12] != 0;
             byte charSet = payload[13];
             if (height is 0 or short.MinValue || width != 0 ||
-                escapement != 0 || orientation != 0 || weight is < 0 or > 1000 ||
-                underline || strikeout)
+                escapement != 0 || orientation != 0 || weight is < 0 or > 1000)
             {
                 throw Unsupported(
                     record,
-                    "The typed WMF text path supports nonzero unscaled horizontal regular/bold/italic fonts without underline or strikeout.");
+                    "The typed WMF text path supports nonzero unscaled horizontal regular, bold, italic, underlined, or strikeout fonts.");
             }
 
             Encoding encoding = GetWmfEncoding(charSet, record);
@@ -1633,7 +1632,9 @@ internal static class MetafilePlaybackRenderer
             }
 
             FontStyle style = (weight >= 700 ? FontStyle.Bold : FontStyle.Regular) |
-                (italic ? FontStyle.Italic : FontStyle.Regular);
+                (italic ? FontStyle.Italic : FontStyle.Regular) |
+                (underline ? FontStyle.Underline : FontStyle.Regular) |
+                (strikeout ? FontStyle.Strikeout : FontStyle.Regular);
             float rawSize = Math.Abs(height);
             Font font = new(faceName, rawSize, style, GraphicsUnit.Pixel, charSet, false);
             if (height > 0)

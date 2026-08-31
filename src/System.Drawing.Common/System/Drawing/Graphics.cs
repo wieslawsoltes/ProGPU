@@ -2365,6 +2365,16 @@ public partial class Graphics :
             CurrentTransform4x4(),
             isBold,
             isItalic);
+        if (font.Underline || font.Strikeout)
+        {
+            var layout = new ProGPU.Text.TextLayout(s, font.TtfFont, GetFontPixelSize(font));
+            DrawFontDecorations(
+                layout,
+                font,
+                brush,
+                new Vector2(x, y),
+                CurrentTransform4x4());
+        }
     }
 
     public void DrawString(ReadOnlySpan<char> s, Font font, Brush brush, float x, float y)
@@ -2498,6 +2508,12 @@ public partial class Graphics :
             brush,
             new Vector2(x, y),
             CurrentTransform4x4());
+        DrawFontDecorations(
+            layout,
+            font,
+            brush,
+            new Vector2(x, y),
+            CurrentTransform4x4());
     }
 
     public void DrawString(string? s, Font font, Brush brush, RectangleF layoutRectangle)
@@ -2538,6 +2554,20 @@ public partial class Graphics :
             layoutBounds,
             isBold,
             isItalic);
+        if (font.Underline || font.Strikeout)
+        {
+            var layout = new ProGPU.Text.TextLayout(
+                s,
+                font.TtfFont,
+                GetFontPixelSize(font),
+                layoutRectangle.Width);
+            DrawFontDecorations(
+                layout,
+                font,
+                brush,
+                new Vector2(layoutRectangle.X, layoutRectangle.Y),
+                transform);
+        }
         _context.PopClip();
     }
 
@@ -2816,6 +2846,7 @@ public partial class Graphics :
         }
 
         DrawFormattedGlyphRuns(formatted.Layout, font, brush, origin, transform);
+        DrawFontDecorations(formatted.Layout, font, brush, origin, transform);
         if (formatted.MnemonicIndex >= 0)
         {
             DrawMnemonicUnderline(formatted.Layout, formatted.MnemonicIndex, brush, origin, transform);
@@ -2868,7 +2899,7 @@ public partial class Graphics :
             null,
             new Rect(
                 origin.X + left,
-                origin.Y + baseline - (position * scale) - (thickness * 0.5f),
+                origin.Y + baseline - (position * scale),
                 right - left,
                 thickness),
             transform);
@@ -2920,6 +2951,80 @@ public partial class Graphics :
                 transform,
                 isBold,
                 isItalic);
+        }
+    }
+
+    private void DrawFontDecorations(
+        ProGPU.Text.TextLayout layout,
+        Font font,
+        Brush brush,
+        Vector2 origin,
+        Matrix4x4 transform)
+    {
+        if ((!font.Underline && !font.Strikeout) || layout.Glyphs.Count == 0 ||
+            font.TtfFont.UnitsPerEm <= 0)
+        {
+            return;
+        }
+
+        float scale = MathF.Abs(layout.FontSize) / font.TtfFont.UnitsPerEm;
+        float underlineThickness = MathF.Max(
+            1f,
+            MathF.Abs(font.TtfFont.UnderlineThickness ?? 0) * scale);
+        float underlinePosition = font.TtfFont.UnderlinePosition ??
+            (short)(-font.TtfFont.UnitsPerEm / 10);
+        float strikeoutThickness = MathF.Max(
+            1f,
+            MathF.Abs(font.TtfFont.StrikeoutThickness ?? 0) * scale);
+        float strikeoutPosition = font.TtfFont.StrikeoutPosition ??
+            (short)(font.TtfFont.UnitsPerEm / 3);
+        float lineTolerance = MathF.Max(0.01f, MathF.Abs(layout.FontSize) * 0.75f);
+        ProGPU.Vector.Brush nativeBrush = TransformBrush(brush);
+
+        int lineStart = 0;
+        while (lineStart < layout.Glyphs.Count)
+        {
+            ProGPU.Text.TextRunGlyph first = layout.Glyphs[lineStart];
+            float baseline = first.Position.Y;
+            float left = first.Position.X;
+            float right = first.Position.X + MathF.Abs(first.Glyph.Advance);
+            int lineEnd = lineStart + 1;
+            while (lineEnd < layout.Glyphs.Count &&
+                   MathF.Abs(layout.Glyphs[lineEnd].Position.Y - baseline) < lineTolerance)
+            {
+                ProGPU.Text.TextRunGlyph glyph = layout.Glyphs[lineEnd++];
+                left = MathF.Min(left, glyph.Position.X);
+                right = MathF.Max(right, glyph.Position.X + MathF.Abs(glyph.Glyph.Advance));
+            }
+
+            if (right > left)
+            {
+                if (font.Underline)
+                {
+                    _context.DrawRectangle(
+                        nativeBrush,
+                        null,
+                        new Rect(
+                            origin.X + left,
+                            origin.Y + baseline - underlinePosition * scale,
+                            right - left,
+                            underlineThickness),
+                        transform);
+                }
+                if (font.Strikeout)
+                {
+                    _context.DrawRectangle(
+                        nativeBrush,
+                        null,
+                        new Rect(
+                            origin.X + left,
+                            origin.Y + baseline - strikeoutPosition * scale,
+                            right - left,
+                            strikeoutThickness),
+                        transform);
+                }
+            }
+            lineStart = lineEnd;
         }
     }
 

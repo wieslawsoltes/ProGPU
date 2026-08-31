@@ -457,6 +457,40 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void WmfSelectedFontRecordsUnderlineAndStrikeout()
+    {
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x0102, WmfWords(1)),
+            (0x02FB, WmfFont(
+                -14,
+                SystemFonts.DefaultFont.Name,
+                underline: true,
+                strikeout: true)),
+            (0x012D, WmfWords(0)),
+            (0x0A32, WmfExtTextOut(
+                "WM",
+                new Point(4, 4),
+                options: 0,
+                rectangle: Rectangle.Empty,
+                advances: [20, 20])),
+            (0, [])
+        };
+        using var metafile = new Metafile(new MemoryStream(CreatePlaybackWmf(records)));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        Assert.Equal(
+            2,
+            context.Commands.Count(static command => command.Type == RenderCommandType.DrawRect));
+        Assert.Single(
+            context.Commands,
+            static command => command.Type == RenderCommandType.DrawGlyphRun);
+    }
+
+    [Fact]
     public void WmfExtTextOutUnsupportedOptionRollsBackEarlierText()
     {
         using var metafile = new Metafile(new MemoryStream(
@@ -1551,11 +1585,18 @@ public sealed class MetafileParserTests
         return bytes;
     }
 
-    private static byte[] WmfFont(short height, string faceName, byte charSet = 1)
+    private static byte[] WmfFont(
+        short height,
+        string faceName,
+        byte charSet = 1,
+        bool underline = false,
+        bool strikeout = false)
     {
         byte[] bytes = new byte[50];
         WriteInt16(bytes, 0, height);
         WriteInt16(bytes, 8, 400);
+        bytes[11] = underline ? (byte)1 : (byte)0;
+        bytes[12] = strikeout ? (byte)1 : (byte)0;
         bytes[13] = charSet;
         byte[] faceBytes = Encoding.ASCII.GetBytes(faceName);
         faceBytes.AsSpan(0, Math.Min(faceBytes.Length, 31)).CopyTo(bytes.AsSpan(18));

@@ -10,6 +10,7 @@ public class GraphicsStringFormatBenchmarks
     private Bitmap _bitmap = null!;
     private Graphics _graphics = null!;
     private Font _font = null!;
+    private Font _decoratedFont = null!;
     private StringFormat _format = null!;
     private StringFormat _advancedFormat = null!;
     private StringFormat _pathFormat = null!;
@@ -27,6 +28,10 @@ public class GraphicsStringFormatBenchmarks
         _bitmap = new Bitmap(200, 80);
         _graphics = Graphics.FromImage(_bitmap);
         _font = new Font(FontFamily.GenericSansSerif, 16f);
+        _decoratedFont = new Font(
+            FontFamily.GenericSansSerif,
+            16f,
+            FontStyle.Underline | FontStyle.Strikeout);
         _format = StringFormat.GenericTypographic;
         _advancedFormat = new StringFormat(
             StringFormatFlags.NoWrap | StringFormatFlags.MeasureTrailingSpaces);
@@ -50,6 +55,7 @@ public class GraphicsStringFormatBenchmarks
         MeasureAdvancedFormatSpan();
         MeasureEllipsisPathSpan();
         RecordMnemonicString();
+        RecordDecoratedString();
     }
 
     [Benchmark]
@@ -80,6 +86,14 @@ public class GraphicsStringFormatBenchmarks
         return _recordingContext.Commands.Count;
     }
 
+    [Benchmark]
+    public int RecordDecoratedString()
+    {
+        _recordingContext.Commands.Clear();
+        _recordingGraphics.DrawString("LibreWinForms", _decoratedFont, _brush, PointF.Empty);
+        return _recordingContext.Commands.Count;
+    }
+
     [GlobalCleanup]
     public void Dispose()
     {
@@ -89,6 +103,7 @@ public class GraphicsStringFormatBenchmarks
         _mnemonicFormat.Dispose();
         _brush.Dispose();
         _recordingGraphics.Dispose();
+        _decoratedFont.Dispose();
         _font.Dispose();
         _graphics.Dispose();
         _bitmap.Dispose();

@@ -9,6 +9,53 @@ namespace System.Drawing.Tests;
 public sealed class GraphicsStringFormatQualityTests
 {
     [Fact]
+    public void UnderlineAndStrikeoutAreRecordedAcrossStringDrawingPaths()
+    {
+        using var font = new Font(
+            FontFamily.GenericSansSerif,
+            16f,
+            FontStyle.Underline | FontStyle.Strikeout);
+        using var brush = new SolidBrush(Color.Navy);
+
+        var pointContext = new DrawingContext();
+        using (Graphics graphics = Graphics.FromProGpuDrawingContext(pointContext))
+        {
+            graphics.DrawString("decorated", font, brush, 4f, 6f);
+        }
+        RenderCommand[] pointDecorations = pointContext.Commands
+            .Where(static command => command.Type == RenderCommandType.DrawRect)
+            .ToArray();
+        Assert.Equal(2, pointDecorations.Length);
+        Assert.Equal(pointDecorations[0].Rect.X, pointDecorations[1].Rect.X);
+        Assert.Equal(pointDecorations[0].Rect.Width, pointDecorations[1].Rect.Width);
+        Assert.True(pointDecorations[0].Rect.Y > pointDecorations[1].Rect.Y);
+
+        var rectangleContext = new DrawingContext();
+        using (Graphics graphics = Graphics.FromProGpuDrawingContext(rectangleContext))
+        {
+            graphics.DrawString("decorated", font, brush, new RectangleF(4f, 6f, 120f, 40f));
+        }
+        Assert.Equal(
+            2,
+            rectangleContext.Commands.Count(static command => command.Type == RenderCommandType.DrawRect));
+
+        var formattedContext = new DrawingContext();
+        using (Graphics graphics = Graphics.FromProGpuDrawingContext(formattedContext))
+        using (var format = StringFormat.GenericTypographic)
+        {
+            graphics.DrawString(
+                "decorated",
+                font,
+                brush,
+                new RectangleF(4f, 6f, 120f, 40f),
+                format);
+        }
+        Assert.Equal(
+            2,
+            formattedContext.Commands.Count(static command => command.Type == RenderCommandType.DrawRect));
+    }
+
+    [Fact]
     public void SpanDrawingAndMeasurementUseCanonicalTypedTextPath()
     {
         var context = new DrawingContext();

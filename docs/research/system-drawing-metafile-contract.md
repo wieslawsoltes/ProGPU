@@ -112,7 +112,9 @@ state/object path separate from EMF. It implements background mode/color,
 `R2_COPYPEN`, `META_SETRELABS` no-op semantics, polygon fill mode, text-alignment
 state, text color, `CREATEFONTINDIRECT` object-table fonts, charset-decoded
 `TEXTOUT`, and `EXTTEXTOUT` opaque/clipped rectangles and signed character
-advances, text/anisotropic map modes, set/offset/scale window and viewport state,
+advances. Selected WMF underline and strikeout font bits lower through the same
+OpenType-metric retained decoration path as ordinary `Graphics.DrawString`.
+Text/anisotropic map modes, set/offset/scale window and viewport state,
 move, lowest-free object-table allocation and slot
 reuse, selection/deletion, solid/null pens and brushes, polygons, polylines,
 poly-polygons, current-position lines, explicit-color device pixels, counterclockwise
@@ -154,8 +156,8 @@ implementation is based on the official
 [META_ROUNDRECT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/9c262e3b-e631-4343-8b90-0441872f1e9a), and
 [state record](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/54e4a2e0-5ca9-4c69-b6a8-dc8f938c68ae)
 contracts. Paths, other clipping records, `EXTTEXTOUT` glyph-index, numeric-
-substitution, two-dimensional, DBCS-advance, and bidi-advance modes, decorated
-or transformed fonts, SYMBOL glyph-index mapping, DIB images, richer GDI objects,
+substitution, two-dimensional, DBCS-advance, and bidi-advance modes, rotated or
+otherwise transformed fonts, SYMBOL glyph-index mapping, DIB images, richer GDI objects,
 other WMF drawing families, and nonstructural EMF+ drawing records remain
 explicit later tranches.
 
@@ -372,6 +374,12 @@ millisecond mean, 0.527 millisecond standard deviation) and 2.66 MB allocated:
 0.647 milliseconds (11.0%) lower median and 0.62 MB (18.9%) less allocation
 than the initial checkpoint. Repeated layout/caret construction and Region clip
 state remain visible optimization targets.
+
+WMF `CREATEFONTINDIRECT` now preserves its underline and strikeout bits in the
+selected `System.Drawing.Font`. A retained-command gate proves that one font
+carrying both bits records exactly two decoration rectangles with its text;
+the ordinary string-format gate independently covers point, clipped rectangle,
+and formatted rectangle overloads. The complete drawing suite passes 421/421.
 
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication
