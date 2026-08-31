@@ -1504,12 +1504,13 @@ radii. Affine bounds use the exact ellipse support function and nonsingular
 fill containment maps the test point through the inverse transform. Area,
 length, and point-at-length queries reuse the retained cubic path so the
 caller's flattening tolerance has the same observable role as system Direct2D.
-The analytic-shape delegation uses Direct2D's observed half-tolerance
-subdivision threshold for length and point-at-length: at the default `0.25`
-tolerance the Windows oracle reports `19.2537` for the `4 x 2` ellipse
-perimeter, matching the retained ProGPU cubic at an effective threshold of
-`0.125` instead of the previous `19.1810`. Arbitrary path geometry continues
-to consume the caller's tolerance unchanged.
+Ellipse delegation uses Direct2D's observed half-tolerance subdivision
+threshold for length and point-at-length: at the default `0.25` tolerance the
+Windows oracle reports `19.2537` for the `4 x 2` ellipse perimeter, matching
+the retained ProGPU cubic at an effective threshold of `0.125` instead of the
+previous `19.1810`. Arbitrary path and rounded-rectangle geometry consume the
+caller's tolerance unchanged; the rounded oracle reports `35.6731`, compared
+with `35.7652` when the ellipse-only compensation was incorrectly applied.
 
 The geometry owns one closed four-cubic path created at factory time. Shared
 path code therefore supplies simplification, tolerance-controlled metrics, and

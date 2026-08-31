@@ -3083,12 +3083,9 @@ public:
         FLOAT flattening_tolerance,
         FLOAT* length) const noexcept override
     {
-        // Direct2D's analytic rounded-rectangle length at tolerance t matches
-        // the retained cubic approximation at t / 2. Keep the compensation
-        // at this shape boundary; arbitrary path geometry uses t unchanged.
         return path_->ComputeLength(
             world_transform,
-            flattening_tolerance * 0.5F,
+            flattening_tolerance,
             length);
     }
 
@@ -3102,7 +3099,7 @@ public:
         return path_->ComputePointAtLength(
             length,
             world_transform,
-            flattening_tolerance * 0.5F,
+            flattening_tolerance,
             point,
             unit_tangent_vector);
     }
