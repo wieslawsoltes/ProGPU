@@ -5499,6 +5499,25 @@ Provider SHA-256 is
 `305C1D7D3BC72F0CFC016778721CC36D90FDC91ABE1F9FCDE5DA2A8C5CFEF121`,
 and all 123 exports exactly match the allowlist.
 
+ABI v39 implementation `35a8fadc` admits finite Direct2D layer content bounds
+under an axis-preserving active draw transform. Bounds are converted at push
+time into exact target-space semantic-layer bounds, preserving scale,
+translation, reflection, and push-time transform semantics. Rotation and
+shear fail closed instead of broadening the layer to an axis-aligned box;
+those cases require an exact transformed mask/coverage resource. Full-target
+layers remain transform independent.
+
+The Windows oracle captures an identity outer clip, then maps content bounds
+`[1,2,21,22]` through `[2,0,0,0.5,7,9]` and decodes exact target bounds
+`[9,10,40,10]` on the 37.5% source-over group. Managed contracts pass 5/5 and
+the AOT package is warning-free. Windows 11 ARM64 Parallels rebuilds provider
+and test from deleted objects under MSVC 19.44/SDK 10.0.26100.0 `/W4 /WX`;
+the fresh executable exits zero. Payload SHA-256 is
+`EDCD1850DABE2055AC05B6ACAC5583ADA8899C5A7806FC8A177551FF7D03B282`;
+provider SHA-256 is
+`C42A075E13706B42F7AA617CA437A194B20076BB538F5C2E91520A4F28BFE81E`,
+with an exact 123-export allowlist match.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
