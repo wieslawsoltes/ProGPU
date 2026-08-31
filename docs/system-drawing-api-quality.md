@@ -306,6 +306,13 @@ font and text-color state, and invalid-alignment rollback are the independent
 correctness gates; per-record measurement and transient brushes remain explicit
 optimization debt.
 
+Playback now reuses its typed foreground and opaque-background `SolidBrush`
+until the corresponding canonical color changes. The same five-iteration local
+ShortRun reduced allocation from 562.05 KB to 550.25 KB per operation (11.80
+KB, 2.1%). The rerun's 1.140 ms median and 1.494 ms mean were much noisier, so
+only the allocation reduction is claimed; per-record measurement remains the
+larger explicit text-playback optimization target.
+
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the
 same parser used by consumers, and final stream publication. The 2026-08-27

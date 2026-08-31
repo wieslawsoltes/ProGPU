@@ -338,6 +338,14 @@ measured opaque background pixels, SaveDC/RestoreDC text state, and invalid-
 alignment rollback remain the correctness authority. Per-record measurement
 and transient brush allocation are explicit optimization targets.
 
+A follow-up playback-state cache reuses the foreground and opaque-background
+`SolidBrush` while its canonical color is unchanged; color changes and restored
+DC state invalidate by value, and disposal remains scoped to one playback. The
+same five-iteration local ShortRun reduced managed allocation from 562.05 KB to
+550.25 KB per operation (11.80 KB, 2.1%). Its 1.140 millisecond median and 1.494
+millisecond mean were substantially noisier than the initial run, so this is an
+allocation result only; it does not establish a throughput improvement.
+
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication
 to a pre-sized memory stream. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun

@@ -1154,6 +1154,8 @@ internal static class MetafilePlaybackRenderer
         private Pen? _selectedPen = Pens.Black;
         private Brush? _selectedBrush = Brushes.White;
         private Font _selectedFont = SystemFonts.DefaultFont;
+        private SolidBrush? _textBrush;
+        private SolidBrush? _backgroundBrush;
 
         internal PlaybackState(Graphics graphics, int wmfObjectCapacity)
         {
@@ -1583,10 +1585,9 @@ internal static class MetafilePlaybackRenderer
 
             if (BackgroundMode == 2 && size.Width > 0f && size.Height > 0f)
             {
-                using var background = new SolidBrush(BackgroundColor);
-                Graphics.FillRectangle(background, x, y, size.Width, size.Height);
+                Graphics.FillRectangle(GetBackgroundBrush(), x, y, size.Width, size.Height);
             }
-            using var foreground = new SolidBrush(TextColor);
+            SolidBrush foreground = GetTextBrush();
             if ((TextAlignment & 0x0100) != 0)
             {
                 using var format = new StringFormat(StringFormat.GenericTypographic)
@@ -1604,6 +1605,26 @@ internal static class MetafilePlaybackRenderer
             {
                 CurrentPoint = Point.Round(new PointF(reference.X + size.Width, reference.Y));
             }
+        }
+
+        private SolidBrush GetTextBrush()
+        {
+            if (_textBrush is null || _textBrush.Color != TextColor)
+            {
+                _textBrush?.Dispose();
+                _textBrush = new SolidBrush(TextColor);
+            }
+            return _textBrush;
+        }
+
+        private SolidBrush GetBackgroundBrush()
+        {
+            if (_backgroundBrush is null || _backgroundBrush.Color != BackgroundColor)
+            {
+                _backgroundBrush?.Dispose();
+                _backgroundBrush = new SolidBrush(BackgroundColor);
+            }
+            return _backgroundBrush;
         }
 
         internal void SelectObject(uint index, in MetafileRecord record)
@@ -1730,6 +1751,8 @@ internal static class MetafilePlaybackRenderer
 
         public void Dispose()
         {
+            _textBrush?.Dispose();
+            _backgroundBrush?.Dispose();
             foreach (object product in _objects.Values)
             {
                 (product as IDisposable)?.Dispose();
