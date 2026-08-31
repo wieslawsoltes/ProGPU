@@ -1728,6 +1728,18 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
         4U,
         PROGPU_NATIVE_CLIP_INTERSECT,
         0U};
+    progpu_native_scene_layer_brush_mask composite_brush{};
+    composite_brush.struct_size = sizeof(composite_brush);
+    composite_brush.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH;
+    composite_brush.bounds = {4.0F, 4.0F, 48.0F, 44.0F};
+    composite_brush.transform = identity;
+    composite_brush.opacity = 1.0F;
+    composite_brush.brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+    composite_brush.brush.opacity = 0.75F;
+    composite_brush.brush.colors[0] = {1.0F, 1.0F, 1.0F, 0.5F};
+    composite_brush.brush.coordinate_transform0[0] = 1.0F;
+    composite_brush.brush.coordinate_transform1[1] = 1.0F;
+    std::uint32_t composite_mask = PROGPU_NATIVE_SCENE_NO_INDEX;
     if (!builder.add_coverage_mask(
             coverage,
             coverage_bytes,
@@ -1738,8 +1750,22 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
             vector_segments,
             1.0F,
             vector_mask) ||
+        !builder.add_composite_mask(
+            std::span<const progpu_native_scene_layer_brush_mask>(
+                &composite_brush,
+                1U),
+            {},
+            {},
+            {},
+            {},
+            std::span<const progpu_native_scene_clip_path>(&vector_path, 1U),
+            vector_segments,
+            {},
+            {},
+            1.0F,
+            composite_mask) ||
         rounded_mask == coverage_mask || coverage_mask == chain_mask ||
-        chain_mask == vector_mask) {
+        chain_mask == vector_mask || vector_mask == composite_mask) {
         return false;
     }
 
@@ -1804,7 +1830,7 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
     scene_build_metrics metrics{};
     if (!builder.build(first, &metrics) || !builder.build(second) ||
         first != second || metrics.command_count != 3U ||
-        metrics.resource_count != 7U ||
+        metrics.resource_count != 8U ||
         metrics.maximum_stack_depth != 1U) {
         return false;
     }
@@ -1823,6 +1849,7 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
     const auto coverage_record = resource_at(coverage_mask);
     const auto chain_record = resource_at(chain_mask);
     const auto vector_record = resource_at(vector_mask);
+    const auto composite_record = resource_at(composite_mask);
     const auto effect_record = resource_at(effect_chain);
     const auto state_record = resource_at(state_index);
     const auto push = read<progpu_native_scene_command>(
@@ -1848,6 +1875,11 @@ bool semantic_scene_builder_records_layers_masks_and_effects() {
         vector_record.payload_size ==
             sizeof(progpu_native_scene_layer_vector_mask) &&
         vector_record.auxiliary_size ==
+            sizeof(vector_path) + sizeof(vector_segments) &&
+        composite_record.kind == PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+        composite_record.payload_size ==
+            sizeof(progpu_native_scene_layer_composite_mask) &&
+        composite_record.auxiliary_size == sizeof(composite_brush) +
             sizeof(vector_path) + sizeof(vector_segments) &&
         effect_record.kind == PROGPU_NATIVE_SCENE_RESOURCE_EFFECT_CHAIN &&
         effect_record.payload_size ==

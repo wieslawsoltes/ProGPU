@@ -155,6 +155,18 @@ public:
         std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,
         float opacity,
         std::uint32_t& resource_index) noexcept;
+    bool add_composite_mask(
+        std::span<const progpu_native_scene_layer_brush_mask> brush_masks,
+        std::span<const progpu_native_scene_layer_geometry_mask> geometry_masks,
+        std::span<const progpu_native_geometry_primitive> geometry_primitives,
+        std::span<const progpu_native_scene_layer_picture_mask> picture_masks,
+        std::span<const std::byte> picture_streams,
+        std::span<const progpu_native_scene_clip_path> paths,
+        std::span<const progpu_native_path_segment> segments,
+        std::span<const progpu_native_scene_path_boolean_node> boolean_nodes,
+        std::span<const progpu_native_scene_gradient_stop> gradient_stops,
+        float opacity,
+        std::uint32_t& resource_index) noexcept;
     bool add_effect_chain(
         std::span<const progpu_native_group_effect> effects,
         std::uint32_t revision,
