@@ -1260,9 +1260,16 @@ fails closed with typed status and HRESULT data.
 The direct-COM oracle now uses only ProGPU-owned factory, rectangle, solid
 brush, and command sink objects for its two draws. The recorder consumes the
 standard brush vtable and still emits one pointer-free semantic brush shared by
-the analytic rectangle and vector-path commands on every backend. Windows
-qualification evidence is added after the committed ABI v45 archive is rebuilt
-in Parallels.
+the analytic rectangle and vector-path commands on every backend. Focused
+managed contracts pass 5/5. The exact implementation checkpoint is `73b6ff5e`;
+its committed source archive SHA-256 is
+`59A755509F2E3FF32B8A4C5FE5C32CB7C8752C10B2A02F84276393D2FC157DDA`.
+Windows 11 ARM64 Parallels rebuilds it cleanly with MSVC 19.44/SDK
+10.0.26100.0 `/W4 /WX`, and the native oracle exits zero. `dumpbin` matches all
+129 allowlisted exports exactly. The 195,584-byte provider SHA-256 is
+`4126FB918B4A577BB728BF1E0B27E35E388185841223BBAD4044FD80DEE836ED`;
+the 113,664-byte test executable SHA-256 is
+`5B6EC4E52D17BB185A3E513A22628CC9BF93AE98AF28AFFD90F2FC448DFEB45C`.
 
 `eng/build-progpu-native-windows.ps1` builds and runs
 the native test on runnable Windows x64/ARM64 agents, stages
