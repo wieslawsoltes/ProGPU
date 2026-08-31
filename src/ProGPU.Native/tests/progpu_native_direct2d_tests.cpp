@@ -2663,6 +2663,160 @@ int main()
                 PROGPU_NATIVE_PATH_SEGMENT_LINE,
         "Direct2D geometric layer-mask topology/transform changed");
 
+    void* opacity_brush_layer_list_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_command_list(
+            surface,
+            &opacity_brush_layer_list_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            opacity_brush_layer_list_value != nullptr && native_hresult == S_OK,
+        "opacity-brush layer command-list creation failed");
+    ComPtr<ID2D1CommandList> opacity_brush_layer_list;
+    opacity_brush_layer_list.Attach(
+        static_cast<ID2D1CommandList*>(opacity_brush_layer_list_value));
+    require(
+        progpu_native_direct2d_surface_begin_command_list_draw(
+            surface,
+            opacity_brush_layer_list.Get()) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "opacity-brush layer command-list recording did not begin");
+    context->SetTransform(opacity_layer_transform);
+    D2D1_LAYER_PARAMETERS1 opacity_brush_layer_parameters =
+        opacity_layer_parameters;
+    opacity_brush_layer_parameters.geometricMask = nullptr;
+    opacity_brush_layer_parameters.opacityBrush = linear_brush.Get();
+    context->PushLayer(&opacity_brush_layer_parameters, nullptr);
+    context->FillRectangle(&opacity_layer_fill0, solid_brush.Get());
+    context->PopLayer();
+    command_tag1 = 0U;
+    command_tag2 = 0U;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_end_command_list_draw(
+            surface,
+            &command_tag1,
+            &command_tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "opacity-brush layer command-list recording did not close");
+    progpu_native_direct2d_scene_stream_result opacity_brush_layer_measure{};
+    opacity_brush_layer_measure.struct_size =
+        static_cast<uint32_t>(sizeof(opacity_brush_layer_measure));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            opacity_brush_layer_list.Get(),
+            7010U,
+            1U,
+            nullptr,
+            0U,
+            &opacity_brush_layer_measure,
+            &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+            native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
+            (opacity_brush_layer_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_OPACITY_BRUSH_LAYER_MASKS) !=
+                0U &&
+            (opacity_brush_layer_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_GRADIENT_BRUSHES) !=
+                0U,
+        "Direct2D opacity-brush layer size pass changed");
+    std::vector<uint8_t> opacity_brush_layer_stream(
+        static_cast<size_t>(opacity_brush_layer_measure.required_bytes));
+    progpu_native_direct2d_scene_stream_result opacity_brush_layer_write{};
+    opacity_brush_layer_write.struct_size =
+        static_cast<uint32_t>(sizeof(opacity_brush_layer_write));
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            opacity_brush_layer_list.Get(),
+            7010U,
+            1U,
+            opacity_brush_layer_stream.data(),
+            opacity_brush_layer_stream.size(),
+            &opacity_brush_layer_write,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "Direct2D opacity-brush layer write pass changed");
+    progpu_native_scene_header opacity_brush_layer_header{};
+    std::memcpy(
+        &opacity_brush_layer_header,
+        opacity_brush_layer_stream.data(),
+        sizeof(opacity_brush_layer_header));
+    uint32_t opacity_brush_mask_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+    for (uint32_t index = 0U;
+         index < opacity_brush_layer_header.command_count;
+         ++index) {
+        progpu_native_scene_command command{};
+        std::memcpy(
+            &command,
+            opacity_brush_layer_stream.data() +
+                opacity_brush_layer_header.command_offset +
+                static_cast<size_t>(index) *
+                    opacity_brush_layer_header.command_stride,
+            sizeof(command));
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
+            progpu_native_scene_layer translated_layer{};
+            std::memcpy(
+                &translated_layer,
+                opacity_brush_layer_stream.data() + command.payload_offset,
+                sizeof(translated_layer));
+            require(
+                translated_layer.bounds.x == 9.0F &&
+                    translated_layer.bounds.y == 10.0F &&
+                    translated_layer.bounds.width == 40.0F &&
+                    translated_layer.bounds.height == 10.0F,
+                "Direct2D opacity-brush layer bounds changed");
+            opacity_brush_mask_index = translated_layer.mask_resource_index;
+        }
+    }
+    require(
+        opacity_brush_mask_index < opacity_brush_layer_header.resource_count,
+        "Direct2D opacity-brush layer omitted its mask resource");
+    progpu_native_scene_resource opacity_brush_mask_resource{};
+    std::memcpy(
+        &opacity_brush_mask_resource,
+        opacity_brush_layer_stream.data() +
+            opacity_brush_layer_header.resource_offset +
+            static_cast<size_t>(opacity_brush_mask_index) *
+                opacity_brush_layer_header.resource_stride,
+        sizeof(opacity_brush_mask_resource));
+    progpu_native_scene_layer_brush_mask translated_brush_mask{};
+    std::memcpy(
+        &translated_brush_mask,
+        opacity_brush_layer_stream.data() +
+            opacity_brush_mask_resource.payload_offset,
+        sizeof(translated_brush_mask));
+    require(
+        opacity_brush_mask_resource.kind ==
+                PROGPU_NATIVE_SCENE_RESOURCE_LAYER_MASK &&
+            opacity_brush_mask_resource.payload_size ==
+                sizeof(translated_brush_mask) &&
+            opacity_brush_mask_resource.auxiliary_size ==
+                2U * sizeof(progpu_native_scene_gradient_stop) &&
+            translated_brush_mask.kind ==
+                PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH &&
+            translated_brush_mask.gradient_stop_count == 2U &&
+            translated_brush_mask.bounds.x == 1.0F &&
+            translated_brush_mask.bounds.y == 2.0F &&
+            translated_brush_mask.bounds.width == 20.0F &&
+            translated_brush_mask.bounds.height == 20.0F &&
+            translated_brush_mask.transform.m11 == 2.0F &&
+            translated_brush_mask.transform.m22 == 0.5F &&
+            translated_brush_mask.transform.m31 == 7.0F &&
+            translated_brush_mask.transform.m32 == 9.0F &&
+            translated_brush_mask.brush.type ==
+                PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT &&
+            translated_brush_mask.brush.opacity == 0.75F &&
+            translated_brush_mask.brush.coordinate_transform0[0] == 0.5F &&
+            translated_brush_mask.brush.coordinate_transform0[2] == -7.5F &&
+            translated_brush_mask.brush.coordinate_transform1[1] == 2.0F &&
+            translated_brush_mask.brush.coordinate_transform1[2] == -16.0F,
+        "Direct2D opacity-brush layer mask mapping changed");
+
     void* background_layer_list_value = nullptr;
     native_hresult = E_FAIL;
     require(
