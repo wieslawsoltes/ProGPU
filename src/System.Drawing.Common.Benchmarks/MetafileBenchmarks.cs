@@ -48,6 +48,7 @@ public class MetafileBenchmarks
     private Metafile _bitFieldDibPlaybackMetafile = null!;
     private Metafile _rleDibPlaybackMetafile = null!;
     private Metafile _encodedDibPlaybackMetafile = null!;
+    private Metafile _logicalPaletteDibPlaybackMetafile = null!;
     private Metafile _wmfTextPlaybackMetafile = null!;
     private Metafile _wmfSpacedRotatedTextPlaybackMetafile = null!;
     private Metafile _wmfJustifiedRotatedTextPlaybackMetafile = null!;
@@ -138,6 +139,8 @@ public class MetafileBenchmarks
             new MemoryStream(CreatePlaybackWmfRleImages(256), writable: false));
         _encodedDibPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfEncodedImages(256), writable: false));
+        _logicalPaletteDibPlaybackMetafile = new Metafile(
+            new MemoryStream(CreatePlaybackWmfLogicalPaletteImages(256), writable: false));
         _wmfTextPlaybackMetafile = new Metafile(
             new MemoryStream(CreatePlaybackWmfText(256), writable: false));
         _wmfSpacedRotatedTextPlaybackMetafile = new Metafile(
@@ -194,6 +197,7 @@ public class MetafileBenchmarks
         _bitFieldDibPlaybackMetafile.Dispose();
         _rleDibPlaybackMetafile.Dispose();
         _encodedDibPlaybackMetafile.Dispose();
+        _logicalPaletteDibPlaybackMetafile.Dispose();
         _wmfTextPlaybackMetafile.Dispose();
         _wmfSpacedRotatedTextPlaybackMetafile.Dispose();
         _wmfJustifiedRotatedTextPlaybackMetafile.Dispose();
@@ -344,6 +348,18 @@ public class MetafileBenchmarks
         _playbackContext.Clear();
         _playbackGraphics.DrawImage(
             _encodedDibPlaybackMetafile,
+            new Rectangle(0, 0, 640, 480));
+        int commandCount = _playbackContext.Commands.Count;
+        _playbackContext.Clear();
+        return commandCount;
+    }
+
+    [Benchmark]
+    public int Playback256LogicalPaletteDibImagesToRetainedCommands()
+    {
+        _playbackContext.Clear();
+        _playbackGraphics.DrawImage(
+            _logicalPaletteDibPlaybackMetafile,
             new Rectangle(0, 0, 640, 480));
         int commandCount = _playbackContext.Commands.Count;
         _playbackContext.Clear();
@@ -1567,6 +1583,87 @@ public class MetafileBenchmarks
             bytes[bits + 6] = 0;
             bytes[bits + 7] = 1;
             cursor += recordBytes;
+        }
+
+        WriteUInt32(bytes, cursor, 3);
+        return bytes;
+    }
+
+    private static byte[] CreatePlaybackWmfLogicalPaletteImages(int recordCount)
+    {
+        const int paletteRecordWords = 13;
+        const int selectRecordWords = 4;
+        const int imageRecordWords = 38;
+        int declaredWords = checked(
+            9 + paletteRecordWords + selectRecordWords + recordCount * imageRecordWords + 3);
+        byte[] bytes = new byte[checked(22 + declaredWords * 2)];
+        WriteUInt32(bytes, 0, 0x9AC6_CDD7);
+        WriteInt16(bytes, 10, 640);
+        WriteInt16(bytes, 12, 480);
+        WriteUInt16(bytes, 14, 96);
+        ushort checksum = 0;
+        for (int offset = 0; offset < 20; offset += 2)
+        {
+            checksum ^= BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(offset, 2));
+        }
+        WriteUInt16(bytes, 20, checksum);
+
+        WriteUInt16(bytes, 22, 1);
+        WriteUInt16(bytes, 24, 9);
+        WriteUInt16(bytes, 26, 0x0300);
+        WriteUInt32(bytes, 28, (uint)declaredWords);
+        WriteUInt16(bytes, 32, 1);
+        WriteUInt32(bytes, 34, imageRecordWords);
+
+        int cursor = 40;
+        WriteUInt32(bytes, cursor, paletteRecordWords);
+        WriteUInt16(bytes, cursor + 4, 0x00F7);
+        WriteUInt16(bytes, cursor + 6, 0x0300);
+        WriteUInt16(bytes, cursor + 8, 4);
+        Color[] palette = [Color.Red, Color.Lime, Color.Blue, Color.White];
+        for (int index = 0; index < palette.Length; index++)
+        {
+            Color color = palette[index];
+            int entry = cursor + 10 + index * 4;
+            bytes[entry] = color.R;
+            bytes[entry + 1] = color.G;
+            bytes[entry + 2] = color.B;
+        }
+        cursor += paletteRecordWords * 2;
+
+        WriteUInt32(bytes, cursor, selectRecordWords);
+        WriteUInt16(bytes, cursor + 4, 0x0234);
+        WriteUInt16(bytes, cursor + 6, 0);
+        cursor += selectRecordWords * 2;
+
+        for (int index = 0; index < recordCount; index++)
+        {
+            short x = checked((short)((index % 16) * 40));
+            short y = checked((short)((index / 16) * 30));
+            WriteUInt32(bytes, cursor, imageRecordWords);
+            WriteUInt16(bytes, cursor + 4, 0x0F43);
+            WriteUInt32(bytes, cursor + 6, 0x00CC_0020);
+            WriteUInt16(bytes, cursor + 10, 2);
+            WriteInt16(bytes, cursor + 12, 2);
+            WriteInt16(bytes, cursor + 14, 2);
+            WriteInt16(bytes, cursor + 20, 22);
+            WriteInt16(bytes, cursor + 22, 32);
+            WriteInt16(bytes, cursor + 24, y);
+            WriteInt16(bytes, cursor + 26, x);
+
+            int info = cursor + 28;
+            WriteUInt32(bytes, info, 40);
+            WriteInt32(bytes, info + 4, 2);
+            WriteInt32(bytes, info + 8, -2);
+            WriteUInt16(bytes, info + 12, 1);
+            WriteUInt16(bytes, info + 14, 8);
+            WriteUInt32(bytes, info + 20, 8);
+            int bits = info + 40;
+            bytes[bits] = 0;
+            bytes[bits + 1] = 1;
+            bytes[bits + 4] = 2;
+            bytes[bits + 5] = 3;
+            cursor += imageRecordWords * 2;
         }
 
         WriteUInt32(bytes, cursor, 3);

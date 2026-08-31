@@ -325,9 +325,9 @@ evidence rather than a throughput claim. Twelve focused cases independently
 cover exact bottom-up/top-down pixels and stride, source clipping/crop,
 mirroring, transforms, all six BI_RGB bit depths, partial scan bands in both
 orientations, saved stretch sampling, buffer/range/ROP failures, transactional
-rollback, and a warmed 64-image allocation ceiling. Unsupported compression,
-logical-palette color usage, and JPEG/PNG transport fail at named
-boundaries. ApiCompat is unaffected because this closes managed behavior behind
+rollback, and a warmed 64-image allocation ceiling. Unsupported compression
+fails at a named boundary; logical-palette color usage and JPEG/PNG transport
+are covered by subsequent typed checkpoints. ApiCompat is unaffected because this closes managed behavior behind
 the existing public surface.
 
 `MetafileBenchmarks.Playback256WmfDibImagesToRetainedCommands` extends that
@@ -343,9 +343,9 @@ evidence. Ten focused cases independently cover all four layouts, bottom-up
 padding, top-down and bottom-up partial bands, packed color tables, retained
 sampling, malformed usage/ROP/scan/buffer inputs, transactional rollback,
 playback-DC-only source boundaries, and a warmed allocation ceiling.
-CMYK compression, logical palettes, playback-device-context sources, and
+CMYK compression, playback-device-context sources, and
 device-dependent bitmaps remain explicit. ApiCompat remains 0/0/13.
-Both complete Debug and Release drawing suites pass 546/546.
+Both complete Debug and Release drawing suites pass 552/552.
 
 `MetafileBenchmarks.Playback256BitFieldDibImagesToRetainedCommands` extends the
 same shared decoder to 16/32-bit `BI_BITFIELDS`. Forty-byte headers supply three
@@ -396,6 +396,24 @@ evidence rather than a throughput claim. The official contracts are the
 [`BITMAPINFOHEADER`](https://learn.microsoft.com/en-us/previous-versions/dd183376%28v%3Dvs.85%29),
 [`SetDIBitsToDevice`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-setdibitstodevice), and
 [`JPEG and PNG bitmap extensions`](https://learn.microsoft.com/en-us/windows/win32/gdi/jpeg-and-png-extensions-for-specific-bitmap-functions-and-structures).
+
+`MetafileBenchmarks.Playback256LogicalPaletteDibImagesToRetainedCommands`
+extends the shared indexed-image path to `DIB_PAL_COLORS` and
+`DIB_PAL_INDICES`. Typed EMF and WMF palette objects support create, select,
+set, resize, realize, WMF animation, selected-object lifetime, and saved-device-
+context restoration. Complete table/object/range/flag validation happens before
+pixel allocation or command publication; retained playback resolves logical
+colors directly, so hardware-palette realization is an explicit validated
+no-op. Six focused cases cover exact pixels in both metafile formats,
+set/resize/animation semantics, saved palette selection, malformed rollback,
+and warmed allocation. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun measured a
+15.186 ms median (19.553 ms mean, 8.962 ms standard deviation) and 502.08 KB
+allocated for 256 packed two-by-two images. Three iterations, denied priority
+elevation, and timing variance make allocation and command ownership the
+authoritative evidence. The official contracts are
+[`DIBColors`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/a5e722e3-891a-4a67-be1a-ed5a48a7fda1),
+[`EMR_CREATEPALETTE`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/07e1492b-e4bb-4394-934f-4eaee67ab8ff), and
+[`META_ANIMATEPALETTE`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/abac3df4-c19a-4102-9344-b5bf68fcfa99).
 
 `MetafileBenchmarks.Playback256EmfPathBracketsToRetainedCommands` guards 256
 Begin/rectangle/End/StrokeAndFill groups. The 2026-08-31 ARM64/.NET 10.0.11

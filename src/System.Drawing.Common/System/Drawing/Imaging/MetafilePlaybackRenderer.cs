@@ -17,7 +17,10 @@ internal static class MetafilePlaybackRenderer
     private const uint WhitePen = 6;
     private const uint BlackPen = 7;
     private const uint NullPen = 8;
+    private const uint DefaultPalette = 15;
     private const uint DibRgbColors = 0;
+    private const uint DibPalColors = 1;
+    private const uint DibPalIndices = 2;
     private const uint BiRgb = 0;
     private const uint BiRle8 = 1;
     private const uint BiRle4 = 2;
@@ -259,6 +262,33 @@ internal static class MetafilePlaybackRenderer
             case EmfPlusRecordType.WmfCreateFontIndirect:
                 RequireSize(record, payload, 50);
                 state.CreateWmfFont(payload, record);
+                return;
+
+            case EmfPlusRecordType.WmfCreatePalette:
+                state.CreateWmfPalette(payload, record);
+                return;
+
+            case EmfPlusRecordType.WmfSelectPalette:
+                RequireSize(record, payload, 2);
+                state.SelectWmfPalette(ReadUInt16(payload, 0), record);
+                return;
+
+            case EmfPlusRecordType.WmfSetPalEntries:
+                state.SetWmfPaletteEntries(payload, record);
+                return;
+
+            case EmfPlusRecordType.WmfAnimatePalette:
+                state.AnimateWmfPalette(payload, record);
+                return;
+
+            case EmfPlusRecordType.WmfResizePalette:
+                RequireSize(record, payload, 2);
+                state.ResizeSelectedPalette(ReadUInt16(payload, 0), record);
+                return;
+
+            case EmfPlusRecordType.WmfRealizePalette:
+                RequireSize(record, payload, 0);
+                state.RealizePalette();
                 return;
 
             case EmfPlusRecordType.WmfTextOut:
@@ -676,6 +706,32 @@ internal static class MetafilePlaybackRenderer
                 state.CreateBrush(payload, record);
                 return;
 
+            case EmfPlusRecordType.EmfCreatePalette:
+                state.CreateEmfPalette(payload, record);
+                return;
+
+            case EmfPlusRecordType.EmfSelectPalette:
+                RequireSize(record, payload, 4);
+                state.SelectPalette(ReadUInt32(payload, 0), record);
+                return;
+
+            case EmfPlusRecordType.EmfSetPaletteEntries:
+                state.SetEmfPaletteEntries(payload, record);
+                return;
+
+            case EmfPlusRecordType.EmfResizePalette:
+                RequireSize(record, payload, 8);
+                state.ResizePalette(
+                    ReadUInt32(payload, 0),
+                    ReadUInt32(payload, 4),
+                    record);
+                return;
+
+            case EmfPlusRecordType.EmfRealizePalette:
+                RequireSize(record, payload, 0);
+                state.RealizePalette();
+                return;
+
             case EmfPlusRecordType.EmfExtCreateFontIndirect:
                 state.CreateEmfFont(payload, record);
                 return;
@@ -731,10 +787,6 @@ internal static class MetafilePlaybackRenderer
 
         state.EnsurePathCaptureSupported(record, "StretchDIBits");
         uint usage = ReadUInt32(payload, 56);
-        if (usage != DibRgbColors)
-        {
-            throw Unsupported(record, "Only DIB_RGB_COLORS is supported.");
-        }
         if (ReadUInt32(payload, 60) != SrcCopy)
         {
             throw Unsupported(record, "Only the SRCCOPY raster operation is supported.");
@@ -759,7 +811,7 @@ internal static class MetafilePlaybackRenderer
             ReadUInt32(payload, 48),
             ReadUInt32(payload, 52));
 
-        DibInfo dib = ReadDibInfo(record, bitmapInfo, usage);
+        DibInfo dib = ReadDibInfo(record, bitmapInfo, usage, state.SelectedPalette);
         using Bitmap bitmap = DecodeDibRows(record, dib, bitmapInfo, bitmapBits, dib.Height);
         DrawMappedDib(
             state,
@@ -789,10 +841,6 @@ internal static class MetafilePlaybackRenderer
 
         state.EnsurePathCaptureSupported(record, "SetDIBitsToDevice");
         uint usage = ReadUInt32(payload, 56);
-        if (usage != DibRgbColors)
-        {
-            throw Unsupported(record, "Only DIB_RGB_COLORS is supported.");
-        }
 
         ReadOnlySpan<byte> bitmapInfo = ReadEmfBuffer(
             record,
@@ -813,7 +861,7 @@ internal static class MetafilePlaybackRenderer
             ReadUInt32(payload, 48),
             ReadUInt32(payload, 52));
 
-        DibInfo dib = ReadDibInfo(record, bitmapInfo, usage);
+        DibInfo dib = ReadDibInfo(record, bitmapInfo, usage, state.SelectedPalette);
         DrawSetDibitsBand(
             state,
             record,
@@ -840,7 +888,7 @@ internal static class MetafilePlaybackRenderer
         RequireSrcCopy(record, ReadUInt32(payload, 0));
 
         ReadOnlySpan<byte> packedDib = payload[fixedPayloadSize..];
-        DibInfo dib = ReadDibInfo(record, packedDib, DibRgbColors);
+        DibInfo dib = ReadDibInfo(record, packedDib, DibRgbColors, state.SelectedPalette);
         ReadOnlySpan<byte> bitmapBits = ReadWmfDibBits(record, dib, packedDib);
         using Bitmap bitmap = DecodeDibRows(
             record,
@@ -875,7 +923,7 @@ internal static class MetafilePlaybackRenderer
         RequireSrcCopy(record, ReadUInt32(payload, 0));
 
         ReadOnlySpan<byte> packedDib = payload[fixedPayloadSize..];
-        DibInfo dib = ReadDibInfo(record, packedDib, DibRgbColors);
+        DibInfo dib = ReadDibInfo(record, packedDib, DibRgbColors, state.SelectedPalette);
         ReadOnlySpan<byte> bitmapBits = ReadWmfDibBits(record, dib, packedDib);
         using Bitmap bitmap = DecodeDibRows(
             record,
@@ -910,13 +958,9 @@ internal static class MetafilePlaybackRenderer
         }
         RequireSrcCopy(record, ReadUInt32(payload, 0));
         uint usage = ReadUInt16(payload, 4);
-        if (usage != DibRgbColors)
-        {
-            throw Unsupported(record, "Only DIB_RGB_COLORS is supported.");
-        }
 
         ReadOnlySpan<byte> packedDib = payload[fixedPayloadSize..];
-        DibInfo dib = ReadDibInfo(record, packedDib, usage);
+        DibInfo dib = ReadDibInfo(record, packedDib, usage, state.SelectedPalette);
         ReadOnlySpan<byte> bitmapBits = ReadWmfDibBits(record, dib, packedDib);
         using Bitmap bitmap = DecodeDibRows(
             record,
@@ -950,13 +994,9 @@ internal static class MetafilePlaybackRenderer
             throw Invalid(record);
         }
         uint usage = ReadUInt16(payload, 0);
-        if (usage != DibRgbColors)
-        {
-            throw Unsupported(record, "Only DIB_RGB_COLORS is supported.");
-        }
 
         ReadOnlySpan<byte> packedDib = payload[fixedPayloadSize..];
-        DibInfo dib = ReadDibInfo(record, packedDib, usage);
+        DibInfo dib = ReadDibInfo(record, packedDib, usage, state.SelectedPalette);
         ReadOnlySpan<byte> bitmapBits = ReadWmfDibBits(record, dib, packedDib);
         DrawSetDibitsBand(
             state,
@@ -1260,10 +1300,12 @@ internal static class MetafilePlaybackRenderer
     private static DibInfo ReadDibInfo(
         in MetafileRecord record,
         ReadOnlySpan<byte> bitmapInfo,
-        uint usage)
+        uint usage,
+        LogicalPalette selectedPalette)
     {
         const int bitmapInfoHeaderSize = 40;
-        if (usage != DibRgbColors || bitmapInfo.Length < bitmapInfoHeaderSize)
+        if (usage is not DibRgbColors and not DibPalColors and not DibPalIndices ||
+            bitmapInfo.Length < bitmapInfoHeaderSize)
         {
             throw Invalid(record);
         }
@@ -1294,7 +1336,7 @@ internal static class MetafilePlaybackRenderer
         bool usesEncodedFile = compression is BiJpeg or BiPng;
         if (usesEncodedFile)
         {
-            if (bitCount != 0 || signedHeight < 0)
+            if (usage != DibRgbColors || bitCount != 0 || signedHeight < 0)
             {
                 throw Invalid(record);
             }
@@ -1341,6 +1383,15 @@ internal static class MetafilePlaybackRenderer
             }
             colorTableCount = 0;
         }
+        else if (usage == DibPalIndices)
+        {
+            if (bitCount > 8 || colorsUsed != 0)
+            {
+                throw Invalid(record);
+            }
+            paletteCount = Math.Min(1 << bitCount, selectedPalette.Count);
+            colorTableCount = 0;
+        }
         else if (bitCount <= 8)
         {
             int maximumPaletteCount = 1 << bitCount;
@@ -1363,10 +1414,27 @@ internal static class MetafilePlaybackRenderer
         }
 
         int externalMaskBytes = usesBitFields && headerSize == bitmapInfoHeaderSize ? 12 : 0;
-        long requiredInfoSize = (long)headerSize + externalMaskBytes + colorTableCount * 4L;
+        int colorTableEntrySize = usage == DibPalColors ? 2 : 4;
+        long requiredInfoSize =
+            (long)headerSize + externalMaskBytes + colorTableCount * (long)colorTableEntrySize;
         if (requiredInfoSize > bitmapInfo.Length || requiredInfoSize > int.MaxValue)
         {
             throw Invalid(record);
+        }
+
+        if (usage == DibPalColors)
+        {
+            int colorTableOffset = checked((int)headerSize + externalMaskBytes);
+            for (int index = 0; index < colorTableCount; index++)
+            {
+                ushort paletteIndex = ReadUInt16(
+                    bitmapInfo,
+                    checked(colorTableOffset + index * 2));
+                if (paletteIndex >= selectedPalette.Count)
+                {
+                    throw Invalid(record);
+                }
+            }
         }
 
         uint redMask = 0;
@@ -1400,7 +1468,9 @@ internal static class MetafilePlaybackRenderer
             blueMask,
             alphaMask,
             compression,
-            usesCompressedBuffer ? (int)imageSize : 0);
+            usesCompressedBuffer ? (int)imageSize : 0,
+            usage,
+            selectedPalette);
     }
 
     private static void ValidateDibMasks(
@@ -1759,10 +1829,28 @@ internal static class MetafilePlaybackRenderer
         {
             throw Invalid(record);
         }
-        int offset = checked(dib.HeaderSize + index * 4);
-        blue = bitmapInfo[offset];
-        green = bitmapInfo[offset + 1];
-        red = bitmapInfo[offset + 2];
+        if (dib.ColorUsage == DibPalIndices)
+        {
+            Color color = dib.LogicalPalette.GetColor(index);
+            red = color.R;
+            green = color.G;
+            blue = color.B;
+            return;
+        }
+        if (dib.ColorUsage == DibPalColors)
+        {
+            int offset = checked(dib.HeaderSize + index * 2);
+            Color color = dib.LogicalPalette.GetColor(ReadUInt16(bitmapInfo, offset));
+            red = color.R;
+            green = color.G;
+            blue = color.B;
+            return;
+        }
+
+        int rgbOffset = checked(dib.HeaderSize + index * 4);
+        blue = bitmapInfo[rgbOffset];
+        green = bitmapInfo[rgbOffset + 1];
+        red = bitmapInfo[rgbOffset + 2];
     }
 
     private static byte ExpandFiveBits(int value) =>
@@ -1783,7 +1871,9 @@ internal static class MetafilePlaybackRenderer
         uint BlueMask,
         uint AlphaMask,
         uint Compression,
-        int CompressedSize);
+        int CompressedSize,
+        uint ColorUsage,
+        LogicalPalette LogicalPalette);
 
     private static void DrawRectangle(
         PlaybackState state,
@@ -3782,6 +3872,7 @@ internal static class MetafilePlaybackRenderer
         private Font _selectedFont = SystemFonts.DefaultFont;
         private object? _selectedFontObject;
         private int _selectedFontEscapement;
+        private LogicalPalette _selectedPalette = LogicalPalette.Default;
         private SolidBrush? _textBrush;
         private SolidBrush? _backgroundBrush;
         private GraphicsPath? _buildingPath;
@@ -3827,6 +3918,7 @@ internal static class MetafilePlaybackRenderer
         internal Pen? SelectedPen => _selectedPen;
         internal Brush? SelectedBrush => _selectedBrush;
         internal Font SelectedFont => _selectedFont;
+        internal LogicalPalette SelectedPalette => _selectedPalette;
         internal bool IsPathBracketOpen => _pathBracketOpen;
 
         internal Matrix3x2 ApplyTransform(in MetafileRecord record)
@@ -4479,6 +4571,7 @@ internal static class MetafilePlaybackRenderer
                 _selectedFont,
                 _selectedFontObject,
                 _selectedFontEscapement,
+                _selectedPalette,
                 _metaClip.Clone(),
                 _applicationClip?.Clone(),
                 _metaClipRequiresMaterialization,
@@ -4535,6 +4628,7 @@ internal static class MetafilePlaybackRenderer
             _selectedFont = saved.SelectedFont;
             _selectedFontObject = saved.SelectedFontObject;
             _selectedFontEscapement = saved.SelectedFontEscapement;
+            _selectedPalette = saved.SelectedPalette;
             _metaClip.Dispose();
             _metaClip = restoredMetaClip;
             _applicationClip?.Dispose();
@@ -4578,6 +4672,239 @@ internal static class MetafilePlaybackRenderer
                 _ => throw Unsupported(record, "The initial player supports solid or null brushes only.")
             };
             AddObject(index, product, record);
+        }
+
+        internal void CreateEmfPalette(ReadOnlySpan<byte> payload, in MetafileRecord record)
+        {
+            if (payload.Length < 8)
+            {
+                throw Invalid(record);
+            }
+            uint index = ReadUInt32(payload, 0);
+            LogicalPalette palette = ReadLogicalPalette(
+                payload[4..],
+                requireVersion: true,
+                requireEntries: true,
+                validateFlags: false,
+                record);
+            AddObject(index, palette, record);
+        }
+
+        internal void CreateWmfPalette(ReadOnlySpan<byte> payload, in MetafileRecord record) =>
+            AddWmfObject(
+                ReadLogicalPalette(
+                    payload,
+                    requireVersion: true,
+                    requireEntries: true,
+                    validateFlags: true,
+                    record),
+                record);
+
+        internal void SelectPalette(uint index, in MetafileRecord record)
+        {
+            if (index == (StockObjectFlag | DefaultPalette))
+            {
+                _selectedPalette = LogicalPalette.Default;
+                return;
+            }
+            if (index == 0 || (index & StockObjectFlag) != 0 ||
+                !_objects.TryGetValue(index, out object? product) ||
+                product is not LogicalPalette palette)
+            {
+                throw Invalid(record);
+            }
+            _selectedPalette = palette;
+        }
+
+        internal void SelectWmfPalette(ushort index, in MetafileRecord record)
+        {
+            if (!_objects.TryGetValue(index, out object? product) ||
+                product is not LogicalPalette palette)
+            {
+                throw Invalid(record);
+            }
+            _selectedPalette = palette;
+        }
+
+        internal void SetEmfPaletteEntries(
+            ReadOnlySpan<byte> payload,
+            in MetafileRecord record)
+        {
+            if (payload.Length < 12)
+            {
+                throw Invalid(record);
+            }
+            LogicalPalette palette = GetPalette(ReadUInt32(payload, 0), record);
+            uint start = ReadUInt32(payload, 4);
+            uint count = ReadUInt32(payload, 8);
+            SetPaletteEntries(
+                palette,
+                start,
+                count,
+                payload[12..],
+                validateFlags: false,
+                record);
+        }
+
+        internal void SetWmfPaletteEntries(
+            ReadOnlySpan<byte> payload,
+            in MetafileRecord record)
+        {
+            LogicalPalette palette = GetMutableSelectedPalette(record);
+            ReadPaletteUpdate(payload, palette, animate: false, record);
+        }
+
+        internal void AnimateWmfPalette(
+            ReadOnlySpan<byte> payload,
+            in MetafileRecord record)
+        {
+            LogicalPalette palette = GetMutableSelectedPalette(record);
+            ReadPaletteUpdate(payload, palette, animate: true, record);
+        }
+
+        internal void ResizePalette(
+            uint index,
+            uint count,
+            in MetafileRecord record)
+        {
+            if (count is 0 or > 0x400)
+            {
+                throw Invalid(record);
+            }
+            GetPalette(index, record).Resize((int)count);
+        }
+
+        internal void ResizeSelectedPalette(ushort count, in MetafileRecord record)
+        {
+            if (count == 0)
+            {
+                throw Invalid(record);
+            }
+            GetMutableSelectedPalette(record).Resize(count);
+        }
+
+        internal void RealizePalette()
+        {
+            // Retained playback resolves logical colors directly, so no device palette
+            // realization is required at this typed cross-platform boundary.
+        }
+
+        private LogicalPalette GetPalette(uint index, in MetafileRecord record)
+        {
+            if (index == 0 || (index & StockObjectFlag) != 0 ||
+                !_objects.TryGetValue(index, out object? product) ||
+                product is not LogicalPalette palette)
+            {
+                throw Invalid(record);
+            }
+            return palette;
+        }
+
+        private LogicalPalette GetMutableSelectedPalette(in MetafileRecord record)
+        {
+            if (ReferenceEquals(_selectedPalette, LogicalPalette.Default))
+            {
+                throw Invalid(record);
+            }
+            return _selectedPalette;
+        }
+
+        private static LogicalPalette ReadLogicalPalette(
+            ReadOnlySpan<byte> payload,
+            bool requireVersion,
+            bool requireEntries,
+            bool validateFlags,
+            in MetafileRecord record)
+        {
+            if (payload.Length < 4 || requireVersion && ReadUInt16(payload, 0) != 0x0300)
+            {
+                throw Invalid(record);
+            }
+            int count = ReadUInt16(payload, 2);
+            if (requireEntries && count == 0 || payload.Length != checked(4 + count * 4))
+            {
+                throw Invalid(record);
+            }
+            return new LogicalPalette(ReadPaletteEntries(
+                payload[4..],
+                count,
+                validateFlags,
+                record));
+        }
+
+        private static void ReadPaletteUpdate(
+            ReadOnlySpan<byte> payload,
+            LogicalPalette palette,
+            bool animate,
+            in MetafileRecord record)
+        {
+            if (payload.Length < 4)
+            {
+                throw Invalid(record);
+            }
+            ushort start = ReadUInt16(payload, 0);
+            ushort count = ReadUInt16(payload, 2);
+            SetPaletteEntries(
+                palette,
+                start,
+                count,
+                payload[4..],
+                validateFlags: true,
+                record,
+                animate);
+        }
+
+        private static void SetPaletteEntries(
+            LogicalPalette palette,
+            uint start,
+            uint count,
+            ReadOnlySpan<byte> payload,
+            bool validateFlags,
+            in MetafileRecord record,
+            bool animate = false)
+        {
+            if (start > int.MaxValue || count > int.MaxValue ||
+                count > (uint)(int.MaxValue / 4) ||
+                payload.Length != (int)count * 4 ||
+                start + (ulong)count > (uint)palette.Count)
+            {
+                throw Invalid(record);
+            }
+            PaletteEntry[] entries = ReadPaletteEntries(
+                payload,
+                (int)count,
+                validateFlags,
+                record);
+            if (animate)
+            {
+                palette.Animate((int)start, entries);
+            }
+            else
+            {
+                palette.SetEntries((int)start, entries);
+            }
+        }
+
+        private static PaletteEntry[] ReadPaletteEntries(
+            ReadOnlySpan<byte> payload,
+            int count,
+            bool validateFlags,
+            in MetafileRecord record)
+        {
+            var entries = new PaletteEntry[count];
+            for (int index = 0; index < count; index++)
+            {
+                int offset = index * 4;
+                byte flags = validateFlags ? payload[offset + 3] : (byte)0;
+                if (validateFlags && flags is not 0 and not 1 and not 2 and not 4)
+                {
+                    throw Invalid(record);
+                }
+                entries[index] = new PaletteEntry(
+                    Color.FromArgb(payload[offset], payload[offset + 1], payload[offset + 2]),
+                    flags);
+            }
+            return entries;
         }
 
         internal void CreateWmfPen(ReadOnlySpan<byte> payload, in MetafileRecord record)
@@ -5430,7 +5757,8 @@ internal static class MetafilePlaybackRenderer
         private bool IsSelected(object product)
         {
             if (ReferenceEquals(product, _selectedPen) || ReferenceEquals(product, _selectedBrush) ||
-                ReferenceEquals(product, _selectedFontObject))
+                ReferenceEquals(product, _selectedFontObject) ||
+                ReferenceEquals(product, _selectedPalette))
             {
                 return true;
             }
@@ -5439,7 +5767,8 @@ internal static class MetafilePlaybackRenderer
             {
                 if (ReferenceEquals(product, savedState.SelectedPen) ||
                     ReferenceEquals(product, savedState.SelectedBrush) ||
-                    ReferenceEquals(product, savedState.SelectedFontObject))
+                    ReferenceEquals(product, savedState.SelectedFontObject) ||
+                    ReferenceEquals(product, savedState.SelectedPalette))
                 {
                     return true;
                 }
@@ -5563,6 +5892,7 @@ internal static class MetafilePlaybackRenderer
             Font SelectedFont,
             object? SelectedFontObject,
             int SelectedFontEscapement,
+            LogicalPalette SelectedPalette,
             Region MetaClip,
             Region? ApplicationClip,
             bool MetaClipRequiresMaterialization,
@@ -5577,6 +5907,51 @@ internal static class MetafilePlaybackRenderer
 
         public void Dispose() => Font.Dispose();
     }
+
+    private sealed class LogicalPalette
+    {
+        internal static readonly LogicalPalette Default = CreateDefault();
+        private PaletteEntry[] _entries;
+
+        internal LogicalPalette(PaletteEntry[] entries) => _entries = entries;
+
+        internal int Count => _entries.Length;
+
+        internal Color GetColor(int index) => _entries[index].Color;
+
+        internal void SetEntries(int start, PaletteEntry[] entries) =>
+            entries.CopyTo(_entries, start);
+
+        internal void Animate(int start, PaletteEntry[] entries)
+        {
+            for (int index = 0; index < entries.Length; index++)
+            {
+                int destinationIndex = start + index;
+                PaletteEntry destination = _entries[destinationIndex];
+                if ((destination.Flags & 1) != 0)
+                {
+                    _entries[destinationIndex] = new PaletteEntry(
+                        entries[index].Color,
+                        destination.Flags);
+                }
+            }
+        }
+
+        internal void Resize(int count) => Array.Resize(ref _entries, count);
+
+        private static LogicalPalette CreateDefault()
+        {
+            Color[] colors = new ColorPalette(PaletteType.FixedHalftone256).Entries;
+            var entries = new PaletteEntry[colors.Length];
+            for (int index = 0; index < entries.Length; index++)
+            {
+                entries[index] = new PaletteEntry(colors[index], 0);
+            }
+            return new LogicalPalette(entries);
+        }
+    }
+
+    private readonly record struct PaletteEntry(Color Color, byte Flags);
 
     private sealed class NullPenMarker
     {

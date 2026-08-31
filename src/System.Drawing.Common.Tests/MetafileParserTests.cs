@@ -3907,7 +3907,7 @@ public sealed class MetafileParserTests
             valid,
             new Rectangle(0, 0, 1, 1),
             new Rectangle(0, 0, 8, 8),
-            usage: 1);
+            usage: 3);
         byte[] unsupportedRop = WmfDibBitBlt(
             valid,
             new Rectangle(0, 0, 1, 1),
@@ -3948,6 +3948,204 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfLogicalPaletteMapsDibPaletteColorTableIndices()
+    {
+        TestDib dib = CreateLogicalPaletteDib(
+            2,
+            -1,
+            [0, 1, 0, 0],
+            [2, 0]);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfCreatePalette,
+                EmfPalette(1, [Color.Red, Color.Lime, Color.Blue])),
+            (EmfPlusRecordType.EmfSelectPalette, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfRealizePalette, []),
+            (EmfPlusRecordType.EmfStretchDIBits,
+                EmfStretchDibits(
+                    dib,
+                    new Rectangle(0, 0, 2, 1),
+                    new Rectangle(8, 8, 8, 4),
+                    usage: 1))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(24, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(9, 9).ToArgb());
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(13, 9).ToArgb());
+    }
+
+    [Fact]
+    public void WmfLogicalPaletteMapsDirectDibPaletteIndices()
+    {
+        TestDib dib = CreateLogicalPaletteDib(
+            2,
+            -1,
+            [1, 0, 0, 0],
+            [],
+            directIndices: true);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x00F7, WmfPalette(0x0300, [Color.Red, Color.Blue])),
+            (0x0234, WmfWords(0)),
+            (0x0035, []),
+            (0x0F43, WmfStretchDib(
+                dib,
+                new Rectangle(0, 0, 2, 1),
+                new Rectangle(8, 8, 8, 4),
+                usage: 2)),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(24, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(9, 9).ToArgb());
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(13, 9).ToArgb());
+    }
+
+    [Fact]
+    public void EmfPaletteSelectionAndEntriesRestoreWithSavedDeviceContext()
+    {
+        TestDib dib = CreateLogicalPaletteDib(
+            1,
+            -1,
+            [0, 0, 0, 0],
+            [],
+            directIndices: true);
+        byte[] fixture = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfCreatePalette, EmfPalette(1, [Color.Red])),
+            (EmfPlusRecordType.EmfCreatePalette, EmfPalette(2, [Color.Blue, Color.White])),
+            (EmfPlusRecordType.EmfSelectPalette, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfSaveDC, []),
+            (EmfPlusRecordType.EmfSelectPalette, EmfUInt32(2)),
+            (EmfPlusRecordType.EmfSetPaletteEntries,
+                EmfPaletteEntries(2, 0, [Color.Lime])),
+            (EmfPlusRecordType.EmfResizePalette, EmfUInt32Pair(2, 1)),
+            (EmfPlusRecordType.EmfStretchDIBits,
+                EmfStretchDibits(dib, new Rectangle(0, 0, 1, 1), new Rectangle(8, 8, 4, 4), 2)),
+            (EmfPlusRecordType.EmfRestoreDC, EmfInt32(-1)),
+            (EmfPlusRecordType.EmfStretchDIBits,
+                EmfStretchDibits(dib, new Rectangle(0, 0, 1, 1), new Rectangle(16, 8, 4, 4), 2))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(24, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Lime.ToArgb(), target.GetPixel(9, 9).ToArgb());
+        Assert.Equal(Color.Red.ToArgb(), target.GetPixel(17, 9).ToArgb());
+    }
+
+    [Fact]
+    public void WmfPaletteAnimationChangesOnlyReservedEntries()
+    {
+        TestDib dib = CreateLogicalPaletteDib(
+            2,
+            -1,
+            [0, 1, 0, 0],
+            [],
+            directIndices: true);
+        byte[] fixture = CreatePlaybackWmf(
+        [
+            (0x00F7, WmfPalette(0x0300, [Color.Red, Color.Lime], [1, 0])),
+            (0x0234, WmfWords(0)),
+            (0x0436, WmfPalette(0, [Color.Blue, Color.White])),
+            (0x0037, WmfPalette(1, [Color.Yellow])),
+            (0x0139, WmfWords(2)),
+            (0x0F43, WmfStretchDib(
+                dib,
+                new Rectangle(0, 0, 2, 1),
+                new Rectangle(8, 8, 8, 4),
+                usage: 2)),
+            (0, [])
+        ]);
+        using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+        using var target = new Bitmap(24, 16);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        Assert.Equal(Color.Blue.ToArgb(), target.GetPixel(9, 9).ToArgb());
+        Assert.Equal(Color.Yellow.ToArgb(), target.GetPixel(13, 9).ToArgb());
+    }
+
+    [Fact]
+    public void LogicalPaletteRecordsRejectMalformedStateTransactionally()
+    {
+        TestDib invalidPaletteIndex = CreateLogicalPaletteDib(
+            1,
+            -1,
+            [0, 0, 0, 0],
+            [1]);
+        byte[][] fixtures =
+        [
+            CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfSetPixelV, EmfSetPixel(new Point(1, 1), Color.Red)),
+                (EmfPlusRecordType.EmfCreatePalette, EmfPalette(1, [Color.Red], version: 0x0200))
+            ]),
+            CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfSetPixelV, EmfSetPixel(new Point(1, 1), Color.Red)),
+                (EmfPlusRecordType.EmfCreatePalette, EmfPalette(1, []))
+            ]),
+            CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfSetPixelV, EmfSetPixel(new Point(1, 1), Color.Red)),
+                (EmfPlusRecordType.EmfCreatePalette, EmfPalette(1, [Color.Red])),
+                (EmfPlusRecordType.EmfSetPaletteEntries,
+                    EmfPaletteEntries(1, 1, [Color.Blue]))
+            ]),
+            CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfSetPixelV, EmfSetPixel(new Point(1, 1), Color.Red)),
+                (EmfPlusRecordType.EmfCreatePalette, EmfPalette(1, [Color.Red])),
+                (EmfPlusRecordType.EmfSelectPalette, EmfUInt32(1)),
+                (EmfPlusRecordType.EmfStretchDIBits,
+                    EmfStretchDibits(
+                        invalidPaletteIndex,
+                        new Rectangle(0, 0, 1, 1),
+                        new Rectangle(0, 0, 4, 4),
+                        usage: 1))
+            ]),
+            CreateTextPlaybackEmf(
+            [
+                (EmfPlusRecordType.EmfSetPixelV, EmfSetPixel(new Point(1, 1), Color.Red)),
+                (EmfPlusRecordType.EmfCreatePalette, EmfPalette(1, [Color.Red])),
+                (EmfPlusRecordType.EmfSelectPalette, EmfUInt32(1)),
+                (EmfPlusRecordType.EmfDeleteObject, EmfUInt32(1))
+            ])
+        ];
+
+        foreach (byte[] fixture in fixtures)
+        {
+            using var metafile = new Metafile(new MemoryStream(fixture, writable: false));
+            var context = new DrawingContext();
+            using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+            Assert.Throws<ArgumentException>(() =>
+                graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+            Assert.Empty(context.Commands);
+        }
+    }
+
+    [Fact]
     public void WmfDibPlaybackHasBoundedWarmedAllocation()
     {
         TestDib dib = CreateRgbDib(1, -1, 32, [0, 0, 255, 0]);
@@ -3960,6 +4158,54 @@ public sealed class MetafileParserTests
                     dib,
                     new Rectangle(0, 0, 1, 1),
                     new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8))));
+        }
+        records.Add((0, []));
+        using var metafile = new Metafile(new MemoryStream(
+            CreatePlaybackWmf(records),
+            writable: false));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+        for (int iteration = 0; iteration < 4; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+            context.Clear();
+        }
+        long allocatedPerPlayback =
+            (GC.GetAllocatedBytesForCurrentThread() - before) / 8;
+
+        Assert.InRange(allocatedPerPlayback, 64 * 1024, 16 * 1024 * 1024);
+    }
+
+    [Fact]
+    public void LogicalPaletteDibPlaybackHasBoundedWarmedAllocation()
+    {
+        TestDib dib = CreateLogicalPaletteDib(
+            1,
+            -1,
+            [0, 0, 0, 0],
+            [],
+            directIndices: true);
+        var records = new List<(ushort Function, byte[] Payload)>
+        {
+            (0x00F7, WmfPalette(0x0300, [Color.Red])),
+            (0x0234, WmfWords(0))
+        };
+        for (int index = 0; index < 64; index++)
+        {
+            records.Add((
+                0x0F43,
+                WmfStretchDib(
+                    dib,
+                    new Rectangle(0, 0, 1, 1),
+                    new Rectangle((index % 8) * 8, (index / 8) * 8, 8, 8),
+                    usage: 2)));
         }
         records.Add((0, []));
         using var metafile = new Metafile(new MemoryStream(
@@ -5113,6 +5359,22 @@ public sealed class MetafileParserTests
         return bytes;
     }
 
+    private static byte[] WmfPalette(
+        ushort start,
+        Color[] colors,
+        byte[]? flags = null)
+    {
+        if (flags is not null && flags.Length != colors.Length)
+        {
+            throw new ArgumentException("Palette flags must match the color count.", nameof(flags));
+        }
+        byte[] bytes = new byte[checked(4 + colors.Length * 4)];
+        WriteUInt16(bytes, 0, start);
+        WriteUInt16(bytes, 2, checked((ushort)colors.Length));
+        WritePaletteEntries(bytes, 4, colors, flags);
+        return bytes;
+    }
+
     private static byte[] WmfPoints(params Point[] points)
     {
         byte[] bytes = new byte[checked(2 + points.Length * 4)];
@@ -5544,6 +5806,53 @@ public sealed class MetafileParserTests
         return payload;
     }
 
+    private static byte[] EmfPalette(
+        uint index,
+        Color[] colors,
+        ushort version = 0x0300)
+    {
+        byte[] payload = new byte[checked(8 + colors.Length * 4)];
+        WriteUInt32(payload, 0, index);
+        WriteUInt16(payload, 4, version);
+        WriteUInt16(payload, 6, checked((ushort)colors.Length));
+        WritePaletteEntries(payload, 8, colors);
+        return payload;
+    }
+
+    private static byte[] EmfPaletteEntries(uint index, uint start, Color[] colors)
+    {
+        byte[] payload = new byte[checked(12 + colors.Length * 4)];
+        WriteUInt32(payload, 0, index);
+        WriteUInt32(payload, 4, start);
+        WriteUInt32(payload, 8, checked((uint)colors.Length));
+        WritePaletteEntries(payload, 12, colors);
+        return payload;
+    }
+
+    private static byte[] EmfUInt32Pair(uint first, uint second)
+    {
+        byte[] payload = new byte[8];
+        WriteUInt32(payload, 0, first);
+        WriteUInt32(payload, 4, second);
+        return payload;
+    }
+
+    private static void WritePaletteEntries(
+        byte[] destination,
+        int offset,
+        Color[] colors,
+        byte[]? flags = null)
+    {
+        for (int index = 0; index < colors.Length; index++)
+        {
+            Color color = colors[index];
+            destination[offset + index * 4] = color.R;
+            destination[offset + index * 4 + 1] = color.G;
+            destination[offset + index * 4 + 2] = color.B;
+            destination[offset + index * 4 + 3] = flags?[index] ?? 0;
+        }
+    }
+
     private static TestDib CreateRgbDib(
         int width,
         int signedHeight,
@@ -5568,6 +5877,32 @@ public sealed class MetafileParserTests
             info[offset] = color.B;
             info[offset + 1] = color.G;
             info[offset + 2] = color.R;
+        }
+        return new TestDib(info, bits);
+    }
+
+    private static TestDib CreateLogicalPaletteDib(
+        int width,
+        int signedHeight,
+        byte[] bits,
+        ushort[] paletteIndices,
+        bool directIndices = false)
+    {
+        byte[] info = new byte[checked(40 + (directIndices ? 0 : paletteIndices.Length * 2))];
+        WriteUInt32(info, 0, 40);
+        WriteInt32(info, 4, width);
+        WriteInt32(info, 8, signedHeight);
+        WriteUInt16(info, 12, 1);
+        WriteUInt16(info, 14, 8);
+        WriteUInt32(info, 16, 0);
+        WriteUInt32(info, 20, checked((uint)bits.Length));
+        WriteUInt32(info, 32, directIndices ? 0u : checked((uint)paletteIndices.Length));
+        if (!directIndices)
+        {
+            for (int index = 0; index < paletteIndices.Length; index++)
+            {
+                WriteUInt16(info, 40 + index * 2, paletteIndices[index]);
+            }
         }
         return new TestDib(info, bits);
     }

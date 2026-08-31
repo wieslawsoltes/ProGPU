@@ -113,11 +113,18 @@ nonvisual. Typed DIB playback adds `EMR_STRETCHDIBITS`,
 `EMR_SETDIBITSTODEVICE`, source-bearing `META_DIBBITBLT`,
 `META_DIBSTRETCHBLT`, `META_STRETCHDIB`, and `META_SETDIBTODEV`, plus EMF/WMF
 stretch-mode state. The shared bounded
-decoder accepts `DIB_RGB_COLORS` with uncompressed `BI_RGB` 1-, 4-, 8-, 16-,
+decoder accepts `DIB_RGB_COLORS`, `DIB_PAL_COLORS`, and `DIB_PAL_INDICES`
+with uncompressed `BI_RGB` 1-, 4-, 8-, 16-,
 24-, and 32-bit pixels plus `BI_BITFIELDS` 16- and 32-bit pixels in
 `BITMAPINFOHEADER`, `BITMAPV4HEADER`, or `BITMAPV5HEADER` envelopes. It handles
 RGBQUAD palettes, RGB555, RGB565 and arbitrary valid contiguous bit masks,
 optional V4/V5 alpha masks, and bottom-up `BI_RLE8`/`BI_RLE4` indexed streams.
+Logical palettes are typed EMF/WMF objects with create, select, set, resize,
+realize, WMF animate, deletion, and SaveDC/RestoreDC selection behavior.
+Sixteen-bit DIB color-table indexes and direct pixel indexes resolve against
+the selected palette after complete table and object bounds validation. Palette
+realization is a validated no-op because retained playback consumes logical
+colors directly instead of mutating an OS hardware palette.
 The RLE state machine bounds encoded and absolute runs, end-of-line/end-of-bitmap
 escapes, deltas, word padding, palette indexes, and the declared compressed byte
 count before publishing pixels. It preserves unspecified pixels as palette index
@@ -148,6 +155,11 @@ official [EMR_RECTANGLE](https://learn.microsoft.com/en-us/openspecs/windows_pro
 [META_DIBSTRETCHBLT](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/e666a66f-b29d-4adb-82da-e00eaf032ea6),
 [META_STRETCHDIB](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/7ebae08d-61ee-4d82-9aa5-9217ba2aa8c1),
 [META_SETDIBTODEV](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/d0e77d4d-653f-4535-a4db-1496af84acdc),
+[DIBColors](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/a5e722e3-891a-4a67-be1a-ed5a48a7fda1),
+[EMR_CREATEPALETTE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/07e1492b-e4bb-4394-934f-4eaee67ab8ff),
+[EMR_SELECTPALETTE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/e6a4ce2a-209d-43df-b763-5d8e54c21a10),
+[EMR_SETPALETTEENTRIES](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/88348296-3c9a-488f-bbf7-19c897535372),
+[META_ANIMATEPALETTE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/abac3df4-c19a-4102-9344-b5bf68fcfa99),
 [DeviceIndependentBitmap](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/7376542a-cce9-4625-8ead-585e9538f9f1),
 [BitmapInfoHeader](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/567172fa-b8a2-4d79-86a2-5e21d6659ef3),
 [BitCount](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-wmf/792153f4-1e99-4ec8-93cf-d171a5f33903),
@@ -256,7 +268,7 @@ implementation is based on the official
 contracts. WMF paths and select-clip-region records, `EXTTEXTOUT` glyph-index, numeric-
 substitution, two-dimensional, DBCS-advance, and bidi-advance modes, independent
 escapement/orientation, vertical fonts, SYMBOL glyph-index mapping,
-CMYK and logical-palette DIBs, playback-device-context-only
+CMYK DIBs, playback-device-context-only
 `META_DIBBITBLT`/`META_DIBSTRETCHBLT` variants, device-dependent bitmap blits,
 richer GDI objects,
 other WMF drawing families, and nonstructural EMF+ drawing records remain
@@ -769,8 +781,7 @@ operations, transactional rollback, and warmed allocation. The WMF follow-up
 adds all four source-bearing packed-DIB layouts, exact packed header/color-table
 splitting, direct-color optimization tables, both scan orientations, retained
 command shape, and explicit rollback for the two playback-DC-only source forms.
-CMYK compression and logical-palette usage,
-playback-device-context sources, and device-dependent bitmaps remain named typed
+CMYK compression, playback-device-context sources, and device-dependent bitmaps remain named typed
 boundaries. ApiCompat remains at zero missing types, zero missing members, and
 13 reviewed shape differences.
 
@@ -810,6 +821,17 @@ cases cover exact PNG pixels, crop/mirroring, lossy JPEG color bounds, odd-sized
 WMF buffers, complete EMF/WMF set-DIB records, malformed header/buffer/codec
 rollback in both formats, partial-band rollback, and warmed allocation.
 
+The logical-palette follow-up implements the complete core palette record
+families used by indexed DIB playback: EMF create/select/set/resize/realize and
+WMF create/select/set/resize/realize/animate. Object kinds and indexes, palette
+version and entry counts, mutation ranges, WMF flags, selected-object lifetime,
+and saved selections are validated before retained commands publish.
+`DIB_PAL_COLORS` consumes 16-bit color-table indexes into the selected logical
+palette; `DIB_PAL_INDICES` omits the color table and resolves packed/RLE pixel
+indexes directly. Six focused gates cover exact EMF and WMF pixels, palette
+selection restoration, set/resize/animation semantics, malformed transactional
+rollback, and warmed allocation.
+
 `Playback256EmfDibImagesToRetainedCommands` measures bounded header/row decode,
 256 owned two-by-two RGBA snapshots, typed retained-texture recording,
 transactional append, and cleanup. The 2026-08-31 ARM64/.NET 10.0.11 ShortRun
@@ -830,7 +852,7 @@ throughput. Ten focused WMF cases independently cover all four record families,
 bottom-up padding, top-down and bottom-up partial bands, packed color-table
 splitting, retained sampling, playback-DC boundaries, malformed input,
 transactional rollback, and the warmed 64-image allocation ceiling.
-Both complete Debug and Release drawing suites pass 546/546; ApiCompat remains
+Both complete Debug and Release drawing suites pass 552/552; ApiCompat remains
 at zero missing types, zero missing members, and 13 reviewed shape differences.
 
 `Playback256BitFieldDibImagesToRetainedCommands` measures 256 packed RGB565
@@ -856,6 +878,16 @@ ARM64/.NET 10.0.11 ShortRun measured a 19.527 millisecond median (18.959
 millisecond mean, 3.838 millisecond standard deviation) with 743.78 KB
 allocated. Three iterations and timing variance make allocation and command
 ownership authoritative rather than throughput.
+
+`Playback256LogicalPaletteDibImagesToRetainedCommands` measures 256 packed
+two-by-two `DIB_PAL_INDICES` images after one typed WMF palette creation and
+selection. It guards palette lookup, indexed RGBA materialization, retained
+ownership, command cleanup, and the same transactional publication boundary.
+The 2026-08-31 ARM64/.NET 10.0.11 ShortRun measured a 15.186 millisecond
+median (19.553 millisecond mean, 8.962 millisecond standard deviation) with
+502.08 KB allocated. Three iterations, denied priority elevation, and high
+timing variance make allocation and command ownership authoritative rather than
+throughput.
 
 The EMF path-bracket follow-up adds `EMR_BEGINPATH`, `EMR_ENDPATH`,
 `EMR_CLOSEFIGURE`, `EMR_ABORTPATH`, `EMR_FILLPATH`, `EMR_STROKEPATH`,
