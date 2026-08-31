@@ -101,6 +101,53 @@ bool has_same_com_identity(IUnknown* left, IUnknown* right)
         left_identity.Get() == right_identity.Get();
 }
 
+void record_rectangle_path(ID2D1GeometrySink* sink)
+{
+    const std::array<D2D1_POINT_2F, 3U> points = {{
+        D2D1::Point2F(10.0F, 0.0F),
+        D2D1::Point2F(10.0F, 8.0F),
+        D2D1::Point2F(0.0F, 8.0F)}};
+    sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+    sink->BeginFigure(
+        D2D1::Point2F(0.0F, 0.0F),
+        D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLines(points.data(), static_cast<UINT32>(points.size()));
+    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+}
+
+void record_path_vocabulary(ID2D1GeometrySink* sink)
+{
+    sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+    sink->BeginFigure(
+        D2D1::Point2F(0.0F, 0.0F),
+        D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLine(D2D1::Point2F(10.0F, 0.0F));
+    sink->SetSegmentFlags(D2D1_PATH_SEGMENT_FORCE_ROUND_LINE_JOIN);
+    const D2D1_QUADRATIC_BEZIER_SEGMENT quadratic = {
+        D2D1::Point2F(15.0F, 5.0F),
+        D2D1::Point2F(10.0F, 10.0F)};
+    sink->AddQuadraticBezier(&quadratic);
+    const D2D1_BEZIER_SEGMENT cubic = {
+        D2D1::Point2F(8.0F, 12.0F),
+        D2D1::Point2F(2.0F, 12.0F),
+        D2D1::Point2F(0.0F, 10.0F)};
+    sink->AddBezier(&cubic);
+    const D2D1_ARC_SEGMENT arc = {
+        D2D1::Point2F(0.0F, 0.0F),
+        D2D1::SizeF(5.0F, 5.0F),
+        0.0F,
+        D2D1_SWEEP_DIRECTION_CLOCKWISE,
+        D2D1_ARC_SIZE_SMALL};
+    sink->SetSegmentFlags(D2D1_PATH_SEGMENT_NONE);
+    sink->AddArc(&arc);
+    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+}
+
+bool approximately_equal(float left, float right, float tolerance) noexcept
+{
+    return std::abs(left - right) <= tolerance;
+}
+
 } // namespace
 
 int main()
@@ -218,6 +265,121 @@ int main()
             compat_point.x == 7.0F && compat_point.y == 3.0F &&
             compat_tangent.x == 1.0F && compat_tangent.y == 0.0F,
         "ProGPU rectangle geometry point-at-length changed");
+
+    ComPtr<ID2D1PathGeometry1> compat_path;
+    require(
+        compat_factory->CreatePathGeometry(&compat_path) == S_OK &&
+            compat_path != nullptr,
+        "ProGPU ID2D1PathGeometry1 creation failed");
+    ComPtr<ID2D1PathGeometry> compat_base_path;
+    require(
+        SUCCEEDED(compat_path.As(&compat_base_path)) &&
+            has_same_com_identity(
+                compat_path.Get(), compat_base_path.Get()),
+        "ProGPU path geometry COM identity changed");
+    ComPtr<ID2D1Factory> compat_path_factory;
+    compat_path->GetFactory(&compat_path_factory);
+    require(
+        compat_path_factory != nullptr &&
+            has_same_com_identity(
+                compat_path_factory.Get(), compat_factory.Get()),
+        "ProGPU path geometry lost its factory identity");
+    ComPtr<ID2D1GeometrySink> compat_path_sink;
+    require(
+        compat_path->Open(&compat_path_sink) == S_OK &&
+            compat_path_sink != nullptr,
+        "ProGPU ID2D1GeometrySink creation failed");
+    ComPtr<ID2D1SimplifiedGeometrySink> compat_simplified_sink;
+    require(
+        SUCCEEDED(compat_path_sink.As(&compat_simplified_sink)) &&
+            has_same_com_identity(
+                compat_path_sink.Get(), compat_simplified_sink.Get()),
+        "ProGPU geometry sink COM identity changed");
+    UINT32 compat_segment_count = 0U;
+    require(
+        compat_path->GetSegmentCount(&compat_segment_count) ==
+            D2DERR_WRONG_STATE,
+        "open ProGPU path geometry did not fail closed");
+    record_path_vocabulary(compat_path_sink.Get());
+    require(
+        compat_path_sink->Close() == S_OK &&
+            compat_path->GetSegmentCount(&compat_segment_count) == S_OK &&
+            compat_segment_count == 5U,
+        "ProGPU path geometry segment vocabulary changed");
+    UINT32 compat_figure_count = 0U;
+    require(
+        compat_path->GetFigureCount(&compat_figure_count) == S_OK &&
+            compat_figure_count == 1U,
+        "ProGPU path geometry figure count changed");
+    D2D1_RECT_F compat_path_bounds{};
+    require(
+        compat_path->GetBounds(nullptr, &compat_path_bounds) == S_OK &&
+            compat_path_bounds.left <= 0.0F &&
+            compat_path_bounds.top == 0.0F &&
+            compat_path_bounds.right >= 12.0F &&
+            compat_path_bounds.bottom >= 11.0F,
+        "ProGPU path geometry bounds changed");
+
+    ComPtr<ID2D1PathGeometry1> streamed_compat_path;
+    ComPtr<ID2D1GeometrySink> streamed_compat_sink;
+    require(
+        compat_factory->CreatePathGeometry(&streamed_compat_path) == S_OK &&
+            streamed_compat_path->Open(&streamed_compat_sink) == S_OK &&
+            compat_path->Stream(streamed_compat_sink.Get()) == S_OK &&
+            streamed_compat_sink->Close() == S_OK &&
+            streamed_compat_path->GetSegmentCount(
+                &compat_segment_count) == S_OK &&
+            compat_segment_count == 5U,
+        "ProGPU path geometry streaming changed its segment vocabulary");
+
+    ComPtr<ID2D1PathGeometry1> compat_rectangle_path;
+    ComPtr<ID2D1GeometrySink> compat_rectangle_path_sink;
+    require(
+        compat_factory->CreatePathGeometry(&compat_rectangle_path) == S_OK &&
+            compat_rectangle_path->Open(&compat_rectangle_path_sink) == S_OK,
+        "ProGPU rectangle path creation failed");
+    record_rectangle_path(compat_rectangle_path_sink.Get());
+    require(
+        compat_rectangle_path_sink->Close() == S_OK &&
+            compat_rectangle_path->ComputeArea(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &compat_area) == S_OK &&
+            compat_area == 80.0F &&
+            compat_rectangle_path->ComputeLength(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &compat_length) == S_OK &&
+            compat_length == 36.0F,
+        "ProGPU rectangle path metrics changed");
+    require(
+        compat_rectangle_path->FillContainsPoint(
+            D2D1::Point2F(5.0F, 4.0F),
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_contains) == S_OK &&
+            compat_contains == TRUE &&
+        compat_rectangle_path->FillContainsPoint(
+            D2D1::Point2F(15.0F, 4.0F),
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_contains) == S_OK &&
+            compat_contains == FALSE,
+        "ProGPU rectangle path containment changed");
+    D2D1_POINT_DESCRIPTION compat_point_description{};
+    require(
+        compat_rectangle_path->ComputePointAndSegmentAtLength(
+            5.0F,
+            0U,
+            nullptr,
+            D2D1_DEFAULT_FLATTENING_TOLERANCE,
+            &compat_point_description) == S_OK &&
+            compat_point_description.point.x == 5.0F &&
+            compat_point_description.point.y == 0.0F &&
+            compat_point_description.endSegment == 0U &&
+            compat_point_description.endFigure == 0U &&
+            compat_point_description.lengthToEndSegment == 10.0F,
+        "ProGPU path point-and-segment query changed");
     ComPtr<ID2D1EllipseGeometry> unsupported_ellipse;
     const D2D1_ELLIPSE ellipse = {D2D1::Point2F(0.0F, 0.0F), 1.0F, 1.0F};
     require(
@@ -463,6 +625,53 @@ int main()
             base_context && d3d_device && texture && winrt_d3d_device &&
             dwrite_factory,
         "one or more genuine COM interfaces were unavailable");
+
+    ComPtr<ID2D1PathGeometry1> system_path;
+    ComPtr<ID2D1GeometrySink> system_path_sink;
+    require(
+        factory1->CreatePathGeometry(&system_path) == S_OK &&
+            system_path->Open(&system_path_sink) == S_OK,
+        "system Direct2D path geometry creation failed");
+    record_path_vocabulary(system_path_sink.Get());
+    require(
+        system_path_sink->Close() == S_OK,
+        "system Direct2D path vocabulary recording failed");
+    UINT32 system_segment_count = 0U;
+    UINT32 system_figure_count = 0U;
+    D2D1_RECT_F system_path_bounds{};
+    FLOAT compat_path_length = 0.0F;
+    FLOAT system_path_length = 0.0F;
+    require(
+        system_path->GetSegmentCount(&system_segment_count) == S_OK &&
+            system_path->GetFigureCount(&system_figure_count) == S_OK &&
+            system_path->GetBounds(nullptr, &system_path_bounds) == S_OK &&
+            system_path->ComputeLength(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &system_path_length) == S_OK &&
+            compat_path->ComputeLength(
+                nullptr,
+                D2D1_DEFAULT_FLATTENING_TOLERANCE,
+                &compat_path_length) == S_OK,
+        "Direct2D path differential queries failed");
+    require(
+        system_segment_count == compat_segment_count &&
+            system_figure_count == compat_figure_count,
+        "ProGPU path counts diverged from system Direct2D");
+    require(
+        approximately_equal(
+            system_path_bounds.left, compat_path_bounds.left, 0.05F) &&
+            approximately_equal(
+                system_path_bounds.top, compat_path_bounds.top, 0.05F) &&
+            approximately_equal(
+                system_path_bounds.right, compat_path_bounds.right, 0.05F) &&
+            approximately_equal(
+                system_path_bounds.bottom, compat_path_bounds.bottom, 0.05F),
+        "ProGPU path bounds diverged from system Direct2D");
+    require(
+        approximately_equal(
+            system_path_length, compat_path_length, 0.05F),
+        "ProGPU path length diverged from system Direct2D");
 
     ComPtr<IDirect3DDxgiInterfaceAccess> dxgi_interface_access;
     require(SUCCEEDED(winrt_d3d_device.As(&dxgi_interface_access)),
@@ -2245,7 +2454,7 @@ int main()
         "ProGPU Direct2D COM FillRectangle callback failed");
     require(
         direct_sink->FillGeometry(
-            compat_rectangle.Get(),
+            compat_path.Get(),
             compat_solid_brush.Get(),
             nullptr) == S_OK,
         "ProGPU Direct2D COM FillGeometry callback failed");

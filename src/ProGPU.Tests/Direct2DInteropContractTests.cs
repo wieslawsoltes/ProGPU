@@ -45,7 +45,7 @@ public sealed class Direct2DInteropContractTests
             native,
             StringComparison.Ordinal);
         Assert.Contains(
-            "internal const uint AbiVersion = 45U;",
+            "internal const uint AbiVersion = 46U;",
             native,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -496,7 +496,7 @@ public sealed class Direct2DInteropContractTests
             "progpu_native_direct2d_tests.cpp");
 
         Assert.Contains(
-            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 45U",
+            "PROGPU_NATIVE_DIRECT2D_ABI_VERSION = 46U",
             header,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -540,6 +540,14 @@ public sealed class Direct2DInteropContractTests
             source,
             StringComparison.Ordinal);
         Assert.Contains(
+            "class ProGpuD2DPathGeometry final : public ID2D1PathGeometry1",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "class ProGpuD2DGeometrySink final : public ID2D1GeometrySink",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "progpu_native_direct2d_compat_factory_create",
             header,
             StringComparison.Ordinal);
@@ -548,7 +556,11 @@ public sealed class Direct2DInteropContractTests
             test,
             StringComparison.Ordinal);
         Assert.Contains(
-            "compat_rectangle.Get(),",
+            "ProGPU path bounds diverged from system Direct2D",
+            test,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "compat_path.Get(),",
             test,
             StringComparison.Ordinal);
         Assert.Contains(
