@@ -5872,7 +5872,7 @@ private:
             }
             if (stroke_sink->unsupported_segment_flags() ||
                 hr == E_NOTIMPL) {
-                return fail_unsupported_resource();
+                return E_NOINTERFACE;
             }
             if (hr == E_OUTOFMEMORY) {
                 return fail(
