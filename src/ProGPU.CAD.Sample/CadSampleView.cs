@@ -59,6 +59,9 @@ public sealed class CadSampleView : Grid
     private readonly Button _lineUndoButton;
     private readonly Button _lineCloseButton;
     private readonly Button _lineFinishButton;
+    private readonly Button _rayButton;
+    private readonly Button _rayUndoButton;
+    private readonly Button _rayFinishButton;
     private readonly Button _polylineButton;
     private readonly Button _polylineUndoButton;
     private readonly Button _polylineLineModeButton;
@@ -305,6 +308,12 @@ public sealed class CadSampleView : Grid
     public Button LineCloseButton => _lineCloseButton;
 
     public Button LineFinishButton => _lineFinishButton;
+
+    public Button RayButton => _rayButton;
+
+    public Button RayUndoButton => _rayUndoButton;
+
+    public Button RayFinishButton => _rayFinishButton;
 
     public Button PolylineButton => _polylineButton;
 
@@ -584,6 +593,9 @@ public sealed class CadSampleView : Grid
         _lineUndoButton = CreateButton("Line U", font, 68, 30);
         _lineCloseButton = CreateButton("Close", font, 68, 30);
         _lineFinishButton = CreateButton("Finish", font, 68, 30);
+        _rayButton = CreateButton("Ray", font, 64, 30);
+        _rayUndoButton = CreateButton("Ray U", font, 68, 30);
+        _rayFinishButton = CreateButton("Ray finish", font, 84, 30);
         _polylineButton = CreateButton("PLine", font, 68, 30);
         _polylineUndoButton = CreateButton("PLine U", font, 72, 30);
         _polylineLineModeButton = CreateButton("PLine line", font, 82, 30);
@@ -710,6 +722,9 @@ public sealed class CadSampleView : Grid
         _lineUndoButton.Margin = new Thickness(0, 0, 4, 0);
         _lineCloseButton.Margin = new Thickness(0, 0, 4, 0);
         _lineFinishButton.Margin = new Thickness(0, 0, 12, 0);
+        _rayButton.Margin = new Thickness(0, 0, 4, 0);
+        _rayUndoButton.Margin = new Thickness(0, 0, 4, 0);
+        _rayFinishButton.Margin = new Thickness(0, 0, 12, 0);
         _polylineButton.Margin = new Thickness(0, 0, 4, 0);
         _polylineUndoButton.Margin = new Thickness(0, 0, 4, 0);
         _polylineLineModeButton.Margin = new Thickness(0, 0, 4, 0);
@@ -735,6 +750,9 @@ public sealed class CadSampleView : Grid
         editActions.AddChild(_lineUndoButton);
         editActions.AddChild(_lineCloseButton);
         editActions.AddChild(_lineFinishButton);
+        editActions.AddChild(_rayButton);
+        editActions.AddChild(_rayUndoButton);
+        editActions.AddChild(_rayFinishButton);
         editActions.AddChild(_polylineButton);
         editActions.AddChild(_polylineUndoButton);
         editActions.AddChild(_polylineLineModeButton);
@@ -2198,6 +2216,9 @@ public sealed class CadSampleView : Grid
         _lineUndoButton.Click += (_, _) => UndoLineAuthoringSegment();
         _lineCloseButton.Click += (_, _) => CompleteLineAuthoring(close: true);
         _lineFinishButton.Click += (_, _) => CompleteLineAuthoring(close: false);
+        _rayButton.Click += (_, _) => BeginRayAuthoring();
+        _rayUndoButton.Click += (_, _) => UndoRayAuthoringRay();
+        _rayFinishButton.Click += (_, _) => CompleteRayAuthoring();
         _polylineButton.Click += (_, _) => BeginPolylineAuthoring();
         _polylineUndoButton.Click += (_, _) => UndoPolylineAuthoringSegment();
         _polylineLineModeButton.Click += (_, _) =>
@@ -2411,10 +2432,15 @@ public sealed class CadSampleView : Grid
         {
             if (!args.Handled && args.Key == Key.Enter)
             {
-                if ((_canvas.IsLineAuthoring || _canvas.IsPolylineAuthoring) &&
+                if ((_canvas.IsLineAuthoring || _canvas.IsRayAuthoring ||
+                        _canvas.IsPolylineAuthoring) &&
                     string.IsNullOrWhiteSpace(_pointTransformInput.Text))
                 {
-                    if (_canvas.IsPolylineAuthoring)
+                    if (_canvas.IsRayAuthoring)
+                    {
+                        CompleteRayAuthoring();
+                    }
+                    else if (_canvas.IsPolylineAuthoring)
                     {
                         CompletePolylineAuthoring(close: false);
                     }
@@ -2466,6 +2492,12 @@ public sealed class CadSampleView : Grid
         {
             _pointTransformInput.Text = string.Empty;
             SetStatus(DescribeLineAuthoring(args));
+            UpdateEditControls();
+        };
+        _canvas.RayAuthoringChanged += (_, args) =>
+        {
+            _pointTransformInput.Text = string.Empty;
+            SetStatus(DescribeRayAuthoring(args));
             UpdateEditControls();
         };
         _canvas.PolylineAuthoringChanged += (_, args) =>
@@ -2577,6 +2609,24 @@ public sealed class CadSampleView : Grid
             _canvas.CancelCircleAuthoring();
             e.Handled = true;
             return;
+        }
+
+        if (!e.Handled &&
+            _canvas.IsRayAuthoring &&
+            FocusManager.GetFocusedElement() is not TextBox)
+        {
+            if (e.Key is Key.Enter or Key.Escape)
+            {
+                CompleteRayAuthoring();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.U)
+            {
+                UndoRayAuthoringRay();
+                e.Handled = true;
+                return;
+            }
         }
 
         if (!e.Handled &&
@@ -5202,6 +5252,31 @@ public sealed class CadSampleView : Grid
         }
     }
 
+    private void BeginRayAuthoring()
+    {
+        if (_isBusy)
+        {
+            return;
+        }
+
+        try
+        {
+            _pointTransformInput.Text = string.Empty;
+            if (!_canvas.BeginRayAuthoring())
+            {
+                SetStatus("RAY requires a loaded plan-view document.");
+            }
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"RAY failed: {exception.Message}");
+        }
+        finally
+        {
+            UpdateEditControls();
+        }
+    }
+
     private void BeginPolylineAuthoring()
     {
         if (_isBusy)
@@ -5362,6 +5437,12 @@ public sealed class CadSampleView : Grid
                 input,
                 out errorMessage);
         }
+        else if (_canvas.IsRayAuthoring)
+        {
+            accepted = _canvas.TryAcceptRayAuthoringInput(
+                input,
+                out errorMessage);
+        }
         else if (_canvas.PendingPointTransformOperation is not null)
         {
             accepted = _canvas.TryAcceptSelectionPointTransformInput(
@@ -5394,6 +5475,24 @@ public sealed class CadSampleView : Grid
         if (!_canvas.CompleteLineAuthoring(close, out string? errorMessage))
         {
             SetStatus(errorMessage ?? "LINE completion failed.");
+        }
+        UpdateEditControls();
+    }
+
+    private void UndoRayAuthoringRay()
+    {
+        if (!_canvas.UndoRayAuthoringRay())
+        {
+            SetStatus("RAY has no accepted ray to undo.");
+        }
+        UpdateEditControls();
+    }
+
+    private void CompleteRayAuthoring()
+    {
+        if (!_canvas.CompleteRayAuthoring(out string? errorMessage))
+        {
+            SetStatus(errorMessage ?? "RAY completion failed.");
         }
         UpdateEditControls();
     }
@@ -5467,6 +5566,26 @@ public sealed class CadSampleView : Grid
             (args.IsClosed ? " and closed the sequence." : "."),
         CadLineAuthoringStage.Failed =>
             $"LINE failed: {args.ErrorMessage}",
+        _ => throw new ArgumentOutOfRangeException(nameof(args)),
+    };
+
+    private static string DescribeRayAuthoring(
+        CadRayAuthoringChangedEventArgs args) => args.Stage switch
+    {
+        CadRayAuthoringStage.AwaitingStartPoint =>
+            "RAY: specify start point by click or absolute WCS coordinate; Escape ends.",
+        CadRayAuthoringStage.AwaitingThroughPoint when args.RayCount == 0 =>
+            $"RAY: start {FormatPoint(args.StartPoint!.Value)}; specify through point.",
+        CadRayAuthoringStage.AwaitingThroughPoint =>
+            $"RAY: {args.RayCount} accepted ray(s) from {FormatPoint(args.StartPoint!.Value)}; next through point, U, Enter, or Escape.",
+        CadRayAuthoringStage.RayUndone =>
+            $"RAY: latest ray removed; {args.RayCount} ray(s) remain.",
+        CadRayAuthoringStage.Completed when args.RayCount == 0 =>
+            "RAY ended without creating an entity.",
+        CadRayAuthoringStage.Completed =>
+            $"RAY created {args.RayCount} ray(s) with one common start point.",
+        CadRayAuthoringStage.Failed =>
+            $"RAY failed: {args.ErrorMessage}",
         _ => throw new ArgumentOutOfRangeException(nameof(args)),
     };
 
@@ -6488,13 +6607,14 @@ public sealed class CadSampleView : Grid
         bool isPointTransformPicking =
             _canvas.PendingPointTransformOperation is not null;
         bool isLineAuthoring = _canvas.IsLineAuthoring;
+        bool isRayAuthoring = _canvas.IsRayAuthoring;
         bool isPolylineAuthoring = _canvas.IsPolylineAuthoring;
         bool isCircleAuthoring = _canvas.IsCircleAuthoring;
         bool isArcAuthoring = _canvas.IsArcAuthoring;
         bool isEllipseAuthoring = _canvas.IsEllipseAuthoring;
         bool isPolygonAuthoring = _canvas.IsPolygonAuthoring;
         bool isPointInputActive =
-            isPointTransformPicking || isLineAuthoring ||
+            isPointTransformPicking || isLineAuthoring || isRayAuthoring ||
             isPolylineAuthoring || isCircleAuthoring || isArcAuthoring ||
             isEllipseAuthoring || isPolygonAuthoring;
         bool isInteractivePicking =
@@ -6576,6 +6696,14 @@ public sealed class CadSampleView : Grid
             _canvas.CanCloseLineAuthoring;
         _lineFinishButton.IsEnabled =
             !_isBusy && isLineAuthoring;
+        _rayButton.IsEnabled =
+            canUsePlanTools && !_is3DView &&
+            _canvas.CurrentSession is not null;
+        _rayUndoButton.IsEnabled =
+            !_isBusy && isRayAuthoring &&
+            _canvas.PendingRayCount > 0;
+        _rayFinishButton.IsEnabled =
+            !_isBusy && isRayAuthoring;
         _polylineButton.IsEnabled =
             canUsePlanTools && !_is3DView &&
             _canvas.CurrentSession is not null;
@@ -6892,6 +7020,9 @@ public sealed class CadSampleView : Grid
                     _pointTransformInput.Text)
                 : isLineAuthoring
                 ? _canvas.CanAcceptLineAuthoringInput(
+                    _pointTransformInput.Text)
+                : isRayAuthoring
+                ? _canvas.CanAcceptRayAuthoringInput(
                     _pointTransformInput.Text)
                 : _canvas.CanAcceptSelectionPointTransformInput(
                     _pointTransformInput.Text));

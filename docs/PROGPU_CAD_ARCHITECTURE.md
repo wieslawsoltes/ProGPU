@@ -2346,6 +2346,33 @@ through `GpuPictureNativeSceneCompiler`. The stable C ABI, generated wire
 records, canonical shaders, path caches, device-loss behavior, and submission
 crossing count are unchanged.
 
+### Atomic common-start RAY authoring
+
+`CadRayAuthoringSession` is the host-neutral command state for one RAY prompt
+sequence. It retains one finite double-WCS start and a geometrically growing,
+65,536-bounded array of normalized directions. Every accepted through point is
+resolved from the fixed start; component-scaled normalization also handles
+opposite finite endpoints whose direct subtraction overflows. Acceptance and
+in-command Undo are amortized O(1). No entity or document generation is
+published during acquisition.
+
+The shared desktop/browser surface clips accepted directions through the same
+`CadConstructionSceneCompiler.TryClipPlan` slab contract used by persisted
+RAYs, batches them into one retained multi-figure path, and rebuilds that
+picture only after accepted-state or viewport changes. Steady pointer motion
+replays the retained picture and one live start-to-pointer guide. Enter, Escape,
+or Finish publishes all accepted directions as separate ACadSharp `Ray`
+objects through one `CadAddRaySequenceCommand`; `U` removes only the most
+recent transient direction. Empty completion is generation-neutral.
+
+The command preflights current-layer locking and CELTSCALE, captures CLAYER,
+CECOLOR, CELTYPE, CELTSCALE, and CELWEIGHT together, and preserves the exact Ray
+instances across global Undo/Redo. Apply, Undo, Redo, persistence input, and
+preview rebuilding are O(R) for R rays. DXF/DWG and shared managed/native
+construction-picture regressions cover the authored result. The source record,
+adopted/rejected engine concepts, and remaining gates are in
+`PROGPU_CAD_RAY_AUTHORING_RESEARCH.md`.
+
 ## Retained TrueType TEXT lowering
 
 The snapshot compiler accepts an `ICadTextFontResolver`; hosts may use the

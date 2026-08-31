@@ -181,7 +181,11 @@ public sealed class CadConstructionSceneCompiler
         }
     }
 
-    internal static bool TryClipPlan(
+    /// <summary>
+    /// Clips one normalized construction primitive to a finite WCS-XY plan
+    /// window without fabricating a distant endpoint.
+    /// </summary>
+    public static bool TryClipPlan(
         CadConstructionLinePrimitive line,
         CadBounds3D bounds,
         bool isRay,
