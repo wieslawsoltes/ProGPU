@@ -365,6 +365,8 @@ int main()
     gradient_brush_properties.opacity = 0.75F;
     gradient_brush_properties.transform.m11 = 1.0F;
     gradient_brush_properties.transform.m22 = 1.0F;
+    gradient_brush_properties.transform.m31 = 4.0F;
+    gradient_brush_properties.transform.m32 = -2.0F;
     progpu_native_direct2d_linear_gradient_brush_properties linear_properties{
         {0.0F, 0.0F},
         {64.0F, 0.0F}
@@ -1859,23 +1861,35 @@ int main()
     context->SetUnitMode(D2D1_UNIT_MODE_DIPS);
     context->SetTextRenderingParams(nullptr);
     context->SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
-    context->SetTransform(D2D1::Matrix3x2F(
-        1.25F, 0.0F, 0.0F, 0.75F, 3.0F, 5.0F));
+    const D2D1_MATRIX_3X2_F scene_transform = D2D1::Matrix3x2F(
+        1.25F, 0.0F, 0.0F, 0.75F, 3.0F, 5.0F);
+    context->SetTransform(scene_transform);
     const D2D1_COLOR_F scene_clear =
         D2D1::ColorF(0.125F, 0.25F, 0.5F, 1.0F);
     context->Clear(&scene_clear);
     const D2D1_RECT_F scene_outer_clip = {0.0F, 0.0F, 30.0F, 30.0F};
     const D2D1_RECT_F scene_inner_clip = {10.0F, 10.0F, 50.0F, 50.0F};
     const D2D1_RECT_F scene_fill = {2.0F, 4.0F, 18.0F, 20.0F};
+    const D2D1_RECT_F scene_linear_fill = {3.0F, 7.0F, 16.0F, 12.0F};
+    const D2D1_RECT_F scene_linear_fill_identity =
+        {18.0F, 7.0F, 26.0F, 12.0F};
+    const D2D1_RECT_F scene_radial_fill = {12.0F, 10.0F, 28.0F, 22.0F};
     const D2D1_RECT_F scene_stroke = {22.0F, 5.0F, 40.0F, 24.0F};
     context->PushAxisAlignedClip(
         &scene_outer_clip,
         D2D1_ANTIALIAS_MODE_ALIASED);
     context->FillRectangle(&scene_fill, solid_brush.Get());
+    context->FillRectangle(&scene_linear_fill, linear_brush.Get());
+    context->SetTransform(D2D1::Matrix3x2F::Identity());
+    context->FillRectangle(
+        &scene_linear_fill_identity,
+        linear_brush.Get());
+    context->SetTransform(scene_transform);
     context->PushAxisAlignedClip(
         &scene_inner_clip,
         D2D1_ANTIALIAS_MODE_ALIASED);
     context->DrawRectangle(&scene_stroke, solid_brush.Get(), 2.0F);
+    context->FillRectangle(&scene_radial_fill, radial_brush.Get());
     context->PopAxisAlignedClip();
     context->DrawLine(
         D2D1::Point2F(4.0F, 28.0F),
@@ -1912,7 +1926,7 @@ int main()
             native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
             scene_measure.required_bytes >= sizeof(progpu_native_scene_header) &&
             scene_measure.written_bytes == 0U &&
-            scene_measure.translated_draw_count == 3U &&
+            scene_measure.translated_draw_count == 6U &&
             scene_measure.failure_reason ==
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
             (scene_measure.flags &
@@ -1923,6 +1937,9 @@ int main()
                 0U &&
             (scene_measure.flags &
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_AXIS_ALIGNED_CLIPS) !=
+                0U &&
+            (scene_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_GRADIENT_BRUSHES) !=
                 0U &&
             scene_measure.clear_color.red == 0.125F &&
             scene_measure.clear_color.green == 0.25F &&
@@ -1947,10 +1964,10 @@ int main()
             native_hresult == S_OK &&
             scene_write.required_bytes == scene_stream.size() &&
             scene_write.written_bytes == scene_stream.size() &&
-            scene_write.command_count == 7U &&
-            scene_write.resource_count == 6U &&
-            scene_write.brush_count == 1U &&
-            scene_write.translated_draw_count == 3U,
+            scene_write.command_count == 10U &&
+            scene_write.resource_count == 9U &&
+            scene_write.brush_count == 4U &&
+            scene_write.translated_draw_count == 6U,
         "Direct2D command-list semantic scene write pass changed");
     progpu_native_scene_header scene_header{};
     std::memcpy(&scene_header, scene_stream.data(), sizeof(scene_header));
@@ -1963,6 +1980,10 @@ int main()
         "translated Direct2D semantic scene header changed");
     std::array<progpu_native_scene_state, 2U> translated_clip_states{};
     uint32_t translated_clip_state_count = 0U;
+    std::array<progpu_native_scene_brush, 4U> translated_brushes{};
+    std::array<progpu_native_scene_gradient_stop, 6U>
+        translated_gradient_stops{};
+    bool translated_brush_table_found = false;
     for (uint32_t index = 0U; index < scene_header.resource_count; ++index) {
         progpu_native_scene_resource resource{};
         std::memcpy(
@@ -1970,6 +1991,28 @@ int main()
             scene_stream.data() + scene_header.resource_offset +
                 static_cast<size_t>(index) * scene_header.resource_stride,
             sizeof(resource));
+        if (resource.kind == PROGPU_NATIVE_SCENE_RESOURCE_BRUSH_TABLE) {
+            require(
+                !translated_brush_table_found &&
+                    resource.payload_size == sizeof(translated_brushes) &&
+                    resource.auxiliary_size ==
+                        sizeof(translated_gradient_stops) &&
+                    static_cast<uint64_t>(resource.payload_offset) +
+                        resource.payload_size <= scene_stream.size() &&
+                    static_cast<uint64_t>(resource.auxiliary_offset) +
+                        resource.auxiliary_size <= scene_stream.size(),
+                "translated Direct2D brush-table resource layout changed");
+            std::memcpy(
+                translated_brushes.data(),
+                scene_stream.data() + resource.payload_offset,
+                sizeof(translated_brushes));
+            std::memcpy(
+                translated_gradient_stops.data(),
+                scene_stream.data() + resource.auxiliary_offset,
+                sizeof(translated_gradient_stops));
+            translated_brush_table_found = true;
+            continue;
+        }
         if (resource.kind != PROGPU_NATIVE_SCENE_RESOURCE_STATE) {
             continue;
         }
@@ -2000,6 +2043,64 @@ int main()
             translated_clip_states[1].clip_rect.width == 25.0F &&
             translated_clip_states[1].clip_rect.height == 15.0F,
         "Direct2D transformed nested clip intersection changed");
+    require(
+        translated_brush_table_found &&
+            translated_brushes[0].type ==
+                PROGPU_NATIVE_SCENE_BRUSH_SOLID &&
+            translated_brushes[1].type ==
+                PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT &&
+            translated_brushes[1].opacity == 0.75F &&
+            translated_brushes[1].start_point.x == 1.0F &&
+            translated_brushes[1].start_point.y == 2.0F &&
+            translated_brushes[1].end_point.x == 31.0F &&
+            translated_brushes[1].end_point.y == 42.0F &&
+            translated_brushes[1].stop_count == 2U &&
+            translated_brushes[1].stop_offset == 0U &&
+            translated_brushes[1].spread_method ==
+                PROGPU_NATIVE_SCENE_GRADIENT_PAD &&
+            translated_brushes[1].color_interpolation_mode ==
+                PROGPU_NATIVE_SCENE_GRADIENT_INTERPOLATE_SRGB &&
+            std::abs(
+                translated_brushes[1].coordinate_transform0[0] - 0.8F) <
+                0.0001F &&
+            std::abs(
+                translated_brushes[1].coordinate_transform0[2] + 6.4F) <
+                0.0001F &&
+            std::abs(
+                translated_brushes[1].coordinate_transform1[1] -
+                    (4.0F / 3.0F)) < 0.0001F &&
+            std::abs(
+                translated_brushes[1].coordinate_transform1[2] +
+                    (14.0F / 3.0F)) < 0.0001F &&
+            translated_brushes[2].type ==
+                PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT &&
+            translated_brushes[2].stop_count == 2U &&
+            translated_brushes[2].stop_offset == 2U &&
+            translated_brushes[2].coordinate_transform0[0] == 1.0F &&
+            translated_brushes[2].coordinate_transform0[2] == -4.0F &&
+            translated_brushes[2].coordinate_transform1[1] == 1.0F &&
+            translated_brushes[2].coordinate_transform1[2] == 2.0F &&
+            translated_brushes[3].type ==
+                PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT &&
+            translated_brushes[3].center.x == 12.0F &&
+            translated_brushes[3].center.y == 14.0F &&
+            translated_brushes[3].start_point.x == 13.0F &&
+            translated_brushes[3].start_point.y == 16.0F &&
+            translated_brushes[3].radius == 9.0F &&
+            translated_brushes[3].radius_y == 7.0F &&
+            translated_brushes[3].stop_count == 2U &&
+            translated_brushes[3].stop_offset == 4U &&
+            translated_gradient_stops[0].offset == 0.0F &&
+            translated_gradient_stops[1].offset == 1.0F &&
+            translated_gradient_stops[2].offset == 0.0F &&
+            translated_gradient_stops[3].offset == 1.0F &&
+            translated_gradient_stops[4].offset == 0.0F &&
+            translated_gradient_stops[5].offset == 1.0F &&
+            translated_gradient_stops[0].color.g ==
+                gradient_stops[0].color.green &&
+            translated_gradient_stops[5].color.r ==
+                gradient_stops[1].color.red,
+        "Direct2D linear/radial gradient scene translation changed");
     progpu_native_direct2d_scene_stream_result scene_short{};
     scene_short.struct_size = static_cast<uint32_t>(sizeof(scene_short));
     native_hresult = S_OK;
@@ -2017,6 +2118,106 @@ int main()
             scene_short.required_bytes == scene_stream.size() &&
             scene_short.written_bytes == 0U,
         "short Direct2D semantic scene destination did not fail closed");
+
+    progpu_native_direct2d_gradient_stop varying_alpha_stops[] = {
+        {0.0F, {1.0F, 0.0F, 0.0F, 0.25F}},
+        {1.0F, {0.0F, 0.0F, 1.0F, 1.0F}}
+    };
+    void* varying_alpha_collection_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_gradient_stop_collection(
+            surface,
+            varying_alpha_stops,
+            2U,
+            PROGPU_NATIVE_DIRECT2D_COLOR_SPACE_SRGB,
+            PROGPU_NATIVE_DIRECT2D_COLOR_SPACE_SRGB,
+            PROGPU_NATIVE_DIRECT2D_BUFFER_PRECISION_8BPC_UNORM,
+            PROGPU_NATIVE_DIRECT2D_EXTEND_MODE_CLAMP,
+            PROGPU_NATIVE_DIRECT2D_COLOR_INTERPOLATION_MODE_PREMULTIPLIED,
+            &varying_alpha_collection_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            varying_alpha_collection_value != nullptr &&
+            native_hresult == S_OK,
+        "varying-alpha gradient-stop collection creation failed");
+    ComPtr<ID2D1GradientStopCollection1> varying_alpha_collection;
+    varying_alpha_collection.Attach(
+        static_cast<ID2D1GradientStopCollection1*>(
+            varying_alpha_collection_value));
+    progpu_native_direct2d_brush_properties varying_alpha_brush_properties{};
+    varying_alpha_brush_properties.opacity = 1.0F;
+    varying_alpha_brush_properties.transform.m11 = 1.0F;
+    varying_alpha_brush_properties.transform.m22 = 1.0F;
+    void* varying_alpha_brush_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_linear_gradient_brush(
+            surface,
+            &linear_properties,
+            &varying_alpha_brush_properties,
+            varying_alpha_collection.Get(),
+            &varying_alpha_brush_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            varying_alpha_brush_value != nullptr && native_hresult == S_OK,
+        "varying-alpha linear-gradient brush creation failed");
+    ComPtr<ID2D1LinearGradientBrush> varying_alpha_brush;
+    varying_alpha_brush.Attach(
+        static_cast<ID2D1LinearGradientBrush*>(varying_alpha_brush_value));
+    void* varying_alpha_list_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_command_list(
+            surface,
+            &varying_alpha_list_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            varying_alpha_list_value != nullptr && native_hresult == S_OK,
+        "varying-alpha command-list creation failed");
+    ComPtr<ID2D1CommandList> varying_alpha_list;
+    varying_alpha_list.Attach(
+        static_cast<ID2D1CommandList*>(varying_alpha_list_value));
+    require(
+        progpu_native_direct2d_surface_begin_command_list_draw(
+            surface,
+            varying_alpha_list.Get()) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "varying-alpha command-list recording did not begin");
+    context->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+    context->SetUnitMode(D2D1_UNIT_MODE_DIPS);
+    context->SetTextRenderingParams(nullptr);
+    context->SetTransform(D2D1::Matrix3x2F::Identity());
+    context->FillRectangle(&scene_fill, varying_alpha_brush.Get());
+    command_tag1 = 0U;
+    command_tag2 = 0U;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_end_command_list_draw(
+            surface,
+            &command_tag1,
+            &command_tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "varying-alpha command-list recording did not close");
+    progpu_native_direct2d_scene_stream_result varying_alpha_scene{};
+    varying_alpha_scene.struct_size =
+        static_cast<uint32_t>(sizeof(varying_alpha_scene));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            varying_alpha_list.Get(),
+            7004U,
+            1U,
+            nullptr,
+            0U,
+            &varying_alpha_scene,
+            &native_hresult) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED &&
+            native_hresult == E_NOTIMPL &&
+            varying_alpha_scene.failure_reason ==
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_STATE &&
+            varying_alpha_scene.failure_callback_index != 0U &&
+            varying_alpha_scene.written_bytes == 0U,
+        "premultiplied varying-alpha gradient did not fail closed");
 
     void* antialiased_clip_list_value = nullptr;
     native_hresult = E_FAIL;

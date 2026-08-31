@@ -451,7 +451,8 @@ public enum ProGpuDirect2DSceneStreamFlags : uint
     None = 0,
     HasLeadingClear = 1U << 0,
     HasAliasedPrimitives = 1U << 1,
-    HasAxisAlignedClips = 1U << 2
+    HasAxisAlignedClips = 1U << 2,
+    HasGradientBrushes = 1U << 3
 }
 
 public enum ProGpuDirect2DSceneStreamFailureReason : uint
