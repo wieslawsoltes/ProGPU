@@ -67,6 +67,99 @@ public sealed class CadEllipseAuthoringTests
         }
     }
 
+    [Theory]
+    [InlineData(CadPlanIsoplane.Left, 120.0)]
+    [InlineData(CadPlanIsoplane.Top, 0.0)]
+    [InlineData(CadPlanIsoplane.Right, 60.0)]
+    public void IsocircleRadiusProjectsExactActivePlane(
+        CadPlanIsoplane isoplane,
+        double expectedMajorAngleDegrees)
+    {
+        CadPlanGridSnapSettings settings =
+            CadPlanGridSnapSettings.CreateIsometric(
+                false,
+                CadPoint3D.Zero,
+                1.0,
+                isoplane);
+        var authoring = new CadEllipseAuthoringSession(
+            CadEllipseAuthoringMode.IsocircleRadius,
+            isometricSnapSettings: settings);
+        AcceptPoint(authoring, new CadPoint3D(10, 20, 7));
+
+        CadEllipseAuthoringSnapshot snapshot = CompleteScalar(authoring, 4.0);
+
+        double angle = expectedMajorAngleDegrees * Math.PI / 180.0;
+        double majorRadius = 4.0 * Math.Sqrt(1.5);
+        AssertPoint(new CadPoint3D(10, 20, 7), snapshot.Center);
+        AssertPoint(
+            new CadPoint3D(
+                majorRadius * Math.Cos(angle),
+                majorRadius * Math.Sin(angle),
+                0.0),
+            snapshot.MajorAxisEndPoint);
+        AssertClose(4.0 / Math.Sqrt(2.0), snapshot.MinorRadius);
+        AssertClose(1.0 / Math.Sqrt(3.0), snapshot.RadiusRatio);
+        Assert.True(snapshot.IsFullEllipse);
+    }
+
+    [Fact]
+    public void IsocircleDiameterUsesRotatedCapturedBasisAndPointerDistance()
+    {
+        const double rotation = Math.PI / 9.0;
+        CadPlanGridSnapSettings settings =
+            CadPlanGridSnapSettings.CreateIsometric(
+                true,
+                CadPoint3D.Zero,
+                1.0,
+                CadPlanIsoplane.Top,
+                rotation);
+        var authoring = new CadEllipseAuthoringSession(
+            CadEllipseAuthoringMode.IsocircleDiameter,
+            isometricSnapSettings: settings);
+        AcceptPoint(authoring, new CadPoint3D(-3, 5, 2));
+
+        CadEllipseAuthoringSnapshot preview = CompletePoint(
+            authoring,
+            new CadPoint3D(5, 5, 2));
+
+        double expectedMajorRadius = 4.0 * Math.Sqrt(1.5);
+        AssertClose(expectedMajorRadius, preview.MajorRadius);
+        AssertPoint(
+            new CadPoint3D(
+                expectedMajorRadius * Math.Cos(rotation),
+                expectedMajorRadius * Math.Sin(rotation),
+                0.0),
+            preview.MajorAxisEndPoint);
+
+        var scalarAuthoring = new CadEllipseAuthoringSession(
+            CadEllipseAuthoringMode.IsocircleDiameter,
+            isometricSnapSettings: settings);
+        AcceptPoint(scalarAuthoring, new CadPoint3D(-3, 5, 2));
+        CadEllipseAuthoringSnapshot scalar = CompleteScalar(
+            scalarAuthoring,
+            8.0);
+        AssertPoint(preview.MajorAxisEndPoint, scalar.MajorAxisEndPoint);
+    }
+
+    [Fact]
+    public void IsocircleRequiresIsometricStyleAndRejectsArcMode()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new CadEllipseAuthoringSession(
+                CadEllipseAuthoringMode.IsocircleRadius));
+        CadPlanGridSnapSettings settings =
+            CadPlanGridSnapSettings.CreateIsometric(
+                false,
+                CadPoint3D.Zero,
+                1.0,
+                CadPlanIsoplane.Left);
+        Assert.Throws<ArgumentException>(() =>
+            new CadEllipseAuthoringSession(
+                CadEllipseAuthoringMode.IsocircleRadius,
+                CadEllipseArcInputMode.Angle,
+                settings));
+    }
+
     [Fact]
     public void LongerOtherAxisCanonicalizesMajorAxisWithoutChangingGeometry()
     {
@@ -429,16 +522,29 @@ public sealed class CadEllipseAuthoringTests
     [Fact]
     public void AuthoredEllipseRetainsManagedAndNativeAnalyticReplay()
     {
+        var authoring = new CadEllipseAuthoringSession(
+            CadEllipseAuthoringMode.IsocircleRadius,
+            isometricSnapSettings:
+                CadPlanGridSnapSettings.CreateIsometric(
+                    false,
+                    CadPoint3D.Zero,
+                    1.0,
+                    CadPlanIsoplane.Top));
+        AcceptPoint(authoring, new CadPoint3D(10, 20, 0));
+        CadEllipseAuthoringSnapshot isocircle =
+            CompleteScalar(authoring, 8.0);
         var session = new CadDocumentSession(new CadDocument());
         var history = new CadDocumentHistory(session);
-        history.Execute(new CadAddEllipseCommand(
-            new CadEllipseAuthoringSnapshot(
-                new CadPoint3D(10, 20, 0),
-                new CadPoint3D(8, 0, 0),
-                0.25)));
+        history.Execute(new CadAddEllipseCommand(isocircle));
 
         CadDocumentSnapshot snapshot = new CadSnapshotCompiler().Compile(session);
-        Assert.Single(snapshot.Ellipses.ToArray());
+        CadEllipsePrimitive primitive = Assert.Single(snapshot.Ellipses.ToArray());
+        AssertPoint(
+            new CadPoint3D(8.0 * Math.Sqrt(1.5), 0.0, 0.0),
+            primitive.MajorAxis);
+        AssertPoint(
+            new CadPoint3D(0.0, 8.0 / Math.Sqrt(2.0), 0.0),
+            primitive.MinorAxis);
         CadRecordedPlanScene scene = new CadPlanSceneCompiler().Compile(snapshot);
         RenderCommand command = Assert.Single(scene.DrawingContext.Commands.ToArray());
         Assert.Equal(RenderCommandType.DrawEllipse, command.Type);

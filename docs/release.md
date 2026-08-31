@@ -174,7 +174,12 @@ PolarSnap/direct-distance pipeline and previews one transformed analytic
 ellipse or `ArcSegment` without tessellation or model mutation. A successful
 final solve publishes one Axis-Z `Ellipse` and one history generation; locked
 layer, invalid CELTSCALE, and nonzero THICKNESS failures retain the prompt.
-Isocircle remains deferred to its SNAPSTYL/SNAPISOPAIR contract. The established
+When SNAPSTYL is Isometric, the same command exposes Isocircle Radius and
+Diameter. It captures the active rotated SNAPISOPAIR basis and projects the
+circle exactly to a full analytic ellipse with major radius `r*sqrt(3/2)` and
+ratio `1/sqrt(3)` for Left, Top, or Right planes; rectangular style fails
+closed. The checked-in 65,536-solve Release lane records Radius and Diameter
+p50/p95/p99 across rotated mixed-isoplane sessions. The established
 managed/native analytic ellipse lowering is unchanged, so no shader, ABI,
 resource, cache, upload, or device-loss fork is introduced.
 

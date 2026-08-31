@@ -1163,7 +1163,13 @@ at the host scalar-to-direction seam. Live feedback is one transformed analytic
 ellipse or one unit `ArcSegment`, with no tessellation, document compile,
 upload, or native crossing. The final solve remains non-mutating until
 `CadAddEllipseCommand` preflight and one history generation succeed. Isocircle
-stays deferred to an explicit SNAPSTYL/SNAPISOPAIR drafting-plane contract.
+is a separate full-ellipse branch enabled only for isometric SNAP style. It
+captures the exact rotated `SNAPISOPAIR` unit basis, maps Radius or Diameter to
+the projection's closed-form singular axes (`major = r*sqrt(3/2)`,
+`minor/major = 1/sqrt(3)`), and feeds the same analytic snapshot, preview,
+document command, and managed/native primitive path. Rectangular style fails
+closed before point acquisition. No sampling, eigensolver, shader, ABI, or
+native resource path is added.
 Exact clean-room sources, formulas, applicability, and complexity are in
 `PROGPU_CAD_ELLIPSE_AUTHORING_RESEARCH.md`. `CadPolygonAuthoringSession` adds
 bounded 3-through-1024

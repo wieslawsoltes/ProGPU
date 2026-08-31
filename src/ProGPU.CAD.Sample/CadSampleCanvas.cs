@@ -2195,6 +2195,15 @@ public sealed class CadSampleCanvas : FrameworkElement
                     _drawOrderReferencePen,
                     viewport.WorldToScreen(points[0]),
                     _pointTransformCurrent);
+                CadPoint3D previewPoint = viewport.ScreenToWorld(
+                    _pointTransformCurrent,
+                    points[0].Z);
+                if (authoring.TryPreviewPoint(
+                        previewPoint,
+                        out CadEllipseAuthoringSnapshot preview))
+                {
+                    DrawEllipseAuthoringSnapshot(context, viewport, preview);
+                }
             }
             catch (ArgumentException)
             {
@@ -5630,6 +5639,14 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             return false;
         }
+        bool isIsocircle = mode is
+            CadEllipseAuthoringMode.IsocircleRadius or
+            CadEllipseAuthoringMode.IsocircleDiameter;
+        if (isIsocircle &&
+            _planGridSnapSettings.Style != CadPlanGridSnapStyle.Isometric)
+        {
+            return false;
+        }
         ThrowIfDrawOrderReferenceSelectionPending();
         if (IsPointAcquisitionActive)
         {
@@ -5639,7 +5656,8 @@ public sealed class CadSampleCanvas : FrameworkElement
 
         _ellipseAuthoring = new CadEllipseAuthoringSession(
             mode,
-            arcInputMode);
+            arcInputMode,
+            isIsocircle ? _planGridSnapSettings : null);
         _hasPointTransformBasePoint = false;
         _isPointTransformPointerPressed = false;
         ClearPointTransformSnapState();
@@ -5928,6 +5946,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         {
             case CadEllipseAuthoringInputKind.RotationRadians:
                 converted = radians;
+                return true;
+            case CadEllipseAuthoringInputKind.IsocircleRadius:
+            case CadEllipseAuthoringInputKind.IsocircleDiameter:
+                converted = value;
                 return true;
             case CadEllipseAuthoringInputKind.StartDirection:
             case CadEllipseAuthoringInputKind.EndDirection:

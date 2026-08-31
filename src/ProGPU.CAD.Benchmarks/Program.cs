@@ -37,6 +37,19 @@ if (arcAuthoringSolveCount != 0)
     return;
 }
 
+int isocircleAuthoringSolveCount = ReadNonNegativeInt(
+    "--isocircle-authoring-solves",
+    0);
+if (isocircleAuthoringSolveCount != 0)
+{
+    RunIsocircleAuthoringBenchmark(
+        isocircleAuthoringSolveCount,
+        ReadNonNegativeInt("--warmup", 3),
+        ReadPositiveInt("--iterations", 24),
+        ReadString("--output-json"));
+    return;
+}
+
 int viewportCount = ReadNonNegativeInt("--viewports", 0);
 if (viewportCount != 0)
 {
@@ -929,6 +942,104 @@ double CreatePointFinalArcChecksum(
             throw new InvalidOperationException(error);
         }
         checksum += snapshot.Center.X + snapshot.Radius + snapshot.SweepAngle;
+    }
+    return checksum;
+}
+
+void RunIsocircleAuthoringBenchmark(
+    int solveCount,
+    int warmups,
+    int iterations,
+    string? reportPath)
+{
+    for (int i = 0; i < warmups; i++)
+    {
+        _ = CreateIsocircleChecksum(solveCount, useDiameter: false);
+        _ = CreateIsocircleChecksum(solveCount, useDiameter: true);
+    }
+
+    Measurement radius = Measure(
+        "ellipse-isocircle-radius",
+        iterations,
+        () => CreateIsocircleChecksum(solveCount, useDiameter: false));
+    Measurement diameter = Measure(
+        "ellipse-isocircle-diameter",
+        iterations,
+        () => CreateIsocircleChecksum(solveCount, useDiameter: true));
+    var report = new CadIsocircleAuthoringBenchmarkReport(
+        DateTimeOffset.UtcNow,
+        Environment.OSVersion.ToString(),
+        System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
+        solveCount,
+        warmups,
+        iterations,
+        radius,
+        diameter);
+    var options = new JsonSerializerOptions { WriteIndented = true };
+    string reportJson = JsonSerializer.Serialize(report, options);
+    Console.WriteLine(reportJson);
+    if (reportPath is not null)
+    {
+        File.WriteAllText(reportPath, reportJson);
+    }
+}
+
+double CreateIsocircleChecksum(int solveCount, bool useDiameter)
+{
+    CadPlanGridSnapSettings left =
+        CadPlanGridSnapSettings.CreateIsometric(
+            false,
+            CadPoint3D.Zero,
+            1.0,
+            CadPlanIsoplane.Left,
+            0.125);
+    CadPlanGridSnapSettings top =
+        CadPlanGridSnapSettings.CreateIsometric(
+            false,
+            CadPoint3D.Zero,
+            1.0,
+            CadPlanIsoplane.Top,
+            -0.25);
+    CadPlanGridSnapSettings right =
+        CadPlanGridSnapSettings.CreateIsometric(
+            false,
+            CadPoint3D.Zero,
+            1.0,
+            CadPlanIsoplane.Right,
+            0.375);
+    double checksum = 0.0;
+    for (int i = 0; i < solveCount; i++)
+    {
+        CadPlanGridSnapSettings settings = (i % 3) switch
+        {
+            0 => left,
+            1 => top,
+            _ => right,
+        };
+        var authoring = new CadEllipseAuthoringSession(
+            useDiameter
+                ? CadEllipseAuthoringMode.IsocircleDiameter
+                : CadEllipseAuthoringMode.IsocircleRadius,
+            isometricSnapSettings: settings);
+        CadPoint3D center = new(i * 2.0, -i, i % 11);
+        if (!authoring.TryAcceptPoint(
+                center,
+                out _,
+                out bool intermediateCompleted,
+                out string? error) ||
+            intermediateCompleted ||
+            !authoring.TryAcceptScalar(
+                useDiameter ? 16.0 : 8.0,
+                out CadEllipseAuthoringSnapshot snapshot,
+                out bool completed,
+                out error) ||
+            !completed)
+        {
+            throw new InvalidOperationException(error);
+        }
+        checksum += snapshot.Center.X +
+            snapshot.MajorAxisEndPoint.Y +
+            snapshot.MinorRadius;
     }
     return checksum;
 }
@@ -2528,6 +2639,16 @@ internal sealed record CadArcAuthoringBenchmarkReport(
     int IterationCount,
     Measurement DefaultPointFinalMilliseconds,
     Measurement ClockwisePointFinalMilliseconds);
+
+internal sealed record CadIsocircleAuthoringBenchmarkReport(
+    DateTimeOffset CapturedAt,
+    string OperatingSystem,
+    string Runtime,
+    int SolveCount,
+    int WarmupCount,
+    int IterationCount,
+    Measurement RadiusMilliseconds,
+    Measurement DiameterMilliseconds);
 
 internal sealed record CadBenchmarkReport(
     DateTimeOffset CapturedAt,

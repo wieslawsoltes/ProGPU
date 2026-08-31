@@ -761,6 +761,8 @@ public sealed class CadSampleView : Grid
             (CadEllipseAuthoringMode.AxisEndpointsRotation, "Ellipse Axis/Rotation"),
             (CadEllipseAuthoringMode.CenterDistance, "Ellipse Center/Distance"),
             (CadEllipseAuthoringMode.CenterRotation, "Ellipse Center/Rotation"),
+            (CadEllipseAuthoringMode.IsocircleRadius, "Isocircle Radius"),
+            (CadEllipseAuthoringMode.IsocircleDiameter, "Isocircle Diameter"),
         })
         {
             _ellipseModeSelector.Items.Add(new ComboBoxItem(label)
@@ -2497,10 +2499,14 @@ public sealed class CadSampleView : Grid
         _ellipseButton.Click += (_, _) =>
         {
             if ((_ellipseModeSelector.SelectedItem as ComboBoxItem)?.Tag is
-                    CadEllipseAuthoringMode mode &&
-                (_ellipseArcInputSelector.SelectedItem as ComboBoxItem)?.Tag is
-                    CadEllipseArcInputMode arcInputMode)
+                    CadEllipseAuthoringMode mode)
             {
+                CadEllipseArcInputMode arcInputMode = IsIsocircleMode(mode)
+                    ? CadEllipseArcInputMode.Full
+                    : (_ellipseArcInputSelector.SelectedItem as ComboBoxItem)?.Tag
+                        is CadEllipseArcInputMode selectedArcInputMode
+                            ? selectedArcInputMode
+                            : CadEllipseArcInputMode.Full;
                 BeginEllipseAuthoring(mode, arcInputMode);
             }
         };
@@ -5824,7 +5830,9 @@ public sealed class CadSampleView : Grid
             _pointTransformInput.Text = string.Empty;
             if (!_canvas.BeginEllipseAuthoring(mode, arcInputMode))
             {
-                SetStatus("ELLIPSE requires a loaded plan-view document.");
+                SetStatus(IsIsocircleMode(mode)
+                    ? "ELLIPSE Isocircle requires a loaded plan-view document with SNAPSTYL=1."
+                    : "ELLIPSE requires a loaded plan-view document.");
             }
         }
         catch (Exception exception)
@@ -6575,8 +6583,15 @@ public sealed class CadSampleView : Grid
             CadEllipseAuthoringMode.AxisEndpointsRotation => "Axis/Rotation",
             CadEllipseAuthoringMode.CenterDistance => "Center/Distance",
             CadEllipseAuthoringMode.CenterRotation => "Center/Rotation",
+            CadEllipseAuthoringMode.IsocircleRadius => "Isocircle/Radius",
+            CadEllipseAuthoringMode.IsocircleDiameter => "Isocircle/Diameter",
             _ => throw new ArgumentOutOfRangeException(nameof(mode)),
         };
+
+    private static bool IsIsocircleMode(CadEllipseAuthoringMode mode) =>
+        mode is
+            CadEllipseAuthoringMode.IsocircleRadius or
+            CadEllipseAuthoringMode.IsocircleDiameter;
 
     private static string DescribeEllipseArcInputMode(
         CadEllipseArcInputMode mode) => mode switch
@@ -6596,6 +6611,12 @@ public sealed class CadSampleView : Grid
             CadEllipseAuthoringMode.CenterDistance or
             CadEllipseAuthoringMode.CenterRotation =>
                 "specify the center point by click or coordinate",
+        CadEllipseAuthoringInputKind.IsocircleCenter =>
+            "specify the isocircle center by click or coordinate",
+        CadEllipseAuthoringInputKind.IsocircleRadius =>
+            "specify the isocircle radius by click, coordinate, or positive distance",
+        CadEllipseAuthoringInputKind.IsocircleDiameter =>
+            "specify the isocircle diameter by click, coordinate, or positive distance",
         CadEllipseAuthoringInputKind.FirstAxisPoint =>
             "specify the first endpoint of the first axis by click or coordinate",
         CadEllipseAuthoringInputKind.SecondAxisPoint when mode is
@@ -7629,12 +7650,24 @@ public sealed class CadSampleView : Grid
         bool canStartEllipse = canUsePlanTools && !_is3DView &&
             _canvas.CurrentSession is not null;
         _ellipseModeSelector.IsEnabled = canStartEllipse;
-        _ellipseArcInputSelector.IsEnabled = canStartEllipse;
-        _ellipseButton.IsEnabled = canStartEllipse &&
+        CadEllipseAuthoringMode? selectedEllipseMode =
             (_ellipseModeSelector.SelectedItem as ComboBoxItem)?.Tag is
-                CadEllipseAuthoringMode &&
-            (_ellipseArcInputSelector.SelectedItem as ComboBoxItem)?.Tag is
-                CadEllipseArcInputMode;
+                CadEllipseAuthoringMode ellipseMode
+                    ? ellipseMode
+                    : null;
+        bool selectedIsocircle = selectedEllipseMode is
+            CadEllipseAuthoringMode.IsocircleRadius or
+            CadEllipseAuthoringMode.IsocircleDiameter;
+        _ellipseArcInputSelector.IsEnabled =
+            canStartEllipse && !selectedIsocircle;
+        _ellipseButton.IsEnabled = canStartEllipse &&
+            selectedEllipseMode is not null &&
+            (!selectedIsocircle ||
+             _canvas.PlanGridSnapSettings.Style ==
+                CadPlanGridSnapStyle.Isometric) &&
+            (selectedIsocircle ||
+             (_ellipseArcInputSelector.SelectedItem as ComboBoxItem)?.Tag is
+                CadEllipseArcInputMode);
         bool canStartPolygon = canUsePlanTools && !_is3DView &&
             _canvas.CurrentSession is not null;
         _polygonSideCountInput.IsEnabled = canStartPolygon;

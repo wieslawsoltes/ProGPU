@@ -13,6 +13,8 @@ public enum CadEllipseAuthoringMode : byte
     AxisEndpointsRotation = 1,
     CenterDistance = 2,
     CenterRotation = 3,
+    IsocircleRadius = 4,
+    IsocircleDiameter = 5,
 }
 
 /// <summary>The endpoint interpretation for a full ellipse or elliptical arc.</summary>
@@ -36,6 +38,9 @@ public enum CadEllipseAuthoringInputKind : byte
     EndDirection = 6,
     EndParameterRadians = 7,
     IncludedAngleRadians = 8,
+    IsocircleCenter = 9,
+    IsocircleRadius = 10,
+    IsocircleDiameter = 11,
 }
 
 /// <summary>A bounded invariant finite scalar used by an ELLIPSE prompt.</summary>
@@ -231,12 +236,16 @@ public sealed class CadEllipseAuthoringSession
 {
     private const double TwoPi = Math.PI * 2.0;
     private const double MinimumRotationRatio = 0.010471784116245792;
+    private const double IsocircleMajorScale = 1.2247448713915890490986420373529;
+    private const double IsocircleRadiusRatio = 0.57735026918962576450914878050196;
     private readonly CadPoint3D[] _acceptedPoints = new CadPoint3D[4];
     private int _acceptedPointCount;
     private int _stage;
     private CadEllipseAuthoringSnapshot _axes;
     private double _startParameter;
     private CadPoint3D _startDirection;
+    private readonly CadPoint3D _isocircleXAxis;
+    private readonly CadPoint3D _isocircleYAxis;
 
     public CadEllipseAuthoringMode Mode { get; }
 
@@ -283,19 +292,26 @@ public sealed class CadEllipseAuthoringSession
         }
     }
 
-    public bool IsFinalInput => ArcInputMode == CadEllipseArcInputMode.Full
-        ? _stage == 2
-        : _stage == 4;
+    public bool IsFinalInput => IsIsocircle
+        ? _stage == 1
+        : ArcInputMode == CadEllipseArcInputMode.Full
+            ? _stage == 2
+            : _stage == 4;
 
     public bool AcceptsPointInput => InputKind is
         CadEllipseAuthoringInputKind.FirstAxisPoint or
         CadEllipseAuthoringInputKind.SecondAxisPoint or
         CadEllipseAuthoringInputKind.OtherAxisPoint or
+        CadEllipseAuthoringInputKind.IsocircleCenter or
+        CadEllipseAuthoringInputKind.IsocircleRadius or
+        CadEllipseAuthoringInputKind.IsocircleDiameter or
         CadEllipseAuthoringInputKind.StartDirection or
         CadEllipseAuthoringInputKind.EndDirection;
 
     public bool AcceptsScalarInput => InputKind is
         CadEllipseAuthoringInputKind.RotationRadians or
+        CadEllipseAuthoringInputKind.IsocircleRadius or
+        CadEllipseAuthoringInputKind.IsocircleDiameter or
         CadEllipseAuthoringInputKind.StartDirection or
         CadEllipseAuthoringInputKind.StartParameterRadians or
         CadEllipseAuthoringInputKind.EndDirection or
@@ -304,7 +320,8 @@ public sealed class CadEllipseAuthoringSession
 
     public CadEllipseAuthoringSession(
         CadEllipseAuthoringMode mode,
-        CadEllipseArcInputMode arcInputMode = CadEllipseArcInputMode.Full)
+        CadEllipseArcInputMode arcInputMode = CadEllipseArcInputMode.Full,
+        CadPlanGridSnapSettings? isometricSnapSettings = null)
     {
         if (!Enum.IsDefined(mode))
         {
@@ -314,9 +331,33 @@ public sealed class CadEllipseAuthoringSession
         {
             throw new ArgumentOutOfRangeException(nameof(arcInputMode));
         }
+        bool isIsocircle = mode is
+            CadEllipseAuthoringMode.IsocircleRadius or
+            CadEllipseAuthoringMode.IsocircleDiameter;
+        if (isIsocircle && arcInputMode != CadEllipseArcInputMode.Full)
+        {
+            throw new ArgumentException(
+                "ELLIPSE Isocircle creates a full ellipse.",
+                nameof(arcInputMode));
+        }
+        if (isIsocircle &&
+            (isometricSnapSettings is not CadPlanGridSnapSettings settings ||
+             settings.Style != CadPlanGridSnapStyle.Isometric))
+        {
+            throw new ArgumentException(
+                "ELLIPSE Isocircle requires an active isometric SNAP style.",
+                nameof(isometricSnapSettings));
+        }
 
         Mode = mode;
         ArcInputMode = arcInputMode;
+        if (isIsocircle)
+        {
+            CadPlanGridSnapSettings capturedSettings =
+                isometricSnapSettings!.Value;
+            _isocircleXAxis = capturedSettings.XAxis;
+            _isocircleYAxis = capturedSettings.YAxis;
+        }
     }
 
     public bool CanAcceptPoint(CadPoint3D point) =>
@@ -443,6 +484,8 @@ public sealed class CadEllipseAuthoringSession
 
         return _stage switch
         {
+            1 when IsIsocircle =>
+                TryBuildIsocircleFromPoint(point, out snapshot),
             2 when UsesDistance =>
                 TryBuildAxesFromPoint(point, out snapshot),
             3 => TryGetAxesPreview(out snapshot),
@@ -486,6 +529,18 @@ public sealed class CadEllipseAuthoringSession
                 errorMessage = null;
                 return true;
             case 1:
+                if (IsIsocircle)
+                {
+                    if (!TryBuildIsocircleFromPoint(point, out snapshot))
+                    {
+                        errorMessage =
+                            "The Isocircle radius must be finite, positive, and renderable.";
+                        return false;
+                    }
+                    completed = true;
+                    errorMessage = null;
+                    return true;
+                }
                 if (point == _acceptedPoints[0] ||
                     !TryGetFirstAxis(
                         _acceptedPoints[0],
@@ -576,6 +631,22 @@ public sealed class CadEllipseAuthoringSession
         {
             errorMessage = "An ELLIPSE scalar value must be finite.";
             return false;
+        }
+
+        if (IsIsocircle && _stage == 1)
+        {
+            double radius = Mode == CadEllipseAuthoringMode.IsocircleDiameter
+                ? value * 0.5
+                : value;
+            if (!TryBuildIsocircle(radius, out snapshot))
+            {
+                errorMessage =
+                    "The Isocircle radius or diameter must be finite, positive, and renderable.";
+                return false;
+            }
+            completed = true;
+            errorMessage = null;
+            return true;
         }
 
         if (_stage == 2)
@@ -728,6 +799,50 @@ public sealed class CadEllipseAuthoringSession
             firstAxis,
             otherLength,
             out snapshot);
+    }
+
+    private bool TryBuildIsocircleFromPoint(
+        CadPoint3D radiusPoint,
+        out CadEllipseAuthoringSnapshot snapshot)
+    {
+        double size = Distance2D(_acceptedPoints[0], radiusPoint);
+        double radius = Mode == CadEllipseAuthoringMode.IsocircleDiameter
+            ? size * 0.5
+            : size;
+        return TryBuildIsocircle(radius, out snapshot);
+    }
+
+    private bool TryBuildIsocircle(
+        double radius,
+        out CadEllipseAuthoringSnapshot snapshot)
+    {
+        snapshot = default;
+        if (!double.IsFinite(radius) || radius <= 0.0)
+        {
+            return false;
+        }
+
+        double axesDot = CadPoint3D.Dot(
+            _isocircleXAxis,
+            _isocircleYAxis);
+        double secondAxisSign = axesDot < 0.0 ? -1.0 : 1.0;
+        CadPoint3D majorDirection =
+            (_isocircleXAxis + (_isocircleYAxis * secondAxisSign)) *
+            (1.0 / Math.Sqrt(3.0));
+        CadPoint3D majorAxis = majorDirection *
+            (radius * IsocircleMajorScale);
+        try
+        {
+            snapshot = new CadEllipseAuthoringSnapshot(
+                _acceptedPoints[0],
+                majorAxis,
+                IsocircleRadiusRatio);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     private bool TryBuildAxesFromRotation(
@@ -976,6 +1091,11 @@ public sealed class CadEllipseAuthoringSession
 
     private CadEllipseAuthoringInputKind GetInputKind(int stage) => stage switch
     {
+        0 when IsIsocircle => CadEllipseAuthoringInputKind.IsocircleCenter,
+        1 when Mode == CadEllipseAuthoringMode.IsocircleRadius =>
+            CadEllipseAuthoringInputKind.IsocircleRadius,
+        1 when Mode == CadEllipseAuthoringMode.IsocircleDiameter =>
+            CadEllipseAuthoringInputKind.IsocircleDiameter,
         0 => CadEllipseAuthoringInputKind.FirstAxisPoint,
         1 => CadEllipseAuthoringInputKind.SecondAxisPoint,
         2 when UsesDistance => CadEllipseAuthoringInputKind.OtherAxisPoint,
@@ -995,6 +1115,10 @@ public sealed class CadEllipseAuthoringSession
     private bool UsesDistance => Mode is
         CadEllipseAuthoringMode.AxisEndpointsDistance or
         CadEllipseAuthoringMode.CenterDistance;
+
+    private bool IsIsocircle => Mode is
+        CadEllipseAuthoringMode.IsocircleRadius or
+        CadEllipseAuthoringMode.IsocircleDiameter;
 
     private void StorePoint(CadPoint3D point)
     {

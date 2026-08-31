@@ -1,6 +1,7 @@
 using System.Numerics;
 using ACadSharp;
 using ACadSharp.Entities;
+using ACadSharp.Tables;
 using ACadSharp.Types.Units;
 using CSMath;
 using Microsoft.UI.Xaml;
@@ -199,13 +200,16 @@ public sealed class CadEllipseAuthoringInteractionTests
     public void SharedSelectorsExposeCompleteMatrixAndEscapeCancels()
     {
         var document = new CadDocument();
+        VPort active = document.VPorts[VPort.DefaultName];
+        active.IsometricSnap = true;
+        active.SnapIsoPair = (short)CadPlanIsoplane.Top;
         var session = new CadDocumentSession(document);
         var view = new CadSampleView();
         try
         {
             view.Canvas.Load(session);
             view.Canvas.Arrange(new Rect(0, 0, 800, 600));
-            Assert.Equal(4, view.EllipseModeSelector.Items.Count);
+            Assert.Equal(6, view.EllipseModeSelector.Items.Count);
             Assert.Equal(4, view.EllipseArcInputSelector.Items.Count);
 
             for (int modeIndex = 0;
@@ -226,7 +230,11 @@ public sealed class CadEllipseAuthoringInteractionTests
                             view.EllipseArcInputSelector.SelectedItem).Tag);
                     PressEnter(view.EllipseButton);
                     Assert.Equal(mode, view.Canvas.PendingEllipseAuthoringMode);
-                    Assert.Equal(arcInputMode,
+                    Assert.Equal(mode is
+                            CadEllipseAuthoringMode.IsocircleRadius or
+                            CadEllipseAuthoringMode.IsocircleDiameter
+                                ? CadEllipseArcInputMode.Full
+                                : arcInputMode,
                         view.Canvas.PendingEllipseArcInputMode);
                     var escape = new KeyRoutedEventArgs
                     {
@@ -244,6 +252,87 @@ public sealed class CadEllipseAuthoringInteractionTests
         {
             view.PrintPreview.FireUnloaded();
             view.Canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void IsocircleIsGatedBySnapStyleAndCommitsCapturedIsoplane()
+    {
+        var document = new CadDocument();
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            Assert.False(canvas.BeginEllipseAuthoring(
+                CadEllipseAuthoringMode.IsocircleRadius));
+
+            session.Edit("Enable right isoplane", current =>
+            {
+                VPort active = current.VPorts[VPort.DefaultName];
+                active.IsometricSnap = true;
+                active.SnapIsoPair = (short)CadPlanIsoplane.Right;
+            });
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            Assert.True(canvas.BeginEllipseAuthoring(
+                CadEllipseAuthoringMode.IsocircleDiameter));
+            Accept(canvas, "10,20,3", "8");
+
+            Ellipse ellipse = Assert.Single(document.Entities.OfType<Ellipse>());
+            double majorRadius = 4.0 * Math.Sqrt(1.5);
+            Assert.Equal(new XYZ(10, 20, 3), ellipse.Center);
+            AssertClose(majorRadius * 0.5, ellipse.MajorAxisEndPoint.X);
+            AssertClose(
+                majorRadius * Math.Sqrt(3.0) * 0.5,
+                ellipse.MajorAxisEndPoint.Y);
+            AssertClose(1.0 / Math.Sqrt(3.0), ellipse.RadiusRatio);
+            Assert.Equal(2UL, session.ContentGeneration);
+            Assert.Equal(1, canvas.UndoCount);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
+        }
+    }
+
+    [Fact]
+    public void IsocircleCenterStagePreviewsOneAnalyticEllipse()
+    {
+        var document = new CadDocument();
+        VPort active = document.VPorts[VPort.DefaultName];
+        active.IsometricSnap = true;
+        active.SnapIsoPair = (short)CadPlanIsoplane.Top;
+        var session = new CadDocumentSession(document);
+        var canvas = new CadSampleCanvas();
+        try
+        {
+            canvas.Load(session);
+            canvas.Arrange(new Rect(0, 0, 800, 600));
+            canvas.ObjectSnapModes = CadObjectSnapModes.None;
+            Assert.True(canvas.BeginEllipseAuthoring(
+                CadEllipseAuthoringMode.IsocircleRadius));
+            Accept(canvas, "0,0,4");
+            canvas.OnPointerMoved(new PointerRoutedEventArgs
+            {
+                Position = canvas.CurrentViewport.WorldToScreen(
+                    new CadPoint3D(4, 0, 4)),
+            });
+            var drawing = new DrawingContext();
+
+            canvas.OnRender(drawing);
+
+            Assert.Single(
+                drawing.Commands,
+                command => command.Type == RenderCommandType.DrawEllipse);
+            Assert.True(canvas.IsEllipseAuthoring);
+            Assert.Equal(0UL, session.ContentGeneration);
+            Assert.Empty(document.Entities);
+        }
+        finally
+        {
+            canvas.FireUnloaded();
         }
     }
 

@@ -15,15 +15,20 @@ complete across:
   direction-start plus included-angle arc.
 
 The result is one analytic ACadSharp `Ellipse`; it is never approximated by a
-polyline, cubic path, sampled point list, or host-owned geometry. Isocircle is
-kept separate because it is a drafting-plane circle projection contract tied
-to `SNAPSTYL`/`SNAPISOPAIR`, not another independent ellipse construction.
+polyline, cubic path, sampled point list, or host-owned geometry. The same
+bounded command now includes the separate Isocircle construction, gated by
+`SNAPSTYL=1` and projected from the exact captured `SNAPISOPAIR` basis with
+Radius or Diameter input.
 
 ## Primary sources consulted
 
 - Autodesk [`ELLIPSE` command](https://help.autodesk.com/cloudhelp/2021/ENU/AutoCAD-MAC-Core/files/GUID-07303D28-E335-4A90-B136-BF24F875369B.htm):
   axis-endpoint, Center, other-axis distance, Rotation, Arc, start/end angle,
   Parameter, Included Angle, and isocircle behavior.
+- Autodesk [2D isometric drawing](https://help.autodesk.com/cloudhelp/2025/ENU/AutoCAD-Core/files/GUID-37463F74-0B06-46E2-8791-6C5B852A069D.htm):
+  exact Left 90/150-degree, Top 30/150-degree, and Right 30/90-degree
+  isoplane pairs; true drafting scale along isometric axes; F5/Ctrl+E plane
+  cycling; and the requirement to represent plane circles with Isocircle.
 - Autodesk [`ELLIPSE` DXF entity](https://help.autodesk.com/cloudhelp/2018/ENU/AutoCAD-DXF/files/GUID-107CB04F-AD4D-4D2F-8EC9-AC90888063AB.htm):
   WCS center, center-relative major-axis endpoint, minor/major ratio, extrusion
   direction, and start/end parameters.
@@ -109,6 +114,17 @@ the center be `c`.
   locus by exchanging the persisted interval endpoints.
 - Every final solve is non-mutating. Document preflight failure leaves the
   exact prompt and accepted construction state recoverable.
+- Isocircle captures the active unit isometric basis vectors `u` and `v` when
+  the command starts. With `d = dot(u, v)` and entered circle radius `r`, its
+  canonical major direction is
+  `(u + sign(d) * v) / sqrt(3)`, its major radius is
+  `r * sqrt(3/2)`, and its minor/major ratio is `1/sqrt(3)`. This is the exact
+  singular-axis form of the documented true-scale two-axis projection. It
+  works for all three isoplanes and an arbitrary persisted snap rotation,
+  without hard-coded screen angles, sampling, or runtime eigensolving.
+- Diameter input is normalized once to `r = diameter / 2`. Pointer, coordinate,
+  and direct-distance previews use the same solve and publish one full
+  ellipse. The Isocircle choices are unavailable in rectangular SNAP style.
 
 All model calculations use finite `double` WCS values. The retained renderer’s
 existing float-axis limit is validated before publication. Point construction
@@ -123,12 +139,13 @@ use `Normal = AxisZ`.
 - Runtime parsing beyond one bounded invariant scalar is rejected. Expressions,
   unit suffixes, and temporary command overrides need a shared typed input
   language.
-- Isocircle is deferred to a dedicated current-isoplane circle-projection
-  contract so `SNAPSTYL`, `SNAPISOPAIR`, radius/diameter, and future arbitrary
-  UCS behavior remain explicit.
-- Arbitrary 3D UCS/camera authoring, Ctrl-drag clockwise endpoint override,
-  object-snap tracking, command chaining, visual goldens, and dense-input
-  percentile measurements remain separate gates.
+- Autodesk's ELLIPSE command contract does not define the ARC command's
+  transient Ctrl clockwise override. Inventing one was rejected; direction
+  remains explicit through the documented Angle, Parameter, and Included
+  Angle routes.
+- Arbitrary 3D UCS/camera authoring, object-snap tracking, command chaining,
+  expressions/units, temporary overrides, and visual goldens remain separate
+  gates.
 
 ## Cross-engine and managed/native applicability
 
@@ -142,9 +159,11 @@ resource ownership. SkParagraph, DirectWrite, Parley, and HarfBuzz therefore
 inform the separation audit but require no text-side edit.
 
 The native renderer already consumes the same `CadEllipsePrimitive` generated
-by the managed snapshot compiler. The checkpoint adds CPU-side document and
-host authoring only; there is no paired native algorithm to modify. Matched
-managed/native replay remains a required regression gate.
+by the managed snapshot compiler. Isocircle changes only the CPU-side
+authoring solve and produces the existing canonical center/major/minor
+primitive; there is no paired native projection algorithm, shader, or ABI to
+modify. The matched regression compiles an authored Isocircle through both the
+managed scene and native picture compiler.
 
 ## Complexity and performance contract
 
@@ -157,11 +176,19 @@ managed/native replay remains a required regression gate.
 - stable completed replay: the unchanged retained ProGPU ellipse path, with
   zero new managed/native crossings or retained uploads.
 
-This is a capability checkpoint, not a rendering-speed claim.
+The checked-in Release lane at
+`artifacts/benchmarks/cad-isocircle-authoring.json` solves 65,536 rotated mixed-
+isoplane sessions per iteration. Across 48 measured iterations after six
+warmups, Radius records p50/p95/p99 6.3054/8.2485/10.3219 ms and Diameter
+5.7855/9.2371/10.2220 ms. Each batch allocates about 22.55 MB from the existing
+bounded session object and its fixed point array; solving and stable completed
+replay add no collections, tessellation, upload, or managed/native crossing.
 
 ## Verification
 
-Focused tests cover the complete four-by-four construction matrix, axis
+Focused tests cover the complete four-by-four construction matrix, all three
+Isocircle planes, persisted snap rotation, Radius and Diameter scalar/pointer
+input, rectangular-style gating, exact shared-view commit, axis
 canonicalization, large-WCS midpoint and explicit-direction precision,
 Rotation edge-on rejection, direction-to-parameter mapping, signed Included
 Angle behavior, bounded scalar parsing, current-property capture, identity
@@ -171,9 +198,8 @@ direct distance with nonzero elevation, exact analytic full/arc previews,
 DXF/DWG round trips, and matched managed/native replay. The publication gates
 passed on 2026-08-31:
 
-- focused ELLIPSE authoring tests: 44/44;
-- all CAD authoring tests: 139/139;
-- complete .NET 10 CAD suite: 1,201/1,201 in Debug and Release;
+- focused ELLIPSE authoring tests: 51/51 in Debug and Release;
+- complete .NET 10 CAD suite: 1,398/1,398 in Debug and Release;
 - Release desktop build: 0 ProGPU warnings and 0 errors (the separately built
   ACadSharp source retains its existing warning baseline);
 - `ProGPU.CAD` and `ACadSharp.ProGPU` packages built at
