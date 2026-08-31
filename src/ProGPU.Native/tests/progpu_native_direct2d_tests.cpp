@@ -480,8 +480,8 @@ int main()
             compat_returned_ellipse.radiusY == 2.0F,
         "ProGPU ellipse state, factory, or COM identity changed");
     D2D1_RECT_F compat_ellipse_bounds{};
-    const D2D1_MATRIX_3X2_F compat_ellipse_transform = {
-        2.0F, 0.0F, 0.0F, 3.0F, 5.0F, -1.0F};
+    const D2D1_MATRIX_3X2_F compat_ellipse_transform =
+        D2D1::Matrix3x2F(2.0F, 0.0F, 0.0F, 3.0F, 5.0F, -1.0F);
     require(
         compat_ellipse->GetBounds(
             &compat_ellipse_transform, &compat_ellipse_bounds) == S_OK &&
