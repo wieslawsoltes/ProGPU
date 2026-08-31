@@ -6,6 +6,54 @@ namespace ProGPU.Tests;
 public sealed class Direct2DInteropContractTests
 {
     [Fact]
+    public void NativeDirect2DHeaderExposesPortableLayoutsAndExplicitProviderCapability()
+    {
+        string header = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "include",
+            "progpu_native_direct2d.h");
+        string cmake = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "CMakeLists.txt");
+        string nativeTest = ReadRepoFile(
+            "src",
+            "ProGPU.Native",
+            "tests",
+            "progpu_native_direct2d_header_tests.cpp");
+
+        Assert.Contains(
+            "PROGPU_NATIVE_DIRECT2D_HAS_WINDOWS_PROVIDER 1",
+            header,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "PROGPU_NATIVE_DIRECT2D_HAS_WINDOWS_PROVIDER 0",
+            header,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "progpu_native_direct2d.h is a Windows-only",
+            header,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "add_executable(progpu_native_direct2d_header_tests",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "install(FILES include/progpu_native_direct2d.h",
+            cmake,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "sizeof(progpu_native_direct2d_guid) == 16U",
+            nativeTest,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "sizeof(progpu_native_direct2d_scene_stream_result) == 80U",
+            nativeTest,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ManagedProviderUsesTypedAotSafeNativeAbi()
     {
         string project = ReadRepoFile(

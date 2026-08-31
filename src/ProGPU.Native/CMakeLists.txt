@@ -1331,6 +1331,20 @@ endif()
 endif()
 
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
+    add_executable(progpu_native_direct2d_header_tests
+        tests/progpu_native_direct2d_header_tests.cpp)
+    target_compile_features(
+        progpu_native_direct2d_header_tests PRIVATE cxx_std_20)
+    target_include_directories(progpu_native_direct2d_header_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    progpu_native_enable_warnings(progpu_native_direct2d_header_tests)
+    progpu_native_enable_sanitizers(progpu_native_direct2d_header_tests)
+    add_test(
+        NAME progpu_native_direct2d_header_tests
+        COMMAND progpu_native_direct2d_header_tests)
+    set_tests_properties(
+        progpu_native_direct2d_header_tests PROPERTIES TIMEOUT 60)
+
     add_executable(progpu_native_mil_tests
         tests/progpu_native_mil_tests.cpp
         src/Mil/progpu_native_mil_interop.cpp)
@@ -1687,13 +1701,14 @@ if(NOT EMSCRIPTEN)
             LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
             ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
     endif()
+    install(FILES include/progpu_native_direct2d.h
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+
     if(TARGET progpu_native_direct2d)
         install(TARGETS progpu_native_direct2d
             RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
             LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
             ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
-        install(FILES include/progpu_native_direct2d.h
-            DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
     endif()
     install(FILES
         src/Compression/progpu_native_compression.cppm
