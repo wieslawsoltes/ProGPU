@@ -454,7 +454,8 @@ public enum ProGpuDirect2DSceneStreamFlags : uint
     HasAxisAlignedClips = 1U << 2,
     HasGradientBrushes = 1U << 3,
     HasPathGeometry = 1U << 4,
-    HasStrokedPathGeometry = 1U << 5
+    HasStrokedPathGeometry = 1U << 5,
+    HasOpacityLayers = 1U << 6
 }
 
 public enum ProGpuDirect2DSceneStreamFailureReason : uint
