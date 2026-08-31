@@ -2297,6 +2297,31 @@ commands. The existing native point/path/ellipse ABI and canonical shaders did
 not change, and the C++ renderer already consumes those commands; no one-sided
 native implementation or generated-wire update applies.
 
+### Atomic single-location POINT authoring
+
+`CadPointAuthoringSession` validates exactly one finite double-WCS location in
+O(1) time and storage. Shared desktop/browser pointer input reuses exact object
+snap and grid precedence; invariant typed input accepts absolute Cartesian or
+polar coordinates. POINT has no intermediate accepted geometry: a valid point
+executes immediately, while Escape cancels without changing document
+generation. Relative/direct-distance input remains fail-closed until a global
+last-point contract exists. Generic MULTIPLE repetition is intentionally not
+embedded in POINT.
+
+`CadAddPointCommand` captures CLAYER, CECOLOR, CELTYPE, CELTSCALE, CELWEIGHT,
+THICKNESS, and the applicable active-UCS marker orientation atomically before
+adding one ACadSharp `Point`. Nonzero THICKNESS, invalid PDMODE/PDSIZE or
+CELTSCALE, a malformed active UCS, and a locked current layer fail before
+mutation. Undo detaches and Redo reattaches the same entity identity. Group 10
+is the accepted WCS location; when PDMODE is nonzero, group 210 retains the
+normalized active-UCS plane and group 50 expresses its X axis in that OCS.
+
+After commit both renderers consume the existing canonical point/path commands;
+there is no new C++ CAD frontend, C ABI, shader, cache, upload, or crossing.
+Clean-room sources, applicability decisions, complexity, and matched DXF/DWG
+and native-replay evidence are recorded in
+`PROGPU_CAD_POINT_AUTHORING_RESEARCH.md`.
+
 ## Exact viewport-clipped RAY and XLINE construction geometry
 
 `RAY` and `XLINE` group 10/20/30 base coordinates and group 11/21/31 direction

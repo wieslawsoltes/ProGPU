@@ -139,6 +139,39 @@ public sealed class CadRayAuthoringChangedEventArgs : EventArgs
     }
 }
 
+/// <summary>Observable stage of one shared desktop/browser POINT command.</summary>
+public enum CadPointAuthoringStage : byte
+{
+    AwaitingPoint = 0,
+    Completed = 1,
+    Canceled = 2,
+    Failed = 3,
+}
+
+/// <summary>Immutable transition emitted by bounded POINT authoring.</summary>
+public sealed class CadPointAuthoringChangedEventArgs : EventArgs
+{
+    public CadPointAuthoringStage Stage { get; }
+
+    public CadPoint3D? Location { get; }
+
+    public CadPointAuthoringSnapshot? Snapshot { get; }
+
+    public string? ErrorMessage { get; }
+
+    internal CadPointAuthoringChangedEventArgs(
+        CadPointAuthoringStage stage,
+        CadPoint3D? location = null,
+        CadPointAuthoringSnapshot? snapshot = null,
+        string? errorMessage = null)
+    {
+        Stage = stage;
+        Location = location;
+        Snapshot = snapshot;
+        ErrorMessage = errorMessage;
+    }
+}
+
 /// <summary>Observable stage of one shared desktop/browser PLINE command.</summary>
 public enum CadPolylineAuthoringStage : byte
 {
@@ -467,6 +500,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     private CadDocumentHistory? _history;
     private CadLineAuthoringSession? _lineAuthoring;
     private CadRayAuthoringSession? _rayAuthoring;
+    private CadPointAuthoringSession? _pointAuthoring;
     private CadPolylineAuthoringSession? _polylineAuthoring;
     private CadCircleAuthoringSession? _circleAuthoring;
     private CadArcAuthoringSession? _arcAuthoring;
@@ -596,6 +630,9 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public CadPoint3D? PendingRayStartPoint => _rayAuthoring?.StartPoint;
 
+    /// <summary>Whether one single-location model-space POINT is active.</summary>
+    public bool IsPointAuthoring => _pointAuthoring is not null;
+
     /// <summary>Whether one bounded model-space PLINE is active.</summary>
     public bool IsPolylineAuthoring => _polylineAuthoring is not null;
 
@@ -711,6 +748,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         PendingPointTransformOperation is not null ||
         _lineAuthoring is not null ||
         _rayAuthoring is not null ||
+        _pointAuthoring is not null ||
         _polylineAuthoring is not null ||
         _circleAuthoring is not null ||
         _arcAuthoring is not null ||
@@ -1137,6 +1175,13 @@ public sealed class CadSampleCanvas : FrameworkElement
         RayAuthoringChanged;
 
     /// <summary>
+    /// Raised when POINT begins, completes, fails, or is canceled.
+    /// Pointer motion does not allocate events.
+    /// </summary>
+    public event EventHandler<CadPointAuthoringChangedEventArgs>?
+        PointAuthoringChanged;
+
+    /// <summary>
     /// Raised for accepted PLINE points, mode changes, segment Undo,
     /// completion, and failure. Pointer motion does not allocate events.
     /// </summary>
@@ -1359,6 +1404,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             ResetPointTransformState(notify: false);
             ResetLineAuthoringState();
             ResetRayAuthoringState();
+            ResetPointAuthoringState();
             ResetPolylineAuthoringState();
             ResetCircleAuthoringState();
             ResetArcAuthoringState();
@@ -2158,6 +2204,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetPointTransformState(notify: true);
         ResetLineAuthoringState();
         ResetRayAuthoringState();
+        ResetPointAuthoringState();
         ResetPolylineAuthoringState();
         ResetCircleAuthoringState();
         ResetArcAuthoringState();
@@ -2615,6 +2662,114 @@ public sealed class CadSampleCanvas : FrameworkElement
                     errorMessage: exception.Message));
             return false;
         }
+    }
+
+    /// <summary>Starts one AutoCAD-compatible single-location POINT command.</summary>
+    public bool BeginPointAuthoring()
+    {
+        if (CurrentSession is null || CurrentSnapshot is null)
+        {
+            return false;
+        }
+        ThrowIfDrawOrderReferenceSelectionPending();
+        if (IsPointAcquisitionActive)
+        {
+            throw new InvalidOperationException(
+                "Complete the pending point-acquisition command first.");
+        }
+
+        _pointAuthoring = new CadPointAuthoringSession();
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        ClearPointTransformSnapState();
+        PointAuthoringChanged?.Invoke(
+            this,
+            new CadPointAuthoringChangedEventArgs(
+                CadPointAuthoringStage.AwaitingPoint));
+        Invalidate();
+        return true;
+    }
+
+    public bool CanAcceptPointAuthoringInput(string? text)
+    {
+        CadPointAuthoringSession? authoring = _pointAuthoring;
+        if (authoring is null ||
+            !CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate) ||
+            coordinate.IsRelative ||
+            !coordinate.TryResolve(CadPoint3D.Zero, out CadPoint3D point) ||
+            !authoring.TryCreateSnapshot(point, out _, out _))
+        {
+            return false;
+        }
+
+        try
+        {
+            _ = CreateViewport().WorldToScreen(point);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    public bool TryAcceptPointAuthoringInput(
+        string? text,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (_pointAuthoring is null)
+        {
+            errorMessage = "No POINT command is awaiting point input.";
+            return false;
+        }
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            errorMessage =
+                "Enter an absolute x,y[,z] or distance<angle coordinate using invariant numbers.";
+            return false;
+        }
+        if (coordinate.IsRelative)
+        {
+            errorMessage =
+                "POINT requires an absolute coordinate because no command base point has been accepted.";
+            return false;
+        }
+        if (!coordinate.TryResolve(CadPoint3D.Zero, out CadPoint3D point))
+        {
+            errorMessage = "The POINT coordinate resolves outside finite WCS values.";
+            return false;
+        }
+
+        Vector2 screenPoint;
+        try
+        {
+            screenPoint = CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException)
+        {
+            errorMessage =
+                "The POINT location cannot be represented by the current plan viewport.";
+            return false;
+        }
+        return TryAcceptPointAuthoringPoint(point, screenPoint, out errorMessage);
+    }
+
+    /// <summary>Cancels POINT without changing the document or history.</summary>
+    public bool CancelPointAuthoring()
+    {
+        if (_pointAuthoring is null)
+        {
+            return false;
+        }
+
+        ResetPointAuthoringState();
+        PointAuthoringChanged?.Invoke(
+            this,
+            new CadPointAuthoringChangedEventArgs(
+                CadPointAuthoringStage.Canceled));
+        Invalidate();
+        return true;
     }
 
     /// <summary>
@@ -6397,6 +6552,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (operation is null &&
             _lineAuthoring is null &&
             _rayAuthoring is null &&
+            _pointAuthoring is null &&
             _polylineAuthoring is null &&
                 _circleAuthoring is null &&
                 _arcAuthoring is null &&
@@ -6452,6 +6608,14 @@ public sealed class CadSampleCanvas : FrameworkElement
                         _rayAuthoring.RayCount,
                         _rayAuthoring.StartPoint,
                         exception.Message));
+            }
+            else if (_pointAuthoring is not null)
+            {
+                PointAuthoringChanged?.Invoke(
+                    this,
+                    new CadPointAuthoringChangedEventArgs(
+                        CadPointAuthoringStage.Failed,
+                        errorMessage: exception.Message));
             }
             else if (_polylineAuthoring is not null)
             {
@@ -6540,6 +6704,11 @@ public sealed class CadSampleCanvas : FrameworkElement
             _ = TryAcceptRayAuthoringPoint(point, screenPoint, out _);
             return;
         }
+        if (_pointAuthoring is not null)
+        {
+            _ = TryAcceptPointAuthoringPoint(point, screenPoint, out _);
+            return;
+        }
         if (_polylineAuthoring is not null)
         {
             _ = TryAcceptPolylineAuthoringPoint(point, screenPoint, out _);
@@ -6567,6 +6736,86 @@ public sealed class CadSampleCanvas : FrameworkElement
         }
 
         AcceptPointTransformPoint(point, screenPoint);
+    }
+
+    private bool TryAcceptPointAuthoringPoint(
+        CadPoint3D point,
+        Vector2? screenPoint,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadPointAuthoringSession? authoring = _pointAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No POINT command is active.";
+            return false;
+        }
+
+        try
+        {
+            _ = screenPoint ?? CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException exception)
+        {
+            errorMessage = exception.Message;
+            PointAuthoringChanged?.Invoke(
+                this,
+                new CadPointAuthoringChangedEventArgs(
+                    CadPointAuthoringStage.Failed,
+                    point,
+                    errorMessage: errorMessage));
+            Invalidate();
+            return false;
+        }
+
+        if (!authoring.TryCreateSnapshot(
+                point,
+                out CadPointAuthoringSnapshot snapshot,
+                out errorMessage))
+        {
+            PointAuthoringChanged?.Invoke(
+                this,
+                new CadPointAuthoringChangedEventArgs(
+                    CadPointAuthoringStage.Failed,
+                    point,
+                    errorMessage: errorMessage));
+            Invalidate();
+            return false;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException(
+                "The CAD edit history is not initialized.");
+        try
+        {
+            history.Execute(new CadAddPointCommand(
+                snapshot,
+                description: "POINT: add point"));
+            ResetPointAuthoringState();
+            RecompileAfterEdit(session);
+            PointAuthoringChanged?.Invoke(
+                this,
+                new CadPointAuthoringChangedEventArgs(
+                    CadPointAuthoringStage.Completed,
+                    point,
+                    snapshot));
+            return true;
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+            PointAuthoringChanged?.Invoke(
+                this,
+                new CadPointAuthoringChangedEventArgs(
+                    CadPointAuthoringStage.Failed,
+                    point,
+                    snapshot,
+                    exception.Message));
+            Invalidate();
+            return false;
+        }
     }
 
     private bool TryAcceptLineAuthoringPoint(
@@ -7539,6 +7788,16 @@ public sealed class CadSampleCanvas : FrameworkElement
         ClearPointTransformSnapState();
     }
 
+    private void ResetPointAuthoringState()
+    {
+        _pointAuthoring = null;
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        _pointTransformBasePoint = default;
+        _pointTransformCurrent = default;
+        ClearPointTransformSnapState();
+    }
+
     private void ResetPolylineAuthoringState()
     {
         _polylineAuthoring = null;
@@ -7906,6 +8165,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetPointTransformState(notify: false);
         ResetLineAuthoringState();
         ResetRayAuthoringState();
+        ResetPointAuthoringState();
         ResetPolylineAuthoringState();
         ResetCircleAuthoringState();
         ResetArcAuthoringState();
