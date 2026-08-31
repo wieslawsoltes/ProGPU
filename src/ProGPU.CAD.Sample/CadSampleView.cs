@@ -21,6 +21,8 @@ public sealed class CadSampleView : Grid
     private readonly CadSampleCanvas _canvas;
     private readonly Grid _contentHost;
     private readonly Viewport3D _viewport3D;
+    private readonly CadMesh3DViewCoordinator _mesh3DView = new();
+    private PerspectiveCamera? _observedMeshCamera;
     private readonly CadPrintPreviewCanvas _printPreview;
     private readonly Button _viewModeButton;
     private readonly TextBlock _viewModeText;
@@ -216,6 +218,14 @@ public sealed class CadSampleView : Grid
     public CadShxFontCatalog ShxFonts => _canvas.ShxFonts;
 
     public CadSampleCanvas Canvas => _canvas;
+
+    public Viewport3D MeshViewport => _viewport3D;
+
+    public CadMesh3DViewStatistics MeshViewStatistics =>
+        _mesh3DView.Statistics;
+
+    public CadMesh3DViewport? MeshViewportState =>
+        _mesh3DView.Viewport;
 
     public CadPrintPreviewCanvas PrintPreview => _printPreview;
 
@@ -2188,7 +2198,17 @@ public sealed class CadSampleView : Grid
             await ImportPageSetupsAsync(
                 CadPageSetupImportConflictPolicy.ReplaceExisting);
         _saveButton.Click += async (_, _) => await SaveAsAsync();
-        _fitButton.Click += (_, _) => _canvas.FitToView();
+        _fitButton.Click += (_, _) =>
+        {
+            if (_is3DView)
+            {
+                FitMesh3DView();
+            }
+            else
+            {
+                _canvas.FitToView();
+            }
+        };
         _viewModeButton.Click += (_, _) => ToggleViewMode();
         _attributeDisplaySelector.SelectionChanged += (_, _) =>
             OnAttributeDisplaySelectionChanged();
@@ -2820,12 +2840,12 @@ public sealed class CadSampleView : Grid
         };
         _canvas.PointTransformInputAvailabilityChanged += (_, _) =>
             UpdateEditControls();
-        _canvas.SnapshotChanged += (_, _) =>
+        _canvas.SnapshotChanged += (_, args) =>
         {
             RefreshPlanGridDisplayControls();
             RefreshPlanConstraintControls();
             EnsureLayerMergeSourcesAreCurrent();
-            RebuildMesh3DView();
+            RebuildMesh3DView(args.ResetsView);
             if (_isPrintPreview)
             {
                 ShowPlanView(clearPreview: true);
@@ -2835,7 +2855,7 @@ public sealed class CadSampleView : Grid
             RefreshSelectionPropertyControls();
             UpdateEditControls();
         };
-        RebuildMesh3DView();
+        RebuildMesh3DView(resetCamera: true);
         RefreshPlanGridDisplayControls();
         RefreshPageSetups(preserveSelection: false);
         RefreshAttributeDisplayMode();
@@ -4293,7 +4313,7 @@ public sealed class CadSampleView : Grid
         return true;
     }
 
-    private void RebuildMesh3DView()
+    private void RebuildMesh3DView(bool resetCamera)
     {
         _viewport3D.Children.Clear();
         CadDocumentSnapshot? snapshot = _canvas.CurrentSnapshot;
@@ -4303,7 +4323,9 @@ public sealed class CadSampleView : Grid
             return;
         }
 
-        CadRecordedMesh3DScene scene = new CadMesh3DSceneCompiler().Compile(snapshot);
+        CadRecordedMesh3DScene scene = _mesh3DView.ReplaceSnapshot(
+            snapshot,
+            resetCamera);
         foreach (CadMesh3DDrawBatch batch in scene.DrawBatches.Span)
         {
             uint[] sourceIndices = batch.Indices.ToArray();
@@ -4348,27 +4370,59 @@ public sealed class CadSampleView : Grid
         {
             return;
         }
-        CadBounds3D bounds = scene.Bounds;
-        CadPoint3D center = bounds.Center;
-        var target = new System.Numerics.Vector3(
-            checked((float)(center.X - scene.RebaseOrigin.X)),
-            checked((float)(center.Y - scene.RebaseOrigin.Y)),
-            checked((float)(center.Z - scene.RebaseOrigin.Z)));
-        float extent = checked((float)Math.Max(
-            Math.Max(bounds.Max.X - bounds.Min.X, bounds.Max.Y - bounds.Min.Y),
-            bounds.Max.Z - bounds.Min.Z));
-        float radius = Math.Max(extent * 1.8f, 10.0f);
-        var offset = new System.Numerics.Vector3(radius, -radius, radius * 0.8f);
-        _viewport3D.Camera = new PerspectiveCamera
-        {
-            Position = target + offset,
-            LookDirection = -offset,
-            UpDirection = System.Numerics.Vector3.UnitZ,
-            NearPlaneDistance = Math.Max(radius / 10_000.0f, 0.01f),
-            FarPlaneDistance = radius * 20.0f,
-            FieldOfView = 42.0f,
-        };
+        ApplyMeshCamera(_mesh3DView.Viewport!.Value);
         _viewport3D.Invalidate();
+    }
+
+    private void FitMesh3DView()
+    {
+        if (_mesh3DView.Scene?.DrawBatches.IsEmpty != false)
+        {
+            return;
+        }
+
+        ApplyMeshCamera(_mesh3DView.FitCamera());
+        _viewport3D.Invalidate();
+    }
+
+    private void ApplyMeshCamera(CadMesh3DViewport viewport)
+    {
+        CadMesh3DProjectionCamera state = viewport.CreateProjectionCamera();
+        var camera = new PerspectiveCamera
+        {
+            Position = state.Position,
+            LookDirection = state.LookDirection,
+            UpDirection = state.UpDirection,
+            NearPlaneDistance = state.NearPlaneDistance,
+            FarPlaneDistance = state.FarPlaneDistance,
+            FieldOfView = state.FieldOfView,
+        };
+
+        if (_observedMeshCamera is not null)
+        {
+            _observedMeshCamera.Changed -= OnMeshCameraChanged;
+        }
+        _observedMeshCamera = camera;
+        _observedMeshCamera.Changed += OnMeshCameraChanged;
+        _viewport3D.Camera = camera;
+    }
+
+    private void OnMeshCameraChanged(object? sender, EventArgs args)
+    {
+        if (sender is not PerspectiveCamera camera ||
+            _mesh3DView.Viewport is null)
+        {
+            return;
+        }
+
+        var state = new CadMesh3DProjectionCamera(
+            camera.Position,
+            camera.LookDirection,
+            camera.UpDirection,
+            camera.NearPlaneDistance,
+            camera.FarPlaneDistance,
+            camera.FieldOfView);
+        _mesh3DView.CaptureCamera(state);
     }
 
     private void SetMeshViewAvailability(bool isAvailable)
@@ -7516,7 +7570,8 @@ public sealed class CadSampleView : Grid
         _importPageSetupsButton.IsEnabled = canImportPageSetups;
         _importReplacePageSetupsButton.IsEnabled = canImportPageSetups;
         _saveButton.IsEnabled = !_isBusy && !isInteractivePicking;
-        _fitButton.IsEnabled = canUsePlanTools && !_is3DView;
+        _fitButton.IsEnabled = canUsePlanTools &&
+            (!_is3DView || _viewport3D.Children.Count > 0);
         _clearSelectionButton.IsEnabled = canUsePlanTools;
         _attributeDisplaySelector.IsEnabled =
             canUsePlanTools && _canvas.CurrentSession is not null;

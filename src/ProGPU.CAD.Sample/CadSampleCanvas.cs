@@ -17,6 +17,24 @@ using ACadLayout = ACadSharp.Objects.Layout;
 
 namespace ProGPU.CAD.Sample;
 
+/// <summary>
+/// Describes whether a published immutable snapshot belongs to the current
+/// edited session or starts a newly reset view/session.
+/// </summary>
+public sealed class CadSnapshotChangedEventArgs : EventArgs
+{
+    internal static CadSnapshotChangedEventArgs PreserveView { get; } = new(false);
+
+    internal static CadSnapshotChangedEventArgs ResetView { get; } = new(true);
+
+    public bool ResetsView { get; }
+
+    private CadSnapshotChangedEventArgs(bool resetsView)
+    {
+        ResetsView = resetsView;
+    }
+}
+
 /// <summary>Selected-set operation driven by two WCS plan-view points.</summary>
 public enum CadPointTransformOperation : byte
 {
@@ -1451,7 +1469,7 @@ public sealed class CadSampleCanvas : FrameworkElement
     public event EventHandler? PointTransformInputAvailabilityChanged;
 
     /// <summary>Raised after one complete immutable snapshot/picture replacement.</summary>
-    public event EventHandler? SnapshotChanged;
+    public event EventHandler<CadSnapshotChangedEventArgs>? SnapshotChanged;
 
     public CadShxFontCatalog ShxFonts { get; }
 
@@ -1656,7 +1674,11 @@ public sealed class CadSampleCanvas : FrameworkElement
         RefreshConstructionPicture();
         previous?.Dispose();
         Invalidate();
-        SnapshotChanged?.Invoke(this, EventArgs.Empty);
+        SnapshotChanged?.Invoke(
+            this,
+            resetViewSelectionAndHistory
+                ? CadSnapshotChangedEventArgs.ResetView
+                : CadSnapshotChangedEventArgs.PreserveView);
         SelectionChanged?.Invoke(this, EventArgs.Empty);
         EditStateChanged?.Invoke(this, EventArgs.Empty);
     }

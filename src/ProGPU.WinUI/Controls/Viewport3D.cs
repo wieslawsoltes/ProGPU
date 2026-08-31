@@ -406,6 +406,23 @@ namespace Microsoft.UI.Xaml.Media.Media3D
             set => LookDirection = value - Position;
         }
 
+        /// <summary>
+        /// Atomically replaces the camera position and look direction and
+        /// publishes one invalidation. Orbit and pan controllers use this to
+        /// avoid exposing a transient half-updated view.
+        /// </summary>
+        public void SetView(Vector3 position, Vector3 lookDirection)
+        {
+            if (_position == position && _lookDirection == lookDirection)
+            {
+                return;
+            }
+
+            _position = position;
+            _lookDirection = lookDirection;
+            RaiseChanged();
+        }
+
         public override Matrix4x4 GetViewMatrix()
         {
             var view = Matrix4x4.CreateLookAt(Position, Position + LookDirection, UpDirection);
@@ -534,6 +551,7 @@ namespace Microsoft.UI.Xaml.Controls
         private float _cameraTheta = 0f;
         private float _cameraPhi = 0.5f;
         private float _cameraRadius = 10f;
+        private Vector3 _cameraTarget;
         private bool _cameraInitialized = false;
         private bool _isUpdatingCameraState = false;
 
@@ -548,6 +566,7 @@ namespace Microsoft.UI.Xaml.Controls
                 _cameraTheta = MathF.Atan2(dir.X, dir.Z);
                 float lenXZ = MathF.Sqrt(dir.X * dir.X + dir.Z * dir.Z);
                 _cameraPhi = MathF.Atan2(lenXZ, dir.Y);
+                _cameraTarget = projCamera.LookAt;
                 
                 // Clamp phi to prevent crossing poles
                 _cameraPhi = Math.Clamp(_cameraPhi, 0.01f, MathF.PI - 0.01f);
@@ -568,15 +587,13 @@ namespace Microsoft.UI.Xaml.Controls
                     float sinTheta = MathF.Sin(_cameraTheta);
                     float cosTheta = MathF.Cos(_cameraTheta);
 
-                    var target = projCamera.LookAt;
                     var offset = new Vector3(
                         _cameraRadius * sinPhi * sinTheta,
                         _cameraRadius * cosPhi,
                         _cameraRadius * sinPhi * cosTheta
                     );
 
-                    projCamera.Position = target + offset;
-                    projCamera.LookDirection = -offset;
+                    projCamera.SetView(_cameraTarget + offset, -offset);
                     
                     Invalidate();
                 }
@@ -1140,8 +1157,8 @@ namespace Microsoft.UI.Xaml.Controls
                     var up = Vector3.Normalize(Vector3.Cross(right, forward));
 
                     float panSpeed = _cameraRadius * 0.0015f;
-                    projCamera.LookAt -= right * (delta.X * panSpeed);
-                    projCamera.LookAt += up * (delta.Y * panSpeed);
+                    _cameraTarget -= right * (delta.X * panSpeed);
+                    _cameraTarget += up * (delta.Y * panSpeed);
 
                     ApplyCameraState();
                 }
@@ -1194,7 +1211,7 @@ namespace Microsoft.UI.Xaml.Controls
                 {
                     if (isShift || projCamera is OrthographicCamera)
                     {
-                        projCamera.LookAt -= right * panSpeed;
+                        _cameraTarget -= right * panSpeed;
                     }
                     else
                     {
@@ -1206,7 +1223,7 @@ namespace Microsoft.UI.Xaml.Controls
                 {
                     if (isShift || projCamera is OrthographicCamera)
                     {
-                        projCamera.LookAt += right * panSpeed;
+                        _cameraTarget += right * panSpeed;
                     }
                     else
                     {
@@ -1218,7 +1235,7 @@ namespace Microsoft.UI.Xaml.Controls
                 {
                     if (isShift || projCamera is OrthographicCamera)
                     {
-                        projCamera.LookAt += up * panSpeed;
+                        _cameraTarget += up * panSpeed;
                     }
                     else
                     {
@@ -1231,7 +1248,7 @@ namespace Microsoft.UI.Xaml.Controls
                 {
                     if (isShift || projCamera is OrthographicCamera)
                     {
-                        projCamera.LookAt -= up * panSpeed;
+                        _cameraTarget -= up * panSpeed;
                     }
                     else
                     {

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using ACadSharp;
@@ -44,6 +45,18 @@ if (isocircleAuthoringSolveCount != 0)
 {
     RunIsocircleAuthoringBenchmark(
         isocircleAuthoringSolveCount,
+        ReadNonNegativeInt("--warmup", 3),
+        ReadPositiveInt("--iterations", 24),
+        ReadString("--output-json"));
+    return;
+}
+
+int cameraUpdateCount = ReadNonNegativeInt("--camera-updates", 0);
+if (cameraUpdateCount != 0)
+{
+    RunCameraUpdateBenchmark(
+        cameraUpdateCount,
+        ReadPositiveInt("--camera-entities", 10_000),
         ReadNonNegativeInt("--warmup", 3),
         ReadPositiveInt("--iterations", 24),
         ReadString("--output-json"));
@@ -1042,6 +1055,158 @@ double CreateIsocircleChecksum(int solveCount, bool useDiameter)
             snapshot.MinorRadius;
     }
     return checksum;
+}
+
+void RunCameraUpdateBenchmark(
+    int updateCount,
+    int largeEntityCount,
+    int warmups,
+    int iterations,
+    string? reportPath)
+{
+    CadMesh3DViewCoordinator small = CreateCameraBenchmarkCoordinator(1);
+    CadMesh3DViewCoordinator large =
+        CreateCameraBenchmarkCoordinator(largeEntityCount);
+
+    for (int i = 0; i < warmups; i++)
+    {
+        UpdateCameraBatch(small, updateCount);
+        UpdateCameraBatch(large, updateCount);
+    }
+
+    CadMesh3DViewStatistics smallBefore = small.Statistics;
+    CadMesh3DViewStatistics largeBefore = large.Statistics;
+    Measurement smallMeasurement = MeasureCameraUpdateBatches(
+        "camera-update-1-entity-batch-ms",
+        small,
+        updateCount,
+        iterations);
+    Measurement largeMeasurement = MeasureCameraUpdateBatches(
+        $"camera-update-{largeEntityCount}-entity-batch-ms",
+        large,
+        updateCount,
+        iterations);
+    CadMesh3DViewStatistics smallAfter = small.Statistics;
+    CadMesh3DViewStatistics largeAfter = large.Statistics;
+
+    ValidateCameraBenchmarkCase(
+        smallBefore,
+        smallAfter,
+        updateCount,
+        iterations,
+        smallMeasurement);
+    ValidateCameraBenchmarkCase(
+        largeBefore,
+        largeAfter,
+        updateCount,
+        iterations,
+        largeMeasurement);
+
+    var report = new CadCameraUpdateBenchmarkReport(
+        DateTimeOffset.UtcNow,
+        Environment.OSVersion.ToString(),
+        System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription,
+        updateCount,
+        largeEntityCount,
+        warmups,
+        iterations,
+        smallMeasurement,
+        largeMeasurement,
+        largeMeasurement.P95 / smallMeasurement.P95,
+        smallAfter,
+        largeAfter);
+    var options = new JsonSerializerOptions { WriteIndented = true };
+    string reportJson = JsonSerializer.Serialize(report, options);
+    Console.WriteLine(reportJson);
+    if (reportPath is not null)
+    {
+        File.WriteAllText(reportPath, reportJson);
+    }
+}
+
+CadMesh3DViewCoordinator CreateCameraBenchmarkCoordinator(int entityCount)
+{
+    var document = new CadDocument();
+    for (int i = 0; i < entityCount; i++)
+    {
+        double x = (i % 1_000) * 12.0;
+        double y = (i / 1_000) * 12.0;
+        double z = i % 17;
+        document.Entities.Add(new Face3D
+        {
+            FirstCorner = new XYZ(x, y, z),
+            SecondCorner = new XYZ(x + 8.0, y, z),
+            ThirdCorner = new XYZ(x, y + 6.0, z + 4.0),
+            FourthCorner = new XYZ(x, y + 6.0, z + 4.0),
+        });
+    }
+
+    var coordinator = new CadMesh3DViewCoordinator();
+    coordinator.ReplaceSnapshot(
+        new CadSnapshotCompiler().Compile(new CadDocumentSession(document)),
+        resetCamera: true);
+    return coordinator;
+}
+
+Measurement MeasureCameraUpdateBatches(
+    string name,
+    CadMesh3DViewCoordinator coordinator,
+    int updateCount,
+    int iterations)
+{
+    var elapsed = new double[iterations];
+    long allocatedStart = GC.GetAllocatedBytesForCurrentThread();
+    for (int i = 0; i < iterations; i++)
+    {
+        long started = Stopwatch.GetTimestamp();
+        UpdateCameraBatch(coordinator, updateCount);
+        elapsed[i] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+    }
+
+    long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedStart;
+    return Summarize(name, elapsed, allocated / iterations);
+}
+
+void UpdateCameraBatch(
+    CadMesh3DViewCoordinator coordinator,
+    int updateCount)
+{
+    CadMesh3DProjectionCamera camera = coordinator.Viewport!.Value
+        .CreateProjectionCamera();
+    Vector3 origin = camera.Position;
+    for (int i = 0; i < updateCount; i++)
+    {
+        coordinator.CaptureCamera(camera with
+        {
+            Position = origin + new Vector3(
+                (i & 31) * 0.125f,
+                -(i & 15) * 0.25f,
+                (i & 7) * 0.0625f),
+        });
+    }
+}
+
+void ValidateCameraBenchmarkCase(
+    CadMesh3DViewStatistics before,
+    CadMesh3DViewStatistics after,
+    int updateCount,
+    int iterations,
+    Measurement measurement)
+{
+    long expectedUpdates = checked((long)updateCount * iterations);
+    if (after.SceneCompilationCount != before.SceneCompilationCount ||
+        after.SceneReplacementCount != before.SceneReplacementCount ||
+        after.CompiledEntityVisitCount != before.CompiledEntityVisitCount ||
+        after.CameraUpdateCount - before.CameraUpdateCount != expectedUpdates ||
+        after.CameraOnlySceneCompilationCount != 0 ||
+        after.CameraOnlyEntityVisitCount != 0 ||
+        after.CameraOnlyDrawBatchVisitCount != 0 ||
+        after.CameraOnlyUploadByteCount != 0 ||
+        measurement.AllocatedBytesPerOperation != 0)
+    {
+        throw new InvalidOperationException(
+            "The camera benchmark observed work outside the allocation-free O(1) contract.");
+    }
 }
 
 void RunViewportBenchmark(
@@ -2649,6 +2814,20 @@ internal sealed record CadIsocircleAuthoringBenchmarkReport(
     int IterationCount,
     Measurement RadiusMilliseconds,
     Measurement DiameterMilliseconds);
+
+internal sealed record CadCameraUpdateBenchmarkReport(
+    DateTimeOffset CapturedAt,
+    string OperatingSystem,
+    string Runtime,
+    int UpdatesPerBatch,
+    int LargeSceneEntityCount,
+    int WarmupCount,
+    int IterationCount,
+    Measurement OneEntityBatchMilliseconds,
+    Measurement LargeSceneBatchMilliseconds,
+    double LargeToOneEntityP95Ratio,
+    CadMesh3DViewStatistics OneEntityStatistics,
+    CadMesh3DViewStatistics LargeSceneStatistics);
 
 internal sealed record CadBenchmarkReport(
     DateTimeOffset CapturedAt,

@@ -71,6 +71,35 @@ public sealed class CadNativeMesh3DScene
 /// </remarks>
 public sealed class CadNativeMesh3DSceneCompiler
 {
+    /// <summary>
+    /// Encodes a retained CAD mesh generation with the same rebased camera
+    /// matrices consumed by the managed <c>Viewport3D</c> path.
+    /// </summary>
+    public CadNativeMesh3DScene Compile(
+        CadRecordedMesh3DScene scene,
+        in CadMesh3DViewport viewport,
+        float aspectRatio,
+        NativeImageRect viewportBounds,
+        ulong sceneId,
+        CadNativeMesh3DSceneOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(scene);
+        if (viewport.RebaseOrigin != scene.RebaseOrigin)
+        {
+            throw new ArgumentException(
+                "The native CAD mesh camera and retained scene must share one rebase origin.",
+                nameof(viewport));
+        }
+
+        CadMesh3DProjectionCamera camera = viewport.CreateProjectionCamera();
+        var nativeCamera = new CadNativeMesh3DCamera(
+            camera.CreateProjectionMatrix(aspectRatio),
+            camera.CreateViewMatrix(),
+            camera.Position,
+            viewportBounds);
+        return Compile(scene, nativeCamera, sceneId, options);
+    }
+
     public CadNativeMesh3DScene Compile(
         CadRecordedMesh3DScene scene,
         in CadNativeMesh3DCamera camera,

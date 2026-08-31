@@ -443,6 +443,16 @@ feature commit pinned by the ProGPU submodule. It is packed before `ProGPU.CAD`
 at the same ProGPU version; `ProGPU.CAD` has an exact dependency on that distinct
 identity so NuGet cannot substitute upstream `ACadSharp`.
 
+ProGPU.CAD's shared desktop/browser depth view now preserves its perspective
+camera across same-session snapshot replacements instead of fitting after every
+edit. A two-part double-WCS position survives large-coordinate rebase changes;
+new/reset documents and explicit Fit retain the established Z-up view. Orbit,
+pan, and zoom publish one atomic camera update with contractual-zero scene
+compilations, entity/batch visits, geometry uploads, and native crossings. The
+same typed viewport supplies exact projection/view/local-position state to the
+managed `Viewport3D` and existing one-resource/one-draw native Mesh3D ABI, with
+no shader or C ABI change.
+
 ## Avalonia Integration Packages
 
 - `ProGPU.Avalonia.Rendering` `12.1.1-preview.62`

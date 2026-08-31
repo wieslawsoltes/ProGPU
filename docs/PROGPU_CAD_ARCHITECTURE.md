@@ -2245,15 +2245,32 @@ streams, so no filled face is accidentally projected into a 2D plot policy.
 Point and Window/Crossing selection use the semantic triangle surfaces and
 deduplicate them with the existing edge candidates to one source handle.
 
+`CadMesh3DViewCoordinator` now owns that immutable generation separately from
+`CadMesh3DViewport`. The viewport keeps its position as a double-WCS anchor plus
+local offset, so a fitted sub-unit camera offset is not lost when the drawing
+is near a large coordinate and a later edit chooses a different snapshot
+rebase. New/reset documents and explicit Fit use the established Z-up
+perspective; same-session generation replacement preserves position, look/up,
+near/far planes, and field of view. The shared `ProjectionCamera.SetView`
+publishes one complete orbit/pan update. Camera capture and rebase replacement
+are allocation-free `O(1)`, report zero scene compilations, entity visits,
+batch visits, uploads, and boundary crossings, and do not consult ACadSharp.
+The coordinator intentionally reports actual generation-compilation/entity
+work separately; it does not mislabel GPU draw submission as entity-independent.
+The clean-room research, two-part arithmetic, parity audit, and evidence are in
+[`PROGPU_CAD_3D_CAMERA_RESEARCH.md`](PROGPU_CAD_3D_CAMERA_RESEARCH.md).
+
 The optional `ProGPU.CAD.Native` adapter writes all style batches into one
 existing native Mesh3D resource and one draw command. The stream is fixed-width,
 little-endian, pointer-free, and uses the existing native C ABI and canonical
 `src/ProGPU.Scene/Shaders/Native3D.wgsl`; there is no per-face, per-triangle, or
 per-frame P/Invoke. Normal retained operation performs one scene update when
-the CAD generation changes and one render submission per frame. The C++ engine
+the CAD generation changes and one render submission per frame. Its shared-
+viewport overload writes the same managed projection/view/local-position state
+and rejects a scene/camera rebase mismatch before encoding. The C++ engine
 already implemented and validated this Mesh3D ABI, so the parity audit required
 no C++ semantic fork or shader copy; matched tests cover the shared CAD batch
-data and native stream boundary. Texture leases and a native CAD document
+data, camera matrices, and native stream boundary. Texture leases and a native CAD document
 frontend remain explicit follow-ups.
 
 Exact approved in-repository provenance is
