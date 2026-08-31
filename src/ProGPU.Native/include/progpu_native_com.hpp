@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <utility>
 
 #if defined(_WIN32)
@@ -175,7 +176,7 @@ public:
 
     pointer& operator=(const pointer& other) noexcept
     {
-        if (this != &other) {
+        if (this != std::addressof(other)) {
             Interface* replacement = other.value_;
             if (replacement != nullptr) {
                 replacement->AddRef();
@@ -188,7 +189,7 @@ public:
 
     pointer& operator=(pointer&& other) noexcept
     {
-        if (this != &other) {
+        if (this != std::addressof(other)) {
             internal_release();
             value_ = std::exchange(other.value_, nullptr);
         }
@@ -198,6 +199,11 @@ public:
     [[nodiscard]] Interface* get() const noexcept
     {
         return value_;
+    }
+
+    [[nodiscard]] Interface* Get() const noexcept
+    {
+        return get();
     }
 
     [[nodiscard]] Interface* operator->() const noexcept
@@ -215,6 +221,11 @@ public:
         internal_release();
     }
 
+    void Reset() noexcept
+    {
+        reset();
+    }
+
     void attach(Interface* value) noexcept
     {
         if (value_ != value) {
@@ -223,15 +234,45 @@ public:
         }
     }
 
+    void Attach(Interface* value) noexcept
+    {
+        attach(value);
+    }
+
     [[nodiscard]] Interface* detach() noexcept
     {
         return std::exchange(value_, nullptr);
+    }
+
+    [[nodiscard]] Interface* Detach() noexcept
+    {
+        return detach();
     }
 
     [[nodiscard]] Interface** put() noexcept
     {
         reset();
         return &value_;
+    }
+
+    [[nodiscard]] Interface** GetAddressOf() noexcept
+    {
+        return &value_;
+    }
+
+    [[nodiscard]] Interface* const* GetAddressOf() const noexcept
+    {
+        return &value_;
+    }
+
+    [[nodiscard]] Interface** ReleaseAndGetAddressOf() noexcept
+    {
+        return put();
+    }
+
+    [[nodiscard]] Interface** operator&() noexcept
+    {
+        return ReleaseAndGetAddressOf();
     }
 
     template<typename Other>
@@ -250,6 +291,26 @@ public:
         }
         return query_result;
     }
+
+    template<typename Other>
+    result As(guid_ref interface_id, pointer<Other>* destination) const noexcept
+    {
+        if (destination == nullptr) {
+            return pointer_error;
+        }
+        return as(interface_id, *destination);
+    }
+
+#if defined(_WIN32)
+    template<typename Other>
+    result As(pointer<Other>* destination) const noexcept
+    {
+        if (destination == nullptr) {
+            return pointer_error;
+        }
+        return as(__uuidof(Other), *destination);
+    }
+#endif
 
 private:
     template<typename Other>

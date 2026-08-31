@@ -1,4 +1,5 @@
 #include "progpu_native_direct2d.h"
+#include "progpu_native_com.hpp"
 #include "progpu_native_scene_builder.hpp"
 #include "../Scene/progpu_native_semantic_path_stroke.hpp"
 
@@ -10,7 +11,6 @@
 #include <windows.h>
 #include <windows.graphics.directx.direct3d11.interop.h>
 #include <winstring.h>
-#include <wrl/client.h>
 
 #include <algorithm>
 #include <atomic>
@@ -27,7 +27,8 @@
 #include <utility>
 #include <vector>
 
-using Microsoft::WRL::ComPtr;
+template<typename Interface>
+using ComPtr = progpu::native::com::pointer<Interface>;
 
 MIDL_INTERFACE("A27F0B5D-EC2C-4D4F-948F-0AA1E95E33E6")
 IProGpuWin2DCanvasDevice : public IInspectable {
