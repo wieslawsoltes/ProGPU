@@ -1108,7 +1108,7 @@ public:
                 false);
         }
         ended_ = true;
-        if (clip_depth_ != 0U) {
+        if (scope_depth_ != 0U) {
             return fail(
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_DRAWING_STATE,
                 D2DERR_WRONG_STATE,
@@ -1213,7 +1213,7 @@ public:
         if (!can_record()) {
             return fail_drawing_state();
         }
-        if (has_clear_ || translated_draw_count_ != 0U || clip_depth_ != 0U) {
+        if (has_clear_ || translated_draw_count_ != 0U || scope_depth_ != 0U) {
             return fail_unsupported_operation();
         }
         const D2D1_COLOR_F value = color == nullptr
@@ -1423,7 +1423,8 @@ public:
         if (antialias_mode != D2D1_ANTIALIAS_MODE_ALIASED) {
             return fail_unsupported_state();
         }
-        if (clip_depth_ == clip_stack_.size()) {
+        if (clip_depth_ == clip_stack_.size() ||
+            scope_depth_ == scope_stack_.size()) {
             return fail_capacity_exceeded();
         }
         progpu_native_image_rect clip = transformed_bounds(
@@ -1451,15 +1452,64 @@ public:
         }
         clip_stack_[clip_depth_] = clip;
         ++clip_depth_;
+        scope_stack_[scope_depth_] = scope_axis_aligned_clip;
+        ++scope_depth_;
         has_axis_aligned_clips_ = true;
         return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE PushLayer(
-        const D2D1_LAYER_PARAMETERS1*,
+        const D2D1_LAYER_PARAMETERS1* parameters,
         ID2D1Layer*) noexcept override
     {
-        return unsupported_operation_callback();
+        begin_callback();
+        if (!can_record()) {
+            return fail_drawing_state();
+        }
+        if (parameters == nullptr ||
+            !finite_rectangle(&parameters->contentBounds) ||
+            !finite_transform(parameters->maskTransform) ||
+            !std::isfinite(parameters->opacity) ||
+            parameters->opacity < 0.0F || parameters->opacity > 1.0F) {
+            return fail_invalid_value();
+        }
+        if (!infinite_rectangle(parameters->contentBounds)) {
+            return fail_unsupported_state();
+        }
+        if (parameters->geometricMask != nullptr ||
+            parameters->opacityBrush != nullptr) {
+            return fail_unsupported_resource();
+        }
+        if (parameters->maskAntialiasMode !=
+                D2D1_ANTIALIAS_MODE_PER_PRIMITIVE &&
+            parameters->maskAntialiasMode != D2D1_ANTIALIAS_MODE_ALIASED) {
+            return fail_invalid_value();
+        }
+        if (parameters->layerOptions != D2D1_LAYER_OPTIONS1_NONE) {
+            return fail_unsupported_state();
+        }
+        if (scope_depth_ == scope_stack_.size()) {
+            return fail_capacity_exceeded();
+        }
+        const progpu_native_scene_layer layer{
+            sizeof(progpu_native_scene_layer),
+            0U,
+            {},
+            parameters->opacity,
+            PROGPU_NATIVE_BLEND_SRC_OVER,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            PROGPU_NATIVE_SCENE_NO_INDEX,
+            0U,
+            0U,
+            0U,
+            0U};
+        if (!builder_.push_layer(layer)) {
+            return fail_builder();
+        }
+        scope_stack_[scope_depth_] = scope_opacity_layer;
+        ++scope_depth_;
+        has_opacity_layers_ = true;
+        return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE PopAxisAlignedClip() noexcept override
@@ -1468,7 +1518,8 @@ public:
         if (!can_record()) {
             return fail_drawing_state();
         }
-        if (clip_depth_ == 0U) {
+        if (clip_depth_ == 0U || scope_depth_ == 0U ||
+            scope_stack_[scope_depth_ - 1U] != scope_axis_aligned_clip) {
             return fail_drawing_state();
         }
         if (!builder_.restore()) {
@@ -1476,12 +1527,24 @@ public:
         }
         --clip_depth_;
         clip_stack_[clip_depth_] = {};
+        --scope_depth_;
+        scope_stack_[scope_depth_] = scope_none;
         return S_OK;
     }
 
     HRESULT STDMETHODCALLTYPE PopLayer() noexcept override
     {
-        return unsupported_operation_callback();
+        begin_callback();
+        if (!can_record() || scope_depth_ == 0U ||
+            scope_stack_[scope_depth_ - 1U] != scope_opacity_layer) {
+            return fail_drawing_state();
+        }
+        if (!builder_.pop_layer()) {
+            return fail_builder();
+        }
+        --scope_depth_;
+        scope_stack_[scope_depth_] = scope_none;
+        return S_OK;
     }
 
     progpu::native::semantic_scene_builder& builder() noexcept
@@ -1534,6 +1597,11 @@ public:
         return has_stroked_path_geometry_;
     }
 
+    bool has_opacity_layers() const noexcept
+    {
+        return has_opacity_layers_;
+    }
+
     D2D1_COLOR_F clear_color() const noexcept
     {
         return clear_color_;
@@ -1579,6 +1647,13 @@ private:
             std::isfinite(value->top) && std::isfinite(value->right) &&
             std::isfinite(value->bottom) && value->right >= value->left &&
             value->bottom >= value->top;
+    }
+
+    static bool infinite_rectangle(const D2D1_RECT_F& value) noexcept
+    {
+        const float maximum = std::numeric_limits<float>::max();
+        return value.left == -maximum && value.top == -maximum &&
+            value.right == maximum && value.bottom == maximum;
     }
 
     static bool finite_native_rectangle(
@@ -2316,6 +2391,10 @@ private:
     std::array<
         progpu_native_image_rect,
         PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> clip_stack_{};
+    static constexpr uint8_t scope_none = 0U;
+    static constexpr uint8_t scope_axis_aligned_clip = 1U;
+    static constexpr uint8_t scope_opacity_layer = 2U;
+    std::array<uint8_t, PROGPU_NATIVE_SCENE_MAX_STACK_DEPTH> scope_stack_{};
     std::vector<brush_cache_entry> brush_cache_;
     D2D1_ANTIALIAS_MODE antialias_mode_ =
         D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;
@@ -2325,6 +2404,7 @@ private:
         PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE;
     uint32_t translated_draw_count_ = 0U;
     uint32_t clip_depth_ = 0U;
+    uint32_t scope_depth_ = 0U;
     bool builder_ready_ = true;
     bool begun_ = false;
     bool ended_ = false;
@@ -2334,6 +2414,7 @@ private:
     bool has_gradient_brushes_ = false;
     bool has_path_geometry_ = false;
     bool has_stroked_path_geometry_ = false;
+    bool has_opacity_layers_ = false;
 };
 
 class CallerTessellationSink final : public ID2D1TessellationSink {
@@ -5199,6 +5280,10 @@ progpu_native_direct2d_command_list_build_scene_stream(
         if (scene_sink->has_stroked_path_geometry()) {
             result->flags |=
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_STROKED_PATH_GEOMETRY;
+        }
+        if (scene_sink->has_opacity_layers()) {
+            result->flags |=
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_OPACITY_LAYERS;
         }
     }
 

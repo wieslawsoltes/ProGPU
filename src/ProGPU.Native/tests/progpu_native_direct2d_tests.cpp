@@ -2385,6 +2385,231 @@ int main()
             aliased_path_scene.written_bytes == 0U,
         "aliased Direct2D filled path did not fail closed");
 
+    void* opacity_layer_list_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_command_list(
+            surface,
+            &opacity_layer_list_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            opacity_layer_list_value != nullptr && native_hresult == S_OK,
+        "opacity-layer command-list creation failed");
+    ComPtr<ID2D1CommandList> opacity_layer_list;
+    opacity_layer_list.Attach(
+        static_cast<ID2D1CommandList*>(opacity_layer_list_value));
+    require(
+        progpu_native_direct2d_surface_begin_command_list_draw(
+            surface,
+            opacity_layer_list.Get()) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "opacity-layer command-list recording did not begin");
+    context->SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_SOURCE_OVER);
+    context->SetUnitMode(D2D1_UNIT_MODE_DIPS);
+    context->SetTextRenderingParams(nullptr);
+    context->SetTransform(D2D1::Matrix3x2F::Identity());
+    context->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    D2D1_LAYER_PARAMETERS1 opacity_layer_parameters{};
+    opacity_layer_parameters.contentBounds = D2D1::InfiniteRect();
+    opacity_layer_parameters.maskAntialiasMode =
+        D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;
+    opacity_layer_parameters.maskTransform =
+        D2D1::Matrix3x2F::Identity();
+    opacity_layer_parameters.opacity = 0.375F;
+    opacity_layer_parameters.layerOptions = D2D1_LAYER_OPTIONS1_NONE;
+    const D2D1_RECT_F opacity_layer_clip =
+        D2D1::RectF(2.0F, 3.0F, 36.0F, 37.0F);
+    context->PushAxisAlignedClip(
+        &opacity_layer_clip,
+        D2D1_ANTIALIAS_MODE_ALIASED);
+    context->PushLayer(&opacity_layer_parameters, nullptr);
+    const D2D1_RECT_F opacity_layer_fill0 =
+        D2D1::RectF(4.0F, 5.0F, 24.0F, 25.0F);
+    const D2D1_RECT_F opacity_layer_fill1 =
+        D2D1::RectF(12.0F, 13.0F, 32.0F, 33.0F);
+    context->FillRectangle(&opacity_layer_fill0, solid_brush.Get());
+    context->FillRectangle(&opacity_layer_fill1, solid_brush.Get());
+    context->PopLayer();
+    context->PopAxisAlignedClip();
+    command_tag1 = 0U;
+    command_tag2 = 0U;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_end_command_list_draw(
+            surface,
+            &command_tag1,
+            &command_tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "opacity-layer command-list recording did not close");
+    progpu_native_direct2d_scene_stream_result opacity_layer_measure{};
+    opacity_layer_measure.struct_size =
+        static_cast<uint32_t>(sizeof(opacity_layer_measure));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            opacity_layer_list.Get(),
+            7007U,
+            1U,
+            nullptr,
+            0U,
+            &opacity_layer_measure,
+            &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INSUFFICIENT_BUFFER &&
+            native_hresult == HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER) &&
+            opacity_layer_measure.translated_draw_count == 2U &&
+            opacity_layer_measure.failure_reason ==
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_NONE &&
+            (opacity_layer_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_OPACITY_LAYERS) !=
+                0U &&
+            (opacity_layer_measure.flags &
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_AXIS_ALIGNED_CLIPS) !=
+                0U,
+        "Direct2D opacity-layer scene size pass changed");
+    std::vector<uint8_t> opacity_layer_stream(
+        static_cast<size_t>(opacity_layer_measure.required_bytes));
+    progpu_native_direct2d_scene_stream_result opacity_layer_write{};
+    opacity_layer_write.struct_size =
+        static_cast<uint32_t>(sizeof(opacity_layer_write));
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            opacity_layer_list.Get(),
+            7007U,
+            1U,
+            opacity_layer_stream.data(),
+            opacity_layer_stream.size(),
+            &opacity_layer_write,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK &&
+            opacity_layer_write.translated_draw_count == 2U,
+        "Direct2D opacity-layer scene write pass changed");
+    progpu_native_scene_header opacity_layer_header{};
+    std::memcpy(
+        &opacity_layer_header,
+        opacity_layer_stream.data(),
+        sizeof(opacity_layer_header));
+    uint32_t push_layer_count = 0U;
+    uint32_t pop_layer_count = 0U;
+    uint32_t save_index = std::numeric_limits<uint32_t>::max();
+    uint32_t push_layer_index = std::numeric_limits<uint32_t>::max();
+    uint32_t pop_layer_index = std::numeric_limits<uint32_t>::max();
+    uint32_t restore_index = std::numeric_limits<uint32_t>::max();
+    for (uint32_t index = 0U;
+         index < opacity_layer_header.command_count;
+         ++index) {
+        progpu_native_scene_command command{};
+        std::memcpy(
+            &command,
+            opacity_layer_stream.data() + opacity_layer_header.command_offset +
+                static_cast<size_t>(index) *
+                    opacity_layer_header.command_stride,
+            sizeof(command));
+        if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_PUSH_LAYER) {
+            require(
+                push_layer_count == 0U &&
+                    command.payload_size ==
+                        sizeof(progpu_native_scene_layer) &&
+                    static_cast<uint64_t>(command.payload_offset) +
+                        command.payload_size <= opacity_layer_stream.size(),
+                "translated Direct2D opacity-layer payload changed");
+            progpu_native_scene_layer translated_layer{};
+            std::memcpy(
+                &translated_layer,
+                opacity_layer_stream.data() + command.payload_offset,
+                sizeof(translated_layer));
+            require(
+                translated_layer.flags == 0U &&
+                    translated_layer.bounds.x == 0.0F &&
+                    translated_layer.bounds.y == 0.0F &&
+                    translated_layer.bounds.width == 0.0F &&
+                    translated_layer.bounds.height == 0.0F &&
+                    translated_layer.opacity == 0.375F &&
+                    translated_layer.blend_mode ==
+                        PROGPU_NATIVE_BLEND_SRC_OVER &&
+                    translated_layer.mask_resource_index ==
+                        PROGPU_NATIVE_SCENE_NO_INDEX &&
+                    translated_layer.effect_resource_index ==
+                        PROGPU_NATIVE_SCENE_NO_INDEX,
+                "Direct2D grouped opacity translation changed");
+            push_layer_index = index;
+            ++push_layer_count;
+        } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_POP_LAYER) {
+            pop_layer_index = index;
+            ++pop_layer_count;
+        } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_SAVE) {
+            save_index = index;
+        } else if (command.kind == PROGPU_NATIVE_SCENE_COMMAND_RESTORE) {
+            restore_index = index;
+        }
+    }
+    require(
+        push_layer_count == 1U && pop_layer_count == 1U &&
+            save_index < push_layer_index &&
+            push_layer_index < pop_layer_index &&
+            pop_layer_index < restore_index,
+        "translated Direct2D clip/layer scopes were not balanced and nested");
+
+    void* background_layer_list_value = nullptr;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_create_command_list(
+            surface,
+            &background_layer_list_value,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            background_layer_list_value != nullptr && native_hresult == S_OK,
+        "background-layer command-list creation failed");
+    ComPtr<ID2D1CommandList> background_layer_list;
+    background_layer_list.Attach(
+        static_cast<ID2D1CommandList*>(background_layer_list_value));
+    require(
+        progpu_native_direct2d_surface_begin_command_list_draw(
+            surface,
+            background_layer_list.Get()) ==
+            PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS,
+        "background-layer command-list recording did not begin");
+    D2D1_LAYER_PARAMETERS1 background_layer_parameters =
+        opacity_layer_parameters;
+    background_layer_parameters.layerOptions =
+        D2D1_LAYER_OPTIONS1_INITIALIZE_FROM_BACKGROUND;
+    context->PushLayer(&background_layer_parameters, nullptr);
+    context->FillRectangle(&opacity_layer_fill0, solid_brush.Get());
+    context->PopLayer();
+    command_tag1 = 0U;
+    command_tag2 = 0U;
+    native_hresult = E_FAIL;
+    require(
+        progpu_native_direct2d_surface_end_command_list_draw(
+            surface,
+            &command_tag1,
+            &command_tag2,
+            &native_hresult) == PROGPU_NATIVE_DIRECT2D_STATUS_SUCCESS &&
+            native_hresult == S_OK,
+        "background-layer command-list recording did not close");
+    progpu_native_direct2d_scene_stream_result background_layer_scene{};
+    background_layer_scene.struct_size =
+        static_cast<uint32_t>(sizeof(background_layer_scene));
+    native_hresult = S_OK;
+    require(
+        progpu_native_direct2d_command_list_build_scene_stream(
+            surface,
+            background_layer_list.Get(),
+            7008U,
+            1U,
+            nullptr,
+            0U,
+            &background_layer_scene,
+            &native_hresult) ==
+                PROGPU_NATIVE_DIRECT2D_STATUS_INTERFACE_NOT_SUPPORTED &&
+            native_hresult == E_NOTIMPL &&
+            background_layer_scene.failure_reason ==
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_UNSUPPORTED_STATE &&
+            background_layer_scene.failure_callback_index != 0U &&
+            background_layer_scene.written_bytes == 0U,
+        "Direct2D background-initialized layer did not fail closed");
+
     progpu_native_direct2d_scene_stream_result scene_short{};
     scene_short.struct_size = static_cast<uint32_t>(sizeof(scene_short));
     native_hresult = S_OK;
