@@ -139,6 +139,40 @@ public sealed class CadRayAuthoringChangedEventArgs : EventArgs
     }
 }
 
+/// <summary>Observable stage of default two-point XLINE authoring.</summary>
+public enum CadXLineAuthoringStage : byte
+{
+    AwaitingFirstPoint = 0,
+    AwaitingThroughPoint = 1,
+    LineUndone = 2,
+    Completed = 3,
+    Failed = 4,
+}
+
+/// <summary>Immutable transition emitted by bounded XLINE authoring.</summary>
+public sealed class CadXLineAuthoringChangedEventArgs : EventArgs
+{
+    public CadXLineAuthoringStage Stage { get; }
+
+    public int LineCount { get; }
+
+    public CadPoint3D? FirstPoint { get; }
+
+    public string? ErrorMessage { get; }
+
+    internal CadXLineAuthoringChangedEventArgs(
+        CadXLineAuthoringStage stage,
+        int lineCount,
+        CadPoint3D? firstPoint = null,
+        string? errorMessage = null)
+    {
+        Stage = stage;
+        LineCount = lineCount;
+        FirstPoint = firstPoint;
+        ErrorMessage = errorMessage;
+    }
+}
+
 /// <summary>Observable stage of one shared desktop/browser POINT command.</summary>
 public enum CadPointAuthoringStage : byte
 {
@@ -495,11 +529,13 @@ public sealed class CadSampleCanvas : FrameworkElement
     private GpuPicture? _pointMarkerPicture;
     private GpuPicture? _lineAuthoringPicture;
     private GpuPicture? _rayAuthoringPicture;
+    private GpuPicture? _xlineAuthoringPicture;
     private GpuPicture? _polylineAuthoringPicture;
     private GpuPicture? _polygonAuthoringPicture;
     private CadDocumentHistory? _history;
     private CadLineAuthoringSession? _lineAuthoring;
     private CadRayAuthoringSession? _rayAuthoring;
+    private CadXLineAuthoringSession? _xlineAuthoring;
     private CadPointAuthoringSession? _pointAuthoring;
     private CadPolylineAuthoringSession? _polylineAuthoring;
     private CadCircleAuthoringSession? _circleAuthoring;
@@ -630,6 +666,12 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public CadPoint3D? PendingRayStartPoint => _rayAuthoring?.StartPoint;
 
+    public bool IsXLineAuthoring => _xlineAuthoring is not null;
+
+    public int PendingXLineCount => _xlineAuthoring?.LineCount ?? 0;
+
+    public CadPoint3D? PendingXLineFirstPoint => _xlineAuthoring?.FirstPoint;
+
     /// <summary>Whether one single-location model-space POINT is active.</summary>
     public bool IsPointAuthoring => _pointAuthoring is not null;
 
@@ -748,6 +790,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         PendingPointTransformOperation is not null ||
         _lineAuthoring is not null ||
         _rayAuthoring is not null ||
+        _xlineAuthoring is not null ||
         _pointAuthoring is not null ||
         _polylineAuthoring is not null ||
         _circleAuthoring is not null ||
@@ -1174,6 +1217,10 @@ public sealed class CadSampleCanvas : FrameworkElement
     public event EventHandler<CadRayAuthoringChangedEventArgs>?
         RayAuthoringChanged;
 
+    /// <summary>Raised for XLINE acceptance, local Undo, completion, and failure.</summary>
+    public event EventHandler<CadXLineAuthoringChangedEventArgs>?
+        XLineAuthoringChanged;
+
     /// <summary>
     /// Raised when POINT begins, completes, fails, or is canceled.
     /// Pointer motion does not allocate events.
@@ -1404,6 +1451,7 @@ public sealed class CadSampleCanvas : FrameworkElement
             ResetPointTransformState(notify: false);
             ResetLineAuthoringState();
             ResetRayAuthoringState();
+            ResetXLineAuthoringState();
             ResetPointAuthoringState();
             ResetPolylineAuthoringState();
             ResetCircleAuthoringState();
@@ -1471,6 +1519,10 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (_rayAuthoringPicture is not null)
         {
             context.DrawPicture(_rayAuthoringPicture);
+        }
+        if (_xlineAuthoringPicture is not null)
+        {
+            context.DrawPicture(_xlineAuthoringPicture);
         }
         if (_polylineAuthoringPicture is not null)
         {
@@ -2204,6 +2256,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetPointTransformState(notify: true);
         ResetLineAuthoringState();
         ResetRayAuthoringState();
+        ResetXLineAuthoringState();
         ResetPointAuthoringState();
         ResetPolylineAuthoringState();
         ResetCircleAuthoringState();
@@ -3008,6 +3061,222 @@ public sealed class CadSampleCanvas : FrameworkElement
                     CadRayAuthoringStage.Failed,
                     authoring.RayCount,
                     authoring.StartPoint,
+                    exception.Message));
+            return false;
+        }
+    }
+
+    /// <summary>Starts the default common-point two-point XLINE mode.</summary>
+    public bool BeginXLineAuthoring(
+        int maximumLineCount = CadXLineAuthoringSession.DefaultMaximumLineCount)
+    {
+        if (CurrentSession is null || CurrentSnapshot is null)
+        {
+            return false;
+        }
+        ThrowIfDrawOrderReferenceSelectionPending();
+        if (IsPointAcquisitionActive)
+        {
+            throw new InvalidOperationException(
+                "Complete the pending point-acquisition command first.");
+        }
+
+        _xlineAuthoring = new CadXLineAuthoringSession(maximumLineCount);
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        ClearPointTransformSnapState();
+        RefreshXLineAuthoringPicture();
+        XLineAuthoringChanged?.Invoke(
+            this,
+            new CadXLineAuthoringChangedEventArgs(
+                CadXLineAuthoringStage.AwaitingFirstPoint,
+                lineCount: 0));
+        Invalidate();
+        return true;
+    }
+
+    public bool CanAcceptXLineAuthoringInput(string? text)
+    {
+        if (_xlineAuthoring is null)
+        {
+            return false;
+        }
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            return CadDirectDistanceInput.TryParse(
+                    text,
+                    out CadDirectDistanceInput distance) &&
+                TryResolvePointTransformDirectDistance(distance, out _);
+        }
+        if (!_hasPointTransformBasePoint && coordinate.IsRelative)
+        {
+            return false;
+        }
+        CadPoint3D origin = _hasPointTransformBasePoint
+            ? _pointTransformBasePoint
+            : CadPoint3D.Zero;
+        if (!coordinate.TryResolve(origin, out CadPoint3D point) ||
+            (_hasPointTransformBasePoint && point == _pointTransformBasePoint))
+        {
+            return false;
+        }
+        try
+        {
+            _ = CreateViewport().WorldToScreen(point);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    public bool TryAcceptXLineAuthoringInput(
+        string? text,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        if (_xlineAuthoring is null)
+        {
+            errorMessage = "No XLINE command is awaiting point input.";
+            return false;
+        }
+        CadPoint3D point;
+        if (!CadCoordinateInput.TryParse(text, out CadCoordinateInput coordinate))
+        {
+            if (!CadDirectDistanceInput.TryParse(
+                    text,
+                    out CadDirectDistanceInput distance))
+            {
+                errorMessage =
+                    "Enter x,y[,z], @dx,dy[,dz], distance<angle, @distance<angle, or a positive direct distance using invariant numbers.";
+                return false;
+            }
+            if (!_hasPointTransformBasePoint)
+            {
+                errorMessage =
+                    "Accept an absolute XLINE first point before entering a direct distance.";
+                return false;
+            }
+            if (!_hasPointTransformPointerPosition ||
+                !TryResolvePointTransformDirectDistance(distance, out point))
+            {
+                errorMessage =
+                    "Move the cursor from the XLINE first point so the distance resolves to a finite WCS point.";
+                return false;
+            }
+        }
+        else
+        {
+            if (!_hasPointTransformBasePoint && coordinate.IsRelative)
+            {
+                errorMessage =
+                    "Enter an absolute XLINE first point before using a relative coordinate.";
+                return false;
+            }
+            CadPoint3D origin = _hasPointTransformBasePoint
+                ? _pointTransformBasePoint
+                : CadPoint3D.Zero;
+            if (!coordinate.TryResolve(origin, out point))
+            {
+                errorMessage = "The coordinate resolves outside finite WCS values.";
+                return false;
+            }
+        }
+
+        Vector2 screenPoint;
+        try
+        {
+            screenPoint = CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException)
+        {
+            errorMessage =
+                "The XLINE point cannot be represented by the current plan viewport.";
+            return false;
+        }
+        return TryAcceptXLineAuthoringPoint(point, screenPoint, out errorMessage);
+    }
+
+    public bool UndoXLineAuthoringLine()
+    {
+        CadXLineAuthoringSession? authoring = _xlineAuthoring;
+        if (authoring is null || !authoring.TryUndoLastLine())
+        {
+            return false;
+        }
+        _pointTransformBasePoint = authoring.FirstPoint!.Value;
+        _pointTransformCurrent = CreateViewport().WorldToScreen(
+            _pointTransformBasePoint);
+        _hasPointTransformBasePoint = true;
+        ClearPointTransformSnapState();
+        RefreshXLineAuthoringPicture();
+        XLineAuthoringChanged?.Invoke(
+            this,
+            new CadXLineAuthoringChangedEventArgs(
+                CadXLineAuthoringStage.LineUndone,
+                authoring.LineCount,
+                authoring.FirstPoint));
+        Invalidate();
+        return true;
+    }
+
+    public bool CompleteXLineAuthoring(out string? errorMessage)
+    {
+        errorMessage = null;
+        CadXLineAuthoringSession? authoring = _xlineAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No XLINE command is active.";
+            return false;
+        }
+        int lineCount = authoring.LineCount;
+        CadPoint3D? firstPoint = authoring.FirstPoint;
+        if (lineCount == 0)
+        {
+            ResetXLineAuthoringState();
+            XLineAuthoringChanged?.Invoke(
+                this,
+                new CadXLineAuthoringChangedEventArgs(
+                    CadXLineAuthoringStage.Completed,
+                    lineCount: 0,
+                    firstPoint));
+            Invalidate();
+            return true;
+        }
+
+        CadDocumentSession session = CurrentSession ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        CadDocumentHistory history = _history ??
+            throw new InvalidOperationException(
+                "The CAD edit history is not initialized.");
+        try
+        {
+            history.Execute(new CadAddXLineSequenceCommand(
+                firstPoint!.Value,
+                authoring.CreateDirectionSnapshot(),
+                description: lineCount == 1
+                    ? "XLINE: add 1 line"
+                    : $"XLINE: add {lineCount} lines"));
+            ResetXLineAuthoringState();
+            RecompileAfterEdit(session);
+            XLineAuthoringChanged?.Invoke(
+                this,
+                new CadXLineAuthoringChangedEventArgs(
+                    CadXLineAuthoringStage.Completed,
+                    lineCount,
+                    firstPoint));
+            return true;
+        }
+        catch (Exception exception)
+        {
+            errorMessage = exception.Message;
+            XLineAuthoringChanged?.Invoke(
+                this,
+                new CadXLineAuthoringChangedEventArgs(
+                    CadXLineAuthoringStage.Failed,
+                    authoring.LineCount,
+                    authoring.FirstPoint,
                     exception.Message));
             return false;
         }
@@ -6068,6 +6337,7 @@ public sealed class CadSampleCanvas : FrameworkElement
 
         CadPlanViewport viewport = CreateViewport();
         CadPoint3D pointerWorld = (_rayAuthoring is not null ||
+                _xlineAuthoring is not null ||
                 _polylineAuthoring is not null ||
                 _circleAuthoring is not null ||
                 _arcAuthoring is not null ||
@@ -6552,6 +6822,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (operation is null &&
             _lineAuthoring is null &&
             _rayAuthoring is null &&
+            _xlineAuthoring is null &&
             _pointAuthoring is null &&
             _polylineAuthoring is null &&
                 _circleAuthoring is null &&
@@ -6566,6 +6837,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         try
         {
             point = (_rayAuthoring is not null ||
+                    _xlineAuthoring is not null ||
                     _polylineAuthoring is not null ||
                     _circleAuthoring is not null ||
                     _arcAuthoring is not null ||
@@ -6607,6 +6879,16 @@ public sealed class CadSampleCanvas : FrameworkElement
                         CadRayAuthoringStage.Failed,
                         _rayAuthoring.RayCount,
                         _rayAuthoring.StartPoint,
+                        exception.Message));
+            }
+            else if (_xlineAuthoring is not null)
+            {
+                XLineAuthoringChanged?.Invoke(
+                    this,
+                    new CadXLineAuthoringChangedEventArgs(
+                        CadXLineAuthoringStage.Failed,
+                        _xlineAuthoring.LineCount,
+                        _xlineAuthoring.FirstPoint,
                         exception.Message));
             }
             else if (_pointAuthoring is not null)
@@ -6702,6 +6984,11 @@ public sealed class CadSampleCanvas : FrameworkElement
         if (_rayAuthoring is not null)
         {
             _ = TryAcceptRayAuthoringPoint(point, screenPoint, out _);
+            return;
+        }
+        if (_xlineAuthoring is not null)
+        {
+            _ = TryAcceptXLineAuthoringPoint(point, screenPoint, out _);
             return;
         }
         if (_pointAuthoring is not null)
@@ -6929,6 +7216,62 @@ public sealed class CadSampleCanvas : FrameworkElement
                 CadRayAuthoringStage.AwaitingThroughPoint,
                 authoring.RayCount,
                 authoring.StartPoint));
+        Invalidate();
+        return true;
+    }
+
+    private bool TryAcceptXLineAuthoringPoint(
+        CadPoint3D point,
+        Vector2? screenPoint,
+        out string? errorMessage)
+    {
+        errorMessage = null;
+        CadXLineAuthoringSession? authoring = _xlineAuthoring;
+        if (authoring is null)
+        {
+            errorMessage = "No XLINE command is active.";
+            return false;
+        }
+        Vector2 resolvedScreen;
+        try
+        {
+            resolvedScreen = screenPoint ?? CreateViewport().WorldToScreen(point);
+        }
+        catch (ArgumentException exception)
+        {
+            errorMessage = exception.Message;
+            XLineAuthoringChanged?.Invoke(
+                this,
+                new CadXLineAuthoringChangedEventArgs(
+                    CadXLineAuthoringStage.Failed,
+                    authoring.LineCount,
+                    authoring.FirstPoint,
+                    errorMessage));
+            return false;
+        }
+        if (!authoring.TryAcceptPoint(point, out errorMessage))
+        {
+            XLineAuthoringChanged?.Invoke(
+                this,
+                new CadXLineAuthoringChangedEventArgs(
+                    CadXLineAuthoringStage.Failed,
+                    authoring.LineCount,
+                    authoring.FirstPoint,
+                    errorMessage));
+            return false;
+        }
+
+        ClearPointTransformSnapState();
+        _pointTransformBasePoint = authoring.FirstPoint!.Value;
+        _pointTransformCurrent = resolvedScreen;
+        _hasPointTransformBasePoint = true;
+        RefreshXLineAuthoringPicture();
+        XLineAuthoringChanged?.Invoke(
+            this,
+            new CadXLineAuthoringChangedEventArgs(
+                CadXLineAuthoringStage.AwaitingThroughPoint,
+                authoring.LineCount,
+                authoring.FirstPoint));
         Invalidate();
         return true;
     }
@@ -7788,6 +8131,18 @@ public sealed class CadSampleCanvas : FrameworkElement
         ClearPointTransformSnapState();
     }
 
+    private void ResetXLineAuthoringState()
+    {
+        _xlineAuthoring = null;
+        _xlineAuthoringPicture?.Dispose();
+        _xlineAuthoringPicture = null;
+        _hasPointTransformBasePoint = false;
+        _isPointTransformPointerPressed = false;
+        _pointTransformBasePoint = default;
+        _pointTransformCurrent = default;
+        ClearPointTransformSnapState();
+    }
+
     private void ResetPointAuthoringState()
     {
         _pointAuthoring = null;
@@ -7885,6 +8240,8 @@ public sealed class CadSampleCanvas : FrameworkElement
             _lineAuthoringPicture = null;
             _rayAuthoringPicture?.Dispose();
             _rayAuthoringPicture = null;
+            _xlineAuthoringPicture?.Dispose();
+            _xlineAuthoringPicture = null;
             _polylineAuthoringPicture?.Dispose();
             _polylineAuthoringPicture = null;
             return;
@@ -7916,6 +8273,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         previousMarkers?.Dispose();
         RefreshLineAuthoringPicture();
         RefreshRayAuthoringPicture();
+        RefreshXLineAuthoringPicture();
         RefreshPolylineAuthoringPicture();
     }
 
@@ -8015,6 +8373,67 @@ public sealed class CadSampleCanvas : FrameworkElement
 
         GpuPicture? previous = _rayAuthoringPicture;
         _rayAuthoringPicture = replacement;
+        previous?.Dispose();
+    }
+
+    private void RefreshXLineAuthoringPicture()
+    {
+        GpuPicture? replacement = null;
+        CadXLineAuthoringSession? authoring = _xlineAuthoring;
+        if (authoring is not null &&
+            authoring.LineCount > 0 &&
+            CurrentSnapshot is not null &&
+            Size.X > 0.0f &&
+            Size.Y > 0.0f)
+        {
+            CadPlanViewport viewport = CreateViewport();
+            CadBounds3D clipBounds = viewport.CreatePlanClipBounds();
+            var recorder = new GpuPictureRecorder();
+            DrawingContext target = recorder.BeginRecording(
+                new Rect(0, 0, Size.X, Size.Y));
+            try
+            {
+                CadPoint3D firstPoint = authoring.FirstPoint!.Value;
+                ReadOnlySpan<CadPoint3D> directions = authoring.Directions.Span;
+                var path = new PathGeometry();
+                for (int i = 0; i < directions.Length; i++)
+                {
+                    var primitive = new CadConstructionLinePrimitive(
+                        firstPoint,
+                        directions[i]);
+                    if (CadConstructionSceneCompiler.TryClipPlan(
+                            primitive,
+                            clipBounds,
+                            isRay: false,
+                            out CadPoint3D clippedStart,
+                            out CadPoint3D clippedEnd))
+                    {
+                        var figure = new PathFigure(
+                            viewport.WorldToScreen(clippedStart))
+                        {
+                            IsFilled = false,
+                            IsClosed = false,
+                        };
+                        figure.Segments.Add(new LineSegment(
+                            viewport.WorldToScreen(clippedEnd)));
+                        path.Figures.Add(figure);
+                    }
+                }
+                if (path.Figures.Count > 0)
+                {
+                    target.DrawPath(null, _drawOrderReferencePen, path);
+                }
+                replacement = recorder.EndRecording();
+            }
+            catch
+            {
+                target.Clear();
+                throw;
+            }
+        }
+
+        GpuPicture? previous = _xlineAuthoringPicture;
+        _xlineAuthoringPicture = replacement;
         previous?.Dispose();
     }
 
@@ -8165,6 +8584,7 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetPointTransformState(notify: false);
         ResetLineAuthoringState();
         ResetRayAuthoringState();
+        ResetXLineAuthoringState();
         ResetPointAuthoringState();
         ResetPolylineAuthoringState();
         ResetCircleAuthoringState();

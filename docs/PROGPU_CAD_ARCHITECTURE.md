@@ -2398,6 +2398,32 @@ construction-picture regressions cover the authored result. The source record,
 adopted/rejected engine concepts, and remaining gates are in
 `PROGPU_CAD_RAY_AUTHORING_RESEARCH.md`.
 
+### Atomic common-point XLINE authoring
+
+`CadXLineAuthoringSession` is the host-neutral default two-point XLINE state.
+It retains one finite double-WCS first point and a geometrically growing,
+65,536-bounded array of normalized directions. Every accepted through point is
+resolved from the common point through the same overflow-resistant direction
+reduction as RAY. Acceptance and line-local Undo are amortized O(1); acquisition
+does not publish an entity or document generation.
+
+The shared desktop/browser surface passes accepted directions through
+`CadConstructionSceneCompiler.TryClipPlan` with its exact two-sided XLINE
+contract, batches them into one retained multi-figure path, and rebuilds only
+after accepted-state or viewport changes. Enter, Escape, or Finish publishes
+separate ACadSharp `XLine` objects through one
+`CadAddXLineSequenceCommand`; `U` removes only the latest transient direction
+and empty completion is generation-neutral.
+
+The command preflights current-layer locking and CELTSCALE, captures CLAYER,
+CECOLOR, CELTYPE, CELTSCALE, and CELWEIGHT together, and preserves exact XLine
+instances across global Undo/Redo. Apply, Undo, Redo, persistence input, and
+preview rebuilding are O(L) for L lines. DXF/DWG and shared managed/native
+construction-picture regressions cover the result. Horizontal, Vertical,
+Angle, Bisect, and Offset prompt modes remain later gates. The source record
+and engine applicability audit are in
+`PROGPU_CAD_XLINE_AUTHORING_RESEARCH.md`.
+
 ## Retained TrueType TEXT lowering
 
 The snapshot compiler accepts an `ICadTextFontResolver`; hosts may use the
