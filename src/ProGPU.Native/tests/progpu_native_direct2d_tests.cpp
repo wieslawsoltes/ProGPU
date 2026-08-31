@@ -185,6 +185,66 @@ int main()
     compat_multithread->Enter();
     compat_multithread->Leave();
 
+    D2D1_STROKE_STYLE_PROPERTIES1 compat_stroke_properties{};
+    compat_stroke_properties.startCap = D2D1_CAP_STYLE_ROUND;
+    compat_stroke_properties.endCap = D2D1_CAP_STYLE_TRIANGLE;
+    compat_stroke_properties.dashCap = D2D1_CAP_STYLE_SQUARE;
+    compat_stroke_properties.lineJoin = D2D1_LINE_JOIN_BEVEL;
+    compat_stroke_properties.miterLimit = 6.0F;
+    compat_stroke_properties.dashStyle = D2D1_DASH_STYLE_CUSTOM;
+    compat_stroke_properties.dashOffset = 0.5F;
+    compat_stroke_properties.transformType =
+        D2D1_STROKE_TRANSFORM_TYPE_FIXED;
+    const FLOAT compat_custom_dashes[] = {2.0F, 1.0F, 0.5F, 1.0F};
+    ComPtr<ID2D1StrokeStyle1> compat_stroke_style;
+    require(
+        compat_factory->CreateStrokeStyle(
+            &compat_stroke_properties,
+            compat_custom_dashes,
+            static_cast<UINT32>(std::size(compat_custom_dashes)),
+            &compat_stroke_style) == S_OK &&
+            compat_stroke_style != nullptr,
+        "ProGPU ID2D1StrokeStyle1 creation failed");
+    ComPtr<ID2D1StrokeStyle> compat_base_stroke_style;
+    require(
+        SUCCEEDED(compat_stroke_style.As(&compat_base_stroke_style)) &&
+            has_same_com_identity(
+                compat_stroke_style.Get(), compat_base_stroke_style.Get()),
+        "ProGPU stroke style COM identity changed");
+    ComPtr<ID2D1Factory> compat_stroke_factory;
+    compat_stroke_style->GetFactory(&compat_stroke_factory);
+    FLOAT compat_returned_dashes[std::size(compat_custom_dashes)]{};
+    compat_stroke_style->GetDashes(
+        compat_returned_dashes,
+        static_cast<UINT32>(std::size(compat_returned_dashes)));
+    require(
+        compat_stroke_factory != nullptr &&
+            has_same_com_identity(
+                compat_stroke_factory.Get(), compat_factory.Get()) &&
+            compat_stroke_style->GetStartCap() == D2D1_CAP_STYLE_ROUND &&
+            compat_stroke_style->GetEndCap() == D2D1_CAP_STYLE_TRIANGLE &&
+            compat_stroke_style->GetDashCap() == D2D1_CAP_STYLE_SQUARE &&
+            compat_stroke_style->GetLineJoin() == D2D1_LINE_JOIN_BEVEL &&
+            compat_stroke_style->GetMiterLimit() == 6.0F &&
+            compat_stroke_style->GetDashStyle() == D2D1_DASH_STYLE_CUSTOM &&
+            compat_stroke_style->GetDashOffset() == 0.5F &&
+            compat_stroke_style->GetStrokeTransformType() ==
+                D2D1_STROKE_TRANSFORM_TYPE_FIXED &&
+            compat_stroke_style->GetDashesCount() ==
+                std::size(compat_custom_dashes) &&
+            compat_returned_dashes[0] == 2.0F &&
+            compat_returned_dashes[3] == 1.0F,
+        "ProGPU stroke style metadata changed");
+    ComPtr<ID2D1StrokeStyle1> invalid_compat_stroke_style;
+    require(
+        compat_factory->CreateStrokeStyle(
+            &compat_stroke_properties,
+            nullptr,
+            0U,
+            &invalid_compat_stroke_style) == E_INVALIDARG &&
+            invalid_compat_stroke_style == nullptr,
+        "ProGPU custom stroke style without dashes did not fail closed");
+
     const D2D1_RECT_F compat_rectangle_value = {2.0F, 3.0F, 12.0F, 11.0F};
     ComPtr<ID2D1RectangleGeometry> compat_rectangle;
     require(
@@ -625,6 +685,44 @@ int main()
             base_context && d3d_device && texture && winrt_d3d_device &&
             dwrite_factory,
         "one or more genuine COM interfaces were unavailable");
+
+    ComPtr<ID2D1StrokeStyle1> system_stroke_style;
+    require(
+        factory1->CreateStrokeStyle(
+            &compat_stroke_properties,
+            compat_custom_dashes,
+            static_cast<UINT32>(std::size(compat_custom_dashes)),
+            &system_stroke_style) == S_OK &&
+            system_stroke_style != nullptr,
+        "system Direct2D stroke style creation failed");
+    FLOAT system_returned_dashes[std::size(compat_custom_dashes)]{};
+    system_stroke_style->GetDashes(
+        system_returned_dashes,
+        static_cast<UINT32>(std::size(system_returned_dashes)));
+    require(
+        system_stroke_style->GetStartCap() ==
+                compat_stroke_style->GetStartCap() &&
+            system_stroke_style->GetEndCap() ==
+                compat_stroke_style->GetEndCap() &&
+            system_stroke_style->GetDashCap() ==
+                compat_stroke_style->GetDashCap() &&
+            system_stroke_style->GetLineJoin() ==
+                compat_stroke_style->GetLineJoin() &&
+            system_stroke_style->GetMiterLimit() ==
+                compat_stroke_style->GetMiterLimit() &&
+            system_stroke_style->GetDashStyle() ==
+                compat_stroke_style->GetDashStyle() &&
+            system_stroke_style->GetDashOffset() ==
+                compat_stroke_style->GetDashOffset() &&
+            system_stroke_style->GetStrokeTransformType() ==
+                compat_stroke_style->GetStrokeTransformType() &&
+            system_stroke_style->GetDashesCount() ==
+                compat_stroke_style->GetDashesCount() &&
+            std::equal(
+                std::begin(system_returned_dashes),
+                std::end(system_returned_dashes),
+                std::begin(compat_returned_dashes)),
+        "ProGPU stroke style metadata diverged from system Direct2D");
 
     ComPtr<ID2D1PathGeometry1> system_path;
     ComPtr<ID2D1GeometrySink> system_path_sink;
