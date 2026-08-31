@@ -481,6 +481,10 @@ internal static class MetafilePlaybackRenderer
                 DrawEmfPolyTextOut(state, record, payload, unicode: false);
                 return;
 
+            case EmfPlusRecordType.EmfSmallTextOut:
+                DrawEmfSmallTextOut(state, record, payload);
+                return;
+
             case EmfPlusRecordType.EmfSetTextJustification:
                 RequireSize(record, payload, 8);
                 state.SetTextJustification(
@@ -1122,6 +1126,105 @@ internal static class MetafilePlaybackRenderer
         {
             throw Invalid(record);
         }
+    }
+
+    private static void DrawEmfSmallTextOut(
+        PlaybackState state,
+        in MetafileRecord record,
+        ReadOnlySpan<byte> payload)
+    {
+        const uint EtoOpaque = 0x0000_0002;
+        const uint EtoClipped = 0x0000_0004;
+        const uint EtoRtlReading = 0x0000_0080;
+        const uint EtoNoRect = 0x0000_0100;
+        const uint EtoSmallChars = 0x0000_0200;
+        const uint SupportedOptions =
+            EtoOpaque | EtoClipped | EtoRtlReading | EtoNoRect | EtoSmallChars;
+        const int FixedPayloadSize = 28;
+        const int BoundsSize = 16;
+
+        ValidateEmfTextHeader(record, payload, FixedPayloadSize);
+        uint characterCountValue = ReadUInt32(payload, 8);
+        uint options = ReadUInt32(payload, 12);
+        if (characterCountValue > 1_000_000 || (options & ~SupportedOptions) != 0)
+        {
+            if ((options & ~SupportedOptions) != 0)
+            {
+                throw Unsupported(
+                    record,
+                    $"SMALLTEXTOUT options 0x{options:X8} require glyph-index, numeric-substitution, language, or two-dimensional text support.");
+            }
+            throw Invalid(record);
+        }
+
+        bool hasRectangle = (options & EtoNoRect) == 0;
+        if (!hasRectangle && (options & (EtoOpaque | EtoClipped)) != 0)
+        {
+            throw Invalid(record);
+        }
+
+        int characterCount;
+        int textOffset = FixedPayloadSize + (hasRectangle ? BoundsSize : 0);
+        int textSize;
+        try
+        {
+            characterCount = checked((int)characterCountValue);
+            textSize = checked(characterCount *
+                ((options & EtoSmallChars) != 0 ? 1 : 2));
+        }
+        catch (OverflowException exception)
+        {
+            throw Invalid(record, exception);
+        }
+        if (textOffset > payload.Length - textSize)
+        {
+            throw Invalid(record);
+        }
+
+        string text;
+        ReadOnlySpan<byte> encodedText = payload.Slice(textOffset, textSize);
+        if ((options & EtoSmallChars) != 0)
+        {
+            text = Encoding.Latin1.GetString(encodedText);
+        }
+        else
+        {
+            try
+            {
+                text = Encoding.GetEncoding(
+                    1200,
+                    EncoderFallback.ExceptionFallback,
+                    DecoderFallback.ExceptionFallback).GetString(encodedText);
+            }
+            catch (DecoderFallbackException exception)
+            {
+                throw Invalid(record, exception);
+            }
+        }
+
+        Rectangle rectangle = Rectangle.Empty;
+        if (hasRectangle)
+        {
+            int left = ReadInt32(payload, FixedPayloadSize);
+            int top = ReadInt32(payload, FixedPayloadSize + 4);
+            int right = ReadInt32(payload, FixedPayloadSize + 8);
+            int bottom = ReadInt32(payload, FixedPayloadSize + 12);
+            if (right < left || bottom < top)
+            {
+                throw Invalid(record);
+            }
+            rectangle = Rectangle.FromLTRB(left, top, right, bottom);
+        }
+
+        state.DrawExtendedText(
+            record,
+            text,
+            new Point(ReadInt32(payload, 0), ReadInt32(payload, 4)),
+            rectangle,
+            opaque: (options & EtoOpaque) != 0,
+            clipped: (options & EtoClipped) != 0,
+            rightToLeft: (options & EtoRtlReading) != 0,
+            default);
     }
 
     private static void DrawEmfText(

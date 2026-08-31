@@ -420,6 +420,19 @@ The default isolated harness could not restore its generated project while
 network access was unavailable; the allocation result and focused command and
 rollback gates remain the authoritative local evidence.
 
+`EMR_SMALLTEXTOUT` now validates its compact fixed header, optional bounds, and
+inline text through a dedicated typed decoder. `ETO_NO_RECT` omits bounds;
+`ETO_SMALL_CHARS` maps bytes to Unicode low-byte code points rather than the
+selected ANSI charset; ordinary strings use strict UTF-16. Present-bounds
+opaque/clipped pixels, compact Unicode identity, Latin low-byte identity with a
+Shift-JIS selected font, contradictory-option rejection, and rollback are
+covered by the complete 449/449 suite. ApiCompat remains 0/0/13.
+
+`MetafileBenchmarks.Playback256EmfSmallTextOutSmallChars` measured a 754.892 us
+median (750.068 us mean, 34.800 us standard deviation) and 516.24 KB allocated
+for 256 compact records on ARM64/.NET 10.0.11. Three measured iterations and
+denied priority elevation make this coarse local regression evidence.
+
 `MetafileBenchmarks.RecordAndFinalize256PortableComments` measures construction,
 256 owned 64-byte comment copies, bounded EMF+ encoding, validation through the
 same parser used by consumers, and final stream publication. The 2026-08-27

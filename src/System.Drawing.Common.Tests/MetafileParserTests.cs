@@ -1757,6 +1757,134 @@ public sealed class MetafileParserTests
     }
 
     [Fact]
+    public void EmfSmallTextOutDecodesCompactUnicodeWithoutRectangle()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetBkMode, EmfInt32(1)),
+            (EmfPlusRecordType.EmfExtCreateFontIndirect,
+                EmfFont(1, -14, SystemFonts.DefaultFont.Name)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfSmallTextOut,
+                EmfSmallTextOut("M\u03A9", new Point(6, 8), 0x0000_0100, Rectangle.Empty))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand textCommand = Assert.Single(
+            context.Commands,
+            static command => command.Type is
+                RenderCommandType.DrawGlyphRun or RenderCommandType.DrawText);
+        if (textCommand.Type == RenderCommandType.DrawGlyphRun)
+        {
+            ushort[] glyphIndices = Assert.IsType<ushort[]>(textCommand.GlyphIndices);
+            Assert.Equal(2, glyphIndices.Length);
+            Assert.NotEqual(glyphIndices[0], glyphIndices[1]);
+        }
+        else
+        {
+            Assert.Equal("M\u03A9", textCommand.Text);
+        }
+        Assert.Equal(6f, textCommand.Position.X, 3);
+        Assert.Equal(8f, textCommand.Position.Y, 3);
+    }
+
+    [Fact]
+    public void EmfSmallTextOutExpandsSmallCharactersAsUnicodeLowBytes()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetBkMode, EmfInt32(1)),
+            (EmfPlusRecordType.EmfExtCreateFontIndirect,
+                EmfFont(1, -14, SystemFonts.DefaultFont.Name, charSet: 128)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfSmallTextOut,
+                EmfSmallTextOut("M\u00E9", new Point(5, 7), 0x0000_0300, Rectangle.Empty))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+
+        RenderCommand textCommand = Assert.Single(
+            context.Commands,
+            static command => command.Type is
+                RenderCommandType.DrawGlyphRun or RenderCommandType.DrawText);
+        if (textCommand.Type == RenderCommandType.DrawGlyphRun)
+        {
+            ushort[] glyphIndices = Assert.IsType<ushort[]>(textCommand.GlyphIndices);
+            Assert.Equal(2, glyphIndices.Length);
+            Assert.NotEqual(glyphIndices[0], glyphIndices[1]);
+        }
+        else
+        {
+            Assert.Equal("M\u00E9", textCommand.Text);
+        }
+        Assert.Equal(5f, textCommand.Position.X, 3);
+        Assert.Equal(7f, textCommand.Position.Y, 3);
+    }
+
+    [Fact]
+    public void EmfSmallTextOutUsesPresentBoundsForOpaqueClippedText()
+    {
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfSetBkMode, EmfInt32(1)),
+            (EmfPlusRecordType.EmfSetBkColor, EmfUInt32(0x00FF_0000)),
+            (EmfPlusRecordType.EmfExtCreateFontIndirect,
+                EmfFont(1, -14, SystemFonts.DefaultFont.Name)),
+            (EmfPlusRecordType.EmfSelectObject, EmfUInt32(1)),
+            (EmfPlusRecordType.EmfSetTextColor, EmfUInt32(0x0000_00FF)),
+            (EmfPlusRecordType.EmfSmallTextOut,
+                EmfSmallTextOut(
+                    "MMMM",
+                    new Point(4, 4),
+                    0x0000_0006,
+                    new Rectangle(4, 4, 18, 16)))
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        using var target = new Bitmap(64, 64);
+        using (Graphics graphics = Graphics.FromImage(target))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64));
+        }
+
+        var rectangle = new Rectangle(4, 4, 18, 16);
+        Assert.True(CountPixels(target, rectangle, IsMostlyRed) > 2);
+        Assert.True(CountPixels(target, rectangle, IsMostlyBlue) > 4);
+        Assert.Equal(0, target.GetPixel(24, 10).A);
+    }
+
+    [Fact]
+    public void EmfSmallTextOutRejectsContradictoryCompactBoundsWithoutPublishing()
+    {
+        byte[] malformed = EmfSmallTextOut(
+            "M",
+            new Point(4, 4),
+            0x0000_0102,
+            Rectangle.Empty);
+        byte[] emf = CreateTextPlaybackEmf(
+        [
+            (EmfPlusRecordType.EmfRectangle, EmfRectangle(1, 1, 4, 4)),
+            (EmfPlusRecordType.EmfSmallTextOut, malformed)
+        ]);
+        using var metafile = new Metafile(new MemoryStream(emf));
+        var context = new DrawingContext();
+        using Graphics graphics = Graphics.FromProGpuDrawingContext(context);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            graphics.DrawImage(metafile, new Rectangle(0, 0, 64, 64)));
+
+        Assert.Contains(nameof(EmfPlusRecordType.EmfSmallTextOut), exception.Message);
+        Assert.Empty(context.Commands);
+    }
+
+    [Fact]
     public void EmfPlaybackRejectsImageAttributesAndPerspectiveMappingExplicitly()
     {
         using var metafile = new Metafile(new MemoryStream(CreatePlaybackEmf()));
@@ -2909,6 +3037,44 @@ public sealed class MetafileParserTests
                 }
             }
         }
+        return payload;
+    }
+
+    private static byte[] EmfSmallTextOut(
+        string text,
+        Point reference,
+        uint options,
+        Rectangle rectangle)
+    {
+        bool hasRectangle = (options & 0x0000_0100) == 0;
+        bool smallCharacters = (options & 0x0000_0200) != 0;
+        byte[] textBytes;
+        if (smallCharacters)
+        {
+            textBytes = Encoding.Latin1.GetBytes(text);
+        }
+        else
+        {
+            textBytes = Encoding.Unicode.GetBytes(text);
+        }
+        int textOffset = 28 + (hasRectangle ? 16 : 0);
+        int payloadSize = checked((textOffset + textBytes.Length + 3) & ~3);
+        byte[] payload = new byte[payloadSize];
+        WriteInt32(payload, 0, reference.X);
+        WriteInt32(payload, 4, reference.Y);
+        WriteUInt32(payload, 8, checked((uint)text.Length));
+        WriteUInt32(payload, 12, options);
+        WriteUInt32(payload, 16, 1);
+        WriteSingle(payload, 20, 1f);
+        WriteSingle(payload, 24, 1f);
+        if (hasRectangle)
+        {
+            WriteInt32(payload, 28, rectangle.Left);
+            WriteInt32(payload, 32, rectangle.Top);
+            WriteInt32(payload, 36, rectangle.Right);
+            WriteInt32(payload, 40, rectangle.Bottom);
+        }
+        textBytes.CopyTo(payload, textOffset);
         return payload;
     }
 

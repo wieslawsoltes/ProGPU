@@ -535,6 +535,24 @@ contention, so no latency baseline is claimed. The default isolated harness
 could not restore its generated project without network access; the recorded
 in-process allocation and the deterministic correctness gates are the evidence.
 
+[`EMR_SMALLTEXTOUT`](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-emf/20eee81d-0bd4-42d1-a624-860adfe62358)
+now uses its official compact typed layout. `ETO_NO_RECT` removes the 16-byte
+bounds field, while `ETO_SMALL_CHARS` expands each stored byte directly to a
+Unicode code point with a zero high byte; it is intentionally independent of
+the selected font's ANSI charset. Records without `ETO_SMALL_CHARS` use strict
+UTF-16. Present bounds support opaque/clipped output, and contradictory compact
+bounds flags, malformed sizes, glyph-index, numeric/language substitution, and
+two-dimensional modes fail transactionally. Unicode identity, low-byte Latin
+identity under a Shift-JIS selected font, present-bounds pixels, and rollback
+raise the complete drawing suite to 449/449.
+
+`Playback256EmfSmallTextOutSmallChars` guards 256 compact three-character
+records. The 2026-08-31 ARM64/.NET 10.0.11 in-process run measured a 754.892
+microsecond median (750.068 microsecond mean, 34.800 microsecond standard
+deviation) with 516.24 KB allocated. Denied process-priority elevation and
+three measured iterations make this a coarse local allocation/command-shape
+checkpoint rather than a universal throughput claim.
+
 `RecordAndFinalize256PortableComments` measures the complete portable writer:
 256 owned 64-byte comment copies, EMF+/EMF assembly, validation, and publication
 to a pre-sized memory stream. The 2026-08-27 ARM64/.NET 10.0.11 ShortRun
