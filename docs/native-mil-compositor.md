@@ -5838,6 +5838,13 @@ canonical one-brush result. The archived ABI-v50 execution remains negative
 qualification evidence because that executable exited 1, but it no longer
 indicates a provider write defect.
 
+The command-list oracle exposed immediately afterward also predated ABI v50's
+analytic curved-stroke compiler. It incorrectly required both fill and stroke
+as `PATH_BATCH`; the translator correctly emits one fill `PATH_BATCH` and one
+analytic `GEOMETRY_BATCH` stroke. ABI v52 now locks down that resource split,
+while the later recorder checks retain detailed cubic, round-join, gap, dash,
+fixed-device, and hairline assertions.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
