@@ -146,13 +146,13 @@ int main()
             &compat_rectangle) == S_OK &&
             compat_rectangle != nullptr,
         "ProGPU ID2D1RectangleGeometry creation failed");
-    D2D1_RECT_F returned_rectangle{};
-    compat_rectangle->GetRect(&returned_rectangle);
+    D2D1_RECT_F compat_returned_rectangle{};
+    compat_rectangle->GetRect(&compat_returned_rectangle);
     require(
-        returned_rectangle.left == 2.0F &&
-            returned_rectangle.top == 3.0F &&
-            returned_rectangle.right == 12.0F &&
-            returned_rectangle.bottom == 11.0F,
+        compat_returned_rectangle.left == 2.0F &&
+            compat_returned_rectangle.top == 3.0F &&
+            compat_returned_rectangle.right == 12.0F &&
+            compat_returned_rectangle.bottom == 11.0F,
         "ProGPU rectangle geometry changed its immutable rectangle");
     ComPtr<ID2D1Factory> rectangle_factory;
     compat_rectangle->GetFactory(&rectangle_factory);
