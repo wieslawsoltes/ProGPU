@@ -53,7 +53,9 @@ public sealed class Mesh3DRetainedReplayTests
     [Fact]
     public void CameraReplayRetainsSceneUploadsAndRehydratesOnNewContext()
     {
-        var viewport = CreateRetainedViewport(out MeshGeometry3D mesh);
+        var viewport = CreateRetainedViewport(
+            out MeshGeometry3D mesh,
+            out DiffuseMaterial material);
         using var firstWindow = new HeadlessWindow(128, 96);
         firstWindow.Content = viewport;
 
@@ -141,6 +143,24 @@ public sealed class Mesh3DRetainedReplayTests
             recordsChanged.ViewportBufferResidentBytes);
         Assert.Equal(1, recordsChanged.QueueSubmissionCount);
 
+        material.Color = new Vector4(0.9f, 0.3f, 0.2f, 1.0f);
+        viewport.InvalidateScene();
+        firstWindow.Render();
+        Mesh3DFrameMetrics materialChanged =
+            viewport.LastMesh3DFrameMetrics;
+
+        Assert.False(materialChanged.SceneReused);
+        Assert.Equal(1, materialChanged.SceneCompilationCount);
+        Assert.Equal(1, materialChanged.ModelVisualVisitCount);
+        Assert.Equal(2, materialChanged.GeometryCacheHitCount);
+        Assert.Equal(0, materialChanged.GeometryCacheMissCount);
+        Assert.Equal(0UL, materialChanged.GeometryVertexUploadBytes);
+        Assert.True(materialChanged.RecordUploadBytes > 0);
+        Assert.True(materialChanged.RecordIndexUploadBytes > 0);
+        Assert.Equal(
+            recordsChanged.GeometryBufferResidentBytes,
+            materialChanged.GeometryBufferResidentBytes);
+
         mesh.Positions =
         [
             new Vector3(-0.9f, -0.8f, 0f),
@@ -155,7 +175,7 @@ public sealed class Mesh3DRetainedReplayTests
         Assert.Equal(1, changed.SceneCompilationCount);
         Assert.Equal(1, changed.ModelVisualVisitCount);
         Assert.NotEqual(
-            recordsChanged.SceneGeneration,
+            materialChanged.SceneGeneration,
             changed.SceneGeneration);
         Assert.True(changed.GeometryVertexUploadBytes > 0);
         Assert.True(changed.RecordUploadBytes > 0);
@@ -196,7 +216,8 @@ public sealed class Mesh3DRetainedReplayTests
     }
 
     private static Viewport3D CreateRetainedViewport(
-        out MeshGeometry3D mesh)
+        out MeshGeometry3D mesh,
+        out DiffuseMaterial material)
     {
         mesh = new MeshGeometry3D
         {
@@ -214,7 +235,7 @@ public sealed class Mesh3DRetainedReplayTests
             ],
             TriangleIndices = [0, 1, 2]
         };
-        var material = new DiffuseMaterial
+        material = new DiffuseMaterial
         {
             Color = new Vector4(0.2f, 0.7f, 0.9f, 1f)
         };

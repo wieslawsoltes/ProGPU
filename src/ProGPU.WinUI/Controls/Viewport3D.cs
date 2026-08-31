@@ -488,8 +488,26 @@ namespace Microsoft.UI.Xaml.Controls
 {
     using Microsoft.UI.Xaml.Media.Media3D;
 
+    /// <summary>One stationary primary-button click inside a 3D viewport.</summary>
+    public sealed class Viewport3DClickEventArgs : EventArgs
+    {
+        public Vector2 Position { get; }
+
+        public bool IsControlPressed { get; }
+
+        internal Viewport3DClickEventArgs(
+            Vector2 position,
+            bool isControlPressed)
+        {
+            Position = position;
+            IsControlPressed = isControlPressed;
+        }
+    }
+
     public class Viewport3D : Control
     {
+        private const float ClickDragThreshold = 4.0f;
+
         private bool _enableRetainedSceneCache;
         private ulong _sceneGeneration = 1;
         private ulong _recordGeneration = 1;
@@ -548,6 +566,12 @@ namespace Microsoft.UI.Xaml.Controls
 
         public Mesh3DFrameMetrics LastMesh3DFrameMetrics =>
             _metricsTarget.LastFrameMetrics;
+
+        /// <summary>
+        /// Raised for a non-Shift stationary left click. Orbit and pan drags
+        /// retain exclusive ownership of moved pointer gestures.
+        /// </summary>
+        public event EventHandler<Viewport3DClickEventArgs>? ViewportClicked;
 
         /// <summary>
         /// Advances the immutable model generation and schedules a redraw.
@@ -691,6 +715,8 @@ namespace Microsoft.UI.Xaml.Controls
         private bool _isOrbiting = false;
         private bool _isPanning = false;
         private Vector2 _lastPointerPosition;
+        private Vector2 _clickOrigin;
+        private bool _isClickCandidate;
 
         private float _cameraTheta = 0f;
         private float _cameraPhi = 0.5f;
@@ -1279,6 +1305,9 @@ namespace Microsoft.UI.Xaml.Controls
                 {
                     if (!_cameraInitialized) InitializeCameraState();
 
+                    _clickOrigin = e.Position;
+                    _isClickCandidate = !isShift;
+
                     if (isShift || Camera is OrthographicCamera)
                     {
                         _isOrbiting = false;
@@ -1297,10 +1326,15 @@ namespace Microsoft.UI.Xaml.Controls
                 {
                     if (!_cameraInitialized) InitializeCameraState();
 
+                    _isClickCandidate = false;
                     _isOrbiting = false;
                     _isPanning = true;
                     _lastPointerPosition = e.Position;
                     InputSystem.CapturePointer(this);
+                }
+                else
+                {
+                    _isClickCandidate = false;
                 }
             }
             base.OnPointerPressed(e);
@@ -1311,11 +1345,23 @@ namespace Microsoft.UI.Xaml.Controls
             if (IsEnabled)
             {
                 e.Handled = true;
+                bool publishClick = _isClickCandidate &&
+                    Vector2.DistanceSquared(e.Position, _clickOrigin) <=
+                    ClickDragThreshold * ClickDragThreshold;
+                _isClickCandidate = false;
                 if (_isOrbiting || _isPanning)
                 {
                     InputSystem.ReleasePointerCapture();
                     _isOrbiting = false;
                     _isPanning = false;
+                }
+                if (publishClick)
+                {
+                    ViewportClicked?.Invoke(
+                        this,
+                        new Viewport3DClickEventArgs(
+                            e.Position,
+                            InputSystem.Current.IsControlPressed));
                 }
             }
             base.OnPointerReleased(e);
@@ -1325,6 +1371,12 @@ namespace Microsoft.UI.Xaml.Controls
         {
             if (IsEnabled)
             {
+                if (_isClickCandidate &&
+                    Vector2.DistanceSquared(e.Position, _clickOrigin) >
+                    ClickDragThreshold * ClickDragThreshold)
+                {
+                    _isClickCandidate = false;
+                }
                 if (_isOrbiting)
                 {
                     e.Handled = true;
@@ -1361,6 +1413,22 @@ namespace Microsoft.UI.Xaml.Controls
                 }
             }
             base.OnPointerMoved(e);
+        }
+
+        public override void OnPointerCanceled(PointerRoutedEventArgs e)
+        {
+            _isClickCandidate = false;
+            _isOrbiting = false;
+            _isPanning = false;
+            base.OnPointerCanceled(e);
+        }
+
+        public override void OnPointerCaptureLost(PointerRoutedEventArgs e)
+        {
+            _isClickCandidate = false;
+            _isOrbiting = false;
+            _isPanning = false;
+            base.OnPointerCaptureLost(e);
         }
 
         public override void OnPointerWheelChanged(PointerRoutedEventArgs e)

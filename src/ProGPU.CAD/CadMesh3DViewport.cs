@@ -334,7 +334,12 @@ public readonly record struct CadMesh3DViewStatistics(
     long CameraOnlySceneCompilationCount,
     long CameraOnlyEntityVisitCount,
     long CameraOnlyDrawBatchVisitCount,
-    long CameraOnlyUploadByteCount);
+    long CameraOnlyUploadByteCount,
+    long SelectionIndexBuildCount,
+    long SelectionIndexedTriangleCount,
+    long SelectionQueryCount,
+    long SelectionVisitedNodeCount,
+    long SelectionTestedTriangleCount);
 
 /// <summary>
 /// Owns one immutable mesh generation and independent perspective state for a
@@ -349,23 +354,34 @@ public readonly record struct CadMesh3DViewStatistics(
 public sealed class CadMesh3DViewCoordinator
 {
     private readonly CadMesh3DSceneCompiler _compiler;
+    private readonly CadMesh3DSelectionOptions? _selectionOptions;
     private CadMesh3DViewStatistics _statistics;
 
     public CadRecordedMesh3DScene? Scene { get; private set; }
+
+    public CadMesh3DSelectionIndex? SelectionIndex { get; private set; }
 
     public CadMesh3DViewport? Viewport { get; private set; }
 
     public CadMesh3DViewStatistics Statistics => _statistics;
 
     public CadMesh3DViewCoordinator()
-        : this(new CadMesh3DSceneCompiler())
+        : this(new CadMesh3DSceneCompiler(), null)
     {
     }
 
     public CadMesh3DViewCoordinator(CadMesh3DSceneCompiler compiler)
+        : this(compiler, null)
+    {
+    }
+
+    public CadMesh3DViewCoordinator(
+        CadMesh3DSceneCompiler compiler,
+        CadMesh3DSelectionOptions? selectionOptions)
     {
         ArgumentNullException.ThrowIfNull(compiler);
         _compiler = compiler;
+        _selectionOptions = selectionOptions;
     }
 
     public CadRecordedMesh3DScene ReplaceSnapshot(
@@ -377,6 +393,11 @@ public sealed class CadMesh3DViewCoordinator
         CadRecordedMesh3DScene replacement = _compiler.Compile(
             snapshot,
             cancellationToken: cancellationToken);
+        CadMesh3DSelectionIndex replacementSelection =
+            CadMesh3DSelectionIndex.Build(
+                replacement,
+                _selectionOptions,
+                cancellationToken);
         bool hasMeshes = !replacement.DrawBatches.IsEmpty;
         bool fit = hasMeshes && (resetCamera || Viewport is null);
         bool preserve = hasMeshes && !fit;
@@ -388,6 +409,7 @@ public sealed class CadMesh3DViewCoordinator
                 : Viewport!.Value.WithRebaseOrigin(replacement.RebaseOrigin);
 
         Scene = replacement;
+        SelectionIndex = replacementSelection;
         Viewport = replacementViewport;
         _statistics = _statistics with
         {
@@ -401,8 +423,45 @@ public sealed class CadMesh3DViewCoordinator
                 _statistics.FittedCameraCount + (fit ? 1 : 0)),
             PreservedCameraCount = checked(
                 _statistics.PreservedCameraCount + (preserve ? 1 : 0)),
+            SelectionIndexBuildCount = checked(
+                _statistics.SelectionIndexBuildCount + 1),
+            SelectionIndexedTriangleCount = checked(
+                _statistics.SelectionIndexedTriangleCount +
+                replacementSelection.Statistics.TriangleCount),
         };
         return replacement;
+    }
+
+    /// <summary>
+    /// Queries the current immutable geometry generation through the current
+    /// camera without compiling scene data or touching GPU resources.
+    /// </summary>
+    public CadMesh3DSelectionResult QuerySelection(
+        Vector2 viewportSize,
+        Vector2 viewportPoint)
+    {
+        CadMesh3DSelectionIndex index = SelectionIndex ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh generation is required before selection.");
+        CadMesh3DViewport viewport = Viewport ??
+            throw new InvalidOperationException(
+                "A retained CAD mesh camera is required before selection.");
+        CadMesh3DSelectionResult result = index.Query(
+            viewport,
+            viewportSize,
+            viewportPoint);
+        _statistics = _statistics with
+        {
+            SelectionQueryCount = checked(
+                _statistics.SelectionQueryCount + 1),
+            SelectionVisitedNodeCount = checked(
+                _statistics.SelectionVisitedNodeCount +
+                result.VisitedNodeCount),
+            SelectionTestedTriangleCount = checked(
+                _statistics.SelectionTestedTriangleCount +
+                result.TestedTriangleCount),
+        };
+        return result;
     }
 
     public void CaptureCamera(in CadMesh3DProjectionCamera camera)

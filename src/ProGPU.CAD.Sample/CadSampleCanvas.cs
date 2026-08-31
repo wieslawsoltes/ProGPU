@@ -711,6 +711,9 @@ public sealed class CadSampleCanvas : FrameworkElement
 
     public int SelectedHandleCount => _selectedHandleCount;
 
+    public bool IsSemanticHandleSelected(ulong handle) =>
+        _selectedHandleSet.Contains(handle);
+
     public bool CanSynchronizeSelectedBlockAttributeProperties
     {
         get
@@ -2669,6 +2672,74 @@ public sealed class CadSampleCanvas : FrameworkElement
         ResetRectangleAuthoringState();
         ResetSelectionState(notify: true);
         Invalidate();
+    }
+
+    /// <summary>
+    /// Replaces or toggles one generation-resident semantic root handle from a
+    /// shared projected view such as Mesh3D.
+    /// </summary>
+    public bool SelectSemanticHandle(ulong handle, bool toggle = false)
+    {
+        ThrowIfDrawOrderReferencePickPending();
+        CadDocumentSnapshot snapshot = CurrentSnapshot ??
+            throw new InvalidOperationException("No CAD document is loaded.");
+        if (handle == 0)
+        {
+            return false;
+        }
+
+        bool exists = false;
+        foreach (CadEntityHeader entity in snapshot.Entities.Span)
+        {
+            if (entity.Handle == handle)
+            {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists)
+        {
+            return false;
+        }
+
+        if (toggle && _selectedHandleSet.Contains(handle))
+        {
+            int destination = 0;
+            for (int index = 0; index < _selectedHandleCount; index++)
+            {
+                if (_selectedHandles[index] != handle)
+                {
+                    _selectedHandles[destination++] = _selectedHandles[index];
+                }
+            }
+            _selectedHandleCount = destination;
+            _selectedHandleSet.Remove(handle);
+        }
+        else if (toggle)
+        {
+            if (_selectedHandleCount >= _selectedHandles.Length)
+            {
+                throw new InvalidOperationException(
+                    "The semantic selection buffer cannot represent the complete snapshot selection.");
+            }
+            _selectedHandles[_selectedHandleCount++] = handle;
+            _selectedHandleSet.Add(handle);
+        }
+        else
+        {
+            _selectedHandleCount = 1;
+            _selectedHandles[0] = handle;
+            _selectedHandleSet.Clear();
+            _selectedHandleSet.Add(handle);
+        }
+
+        _lastUnsupportedPrimitiveCount = 0;
+        _lastSelectionWasTruncated = false;
+        LastSelectionMode = null;
+        RefreshSelectionBounds(snapshot);
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
+        Invalidate();
+        return true;
     }
 
     /// <summary>

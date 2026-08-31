@@ -22,7 +22,11 @@ public sealed class CadSampleView : Grid
     private readonly Grid _contentHost;
     private readonly Viewport3D _viewport3D;
     private readonly CadMesh3DViewCoordinator _mesh3DView = new();
+    private readonly Brush _meshSelectionBrush =
+        new ThemeResourceBrush("SystemAccentColor");
+    private readonly List<MeshMaterialBinding> _meshMaterialBindings = new();
     private PerspectiveCamera? _observedMeshCamera;
+    private CadMesh3DSelectionResult? _lastMeshSelection;
     private readonly CadPrintPreviewCanvas _printPreview;
     private readonly Button _viewModeButton;
     private readonly TextBlock _viewModeText;
@@ -226,6 +230,14 @@ public sealed class CadSampleView : Grid
 
     public CadMesh3DViewport? MeshViewportState =>
         _mesh3DView.Viewport;
+
+    public CadRecordedMesh3DScene? MeshScene => _mesh3DView.Scene;
+
+    public CadMesh3DSelectionIndex? MeshSelectionIndex =>
+        _mesh3DView.SelectionIndex;
+
+    public CadMesh3DSelectionResult? LastMeshSelection =>
+        _lastMeshSelection;
 
     public CadPrintPreviewCanvas PrintPreview => _printPreview;
 
@@ -490,6 +502,7 @@ public sealed class CadSampleView : Grid
             LightDirection = new System.Numerics.Vector3(0.25f, -0.5f, -1.0f),
             AmbientIntensity = 0.25f,
         };
+        _viewport3D.ViewportClicked += OnMeshViewportClicked;
         _printPreview = new CadPrintPreviewCanvas
         {
             Visibility = Visibility.Collapsed,
@@ -2755,6 +2768,7 @@ public sealed class CadSampleView : Grid
         scaleDown.Click += (_, _) => ScaleSelection(useReciprocal: true);
         _canvas.SelectionChanged += (_, _) =>
         {
+            RefreshMeshSelectionMaterials();
             RefreshSelectionPropertyControls();
             if (!_isBusy)
             {
@@ -4317,6 +4331,8 @@ public sealed class CadSampleView : Grid
     private void RebuildMesh3DView(bool resetCamera)
     {
         _viewport3D.Children.Clear();
+        _meshMaterialBindings.Clear();
+        _lastMeshSelection = null;
         CadDocumentSnapshot? snapshot = _canvas.CurrentSnapshot;
         if (snapshot is null)
         {
@@ -4348,6 +4364,11 @@ public sealed class CadSampleView : Grid
                 SpecularColor = new System.Numerics.Vector3(0.15f),
                 Shininess = 16.0f,
             };
+            _meshMaterialBindings.Add(new MeshMaterialBinding(
+                batch.Handle,
+                material,
+                material.Brush,
+                material.Color));
             var geometry = new MeshGeometry3D
             {
                 Positions = batch.Positions.ToArray(),
@@ -4366,6 +4387,8 @@ public sealed class CadSampleView : Grid
             });
         }
 
+        RefreshMeshSelectionMaterials(invalidate: false);
+
         _viewport3D.InvalidateScene();
 
         bool hasMeshes = scene.DrawBatches.Length != 0;
@@ -4376,6 +4399,72 @@ public sealed class CadSampleView : Grid
         }
         ApplyMeshCamera(_mesh3DView.Viewport!.Value);
         _viewport3D.Invalidate();
+    }
+
+    private void OnMeshViewportClicked(
+        object? sender,
+        Viewport3DClickEventArgs args)
+    {
+        if (!_is3DView || _isBusy || _mesh3DView.SelectionIndex is null)
+        {
+            return;
+        }
+
+        CadMesh3DSelectionResult result = _mesh3DView.QuerySelection(
+            _viewport3D.Size,
+            args.Position);
+        _lastMeshSelection = result;
+        if (result.IsHit)
+        {
+            if (!_canvas.SelectSemanticHandle(
+                    result.Handle,
+                    toggle: args.IsControlPressed))
+            {
+                throw new InvalidOperationException(
+                    "The retained Mesh3D hit does not identify the active CAD generation.");
+            }
+            SetStatus(
+                $"3D selected {result.Handle:X} at " +
+                $"({result.Point.X:G8}, {result.Point.Y:G8}, {result.Point.Z:G8}); " +
+                $"tested {result.TestedTriangleCount:N0} triangles in " +
+                $"{result.VisitedNodeCount:N0} BVH nodes.");
+        }
+        else if (!args.IsControlPressed)
+        {
+            _canvas.ClearSelection();
+            SetStatus("3D selection cleared.");
+        }
+    }
+
+    private void RefreshMeshSelectionMaterials(bool invalidate = true)
+    {
+        bool changed = false;
+        for (int index = 0; index < _meshMaterialBindings.Count; index++)
+        {
+            MeshMaterialBinding binding = _meshMaterialBindings[index];
+            bool selected = _canvas.IsSemanticHandleSelected(binding.Handle);
+            if (binding.IsSelected == selected)
+            {
+                continue;
+            }
+
+            binding.IsSelected = selected;
+            binding.Material.Brush = selected
+                ? _meshSelectionBrush
+                : binding.AuthoredBrush;
+            binding.Material.Color = selected
+                ? new System.Numerics.Vector4(
+                    1.0f,
+                    1.0f,
+                    1.0f,
+                    binding.AuthoredColor.W)
+                : binding.AuthoredColor;
+            changed = true;
+        }
+        if (changed && invalidate)
+        {
+            _viewport3D.InvalidateScene();
+        }
     }
 
     private void FitMesh3DView()
@@ -4443,6 +4532,27 @@ public sealed class CadSampleView : Grid
         _canvas.Visibility = Visibility.Visible;
         _viewport3D.Visibility = Visibility.Collapsed;
         _viewModeText.Text = "3D surfaces";
+    }
+
+    private sealed class MeshMaterialBinding
+    {
+        internal ulong Handle { get; }
+        internal DiffuseMaterial Material { get; }
+        internal Brush AuthoredBrush { get; }
+        internal System.Numerics.Vector4 AuthoredColor { get; }
+        internal bool IsSelected { get; set; }
+
+        internal MeshMaterialBinding(
+            ulong handle,
+            DiffuseMaterial material,
+            Brush authoredBrush,
+            System.Numerics.Vector4 authoredColor)
+        {
+            Handle = handle;
+            Material = material;
+            AuthoredBrush = authoredBrush;
+            AuthoredColor = authoredColor;
+        }
     }
 
     private void RefreshSelectionPropertyControls()
