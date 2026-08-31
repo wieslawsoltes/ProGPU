@@ -5381,6 +5381,37 @@ live regression pass. Provider SHA-256 is
 `9C38D9BFFC95D7453EDCA5F3D63B53C973C1E24F9DDA2EB3214477BF497464AE`;
 clean-checkout ABI v34 CI qualification is pending.
 
+ABI v35 at implementation `226085da` translates genuine Direct2D linear and
+radial gradient brushes into the existing backend-neutral semantic brush
+table. Typed COM queries snapshot finite endpoints, center/origin/radii,
+opacity, affine brush state, and at most 65,536 ordered stops only during
+`ID2D1CommandList::Stream`; no COM identity enters the retained scene. Clamp,
+wrap, and mirror reuse ProGPU pad/repeat/reflect shaders. Radial origin is
+stored as Direct2D center plus origin offset.
+
+Direct2D brush space is target-relative, so the stored coordinate mapping is
+`inverse(active draw transform) * inverse(brush transform)`. The synchronous
+identity cache includes the active draw transform in its key. A focused
+positive oracle reuses one brush under two draw transforms and verifies that
+it produces distinct canonical brush entries, then decodes the radial entry
+and all six auxiliary stops. sRGB-to-sRGB straight interpolation is admitted;
+premultiplied interpolation is admitted only for uniform stop alpha, where the
+result is equivalent. Varying-alpha premultiplied interpolation, other color
+spaces, and non-invertible transforms return typed unsupported state without
+a partial stream. Source buffer precision is not emulated with CPU
+quantization: ProGPU keeps the finite float stops and qualifies output through
+the shared cross-backend pixel differential.
+
+Managed contracts pass 5/5 and the package builds warning-free. Windows 11
+ARM64 Parallels with MSVC 19.44/SDK 10.0.26100.0 compiles provider and test
+under `/W4 /WX`; the live regression passes 1/1 in 1.70 seconds (2.01 seconds
+total under concurrent VM load), and the allowlist remains exactly 123
+exports. The incremental three-file qualification payload SHA-256 is
+`B545679CDCC7C81A826A333D3975C8BB7E8ED977A58FFBFC0601D4431DAAA368`;
+the resulting provider SHA-256 is
+`E5651DF33F23EB909FF2AB42F2A4E3592CDE81E21B57B3ADABFF38F493FDC2ED`.
+Clean-checkout ABI v35 CI qualification is pending.
+
 ## Managed glyph row-reuse SIMD checkpoint
 
 Managed ProGPU checkpoints `2960fb39` and `ffb285af` bring the explicit
