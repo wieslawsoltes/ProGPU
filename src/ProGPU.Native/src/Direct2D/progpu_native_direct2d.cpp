@@ -1477,8 +1477,12 @@ public:
         if (!full_target && !axis_preserving_transform(transform_)) {
             return fail_unsupported_state();
         }
-        if (parameters->opacityBrush != nullptr) {
-            return fail_unsupported_resource();
+        if (parameters->geometricMask != nullptr &&
+            parameters->opacityBrush != nullptr) {
+            return fail_unsupported_state();
+        }
+        if (full_target && parameters->opacityBrush != nullptr) {
+            return fail_unsupported_state();
         }
         if (parameters->maskAntialiasMode !=
                 D2D1_ANTIALIAS_MODE_PER_PRIMITIVE &&
@@ -1526,6 +1530,19 @@ public:
                     ? mask_bounds
                     : intersect_rectangles(bounds, mask_bounds);
             }
+        } else if (parameters->opacityBrush != nullptr) {
+            bool empty_mask = false;
+            const HRESULT mask_hr = add_opacity_brush_layer_mask(
+                parameters->opacityBrush,
+                parameters->contentBounds,
+                mask_resource_index,
+                empty_mask);
+            if (FAILED(mask_hr)) {
+                return mask_hr;
+            }
+            if (empty_mask) {
+                bounds = {};
+            }
         }
         const bool has_bounds = !full_target ||
             parameters->geometricMask != nullptr;
@@ -1548,6 +1565,8 @@ public:
         ++scope_depth_;
         has_opacity_layers_ = true;
         has_geometric_layer_masks_ |= parameters->geometricMask != nullptr;
+        has_opacity_brush_layer_masks_ |=
+            parameters->opacityBrush != nullptr;
         return S_OK;
     }
 
@@ -1644,6 +1663,11 @@ public:
     bool has_geometric_layer_masks() const noexcept
     {
         return has_geometric_layer_masks_;
+    }
+
+    bool has_opacity_brush_layer_masks() const noexcept
+    {
+        return has_opacity_brush_layer_masks_;
     }
 
     D2D1_COLOR_F clear_color() const noexcept
@@ -1981,11 +2005,11 @@ private:
         }
     }
 
-    HRESULT add_gradient_brush(
+    HRESULT translate_gradient_brush(
         ID2D1Brush* source,
         ID2D1GradientStopCollection* source_collection,
         progpu_native_scene_brush& brush,
-        uint32_t& brush_index) noexcept
+        std::vector<progpu_native_scene_gradient_stop>& native_stops) noexcept
     {
         if (source_collection == nullptr) {
             return fail_invalid_value();
@@ -2012,7 +2036,7 @@ private:
         try {
             std::vector<D2D1_GRADIENT_STOP> direct_stops(stop_count);
             collection->GetGradientStops1(direct_stops.data(), stop_count);
-            std::vector<progpu_native_scene_gradient_stop> native_stops;
+            native_stops.clear();
             native_stops.reserve(stop_count);
             float previous_offset =
                 -std::numeric_limits<float>::infinity();
@@ -2059,15 +2083,33 @@ private:
                         native_stops[index].offset;
                 }
             }
-            if (!builder_.add_brush(brush, native_stops, brush_index)) {
-                return fail_builder();
-            }
         } catch (const std::bad_alloc&) {
             return fail(
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FAILURE_CAPACITY_EXCEEDED,
                 E_OUTOFMEMORY);
         } catch (...) {
             return fail_invalid_value();
+        }
+        return S_OK;
+    }
+
+    HRESULT add_gradient_brush(
+        ID2D1Brush* source,
+        ID2D1GradientStopCollection* source_collection,
+        progpu_native_scene_brush& brush,
+        uint32_t& brush_index) noexcept
+    {
+        std::vector<progpu_native_scene_gradient_stop> native_stops;
+        const HRESULT hr = translate_gradient_brush(
+            source,
+            source_collection,
+            brush,
+            native_stops);
+        if (FAILED(hr)) {
+            return hr;
+        }
+        if (!builder_.add_brush(brush, native_stops, brush_index)) {
+            return fail_builder();
         }
         has_gradient_brushes_ = true;
         return S_OK;
@@ -2380,6 +2422,115 @@ private:
         return S_OK;
     }
 
+    HRESULT add_opacity_brush_layer_mask(
+        ID2D1Brush* source,
+        const D2D1_RECT_F& content_bounds,
+        uint32_t& resource_index,
+        bool& empty) noexcept
+    {
+        resource_index = PROGPU_NATIVE_SCENE_NO_INDEX;
+        empty = content_bounds.right == content_bounds.left ||
+            content_bounds.bottom == content_bounds.top;
+        if (empty) {
+            return S_OK;
+        }
+
+        progpu_native_scene_brush brush{};
+        std::vector<progpu_native_scene_gradient_stop> stops;
+        bool gradient = false;
+        ComPtr<ID2D1SolidColorBrush> solid;
+        HRESULT hr = source->QueryInterface(IID_PPV_ARGS(&solid));
+        if (SUCCEEDED(hr)) {
+            const D2D1_COLOR_F color = solid->GetColor();
+            const float opacity = solid->GetOpacity();
+            if (!finite_color(color) || !std::isfinite(opacity) ||
+                opacity < 0.0F || opacity > 1.0F) {
+                return fail_invalid_value();
+            }
+            brush.type = PROGPU_NATIVE_SCENE_BRUSH_SOLID;
+            brush.opacity = opacity;
+            brush.colors[0] = {color.r, color.g, color.b, color.a};
+            brush.coordinate_transform0[0] = 1.0F;
+            brush.coordinate_transform1[1] = 1.0F;
+        } else {
+            ComPtr<ID2D1LinearGradientBrush> linear;
+            if (SUCCEEDED(source->QueryInterface(IID_PPV_ARGS(&linear)))) {
+                const D2D1_POINT_2F start = linear->GetStartPoint();
+                const D2D1_POINT_2F end = linear->GetEndPoint();
+                const float opacity = linear->GetOpacity();
+                if (!finite_point(start) || !finite_point(end) ||
+                    !std::isfinite(opacity) || opacity < 0.0F ||
+                    opacity > 1.0F) {
+                    return fail_invalid_value();
+                }
+                ComPtr<ID2D1GradientStopCollection> collection;
+                linear->GetGradientStopCollection(collection.GetAddressOf());
+                brush.type = PROGPU_NATIVE_SCENE_BRUSH_LINEAR_GRADIENT;
+                brush.opacity = opacity;
+                brush.start_point = {start.x, start.y};
+                brush.end_point = {end.x, end.y};
+                hr = translate_gradient_brush(
+                    linear.Get(), collection.Get(), brush, stops);
+                gradient = true;
+            } else {
+                ComPtr<ID2D1RadialGradientBrush> radial;
+                if (FAILED(source->QueryInterface(IID_PPV_ARGS(&radial)))) {
+                    return fail_unsupported_resource();
+                }
+                const D2D1_POINT_2F center = radial->GetCenter();
+                const D2D1_POINT_2F offset =
+                    radial->GetGradientOriginOffset();
+                const D2D1_POINT_2F origin = {
+                    center.x + offset.x,
+                    center.y + offset.y};
+                const float radius_x = radial->GetRadiusX();
+                const float radius_y = radial->GetRadiusY();
+                const float opacity = radial->GetOpacity();
+                if (!finite_point(center) || !finite_point(offset) ||
+                    !finite_point(origin) || !std::isfinite(radius_x) ||
+                    !std::isfinite(radius_y) || radius_x < 0.0F ||
+                    radius_y < 0.0F ||
+                    (radius_x == 0.0F && radius_y == 0.0F) ||
+                    !std::isfinite(opacity) || opacity < 0.0F ||
+                    opacity > 1.0F) {
+                    return fail_invalid_value();
+                }
+                ComPtr<ID2D1GradientStopCollection> collection;
+                radial->GetGradientStopCollection(collection.GetAddressOf());
+                brush.type = PROGPU_NATIVE_SCENE_BRUSH_RADIAL_GRADIENT;
+                brush.opacity = opacity;
+                brush.start_point = {origin.x, origin.y};
+                brush.center = {center.x, center.y};
+                brush.radius = radius_x;
+                brush.radius_y = radius_y;
+                hr = translate_gradient_brush(
+                    radial.Get(), collection.Get(), brush, stops);
+                gradient = true;
+            }
+            if (FAILED(hr)) {
+                return hr;
+            }
+        }
+
+        progpu_native_scene_layer_brush_mask mask{};
+        mask.struct_size = sizeof(mask);
+        mask.kind = PROGPU_NATIVE_SCENE_LAYER_MASK_BRUSH;
+        mask.gradient_stop_count = static_cast<uint32_t>(stops.size());
+        mask.bounds = {
+            content_bounds.left,
+            content_bounds.top,
+            content_bounds.right - content_bounds.left,
+            content_bounds.bottom - content_bounds.top};
+        mask.transform = native_transform();
+        mask.opacity = 1.0F;
+        mask.brush = brush;
+        if (!builder_.add_brush_mask(mask, stops, resource_index)) {
+            return fail_builder();
+        }
+        has_gradient_brushes_ |= gradient;
+        return S_OK;
+    }
+
     HRESULT draw_stroked_geometry(
         ID2D1Geometry* geometry,
         ID2D1Brush* brush,
@@ -2558,6 +2709,7 @@ private:
     bool has_stroked_path_geometry_ = false;
     bool has_opacity_layers_ = false;
     bool has_geometric_layer_masks_ = false;
+    bool has_opacity_brush_layer_masks_ = false;
 };
 
 class CallerTessellationSink final : public ID2D1TessellationSink {
@@ -5431,6 +5583,10 @@ progpu_native_direct2d_command_list_build_scene_stream(
         if (scene_sink->has_geometric_layer_masks()) {
             result->flags |=
                 PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_GEOMETRIC_LAYER_MASKS;
+        }
+        if (scene_sink->has_opacity_brush_layer_masks()) {
+            result->flags |=
+                PROGPU_NATIVE_DIRECT2D_SCENE_STREAM_FLAG_HAS_OPACITY_BRUSH_LAYER_MASKS;
         }
     }
 
